@@ -99,6 +99,7 @@ def save_config():
     description = data.get('description', '')
     tags = data.get('tags', [])
     is_preset = data.get('is_preset', False)
+    overwrite = data.get('overwrite', False)
     
     # 验证节点类型
     try:
@@ -110,16 +111,28 @@ def save_config():
     except Exception as e:
         return jsonify({"success": False, "error": f"配置验证失败: {e}"}), 400
     
+    # 同名检测（仅实例配置）
+    if (not is_preset) and (not overwrite):
+        existing = store.find_instance_by_name(node_type, name)
+        if existing:
+            return jsonify({
+                "success": False,
+                "error": "配置名称已存在，是否覆盖？",
+                "exists": True,
+                "config_id": existing["metadata"].id
+            }), 409
+
     config_id = store.save_config(
         node_type=node_type,
         config=config,
         name=name,
         description=description,
         tags=tags,
-        is_preset=is_preset
+        is_preset=is_preset,
+        overwrite=overwrite
     )
     
-    return jsonify({"success": True, "config_id": config_id})
+    return jsonify({"success": True, "config_id": config_id, "overwritten": overwrite})
 
 
 @nodes_bp.route('/configs/<config_id>', methods=['GET'])

@@ -44,39 +44,50 @@ class NodeConfigStore:
                     name: str,
                     description: str = "",
                     tags: List[str] = None,
-                    is_preset: bool = False) -> str:
-        """保存节点配置"""
+                    is_preset: bool = False,
+                    overwrite: bool = False) -> str:
+        """保存节点配置
+
+        - 默认行为：同名会创建新文件（历史版本）
+        - overwrite=True 时：若实例配置中存在同名配置，则覆盖更新原文件（不新建）
+        """
+        # 仅对实例配置做同名覆盖（preset 不覆盖，避免破坏模板）
+        if (not is_preset) and overwrite:
+            existing = self.find_instance_by_name(node_type, name)
+            if existing:
+                self._write_config_file(
+                    file_path=existing["file_path"],
+                    config_id=existing["metadata"].id,
+                    node_type=node_type,
+                    name=name,
+                    description=description,
+                    tags=tags or existing["metadata"].tags,
+                    is_preset=False,
+                    config=config,
+                    created_at=existing["metadata"].created_at
+                )
+                return existing["metadata"].id
+
         config_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-        
-        metadata = {
-            "id": config_id,
-            "name": name,
-            "node_type": node_type,
-            "description": description,
-            "created_at": now,
-            "updated_at": now,
-            "tags": tags or [],
-            "is_preset": is_preset
-        }
-        
-        full_config = {
-            "_metadata": metadata,
-            "config": config.model_dump()
-        }
-        
+
         # 确定保存路径
-        if is_preset:
-            target_dir = self.presets_dir / node_type
-        else:
-            target_dir = self.instances_dir
+        target_dir = (self.presets_dir / node_type) if is_preset else self.instances_dir
         target_dir.mkdir(parents=True, exist_ok=True)
-        
         file_path = target_dir / f"{config_id}_{name}.yaml"
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            yaml.dump(full_config, f, allow_unicode=True, default_flow_style=False)
-        
+
+        self._write_config_file(
+            file_path=file_path,
+            config_id=config_id,
+            node_type=node_type,
+            name=name,
+            description=description,
+            tags=tags or [],
+            is_preset=is_preset,
+            config=config,
+            created_at=now
+        )
+
         return config_id
     
     def load_config(self, 
@@ -132,6 +143,44 @@ class NodeConfigStore:
             file_path.unlink()
             return True
         return False
+
+    def find_instance_by_name(self, node_type: str, name: str) -> Optional[Dict[str, Any]]:
+        """按 node_type + name 查找实例配置（不含 preset）"""
+        for f in self.instances_dir.glob(f"*_{name}.yaml"):
+            metadata = self._load_metadata(f)
+            if metadata and metadata.node_type == node_type and metadata.name == name:
+                return {"metadata": metadata, "file_path": f}
+        return None
+
+    def _write_config_file(self,
+                           file_path: Path,
+                           config_id: str,
+                           node_type: str,
+                           name: str,
+                           description: str,
+                           tags: List[str],
+                           is_preset: bool,
+                           config: NodeConfigBase,
+                           created_at: str):
+        now = datetime.now().isoformat()
+        metadata = {
+            "id": config_id,
+            "name": name,
+            "node_type": node_type,
+            "description": description,
+            "created_at": created_at,
+            "updated_at": now,
+            "tags": tags or [],
+            "is_preset": is_preset
+        }
+
+        full_config = {
+            "_metadata": metadata,
+            "config": config.model_dump()
+        }
+
+        with open(file_path, 'w', encoding='utf-8') as f:
+            yaml.dump(full_config, f, allow_unicode=True, default_flow_style=False)
     
     def _find_config_file(self, config_id: str) -> Optional[Path]:
         """查找配置文件"""

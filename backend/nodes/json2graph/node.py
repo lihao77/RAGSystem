@@ -64,6 +64,10 @@ class Json2GraphNode(INode):
         try:
             db.connect()
             
+            # 清空数据库（如果配置）
+            if config.clear_before_import:
+                db.get_session().run("MATCH (n) DETACH DELETE n")
+            
             # 选择存储模式
             if config.store_mode == "stkg":
                 store = STKGStore(db)
@@ -76,10 +80,6 @@ class Json2GraphNode(INode):
             
             # 获取输入数据
             json_data = inputs.get("json_data", {})
-            
-            # 清空数据库（如果配置）
-            if config.clear_before_import:
-                db.run("MATCH (n) DETACH DELETE n")
             
             # 存储数据
             store.store_knowledge_graph(json_data)

@@ -232,17 +232,45 @@ async function onSaveConfig() {
 
   saving.value = true;
   try {
-    const res = await saveConfig({
-      node_type: selectedNodeType.value,
-      name: saveName.value.trim(),
-      config: cfg,
-      description: ''
-    });
-    if (res.success) {
-      ElMessage.success('保存成功');
+    let res;
+    try {
+      res = await saveConfig({
+        node_type: selectedNodeType.value,
+        name: saveName.value.trim(),
+        config: cfg,
+        description: '',
+        overwrite: false
+      });
+    } catch (e) {
+      // 后端在同名时返回 409 + error 文案（http.js 会把 error 放到 Error.message）
+      const msg = e?.message || '';
+      const isConflict = msg.includes('名称已存在') || msg.includes('是否覆盖');
+      if (isConflict) {
+        const confirm = await ElMessageBox.confirm(
+          '已存在同名配置，是否覆盖？',
+          '确认覆盖',
+          { type: 'warning', confirmButtonText: '覆盖', cancelButtonText: '取消' }
+        ).then(() => true).catch(() => false);
+
+        if (!confirm) return;
+
+        res = await saveConfig({
+          node_type: selectedNodeType.value,
+          name: saveName.value.trim(),
+          config: cfg,
+          description: '',
+          overwrite: true
+        });
+      } else {
+        throw e;
+      }
+    }
+
+    if (res?.success) {
+      ElMessage.success(res.overwritten ? '覆盖保存成功' : '保存成功');
       await refreshConfigs();
     } else {
-      ElMessage.error(res.error || '保存失败');
+      ElMessage.error(res?.error || '保存失败');
     }
   } finally {
     saving.value = false;
