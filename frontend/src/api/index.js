@@ -22,3 +22,6 @@ export * as searchService from './searchService';
 
 // 导出GraphRAG相关服务
 export * as graphragService from './graphragService';
+
+// 导出节点系统相关服务
+export * as nodeService from './nodeService';

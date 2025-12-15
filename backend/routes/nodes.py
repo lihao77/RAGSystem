@@ -1,0 +1,208 @@
+# -*- coding: utf-8 -*-
+"""
+节点系统 API 路由
+"""
+
+from flask import Blueprint, request, jsonify
+from nodes import init_registry, NodeConfigStore, get_registry
+
+nodes_bp = Blueprint('nodes', __name__, url_prefix='/api/nodes')
+
+# 初始化
+_registry = None
+_config_store = None
+
+
+def get_node_registry():
+    global _registry
+    if _registry is None:
+        _registry = init_registry()
+    return _registry
+
+
+def get_config_store():
+    global _config_store
+    if _config_store is None:
+        _config_store = NodeConfigStore()
+    return _config_store
+
+
+# ========== 节点类型 ==========
+
+@nodes_bp.route('/types', methods=['GET'])
+def list_node_types():
+    """列出所有可用节点类型"""
+    registry = get_node_registry()
+    definitions = registry.list_all()
+    return jsonify({
+        "success": True,
+        "nodes": [d.model_dump() for d in definitions]
+    })
+
+
+@nodes_bp.route('/types/<node_type>', methods=['GET'])
+def get_node_type(node_type):
+    """获取节点类型详情"""
+    registry = get_node_registry()
+    try:
+        node_class = registry.get(node_type)
+        definition = node_class.get_definition()
+        return jsonify({
+            "success": True,
+            "node": definition.model_dump()
+        })
+    except KeyError:
+        return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
+
+
+@nodes_bp.route('/types/<node_type>/default-config', methods=['GET'])
+def get_default_config(node_type):
+    """获取节点默认配置"""
+    registry = get_node_registry()
+    try:
+        node_class = registry.get(node_type)
+        config = node_class.get_default_config()
+        return jsonify({
+            "success": True,
+            "config": config.model_dump()
+        })
+    except KeyError:
+        return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
+
+
+# ========== 配置管理 ==========
+
+@nodes_bp.route('/configs', methods=['GET'])
+def list_configs():
+    """列出所有保存的配置"""
+    store = get_config_store()
+    node_type = request.args.get('node_type')
+    include_presets = request.args.get('include_presets', 'true').lower() == 'true'
+    
+    configs = store.list_configs(node_type, include_presets)
+    return jsonify({
+        "success": True,
+        "configs": [c.model_dump() for c in configs]
+    })
+
+
+@nodes_bp.route('/configs', methods=['POST'])
+def save_config():
+    """保存节点配置"""
+    registry = get_node_registry()
+    store = get_config_store()
+    data = request.json
+    
+    node_type = data.get('node_type')
+    name = data.get('name')
+    config_data = data.get('config', {})
+    description = data.get('description', '')
+    tags = data.get('tags', [])
+    is_preset = data.get('is_preset', False)
+    
+    # 验证节点类型
+    try:
+        node_class = registry.get(node_type)
+        config_class = node_class.get_config_class()
+        config = config_class(**config_data)
+    except KeyError:
+        return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": f"配置验证失败: {e}"}), 400
+    
+    config_id = store.save_config(
+        node_type=node_type,
+        config=config,
+        name=name,
+        description=description,
+        tags=tags,
+        is_preset=is_preset
+    )
+    
+    return jsonify({"success": True, "config_id": config_id})
+
+
+@nodes_bp.route('/configs/<config_id>', methods=['GET'])
+def get_config(config_id):
+    """获取配置详情"""
+    store = get_config_store()
+    
+    data = store.load_config_with_metadata(config_id)
+    if data:
+        return jsonify({
+            "success": True,
+            "metadata": data.get("_metadata", {}),
+            "config": data.get("config", {})
+        })
+    return jsonify({"success": False, "error": "配置不存在"}), 404
+
+
+@nodes_bp.route('/configs/<config_id>', methods=['DELETE'])
+def delete_config(config_id):
+    """删除配置"""
+    store = get_config_store()
+    success = store.delete_config(config_id)
+    if success:
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "配置不存在"}), 404
+
+
+# ========== 节点执行 ==========
+
+@nodes_bp.route('/execute', methods=['POST'])
+def execute_node():
+    """执行节点"""
+    registry = get_node_registry()
+    store = get_config_store()
+    data = request.json
+    
+    node_type = data.get('node_type')
+    config_id = data.get('config_id')
+    config_data = data.get('config')
+    inputs = data.get('inputs', {})
+    
+    try:
+        node_class = registry.get(node_type)
+        node = node_class()
+        
+        # 加载配置
+        if config_id:
+            config = store.load_config(config_id, node_class)
+            if not config:
+                return jsonify({"success": False, "error": "配置不存在"}), 404
+            node.configure(config)
+        elif config_data:
+            node.configure_from_dict(config_data)
+        else:
+            node.configure(node_class.get_default_config())
+        
+        # 验证
+        errors = node.validate()
+        if errors:
+            return jsonify({"success": False, "error": "配置验证失败", "details": errors}), 400
+        
+        # 执行
+        outputs = node.execute(inputs)
+        
+        return jsonify({
+            "success": True,
+            "outputs": outputs
+        })
+        
+    except KeyError:
+        return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ========== 处理器管理 (json2graph专用) ==========
+
+@nodes_bp.route('/processors/builtin', methods=['GET'])
+def list_builtin_processors():
+    """列出内置处理器"""
+    from nodes.json2graph import Json2GraphNode
+    processors = Json2GraphNode.get_builtin_processors()
+    return jsonify({
+        "success": True,
+        "processors": processors
+    })

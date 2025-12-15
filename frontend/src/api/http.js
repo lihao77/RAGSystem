@@ -97,4 +97,24 @@ async function put(url, data) {
   }
 }
 
-export { get, post, postFormData, put };
+/**
+ * 通用DELETE请求方法
+ * @param {string} url - 请求路径
+ * @returns {Promise<any>} - 响应数据
+ */
+async function del(url) {
+  try {
+    const response = await fetch(`${BASE_URL}${url}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('API请求错误:', error);
+    throw error;
+  }
+}
+
+export { get, post, postFormData, put, del };

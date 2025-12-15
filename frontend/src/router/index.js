@@ -37,6 +37,12 @@ const routes = [
     component: () => import('../views/SettingsView.vue'),
     meta: { title: '系统配置' }
   },
+  {
+    path: '/nodes',
+    name: 'nodes',
+    component: () => import('../views/NodesView.vue'),
+    meta: { title: '节点系统' }
+  },
   // {
   //   path: '/import',
   //   name: 'import',

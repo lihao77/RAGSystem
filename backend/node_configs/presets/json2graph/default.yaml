@@ -1,0 +1,30 @@
+# Json2Graph 节点默认配置
+_metadata:
+  node_type: json2graph
+  name: "默认配置"
+  description: "Json2Graph节点的默认配置"
+  is_preset: true
+
+config:
+  # Neo4j 连接
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: ""  # 从环境变量 NEO4J_PASSWORD 读取
+  
+  # 存储模式: skg(基础) 或 stkg(增强，含空间处理)
+  store_mode: "skg"
+  
+  # 处理器配置
+  processors:
+    - name: "SpatialProcessor"
+      class_path: "json2graph.processor.SpatialProcessor"
+      enabled: true
+      params: {}
+      
+    - name: "SpatialRelationshipProcessor"
+      class_path: "json2graph.processor.SpatialRelationshipProcessor"
+      enabled: true
+      params: {}
+  
+  # 执行选项
+  clear_before_import: false

@@ -1,0 +1,32 @@
+# LLMJson 节点默认配置
+_metadata:
+  node_type: llmjson
+  name: "默认配置"
+  description: "LLMJson节点的默认配置"
+  is_preset: true
+
+config:
+  # LLM API 配置
+  api_key: ""  # 从环境变量 LLM_API_KEY 读取
+  base_url: "https://api.openai.com/v1"
+  model: "gpt-4o-mini"
+  
+  # 生成参数
+  temperature: 0.1
+  max_tokens: 4000
+  timeout: 60
+  max_retries: 3
+  
+  # 处理参数
+  chunk_size: 2000
+  chunk_overlap: 200
+  max_workers: 4
+  enable_parallel: true
+  
+  # 文档处理
+  include_tables: true
+  encoding: "utf-8"
+  
+  # 输出设置
+  output_dir: "outputs/llmjson"
+  save_intermediate: false

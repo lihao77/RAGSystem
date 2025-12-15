@@ -20,6 +20,7 @@ from routes.evaluation import evaluation_bp
 from routes.graphrag import graphrag_bp
 from routes.function_call import function_call_bp
 from routes.config import config_bp
+from routes.nodes import nodes_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -41,7 +42,11 @@ app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 
 # 启用CORS
 CORS(app,
-     origins=['http://localhost:8081', 'http://127.0.0.1:8081', 'http://localhost:8080', 'http://127.0.0.1:8080'],
+     origins=[
+         'http://localhost:5173', 'http://127.0.0.1:5173',
+         'http://localhost:8081', 'http://127.0.0.1:8081',
+         'http://localhost:8080', 'http://127.0.0.1:8080'
+     ],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
      supports_credentials=True)
@@ -57,6 +62,7 @@ app.register_blueprint(evaluation_bp, url_prefix='/api/evaluation')
 app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
 app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
 app.register_blueprint(config_bp, url_prefix='/api/config')
+app.register_blueprint(nodes_bp)  # 已包含 url_prefix='/api/nodes'
 
 # 静态文件服务
 @app.route('/uploads/<filename>')

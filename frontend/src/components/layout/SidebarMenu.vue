@@ -40,6 +40,12 @@
         </el-icon>
         <template #title><span>系统配置</span></template>
       </el-menu-item>
+      <el-menu-item index="/nodes">
+        <el-icon>
+          <Grid />
+        </el-icon>
+        <template #title><span>节点系统</span></template>
+      </el-menu-item>
       <!-- <el-sub-menu index="data-management">
         <template #title>
           <el-icon>
@@ -83,6 +89,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { Grid } from '@element-plus/icons-vue';
 
 // 接收 props
 const props = defineProps({
