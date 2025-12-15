@@ -8,7 +8,7 @@ import { get } from './http';
  * @returns {Promise<object>} 实体关系数据
  */
 export function getEntityRelationships() {
-  return get('/visualization/entity-relationships');
+  return get('/api/visualization/entity-relationships');
 }
 
 /**
@@ -16,7 +16,7 @@ export function getEntityRelationships() {
  * @returns {Promise<object>} 知识图谱数据
  */
 export function getKnowledgeGraph() {
-  return get('/visualization/knowledge-graph');
+  return get('/api/visualization/knowledge-graph');
 }
 
 /**
@@ -25,7 +25,7 @@ export function getKnowledgeGraph() {
  * @returns {Promise<object>} 实体详情
  */
 export function getEntityById(entityId) {
-  return get(`/visualization/entities/${entityId}`);
+  return get(`/api/visualization/entities/${entityId}`);
 }
 
 /**
@@ -34,7 +34,7 @@ export function getEntityById(entityId) {
  * @returns {Promise<object>} 状态链数据
  */
 export function getEntityStates(entityId) {
-  return get(`/visualization/entity-states/${entityId}`);
+  return get(`/api/visualization/entity-states/${entityId}`);
 }
 
 /**
@@ -43,7 +43,7 @@ export function getEntityStates(entityId) {
  * @returns {Promise<Array>} 相关事件列表
  */
 export function getEntityEvents(entityId) {
-  return get(`/visualization/entity-events/${entityId}`);
+  return get(`/api/visualization/entity-events/${entityId}`);
 }
 
 /**
@@ -52,7 +52,7 @@ export function getEntityEvents(entityId) {
  * @returns {Promise<Array>} 相关设施列表
  */
 export function getEntityFacilities(entityId) {
-  return get(`/visualization/entity-facilities/${entityId}`);
+  return get(`/api/visualization/entity-facilities/${entityId}`);
 }
 
 /**
@@ -61,7 +61,7 @@ export function getEntityFacilities(entityId) {
  * @returns {Promise<object>} 事件地点数据
  */
 export function getEventLocations(eventId) {
-  return get(`/visualization/event-locations/${eventId}`);
+  return get(`/api/visualization/event-locations/${eventId}`);
 }
 
 /**
@@ -70,7 +70,7 @@ export function getEventLocations(eventId) {
  * @returns {Promise<object>} 地点层级结构数据
  */
 export function getLocationHierarchy(locationId) {
-  return get(`/visualization/location-hierarchy/${locationId}`);
+  return get(`/api/visualization/location-hierarchy/${locationId}`);
 }
 
 /**
@@ -79,5 +79,5 @@ export function getLocationHierarchy(locationId) {
  * @returns {Promise<object>} 状态详情数据
  */
 export function getStateDetails(stateId) {
-    return get(`/visualization/state-details/${stateId}`);
+    return get(`/api/visualization/state-details/${stateId}`);
   }

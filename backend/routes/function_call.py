@@ -10,6 +10,7 @@ import json
 
 from tools.function_definitions import get_tool_definitions, get_tool_by_name
 from tools.tool_executor import execute_tool
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -125,21 +126,17 @@ def chat_with_tools():
                 'message': '缺少messages参数'
             }), 400
         
-        # 如果未提供LLM配置，从配置文件读取
-        if not llm_config:
-            try:
-                with open('config.json', 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    llm_config = config.get('llm', {})
-            except Exception as e:
-                return jsonify({
-                    'success': False,
-                    'message': f'读取配置文件失败: {e}'
-                }), 500
-        
-        api_endpoint = llm_config.get('apiEndpoint', 'https://openrouter.ai/api/v1')
-        api_key = llm_config.get('apiKey', '')
-        model_name = llm_config.get('modelName', 'deepseek/deepseek-chat')
+        # 获取LLM配置
+        try:
+            config = get_config()
+            api_endpoint = config.llm.api_endpoint
+            api_key = config.llm.api_key
+            model_name = config.llm.model_name
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'读取配置文件失败: {e}'
+            }), 500
         
         # 获取工具定义
         tools = get_tool_definitions()

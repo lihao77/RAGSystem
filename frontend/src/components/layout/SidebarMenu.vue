@@ -34,6 +34,12 @@
         </el-icon>
         <template #title><span>GraphRAG 问答</span></template>
       </el-menu-item>
+      <el-menu-item index="/settings">
+        <el-icon>
+          <Setting />
+        </el-icon>
+        <template #title><span>系统配置</span></template>
+      </el-menu-item>
       <!-- <el-sub-menu index="data-management">
         <template #title>
           <el-icon>
@@ -52,12 +58,6 @@
             <DataAnalysis />
           </el-icon>
           <template #title><span>图谱评估</span></template>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon>
-            <Setting />
-          </el-icon>
-          <template #title><span>参数配置</span></template>
         </el-menu-item>
       </el-sub-menu> -->
     </el-menu>

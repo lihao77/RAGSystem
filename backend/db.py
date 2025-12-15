@@ -3,13 +3,9 @@
 Neo4j数据库连接模块
 """
 
-import os
 from neo4j import GraphDatabase
-from dotenv import load_dotenv
+from config import get_config
 import logging
-
-# 加载环境变量
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -17,15 +13,18 @@ logger = logging.getLogger(__name__)
 class Neo4jConnection:
     def __init__(self):
         self.driver = None
+        self.config = None
         self.connect()
-    
+
     def connect(self):
         """建立Neo4j连接"""
         try:
-            uri = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
-            user = os.getenv('NEO4J_USER', 'neo4j')
-            password = os.getenv('NEO4J_PASSWORD', 'admin123456')
-            
+            # 从配置系统获取Neo4j配置
+            self.config = get_config()
+            uri = self.config.neo4j.uri
+            user = self.config.neo4j.user
+            password = self.config.neo4j.password
+            print(uri, user, password)
             self.driver = GraphDatabase.driver(
                 uri,
                 auth=(user, password)

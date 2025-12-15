@@ -9,6 +9,8 @@ import json
 import logging
 import requests
 
+from config import get_config
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -50,13 +52,10 @@ def generate_cypher_with_llm(user_question, graph_schema, conversation_history=N
     """使用LLM生成Cypher查询语句"""
     try:
         # 读取配置
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        llm_config = config.get('llm', {})
-        api_endpoint = llm_config.get('apiEndpoint', 'https://openrouter.ai/api/v1')
-        api_key = llm_config.get('apiKey', '')
-        model_name = llm_config.get('modelName', 'deepseek/deepseek-chat')
+        config = get_config()
+        api_endpoint = config.llm.api_endpoint
+        api_key = config.llm.api_key
+        model_name = config.llm.model_name
         
         # 构建详细的图谱结构说明
         schema_desc = """

@@ -9,6 +9,9 @@ import os
 import logging
 from werkzeug.exceptions import RequestEntityTooLarge
 
+# 导入配置系统
+from config import get_config
+
 # 导入蓝图
 from routes.home import home_bp
 from routes.search import search_bp
@@ -16,6 +19,7 @@ from routes.visualization import visualization_bp
 from routes.evaluation import evaluation_bp
 from routes.graphrag import graphrag_bp
 from routes.function_call import function_call_bp
+from routes.config import config_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -23,20 +27,24 @@ from db import test_connection, close_driver
 # 创建Flask应用
 app = Flask(__name__)
 
-# 配置
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 加载配置
+config = get_config()
+logger.info(f"配置加载完成: Neo4j URI = {config.neo4j.uri}")
+
+# 应用配置
+app.config['MAX_CONTENT_LENGTH'] = config.system.max_content_length
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 
 # 启用CORS
-CORS(app, 
+CORS(app,
      origins=['http://localhost:8081', 'http://127.0.0.1:8081', 'http://localhost:8080', 'http://127.0.0.1:8080'],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
      supports_credentials=True)
-
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -48,6 +56,7 @@ app.register_blueprint(visualization_bp, url_prefix='/api/visualization')
 app.register_blueprint(evaluation_bp, url_prefix='/api/evaluation')
 app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
 app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
+app.register_blueprint(config_bp, url_prefix='/api/config')
 
 # 静态文件服务
 @app.route('/uploads/<filename>')

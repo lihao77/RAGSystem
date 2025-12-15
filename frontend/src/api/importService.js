@@ -11,7 +11,7 @@ import axios from 'axios';
  * @returns {Promise<Array>} 文件列表
  */
 export async function scanDirectory(path) {
-  return await post('/import/scan-directory', { path });
+  return await post('/api/import/scan-directory', { path });
 }
 
 /**
@@ -22,7 +22,7 @@ export async function scanDirectory(path) {
 export async function uploadFiles(formData) {
   try {
     // 使用专门的FormData上传函数
-    const response = await postFormData('/import/upload', formData);
+    const response = await postFormData('/api/import/upload', formData);
     return response;
   } catch (error) {
     console.error('文件上传错误:', error);
@@ -37,7 +37,7 @@ export async function uploadFiles(formData) {
  * @returns {Promise<object>} 处理结果
  */
 export async function processFiles(files, options) {
-  return await post('/import/process', { files, options });
+  return await post('/api/import/process', { files, options });
 }
 
 /**
@@ -46,7 +46,7 @@ export async function processFiles(files, options) {
  * @returns {Promise<object>} 处理进度信息
  */
 export async function getProcessingStatus(taskId) {
-  return await get(`/import/status/${taskId}`);
+  return await get(`/api/import/status/${taskId}`);
 }
 
 /**
@@ -55,7 +55,7 @@ export async function getProcessingStatus(taskId) {
  * @returns {Promise<object>} 取消结果
  */
 export async function cancelProcessing(taskId) {
-  return await post('/import/cancel', { taskId });
+  return await post('/api/import/cancel', { taskId });
 }
 
 /**
@@ -63,7 +63,7 @@ export async function cancelProcessing(taskId) {
  * @returns {Promise<object>} 系统设置信息
  */
 export async function getSystemSettings() {
-  return await get('/settings');
+  return await get('/api/settings');
 }
 
 /**
@@ -71,5 +71,5 @@ export async function getSystemSettings() {
  * @returns {Promise<Array>} 历史记录列表
  */
 export async function getProcessingHistory() {
-  return await get('/import/history');
+  return await get('/api/import/history');
 }

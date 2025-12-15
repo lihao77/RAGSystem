@@ -3,7 +3,7 @@
  */
 
 // API基础URL
-const BASE_URL = 'http://localhost:5000/api';
+const BASE_URL = 'http://localhost:5000';
 
 /**
  * 通用GET请求方法
@@ -38,10 +38,12 @@ async function post(url, data) {
       },
       body: JSON.stringify(data)
     });
+    const res = await response.json();
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      
+      throw new Error(res.message || res.error || `请求失败: ${response.status}`);
     }
-    return await response.json();
+    return res;
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -70,4 +72,29 @@ async function postFormData(url, formData) {
   }
 }
 
-export { get, post, postFormData };
+/**
+ *  通用PUT请求方法
+ * @param {string} url - 请求路径
+ * @param {object} data - 请求数据
+ * @returns {Promise<any>} - 响应数据
+ */
+async function put(url, data) {
+  try {
+    const response = await fetch(`${BASE_URL}${url}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('API请求错误:', error);
+    throw error;
+  }
+}
+
+export { get, post, postFormData, put };

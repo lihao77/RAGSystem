@@ -9,6 +9,7 @@ import json
 import requests
 from datetime import datetime, date, time
 from db import neo4j_conn
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +123,10 @@ def generate_cypher_with_llm(user_question, graph_schema, conversation_history=N
     """使用LLM生成Cypher查询语句"""
     try:
         # 读取配置
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        llm_config = config.get('llm', {})
-        api_endpoint = llm_config.get('apiEndpoint', 'https://openrouter.ai/api/v1')
-        api_key = llm_config.get('apiKey', '')
-        model_name = llm_config.get('modelName', 'deepseek/deepseek-chat')
+        config = get_config()
+        api_endpoint = config.llm.api_endpoint
+        api_key = config.llm.api_key
+        model_name = config.llm.model_name
         
         # 构建详细的图谱结构说明
         schema_desc = """
@@ -668,13 +666,10 @@ def generate_answer_with_llm(user_question, query_results, cypher, conversation_
     """使用LLM基于查询结果生成回答"""
     try:
         # 读取配置
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        llm_config = config.get('llm', {})
-        api_endpoint = llm_config.get('apiEndpoint', 'https://openrouter.ai/api/v1')
-        api_key = llm_config.get('apiKey', '')
-        model_name = llm_config.get('modelName', 'deepseek/deepseek-chat')
+        config = get_config()
+        api_endpoint = config.llm.api_endpoint
+        api_key = config.llm.api_key
+        model_name = config.llm.model_name
         
         # 构建提示词
         system_prompt = """你是一个知识图谱问答助手。根据用户的问题和从知识图谱中查询到的结果，生成准确、详细的回答。
@@ -824,13 +819,10 @@ def query():
         from tools.tool_executor import execute_tool
         
         # 读取 LLM 配置
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        llm_config = config.get('llm', {})
-        api_endpoint = llm_config.get('apiEndpoint', 'https://openrouter.ai/api/v1')
-        api_key = llm_config.get('apiKey', '')
-        model_name = llm_config.get('modelName', 'deepseek/deepseek-chat')
+        config = get_config()
+        api_endpoint = config.llm.api_endpoint
+        api_key = config.llm.api_key
+        model_name = config.llm.model_name
         
         # 获取所有可用工具
         tools = get_tool_definitions()

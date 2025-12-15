@@ -9,7 +9,7 @@ import { get } from './http';
  * @returns {Promise<object>} 统计数据
  */
 export async function getGraphStats() {
-  return await get('/home/stats');
+  return await get('/api/home/stats');
 }
 
 /**
@@ -17,7 +17,7 @@ export async function getGraphStats() {
  * @returns {Promise<Array>} 文档列表
  */
 export async function getRecentDocuments() {
-  return await get('/home/recent-documents');
+  return await get('/api/home/recent-documents');
 }
 
 /**
@@ -26,5 +26,5 @@ export async function getRecentDocuments() {
  * @returns {Promise<object>} 文档详情
  */
 export async function getDocumentDetails(documentId) {
-  return await get(`/home/document/${documentId}`);
+  return await get(`/api/home/document/${documentId}`);
 }

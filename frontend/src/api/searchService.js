@@ -11,7 +11,7 @@ import { get, post } from './http';
  */
 export async function getGeoCode() {
   try {
-    const response = await fetch('/src/assets/admin_codes.json');
+    const response = await fetch('/api/src/assets/admin_codes.json');
     if (!response.ok) {
       throw new Error(`请求失败: ${response.status}`);
     }
@@ -28,7 +28,7 @@ export async function getGeoCode() {
  * @returns {Promise<Array>} 搜索结果
  */
 export async function searchEntities(searchParams) {
-  return await post('/search/entities', searchParams);
+  return await post('/api/search/entities', searchParams);
 }
 
 /**
@@ -37,7 +37,7 @@ export async function searchEntities(searchParams) {
  * @returns {Promise<Array>} 关系列表
  */
 export async function getEntityRelations(entityId) {
-  return await get(`/search/relations/${entityId}`);
+  return await get(`/api/search/relations/${entityId}`);
 }
 
 /**
@@ -46,7 +46,7 @@ export async function getEntityRelations(entityId) {
  * @returns {Promise<object>} 导出结果
  */
 export async function exportResults(results) {
-  return await post('/search/export', { results });
+  return await post('/api/search/export', { results });
 }
 
 /**
@@ -54,7 +54,7 @@ export async function exportResults(results) {
  * @returns {Promise<Array>} 地理位置选项
  */
 export async function getLocationOptions() {
-  return await get('/search/location-options');
+  return await get('/api/search/location-options');
 }
 
 /**
@@ -62,5 +62,5 @@ export async function getLocationOptions() {
  * @returns {Promise<Array>} 文档来源列表
  */
 export async function getDocumentSources() {
-  return await get('/search/document-sources');
+  return await get('/api/search/document-sources');
 }

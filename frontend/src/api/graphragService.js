@@ -8,7 +8,7 @@ import { get, post } from './http';
  * 获取图谱结构
  */
 export const getGraphSchema = () => {
-  return get('/graphrag/schema');
+  return get('/api/graphrag/schema');
 };
 
 /**
@@ -17,7 +17,7 @@ export const getGraphSchema = () => {
  * @param {Array} history - 对话历史
  */
 export const queryGraphRAG = (question, history = []) => {
-  return post('/graphrag/query', {
+  return post('/api/graphrag/query', {
     question,
     history
   });
@@ -28,7 +28,7 @@ export const queryGraphRAG = (question, history = []) => {
  * @param {string} cypher - Cypher查询语句
  */
 export const executeCypher = (cypher) => {
-  return post('/graphrag/cypher/execute', {
+  return post('/api/graphrag/cypher/execute', {
     cypher
   });
 };

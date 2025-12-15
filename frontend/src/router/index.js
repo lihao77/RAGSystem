@@ -31,12 +31,12 @@ const routes = [
     component: () => import('../views/SearchView.vue'),
     meta: { title: '实体查询' }
   },
-  // {
-  //   path: '/settings',
-  //   name: 'settings',
-  //   component: () => import('../views/SettingsView.vue'),
-  //   meta: { title: '系统设置' }
-  // },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('../views/SettingsView.vue'),
+    meta: { title: '系统配置' }
+  },
   // {
   //   path: '/import',
   //   name: 'import',

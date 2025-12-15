@@ -15,7 +15,7 @@ export const evaluationService = {
    */
   async getAvailableDocuments() {
     try {
-      const response = await get(`/evaluation/documents`);
+      const response = await get('/api/evaluation/documents');
       return response;
     } catch (error) {
       console.error('获取可用文档失败:', error);
@@ -55,7 +55,7 @@ export const evaluationService = {
    */
   async saveSampleAnnotation(annotation) {
     try {
-      const response = await post(`/evaluation/save-annotation`, annotation);
+      const response = await post(`/api/evaluation/save-annotation`, annotation);
       return response;
     } catch (error) {
       console.error('保存样本标注失败:', error);
@@ -72,7 +72,7 @@ export const evaluationService = {
    */
   async calculateMetrics(params) {
     try {
-      const response = await post(`/evaluation/calculate-metrics`, params);
+      const response = await post(`/api/evaluation/calculate-metrics`, params);
       return response;
     } catch (error) {
       console.error('计算评估指标失败:', error);

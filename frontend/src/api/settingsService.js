@@ -9,7 +9,7 @@ import { get, post } from './http';
  * @returns {Promise<object>} 系统配置信息
  */
 export async function getSettings() {
-  return await get('/settings');
+  return await get('/api/settings');
 }
 
 /**
@@ -18,7 +18,7 @@ export async function getSettings() {
  * @returns {Promise<object>} 保存结果
  */
 export async function saveSettings(settings) {
-  return await post('/settings', settings);
+  return await post('/api/settings', settings);
 }
 
 /**
@@ -27,7 +27,7 @@ export async function saveSettings(settings) {
  * @returns {Promise<object>} 测试结果
  */
 export async function testNeo4jConnection(config) {
-  return await post('/settings/test-neo4j', config);
+  return await post('/api/settings/test-neo4j', config);
 }
 
 /**
@@ -36,14 +36,6 @@ export async function testNeo4jConnection(config) {
  * @returns {Promise<object>} 测试结果
  */
 export async function testLLMConnection(config) {
-  return await post('/settings/test-llm', config);
+  return await post('/api/settings/test-llm', config);
 }
 
-/**
- * 测试地理编码服务连接
- * @param {object} config - 地理编码服务配置
- * @returns {Promise<object>} 测试结果
- */
-export async function testGeocodingConnection(config) {
-  return await post('/settings/test-geocoding', config);
-}

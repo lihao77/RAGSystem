@@ -66,9 +66,9 @@ const toggleCollapse = () => {
 }
 
 .collapse-btn {
-  position: absolute;
-  top: 10px;
-  right: -15px;
+  position: fixed;
+  top: 13px;
+  left: calc(var(--el-aside-width, 300px) - 15px);
   width: 30px;
   height: 30px;
   background-color: #409EFF;

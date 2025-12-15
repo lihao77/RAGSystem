@@ -1,0 +1,31 @@
+# Neo4j 配置
+neo4j:
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: ""  # 可以从环境变量 NEO4J__PASSWORD 读取
+
+# LLM 配置
+llm:
+  api_endpoint: https://api.deepseek.com/v1
+  api_key: ""  # 可以从环境变量 LLM__API_KEY 读取
+  model_name: deepseek-chat
+  temperature: 0.7
+  max_tokens: 4096
+
+# 系统配置
+system:
+  max_content_length: 104857600  # 100MB (字节)
+
+# 外部库配置（为 llmjson 和 json2graph-for-review 预留）
+external_libs:
+  # llmjson 配置
+  llmjson:
+    # 可在集成时扩展
+    enabled: true
+    settings: {}
+
+  # json2graph-for-review 配置
+  json2graph:
+    # 可在集成时扩展
+    enabled: true
+    settings: {}
