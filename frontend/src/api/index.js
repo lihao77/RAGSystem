@@ -25,3 +25,6 @@ export * as graphragService from './graphragService';
 
 // 导出节点系统相关服务
 export * as nodeService from './nodeService';
+
+// 导出工作流相关服务
+export * as workflowService from './workflowService';

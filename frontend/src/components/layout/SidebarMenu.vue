@@ -46,6 +46,12 @@
         </el-icon>
         <template #title><span>节点系统</span></template>
       </el-menu-item>
+      <el-menu-item index="/workflow">
+        <el-icon>
+          <Share />
+        </el-icon>
+        <template #title><span>工作流编排</span></template>
+      </el-menu-item>
       <!-- <el-sub-menu index="data-management">
         <template #title>
           <el-icon>
@@ -89,7 +95,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Grid } from '@element-plus/icons-vue';
+import { Grid, Share } from '@element-plus/icons-vue';
 
 // 接收 props
 const props = defineProps({

@@ -21,6 +21,7 @@ from routes.graphrag import graphrag_bp
 from routes.function_call import function_call_bp
 from routes.config import config_bp
 from routes.nodes import nodes_bp
+from routes.workflows import workflow_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -63,6 +64,7 @@ app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
 app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
 app.register_blueprint(config_bp, url_prefix='/api/config')
 app.register_blueprint(nodes_bp)  # 已包含 url_prefix='/api/nodes'
+app.register_blueprint(workflow_bp)  # /api/workflows
 
 # 静态文件服务
 @app.route('/uploads/<filename>')
