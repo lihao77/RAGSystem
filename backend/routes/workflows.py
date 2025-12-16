@@ -38,6 +38,7 @@ def list_workflows():
                 "name": w.name,
                 "description": w.description,
                 "node_count": len(w.nodes),
+                "edge_count": len(getattr(w, 'edges', []) or []),
                 "created_at": w.created_at,
                 "updated_at": w.updated_at,
             }
