@@ -55,7 +55,7 @@
           <div style="margin-top: 10px; display:flex; gap:8px;">
             <el-button size="small" type="primary" :disabled="!workflowName" :loading="saving" @click="onSaveWorkflow">保存</el-button>
             <el-button size="small" :disabled="vfNodes.length===0" @click="onValidate">检查</el-button>
-            <el-button size="small" type="success" :disabled="vfNodes.length===0" :loading="running" @click="onRun">运行</el-button>
+            <el-button size="small" type="success" :disabled="vfNodes.length===0" :loading="running" @click="openRunDialog">运行</el-button>
           </div>
         </el-card>
 
@@ -87,7 +87,27 @@
             </el-table-column>
             <el-table-column label="value" min-width="180">
               <template #default="scope">
-                <el-input v-model="scope.row.value" placeholder="值（json/数组请用 JSON 字符串）" />
+                <el-input-number v-if="scope.row.type==='number'" v-model="scope.row.value" style="width:100%" />
+                <el-switch v-else-if="scope.row.type==='bool'" v-model="scope.row.value" />
+                <el-select
+                  v-else-if="scope.row.type==='file_ids'"
+                  v-model="scope.row.value"
+                  multiple
+                  filterable
+                  clearable
+                  style="width:100%"
+                  placeholder="选择文件"
+                >
+                  <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.name} (${f.id})`" :value="f.id" />
+                </el-select>
+                <el-input
+                  v-else-if="scope.row.type==='json'"
+                  v-model="scope.row.value"
+                  type="textarea"
+                  :rows="2"
+                  placeholder='JSON 字符串，如 {"a":1} 或 ["x"]'
+                />
+                <el-input v-else v-model="scope.row.value" placeholder="值" />
               </template>
             </el-table-column>
             <el-table-column label="" width="80">
@@ -101,8 +121,9 @@
             节点输入绑定可引用：var:变量名 或 node:&lt;节点ID&gt;:&lt;输出端口&gt;。
           </div>
 
-          <div style="margin-top: 10px; font-weight: 600;">运行时额外 initial_inputs（可选，JSON）</div>
-          <el-input v-model="initialInputsJson" type="textarea" :rows="3" placeholder='例如：{"text":"..."}' />
+          <div style="margin-top: 10px; color:#909399; font-size:12px;">
+            运行参数请点击左侧“运行”按钮，在弹出的运行面板中填写（会以 initial_inputs 发送，可覆盖 vars 默认值）。
+          </div>
         </el-card>
       </el-col>
 
@@ -147,6 +168,49 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-dialog v-model="runDialogOpen" title="运行工作流" width="760px" destroy-on-close>
+      <div style="color:#909399; font-size:12px; margin-bottom:10px;">
+        这里填写的是本次运行的 initial_inputs（会覆盖左侧 vars 默认值，不会自动保存到工作流）。
+      </div>
+
+      <el-form label-width="140px" size="small">
+        <el-form-item v-for="v in (workflowVars || [])" :key="v.name + v.type" :label="`${v.name || '(未命名)'} (${v.type||'any'})`">
+          <el-input-number v-if="v.type==='number'" v-model="runForm[v.name]" style="width:100%" />
+          <el-switch v-else-if="v.type==='bool'" v-model="runForm[v.name]" />
+          <el-select
+            v-else-if="v.type==='file_ids'"
+            v-model="runForm[v.name]"
+            multiple
+            filterable
+            clearable
+            style="width:100%"
+            placeholder="选择文件"
+          >
+            <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.name} (${f.id})`" :value="f.id" />
+          </el-select>
+          <el-input
+            v-else-if="v.type==='json'"
+            v-model="runForm[v.name]"
+            type="textarea"
+            :rows="4"
+            placeholder='请输入 JSON 字符串'
+          />
+          <el-input v-else v-model="runForm[v.name]" placeholder="请输入值" />
+        </el-form-item>
+
+        <el-collapse>
+          <el-collapse-item title="高级：额外 initial_inputs JSON（可选）" name="adv">
+            <el-input v-model="runExtraJson" type="textarea" :rows="4" placeholder='例如：{"text":"..."}' />
+          </el-collapse-item>
+        </el-collapse>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="runDialogOpen=false">取消</el-button>
+        <el-button type="primary" :loading="running" @click="doRun">运行</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="drawerOpen" title="节点配置" size="420px" destroy-on-close>
       <div v-if="activeNode">
@@ -265,11 +329,11 @@ const workflowId = ref('');
 const workflowName = ref('');
 const workflowDesc = ref('');
 
-const firstInputMode = ref('text');
-const firstInputText = ref('');
-const firstInputFileIds = ref([]);
-const initialInputsJson = ref('{}');
 const availableFiles = ref([]);
+
+const runDialogOpen = ref(false);
+const runForm = reactive({});
+const runExtraJson = ref('{}');
 
 const runResult = ref('');
 
@@ -607,7 +671,8 @@ function newWorkflow() {
   vfNodes.value = [];
   vfEdges.value = [];
   runResult.value = '';
-  initialInputsJson.value = '{}';
+  runExtraJson.value = '{}';
+  Object.keys(runForm).forEach(k => delete runForm[k]);
 }
 
 async function onLoadWorkflow() {
@@ -729,54 +794,58 @@ function getVarByName(name) {
   return (workflowVars.value || []).find(v => v && v.name === name) || null;
 }
 
-function parseVarValue(v) {
-  if (!v) return undefined;
-  const t = v.type || 'any';
-  const raw = v.value;
-  if (t === 'number') {
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : raw;
-  }
-  if (t === 'bool') {
-    if (raw === true || raw === false) return raw;
-    if (typeof raw === 'string') return raw.toLowerCase() === 'true';
-    return Boolean(raw);
-  }
+function normalizeVarDefaultForRun(v) {
+  const t = v?.type || 'any';
+  const raw = v?.value;
+  if (t === 'number') return (raw === '' || raw === null || raw === undefined) ? undefined : Number(raw);
+  if (t === 'bool') return raw === true || raw === false ? raw : (String(raw).toLowerCase() === 'true');
+  if (t === 'file_ids') return Array.isArray(raw) ? raw : (raw ? raw : []);
   if (t === 'json') {
-    if (typeof raw === 'object') return raw;
-    if (typeof raw === 'string') {
-      try { return JSON.parse(raw); } catch { return raw; }
-    }
+    if (typeof raw === 'string') return raw;
+    if (raw === null || raw === undefined || raw === '') return '';
+    try { return JSON.stringify(raw, null, 2); } catch { return String(raw); }
   }
-  if (t === 'file_ids') {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') {
-      const s = raw.trim();
-      if (s.startsWith('[')) {
-        try { return JSON.parse(s); } catch { /* fallthrough */ }
-      }
-      return s ? s.split(',').map(x => x.trim()).filter(Boolean) : [];
-    }
-  }
-  return raw;
+  return raw ?? '';
 }
 
-function buildInitialInputs() {
+function buildRunInitialInputs() {
   const obj = {};
   for (const v of (workflowVars.value || [])) {
     if (!v?.name) continue;
-    obj[v.name] = parseVarValue(v);
+    const t = v.type || 'any';
+    let val = runForm[v.name];
+
+    if (t === 'number') {
+      if (val === '' || val === null || val === undefined) continue;
+      const n = Number(val);
+      if (!Number.isFinite(n)) {
+        throw new Error(`变量 ${v.name} 不是合法 number`);
+      }
+      val = n;
+    }
+
+    if (t === 'json') {
+      if (val === '' || val === null || val === undefined) continue;
+      if (typeof val === 'string') {
+        try { val = JSON.parse(val); } catch { throw new Error(`变量 ${v.name} JSON 解析失败`); }
+      }
+    }
+
+    if (t === 'file_ids') {
+      if (!Array.isArray(val)) val = val ? [val] : [];
+    }
+
+    obj[v.name] = val;
   }
-  const extra = safeParseJson(initialInputsJson.value);
+
+  const extra = safeParseJson(runExtraJson.value);
+  if (runExtraJson.value && extra === null) throw new Error('额外 initial_inputs JSON 解析失败');
   if (extra && typeof extra === 'object') Object.assign(obj, extra);
   return obj;
 }
 
 function computeInitialInputKeys() {
-  const keys = new Set((workflowVars.value || []).map(v => v?.name).filter(Boolean));
-  const extra = safeParseJson(initialInputsJson.value);
-  for (const k of Object.keys((extra && typeof extra === 'object') ? extra : {})) keys.add(k);
-  return keys;
+  return new Set((workflowVars.value || []).map(v => v?.name).filter(Boolean));
 }
 
 function parseBinding(ref) {
@@ -885,7 +954,7 @@ function onValidate() {
   else ElMessage.warning(`检查发现问题：${errors.length} 项（已标红部分节点）`);
 }
 
-async function onRun() {
+function openRunDialog() {
   if (!workflowId.value) {
     ElMessage.warning('请先保存工作流再运行');
     return;
@@ -895,21 +964,35 @@ async function onRun() {
     return;
   }
 
-  const initialInputs = buildInitialInputs();
-  if (initialInputsJson.value) {
-    const extra = safeParseJson(initialInputsJson.value);
-    if (extra === null) {
-      ElMessage.error('额外 initial_inputs JSON 解析失败');
-      return;
-    }
+  // 用当前 vars 默认值填充运行面板（可在运行时覆盖）
+  Object.keys(runForm).forEach(k => delete runForm[k]);
+  for (const v of (workflowVars.value || [])) {
+    if (!v?.name) continue;
+    runForm[v.name] = normalizeVarDefaultForRun(v);
+  }
+
+  runDialogOpen.value = true;
+}
+
+async function doRun() {
+  let initialInputs;
+  try {
+    initialInputs = buildRunInitialInputs();
+  } catch (e) {
+    ElMessage.error(e.message || '运行参数解析失败');
+    return;
   }
 
   running.value = true;
   try {
     const res = await runWorkflow(workflowId.value, initialInputs);
     runResult.value = JSON.stringify(res, null, 2);
-    if (res.success) ElMessage.success('运行完成');
-    else ElMessage.error(res.error || '运行失败');
+    if (res.success) {
+      ElMessage.success('运行完成');
+      runDialogOpen.value = false;
+    } else {
+      ElMessage.error(res.error || '运行失败');
+    }
   } catch (e) {
     runResult.value = String(e);
     ElMessage.error(e.message || '运行失败');
