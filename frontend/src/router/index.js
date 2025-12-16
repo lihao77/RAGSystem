@@ -49,6 +49,12 @@ const routes = [
     component: () => import('../views/WorkflowBuilderView.vue'),
     meta: { title: '工作流编排' }
   },
+  {
+    path: '/files',
+    name: 'files',
+    component: () => import('../views/FilesView.vue'),
+    meta: { title: '文件管理' }
+  },
   // {
   //   path: '/import',
   //   name: 'import',

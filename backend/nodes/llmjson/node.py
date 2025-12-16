@@ -22,7 +22,8 @@ class LLMJsonNode(INode):
             category="process",
             version="1.0.0",
             inputs=[
-                {"name": "files", "type": "file", "description": "输入文件列表", "required": False, "multiple": True},
+                {"name": "file_ids", "type": "file_list", "description": "文件ID列表（来自文件管理）", "required": False, "multiple": True},
+                {"name": "files", "type": "file_list", "description": "输入文件路径列表（兼容旧方式）", "required": False, "multiple": True},
                 {"name": "text", "type": "text", "description": "直接输入文本", "required": False}
             ],
             outputs=[
@@ -95,8 +96,22 @@ class LLMJsonNode(INode):
             "errors": []
         }
         
-        # 处理文件
+        # 处理文件（优先 file_ids，其次 files(路径)）
         files = inputs.get("files", [])
+        file_ids = inputs.get("file_ids", [])
+        if file_ids:
+            try:
+                from file_index import FileIndex
+                idx = FileIndex()
+                resolved = []
+                for fid in file_ids:
+                    rec = idx.get(str(fid))
+                    if rec and rec.get('stored_path'):
+                        resolved.append(rec['stored_path'])
+                files = resolved or files
+            except Exception:
+                pass
+
         for file_path in files:
             try:
                 path = Path(file_path)

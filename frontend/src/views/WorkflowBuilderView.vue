@@ -101,6 +101,7 @@
                       <el-form-item label="初始输入">
                         <el-select v-model="firstInputMode" style="width:100%">
                           <el-option label="text" value="text" />
+                          <el-option label="file_ids" value="file_ids" />
                         </el-select>
                       </el-form-item>
                     </el-form>
@@ -108,12 +109,20 @@
                 </el-row>
 
                 <div v-if="index===0" style="margin-top: 6px">
-                  <el-input
-                    v-model="firstInputText"
-                    type="textarea"
-                    :rows="5"
-                    placeholder="初始输入文本（会作为 initial_inputs 传给第一个节点）"
-                  />
+                  <template v-if="firstInputMode==='text'">
+                    <el-input
+                      v-model="firstInputText"
+                      type="textarea"
+                      :rows="5"
+                      placeholder="初始输入文本（会作为 initial_inputs 传给第一个节点）"
+                    />
+                  </template>
+                  <template v-else>
+                    <el-select v-model="firstInputFileIds" multiple filterable placeholder="选择文件" style="width:100%">
+                      <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.original_name} (${f.id})`" :value="f.id" />
+                    </el-select>
+                    <div style="margin-top:6px;color:#909399;font-size:12px;">将把 file_ids 传给第一个节点（llmjson 已支持 file_ids）</div>
+                  </template>
                 </div>
 
                 <div class="io-hint">
@@ -146,6 +155,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import draggable from 'vuedraggable';
 
 import { getNodeTypes, getConfigs } from '@/api/nodeService';
+import { listFiles } from '@/api/fileService';
 import { listWorkflows, getWorkflow, saveWorkflow, deleteWorkflow, runWorkflow } from '@/api/workflowService';
 
 const loading = ref(false);
@@ -167,6 +177,8 @@ const workflowDesc = ref('');
 
 const firstInputMode = ref('text');
 const firstInputText = ref('');
+const firstInputFileIds = ref([]);
+const availableFiles = ref([]);
 
 const runResult = ref('');
 
@@ -205,6 +217,8 @@ async function refreshAll() {
   try {
     await refreshNodeTypes();
     await refreshWorkflows();
+    const fr = await listFiles();
+    if (fr.success) availableFiles.value = fr.files;
   } finally {
     loading.value = false;
   }
@@ -218,6 +232,7 @@ function newWorkflow() {
   nodes.value = [];
   runResult.value = '';
   firstInputText.value = '';
+  firstInputFileIds.value = [];
 }
 
 async function onLoadWorkflow() {
@@ -290,6 +305,7 @@ async function onRun() {
 
   const initialInputs = {};
   if (firstInputMode.value === 'text') initialInputs.text = firstInputText.value;
+  if (firstInputMode.value === 'file_ids') initialInputs.file_ids = firstInputFileIds.value;
 
   running.value = true;
   try {

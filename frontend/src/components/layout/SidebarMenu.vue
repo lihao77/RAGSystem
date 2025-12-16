@@ -52,6 +52,12 @@
         </el-icon>
         <template #title><span>工作流编排</span></template>
       </el-menu-item>
+      <el-menu-item index="/files">
+        <el-icon>
+          <Folder />
+        </el-icon>
+        <template #title><span>文件管理</span></template>
+      </el-menu-item>
       <!-- <el-sub-menu index="data-management">
         <template #title>
           <el-icon>
@@ -95,7 +101,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Grid, Share } from '@element-plus/icons-vue';
+import { Grid, Share, Folder } from '@element-plus/icons-vue';
 
 // 接收 props
 const props = defineProps({

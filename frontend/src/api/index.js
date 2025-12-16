@@ -28,3 +28,6 @@ export * as nodeService from './nodeService';
 
 // 导出工作流相关服务
 export * as workflowService from './workflowService';
+
+// 导出文件管理相关服务
+export * as fileService from './fileService';
