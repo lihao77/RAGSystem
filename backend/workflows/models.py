@@ -35,6 +35,9 @@ class WorkflowVariable(BaseModel):
 
 
 class WorkflowDefinition(BaseModel):
+    # v2: edges 仅作为 link；端口映射存于 nodes[].input_bindings；variables 为全局变量池
+    schema_version: int = 2
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str
     description: str = ""

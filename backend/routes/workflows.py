@@ -63,6 +63,9 @@ def save_workflow():
     except Exception as e:
         return jsonify({"success": False, "error": f"工作流数据无效: {e}"}), 400
 
+    # 强制升级到 v2（开发期不长期兼容旧结构）
+    wf.schema_version = 2
+
     # 若是更新已有工作流，保留 created_at
     existing = get_store().get(wf.id)
     if existing:
