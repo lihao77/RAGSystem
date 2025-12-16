@@ -1,5 +1,5 @@
 <template>
-  <div class="wf-node" @dblclick.stop="emit('open-config')">
+  <div class="wf-node" :class="nodeClass" @dblclick.stop="emit('open-config')">
     <div class="wf-node-title">{{ data?.label || data?.node_type }}</div>
     <div class="wf-node-sub">{{ data?.node_type }} · {{ id }}</div>
 
@@ -20,14 +20,21 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
 
-defineProps({
+const props = defineProps({
   id: { type: String, required: true },
   data: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['open-config']);
+
+const nodeClass = computed(() => ({
+  dim: !!props?.data?.ui?.dim,
+  connectable: !!props?.data?.ui?.connectable,
+  error: !!props?.data?.ui?.error,
+}));
 
 
 </script>
@@ -40,8 +47,20 @@ const emit = defineEmits(['open-config']);
   border: 1px solid #dcdfe6;
   border-radius: 10px;
   background: #fff;
-  padding: 10px 10px 8px 10px;
+  padding: 10px 12px 8px 12px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  transition: opacity .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.wf-node.connectable {
+  border-color: #409EFF;
+  box-shadow: 0 2px 14px rgba(64,158,255,0.18);
+}
+.wf-node.dim {
+  opacity: 0.35;
+}
+.wf-node.error {
+  border-color: #f56c6c;
+  box-shadow: 0 2px 14px rgba(245,108,108,0.18);
 }
 .wf-node-title { font-weight: 700; color: #303133; }
 .wf-node-sub { margin-top: 2px; color: #909399; font-size: 12px; }
@@ -62,8 +81,8 @@ const emit = defineEmits(['open-config']);
 }
 .cfg.empty { color: #f56c6c; }
 .single-handle {
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   border-radius: 9px;
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px rgba(0,0,0,0.12);

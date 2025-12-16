@@ -54,6 +54,7 @@
 
           <div style="margin-top: 10px; display:flex; gap:8px;">
             <el-button size="small" type="primary" :disabled="!workflowName" :loading="saving" @click="onSaveWorkflow">保存</el-button>
+            <el-button size="small" :disabled="vfNodes.length===0" @click="onValidate">检查</el-button>
             <el-button size="small" type="success" :disabled="vfNodes.length===0" :loading="running" @click="onRun">运行</el-button>
           </div>
         </el-card>
@@ -101,7 +102,10 @@
               v-model:edges="vfEdges"
               :node-types="nodeTypes"
               :fit-view-on-init="true"
+              :is-valid-connection="isValidConnection"
               class="flow"
+              @connect-start="onConnectStart"
+              @connect-end="onConnectEnd"
               @connect="onConnect"
               @node-click="onNodeClick"
               @edge-click="onEdgeClick"
@@ -144,6 +148,28 @@
       </div>
       <el-empty v-else description="请选择节点" />
     </el-drawer>
+
+    <el-dialog v-model="mappingDialogOpen" title="选择端口映射" width="520px">
+      <div v-if="pendingConnect">
+        <div style="color:#909399; font-size:12px; margin-bottom:8px;">
+          存在多个可匹配端口组合，请选择本次连线的映射。
+        </div>
+
+        <div style="font-weight:600; margin: 8px 0;">From</div>
+        <el-select v-model="mappingFromPort" style="width:100%" placeholder="选择输出端口">
+          <el-option v-for="p in nodeOutputPorts(pendingConnect.source)" :key="p.name" :label="`${p.name}${p.type ? ' : ' + p.type : ''}`" :value="p.name" />
+        </el-select>
+
+        <div style="font-weight:600; margin: 12px 0 8px;">To</div>
+        <el-select v-model="mappingToPort" style="width:100%" placeholder="选择输入端口">
+          <el-option v-for="p in compatibleInputPorts(pendingConnect.target, pendingConnect.source, mappingFromPort)" :key="p.name" :label="`${p.name}${p.type ? ' : ' + p.type : ''}${p.required ? ' *' : ''}`" :value="p.name" />
+        </el-select>
+      </div>
+      <template #footer>
+        <el-button @click="mappingDialogOpen=false">取消</el-button>
+        <el-button type="primary" :disabled="!mappingFromPort || !mappingToPort" @click="confirmMapping">确认</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="edgeDrawerOpen" title="连线编辑" size="420px" destroy-on-close>
       <div v-if="activeEdge">
@@ -255,6 +281,15 @@ const activeNode = ref(null);
 const edgeDrawerOpen = ref(false);
 const activeEdge = ref(null);
 
+// 连接时端口映射选择（当存在多个可匹配组合）
+const mappingDialogOpen = ref(false);
+const pendingConnect = ref(null); // { source, target }
+const mappingFromPort = ref('');
+const mappingToPort = ref('');
+
+// 连接引导：高亮可连接节点
+const connectingSourceId = ref('');
+
 function safeParseJson(text) {
   try { return JSON.parse(text || '{}'); } catch { return null; }
 }
@@ -321,40 +356,126 @@ function isTypeCompatible(outType, inType) {
   return a === b;
 }
 
-function pickDefaultPortMapping(sourceNodeId, targetNodeId) {
+function listCompatibleMappings(sourceNodeId, targetNodeId) {
   const s = vfNodes.value.find(n => n.id === sourceNodeId);
   const t = vfNodes.value.find(n => n.id === targetNodeId);
   const outs = s?.data?.outputs || [];
   const ins = t?.data?.inputs || [];
 
+  const mappings = [];
   for (const o of outs) {
     for (const i of ins) {
       if (isTypeCompatible(o.type, i.type)) {
-        return { from_port: o.name, to_port: i.name };
+        mappings.push({ from_port: o.name, to_port: i.name });
       }
     }
   }
-  return null;
+  return mappings;
 }
 
-function onConnect(params) {
-  // 单输入/单输出 handle：sourceHandle/targetHandle 固定为 out/in
-  const mapping = pickDefaultPortMapping(params.source, params.target);
-  if (!mapping) {
-    ElMessage.warning('无法连线：上游无可匹配输出端口 / 下游无可匹配输入端口（类型不兼容）');
-    return;
+function isValidConnection(conn) {
+  // conn: { source, target, sourceHandle, targetHandle }
+  if (!conn?.source || !conn?.target) return true;
+  return listCompatibleMappings(conn.source, conn.target).length > 0;
+}
+
+function setNodeUiFlag(nodeId, patch) {
+  vfNodes.value = vfNodes.value.map(n => {
+    if (n.id !== nodeId) return n;
+    return { ...n, data: { ...n.data, ui: { ...(n.data?.ui || {}), ...patch } } };
+  });
+}
+
+function clearConnectUi() {
+  vfNodes.value = vfNodes.value.map(n => {
+    const ui = n.data?.ui || {};
+    const nextUi = { ...ui };
+    delete nextUi.dim;
+    delete nextUi.connectable;
+    return { ...n, data: { ...n.data, ui: nextUi } };
+  });
+}
+
+function onConnectStart(evt) {
+  // 兼容不同事件结构
+  const nodeId = evt?.nodeId || evt?.source || evt?.node?.id;
+  const handleType = evt?.handleType;
+  const handleId = evt?.handleId;
+  if (handleType && handleType !== 'source') return;
+  if (handleId && handleId !== 'out') return;
+  if (!nodeId) return;
+
+  connectingSourceId.value = nodeId;
+
+  const connectable = new Set();
+  for (const n of vfNodes.value) {
+    if (n.id === nodeId) continue;
+    if (listCompatibleMappings(nodeId, n.id).length > 0) connectable.add(n.id);
   }
 
+  vfNodes.value = vfNodes.value.map(n => {
+    const ui = n.data?.ui || {};
+    const nextUi = { ...ui, dim: false, connectable: false };
+    if (n.id === nodeId) {
+      nextUi.connectable = true;
+    } else if (connectable.has(n.id)) {
+      nextUi.connectable = true;
+    } else {
+      nextUi.dim = true;
+    }
+    return { ...n, data: { ...n.data, ui: nextUi } };
+  });
+}
+
+function onConnectEnd() {
+  connectingSourceId.value = '';
+  clearConnectUi();
+}
+
+function pushEdge(source, target, mapping) {
   const id = Math.random().toString(16).slice(2, 12);
   vfEdges.value.push({
     id,
-    source: params.source,
-    target: params.target,
+    source,
+    target,
     sourceHandle: 'out',
     targetHandle: 'in',
     data: { ...mapping },
     label: `${mapping.from_port} → ${mapping.to_port}`
   });
+}
+
+function onConnect(params) {
+  const mappings = listCompatibleMappings(params.source, params.target);
+  if (mappings.length === 0) {
+    ElMessage.warning('无法连线：上游无可匹配输出端口 / 下游无可匹配输入端口（类型不兼容）');
+    return;
+  }
+
+  // 单一候选：直接连
+  if (mappings.length === 1) {
+    pushEdge(params.source, params.target, mappings[0]);
+    return;
+  }
+
+  // 多候选：弹窗选择
+  pendingConnect.value = { source: params.source, target: params.target };
+  mappingFromPort.value = mappings[0].from_port;
+  mappingToPort.value = mappings[0].to_port;
+  mappingDialogOpen.value = true;
+}
+
+function confirmMapping() {
+  if (!pendingConnect.value) return;
+  if (!mappingFromPort.value || !mappingToPort.value) return;
+
+  pushEdge(pendingConnect.value.source, pendingConnect.value.target, {
+    from_port: mappingFromPort.value,
+    to_port: mappingToPort.value
+  });
+
+  mappingDialogOpen.value = false;
+  pendingConnect.value = null;
 }
 
 function onNodeClick(evt) {
@@ -563,6 +684,97 @@ async function onDeleteWorkflow() {
   } else {
     ElMessage.error(res.error || '删除失败');
   }
+}
+
+function computeInitialInputKeys() {
+  const extra = safeParseJson(initialInputsJson.value);
+  const keys = new Set(Object.keys((extra && typeof extra === 'object') ? extra : {}));
+  if (firstInputMode.value === 'text') keys.add('text');
+  if (firstInputMode.value === 'file_ids') keys.add('file_ids');
+  return keys;
+}
+
+function onValidate() {
+  // 清理旧错误标记
+  vfNodes.value = vfNodes.value.map(n => {
+    const ui = n.data?.ui || {};
+    const nextUi = { ...ui };
+    delete nextUi.error;
+    return { ...n, data: { ...n.data, ui: nextUi } };
+  });
+
+  const errors = [];
+
+  // 1) Edge 校验（端口存在 + 类型匹配）
+  for (const e of vfEdges.value) {
+    const src = vfNodes.value.find(n => n.id === e.source);
+    const tgt = vfNodes.value.find(n => n.id === e.target);
+    if (!src || !tgt) {
+      errors.push({ type: 'edge', id: e.id, error: 'edge source/target 不存在' });
+      continue;
+    }
+    const fp = e.data?.from_port;
+    const tp = e.data?.to_port;
+    if (!fp || !tp) {
+      errors.push({ type: 'edge', id: e.id, error: 'edge 端口映射未设置' });
+      continue;
+    }
+    const out = (src.data?.outputs || []).find(p => p.name === fp);
+    const inn = (tgt.data?.inputs || []).find(p => p.name === tp);
+    if (!out) errors.push({ type: 'edge', id: e.id, error: `from_port 不存在: ${fp}` });
+    if (!inn) errors.push({ type: 'edge', id: e.id, error: `to_port 不存在: ${tp}` });
+    if (out && inn && !isTypeCompatible(out.type, inn.type)) {
+      errors.push({ type: 'edge', id: e.id, error: `类型不匹配: ${fp}(${out.type||'any'}) -> ${tp}(${inn.type||'any'})` });
+    }
+  }
+
+  // 2) Required 输入校验
+  const initialKeys = computeInitialInputKeys();
+  const providedByEdges = new Map(); // nodeId -> Set(port)
+  for (const e of vfEdges.value) {
+    const tp = e.data?.to_port;
+    if (!tp) continue;
+    if (!providedByEdges.has(e.target)) providedByEdges.set(e.target, new Set());
+    providedByEdges.get(e.target).add(tp);
+  }
+
+  for (const n of vfNodes.value) {
+    const reqPorts = (n.data?.inputs || []).filter(p => p.required).map(p => p.name);
+    const provided = providedByEdges.get(n.id) || new Set();
+    const missing = reqPorts.filter(p => !(provided.has(p) || initialKeys.has(p)));
+    if (missing.length > 0) {
+      errors.push({ type: 'node', id: n.id, error: `缺少必填输入: ${missing.join(', ')}` });
+      setNodeUiFlag(n.id, { error: true });
+    }
+  }
+
+  // 3) 环检测（Kahn）
+  const inDeg = new Map(vfNodes.value.map(n => [n.id, 0]));
+  const outAdj = new Map(vfNodes.value.map(n => [n.id, []]));
+  for (const e of vfEdges.value) {
+    if (!inDeg.has(e.target) || !outAdj.has(e.source)) continue;
+    inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1);
+    outAdj.get(e.source).push(e.target);
+  }
+  const q = [];
+  for (const [id, d] of inDeg.entries()) if (d === 0) q.push(id);
+  const topo = [];
+  while (q.length) {
+    const id = q.shift();
+    topo.push(id);
+    for (const nb of outAdj.get(id) || []) {
+      inDeg.set(nb, (inDeg.get(nb) || 0) - 1);
+      if (inDeg.get(nb) === 0) q.push(nb);
+    }
+  }
+  if (topo.length !== vfNodes.value.length) {
+    errors.push({ type: 'graph', error: '存在循环依赖（有环），无法拓扑执行' });
+  }
+
+  const ok = errors.length === 0;
+  runResult.value = JSON.stringify({ success: ok, errors, topo }, null, 2);
+  if (ok) ElMessage.success('检查通过');
+  else ElMessage.warning(`检查发现问题：${errors.length} 项（已标红部分节点）`);
 }
 
 async function onRun() {
