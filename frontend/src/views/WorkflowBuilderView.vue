@@ -62,28 +62,47 @@
         <el-card shadow="never" style="margin-top: 16px">
           <template #header>
             <div class="card-header">
-              <span>全局输入（initial_inputs）</span>
+              <span>全局变量（vars）</span>
+              <el-button size="small" @click="addVar">新增变量</el-button>
             </div>
           </template>
 
-          <el-select v-model="firstInputMode" style="width:100%">
-            <el-option label="text" value="text" />
-            <el-option label="file_ids" value="file_ids" />
-          </el-select>
+          <el-table :data="workflowVars" size="small" style="width:100%" empty-text="暂无变量">
+            <el-table-column label="name" min-width="120">
+              <template #default="scope">
+                <el-input v-model="scope.row.name" placeholder="变量名" />
+              </template>
+            </el-table-column>
+            <el-table-column label="type" width="110">
+              <template #default="scope">
+                <el-select v-model="scope.row.type" style="width:100%">
+                  <el-option label="any" value="any" />
+                  <el-option label="text" value="text" />
+                  <el-option label="json" value="json" />
+                  <el-option label="number" value="number" />
+                  <el-option label="bool" value="bool" />
+                  <el-option label="file_ids" value="file_ids" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="value" min-width="180">
+              <template #default="scope">
+                <el-input v-model="scope.row.value" placeholder="值（json/数组请用 JSON 字符串）" />
+              </template>
+            </el-table-column>
+            <el-table-column label="" width="80">
+              <template #default="scope">
+                <el-button size="small" type="danger" @click="removeVar(scope.$index)">删</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
 
-          <div style="margin-top: 8px">
-            <template v-if="firstInputMode==='text'">
-              <el-input v-model="firstInputText" type="textarea" :rows="3" placeholder="initial_inputs.text" />
-            </template>
-            <template v-else>
-              <el-select v-model="firstInputFileIds" multiple filterable placeholder="选择文件" style="width:100%">
-                <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.original_name} (${f.id})`" :value="f.id" />
-              </el-select>
-            </template>
+          <div style="margin-top:8px;color:#909399;font-size:12px;">
+            节点输入绑定可引用：var:变量名 或 node:&lt;节点ID&gt;:&lt;输出端口&gt;。
           </div>
 
-          <div style="margin-top: 10px; font-weight: 600;">额外 initial_inputs（JSON）</div>
-          <el-input v-model="initialInputsJson" type="textarea" :rows="4" placeholder='例如：{"foo": "bar"}' />
+          <div style="margin-top: 10px; font-weight: 600;">运行时额外 initial_inputs（可选，JSON）</div>
+          <el-input v-model="initialInputsJson" type="textarea" :rows="3" placeholder='例如：{"text":"..."}' />
         </el-card>
       </el-col>
 
@@ -141,6 +160,41 @@
           <el-option v-for="c in (configsByType[activeNode.data.node_type] || [])" :key="c.id" :label="`${c.name} (${c.id})${c.is_preset ? ' [preset]' : ''}`" :value="c.id" />
         </el-select>
 
+        <div style="margin-top: 14px; font-weight:600;">输入绑定（Bindings）</div>
+        <div style="color:#909399;font-size:12px;margin:6px 0 8px;">
+          先连线 A→B，再在 B 的输入端口选择引用 A 的输出变量；也可选择全局 var。
+        </div>
+
+        <el-form label-width="110px" size="small">
+          <el-form-item v-for="p in (activeNode.data.inputs || [])" :key="p.name" :label="p.name + (p.required ? ' *' : '')">
+            <el-select
+              style="width:100%"
+              :model-value="(activeNode.data.input_bindings || {})[p.name] || ''"
+              @update:model-value="(v)=> setInputBinding(activeNode.id, p.name, v)"
+              placeholder="选择来源"
+              clearable
+            >
+              <el-option label="(空)" value="" />
+              <el-option-group label="全局变量 vars">
+                <el-option
+                  v-for="opt in varOptionsForInput(p)"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-option-group>
+              <el-option-group label="上游节点输出">
+                <el-option
+                  v-for="opt in upstreamOptionsForInput(activeNode.id, p)"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-option-group>
+            </el-select>
+          </el-form-item>
+        </el-form>
+
         <div style="margin-top: 12px; display:flex; gap:8px;">
           <el-button type="danger" @click="removeActiveNode">删除节点</el-button>
           <el-button @click="drawerOpen=false">关闭</el-button>
@@ -149,74 +203,18 @@
       <el-empty v-else description="请选择节点" />
     </el-drawer>
 
-    <el-dialog v-model="mappingDialogOpen" title="选择端口映射" width="520px">
-      <div v-if="pendingConnect">
-        <div style="color:#909399; font-size:12px; margin-bottom:8px;">
-          存在多个可匹配端口组合，请选择本次连线的映射。
-        </div>
 
-        <div style="font-weight:600; margin: 8px 0;">From</div>
-        <el-select v-model="mappingFromPort" style="width:100%" placeholder="选择输出端口">
-          <el-option v-for="p in nodeOutputPorts(pendingConnect.source)" :key="p.name" :label="`${p.name}${p.type ? ' : ' + p.type : ''}`" :value="p.name" />
-        </el-select>
-
-        <div style="font-weight:600; margin: 12px 0 8px;">To</div>
-        <el-select v-model="mappingToPort" style="width:100%" placeholder="选择输入端口">
-          <el-option v-for="p in compatibleInputPorts(pendingConnect.target, pendingConnect.source, mappingFromPort)" :key="p.name" :label="`${p.name}${p.type ? ' : ' + p.type : ''}${p.required ? ' *' : ''}`" :value="p.name" />
-        </el-select>
-      </div>
-      <template #footer>
-        <el-button @click="mappingDialogOpen=false">取消</el-button>
-        <el-button type="primary" :disabled="!mappingFromPort || !mappingToPort" @click="confirmMapping">确认</el-button>
-      </template>
-    </el-dialog>
-
-    <el-drawer v-model="edgeDrawerOpen" title="连线编辑" size="420px" destroy-on-close>
+    <el-drawer v-model="edgeDrawerOpen" title="连线" size="420px" destroy-on-close>
       <div v-if="activeEdge">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="Edge ID">{{ activeEdge.id }}</el-descriptions-item>
+          <el-descriptions-item label="From">{{ activeEdge.source }}</el-descriptions-item>
+          <el-descriptions-item label="To">{{ activeEdge.target }}</el-descriptions-item>
         </el-descriptions>
 
-        <div style="margin-top: 12px; font-weight: 600;">From</div>
-        <el-select
-          :model-value="activeEdge.source"
-          style="width:100%"
-          @update:model-value="(v)=> updateActiveEdge({ source: v, sourceHandle: 'out', data: { from_port: '', to_port: activeEdge.data?.to_port || '' } })"
-        >
-          <el-option v-for="n in vfNodes" :key="n.id" :label="`${n.data?.label || n.data?.node_type} (${n.id})`" :value="n.id" />
-        </el-select>
-        <el-select
-          style="width:100%; margin-top:8px;"
-          :disabled="!activeEdge.source"
-          :model-value="activeEdge.data?.from_port"
-          @update:model-value="(v)=> updateActiveEdge({ data: { ...(activeEdge.data||{}), from_port: v } })"
-          placeholder="选择输出端口"
-        >
-          <el-option v-for="p in nodeOutputPorts(activeEdge.source)" :key="p.name" :label="`${p.name}${p.type ? ' : ' + p.type : ''}`" :value="p.name" />
-        </el-select>
-
-        <div style="margin-top: 12px; font-weight: 600;">To</div>
-        <el-select
-          :model-value="activeEdge.target"
-          style="width:100%"
-          @update:model-value="(v)=> updateActiveEdge({ target: v, targetHandle: 'in', data: { from_port: activeEdge.data?.from_port || '', to_port: '' } })"
-        >
-          <el-option v-for="n in vfNodes" :key="n.id" :label="`${n.data?.label || n.data?.node_type} (${n.id})`" :value="n.id" />
-        </el-select>
-        <el-select
-          style="width:100%; margin-top:8px;"
-          :disabled="!activeEdge.target"
-          :model-value="activeEdge.data?.to_port"
-          @update:model-value="(v)=> updateActiveEdge({ data: { ...(activeEdge.data||{}), to_port: v } })"
-          placeholder="选择输入端口"
-        >
-          <el-option
-            v-for="p in compatibleInputPorts(activeEdge.target, activeEdge.source, activeEdge.data?.from_port)"
-            :key="p.name"
-            :label="`${p.name}${p.type ? ' : ' + p.type : ''}${p.required ? ' *' : ''}`"
-            :value="p.name"
-          />
-        </el-select>
+        <div style="margin-top: 12px; color:#909399; font-size:12px;">
+          端口映射不在边上配置；请到目标节点“输入绑定”里选择来自上游节点输出或全局变量。
+        </div>
 
         <div style="margin-top: 12px; display:flex; gap:8px;">
           <el-button type="danger" @click="removeActiveEdge">删除连线</el-button>
@@ -281,11 +279,8 @@ const activeNode = ref(null);
 const edgeDrawerOpen = ref(false);
 const activeEdge = ref(null);
 
-// 连接时端口映射选择（当存在多个可匹配组合）
-const mappingDialogOpen = ref(false);
-const pendingConnect = ref(null); // { source, target }
-const mappingFromPort = ref('');
-const mappingToPort = ref('');
+// 全局变量（替代在边上配置端口映射）
+const workflowVars = ref([]); // [{ name, type, value }]
 
 // 连接引导：高亮可连接节点
 const connectingSourceId = ref('');
@@ -432,19 +427,6 @@ function onConnectEnd() {
   clearConnectUi();
 }
 
-function pushEdge(source, target, mapping) {
-  const id = Math.random().toString(16).slice(2, 12);
-  vfEdges.value.push({
-    id,
-    source,
-    target,
-    sourceHandle: 'out',
-    targetHandle: 'in',
-    data: { ...mapping },
-    label: `${mapping.from_port} → ${mapping.to_port}`
-  });
-}
-
 function onConnect(params) {
   const mappings = listCompatibleMappings(params.source, params.target);
   if (mappings.length === 0) {
@@ -452,30 +434,14 @@ function onConnect(params) {
     return;
   }
 
-  // 单一候选：直接连
-  if (mappings.length === 1) {
-    pushEdge(params.source, params.target, mappings[0]);
-    return;
-  }
-
-  // 多候选：弹窗选择
-  pendingConnect.value = { source: params.source, target: params.target };
-  mappingFromPort.value = mappings[0].from_port;
-  mappingToPort.value = mappings[0].to_port;
-  mappingDialogOpen.value = true;
-}
-
-function confirmMapping() {
-  if (!pendingConnect.value) return;
-  if (!mappingFromPort.value || !mappingToPort.value) return;
-
-  pushEdge(pendingConnect.value.source, pendingConnect.value.target, {
-    from_port: mappingFromPort.value,
-    to_port: mappingToPort.value
+  const id = Math.random().toString(16).slice(2, 12);
+  vfEdges.value.push({
+    id,
+    source: params.source,
+    target: params.target,
+    sourceHandle: 'out',
+    targetHandle: 'in',
   });
-
-  mappingDialogOpen.value = false;
-  pendingConnect.value = null;
 }
 
 function onNodeClick(evt) {
@@ -561,6 +527,58 @@ function compatibleInputPorts(targetNodeId, sourceNodeId, fromPortName) {
   return ins.filter(i => isTypeCompatible(outType, i.type));
 }
 
+function addVar() {
+  workflowVars.value.push({ name: '', type: 'any', value: '' });
+}
+
+function removeVar(index) {
+  workflowVars.value.splice(index, 1);
+}
+
+function setInputBinding(nodeId, inputPortName, ref) {
+  vfNodes.value = vfNodes.value.map(n => {
+    if (n.id !== nodeId) return n;
+    const next = { ...(n.data?.input_bindings || {}) };
+    if (!ref) delete next[inputPortName];
+    else next[inputPortName] = ref;
+    return { ...n, data: { ...n.data, input_bindings: next } };
+  });
+
+  if (activeNode.value?.id === nodeId) {
+    activeNode.value = vfNodes.value.find(n => n.id === nodeId) || activeNode.value;
+  }
+}
+
+function varOptionsForInput(inputPort) {
+  const inType = inputPort?.type || 'any';
+  return (workflowVars.value || [])
+    .filter(v => v?.name)
+    .filter(v => isTypeCompatible(v.type || 'any', inType))
+    .map(v => ({
+      label: `${v.name} (${v.type || 'any'})`,
+      value: `var:${v.name}`
+    }));
+}
+
+function upstreamOptionsForInput(targetNodeId, inputPort) {
+  const inType = inputPort?.type || 'any';
+  const upstreamIds = Array.from(new Set((vfEdges.value || []).filter(e => e.target === targetNodeId).map(e => e.source)));
+
+  const opts = [];
+  for (const uid of upstreamIds) {
+    const up = getNodeById(uid);
+    if (!up) continue;
+    for (const out of (up.data?.outputs || [])) {
+      if (!isTypeCompatible(out.type || 'any', inType)) continue;
+      opts.push({
+        label: `${up.data?.label || up.data?.node_type}(${uid}).${out.name}`,
+        value: `node:${uid}:${out.name}`
+      });
+    }
+  }
+  return opts;
+}
+
 async function refreshAll() {
   loading.value = true;
   try {
@@ -585,11 +603,10 @@ function newWorkflow() {
   workflowId.value = '';
   workflowName.value = '';
   workflowDesc.value = '';
+  workflowVars.value = [];
   vfNodes.value = [];
   vfEdges.value = [];
   runResult.value = '';
-  firstInputText.value = '';
-  firstInputFileIds.value = [];
   initialInputsJson.value = '{}';
 }
 
@@ -602,6 +619,11 @@ async function onLoadWorkflow() {
   workflowId.value = wf.id;
   workflowName.value = wf.name;
   workflowDesc.value = wf.description;
+  workflowVars.value = (wf.variables || []).map(v => ({
+    name: v.name,
+    type: v.type || 'any',
+    value: (v.value ?? '')
+  }));
 
   vfNodes.value = (wf.nodes || []).map(n => ({
     id: n.id,
@@ -613,15 +635,30 @@ async function onLoadWorkflow() {
     }
   }));
 
+  // 连接边（link）：不保存端口映射；端口映射在节点 input_bindings 中配置
   vfEdges.value = (wf.edges || []).map(e => ({
     id: e.id,
     source: e.from_node_id,
     target: e.to_node_id,
     sourceHandle: 'out',
     targetHandle: 'in',
-    data: { from_port: e.from_port, to_port: e.to_port },
-    label: `${e.from_port} → ${e.to_port}`
   }));
+
+  // 载入节点 input_bindings
+  const nodeById = new Map(vfNodes.value.map(n => [n.id, n]));
+  for (const n of (wf.nodes || [])) {
+    const vn = nodeById.get(n.id);
+    if (!vn) continue;
+    if (n.input_bindings) vn.data.input_bindings = { ...(n.input_bindings || {}) };
+  }
+
+  // 兼容旧工作流：若边上带端口映射，自动转为目标节点的 input_bindings
+  for (const e of (wf.edges || [])) {
+    if (!e.from_port || !e.to_port) continue;
+    const tgt = nodeById.get(e.to_node_id);
+    if (!tgt) continue;
+    tgt.data.input_bindings = { ...(tgt.data.input_bindings || {}), [e.to_port]: `node:${e.from_node_id}:${e.from_port}` };
+  }
 }
 
 async function onSaveWorkflow() {
@@ -630,9 +667,9 @@ async function onSaveWorkflow() {
     return;
   }
 
-  const invalidEdge = vfEdges.value.find(e => !e.source || !e.target || !(e.data?.from_port) || !(e.data?.to_port));
+  const invalidEdge = vfEdges.value.find(e => !e.source || !e.target);
   if (invalidEdge) {
-    ElMessage.warning('存在不完整连线（未选择端口映射）');
+    ElMessage.warning('存在不完整连线');
     return;
   }
 
@@ -642,18 +679,20 @@ async function onSaveWorkflow() {
       id: workflowId.value || undefined,
       name: workflowName.value.trim(),
       description: workflowDesc.value,
+      variables: workflowVars.value,
       nodes: vfNodes.value.map(n => ({
         id: n.id,
         node_type: n.data?.node_type,
         config_id: n.data?.config_id || null,
         position: n.position,
+        input_bindings: n.data?.input_bindings || null,
       })),
       edges: vfEdges.value.map(e => ({
         id: e.id,
         from_node_id: e.source,
-        from_port: e.data?.from_port,
+        from_port: null,
         to_node_id: e.target,
-        to_port: e.data?.to_port,
+        to_port: null,
       })),
     };
 
@@ -686,12 +725,72 @@ async function onDeleteWorkflow() {
   }
 }
 
-function computeInitialInputKeys() {
+function getVarByName(name) {
+  return (workflowVars.value || []).find(v => v && v.name === name) || null;
+}
+
+function parseVarValue(v) {
+  if (!v) return undefined;
+  const t = v.type || 'any';
+  const raw = v.value;
+  if (t === 'number') {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : raw;
+  }
+  if (t === 'bool') {
+    if (raw === true || raw === false) return raw;
+    if (typeof raw === 'string') return raw.toLowerCase() === 'true';
+    return Boolean(raw);
+  }
+  if (t === 'json') {
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return raw; }
+    }
+  }
+  if (t === 'file_ids') {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      const s = raw.trim();
+      if (s.startsWith('[')) {
+        try { return JSON.parse(s); } catch { /* fallthrough */ }
+      }
+      return s ? s.split(',').map(x => x.trim()).filter(Boolean) : [];
+    }
+  }
+  return raw;
+}
+
+function buildInitialInputs() {
+  const obj = {};
+  for (const v of (workflowVars.value || [])) {
+    if (!v?.name) continue;
+    obj[v.name] = parseVarValue(v);
+  }
   const extra = safeParseJson(initialInputsJson.value);
-  const keys = new Set(Object.keys((extra && typeof extra === 'object') ? extra : {}));
-  if (firstInputMode.value === 'text') keys.add('text');
-  if (firstInputMode.value === 'file_ids') keys.add('file_ids');
+  if (extra && typeof extra === 'object') Object.assign(obj, extra);
+  return obj;
+}
+
+function computeInitialInputKeys() {
+  const keys = new Set((workflowVars.value || []).map(v => v?.name).filter(Boolean));
+  const extra = safeParseJson(initialInputsJson.value);
+  for (const k of Object.keys((extra && typeof extra === 'object') ? extra : {})) keys.add(k);
   return keys;
+}
+
+function parseBinding(ref) {
+  if (!ref) return null;
+  if (ref.startsWith('var:')) return { kind: 'var', name: ref.slice(4) };
+  if (ref.startsWith('node:')) {
+    const parts = ref.split(':', 3);
+    if (parts.length === 3) return { kind: 'node', nodeId: parts[1], port: parts[2] };
+  }
+  return null;
+}
+
+function hasLink(fromId, toId) {
+  return (vfEdges.value || []).some(e => e.source === fromId && e.target === toId);
 }
 
 function onValidate() {
@@ -705,7 +804,7 @@ function onValidate() {
 
   const errors = [];
 
-  // 1) Edge 校验（端口存在 + 类型匹配）
+  // 1) Link 校验（source/target存在 + 至少存在一组可匹配端口）
   for (const e of vfEdges.value) {
     const src = vfNodes.value.find(n => n.id === e.source);
     const tgt = vfNodes.value.find(n => n.id === e.target);
@@ -713,38 +812,47 @@ function onValidate() {
       errors.push({ type: 'edge', id: e.id, error: 'edge source/target 不存在' });
       continue;
     }
-    const fp = e.data?.from_port;
-    const tp = e.data?.to_port;
-    if (!fp || !tp) {
-      errors.push({ type: 'edge', id: e.id, error: 'edge 端口映射未设置' });
-      continue;
-    }
-    const out = (src.data?.outputs || []).find(p => p.name === fp);
-    const inn = (tgt.data?.inputs || []).find(p => p.name === tp);
-    if (!out) errors.push({ type: 'edge', id: e.id, error: `from_port 不存在: ${fp}` });
-    if (!inn) errors.push({ type: 'edge', id: e.id, error: `to_port 不存在: ${tp}` });
-    if (out && inn && !isTypeCompatible(out.type, inn.type)) {
-      errors.push({ type: 'edge', id: e.id, error: `类型不匹配: ${fp}(${out.type||'any'}) -> ${tp}(${inn.type||'any'})` });
-    }
+    const ok = listCompatibleMappings(e.source, e.target).length > 0;
+    if (!ok) errors.push({ type: 'edge', id: e.id, error: '该连线两端不存在任何可兼容端口组合（类型不兼容）' });
   }
 
-  // 2) Required 输入校验
+  // 2) Required 输入校验（bindings + vars/initial_inputs）
   const initialKeys = computeInitialInputKeys();
-  const providedByEdges = new Map(); // nodeId -> Set(port)
-  for (const e of vfEdges.value) {
-    const tp = e.data?.to_port;
-    if (!tp) continue;
-    if (!providedByEdges.has(e.target)) providedByEdges.set(e.target, new Set());
-    providedByEdges.get(e.target).add(tp);
-  }
 
   for (const n of vfNodes.value) {
-    const reqPorts = (n.data?.inputs || []).filter(p => p.required).map(p => p.name);
-    const provided = providedByEdges.get(n.id) || new Set();
-    const missing = reqPorts.filter(p => !(provided.has(p) || initialKeys.has(p)));
-    if (missing.length > 0) {
-      errors.push({ type: 'node', id: n.id, error: `缺少必填输入: ${missing.join(', ')}` });
-      setNodeUiFlag(n.id, { error: true });
+    const bindings = n.data?.input_bindings || {};
+    const reqPorts = (n.data?.inputs || []).filter(p => p.required);
+
+    for (const p of reqPorts) {
+      const ref = bindings[p.name];
+      if (!ref) {
+        if (!initialKeys.has(p.name)) {
+          errors.push({ type: 'node', id: n.id, error: `缺少必填输入: ${p.name}` });
+          setNodeUiFlag(n.id, { error: true });
+        }
+        continue;
+      }
+
+      const b = parseBinding(ref);
+      if (!b) {
+        errors.push({ type: 'node', id: n.id, error: `输入绑定格式无效: ${p.name}=${ref}` });
+        setNodeUiFlag(n.id, { error: true });
+        continue;
+      }
+
+      if (b.kind === 'var') {
+        if (!getVarByName(b.name) && !initialKeys.has(b.name)) {
+          errors.push({ type: 'node', id: n.id, error: `绑定的变量不存在: ${b.name}` });
+          setNodeUiFlag(n.id, { error: true });
+        }
+      }
+
+      if (b.kind === 'node') {
+        if (!hasLink(b.nodeId, n.id)) {
+          errors.push({ type: 'node', id: n.id, error: `绑定引用未建立连线: ${b.nodeId} -> ${n.id}` });
+          setNodeUiFlag(n.id, { error: true });
+        }
+      }
     }
   }
 
@@ -787,15 +895,14 @@ async function onRun() {
     return;
   }
 
-  const extra = safeParseJson(initialInputsJson.value);
-  if (extra === null || typeof extra !== 'object') {
-    ElMessage.error('额外 initial_inputs JSON 解析失败');
-    return;
+  const initialInputs = buildInitialInputs();
+  if (initialInputsJson.value) {
+    const extra = safeParseJson(initialInputsJson.value);
+    if (extra === null) {
+      ElMessage.error('额外 initial_inputs JSON 解析失败');
+      return;
+    }
   }
-
-  const initialInputs = { ...extra };
-  if (firstInputMode.value === 'text') initialInputs.text = firstInputText.value;
-  if (firstInputMode.value === 'file_ids') initialInputs.file_ids = firstInputFileIds.value;
 
   running.value = true;
   try {

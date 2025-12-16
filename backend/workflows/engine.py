@@ -18,8 +18,67 @@ class WorkflowEngine:
         self.registry = init_registry()
         self.config_store = NodeConfigStore()
 
+    def _compile_initial_inputs(self, wf: WorkflowDefinition, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        data: Dict[str, Any] = {}
+        for v in (getattr(wf, 'variables', []) or []):
+            if isinstance(v, dict):
+                name = v.get('name')
+                if name:
+                    data[name] = v.get('value')
+            else:
+                if getattr(v, 'name', None):
+                    data[v.name] = getattr(v, 'value', None)
+        if initial_inputs:
+            data.update(initial_inputs)
+        return data
+
+    def _compile_edges_from_bindings(self, wf: WorkflowDefinition) -> WorkflowDefinition:
+        # 允许边仅作为“连接”(from_node_id -> to_node_id)，端口映射由 input_bindings 决定
+        link_set = {(e.from_node_id, e.to_node_id) for e in (wf.edges or [])}
+
+        compiled: List[WorkflowEdge] = []
+        for n in wf.nodes:
+            bindings = getattr(n, 'input_bindings', None) or {}
+            for to_port, ref in bindings.items():
+                if not ref:
+                    continue
+                if ref.startswith('var:'):
+                    continue
+                if not ref.startswith('node:'):
+                    raise ValueError(f"节点 {n.id} 输入绑定格式无效: {to_port}={ref}")
+
+                parts = ref.split(':', 2)
+                if len(parts) != 3:
+                    raise ValueError(f"节点 {n.id} 输入绑定格式无效: {to_port}={ref}")
+                _, from_node_id, from_port = parts
+
+                if (from_node_id, n.id) not in link_set:
+                    raise ValueError(f"节点 {n.id} 绑定引用未建立连接: {from_node_id} -> {n.id}")
+
+                compiled.append(
+                    WorkflowEdge(
+                        from_node_id=from_node_id,
+                        from_port=from_port,
+                        to_node_id=n.id,
+                        to_port=to_port,
+                    )
+                )
+
+        # 构造一个用于执行的 wf（仅替换 edges 为编译后的端口边）
+        wf2 = wf.model_copy(deep=True)
+        wf2.edges = compiled
+        return wf2
+
     def run(self, wf: WorkflowDefinition, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        initial_inputs = initial_inputs or {}
+        initial_inputs = self._compile_initial_inputs(wf, initial_inputs)
+
+        needs_compile = bool(getattr(wf, 'variables', []) or any(getattr(n, 'input_bindings', None) for n in (wf.nodes or [])))
+        # 若 edges 存在空端口，也视为“仅连接”，需要编译
+        if any((e.from_port is None or e.to_port is None) for e in (wf.edges or [])):
+            needs_compile = True
+
+        if needs_compile:
+            wf = self._compile_edges_from_bindings(wf)
 
         node_map = {n.id: n for n in wf.nodes}
         if not node_map:
@@ -120,7 +179,17 @@ class WorkflowEngine:
                 else:
                     inputs[e.to_port] = val
 
-            # Fill from initial_inputs if not already provided
+            # Apply var bindings (var:xxx) first
+            bindings = getattr(n, 'input_bindings', None) or {}
+            for pname, ref in bindings.items():
+                if pname in inputs:
+                    continue
+                if isinstance(ref, str) and ref.startswith('var:'):
+                    vname = ref[4:]
+                    if vname in initial_inputs:
+                        inputs[pname] = initial_inputs[vname]
+
+            # Fill from initial_inputs by same-name (fallback)
             for pname, pdef in to_inputs.items():
                 if pname not in inputs and pname in initial_inputs:
                     inputs[pname] = initial_inputs[pname]
