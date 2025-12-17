@@ -16,11 +16,11 @@ export default defineConfig({
     port: 8080,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://10.24.250.158:5000',
         changeOrigin: true
       },
       '/neo4j': {
-        target: 'http://localhost:7474',
+        target: 'http://10.24.250.158:7474',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/neo4j/, '')
       }

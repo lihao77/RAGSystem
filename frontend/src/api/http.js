@@ -3,7 +3,7 @@
  */
 
 // API基础URL
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = 'http://10.24.250.158:5000';
 
 /**
  * 通用GET请求方法

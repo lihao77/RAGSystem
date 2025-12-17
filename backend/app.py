@@ -47,7 +47,8 @@ CORS(app,
      origins=[
          'http://localhost:5173', 'http://127.0.0.1:5173',
          'http://localhost:8081', 'http://127.0.0.1:8081',
-         'http://localhost:8080', 'http://127.0.0.1:8080'
+         'http://localhost:8080', 'http://127.0.0.1:8080',
+         'http://10.24.250.158:8080', 'http://10.24.250.158:8081', 'http://10.24.250.158:5173'
      ],
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
@@ -74,12 +75,12 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # 前端静态文件服务
-@app.route('/')
-def index():
-    frontend_dist = os.path.join(os.path.dirname(__file__), '../frontend/dist')
-    if os.path.exists(os.path.join(frontend_dist, 'index.html')):
-        return send_from_directory(frontend_dist, 'index.html')
-    return jsonify({'message': '前端文件未找到'}), 404
+# @app.route('/')
+# def index():
+#     frontend_dist = os.path.join(os.path.dirname(__file__), '../frontend/dist')
+#     if os.path.exists(os.path.join(frontend_dist, 'index.html')):
+#         return send_from_directory(frontend_dist, 'index.html')
+#     return jsonify({'message': '前端文件未找到'}), 404
 
 @app.route('/<path:filename>')
 def frontend_static(filename):
