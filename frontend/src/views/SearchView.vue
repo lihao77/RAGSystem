@@ -759,6 +759,8 @@ import {
 } from '@element-plus/icons-vue';
 import { searchService } from '../api';
 
+defineOptions({ name: 'SearchView' });
+
 const router = useRouter();
 const loading = ref(false);
 const activeTab = ref('table');

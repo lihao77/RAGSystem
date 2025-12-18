@@ -50,6 +50,8 @@ import { ref, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { listFiles, uploadFiles, deleteFile, downloadUrl } from '@/api/fileService';
 
+defineOptions({ name: 'FilesView' });
+
 const files = ref([]);
 const loading = ref(false);
 const uploading = ref(false);

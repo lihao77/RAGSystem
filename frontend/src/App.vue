@@ -5,17 +5,17 @@
       </el-header> -->
       <el-container id="main">
         <el-aside :width="asideWidth" class="sidebar-aside">
-          <sidebar-menu :is-collapse="isCollapse" />
-          <!-- 折叠按钮 -->
-          <div class="collapse-btn" @click="toggleCollapse">
-            <el-icon :class="{ 'rotate-180': isCollapse }">
-              <Fold v-if="!isCollapse" />
-              <Expand v-else />
-            </el-icon>
-          </div>
+          <sidebar-menu :is-collapse="isCollapse" @toggle-collapse="toggleCollapse" />
         </el-aside>
-        <el-main>
-          <router-view />
+        <el-main class="main-content">
+          <TabBar class="main-tabbar" />
+          <div class="main-view">
+            <router-view v-slot="{ Component }">
+              <keep-alive :include="cachedNames">
+                <component :is="Component" />
+              </keep-alive>
+            </router-view>
+          </div>
         </el-main>
       </el-container>
   </div>
@@ -25,9 +25,12 @@
 import { ref } from 'vue';
 import HeaderComponent from './components/layout/HeaderComponent.vue';
 import SidebarMenu from './components/layout/SidebarMenu.vue';
+import TabBar from './components/layout/TabBar.vue';
+import { usePageCache } from '@/composables/usePageCache';
 
 const asideWidth = ref('250px');
 const isCollapse = ref(false);
+const { cachedNames } = usePageCache();
 
 // 切换折叠状态
 const toggleCollapse = () => {
@@ -36,7 +39,7 @@ const toggleCollapse = () => {
 };
 </script>
 
-<style>
+<style scoped>
 .app-container {
   height: 100vh;
   width: 100%;
@@ -61,47 +64,33 @@ const toggleCollapse = () => {
 }
 
 .sidebar-aside {
-  overflow: visible;
+  overflow: hidden;
   position: relative;
-}
-
-.collapse-btn {
-  position: fixed;
-  top: 13px;
-  left: calc(var(--el-aside-width, 300px) - 15px);
-  width: 30px;
-  height: 30px;
-  background-color: #409EFF;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 100;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s;
-}
-
-.collapse-btn:hover {
-  background-color: #66b1ff;
-  transform: scale(1.1);
-}
-
-.collapse-btn .el-icon {
-  color: white;
-  font-size: 18px;
-  transition: transform 0.3s;
-}
-
-.collapse-btn .el-icon.rotate-180 {
-  transform: rotate(180deg);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
 }
 
 .el-main {
   background-color: #ffffff;
   color: #333;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.main-tabbar {
+  flex-shrink: 0;
+}
+
+.main-view {
+  flex: 1;
   padding: 20px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 #main {

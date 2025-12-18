@@ -128,6 +128,8 @@ import {
   executeNode
 } from '@/api/nodeService';
 
+defineOptions({ name: 'NodesView' });
+
 const loading = ref(false);
 const saving = ref(false);
 const executing = ref(false);

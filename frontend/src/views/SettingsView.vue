@@ -241,6 +241,8 @@ import {
   validateConfig
 } from '@/api/config'
 
+defineOptions({ name: 'SettingsView' })
+
 // 表单引用
 const configForm = ref(null)
 

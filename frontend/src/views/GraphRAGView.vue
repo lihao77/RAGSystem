@@ -485,6 +485,8 @@ import {
 import ForceGraph from 'force-graph';
 import * as graphragService from '../api/graphragService';
 
+defineOptions({ name: 'GraphRAGView' });
+
 // 配置 marked
 marked.setOptions({
   breaks: true, // 支持换行
@@ -1151,7 +1153,7 @@ function formatContent(text) {
 <style scoped>
 /* 容器 */
 .graphrag-container {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: #f0f2f5;

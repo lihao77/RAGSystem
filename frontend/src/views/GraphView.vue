@@ -98,6 +98,8 @@ import * as echarts from 'echarts';
 import 'echarts-gl';
 import { graphConfig } from '../config';
 
+defineOptions({ name: 'GraphView' });
+
 const router = useRouter();
 const loading = ref(true);
 const graphContainer = ref(null);

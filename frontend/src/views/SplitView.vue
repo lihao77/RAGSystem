@@ -48,6 +48,8 @@ import MapView from '../components/visualization/MapView.vue';
 import RelationshipGraph from '../components/visualization/RelationshipGraph.vue';
 import { entityService } from '../api';
 
+defineOptions({ name: 'SplitView' });
+
 // 响应式状态
 const selectedEntityId = ref(null);
 const loading = ref(true);

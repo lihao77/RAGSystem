@@ -319,6 +319,8 @@ import { getNodeTypes, getConfigs } from '@/api/nodeService';
 import { listFiles } from '@/api/fileService';
 import { listWorkflows, getWorkflow, saveWorkflow, deleteWorkflow, runWorkflow } from '@/api/workflowService';
 
+defineOptions({ name: 'WorkflowBuilderView' });
+
 const loading = ref(false);
 const saving = ref(false);
 const running = ref(false);

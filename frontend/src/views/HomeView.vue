@@ -107,6 +107,8 @@ import { useRouter } from 'vue-router';
 import { getGraphStats, getRecentDocuments, getDocumentDetails } from '../api/homeService';
 import { ElMessage } from 'element-plus';
 
+defineOptions({ name: 'HomeView' });
+
 const router = useRouter();
 const loading = ref(true);
 const stats = ref({});
