@@ -31,3 +31,6 @@ export * as workflowService from './workflowService';
 
 // 导出文件管理相关服务
 export * as fileService from './fileService';
+
+// 导出向量库管理相关服务
+export * as vectorService from './vectorService';

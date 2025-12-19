@@ -97,6 +97,12 @@
           </el-icon>
           <template #title><span>文件管理</span></template>
         </el-menu-item>
+        <el-menu-item index="/vector">
+          <el-icon>
+            <Box />
+          </el-icon>
+          <template #title><span>向量库管理</span></template>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon>
             <Setting />
@@ -128,8 +134,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { 
-  Grid, Folder, Fold, Expand, DataAnalysis, Tools, Connection,
-  HomeFilled, Location, Search, ChatDotRound, Setting
+  Grid, Folder, Box, Fold, Expand, DataAnalysis, Tools, Connection,
+  HomeFilled, Location, Search, ChatDotRound, Setting, Share
 } from '@element-plus/icons-vue';
 
 // 接收 props

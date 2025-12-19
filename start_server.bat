@@ -6,7 +6,7 @@ if exist .\frontend\ (
 )
 
 if exist .\backend\ (
-    start "后端服务" cmd /k "cd .\backend && conda activate test && python app.py"
+    start "后端服务" cmd /k "cd .\backend && conda activate ragsystem && python app.py"
 ) else (
     echo 错误：找不到后端目录
 )

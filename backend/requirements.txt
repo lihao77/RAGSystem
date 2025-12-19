@@ -1,32 +1,54 @@
+# ============================================
+# RAGSystem Requirements
+# 版本: v2.0
+# 更新日期: 2025-01-18
+# Python版本: 3.10+
+# ============================================
+
 # Flask核心框架
 Flask==2.3.3
 Flask-CORS==4.0.0
+Werkzeug==2.3.7
 
 # Neo4j数据库驱动
-neo4j==5.13.0
+neo4j==6.0.3
 
 # HTTP请求库
-requests==2.31.0
+requests==2.32.5
 
 # 环境变量管理
 python-dotenv==1.0.0
 
 # 配置管理
-pydantic>=2.0.0
-PyYAML>=6.0
+pydantic==2.12.5
+PyYAML==6.0.3
 
 # 日志处理
 coloredlogs==15.0.1
 
-# 文件处理
-Werkzeug==2.3.7
-
 # 知识图谱构建依赖
-llmjson>=1.0.0
-json2graph-for-review>=0.1.0
-python-docx>=1.1.0
-tiktoken>=0.7.0
-json-repair>=0.25.0
+python-docx==1.2.0
+tiktoken==0.12.0
+json-repair==0.54.3
+
+# 向量数据库和语义搜索
+chromadb==0.4.22
+sentence-transformers==5.2.0  # 升级以兼容新版依赖
+jieba==0.42.1
+
+# 数据处理
+numpy==1.26.4  # 固定版本以兼容chromadb
+pandas==2.3.3
+
+# 自定义依赖（需源码安装）
+# llmjson: git+https://github.com/lihao77/llmjson.git
+# json2graph: git+https://github.com/lihao77/json2graph-for-review.git
+
+# 可选依赖（由上述包自动安装）
+# transformers==4.57.3
+# torch==2.9.1
+# scikit-learn==1.7.2
+# scipy==1.15.3
 
 # JSON处理（Python内置，但列出以确保兼容性）
 # json - 内置模块

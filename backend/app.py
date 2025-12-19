@@ -6,6 +6,9 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'  # 禁用 ChromaDB 遥测
+
 import logging
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -23,6 +26,7 @@ from routes.config import config_bp
 from routes.nodes import nodes_bp
 from routes.workflows import workflow_bp
 from routes.files import files_bp
+from routes.vector_management import vector_management_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -68,6 +72,7 @@ app.register_blueprint(config_bp, url_prefix='/api/config')
 app.register_blueprint(nodes_bp)  # 已包含 url_prefix='/api/nodes'
 app.register_blueprint(workflow_bp)  # /api/workflows
 app.register_blueprint(files_bp)  # /api/files
+app.register_blueprint(vector_management_bp)  # /api/vector
 
 # 静态文件服务
 @app.route('/uploads/<filename>')

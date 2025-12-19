@@ -70,6 +70,50 @@ def get_default_config(node_type):
         return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
 
 
+@nodes_bp.route('/data-types', methods=['GET'])
+def get_data_types():
+    """获取所有节点使用的数据类型
+    
+    从所有注册的节点中提取 inputs 和 outputs 的 type 字段，
+    返回去重后的类型列表，供前端动态生成全局变量类型选项
+    """
+    registry = get_node_registry()
+    definitions = registry.list_all()
+    
+    # 收集所有类型
+    types_set = set()
+    
+    for definition in definitions:
+        # 从输入中提取类型
+        for input_def in definition.inputs:
+            if 'type' in input_def:
+                types_set.add(input_def['type'])
+        
+        # 从输出中提取类型
+        for output_def in definition.outputs:
+            if 'type' in output_def:
+                types_set.add(output_def['type'])
+    
+    # 转换为列表并排序
+    types_list = sorted(list(types_set))
+    
+    # 添加常用的通用类型（如果不存在）
+    common_types = ['any', 'text', 'string', 'integer', 'number', 'bool', 'json', 'array', 'object']
+    for t in common_types:
+        if t not in types_set:
+            types_list.append(t)
+    
+    return jsonify({
+        "success": True,
+        "data": {
+            "types": types_list,
+            "count": len(types_list),
+            "from_nodes": sorted(list(types_set)),  # 来自节点定义的类型
+            "additional": [t for t in common_types if t not in types_set]  # 额外添加的通用类型
+        }
+    })
+
+
 # ========== 配置管理 ==========
 
 @nodes_bp.route('/configs', methods=['GET'])

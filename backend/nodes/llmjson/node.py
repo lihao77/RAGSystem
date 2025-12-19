@@ -22,8 +22,8 @@ class LLMJsonNode(INode):
             category="process",
             version="1.0.0",
             inputs=[
-                {"name": "file_ids", "type": "file_list", "description": "文件ID列表（来自文件管理）", "required": False, "multiple": True},
-                {"name": "files", "type": "file_list", "description": "输入文件路径列表（兼容旧方式）", "required": False, "multiple": True},
+                {"name": "file_ids", "type": "array", "description": "文件ID列表（来自文件管理）", "required": False, "multiple": True},
+                {"name": "files", "type": "array", "description": "输入文件路径列表（兼容旧方式）", "required": False, "multiple": True},
                 {"name": "text", "type": "text", "description": "直接输入文本", "required": False}
             ],
             outputs=[

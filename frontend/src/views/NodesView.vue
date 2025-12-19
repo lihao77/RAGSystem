@@ -66,16 +66,8 @@
           </template>
 
           <el-alert
-            v-if="selectedNodeType === 'llmjson'"
-            title="LLMJson 节点：inputs 支持 text 或 files（目前页面先提供 text）"
-            type="info"
-            :closable="false"
-            show-icon
-            style="margin-bottom: 12px"
-          />
-          <el-alert
-            v-if="selectedNodeType === 'json2graph'"
-            title="Json2Graph 节点：inputs 需要 json_data（页面用 JSON 文本输入）"
+            v-if="selectedDefinition && selectedDefinition.inputs && selectedDefinition.inputs.length > 0"
+            :title="`该节点需要 ${selectedDefinition.inputs.length} 个输入参数`"
             type="info"
             :closable="false"
             show-icon
@@ -90,16 +82,94 @@
             placeholder="请输入配置 JSON（与后端节点配置字段一致）"
           />
 
-          <div class="section-title" style="margin-top: 12px">执行输入</div>
-          <template v-if="selectedNodeType === 'llmjson'">
-            <el-input v-model="inputText" type="textarea" :rows="6" placeholder="输入文本（会传给 llmjson 节点的 inputs.text）" />
-          </template>
-          <template v-else-if="selectedNodeType === 'json2graph'">
-            <el-input v-model="inputJsonData" type="textarea" :rows="6" placeholder="输入 json_data（会传给 json2graph 节点的 inputs.json_data）" />
-          </template>
-          <template v-else>
-            <el-input disabled placeholder="请选择节点类型" />
-          </template>
+          <div class="section-title" style="margin-top: 12px">
+            执行输入
+            <el-text size="small" type="info" style="margin-left: 8px">
+              (动态生成，基于节点定义)
+            </el-text>
+          </div>
+          
+          <!-- 动态生成输入表单 -->
+          <div v-if="selectedDefinition && selectedDefinition.inputs && selectedDefinition.inputs.length > 0" class="dynamic-inputs">
+            <el-form label-width="120px" size="small">
+              <el-form-item 
+                v-for="input in selectedDefinition.inputs" 
+                :key="input.name"
+                :label="input.name"
+                :required="input.required"
+              >
+                <!-- text 类型 -> textarea -->
+                <el-input 
+                  v-if="input.type === 'text'"
+                  v-model="dynamicInputs[input.name]"
+                  type="textarea"
+                  :rows="4"
+                  :placeholder="input.description"
+                />
+                
+                <!-- string 类型 -> input -->
+                <el-input 
+                  v-else-if="input.type === 'string'"
+                  v-model="dynamicInputs[input.name]"
+                  :placeholder="input.description"
+                />
+                
+                <!-- integer/number 类型 -> input-number -->
+                <el-input-number 
+                  v-else-if="input.type === 'integer' || input.type === 'number'"
+                  v-model="dynamicInputs[input.name]"
+                  style="width: 100%"
+                />
+                
+                <!-- bool 类型 -> switch -->
+                <el-switch 
+                  v-else-if="input.type === 'bool'"
+                  v-model="dynamicInputs[input.name]"
+                />
+                
+                <!-- json 类型 -> textarea (JSON) -->
+                <el-input 
+                  v-else-if="input.type === 'json'"
+                  v-model="dynamicInputs[input.name]"
+                  type="textarea"
+                  :rows="4"
+                  :placeholder="`${input.description} (JSON 格式)`"
+                />
+                
+                <!-- array 类型 -> textarea (JSON array) -->
+                <el-input 
+                  v-else-if="input.type === 'array'"
+                  v-model="dynamicInputs[input.name]"
+                  type="textarea"
+                  :rows="3"
+                  :placeholder="`${input.description} (JSON 数组格式)`"
+                />
+                
+                <!-- 其他类型 -> 通用 input -->
+                <el-input 
+                  v-else
+                  v-model="dynamicInputs[input.name]"
+                  :placeholder="`${input.description} (${input.type})`"
+                />
+                
+                <el-text size="small" type="info" style="margin-top: 4px">
+                  类型: {{ input.type }} {{ input.required ? '(必填)' : '(可选)' }}
+                </el-text>
+              </el-form-item>
+            </el-form>
+          </div>
+          
+          <!-- 无输入的节点 -->
+          <el-alert 
+            v-else-if="selectedDefinition && (!selectedDefinition.inputs || selectedDefinition.inputs.length === 0)"
+            title="该节点无需输入参数"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+          
+          <!-- 未选择节点 -->
+          <el-input v-else disabled placeholder="请先选择节点类型" />
 
           <div style="margin-top: 12px; display:flex; gap:8px">
             <el-button type="success" @click="onExecute" :loading="executing" :disabled="!selectedNodeType">执行节点</el-button>
@@ -144,8 +214,8 @@ const selectedConfigId = ref('');
 const saveName = ref('');
 const configJson = ref('{}');
 
-const inputText = ref('');
-const inputJsonData = ref('{\n  "基础实体": [],\n  "状态实体": [],\n  "状态关系": []\n}');
+// 动态输入（基于节点定义）
+const dynamicInputs = ref({});
 
 const resultJson = ref('');
 
@@ -300,16 +370,42 @@ async function onExecute() {
     return;
   }
 
-  let inputs = {};
-  if (selectedNodeType.value === 'llmjson') {
-    inputs = { text: inputText.value };
-  } else if (selectedNodeType.value === 'json2graph') {
-    const jd = safeParseJson(inputJsonData.value);
-    if (!jd) {
-      ElMessage.error('json_data 解析失败');
-      return;
+  // 动态构建输入（自动处理 JSON 类型）
+  const inputs = {};
+  if (selectedDefinition.value && selectedDefinition.value.inputs) {
+    for (const inputDef of selectedDefinition.value.inputs) {
+      const name = inputDef.name;
+      let value = dynamicInputs.value[name];
+      
+      // 跳过空值（除非是必填）
+      if (!value && value !== 0 && value !== false) {
+        if (inputDef.required) {
+          ElMessage.warning(`必填参数 "${name}" 不能为空`);
+          return;
+        }
+        continue;
+      }
+      
+      // 根据类型转换
+      if (inputDef.type === 'json' || inputDef.type === 'array') {
+        // JSON/Array 类型需要解析
+        const parsed = safeParseJson(value);
+        if (parsed === null && value) {
+          ElMessage.error(`参数 "${name}" 的 JSON 格式错误`);
+          return;
+        }
+        inputs[name] = parsed;
+      } else if (inputDef.type === 'integer') {
+        inputs[name] = parseInt(value);
+      } else if (inputDef.type === 'number') {
+        inputs[name] = parseFloat(value);
+      } else if (inputDef.type === 'bool') {
+        inputs[name] = Boolean(value);
+      } else {
+        // text, string 等直接使用
+        inputs[name] = value;
+      }
     }
-    inputs = { json_data: jd };
   }
 
   executing.value = true;
@@ -371,5 +467,17 @@ onMounted(async () => {
   font-weight: 600;
   color: #303133;
   margin-bottom: 8px;
+}
+.dynamic-inputs {
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  padding: 16px;
+  background-color: #f5f7fa;
+}
+.dynamic-inputs :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+.dynamic-inputs :deep(.el-form-item__label) {
+  font-weight: 500;
 }
 </style>

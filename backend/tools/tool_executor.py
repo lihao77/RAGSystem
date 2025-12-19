@@ -49,6 +49,10 @@ def execute_tool(tool_name, arguments):
             return aggregate_statistics(**arguments)
         elif tool_name == "get_spatial_neighbors":
             return get_spatial_neighbors(**arguments)
+        elif tool_name == "query_emergency_plan":
+            return query_emergency_plan(**arguments)
+        elif tool_name == "generate_chart":
+            return generate_chart(**arguments)
         else:
             return {
                 "success": False,
@@ -785,3 +789,153 @@ def get_spatial_neighbors(entity_name, radius=1, neighbor_type=None):
     finally:
         if session:
             session.close()
+
+
+def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=None):
+    """
+    查询应急预案文档
+    
+    使用向量语义搜索从应急预案知识库中检索相关内容
+    
+    Args:
+        query: 查询问题或关键词
+        top_k: 返回结果数量，默认5
+        min_similarity: 最小相似度阈值（0-1），默认0.3
+        document_filter: 文档来源过滤（可选）
+    
+    Returns:
+        检索结果，包含文档片段、相似度、元数据
+    """
+    try:
+        from vector_store import VectorRetriever
+        
+        # 初始化检索器
+        retriever = VectorRetriever(collection_name="emergency_plans")
+        
+        # 构建过滤条件
+        filters = {}
+        if document_filter:
+            filters["document_id"] = document_filter
+        
+        # 执行向量检索
+        results = retriever.search(
+            query=query,
+            top_k=top_k * 2,  # 多取一些，然后过滤
+            filters=filters if filters else None,
+            include_distances=True
+        )
+        
+        # 过滤低相似度结果
+        filtered_results = [
+            r for r in results 
+            if r.get('similarity', 0) >= min_similarity
+        ][:top_k]
+        
+        # 格式化返回结果
+        formatted_results = []
+        for idx, result in enumerate(filtered_results):
+            formatted_results.append({
+                "rank": idx + 1,
+                "content": result['text'],
+                "similarity": round(result.get('similarity', 0), 4),
+                "source": result['metadata'].get('document_id', 'unknown'),
+                "chunk_index": result['metadata'].get('chunk_index', 0),
+                "metadata": result['metadata']
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "results": formatted_results,
+                "count": len(formatted_results),
+                "query": query,
+                "total_searched": len(results),
+                "min_similarity": min_similarity
+            },
+            "message": f"检索到 {len(formatted_results)} 条相关预案内容"
+        }
+        
+    except Exception as e:
+        logger.error(f'应急预案检索失败: {e}')
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "向量检索功能可能尚未初始化，请先索引应急预案文档"
+        }
+
+
+def generate_chart(data, question="", chart_type=None, title="", 
+                   x_field="", y_field="", series_field=""):
+    """
+    生成图表配置
+    
+    使用 ChartAgent 根据数据和问题生成 ECharts 配置
+    
+    Args:
+        data: 数据列表，每个元素是字典
+        question: 原始问题（用于智能选择图表类型）
+        chart_type: 指定图表类型（可选）
+        title: 图表标题（可选）
+        x_field: X轴字段名
+        y_field: Y轴字段名
+        series_field: 系列字段名
+    
+    Returns:
+        {
+            "success": True/False,
+            "chart_type": "折线图/柱状图/...",
+            "echarts_config": {...},
+            "data_summary": {...},
+            "message": "..."
+        }
+    """
+    try:
+        from agents import ChartAgent
+        
+        # 数据验证
+        if not data or not isinstance(data, list):
+            return {
+                "success": False,
+                "error": "数据格式错误：需要列表类型"
+            }
+        
+        if len(data) == 0:
+            return {
+                "success": False,
+                "error": "数据为空，无法生成图表"
+            }
+        
+        if len(data) < 3:
+            return {
+                "success": False,
+                "error": f"数据量过少（{len(data)}条），建议至少3条数据才能生成有意义的图表",
+                "suggestion": "可以尝试扩大时间范围或查询更多实体"
+            }
+        
+        # 创建 ChartAgent 实例
+        agent = ChartAgent()
+        
+        # 生成图表
+        result = agent.generate_chart(
+            data=data,
+            question=question,
+            chart_type=chart_type,
+            title=title,
+            x_field=x_field,
+            y_field=y_field,
+            series_field=series_field
+        )
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"生成图表失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": f"生成图表失败: {str(e)}"
+        }

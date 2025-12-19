@@ -72,6 +72,14 @@ export async function getBuiltinProcessors() {
   return await get('/api/nodes/processors/builtin');
 }
 
+/**
+ * 获取所有节点使用的数据类型
+ * 用于动态生成全局变量类型选项
+ */
+export async function getDataTypes() {
+  return await get('/api/nodes/data-types');
+}
+
 export default {
   getNodeTypes,
   getNodeType,
@@ -81,5 +89,6 @@ export default {
   saveConfig,
   deleteConfig,
   executeNode,
-  getBuiltinProcessors
+  getBuiltinProcessors,
+  getDataTypes
 };

@@ -903,6 +903,34 @@ def query():
     - 可选参数：radius（邻近层级，默认1）、neighbor_type（邻居类型：地点/设施/事件）
     - 适用场景：查找周边实体、影响范围评估
 
+📚 **文档检索工具**
+11. query_emergency_plan - 应急预案语义检索
+    - 必填参数：query（自然语言查询）
+    - 可选参数：top_k（返回数量，默认5）、min_similarity（最小相似度，默认0.3）、document_filter（文档来源过滤）
+    - 适用场景：
+      * 应急响应规范查询（Ⅰ/Ⅱ/Ⅲ/Ⅳ级响应启动条件、流程、职责）
+      * 操作指南查询（防汛减灾措施、应急处置方案、预警发布）
+      * 规范标准查询（灾害等级划分、安全阈值、技术规范）
+    - ⚠️重要：当问题涉及"应急响应"、"预案"、"措施"、"标准"、"流程"等关键词时优先使用
+    - 返回：文档片段、相似度评分、元数据（来源、章节）
+
+📊 **数据可视化工具**
+12. generate_chart - 生成数据图表
+    - 必填参数：data（数据列表，每个元素是字典）
+    - 可选参数：question（原始问题，用于智能选择图表类型）、chart_type（指定类型：line/bar/pie/scatter）、title（图表标题）、x_field（X轴字段）、y_field（Y轴字段）、series_field（系列分组字段）
+    - 支持图表类型：
+      * line（折线图）：时序趋势、演化分析
+      * bar（柱状图）：类别对比、排名展示
+      * pie（饼图）：占比分布、构成分析
+      * scatter（散点图）：相关性分析、分布特征
+    - ⚠️使用场景：
+      * 用户明确要求"图表"、"图形"、"可视化"、"趋势图"时
+      * 数据量 >= 3 条，适合可视化展示
+      * 包含可对比的数值数据
+    - ⚠️不适用：数据量 < 3 条、纯文本数据、单一数值
+    - **工作流程**：先调用查询工具获取数据 → 将查询结果传给 generate_chart
+    - 返回：ECharts 配置对象 + 数据摘要
+
 **查询示例（按场景分类）**
 
 🔹 **损失统计类问题**
@@ -959,6 +987,40 @@ def query():
 "查找南宁市周边的水库设施"
 → get_spatial_neighbors(entity_name="南宁市", radius=2, neighbor_type="设施")
 
+🔹 **应急预案查询问题**
+"Ⅰ级应急响应的启动条件是什么"
+→ query_emergency_plan(query="Ⅰ级应急响应启动条件", top_k=5)
+
+"降雨量达到多少需要启动应急响应"
+→ query_emergency_plan(query="降雨量应急响应标准", top_k=3)
+
+"防汛应急处置流程"
+→ query_emergency_plan(query="防汛应急处置流程", top_k=5)
+
+⚠️ **混合检索策略**：结合图谱和预案
+"南宁市降雨300mm应启动什么响应？"
+推荐方案（两步法）：
+  ① query_knowledge_graph_with_nl(question="南宁市降雨300mm的历史情况")
+  ② query_emergency_plan(query="降雨量应急响应启动标准")
+  说明：图谱提供历史数据，预案提供规范标准，综合给出建议
+
+🔹 **数据可视化问题**
+"南宁市2020-2023年受灾人口变化趋势图"
+推荐方案（两步法）：
+  ① query_knowledge_graph_with_nl(question="南宁市2020-2023年受灾人口数据")
+  ② generate_chart(data=<查询结果>, question="南宁市2020-2023年受灾人口趋势", chart_type="line")
+  说明：先查数据，再生成图表
+
+"对比南宁和柳州2023年受灾人口，用柱状图"
+推荐方案：
+  ① compare_entities(entity_names=["南宁市","柳州市"], time_range=["2023-01-01","2023-12-31"], compare_attributes=["受灾人口"])
+  ② generate_chart(data=<对比结果>, chart_type="bar")
+
+⚠️ **图表生成注意事项**：
+- 必须先有数据（≥3条记录），再生成图表
+- ChartAgent 不查询数据，只负责数据→图表配置转换
+- 如果查询结果 < 3 条，应告知用户数据量不足，无法生成有意义的图表
+
 🔹 **精确Cypher查询**（高级用户）
 "查询所有包含'潘厂水库'的状态节点"
 → execute_cypher_query(cypher="MATCH (s:State) WHERE s.id CONTAINS '潘厂水库' RETURN s LIMIT 10")
@@ -967,6 +1029,18 @@ def query():
 
 ```
 问题分析
+    ├─ 是否涉及应急预案/规范标准？
+    │   ├─ 是（包含"应急响应"、"预案"、"措施"、"标准"、"流程"、"启动条件"等）
+    │   │   ├─ 仅查预案 → query_emergency_plan
+    │   │   └─ 需结合历史数据 → query_nl + query_emergency_plan（混合检索）
+    │   └─ 否 → 继续判断（查图谱）
+    │
+    ├─ 是否要求数据可视化？
+    │   ├─ 是（包含"图表"、"图形"、"可视化"、"趋势图"、"柱状图"等）
+    │   │   └─ 查询工具 + generate_chart（两步法）
+    │   │       ⚠️ 注意：先查数据（≥3条），再生成图表
+    │   └─ 否 → 继续判断
+    │
     ├─ 是否涉及时间？
     │   ├─ 是 → 问题是否包含"具体事件+年份"？
     │   │   ├─ 是（如"潘厂水库2020年影响"）→ 先用 query_nl 获取状态ID，再用 find_causal_chain
@@ -975,6 +1049,7 @@ def query():
     │
     ├─ 是否是对比分析？
     │   ├─ 是（包含"比较"、"对比"、"vs"等）→ compare_entities
+    │   │   └─ 如果要求图表 → + generate_chart
     │   └─ 否 → 继续判断
     │
     ├─ 是否是因果关系？
@@ -989,6 +1064,7 @@ def query():
     │
     ├─ 是否是趋势分析？
     │   ├─ 是（包含"趋势"、"变化"、"增长"等）→ analyze_temporal_pattern
+    │   │   └─ 如果要求图表 → + generate_chart
     │   └─ 否 → 继续判断
     │
     ├─ 是否是空间关系？
@@ -1010,6 +1086,8 @@ def query():
 
 | 关键词 | 推荐工具 | 注意事项 |
 |--------|---------|---------|
+| 应急响应、预案、措施、标准、流程 | query_emergency_plan | 查规范文档，非历史数据 |
+| 图表、图形、可视化、趋势图 | 查询工具 → generate_chart | ⚠️两步法！数据≥3条 |
 | 损失、受灾、影响（无明确因果） | query_nl 或 aggregate | 自动覆盖所有State类型 |
 | 导致、造成、影响（有因果关系） | query_nl → find_causal_chain | ⚠️两步法！先获取状态ID |
 | 原因、溯源（反向因果） | find_causal_chain | direction="backward" |
@@ -1083,9 +1161,32 @@ def query():
 步骤1: aggregate(attribute="受灾人口", aggregation="max", time_range=["2018-01-01","2020-12-31"], group_by="source")
 步骤2: 提取受灾最多的市名（如"南宁市"）
 步骤3: analyze_temporal_pattern(entity_name="南宁市", start_date="2018-01-01", end_date="2020-12-31")
+
+场景4：混合检索（图谱+预案）
+用户问："南宁市降雨300mm应启动什么级别的应急响应？"
+步骤1: query_nl(question="南宁市降雨300mm的历史灾害情况")
+步骤2: query_emergency_plan(query="降雨量应急响应启动标准")
+步骤3: LLM综合两个结果给出建议
+
+场景5：数据查询+可视化
+用户问："南宁市2020-2023年受灾人口变化趋势图"
+步骤1: query_nl(question="南宁市2020-2023年受灾人口数据")
+步骤2: 检查数据量（必须≥3条）
+步骤3: generate_chart(data=<查询结果>, question="南宁市2020-2023年受灾人口趋势", chart_type="line")
+
+场景6：对比分析+图表
+用户问："对比南宁和柳州2023年受灾情况，用柱状图显示"
+步骤1: compare_entities(entity_names=["南宁市","柳州市"], time_range=["2023-01-01","2023-12-31"], compare_attributes=["受灾人口","经济损失"])
+步骤2: generate_chart(data=<对比结果>, chart_type="bar")
 ```
 
 **关键原则：每一步必须有明确的信息增益！不要为了查询而查询！**
+
+⚠️ **特别注意：图表生成工作流**
+1. ChartAgent 不查询数据，只负责数据→图表配置的转换
+2. 必须先调用查询工具获取数据（≥3条记录）
+3. 将查询结果作为 data 参数传给 generate_chart
+4. 如果数据量 < 3 条，应告知用户无法生成有意义的图表
 
 现在开始回答用户问题！"""
 

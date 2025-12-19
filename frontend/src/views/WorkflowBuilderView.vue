@@ -73,15 +73,15 @@
                 <el-input v-model="scope.row.name" placeholder="变量名" />
               </template>
             </el-table-column>
-            <el-table-column label="type" width="110">
+            <el-table-column label="type" width="130">
               <template #default="scope">
-                <el-select v-model="scope.row.type" style="width:100%">
-                  <el-option label="any" value="any" />
-                  <el-option label="text" value="text" />
-                  <el-option label="json" value="json" />
-                  <el-option label="number" value="number" />
-                  <el-option label="bool" value="bool" />
-                  <el-option label="file_ids" value="file_ids" />
+                <el-select v-model="scope.row.type" style="width:100%" filterable>
+                  <el-option 
+                    v-for="t in availableDataTypes" 
+                    :key="t.value" 
+                    :label="t.label" 
+                    :value="t.value" 
+                  />
                 </el-select>
               </template>
             </el-table-column>
@@ -315,7 +315,7 @@ import { Controls } from '@vue-flow/controls';
 
 import WorkflowNode from '@/components/workflow/WorkflowNode.vue';
 
-import { getNodeTypes, getConfigs } from '@/api/nodeService';
+import { getNodeTypes, getConfigs, getDataTypes } from '@/api/nodeService';
 import { listFiles } from '@/api/fileService';
 import { listWorkflows, getWorkflow, saveWorkflow, deleteWorkflow, runWorkflow } from '@/api/workflowService';
 
@@ -357,6 +357,18 @@ const activeEdge = ref(null);
 
 // 全局变量（替代在边上配置端口映射）
 const workflowVars = ref([]); // [{ name, type, value }]
+
+// 可用的数据类型（动态从后端加载）
+const availableDataTypes = ref([
+  // 默认类型（后端加载前的初始值）
+  { label: 'any', value: 'any' },
+  { label: 'text', value: 'text' },
+  { label: 'string', value: 'string' },
+  { label: 'integer', value: 'integer' },
+  { label: 'number', value: 'number' },
+  { label: 'bool', value: 'bool' },
+  { label: 'json', value: 'json' }
+]);
 
 // 连接引导：高亮可连接节点
 const connectingSourceId = ref('');
@@ -655,6 +667,20 @@ function upstreamOptionsForInput(targetNodeId, inputPort) {
   return opts;
 }
 
+async function loadDataTypes() {
+  try {
+    const res = await getDataTypes();
+    if (res.success) {
+      const types = res.data.types;
+      availableDataTypes.value = types.map(t => ({ label: t, value: t }));
+      console.log('✅ 动态加载数据类型:', types.length, '种', types);
+    }
+  } catch (error) {
+    console.error('加载数据类型失败:', error);
+    // 保留默认类型
+  }
+}
+
 async function refreshAll() {
   loading.value = true;
   try {
@@ -669,6 +695,9 @@ async function refreshAll() {
 
     const fr = await listFiles();
     if (fr.success) availableFiles.value = fr.files;
+    
+    // 动态加载数据类型
+    await loadDataTypes();
   } finally {
     loading.value = false;
   }

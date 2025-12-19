@@ -292,6 +292,86 @@ TOOLS = [
                 "required": ["entity_name"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_emergency_plan",
+            "description": "查询应急预案文档。使用语义搜索从应急预案知识库中检索相关内容。适用于：\n\n**应急响应规范查询**：\n- 响应等级启动条件（Ⅰ级/Ⅱ级/Ⅲ级/Ⅳ级）\n- 应急响应流程和步骤\n- 各部门职责分工\n- 应急预案触发标准\n\n**操作指南查询**：\n- 防汛减灾措施\n- 应急处置方案\n- 预警发布流程\n- 灾后恢复程序\n\n**规范标准查询**：\n- 灾害等级划分标准\n- 安全阈值规定\n- 技术规范要求\n\n⚠️使用场景：\n1. 当问题涉及'应急响应'、'预案'、'措施'、'标准'、'流程'等关键词时优先使用\n2. 补充图谱查询：图谱提供历史事实数据，预案提供规范操作指南\n3. 决策支持：结合历史数据（图谱）和标准流程（预案）给出综合建议\n\n返回结果包含：文档片段、相似度评分、元数据（文档来源、章节等）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "查询问题或关键词。支持自然语言提问，例如：\n- 'Ⅰ级应急响应的启动条件是什么'\n- '降雨量达到多少需要启动应急响应'\n- '防汛应急处置流程'\n- '洪涝灾害等级划分标准'"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "返回结果数量，默认为5。建议：\n- 精确查询：3-5条\n- 探索性查询：5-10条\n- 全面了解：10-15条",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
+                    "min_similarity": {
+                        "type": "number",
+                        "description": "最小相似度阈值（0-1），低于此值的结果将被过滤。默认0.3\n- 0.7+：高度相关\n- 0.5-0.7：中度相关\n- 0.3-0.5：弱相关",
+                        "default": 0.3,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "document_filter": {
+                        "type": "string",
+                        "description": "文档来源过滤（可选）。例如：'广西应急预案'、'防汛预案'。不指定则搜索所有文档"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_chart",
+            "description": "生成数据可视化图表。基于查询结果数据自动生成 ECharts 图表配置。适用于：\n\n**时序趋势分析**：\n- 历史数据变化趋势（折线图）\n- 多指标对比（多系列折线图/柱状图）\n- 增长率分析\n\n**对比分析**：\n- 不同实体对比（柱状图）\n- 排名展示（横向柱状图）\n- 多维度对比（分组柱状图）\n\n**分布分析**：\n- 占比构成（饼图）\n- 相关性分析（散点图）\n- 分布特征（直方图）\n\n⚠️使用场景：\n1. 当用户明确要求图表、图形、可视化时\n2. 数据量 >= 3 条，适合可视化展示\n3. 包含可对比的数值数据\n4. 需要直观展示趋势或对比关系\n\n⚠️不适用场景：\n1. 数据量 < 3 条\n2. 纯文本描述性数据\n3. 单一数值（无对比意义）\n\n**工作流程**：\n1. 先调用图谱查询工具获取数据\n2. 将查询结果传给 generate_chart\n3. 返回 ECharts 配置 + 数据摘要",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "description": "数据列表，每个元素是一个字典。例如：\n[\n  {\"时间\": \"2020\", \"受灾人口\": 1000},\n  {\"时间\": \"2021\", \"受灾人口\": 1200}\n]",
+                        "items": {
+                            "type": "object"
+                        }
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "原始问题（用于智能选择图表类型和生成标题）。例如：'南宁市2020-2023年受灾人口变化趋势'"
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "description": "图表类型（可选，不指定则自动选择）：\n- line: 折线图（适合时序趋势）\n- bar: 柱状图（适合类别对比）\n- pie: 饼图（适合占比分布）\n- scatter: 散点图（适合相关性分析）",
+                        "enum": ["line", "bar", "pie", "scatter"]
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "图表标题（可选，不指定则自动生成）"
+                    },
+                    "x_field": {
+                        "type": "string",
+                        "description": "X轴字段名（用于line/bar/scatter）。例如：'时间'、'地点'。不指定则自动选择第一个字段"
+                    },
+                    "y_field": {
+                        "type": "string",
+                        "description": "Y轴字段名（用于line/bar/scatter）。例如：'受灾人口'、'经济损失'。不指定则自动选择第二个字段"
+                    },
+                    "series_field": {
+                        "type": "string",
+                        "description": "系列分组字段名（用于多系列图表）。例如：'地点'（按地点分组）、'类型'（按类型分组）"
+                    }
+                },
+                "required": ["data"]
+            }
+        }
     }
 ]
 

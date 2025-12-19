@@ -162,6 +162,16 @@
                         <div class="message-text" v-html="formatContent(msg.content)"></div>
                       </div>
 
+                      <!-- 图表渲染（如果有） -->
+                      <div v-if="getMessageChart(idx)" class="chart-section">
+                        <ChartRenderer 
+                          :chart-config="getMessageChart(idx).echarts_config"
+                          :chart-type="getMessageChart(idx).chart_type"
+                          :data-summary="getMessageChart(idx).data_summary"
+                          height="400px"
+                        />
+                      </div>
+
                       <!-- 消息元信息 -->
                       <div class="message-meta">
                         <span class="meta-time">{{ formatTime(msg.timestamp) }}</span>
@@ -484,6 +494,7 @@ import {
 } from '@element-plus/icons-vue';
 import ForceGraph from 'force-graph';
 import * as graphragService from '../api/graphragService';
+import ChartRenderer from '../components/ChartRenderer.vue';
 
 defineOptions({ name: 'GraphRAGView' });
 
@@ -511,6 +522,7 @@ const inputFocused = ref(false);
 const toolCalls = ref([]); // 工具调用记录
 const messageToolsMap = ref({}); // 消息和工具调用的映射
 const expandedMessageTools = ref({}); // 展开的消息推理过程
+const messageChartsMap = ref({}); // 消息和图表的映射
 const sidebarCollapsed = ref(false); // 右侧边栏折叠状态
 let graphInstance = null;
 
@@ -926,6 +938,31 @@ function isMessageToolsExpanded(messageIndex) {
   return expandedMessageTools.value[messageIndex] !== false; // 默认展开
 }
 
+// 获取消息关联的图表
+function getMessageChart(messageIndex) {
+  return messageChartsMap.value[messageIndex] || null;
+}
+
+// 从工具调用中提取图表数据
+function extractChartFromTools(toolCalls) {
+  if (!toolCalls || !Array.isArray(toolCalls)) return null;
+  
+  // 查找 generate_chart 工具调用
+  const chartTool = toolCalls.find(tool => tool.name === 'generate_chart');
+  if (!chartTool || !chartTool.result || !chartTool.result.success) return null;
+  
+  const result = chartTool.result;
+  if (result.echarts_config && result.chart_type) {
+    return {
+      echarts_config: result.echarts_config,
+      chart_type: result.chart_type,
+      data_summary: result.data_summary || {}
+    };
+  }
+  
+  return null;
+}
+
 // 格式化时间
 function formatTime(timestamp) {
   if (!timestamp) return '';
@@ -986,6 +1023,13 @@ async function sendQuestion() {
         // 关联工具调用到这条消息
         if (d.tool_calls && d.tool_calls.length > 0) {
           messageToolsMap.value[messages.value.length - 1] = d.tool_calls;
+          
+          // 提取图表数据
+          const chartData = extractChartFromTools(d.tool_calls);
+          if (chartData) {
+            messageChartsMap.value[messages.value.length - 1] = chartData;
+            console.log('✅ 提取到图表数据');
+          }
         }
         
         // 滚动到底部
@@ -1866,6 +1910,13 @@ function formatContent(text) {
   font-size: 14px;
   line-height: 1.8;
   color: #303133;
+}
+
+/* 图表部分 */
+.chart-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed #e4e7ed;
 }
 
 /* 消息元信息 */

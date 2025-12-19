@@ -73,6 +73,12 @@ const routes = [
     name: 'graphrag',
     component: () => import('../views/GraphRAGView.vue'),
     meta: { title: 'GraphRAG 问答', keepAlive: true, cacheName: 'GraphRAGView' }
+  },
+  {
+    path: '/vector',
+    name: 'vector',
+    component: () => import('../views/VectorManagement.vue'),
+    meta: { title: '向量库管理', keepAlive: true, cacheName: 'VectorManagement' }
   }
 ]
 
