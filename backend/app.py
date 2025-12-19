@@ -115,13 +115,35 @@ def test_db_connection():
     """测试数据库连接"""
     try:
         test_connection()
-        logger.info('数据库连接测试成功')
+        logger.info('✓ Neo4j 数据库连接测试成功')
     except Exception as e:
-        logger.error(f'数据库连接测试失败: {e}')
+        logger.error(f'✗ Neo4j 数据库连接测试失败: {e}')
 
-# 在应用启动时测试数据库连接
+def init_vector_database():
+    """初始化向量数据库"""
+    try:
+        from init_vector_store import init_vector_store
+        success = init_vector_store()
+        if not success:
+            logger.warning('⚠ 向量数据库初始化失败，但不影响其他功能')
+    except Exception as e:
+        logger.warning(f'⚠ 向量数据库初始化失败: {e}')
+
+# 在应用启动时初始化数据库
 with app.app_context():
+    logger.info("=" * 70)
+    logger.info("开始初始化数据库连接...")
+    logger.info("=" * 70)
+    
+    # 1. 测试 Neo4j 连接
     test_db_connection()
+    
+    # 2. 初始化向量数据库
+    init_vector_database()
+    
+    logger.info("=" * 70)
+    logger.info("数据库初始化完成")
+    logger.info("=" * 70)
 
 # 优雅关闭
 import atexit

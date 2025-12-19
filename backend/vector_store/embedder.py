@@ -16,7 +16,8 @@ class TextEmbedder:
     _model: Optional[SentenceTransformer] = None
     
     # 默认模型：多语言支持，轻量级
-    DEFAULT_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'
+    # DEFAULT_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'
+    DEFAULT_MODEL = 'BAAI/bge-large-zh-v1.5'
     
     def __new__(cls, model_name: str = None):
         if cls._instance is None:

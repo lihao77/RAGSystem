@@ -807,10 +807,20 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
         检索结果，包含文档片段、相似度、元数据
     """
     try:
-        from vector_store import VectorRetriever
+        from vector_store import VectorRetriever, get_vector_client
+        
+        # 智能选择集合：优先使用专用集合，如果为空则使用 documents
+        client = get_vector_client()
+        try:
+            emergency_collection = client.get_collection("emergency_plans")
+            collection_name = "emergency_plans" if emergency_collection.count() > 0 else "documents"
+        except:
+            collection_name = "documents"  # 集合不存在，使用默认集合
+        
+        logger.info(f"使用集合: {collection_name}")
         
         # 初始化检索器
-        retriever = VectorRetriever(collection_name="emergency_plans")
+        retriever = VectorRetriever(collection_name=collection_name)
         
         # 构建过滤条件
         filters = {}
@@ -825,11 +835,18 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
             include_distances=True
         )
         
+        # 日志：显示检索到的相似度
+        if results:
+            similarities = [r.get('similarity', 0) for r in results[:5]]
+            logger.info(f"检索到 {len(results)} 条结果，前5条相似度: {similarities}")
+        
         # 过滤低相似度结果
         filtered_results = [
             r for r in results 
             if r.get('similarity', 0) >= min_similarity
         ][:top_k]
+        
+        logger.info(f"相似度过滤后: {len(filtered_results)} 条结果（阈值={min_similarity}）")
         
         # 格式化返回结果
         formatted_results = []

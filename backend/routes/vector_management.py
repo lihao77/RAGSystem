@@ -164,12 +164,23 @@ def index_document():
             # 方式2: 从文件管理系统读取
             file_id = data.get('file_id')
             if file_id:
-                file_path = os.path.join('uploads', file_id)
+                # 从文件索引中查询文件记录
+                from file_index import FileIndex
+                file_index = FileIndex()
+                file_record = file_index.get(file_id)
                 
-                if not os.path.exists(file_path):
+                if not file_record:
                     return jsonify({
                         "success": False,
                         "error": f"文件不存在: {file_id}"
+                    }), 404
+                
+                # 使用 stored_path 读取文件
+                file_path = file_record.get('stored_path')
+                if not file_path or not os.path.exists(file_path):
+                    return jsonify({
+                        "success": False,
+                        "error": f"文件路径无效: {file_path}"
                     }), 404
                 
                 try:
@@ -181,11 +192,13 @@ def index_document():
                         "error": f"读取文件失败: {str(e)}"
                     }), 500
                 
-                # 自动设置元数据
+                # 自动设置元数据（使用原始文件名）
+                original_name = file_record.get('original_name', file_id)
                 if not document_id:
-                    document_id = file_id
-                metadata['source'] = metadata.get('source', file_id)
+                    document_id = original_name
+                metadata['source'] = metadata.get('source', original_name)
                 metadata['file_id'] = file_id
+                metadata['original_filename'] = original_name
             
             # 方式3: 直接提供文本
             else:

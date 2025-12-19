@@ -86,9 +86,12 @@ class VectorRetriever:
                     }
                     
                     if include_distances and results['distances'][0]:
-                        result['distance'] = results['distances'][0][i]
+                        distance = results['distances'][0][i]
+                        result['distance'] = distance
                         # 转换为相似度分数 (0-1，越大越相似)
-                        result['similarity'] = 1 - min(results['distances'][0][i] / 2, 1.0)
+                        # ChromaDB 默认使用 L2 距离（平方欧氏距离）
+                        # 相似度 = 1 / (1 + distance)，确保在 (0, 1] 范围内
+                        result['similarity'] = 1.0 / (1.0 + distance)
                     
                     formatted_results.append(result)
             
@@ -170,12 +173,13 @@ class VectorRetriever:
                     if results['ids'][0][i] == chunk_id:
                         continue  # 跳过自己
                     
+                    distance = results['distances'][0][i]
                     result = {
                         'id': results['ids'][0][i],
                         'text': results['documents'][0][i],
                         'metadata': results['metadatas'][0][i] if results['metadatas'][0] else {},
-                        'distance': results['distances'][0][i],
-                        'similarity': 1 - min(results['distances'][0][i] / 2, 1.0)
+                        'distance': distance,
+                        'similarity': 1.0 / (1.0 + distance)
                     }
                     formatted_results.append(result)
                     

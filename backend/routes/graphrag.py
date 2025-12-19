@@ -1289,6 +1289,7 @@ def query():
                             data.get('nodes') or data.get('records') or 
                             data.get('chains') or data.get('neighbors') or 
                             data.get('comparison') or data.get('result') or
+                            data.get('results') or  # 向量检索结果
                             data.get('total_results', 0) > 0 or
                             data.get('count', 0) > 0):
                             tool_has_data = True
@@ -1300,6 +1301,7 @@ def query():
                                 data.get('count') or 
                                 len(data.get('entities') or data.get('query_results') or 
                                     data.get('nodes') or data.get('records') or 
+                                    data.get('results') or  # 向量检索结果
                                     data.get('chains') or data.get('neighbors') or [])
                             )
                     elif isinstance(data, list) and len(data) > 0:
