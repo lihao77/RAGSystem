@@ -38,6 +38,21 @@ def get_current_config():
                 'temperature': config.llm.temperature,
                 'max_tokens': config.llm.max_tokens
             },
+            'embedding': {
+                'mode': config.embedding.mode,
+                'local': {
+                    'model_name': config.embedding.local.model_name,
+                    'device': config.embedding.local.device,
+                    'cache_dir': config.embedding.local.cache_dir
+                },
+                'remote': {
+                    'api_endpoint': config.embedding.remote.api_endpoint,
+                    'api_key': '***' if config.embedding.remote.api_key else '',
+                    'model_name': config.embedding.remote.model_name,
+                    'timeout': config.embedding.remote.timeout,
+                    'max_retries': config.embedding.remote.max_retries
+                }
+            },
             'system': {
                 'max_content_length': config.system.max_content_length
             },
@@ -486,4 +501,148 @@ def get_config_schema():
         return jsonify({
             'success': False,
             'message': f'获取配置模式失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/services/status', methods=['GET'])
+def get_services_status():
+    """获取所有服务的状态"""
+    try:
+        from db import is_neo4j_configured
+        from init_vector_store import is_vector_db_configured
+        
+        config = get_config()
+        
+        # Neo4j 状态
+        neo4j_configured = is_neo4j_configured()
+        neo4j_status = {
+            'name': 'Neo4j',
+            'configured': neo4j_configured,
+            'status': 'not_configured' if not neo4j_configured else 'unknown',
+            'message': '未配置' if not neo4j_configured else '已配置，但未测试连接'
+        }
+        
+        if neo4j_configured:
+            try:
+                if test_connection():
+                    neo4j_status['status'] = 'ready'
+                    neo4j_status['message'] = '已连接'
+                else:
+                    neo4j_status['status'] = 'error'
+                    neo4j_status['message'] = '连接失败'
+            except Exception as e:
+                neo4j_status['status'] = 'error'
+                neo4j_status['message'] = f'连接错误: {str(e)}'
+        
+        # 向量数据库状态
+        vector_configured = is_vector_db_configured()
+        vector_status = {
+            'name': '向量数据库',
+            'configured': vector_configured,
+            'status': 'not_configured' if not vector_configured else 'ready',
+            'message': '未配置嵌入模型' if not vector_configured else '已配置'
+        }
+        
+        if vector_configured:
+            # 显示嵌入模式信息
+            if config.embedding.mode == 'local':
+                vector_status['message'] = f'本地模型: {config.embedding.local.model_name}'
+            elif config.embedding.mode == 'remote':
+                vector_status['message'] = f'远程API: {config.embedding.remote.api_endpoint}'
+        
+        # LLM 状态
+        llm_configured = bool(config.llm.api_endpoint and config.llm.api_key)
+        llm_status = {
+            'name': 'LLM',
+            'configured': llm_configured,
+            'status': 'not_configured' if not llm_configured else 'ready',
+            'message': '未配置' if not llm_configured else f'已配置: {config.llm.model_name}'
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'services': [neo4j_status, vector_status, llm_status],
+                'overall_status': 'ready' if all([neo4j_configured, vector_configured, llm_configured]) else 'partial'
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f'获取服务状态失败: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'获取服务状态失败: {str(e)}'
+        }), 500
+
+
+@config_bp.route('/services/<service_name>/reinit', methods=['POST'])
+def reinitialize_service(service_name):
+    """重新初始化指定服务"""
+    try:
+        if service_name == 'neo4j':
+            from db import neo4j_conn, is_neo4j_configured
+            
+            # 检查配置
+            if not is_neo4j_configured():
+                return jsonify({
+                    'success': False,
+                    'message': 'Neo4j 未配置，请先配置连接信息'
+                }), 400
+            
+            # 重新连接（单例模式，自动处理旧连接）
+            driver = neo4j_conn.reconnect()
+            
+            # 测试连接
+            if driver:
+                try:
+                    with driver.session() as session:
+                        session.run('RETURN 1')
+                    return jsonify({
+                        'success': True,
+                        'message': 'Neo4j 重新连接成功'
+                    })
+                except Exception as e:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Neo4j 连接测试失败: {str(e)}'
+                    }), 500
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Neo4j 重新连接失败'
+                }), 500
+                
+        elif service_name == 'vector':
+            from init_vector_store import init_vector_store, is_vector_db_configured
+            
+            if not is_vector_db_configured():
+                return jsonify({
+                    'success': False,
+                    'message': '向量数据库未配置，请先配置嵌入模型'
+                }), 400
+            
+            # 强制重新初始化（force=True）
+            success = init_vector_store(force=True)
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'message': '向量数据库重新初始化成功'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '向量数据库重新初始化失败'
+                }), 500
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'未知服务: {service_name}'
+            }), 400
+            
+    except Exception as e:
+        logger.error(f'重新初始化服务失败: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'重新初始化服务失败: {str(e)}'
         }), 500

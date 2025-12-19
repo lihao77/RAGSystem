@@ -12,6 +12,25 @@ llm:
   temperature: 0.7
   max_tokens: 4096
 
+# Embedding 配置
+embedding:
+  # 模式选择: "local" 或 "remote"
+  mode: local  # 可以从环境变量 EMBEDDING__MODE 读取
+  
+  # 本地模型配置
+  local:
+    model_name: BAAI/bge-small-zh-v1.5  # 默认使用小模型
+    device: cpu  # cpu 或 cuda
+    cache_dir: null  # null 使用默认缓存目录
+  
+  # 远程 API 配置（支持 OpenAI 兼容接口）
+  remote:
+    api_endpoint: ""  # 例如: https://api.openai.com/v1 或自建服务
+    api_key: ""  # 可以从环境变量 EMBEDDING__REMOTE__API_KEY 读取
+    model_name: text-embedding-3-small  # 远程模型名称
+    timeout: 30  # 请求超时时间（秒）
+    max_retries: 3  # 最大重试次数
+
 # 系统配置
 system:
   max_content_length: 104857600  # 100MB (字节)

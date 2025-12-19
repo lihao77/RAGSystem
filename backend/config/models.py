@@ -34,6 +34,35 @@ class SystemConfig(BaseModel):
     max_content_length: int = 100 * 1024 * 1024  # 100MB (字节)
 
 
+class LocalEmbeddingConfig(BaseModel):
+    """本地 Embedding 模型配置"""
+    model_config = ConfigDict(extra='allow')
+
+    model_name: str = "BAAI/bge-small-zh-v1.5"
+    device: str = "cpu"
+    cache_dir: str | None = None
+
+
+class RemoteEmbeddingConfig(BaseModel):
+    """远程 Embedding API 配置"""
+    model_config = ConfigDict(extra='allow')
+
+    api_endpoint: str = ""
+    api_key: str = ""
+    model_name: str = "text-embedding-3-small"
+    timeout: int = 30
+    max_retries: int = 3
+
+
+class EmbeddingConfig(BaseModel):
+    """Embedding 配置"""
+    model_config = ConfigDict(extra='allow')
+
+    mode: str = "local"  # "local" 或 "remote"
+    local: LocalEmbeddingConfig = Field(default_factory=LocalEmbeddingConfig)
+    remote: RemoteEmbeddingConfig = Field(default_factory=RemoteEmbeddingConfig)
+
+
 class ExternalLibsConfig(BaseModel):
     """外部库配置扩展 - 为 llmjson 和 json2graph 预留"""
     model_config = ConfigDict(extra='allow')
@@ -53,4 +82,5 @@ class AppConfig(BaseModel):
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     external_libs: ExternalLibsConfig = Field(default_factory=ExternalLibsConfig)

@@ -112,37 +112,72 @@ def handle_file_too_large(error):
     return jsonify({'message': '文件过大，请上传小于100MB的文件'}), 413
 
 def test_db_connection():
-    """测试数据库连接"""
+    """测试数据库连接（仅在已配置时执行）"""
+    from db import is_neo4j_configured, neo4j_conn
+    
+    # 先检查是否已配置
+    if not is_neo4j_configured():
+        logger.info('⚠ Neo4j 未配置，将在配置完成后初始化')
+        return False
+    
     try:
-        test_connection()
-        logger.info('✓ Neo4j 数据库连接测试成功')
+        # 尝试连接（单例模式，不会重复连接）
+        driver = neo4j_conn.connect()
+        if driver:
+            # 测试连接
+            with driver.session() as session:
+                session.run('RETURN 1')
+            logger.info('✓ Neo4j 数据库连接成功')
+            return True
+        else:
+            logger.warning('✗ Neo4j 连接失败')
+            return False
     except Exception as e:
-        logger.error(f'✗ Neo4j 数据库连接测试失败: {e}')
+        logger.error(f'✗ Neo4j 数据库连接失败: {e}')
+        return False
 
 def init_vector_database():
-    """初始化向量数据库"""
+    """初始化向量数据库（仅在已配置时执行）"""
+    from init_vector_store import is_vector_db_configured, init_vector_store
+    
+    # 先检查是否已配置
+    if not is_vector_db_configured():
+        logger.info('⚠ 向量数据库未配置，将在配置完成后初始化')
+        return False
+    
     try:
-        from init_vector_store import init_vector_store
+        # 初始化（内置重复检查，不会重复初始化）
         success = init_vector_store()
         if not success:
             logger.warning('⚠ 向量数据库初始化失败，但不影响其他功能')
+        return success
     except Exception as e:
         logger.warning(f'⚠ 向量数据库初始化失败: {e}')
+        return False
 
 # 在应用启动时初始化数据库
 with app.app_context():
     logger.info("=" * 70)
-    logger.info("开始初始化数据库连接...")
+    logger.info("开始检查和初始化数据库连接...")
     logger.info("=" * 70)
     
     # 1. 测试 Neo4j 连接
-    test_db_connection()
+    neo4j_ok = test_db_connection()
     
     # 2. 初始化向量数据库
-    init_vector_database()
+    vector_ok = init_vector_database()
     
     logger.info("=" * 70)
     logger.info("数据库初始化完成")
+    if neo4j_ok:
+        logger.info("  ✓ Neo4j: 已连接")
+    else:
+        logger.info("  ✗ Neo4j: 未配置或连接失败")
+    
+    if vector_ok:
+        logger.info("  ✓ 向量数据库: 已初始化")
+    else:
+        logger.info("  ✗ 向量数据库: 未配置或初始化失败")
     logger.info("=" * 70)
 
 # 优雅关闭
@@ -150,5 +185,18 @@ import atexit
 atexit.register(close_driver)
 
 if __name__ == '__main__':
+    # 启动Flask应用
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    debug_mode = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
+    use_reloader = os.environ.get('FLASK_USE_RELOADER', 'False').lower() == 'true'
+    
+    if debug_mode and not use_reloader:
+        logger.info("提示: 开发模式已启动，但自动重载已禁用（避免双重初始化）")
+        logger.info("      如需自动重载，设置环境变量: FLASK_USE_RELOADER=True")
+    
+    app.run(
+        host='0.0.0.0', 
+        port=port, 
+        debug=debug_mode,
+        use_reloader=use_reloader
+    )

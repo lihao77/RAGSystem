@@ -1,3 +1,15 @@
+embedding:
+  local:
+    cache_dir: null
+    device: cpu
+    model_name: BAAI/bge-small-zh-v1.5
+  mode: local
+  remote:
+    api_endpoint: ''
+    api_key: ''
+    max_retries: 3
+    model_name: text-embedding-3-small
+    timeout: 30
 external_libs:
   json2graph: {}
   llmjson: {}

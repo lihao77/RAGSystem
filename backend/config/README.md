@@ -133,6 +133,32 @@ max_tokens: int = 4096                             # 最大令牌数
 max_content_length: int = 104857600     # 文件上传限制（字节）
 ```
 
+### EmbeddingConfig
+
+```python
+mode: str = "local"                    # 模式: "local" 或 "remote"
+local: LocalEmbeddingConfig            # 本地模型配置
+remote: RemoteEmbeddingConfig          # 远程 API 配置
+```
+
+**LocalEmbeddingConfig**:
+```python
+model_name: str = "BAAI/bge-small-zh-v1.5"  # 本地模型名称
+device: str = "cpu"                          # 设备: cpu 或 cuda
+cache_dir: str | None = None                # 模型缓存目录
+```
+
+**RemoteEmbeddingConfig**:
+```python
+api_endpoint: str = ""                      # API 端点
+api_key: str = ""                           # API 密钥
+model_name: str = "text-embedding-3-small" # 远程模型名称
+timeout: int = 30                          # 超时时间（秒）
+max_retries: int = 3                       # 最大重试次数
+```
+
+详细使用说明请参考：`EMBEDDING_GUIDE.md`
+
 ### ExternalLibsConfig
 
 为外部库预留的配置：
