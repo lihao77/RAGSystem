@@ -20,7 +20,8 @@ from routes.home import home_bp
 from routes.search import search_bp
 from routes.visualization import visualization_bp
 from routes.evaluation import evaluation_bp
-from routes.graphrag import graphrag_bp
+# 使用重构后的graphrag路由（原版本备份在graphrag.py.backup）
+from routes.graphrag_refactored import graphrag_bp
 from routes.function_call import function_call_bp
 from routes.config import config_bp
 from routes.nodes import nodes_bp
@@ -188,7 +189,7 @@ if __name__ == '__main__':
     # 启动Flask应用
     port = int(os.environ.get('PORT', 5000))
     debug_mode = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
-    use_reloader = os.environ.get('FLASK_USE_RELOADER', 'False').lower() == 'true'
+    use_reloader = os.environ.get('FLASK_USE_RELOADER', 'True').lower() == 'true'
     
     if debug_mode and not use_reloader:
         logger.info("提示: 开发模式已启动，但自动重载已禁用（避免双重初始化）")
