@@ -2,7 +2,7 @@ embedding:
   local:
     cache_dir: null
     device: cpu
-    model_name: BAAI/bge-large-zh-v1.5
+    model_name: paraphrase-multilingual-MiniLM-L12-v2
   mode: local
   remote:
     api_endpoint: ''

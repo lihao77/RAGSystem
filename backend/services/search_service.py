@@ -257,71 +257,66 @@ class SearchService:
             
         Returns:
             dict: {
-                'inRelations': [...],   # 入边关系
-                'outRelations': [...]   # 出边关系
+                'nodes': [...],          # 节点列表
+                'relationships': [...]   # 关系列表
             }
         """
         session = None
         try:
             session = get_session()
             
-            # 查询出边关系
-            out_query = """
-            MATCH (source)-[r]->(target)
-            WHERE source.id = $entityId
-            RETURN 
-                source.id AS sourceId,
-                source.name AS sourceName,
-                type(r) AS relationType,
-                target.id AS targetId,
-                target.name AS targetName,
-                labels(target) AS targetLabels
+            # 查询实体的所有关系（与原始版本保持一致）
+            cypher = """
+            MATCH (n)
+            WHERE n.id = $entity_id OR n.id CONTAINS $entity_id
+            OPTIONAL MATCH (n)-[r]-(m)
+            RETURN n, r, m
             LIMIT 100
             """
             
-            out_result = session.run(out_query, {'entityId': entity_id})
-            out_relations = []
+            result = session.run(cypher, {'entity_id': entity_id})
             
-            for record in out_result:
-                out_relations.append({
-                    'sourceId': record['sourceId'],
-                    'sourceName': record['sourceName'],
-                    'relationType': record['relationType'],
-                    'targetId': record['targetId'],
-                    'targetName': record['targetName'],
-                    'targetLabels': record['targetLabels']
-                })
+            nodes = {}
+            relationships = []
             
-            # 查询入边关系
-            in_query = """
-            MATCH (source)-[r]->(target)
-            WHERE target.id = $entityId
-            RETURN 
-                source.id AS sourceId,
-                source.name AS sourceName,
-                labels(source) AS sourceLabels,
-                type(r) AS relationType,
-                target.id AS targetId,
-                target.name AS targetName
-            LIMIT 100
-            """
-            
-            in_result = session.run(in_query, {'entityId': entity_id})
-            in_relations = []
-            
-            for record in in_result:
-                in_relations.append({
-                    'sourceId': record['sourceId'],
-                    'sourceName': record['sourceName'],
-                    'sourceLabels': record['sourceLabels'],
-                    'relationType': record['relationType'],
-                    'targetId': record['targetId'],
-                    'targetName': record['targetName']
-                })
+            for record in result:
+                # 处理中心节点
+                if record['n']:
+                    node = record['n']
+                    node_id = str(node.id)
+                    if node_id not in nodes:
+                        nodes[node_id] = {
+                            'id': node.id,
+                            'labels': list(node.labels),
+                            'properties': convert_neo4j_types(dict(node))
+                        }
+                
+                # 处理关联节点
+                if record['m']:
+                    node = record['m']
+                    node_id = str(node.id)
+                    if node_id not in nodes:
+                        nodes[node_id] = {
+                            'id': node.id,
+                            'labels': list(node.labels),
+                            'properties': convert_neo4j_types(dict(node))
+                        }
+                
+                # 处理关系
+                if record['r']:
+                    rel = record['r']
+                    rel_props = convert_neo4j_types(dict(rel))
+                    relationships.append({
+                        'id': rel.id,
+                        'type': rel_props.get('type', rel.type),  # 优先使用关系属性中的type
+                        'source': str(rel.start_node.id),
+                        'target': str(rel.end_node.id),
+                        'properties': rel_props
+                    })
             
             return {
-                'inRelations': in_relations,
-                'outRelations': out_relations
+                'nodes': list(nodes.values()),
+                'relationships': relationships
             }
             
         except Exception as e:
