@@ -104,3 +104,5 @@ config.js
 uploads/
 
 data/
+
+test_*.py

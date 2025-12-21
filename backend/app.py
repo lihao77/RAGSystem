@@ -17,8 +17,9 @@ from config import get_config
 
 # 导入蓝图
 from routes.home import home_bp
-from routes.search import search_bp
-from routes.visualization import visualization_bp
+from routes.search_refactored import search_bp  # 使用重构版本
+# 使用重构后的visualization路由（原版本备份在visualization.py.backup）
+from routes.visualization_refactored import visualization_bp
 from routes.evaluation import evaluation_bp
 # 使用重构后的graphrag路由（原版本备份在graphrag.py.backup）
 from routes.graphrag_refactored import graphrag_bp

@@ -351,6 +351,7 @@ const highlightEntityAndRelated = async (entityId) => {
         const targetId = typeof link.target === 'object' ? link.target.id : link.target;
         if (relatedNodeIds.has(sourceId) && relatedNodeIds.has(targetId)) {
             if (link.type === 'nextState' || link.type === 'contain') {
+                // console.log('检查连接:', link);
                 if (link.entities.includes(entityId)) {
                     link.highlight = true;
                     if (!visibleLinks.some(l =>
