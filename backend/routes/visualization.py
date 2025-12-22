@@ -617,7 +617,7 @@ def get_state_details(state_id):
         result = session.run(query, {'stateId': state_id})
         
         if not result.peek():
-            return jsonify({'success': False, 'message': '未找到该状态'}), 404
+            return
         
         rel_attrs = []
         for record in result:
