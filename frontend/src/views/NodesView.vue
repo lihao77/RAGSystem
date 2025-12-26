@@ -74,13 +74,28 @@
             style="margin-bottom: 12px"
           />
 
-          <div class="section-title">配置 JSON</div>
-          <el-input
+          <!-- 使用新的配置编辑器 -->
+          <NodeConfigEditor
+            v-if="configSchema"
+            ref="configEditorRef"
             v-model="configJson"
-            type="textarea"
-            :rows="14"
-            placeholder="请输入配置 JSON（与后端节点配置字段一致）"
+            :node-definition="selectedDefinition"
+            :config-schema="configSchema"
           />
+          
+          <!-- 降级到JSON编辑器 -->
+          <div v-else>
+            <div class="section-title">配置 JSON</div>
+            <el-input
+              v-model="configJson"
+              type="textarea"
+              :rows="14"
+              placeholder="请输入配置 JSON（与后端节点配置字段一致）"
+            />
+            <div style="margin-top: 12px; display:flex; gap:8px">
+              <el-button @click="formatJson">格式化JSON</el-button>
+            </div>
+          </div>
 
           <div class="section-title" style="margin-top: 12px">
             执行输入
@@ -187,10 +202,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import NodeConfigEditor from '@/components/workflow/NodeConfigEditor.vue';
 import {
   getNodeTypes,
   getNodeType,
   getDefaultConfig,
+  getConfigSchema,
   getConfigs,
   getConfig,
   saveConfig,
@@ -207,12 +224,14 @@ const executing = ref(false);
 const nodeTypes = ref([]);
 const selectedNodeType = ref('');
 const selectedDefinition = ref(null);
+const configSchema = ref(null);
 
 const configs = ref([]);
 const selectedConfigId = ref('');
 
 const saveName = ref('');
 const configJson = ref('{}');
+const configEditorRef = ref(null);
 
 // 动态输入（基于节点定义）
 const dynamicInputs = ref({});
@@ -244,12 +263,20 @@ async function onSelectNodeType() {
   selectedConfigId.value = '';
   resultJson.value = '';
   saveName.value = '';
+  configSchema.value = null;
 
   try {
     const res = await getNodeType(selectedNodeType.value);
     selectedDefinition.value = res.success ? res.node : null;
+    
+    // 获取配置schema
+    const schemaRes = await getConfigSchema(selectedNodeType.value);
+    if (schemaRes.success) {
+      configSchema.value = schemaRes.schema;
+    }
   } catch (e) {
     selectedDefinition.value = null;
+    configSchema.value = null;
   }
 
   await refreshConfigs();
@@ -260,7 +287,7 @@ async function loadDefaultConfig() {
   if (!selectedNodeType.value) return;
   const res = await getDefaultConfig(selectedNodeType.value);
   if (res.success) {
-    configJson.value = JSON.stringify(res.config, null, 2);
+    configJson.value = res.config;
   }
 }
 
@@ -268,7 +295,9 @@ async function onSelectConfig() {
   if (!selectedConfigId.value) return;
   const res = await getConfig(selectedConfigId.value);
   if (res.success) {
-    configJson.value = JSON.stringify(res.config || {}, null, 2);
+    // 直接更新对象，让配置编辑器响应
+    const parsedConfig = res.config || {};
+    configJson.value = parsedConfig;
     saveName.value = res.metadata?.name || '';
   }
 }
@@ -296,10 +325,23 @@ async function onSaveConfig() {
     ElMessage.warning('请输入配置名称');
     return;
   }
-  const cfg = safeParseJson(configJson.value);
-  if (!cfg) {
-    ElMessage.error('配置 JSON 解析失败');
-    return;
+  
+  // 从配置编辑器获取数据
+  let cfg;
+  if (configEditorRef.value) {
+    // 验证表单
+    const valid = await configEditorRef.value.validate();
+    if (!valid) {
+      ElMessage.error('配置验证失败，请检查必填项');
+      return;
+    }
+    cfg = configEditorRef.value.getFormData();
+  } else {
+    cfg = safeParseJson(configJson.value);
+    if (!cfg) {
+      ElMessage.error('配置 JSON 解析失败');
+      return;
+    }
   }
 
   saving.value = true;

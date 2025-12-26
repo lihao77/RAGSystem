@@ -26,6 +26,13 @@ export async function getDefaultConfig(nodeType) {
 }
 
 /**
+ * 获取节点配置Schema（用于表单生成）
+ */
+export async function getConfigSchema(nodeType) {
+  return await get(`/api/nodes/types/${nodeType}/config-schema`);
+}
+
+/**
  * 获取所有保存的配置
  */
 export async function getConfigs(nodeType = null, includePresets = true) {
@@ -84,6 +91,7 @@ export default {
   getNodeTypes,
   getNodeType,
   getDefaultConfig,
+  getConfigSchema,
   getConfigs,
   getConfig,
   saveConfig,

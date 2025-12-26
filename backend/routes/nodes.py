@@ -70,6 +70,21 @@ def get_default_config(node_type):
         return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
 
 
+@nodes_bp.route('/types/<node_type>/config-schema', methods=['GET'])
+def get_config_schema(node_type):
+    """获取节点配置Schema（用于前端表单生成）"""
+    registry = get_node_registry()
+    try:
+        node_class = registry.get(node_type)
+        schema = node_class.get_config_schema()
+        return jsonify({
+            "success": True,
+            "schema": schema
+        })
+    except KeyError:
+        return jsonify({"success": False, "error": f"节点类型 {node_type} 不存在"}), 404
+
+
 @nodes_bp.route('/data-types', methods=['GET'])
 def get_data_types():
     """获取所有节点使用的数据类型

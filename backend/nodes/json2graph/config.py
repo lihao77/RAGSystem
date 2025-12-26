@@ -20,14 +20,51 @@ class Json2GraphNodeConfig(NodeConfigBase):
     """json2graph 节点配置"""
     
     # Neo4j 连接
-    neo4j_uri: str = Field(default="bolt://localhost:7687", description="Neo4j URI")
-    neo4j_user: str = Field(default="neo4j", description="Neo4j 用户名")
-    neo4j_password: str = Field(default="", description="Neo4j 密码")
+    neo4j_uri: str = Field(
+        default="bolt://localhost:7687", 
+        description="Neo4j 数据库URI",
+        json_schema_extra={
+            'group': 'database',
+            'groupLabel': '数据库配置',
+            'order': 1,
+            'placeholder': 'bolt://localhost:7687'
+        }
+    )
+    
+    neo4j_user: str = Field(
+        default="neo4j", 
+        description="Neo4j 用户名",
+        json_schema_extra={
+            'group': 'database',
+            'order': 2,
+            'placeholder': 'neo4j'
+        }
+    )
+    
+    neo4j_password: str = Field(
+        default="", 
+        description="Neo4j 密码",
+        json_schema_extra={
+            'group': 'database',
+            'order': 3,
+            'format': 'password',
+            'placeholder': '请输入数据库密码'
+        }
+    )
     
     # 存储模式
     store_mode: str = Field(
         default="stkg", 
-        description="存储模式: skg(基础) 或 stkg(增强)"
+        description="存储模式",
+        json_schema_extra={
+            'group': 'processing',
+            'groupLabel': '处理配置',
+            'order': 1,
+            'options': [
+                {'label': 'SKG - 基础模式', 'value': 'skg'},
+                {'label': 'STKG - 增强模式（推荐）', 'value': 'stkg'}
+            ]
+        }
     )
     
     # 处理器配置
@@ -46,8 +83,22 @@ class Json2GraphNodeConfig(NodeConfigBase):
                 params={}
             )
         ],
-        description="处理器配置列表"
+        description="处理器配置列表（JSON格式）",
+        json_schema_extra={
+            'group': 'processing',
+            'order': 2,
+            'format': 'json',
+            'rows': 8
+        }
     )
     
     # 执行选项
-    clear_before_import: bool = Field(default=False, description="导入前清空数据库")
+    clear_before_import: bool = Field(
+        default=False, 
+        description="导入前清空数据库（危险操作）",
+        json_schema_extra={
+            'group': 'advanced',
+            'groupLabel': '高级选项',
+            'order': 1
+        }
+    )

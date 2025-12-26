@@ -67,6 +67,12 @@ class INode(ABC):
         """获取默认配置"""
         return cls.get_config_class()()
     
+    @classmethod
+    def get_config_schema(cls) -> Dict[str, Any]:
+        """获取增强的配置Schema（用于前端表单生成）"""
+        from nodes.schema_generator import SchemaGenerator
+        return SchemaGenerator.generate(cls.get_config_class())
+    
     def configure(self, config: NodeConfigBase):
         """设置配置"""
         self._config = config
