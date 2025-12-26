@@ -82,6 +82,7 @@ RAGSystem/
 | 升级总结 | [SUMMARY](node-config-ui/NODE_CONFIG_SUMMARY.md) | docs/node-config-ui/ |
 | 更新日志 | [CHANGELOG](node-config-ui/NODE_CONFIG_CHANGELOG.md) | docs/node-config-ui/ |
 | 升级对比 | [COMPARISON](node-config-ui/NODE_CONFIG_COMPARISON.md) | docs/node-config-ui/ |
+| 复杂数组修复 | [BUGFIX_SUMMARY](node-config-ui/BUGFIX_SUMMARY.md) | docs/node-config-ui/ |
 
 ### 技术细节
 | 主题 | 文档 | 位置 |

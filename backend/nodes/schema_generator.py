@@ -94,9 +94,30 @@ class SchemaGenerator:
         
         # 处理默认值（避免PydanticUndefinedType）
         from pydantic_core import PydanticUndefined
-        default_value = field_info.default
-        if default_value is PydanticUndefined or default_value is None:
+        
+        # 获取默认值
+        default_value = None
+        if field_info.default is not PydanticUndefined and field_info.default is not None:
+            default_value = field_info.default
+        elif field_info.default_factory is not None:
+            # 如果有default_factory，调用它获取默认值
+            try:
+                default_value = field_info.default_factory()
+            except Exception:
+                # 如果调用失败，从base_schema获取
+                default_value = base_field_schema.get('default', None)
+        else:
             default_value = base_field_schema.get('default', None)
+        
+        # 如果默认值是Pydantic模型或包含Pydantic模型的列表，转换为字典
+        if default_value is not None:
+            if isinstance(default_value, BaseModel):
+                default_value = default_value.model_dump()
+            elif isinstance(default_value, list):
+                default_value = [
+                    item.model_dump() if isinstance(item, BaseModel) else item
+                    for item in default_value
+                ]
         
         # 基础信息
         field_schema = {
@@ -106,7 +127,7 @@ class SchemaGenerator:
         }
         
         # 只在有有效默认值时添加
-        if default_value is not None and default_value is not PydanticUndefined:
+        if default_value is not None:
             field_schema['default'] = default_value
         
         # 从Field的json_schema_extra获取UI配置

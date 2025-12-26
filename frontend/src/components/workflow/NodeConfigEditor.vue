@@ -95,8 +95,8 @@
               />
             </el-select>
 
-            <!-- JSON编辑器 -->
-            <div v-else-if="field.type === 'json'" class="json-field">
+            <!-- JSON编辑器（包括对象和复杂数组） -->
+            <div v-else-if="field.type === 'json' || field.type === 'array' || field.type === 'object' || field.format === 'json'" class="json-field">
               <el-input
                 v-model="formData[field.name]"
                 type="textarea"
@@ -114,8 +114,8 @@
               </el-button>
             </div>
 
-            <!-- 数组编辑器 -->
-            <div v-else-if="field.type === 'array'" class="array-field">
+            <!-- 简单数组编辑器（仅用于字符串数组） -->
+            <div v-else-if="field.type === 'array' && field.format !== 'json'" class="array-field">
               <el-tag
                 v-for="(item, idx) in formData[field.name]"
                 :key="idx"
@@ -316,10 +316,26 @@ function mapSchemaType(schema) {
 function initFormData() {
   const data = { ...props.modelValue };
   
-  // 确保数组字段初始化为数组
+  // 处理特殊字段类型
   if (props.configSchema) {
     Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
-      if (schema.type === 'array' && !Array.isArray(data[key])) {
+      // JSON/对象/数组类型需要转换为字符串
+      if (schema.format === 'json' || schema.type === 'object' || 
+          (schema.type === 'array' && schema.format === 'json')) {
+        if (data[key] !== undefined && data[key] !== null) {
+          // 如果已经是字符串，保持不变
+          if (typeof data[key] !== 'string') {
+            data[key] = JSON.stringify(data[key], null, 2);
+          }
+        } else if (schema.default !== undefined) {
+          // 使用默认值
+          data[key] = typeof schema.default === 'string' 
+            ? schema.default 
+            : JSON.stringify(schema.default, null, 2);
+        }
+      }
+      // 简单数组类型
+      else if (schema.type === 'array' && !Array.isArray(data[key])) {
         data[key] = data[key] ? [data[key]] : [];
       }
     });
@@ -411,7 +427,26 @@ async function validate() {
 
 // 获取表单数据
 function getFormData() {
-  return { ...formData.value };
+  const data = { ...formData.value };
+  
+  // 将JSON字符串字段转换回对象
+  if (props.configSchema) {
+    Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
+      if (schema.format === 'json' || schema.type === 'object' || 
+          (schema.type === 'array' && schema.format === 'json')) {
+        if (typeof data[key] === 'string' && data[key]) {
+          try {
+            data[key] = JSON.parse(data[key]);
+          } catch (e) {
+            // 如果解析失败，保持原值
+            console.warn(`Failed to parse JSON field ${key}:`, e);
+          }
+        }
+      }
+    });
+  }
+  
+  return data;
 }
 
 // 重置表单
