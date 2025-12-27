@@ -123,6 +123,56 @@ config: dict = Field(
 )
 ```
 
+### 8. 文件选择器
+```python
+# 单文件选择
+input_file: str = Field(
+    default="",
+    description="输入文件",
+    json_schema_extra={
+        'format': 'file_selector',
+        'file_extensions': ['.pdf', '.docx', '.txt'],
+        'mime_types': ['application/pdf'],
+        'placeholder': '选择文件'
+    }
+)
+
+# 多文件选择
+reference_files: list = Field(
+    default_factory=list,
+    description="参考文件",
+    json_schema_extra={
+        'format': 'file_selector',
+        'multiple': True,
+        'file_extensions': ['.pdf'],
+        'placeholder': '选择多个文件'
+    }
+)
+
+# 自动推断（字段名包含'file'、'document'、'upload'、'attachment'）
+document_file: str = Field(
+    default="",
+    description="文档文件",
+    json_schema_extra={
+        'placeholder': '选择文档'
+    }
+)
+```
+
+**文件选择器选项：**
+- `format`: 设置为 `'file_selector'` 启用文件选择器（或通过字段名自动推断）
+- `file_extensions`: 允许的文件扩展名列表，如 `['.pdf', '.docx']`
+- `mime_types`: 允许的MIME类型列表，如 `['application/pdf']`
+- `multiple`: 设置为 `True` 允许选择多个文件
+- `placeholder`: 占位符文本
+
+**自动推断规则：**
+如果字段名包含以下关键词，会自动推断为文件选择器：
+- `file`
+- `document`
+- `upload`
+- `attachment`
+
 ## 验证选项
 
 ### 数字范围

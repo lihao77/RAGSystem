@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Type, TypeVar
 from pydantic import BaseModel, Field
 from enum import Enum
+from pathlib import Path
 
 
 class NodeStatus(str, Enum):
@@ -93,3 +94,79 @@ class INode(ABC):
         if self._config is None:
             errors.append("节点未配置")
         return errors
+    
+    def validate_file_ids(self, config_dict: Dict[str, Any]) -> List[str]:
+        """
+        验证配置中的文件ID是否存在
+        
+        Args:
+            config_dict: 节点配置字典
+            
+        Returns:
+            错误消息列表，如果所有文件ID都有效则返回空列表
+        """
+        from file_index import FileIndex
+        
+        errors = []
+        file_index = FileIndex()
+        
+        # 递归查找配置中的所有文件ID字段
+        def find_file_ids(obj: Any, path: str = "") -> List[tuple[str, Any]]:
+            """查找配置对象中的文件ID字段，返回 (字段路径, 值) 列表"""
+            file_id_fields = []
+            
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    current_path = f"{path}.{key}" if path else key
+                    # 检查是否是文件ID字段（字段名包含 file 或 document）
+                    if isinstance(value, str) and any(k in key.lower() for k in ['file', 'document', 'upload', 'attachment']):
+                        if value:  # 非空字符串
+                            file_id_fields.append((current_path, value))
+                    elif isinstance(value, list):
+                        # 检查是否是文件ID数组
+                        if any(k in key.lower() for k in ['file', 'document', 'upload', 'attachment']):
+                            for idx, item in enumerate(value):
+                                if isinstance(item, str) and item:
+                                    file_id_fields.append((f"{current_path}[{idx}]", item))
+                        else:
+                            # 递归处理列表中的对象
+                            for idx, item in enumerate(value):
+                                file_id_fields.extend(find_file_ids(item, f"{current_path}[{idx}]"))
+                    elif isinstance(value, dict):
+                        file_id_fields.extend(find_file_ids(value, current_path))
+            
+            return file_id_fields
+        
+        # 查找所有文件ID字段
+        file_id_fields = find_file_ids(config_dict)
+        
+        # 验证每个文件ID
+        for field_path, file_id in file_id_fields:
+            file_info = file_index.get(file_id)
+            if not file_info:
+                errors.append(f"配置字段 '{field_path}' 引用的文件ID '{file_id}' 不存在")
+            else:
+                # 验证物理文件是否存在
+                stored_path = file_info.get('stored_path')
+                if stored_path:
+                    file_path = Path(stored_path)
+                    if not file_path.exists():
+                        errors.append(f"配置字段 '{field_path}' 引用的文件ID '{file_id}' 在索引中存在，但物理文件不存在: {stored_path}")
+        
+        return errors
+    
+    def get_file_metadata(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据文件ID获取文件元数据
+        
+        Args:
+            file_id: 文件ID
+            
+        Returns:
+            文件元数据字典，如果文件不存在则返回 None
+            元数据包含: id, original_name, stored_name, stored_path, size, mime, uploaded_at
+        """
+        from file_index import FileIndex
+        
+        file_index = FileIndex()
+        return file_index.get(file_id)

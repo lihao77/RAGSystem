@@ -40,9 +40,20 @@
               </el-tooltip>
             </template>
 
+            <!-- File selector -->
+            <FileSelector
+              v-if="field.type === 'file_selector'"
+              v-model="formData[field.name]"
+              :multiple="field.multiple"
+              :file-extensions="field.fileExtensions"
+              :mime-types="field.mimeTypes"
+              :placeholder="field.placeholder"
+              :disabled="field.disabled"
+            />
+
             <!-- 字符串输入 -->
             <el-input
-              v-if="field.type === 'string' && !field.options"
+              v-else-if="field.type === 'string' && !field.options"
               v-model="formData[field.name]"
               :placeholder="field.placeholder || field.description"
               :disabled="field.disabled"
@@ -183,6 +194,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { QuestionFilled } from '@element-plus/icons-vue';
+import FileSelector from '@/components/FileSelector.vue';
 
 const props = defineProps({
   // 节点类型定义
@@ -275,6 +287,7 @@ const configGroups = computed(() => {
       label: schema.title || key,
       description: schema.description,
       type: mapSchemaType(schema),
+      format: schema.format,
       required: props.configSchema.required?.includes(key),
       disabled: schema.readOnly,
       placeholder: schema.placeholder,
@@ -284,7 +297,11 @@ const configGroups = computed(() => {
       step: schema.multipleOf,
       precision: schema.precision,
       rows: schema.rows,
-      order: schema.order || 999
+      order: schema.order || 999,
+      // File selector specific metadata
+      fileExtensions: schema.fileExtensions,
+      mimeTypes: schema.mimeTypes,
+      multiple: schema.multiple
     });
   });
   
@@ -301,6 +318,7 @@ const configGroups = computed(() => {
 
 // 映射schema类型到表单控件类型
 function mapSchemaType(schema) {
+  if (schema.format === 'file_selector') return 'file_selector';
   if (schema.format === 'textarea') return 'text';
   if (schema.format === 'json') return 'json';
   if (schema.type === 'string') return 'string';

@@ -22,7 +22,42 @@ def get_index() -> FileIndex:
 
 @files_bp.route('', methods=['GET'])
 def list_files():
+    """
+    List files with optional filtering
+    
+    Query Parameters:
+        extensions: Comma-separated list of extensions (e.g., ".pdf,.docx")
+        mime_types: Comma-separated list of MIME types (e.g., "application/pdf")
+    
+    Note: When both extension and MIME type filters are provided, files matching 
+    either filter are returned (OR logic) per Requirement 4.5.
+    """
+    extensions = request.args.get('extensions', '').split(',') if request.args.get('extensions') else None
+    mime_types = request.args.get('mime_types', '').split(',') if request.args.get('mime_types') else None
+    
     items = get_index().list()
+    
+    # Apply filters with OR logic when both are provided (Requirement 4.5)
+    if extensions and mime_types:
+        # Normalize filters (case-insensitive)
+        extensions = [ext.lower().strip() for ext in extensions if ext.strip()]
+        mime_types = [mt.lower().strip() for mt in mime_types if mt.strip()]
+        
+        # OR logic: include files matching either extension OR MIME type
+        items = [
+            f for f in items 
+            if any(f.get('original_name', '').lower().endswith(ext) for ext in extensions)
+            or f.get('mime', '').lower() in mime_types
+        ]
+    # Apply only extension filters (case-insensitive)
+    elif extensions:
+        extensions = [ext.lower().strip() for ext in extensions if ext.strip()]
+        items = [f for f in items if any(f.get('original_name', '').lower().endswith(ext) for ext in extensions)]
+    # Apply only MIME type filters (case-insensitive)
+    elif mime_types:
+        mime_types = [mt.lower().strip() for mt in mime_types if mt.strip()]
+        items = [f for f in items if f.get('mime', '').lower() in mime_types]
+    
     return jsonify({"success": True, "files": items})
 
 
@@ -98,3 +133,44 @@ def download_file(file_id: str):
         return jsonify({"success": False, "error": "文件记录不完整"}), 500
 
     return send_from_directory(upload_dir, stored_name, as_attachment=True, download_name=rec.get('original_name') or stored_name)
+
+
+@files_bp.route('/validate', methods=['POST'])
+def validate_files():
+    """
+    Validate that file IDs exist
+    
+    Request Body:
+        {
+            "file_ids": ["id1", "id2", ...]
+        }
+    
+    Response:
+        {
+            "success": true,
+            "valid": ["id1"],
+            "invalid": ["id2"]
+        }
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"success": False, "error": "缺少请求体"}), 400
+    
+    file_ids = data.get('file_ids', [])
+    if not isinstance(file_ids, list):
+        return jsonify({"success": False, "error": "file_ids 必须是数组"}), 400
+    
+    valid = []
+    invalid = []
+    
+    for fid in file_ids:
+        if get_index().get(fid):
+            valid.append(fid)
+        else:
+            invalid.append(fid)
+    
+    return jsonify({
+        "success": True,
+        "valid": valid,
+        "invalid": invalid
+    })

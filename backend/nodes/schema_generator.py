@@ -179,6 +179,15 @@ class SchemaGenerator:
                 if 'pattern' in extra:
                     field_schema['pattern'] = extra['pattern']
                     field_schema['patternMessage'] = extra.get('patternMessage', '格式不正确')
+            
+            # 文件选择器特定元数据
+            if field_schema['format'] == 'file_selector':
+                if 'file_extensions' in extra:
+                    field_schema['fileExtensions'] = extra['file_extensions']
+                if 'mime_types' in extra:
+                    field_schema['mimeTypes'] = extra['mime_types']
+                if 'multiple' in extra:
+                    field_schema['multiple'] = extra['multiple']
         
         # 从base_field_schema获取枚举值
         if 'enum' in base_field_schema:
@@ -240,10 +249,17 @@ class SchemaGenerator:
         field_lower = field_name.lower()
         
         if field_type == 'string':
-            if any(k in field_lower for k in ['text', 'content', 'prompt', 'description']):
+            # 推断文件选择器格式
+            if any(k in field_lower for k in ['file', 'document', 'upload', 'attachment']):
+                return 'file_selector'
+            elif any(k in field_lower for k in ['text', 'content', 'prompt', 'description']):
                 return 'textarea'
             elif any(k in field_lower for k in ['password', 'secret', 'key']):
                 return 'password'
+        elif field_type == 'array':
+            # 数组类型也可能是文件选择器（多文件选择）
+            if any(k in field_lower for k in ['file', 'document', 'upload', 'attachment']):
+                return 'file_selector'
         elif field_type == 'object':
             return 'json'
         

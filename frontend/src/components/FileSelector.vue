@@ -1,0 +1,396 @@
+<template>
+  <div class="file-selector">
+    <!-- 单选模式 -->
+    <div v-if="!multiple" class="single-select">
+      <el-input
+        :model-value="displayValue"
+        :placeholder="placeholder || '点击选择文件'"
+        :disabled="disabled"
+        readonly
+        @click="openDialog"
+      >
+        <template #append>
+          <el-button :icon="FolderOpened" @click="openDialog" :disabled="disabled" />
+        </template>
+      </el-input>
+    </div>
+
+    <!-- 多选模式 -->
+    <div v-else class="multiple-select">
+      <div class="selected-files">
+        <el-tag
+          v-for="file in selectedFiles"
+          :key="file.id"
+          closable
+          @close="removeFile(file.id)"
+          style="margin-right: 8px; margin-bottom: 8px"
+        >
+          {{ file.original_name }}
+        </el-tag>
+      </div>
+      <el-button
+        :icon="FolderOpened"
+        @click="openDialog"
+        :disabled="disabled"
+        size="small"
+      >
+        {{ selectedFiles.length > 0 ? '添加更多文件' : placeholder || '选择文件' }}
+      </el-button>
+    </div>
+
+    <!-- 文件选择对话框 -->
+    <el-dialog
+      v-model="dialogVisible"
+      title="选择文件"
+      width="700px"
+      :close-on-click-modal="false"
+    >
+      <!-- 搜索框 -->
+      <el-input
+        v-model="searchQuery"
+        placeholder="搜索文件名..."
+        :prefix-icon="Search"
+        clearable
+        style="margin-bottom: 16px"
+      />
+
+      <!-- 文件列表 -->
+      <div v-loading="loading" class="file-list">
+        <el-empty v-if="filteredFiles.length === 0" description="没有找到文件" />
+        
+        <el-table
+          v-else
+          :data="filteredFiles"
+          :height="400"
+          @selection-change="handleSelectionChange"
+          @row-click="handleRowClick"
+        >
+          <el-table-column
+            v-if="multiple"
+            type="selection"
+            width="55"
+          />
+          
+          <el-table-column
+            v-else
+            width="55"
+          >
+            <template #default="scope">
+              <el-radio
+                :model-value="selectedIds.has(scope.row.id)"
+                @change="selectSingleFile(scope.row)"
+              >
+                <span></span>
+              </el-radio>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="original_name" label="文件名" min-width="200" />
+          
+          <el-table-column prop="size" label="大小" width="100">
+            <template #default="scope">
+              {{ formatFileSize(scope.row.size) }}
+            </template>
+          </el-table-column>
+          
+          <el-table-column prop="mime" label="类型" width="150" show-overflow-tooltip />
+          
+          <el-table-column prop="upload_time" label="上传时间" width="160">
+            <template #default="scope">
+              {{ formatDate(scope.row.upload_time) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 活动过滤器提示 -->
+      <div v-if="hasActiveFilters" class="filter-info">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+        >
+          <template #title>
+            <span>活动过滤器: </span>
+            <span v-if="fileExtensions && fileExtensions.length > 0">
+              扩展名: {{ fileExtensions.join(', ') }}
+            </span>
+            <span v-if="mimeTypes && mimeTypes.length > 0" style="margin-left: 8px">
+              MIME类型: {{ mimeTypes.join(', ') }}
+            </span>
+          </template>
+        </el-alert>
+      </div>
+
+      <template #footer>
+        <el-button @click="cancelSelection">取消</el-button>
+        <el-button type="primary" @click="confirmSelection">确定</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
+import { FolderOpened, Search } from '@element-plus/icons-vue';
+import { listFiles } from '@/api/fileService';
+
+const props = defineProps({
+  modelValue: {
+    type: [String, Array],
+    default: () => null
+  },
+  multiple: {
+    type: Boolean,
+    default: false
+  },
+  fileExtensions: {
+    type: Array,
+    default: () => null
+  },
+  mimeTypes: {
+    type: Array,
+    default: () => null
+  },
+  placeholder: {
+    type: String,
+    default: ''
+  },
+  disabled: {
+    type: Boolean,
+    default: false
+  }
+});
+
+const emit = defineEmits(['update:modelValue', 'change']);
+
+const dialogVisible = ref(false);
+const loading = ref(false);
+const files = ref([]);
+const selectedIds = ref(new Set());
+const searchQuery = ref('');
+const initialValue = ref(null);
+
+// 计算属性：已选择的文件对象
+const selectedFiles = computed(() => {
+  if (!props.multiple) {
+    const file = files.value.find(f => f.id === props.modelValue);
+    return file ? [file] : [];
+  } else {
+    const ids = Array.isArray(props.modelValue) ? props.modelValue : [];
+    return files.value.filter(f => ids.includes(f.id));
+  }
+});
+
+// 计算属性：显示值（单选模式）
+const displayValue = computed(() => {
+  if (!props.modelValue) return '';
+  const file = files.value.find(f => f.id === props.modelValue);
+  return file ? file.original_name : props.modelValue;
+});
+
+// 计算属性：是否有活动过滤器
+const hasActiveFilters = computed(() => {
+  return (props.fileExtensions && props.fileExtensions.length > 0) ||
+         (props.mimeTypes && props.mimeTypes.length > 0);
+});
+
+// 计算属性：过滤后的文件列表
+const filteredFiles = computed(() => {
+  let result = files.value;
+
+  // 应用扩展名过滤
+  if (props.fileExtensions && props.fileExtensions.length > 0) {
+    const extensions = props.fileExtensions.map(ext => ext.toLowerCase());
+    result = result.filter(file => {
+      const fileName = file.original_name.toLowerCase();
+      return extensions.some(ext => fileName.endsWith(ext));
+    });
+  }
+
+  // 应用MIME类型过滤
+  if (props.mimeTypes && props.mimeTypes.length > 0) {
+    const mimes = props.mimeTypes.map(mime => mime.toLowerCase());
+    result = result.filter(file => {
+      const fileMime = (file.mime || '').toLowerCase();
+      return mimes.includes(fileMime);
+    });
+  }
+
+  // 应用搜索查询
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase();
+    result = result.filter(file =>
+      file.original_name.toLowerCase().includes(query)
+    );
+  }
+
+  return result;
+});
+
+// 打开对话框
+function openDialog() {
+  if (props.disabled) return;
+  
+  // 保存初始值用于取消操作
+  initialValue.value = props.multiple 
+    ? [...(Array.isArray(props.modelValue) ? props.modelValue : [])]
+    : props.modelValue;
+  
+  // 初始化选中状态
+  if (props.multiple) {
+    const ids = Array.isArray(props.modelValue) ? props.modelValue : [];
+    selectedIds.value = new Set(ids);
+  } else {
+    selectedIds.value = props.modelValue ? new Set([props.modelValue]) : new Set();
+  }
+  
+  dialogVisible.value = true;
+  fetchFiles();
+}
+
+// 关闭对话框
+function closeDialog() {
+  dialogVisible.value = false;
+  searchQuery.value = '';
+}
+
+// 获取文件列表
+async function fetchFiles() {
+  loading.value = true;
+  try {
+    const response = await listFiles();
+    if (response.success) {
+      files.value = response.files || [];
+    } else {
+      ElMessage.error('获取文件列表失败');
+    }
+  } catch (error) {
+    console.error('Failed to fetch files:', error);
+    ElMessage.error('获取文件列表失败');
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 单选模式：选择文件
+function selectSingleFile(file) {
+  selectedIds.value = new Set([file.id]);
+}
+
+// 多选模式：处理选择变化
+function handleSelectionChange(selection) {
+  selectedIds.value = new Set(selection.map(f => f.id));
+}
+
+// 行点击处理
+function handleRowClick(row) {
+  if (!props.multiple) {
+    selectSingleFile(row);
+  }
+}
+
+// 确认选择
+function confirmSelection() {
+  if (props.multiple) {
+    const selectedArray = Array.from(selectedIds.value);
+    emit('update:modelValue', selectedArray);
+    emit('change', selectedFiles.value);
+  } else {
+    const selectedId = Array.from(selectedIds.value)[0] || null;
+    emit('update:modelValue', selectedId);
+    const selectedFile = files.value.find(f => f.id === selectedId);
+    emit('change', selectedFile ? [selectedFile] : []);
+  }
+  closeDialog();
+}
+
+// 取消选择
+function cancelSelection() {
+  // 恢复初始值
+  emit('update:modelValue', initialValue.value);
+  closeDialog();
+}
+
+// 移除文件（多选模式）
+function removeFile(fileId) {
+  if (props.disabled) return;
+  
+  const currentValue = Array.isArray(props.modelValue) ? props.modelValue : [];
+  const newValue = currentValue.filter(id => id !== fileId);
+  emit('update:modelValue', newValue);
+  
+  const remainingFiles = files.value.filter(f => newValue.includes(f.id));
+  emit('change', remainingFiles);
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// 格式化日期
+function formatDate(dateString) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+// 监听modelValue变化
+watch(() => props.modelValue, (newVal) => {
+  if (props.multiple) {
+    selectedIds.value = new Set(Array.isArray(newVal) ? newVal : []);
+  } else {
+    selectedIds.value = newVal ? new Set([newVal]) : new Set();
+  }
+}, { immediate: true });
+
+onMounted(() => {
+  // 如果有初始值，预加载文件列表以显示文件名
+  if (props.modelValue) {
+    fetchFiles();
+  }
+});
+</script>
+
+<style scoped>
+.file-selector {
+  width: 100%;
+}
+
+.single-select {
+  width: 100%;
+}
+
+.multiple-select {
+  width: 100%;
+}
+
+.selected-files {
+  min-height: 32px;
+  margin-bottom: 8px;
+}
+
+.file-list {
+  margin-bottom: 16px;
+}
+
+.filter-info {
+  margin-top: 16px;
+}
+
+:deep(.el-input__inner) {
+  cursor: pointer;
+}
+</style>

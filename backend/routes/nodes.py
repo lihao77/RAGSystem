@@ -113,7 +113,7 @@ def get_data_types():
     types_list = sorted(list(types_set))
     
     # 添加常用的通用类型（如果不存在）
-    common_types = ['any', 'text', 'string', 'integer', 'number', 'bool', 'json', 'array', 'object']
+    common_types = ['any', 'text', 'string', 'integer', 'number', 'bool', 'json', 'array', 'object', 'file_id', 'file_ids']
     for t in common_types:
         if t not in types_set:
             types_list.append(t)

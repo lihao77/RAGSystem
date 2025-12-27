@@ -134,7 +134,78 @@ class MyNodeConfig(NodeConfigBase):
 ### 格式推断
 - 字段名包含 password/secret/key → `password`格式
 - 字段名包含 text/content/prompt → `textarea`格式
+- 字段名包含 file/document/upload/attachment → `file_selector`格式
 - 类型为 object → `json`格式
+
+## 文件选择器
+
+文件选择器允许用户从已上传的文件列表中选择文件，支持类型过滤和多选。
+
+### 基本用法
+
+```python
+# 单文件选择
+input_file: str = Field(
+    default="",
+    description="输入文件",
+    json_schema_extra={
+        'group': 'input',
+        'order': 1,
+        'format': 'file_selector',
+        'file_extensions': ['.pdf', '.docx', '.txt'],
+        'placeholder': '选择输入文件'
+    }
+)
+
+# 多文件选择
+reference_files: list = Field(
+    default_factory=list,
+    description="参考文件",
+    json_schema_extra={
+        'group': 'input',
+        'order': 2,
+        'format': 'file_selector',
+        'multiple': True,
+        'file_extensions': ['.pdf'],
+        'placeholder': '选择参考文件'
+    }
+)
+```
+
+### 文件选择器选项
+
+- `format`: 设置为 `'file_selector'` 启用文件选择器
+- `file_extensions`: 允许的文件扩展名列表，如 `['.pdf', '.docx']`
+- `mime_types`: 允许的MIME类型列表，如 `['application/pdf']`
+- `multiple`: 设置为 `True` 允许选择多个文件
+- `placeholder`: 占位符文本
+
+### 自动推断
+
+如果字段名包含以下关键词，会自动推断为文件选择器：
+- `file`
+- `document`
+- `upload`
+- `attachment`
+
+示例：
+```python
+# 自动推断为文件选择器
+document_file: str = Field(
+    default="",
+    description="文档文件",
+    json_schema_extra={
+        'group': 'input',
+        'order': 1
+    }
+)
+```
+
+### 过滤规则
+
+- 如果同时指定 `file_extensions` 和 `mime_types`，使用OR逻辑（满足任一条件即可）
+- 扩展名匹配不区分大小写
+- 如果不指定过滤器，显示所有文件
 
 ## API端点
 

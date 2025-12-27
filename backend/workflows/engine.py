@@ -19,15 +19,46 @@ class WorkflowEngine:
         self.config_store = NodeConfigStore()
 
     def _compile_initial_inputs(self, wf: WorkflowDefinition, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        from file_index import FileIndex
+        
         data: Dict[str, Any] = {}
+        file_index = FileIndex()
+        
         for v in (getattr(wf, 'variables', []) or []):
             if isinstance(v, dict):
                 name = v.get('name')
+                value = v.get('value')
+                var_type = v.get('type', 'any')
                 if name:
-                    data[name] = v.get('value')
+                    # 验证文件类型变量中的文件ID
+                    if var_type in ['file_id', 'file_ids']:
+                        if var_type == 'file_id' and value:
+                            # 单个文件ID
+                            if not file_index.get(value):
+                                raise ValueError(f"工作流变量 '{name}' 引用的文件ID '{value}' 不存在")
+                        elif var_type == 'file_ids' and value:
+                            # 多个文件ID
+                            if isinstance(value, list):
+                                for file_id in value:
+                                    if file_id and not file_index.get(file_id):
+                                        raise ValueError(f"工作流变量 '{name}' 引用的文件ID '{file_id}' 不存在")
+                    data[name] = value
             else:
                 if getattr(v, 'name', None):
-                    data[v.name] = getattr(v, 'value', None)
+                    name = v.name
+                    value = getattr(v, 'value', None)
+                    var_type = getattr(v, 'type', 'any')
+                    # 验证文件类型变量中的文件ID
+                    if var_type in ['file_id', 'file_ids']:
+                        if var_type == 'file_id' and value:
+                            if not file_index.get(value):
+                                raise ValueError(f"工作流变量 '{name}' 引用的文件ID '{value}' 不存在")
+                        elif var_type == 'file_ids' and value:
+                            if isinstance(value, list):
+                                for file_id in value:
+                                    if file_id and not file_index.get(file_id):
+                                        raise ValueError(f"工作流变量 '{name}' 引用的文件ID '{file_id}' 不存在")
+                    data[name] = value
         if initial_inputs:
             data.update(initial_inputs)
         return data
@@ -153,6 +184,11 @@ class WorkflowEngine:
                 if cfg is None:
                     raise ValueError(f"节点 {n.id} 的 config_id 不存在: {n.config_id}")
                 node.configure(cfg)
+                # 验证配置中的文件ID
+                config_dict = cfg.model_dump() if hasattr(cfg, 'model_dump') else cfg.dict()
+                file_errors = node.validate_file_ids(config_dict)
+                if file_errors:
+                    raise ValueError(f"节点 {n.id} 文件ID验证失败: {'; '.join(file_errors)}")
             else:
                 node.configure(node_class.get_default_config())
 

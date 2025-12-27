@@ -151,6 +151,22 @@
                   :placeholder="`${input.description} (JSON 格式)`"
                 />
                 
+                <!-- file_id 类型 -> 单文件选择器 -->
+                <FileSelector
+                  v-else-if="input.name === 'file_id' || input.name.endsWith('_file_id')"
+                  v-model="dynamicInputs[input.name]"
+                  :multiple="false"
+                  :placeholder="input.description || '选择文件'"
+                />
+                
+                <!-- file_ids 或 array 类型且名称包含 file -> 多文件选择器 -->
+                <FileSelector
+                  v-else-if="input.name === 'file_ids' || input.name.endsWith('_file_ids') || (input.type === 'array' && (input.name.includes('file') || input.description?.toLowerCase().includes('file')))"
+                  v-model="dynamicInputs[input.name]"
+                  :multiple="true"
+                  :placeholder="input.description || '选择文件'"
+                />
+                
                 <!-- array 类型 -> textarea (JSON array) -->
                 <el-input 
                   v-else-if="input.type === 'array'"
@@ -203,6 +219,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import NodeConfigEditor from '@/components/workflow/NodeConfigEditor.vue';
+import FileSelector from '@/components/FileSelector.vue';
 import {
   getNodeTypes,
   getNodeType,

@@ -89,17 +89,20 @@
               <template #default="scope">
                 <el-input-number v-if="scope.row.type==='number'" v-model="scope.row.value" style="width:100%" />
                 <el-switch v-else-if="scope.row.type==='bool'" v-model="scope.row.value" />
-                <el-select
+                <!-- 单文件选择器 -->
+                <FileSelector
+                  v-else-if="scope.row.type==='file_id'"
+                  v-model="scope.row.value"
+                  :multiple="false"
+                  placeholder="选择文件"
+                />
+                <!-- 多文件选择器 -->
+                <FileSelector
                   v-else-if="scope.row.type==='file_ids'"
                   v-model="scope.row.value"
-                  multiple
-                  filterable
-                  clearable
-                  style="width:100%"
+                  :multiple="true"
                   placeholder="选择文件"
-                >
-                  <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.name} (${f.id})`" :value="f.id" />
-                </el-select>
+                />
                 <el-input
                   v-else-if="scope.row.type==='json'"
                   v-model="scope.row.value"
@@ -179,17 +182,20 @@
           <el-form-item v-for="v in (workflowVars || [])" :key="v.name + v.type" :label="`${v.name || '(未命名)'} (${v.type||'any'})`">
             <el-input-number v-if="v.type==='number'" v-model="runForm[v.name]" style="width:100%" />
             <el-switch v-else-if="v.type==='bool'" v-model="runForm[v.name]" />
-            <el-select
+            <!-- 单文件选择器 -->
+            <FileSelector
+              v-else-if="v.type==='file_id'"
+              v-model="runForm[v.name]"
+              :multiple="false"
+              placeholder="选择文件"
+            />
+            <!-- 多文件选择器 -->
+            <FileSelector
               v-else-if="v.type==='file_ids'"
               v-model="runForm[v.name]"
-              multiple
-              filterable
-              clearable
-              style="width:100%"
+              :multiple="true"
               placeholder="选择文件"
-            >
-              <el-option v-for="f in availableFiles" :key="f.id" :label="`${f.name} (${f.id})`" :value="f.id" />
-            </el-select>
+            />
             <el-input
               v-else-if="v.type==='json'"
               v-model="runForm[v.name]"
@@ -314,6 +320,7 @@ import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 
 import WorkflowNode from '@/components/workflow/WorkflowNode.vue';
+import FileSelector from '@/components/FileSelector.vue';
 
 import { getNodeTypes, getConfigs, getDataTypes } from '@/api/nodeService';
 import { listFiles } from '@/api/fileService';
@@ -840,6 +847,7 @@ function normalizeVarDefaultForRun(v) {
   const raw = v?.value;
   if (t === 'number') return (raw === '' || raw === null || raw === undefined) ? undefined : Number(raw);
   if (t === 'bool') return raw === true || raw === false ? raw : (String(raw).toLowerCase() === 'true');
+  if (t === 'file_id') return raw || '';
   if (t === 'file_ids') return Array.isArray(raw) ? raw : (raw ? raw : []);
   if (t === 'json') {
     if (typeof raw === 'string') return raw;
@@ -870,6 +878,11 @@ function buildRunInitialInputs() {
       if (typeof val === 'string') {
         try { val = JSON.parse(val); } catch { throw new Error(`变量 ${v.name} JSON 解析失败`); }
       }
+    }
+
+    if (t === 'file_id') {
+      if (val === '' || val === null || val === undefined) continue;
+      // file_id 保持为字符串
     }
 
     if (t === 'file_ids') {
@@ -1046,6 +1059,11 @@ function applyRunToVars() {
 
     if (t === 'bool') {
       v.value = Boolean(val);
+      continue;
+    }
+
+    if (t === 'file_id') {
+      v.value = val || '';
       continue;
     }
 
