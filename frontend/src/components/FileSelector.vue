@@ -17,24 +17,41 @@
 
     <!-- 多选模式 -->
     <div v-else class="multiple-select">
-      <div class="selected-files">
-        <el-tag
-          v-for="file in selectedFiles"
-          :key="file.id"
-          closable
-          @close="removeFile(file.id)"
-          style="margin-right: 8px; margin-bottom: 8px"
-        >
-          {{ file.original_name }}
-        </el-tag>
+      <div class="file-list-container">
+        <div v-if="selectedFiles.length === 0" class="empty-state">
+          <el-icon class="empty-icon"><Document /></el-icon>
+          <span class="empty-text">{{ placeholder || '未选择文件' }}</span>
+        </div>
+        <div v-else class="selected-files-list">
+          <div 
+            v-for="file in selectedFiles" 
+            :key="file.id" 
+            class="file-item"
+          >
+            <el-icon class="file-icon"><Document /></el-icon>
+            <span class="file-name">{{ file.original_name }}</span>
+            <span class="file-size">{{ formatFileSize(file.size) }}</span>
+            <el-button
+              :icon="Close"
+              circle
+              size="small"
+              text
+              @click="removeFile(file.id)"
+              :disabled="disabled"
+              class="remove-btn"
+            />
+          </div>
+        </div>
       </div>
       <el-button
         :icon="FolderOpened"
         @click="openDialog"
         :disabled="disabled"
         size="small"
+        type="primary"
+        style="width: 100%; margin-top: 8px"
       >
-        {{ selectedFiles.length > 0 ? '添加更多文件' : placeholder || '选择文件' }}
+        {{ selectedFiles.length > 0 ? `已选择 ${selectedFiles.length} 个文件，点击添加更多` : '选择文件' }}
       </el-button>
     </div>
 
@@ -44,6 +61,8 @@
       title="选择文件"
       width="700px"
       :close-on-click-modal="false"
+      append-to-body
+      modal-class="file-selector-modal"
     >
       <!-- 搜索框 -->
       <el-input
@@ -60,6 +79,7 @@
         
         <el-table
           v-else
+          ref="fileTableRef"
           :data="filteredFiles"
           :height="400"
           @selection-change="handleSelectionChange"
@@ -76,12 +96,12 @@
             width="55"
           >
             <template #default="scope">
-              <el-radio
-                :model-value="selectedIds.has(scope.row.id)"
+              <input
+                type="radio"
+                :checked="selectedIds.has(scope.row.id)"
                 @change="selectSingleFile(scope.row)"
-              >
-                <span></span>
-              </el-radio>
+                style="cursor: pointer;"
+              />
             </template>
           </el-table-column>
 
@@ -131,9 +151,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
-import { FolderOpened, Search } from '@element-plus/icons-vue';
+import { FolderOpened, Search, Document, Close } from '@element-plus/icons-vue';
 import { listFiles } from '@/api/fileService';
 
 const props = defineProps({
@@ -171,6 +191,7 @@ const files = ref([]);
 const selectedIds = ref(new Set());
 const searchQuery = ref('');
 const initialValue = ref(null);
+const fileTableRef = ref(null);
 
 // 计算属性：已选择的文件对象
 const selectedFiles = computed(() => {
@@ -241,6 +262,7 @@ function openDialog() {
   // 初始化选中状态
   if (props.multiple) {
     const ids = Array.isArray(props.modelValue) ? props.modelValue : [];
+    console.log(ids)
     selectedIds.value = new Set(ids);
   } else {
     selectedIds.value = props.modelValue ? new Set([props.modelValue]) : new Set();
@@ -263,6 +285,17 @@ async function fetchFiles() {
     const response = await listFiles();
     if (response.success) {
       files.value = response.files || [];
+      // 多选模式下，设置已选中的行
+      if (props.multiple && fileTableRef.value) {
+        await nextTick();
+        const selectedFilesList = selectedFiles.value;
+        for (const file of selectedFilesList) {
+          const row = files.value.find(f => f.id === file.id);
+          if (row) {
+            fileTableRef.value.toggleRowSelection(row, true);
+          }
+        }
+      }
     } else {
       ElMessage.error('获取文件列表失败');
     }
@@ -377,9 +410,87 @@ onMounted(() => {
   width: 100%;
 }
 
-.selected-files {
-  min-height: 32px;
+.file-list-container {
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background-color: var(--el-fill-color-blank);
+  min-height: 120px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--el-text-color-secondary);
+}
+
+.empty-icon {
+  font-size: 48px;
   margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.empty-text {
+  font-size: 14px;
+}
+
+.selected-files-list {
+  padding: 8px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background-color: var(--el-fill-color-light);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.file-item:hover {
+  background-color: var(--el-fill-color);
+}
+
+.file-item:last-child {
+  margin-bottom: 0;
+}
+
+.file-icon {
+  font-size: 20px;
+  color: var(--el-color-primary);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 12px;
+}
+
+.file-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.remove-btn {
+  flex-shrink: 0;
+  color: var(--el-text-color-secondary);
+}
+
+.remove-btn:hover {
+  color: var(--el-color-danger);
 }
 
 .file-list {
@@ -392,5 +503,10 @@ onMounted(() => {
 
 :deep(.el-input__inner) {
   cursor: pointer;
+}
+
+/* 修复遮罩层样式，确保覆盖所有页面元素 */
+:global(.file-selector-modal) {
+  z-index: 3000 !important;
 }
 </style>

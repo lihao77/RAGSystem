@@ -59,7 +59,10 @@
           </div>
         </el-card>
 
-        <el-card shadow="never" style="margin-top: 16px">
+      </el-col>
+
+      <el-col :span="18">
+        <el-card shadow="never" style="margin-bottom: 16px">
           <template #header>
             <div class="card-header">
               <span>全局变量（vars）</span>
@@ -128,9 +131,6 @@
             运行参数请点击左侧“运行”按钮，在弹出的运行面板中填写（会以 initial_inputs 发送，可覆盖 vars 默认值）。
           </div>
         </el-card>
-      </el-col>
-
-      <el-col :span="18">
         <el-card shadow="never">
           <template #header>
             <div class="card-header">

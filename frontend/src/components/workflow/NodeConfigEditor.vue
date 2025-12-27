@@ -14,8 +14,8 @@
         ref="formRef"
         :model="formData"
         :rules="formRules"
-        label-width="140px"
-        label-position="left"
+        label-width="auto"
+        label-position="right"
         size="default"
       >
         <!-- 动态生成表单项 -->
