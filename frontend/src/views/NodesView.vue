@@ -6,7 +6,7 @@
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="8">
+      <el-col :span="8" class="left-sidebar">
         <el-card shadow="never">
           <template #header>
             <div class="card-header">
@@ -495,6 +495,7 @@ onMounted(async () => {
   max-width: 1400px;
   margin: 0 auto;
   padding: 20px;
+  min-height: 100vh;
 }
 .page-header {
   margin-bottom: 20px;
@@ -538,5 +539,32 @@ onMounted(async () => {
 }
 .dynamic-inputs :deep(.el-form-item__label) {
   font-weight: 500;
+}
+
+/* 左侧栏固定定位 */
+.left-sidebar {
+  position: sticky;
+  top: 0px;
+  height: fit-content;
+  /* max-height: calc(100vh - 40px); */
+  overflow-y: auto;
+}
+
+/* 自定义滚动条样式 */
+.left-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.left-sidebar::-webkit-scrollbar-track {
+  background: #f5f7fa;
+}
+
+.left-sidebar::-webkit-scrollbar-thumb {
+  background: #dcdfe6;
+  border-radius: 3px;
+}
+
+.left-sidebar::-webkit-scrollbar-thumb:hover {
+  background: #c0c4cc;
 }
 </style>

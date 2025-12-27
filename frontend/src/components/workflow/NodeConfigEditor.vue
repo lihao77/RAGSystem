@@ -511,7 +511,7 @@ onMounted(() => {
 }
 
 .form-view {
-  max-height: 600px;
+  /* max-height: 600px; */
   overflow-y: auto;
   padding-right: 8px;
 }
