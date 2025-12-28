@@ -24,10 +24,20 @@ class LLMJsonV2Node(INode):
             category="process",
             version="2.0.0",
             inputs=[
-                {"name": "file_ids", "type": "array", "description": "文件ID列表", "required": False, "multiple": True},
-                {"name": "files", "type": "array", "description": "输入文件路径列表", "required": False, "multiple": True},
+                {"name": "file_ids", "type": "file_ids", "description": "文件ID列表（推荐，从文件管理系统选择）", "required": False, "multiple": True, "accept": ".txt,.md,.docx,.pdf"},
+                {"name": "files", "type": "array", "description": "本地文件路径列表（注意：浏览器限制，仅支持后端运行）", "required": False, "multiple": True},
                 {"name": "text", "type": "text", "description": "直接输入文本", "required": False}
             ],
+            input_constraints={
+                # file_ids/files/text 互斥，只能选一种输入方式
+                "exclusive_groups": [
+                    ["file_ids", "files", "text"]
+                ],
+                # 必须至少选一种输入方式
+                "required_one_of": [
+                    ["file_ids", "files", "text"]
+                ]
+            },
             outputs=[
                 {"name": "extracted_data", "type": "json", "description": "提取的结构化数据"},
                 {"name": "entities", "type": "json", "description": "提取的实体列表"},

@@ -365,7 +365,24 @@ function initFormData() {
 
 // 同步表单数据到JSON
 function syncToJson() {
-  jsonText.value = JSON.stringify(formData.value, null, 2);
+  // 处理JSON字符串字段，先解析再序列化，避免双重转义
+  const dataForJson = { ...formData.value };
+
+  if (props.configSchema) {
+    Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
+      if ((schema.format === 'json' || schema.type === 'object' ||
+           (schema.type === 'array' && schema.format === 'json')) &&
+          typeof dataForJson[key] === 'string') {
+        try {
+          dataForJson[key] = JSON.parse(dataForJson[key]);
+        } catch (e) {
+          // 如果解析失败，保持原字符串
+        }
+      }
+    });
+  }
+
+  jsonText.value = JSON.stringify(dataForJson, null, 2);
 }
 
 // 从JSON同步到表单
@@ -476,7 +493,22 @@ function resetForm() {
 
 // 监听表单数据变化
 watch(formData, (newVal) => {
-  emit('update:modelValue', newVal);
+  // 解析 JSON 字符串字段
+  const parsedData = { ...newVal };
+  if (props.configSchema) {
+    Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
+      if ((schema.format === 'json' || schema.type === 'object' ||
+           (schema.type === 'array' && schema.format === 'json')) &&
+          typeof parsedData[key] === 'string') {
+        try {
+          parsedData[key] = JSON.parse(parsedData[key]);
+        } catch (e) {
+          // 保持原字符串
+        }
+      }
+    });
+  }
+  emit('update:modelValue', parsedData);
   syncToJson();
 }, { deep: true });
 

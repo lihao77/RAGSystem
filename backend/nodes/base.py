@@ -31,11 +31,18 @@ class NodeDefinition(BaseModel):
     description: str = ""
     category: str = "default"    # 分类
     version: str = "1.0.0"
-    
+
     # 输入输出定义
     inputs: List[Dict[str, Any]] = Field(default_factory=list)
     outputs: List[Dict[str, Any]] = Field(default_factory=list)
-    
+
+    # 输入约束
+    # - exclusive_groups: 互斥组，每组内只能选一个输入
+    #   例如: [["file_ids", "files", "text"]] 表示这三个输入只能选一个
+    # - required_one_of: 必须至少选一个的输入组
+    #   例如: [["file_ids", "files", "text"]] 表示这三个中至少选一个
+    input_constraints: Dict[str, Any] = Field(default_factory=dict)
+
     # 配置Schema
     config_schema: Dict[str, Any] = Field(default_factory=dict)
 
@@ -93,6 +100,38 @@ class INode(ABC):
         errors = []
         if self._config is None:
             errors.append("节点未配置")
+        return errors
+
+    def validate_inputs(self, inputs: Dict[str, Any]) -> List[str]:
+        """
+        验证节点输入约束
+
+        Args:
+            inputs: 输入参数字典
+
+        Returns:
+            错误消息列表
+        """
+        errors = []
+        defn = self.get_definition()
+
+        # 获取输入约束
+        constraints = defn.input_constraints or {}
+        exclusive_groups = constraints.get('exclusive_groups', [])
+        required_one_of = constraints.get('required_one_of', [])
+
+        # 验证互斥组
+        for group in exclusive_groups:
+            provided = [name for name in group if name in inputs and inputs[name] is not None]
+            if len(provided) > 1:
+                errors.append(f"输入 {'/'.join(group)} 互斥，只能提供其中一个，但提供了: {', '.join(provided)}")
+
+        # 验证必填组
+        for group in required_one_of:
+            provided = [name for name in group if name in inputs and inputs[name] is not None]
+            if not provided:
+                errors.append(f"必须提供 {'/'.join(group)} 中的至少一个")
+
         return errors
     
     def validate_file_ids(self, config_dict: Dict[str, Any]) -> List[str]:

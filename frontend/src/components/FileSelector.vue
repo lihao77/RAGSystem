@@ -64,19 +64,38 @@
       append-to-body
       modal-class="file-selector-modal"
     >
+      <!-- 活动过滤器提示 -->
+      <div v-if="hasActiveFilters" class="filter-info">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+        >
+          <template #title>
+            <span>支持的文件类型: </span>
+            <span v-if="parsedAccept.extensions">
+              {{ parsedAccept.extensions.join(', ') }}
+            </span>
+            <span v-if="parsedAccept.mimeTypes" style="margin-left: 8px">
+              MIME: {{ parsedAccept.mimeTypes.join(', ') }}
+            </span>
+          </template>
+        </el-alert>
+      </div>
+
       <!-- 搜索框 -->
       <el-input
         v-model="searchQuery"
         placeholder="搜索文件名..."
         :prefix-icon="Search"
         clearable
-        style="margin-bottom: 16px"
+        style="margin-bottom: 16px; margin-top: 16px"
       />
 
       <!-- 文件列表 -->
       <div v-loading="loading" class="file-list">
-        <el-empty v-if="filteredFiles.length === 0" description="没有找到文件" />
-        
+        <el-empty v-if="filteredFiles.length === 0" description="没有找到符合条件的文件" />
+
         <el-table
           v-else
           ref="fileTableRef"
@@ -90,7 +109,7 @@
             type="selection"
             width="55"
           />
-          
+
           <el-table-column
             v-else
             width="55"
@@ -106,40 +125,21 @@
           </el-table-column>
 
           <el-table-column prop="original_name" label="文件名" min-width="200" />
-          
+
           <el-table-column prop="size" label="大小" width="100">
             <template #default="scope">
               {{ formatFileSize(scope.row.size) }}
             </template>
           </el-table-column>
-          
+
           <el-table-column prop="mime" label="类型" width="150" show-overflow-tooltip />
-          
+
           <el-table-column prop="upload_time" label="上传时间" width="160">
             <template #default="scope">
               {{ formatDate(scope.row.upload_time) }}
             </template>
           </el-table-column>
         </el-table>
-      </div>
-
-      <!-- 活动过滤器提示 -->
-      <div v-if="hasActiveFilters" class="filter-info">
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-        >
-          <template #title>
-            <span>活动过滤器: </span>
-            <span v-if="fileExtensions && fileExtensions.length > 0">
-              扩展名: {{ fileExtensions.join(', ') }}
-            </span>
-            <span v-if="mimeTypes && mimeTypes.length > 0" style="margin-left: 8px">
-              MIME类型: {{ mimeTypes.join(', ') }}
-            </span>
-          </template>
-        </el-alert>
       </div>
 
       <template #footer>
@@ -165,13 +165,9 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  fileExtensions: {
-    type: Array,
-    default: () => null
-  },
-  mimeTypes: {
-    type: Array,
-    default: () => null
+  accept: {
+    type: String,
+    default: ''  // 例如: ".txt,.docx,.pdf" 或 "text/plain,application/pdf"
   },
   placeholder: {
     type: String,
@@ -211,31 +207,61 @@ const displayValue = computed(() => {
   return file ? file.original_name : props.modelValue;
 });
 
+// 计算属性：解析 accept 属性
+const parsedAccept = computed(() => {
+  if (!props.accept) return { extensions: null, mimeTypes: null };
+
+  const parts = props.accept.split(',').map(p => p.trim());
+  const extensions = [];
+  const mimeTypes = [];
+
+  parts.forEach(part => {
+    if (part.startsWith('.')) {
+      // 文件扩展名
+      extensions.push(part.toLowerCase());
+    } else if (part.includes('/')) {
+      // MIME 类型
+      mimeTypes.push(part.toLowerCase());
+    }
+  });
+
+  return {
+    extensions: extensions.length > 0 ? extensions : null,
+    mimeTypes: mimeTypes.length > 0 ? mimeTypes : null
+  };
+});
+
 // 计算属性：是否有活动过滤器
 const hasActiveFilters = computed(() => {
-  return (props.fileExtensions && props.fileExtensions.length > 0) ||
-         (props.mimeTypes && props.mimeTypes.length > 0);
+  const extensions = props.fileExtensions || parsedAccept.value.extensions;
+  const mimeTypes = props.mimeTypes || parsedAccept.value.mimeTypes;
+  return (extensions && extensions.length > 0) ||
+         (mimeTypes && mimeTypes.length > 0);
 });
 
 // 计算属性：过滤后的文件列表
 const filteredFiles = computed(() => {
   let result = files.value;
 
+  // 获取扩展名和MIME类型（优先使用 props，其次使用解析的 accept）
+  const extensions = props.fileExtensions || parsedAccept.value.extensions;
+  const mimeTypes = props.mimeTypes || parsedAccept.value.mimeTypes;
+
   // 应用扩展名过滤
-  if (props.fileExtensions && props.fileExtensions.length > 0) {
-    const extensions = props.fileExtensions.map(ext => ext.toLowerCase());
+  if (extensions && extensions.length > 0) {
+    const extList = extensions.map(ext => ext.toLowerCase());
     result = result.filter(file => {
       const fileName = file.original_name.toLowerCase();
-      return extensions.some(ext => fileName.endsWith(ext));
+      return extList.some(ext => fileName.endsWith(ext));
     });
   }
 
   // 应用MIME类型过滤
-  if (props.mimeTypes && props.mimeTypes.length > 0) {
-    const mimes = props.mimeTypes.map(mime => mime.toLowerCase());
+  if (mimeTypes && mimeTypes.length > 0) {
+    const mimeList = mimeTypes.map(mime => mime.toLowerCase());
     result = result.filter(file => {
       const fileMime = (file.mime || '').toLowerCase();
-      return mimes.includes(fileMime);
+      return mimeList.includes(fileMime);
     });
   }
 

@@ -241,6 +241,16 @@
         </el-select>
 
         <div style="margin-top: 14px; font-weight:600;">输入绑定（Bindings）</div>
+
+        <!-- 约束信息提示 -->
+        <el-alert
+          v-if="hasConstraints()"
+          :title="constraintTitle()"
+          type="info"
+          :closable="false"
+          style="margin: 8px 0; font-size: 12px;"
+        />
+
         <div style="color:#909399;font-size:12px;margin:6px 0 8px;">
           先连线 A→B，再在 B 的输入端口选择引用 A 的输出变量；也可选择全局 var。
         </div>
@@ -253,6 +263,7 @@
               @update:model-value="(v)=> setInputBinding(activeNode.id, p.name, v)"
               placeholder="选择来源"
               clearable
+              :disabled="isInputDisabled(p)"
             >
               <el-option label="(空)" value="" />
               <el-option-group label="全局变量 vars">
@@ -672,6 +683,54 @@ function upstreamOptionsForInput(targetNodeId, inputPort) {
     }
   }
   return opts;
+}
+
+// 节点输入约束相关函数
+function hasConstraints() {
+  if (!activeNode.value?.data?.node_type) return false;
+  const def = getNodeDef(activeNode.value.data.node_type);
+  return def?.input_constraints && (def.input_constraints.exclusive_groups?.length > 0 || def.input_constraints.required_one_of?.length > 0);
+}
+
+function constraintTitle() {
+  if (!activeNode.value?.data?.node_type) return '';
+  const def = getNodeDef(activeNode.value.data.node_type);
+  if (!def?.input_constraints) return '';
+
+  const parts = [];
+
+  if (def.input_constraints.required_one_of?.length > 0) {
+    const groups = def.input_constraints.required_one_of.map(group => group.join('/'));
+    parts.push(`必须提供: ${groups.join(' 或 ')}`);
+  }
+
+  if (def.input_constraints.exclusive_groups?.length > 0) {
+    const groups = def.input_constraints.exclusive_groups.map(group => group.join('/'));
+    parts.push(`互斥输入: ${groups.join(' 和 ')}`);
+  }
+
+  return parts.join('；');
+}
+
+function isInputDisabled(inputPort) {
+  if (!activeNode.value?.data?.node_type) return false;
+  const def = getNodeDef(activeNode.value.data.node_type);
+  if (!def?.input_constraints?.exclusive_groups) return false;
+
+  // 检查是否在互斥组中
+  for (const group of def.input_constraints.exclusive_groups) {
+    if (group.includes(inputPort.name)) {
+      // 检查是否有其他输入已经选择
+      const bindings = activeNode.value.data.input_bindings || {};
+      for (const otherInput of group) {
+        if (otherInput !== inputPort.name && bindings[otherInput]) {
+          return true; // 互斥输入已选择，禁用当前输入
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 async function loadDataTypes() {

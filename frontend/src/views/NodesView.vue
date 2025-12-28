@@ -87,7 +87,7 @@
           <div v-else>
             <div class="section-title">配置 JSON</div>
             <el-input
-              v-model="configJson"
+              v-model="configJsonString"
               type="textarea"
               :rows="14"
               placeholder="请输入配置 JSON（与后端节点配置字段一致）"
@@ -106,49 +106,64 @@
           
           <!-- 动态生成输入表单 -->
           <div v-if="selectedDefinition && selectedDefinition.inputs && selectedDefinition.inputs.length > 0" class="dynamic-inputs">
+
+            <!-- 约束信息提示 -->
+            <el-alert
+              v-if="hasConstraints()"
+              :title="constraintTitle()"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 12px; font-size: 12px;"
+            />
+
             <el-form label-width="120px" size="small">
-              <el-form-item 
-                v-for="input in selectedDefinition.inputs" 
+              <el-form-item
+                v-for="input in selectedDefinition.inputs"
                 :key="input.name"
                 :label="input.name"
                 :required="input.required"
               >
                 <!-- text 类型 -> textarea -->
-                <el-input 
+                <el-input
                   v-if="input.type === 'text'"
                   v-model="dynamicInputs[input.name]"
                   type="textarea"
                   :rows="4"
                   :placeholder="input.description"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
                 <!-- string 类型 -> input -->
-                <el-input 
+                <el-input
                   v-else-if="input.type === 'string'"
                   v-model="dynamicInputs[input.name]"
                   :placeholder="input.description"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
                 <!-- integer/number 类型 -> input-number -->
-                <el-input-number 
+                <el-input-number
                   v-else-if="input.type === 'integer' || input.type === 'number'"
                   v-model="dynamicInputs[input.name]"
                   style="width: 100%"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
                 <!-- bool 类型 -> switch -->
-                <el-switch 
+                <el-switch
                   v-else-if="input.type === 'bool'"
                   v-model="dynamicInputs[input.name]"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
                 <!-- json 类型 -> textarea (JSON) -->
-                <el-input 
+                <el-input
                   v-else-if="input.type === 'json'"
                   v-model="dynamicInputs[input.name]"
                   type="textarea"
                   :rows="4"
                   :placeholder="`${input.description} (JSON 格式)`"
+                  :disabled="isInputDisabled(input)"
                 />
                 
                 <!-- file_id 类型 -> 单文件选择器 -->
@@ -157,30 +172,52 @@
                   v-model="dynamicInputs[input.name]"
                   :multiple="false"
                   :placeholder="input.description || '选择文件'"
+                  :disabled="isInputDisabled(input)"
                 />
-                
-                <!-- file_ids 或 array 类型且名称包含 file -> 多文件选择器 -->
+
+                <!-- file_ids 类型 -> 多文件选择器（从后端文件系统选择） -->
                 <FileSelector
-                  v-else-if="input.name === 'file_ids' || input.name.endsWith('_file_ids') || (input.type === 'array' && (input.name.includes('file') || input.description?.toLowerCase().includes('file')))"
+                  v-else-if="input.type === 'file_ids' || input.name === 'file_ids' || input.name.endsWith('_file_ids')"
                   v-model="dynamicInputs[input.name]"
                   :multiple="true"
                   :placeholder="input.description || '选择文件'"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
+                <!-- files 类型 -> 本地文件选择（支持多选文件路径） -->
+                <LocalFileInput
+                  v-else-if="input.name === 'files'"
+                  v-model="dynamicInputs[input.name]"
+                  :multiple="true"
+                  :placeholder="input.accept ? `选择文件（支持 ${input.accept.replace('.,', '*.,')}）` : '选择文件'"
+                  :accept="input.accept"
+                />
+
+                <!-- array 类型且描述明确提到文件ID -> 多文件选择器 -->
+                <FileSelector
+                  v-else-if="input.type === 'array' && input.description?.toLowerCase().includes('file_id')"
+                  v-model="dynamicInputs[input.name]"
+                  :multiple="true"
+                  :placeholder="input.description || '选择文件'"
+                  :disabled="isInputDisabled(input)"
+                />
+
                 <!-- array 类型 -> textarea (JSON array) -->
-                <el-input 
+                <el-input
                   v-else-if="input.type === 'array'"
                   v-model="dynamicInputs[input.name]"
                   type="textarea"
                   :rows="3"
                   :placeholder="`${input.description} (JSON 数组格式)`"
+                  :disabled="isInputDisabled(input)"
                 />
-                
+
                 <!-- 其他类型 -> 通用 input -->
-                <el-input 
+                <el-input
                   v-else
                   v-model="dynamicInputs[input.name]"
                   :placeholder="`${input.description} (${input.type})`"
+                  :disabled="isInputDisabled(input)"
                 />
                 
                 <el-text size="small" type="info" style="margin-top: 4px">
@@ -220,6 +257,7 @@ import { ref, computed, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import NodeConfigEditor from '@/components/workflow/NodeConfigEditor.vue';
 import FileSelector from '@/components/FileSelector.vue';
+import LocalFileInput from '@/components/LocalFileInput.vue';
 import {
   getNodeTypes,
   getNodeType,
@@ -247,13 +285,82 @@ const configs = ref([]);
 const selectedConfigId = ref('');
 
 const saveName = ref('');
-const configJson = ref('{}');
+const configJson = ref({});
 const configEditorRef = ref(null);
 
 // 动态输入（基于节点定义）
 const dynamicInputs = ref({});
 
 const resultJson = ref('');
+
+// 计算属性：JSON编辑器使用的字符串版本
+const configJsonString = computed({
+  get: () => {
+    if (typeof configJson.value === 'string') {
+      return configJson.value;
+    }
+    try {
+      return JSON.stringify(configJson.value, null, 2);
+    } catch (e) {
+      return '{}';
+    }
+  },
+  set: (val) => {
+    configJson.value = val;
+  }
+});
+
+// 节点输入约束相关函数
+function hasConstraints() {
+  if (!selectedDefinition.value) return false;
+  return selectedDefinition.value.input_constraints &&
+    (selectedDefinition.value.input_constraints.exclusive_groups?.length > 0 ||
+      selectedDefinition.value.input_constraints.required_one_of?.length > 0);
+}
+
+function constraintTitle() {
+  if (!selectedDefinition.value?.input_constraints) return '';
+  const constraints = selectedDefinition.value.input_constraints;
+
+  const parts = [];
+
+  if (constraints.required_one_of?.length > 0) {
+    const groups = constraints.required_one_of.map(group => group.join('/'));
+    parts.push(`必须提供: ${groups.join(' 或 ')}`);
+  }
+
+  if (constraints.exclusive_groups?.length > 0) {
+    const groups = constraints.exclusive_groups.map(group => group.join('/'));
+    parts.push(`互斥输入: ${groups.join(' 和 ')}`);
+  }
+
+  return parts.join('；');
+}
+
+function isInputDisabled(input) {
+  if (!selectedDefinition.value?.input_constraints?.exclusive_groups) return false;
+
+  // 检查是否在互斥组中
+  for (const group of selectedDefinition.value.input_constraints.exclusive_groups) {
+    if (group.includes(input.name)) {
+      // 检查是否有其他输入已经选择（有实际值）
+      for (const otherInput of group) {
+        if (otherInput !== input.name) {
+          const otherValue = dynamicInputs.value[otherInput];
+          // 检查是否有实际值（数组检查长度，字符串检查非空，其他类型检查存在）
+          const hasValue = Array.isArray(otherValue) ? otherValue.length > 0 :
+                          typeof otherValue === 'string' ? otherValue.trim() !== '' :
+                          otherValue !== null && otherValue !== undefined && otherValue !== false;
+          if (hasValue) {
+            return true; // 互斥输入已选择，禁用当前输入
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
 
 async function refreshNodeTypes() {
   const res = await getNodeTypes();
@@ -328,7 +435,12 @@ function safeParseJson(text) {
 }
 
 function formatJson() {
-  const obj = safeParseJson(configJson.value);
+  let obj;
+  if (typeof configJson.value === 'string') {
+    obj = safeParseJson(configJson.value);
+  } else {
+    obj = configJson.value;
+  }
   if (!obj) {
     ElMessage.error('配置 JSON 解析失败');
     return;
@@ -423,10 +535,17 @@ async function onDeleteConfig() {
 
 async function onExecute() {
   if (!selectedNodeType.value) return;
-  const cfg = safeParseJson(configJson.value);
-  if (!cfg) {
-    ElMessage.error('配置 JSON 解析失败');
-    return;
+
+  // 处理配置（支持对象和字符串两种格式）
+  let cfg;
+  if (typeof configJson.value === 'string') {
+    cfg = safeParseJson(configJson.value);
+    if (!cfg) {
+      ElMessage.error('配置 JSON 解析失败');
+      return;
+    }
+  } else {
+    cfg = configJson.value;
   }
 
   // 动态构建输入（自动处理 JSON 类型）
@@ -446,14 +565,27 @@ async function onExecute() {
       }
       
       // 根据类型转换
-      if (inputDef.type === 'json' || inputDef.type === 'array') {
-        // JSON/Array 类型需要解析
+      if (inputDef.type === 'json') {
+        // JSON 类型需要解析
         const parsed = safeParseJson(value);
         if (parsed === null && value) {
           ElMessage.error(`参数 "${name}" 的 JSON 格式错误`);
           return;
         }
         inputs[name] = parsed;
+      } else if (inputDef.type === 'array') {
+        // Array 类型：检查是否已经是数组（如 files 输入使用 LocalFileInput）
+        // 如果是数组，直接使用；否则尝试 JSON 解析（兼容 textarea 输入）
+        if (Array.isArray(value)) {
+          inputs[name] = value;
+        } else {
+          const parsed = safeParseJson(value);
+          if (parsed === null && value) {
+            ElMessage.error(`参数 "${name}" 的 JSON 格式错误`);
+            return;
+          }
+          inputs[name] = parsed;
+        }
       } else if (inputDef.type === 'integer') {
         inputs[name] = parseInt(value);
       } else if (inputDef.type === 'number') {

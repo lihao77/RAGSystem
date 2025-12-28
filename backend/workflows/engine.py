@@ -235,6 +235,11 @@ class WorkflowEngine:
                 if pdef.get('required') and pname not in inputs:
                     raise ValueError(f"节点 {nid} 缺少必填输入: {pname}")
 
+            # 验证输入约束（互斥、依赖等）
+            input_errors = node.validate_inputs(inputs)
+            if input_errors:
+                raise ValueError(f"节点 {nid} 输入验证失败: {'; '.join(input_errors)}")
+
             node_out = node.execute(inputs)
             outputs_by_node[nid] = node_out
 
