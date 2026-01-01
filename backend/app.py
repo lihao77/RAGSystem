@@ -29,6 +29,7 @@ from routes.nodes import nodes_bp
 from routes.workflows import workflow_bp
 from routes.files import files_bp
 from routes.vector_management import vector_management_bp
+from routes.llm_adapter import llm_adapter_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -75,6 +76,7 @@ app.register_blueprint(nodes_bp)  # 已包含 url_prefix='/api/nodes'
 app.register_blueprint(workflow_bp)  # /api/workflows
 app.register_blueprint(files_bp)  # /api/files
 app.register_blueprint(vector_management_bp)  # /api/vector
+app.register_blueprint(llm_adapter_bp, url_prefix='/api/llm-adapter')
 
 # 静态文件服务
 @app.route('/uploads/<filename>')

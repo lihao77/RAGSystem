@@ -103,6 +103,12 @@
           </el-icon>
           <template #title><span>向量库管理</span></template>
         </el-menu-item>
+        <el-menu-item index="/llm-adapter">
+          <el-icon>
+            <Grid />
+          </el-icon>
+          <template #title><span>LLM Adapter 配置</span></template>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon>
             <Setting />

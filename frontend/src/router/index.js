@@ -95,11 +95,22 @@ const routes = [
     path: '/vector',
     name: 'vector',
     component: () => import('../views/VectorManagement.vue'),
-    meta: { 
-      title: '向量库管理', 
-      keepAlive: true, 
+    meta: {
+      title: '向量库管理',
+      keepAlive: true,
       cacheName: 'VectorManagement',
       requiresConfig: { vector: true }  // 需要向量数据库配置
+    }
+  },
+  {
+    path: '/llm-adapter',
+    name: 'llm-adapter',
+    component: () => import('../views/LLMAdapterView.vue'),
+    meta: {
+      title: 'LLM Adapter 配置',
+      keepAlive: true,
+      cacheName: 'LLMAdapterView'
+      // 设置页不需要配置检查
     }
   }
 ]

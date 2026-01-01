@@ -3,12 +3,12 @@ embedding:
     cache_dir: null
     device: cpu
     model_name: paraphrase-multilingual-MiniLM-L12-v2
-  mode: local
+  mode: remote
   remote:
-    api_endpoint: ''
-    api_key: ''
+    api_endpoint: https://api-inference.modelscope.cn/v1
+    api_key: ms-94340098-d1cf-4237-ba1f-fa8333b6e97f
     max_retries: 3
-    model_name: text-embedding-3-small
+    model_name: Qwen/Qwen3-Embedding-8B
     timeout: 30
 external_libs:
   json2graph: {}
