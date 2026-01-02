@@ -208,7 +208,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Connection } from '@element-plus/icons-vue'
-import { get, post, put, del } from '@/api/http'
+import { llmAdapterService } from '@/api'
 
 // 数据
 const providers = ref([])
@@ -258,7 +258,7 @@ const getDefaultEndpoint = () => {
 
 const loadProviders = async () => {
   try {
-    const res = await get('/api/llm-adapter/providers')
+    const res = await llmAdapterService.getProviders()
     providers.value = res.providers || []
     loadBalancer.value = res.load_balancer || 'round_robin'
   } catch (error) {
@@ -301,10 +301,10 @@ const submitForm = async () => {
 
     try {
       if (currentProvider.value) {
-        await put(`/api/llm-adapter/providers/${currentProvider.value}`, formData.value)
+        await llmAdapterService.updateProvider(currentProvider.value, formData.value)
         ElMessage.success('更新成功')
       } else {
-        await post('/api/llm-adapter/providers', formData.value)
+        await llmAdapterService.createProvider(formData.value)
         ElMessage.success('添加成功')
       }
 
@@ -322,7 +322,7 @@ const deleteProvider = async (name) => {
       type: 'warning'
     })
 
-    await del(`/api/llm-adapter/providers/${name}`)
+    await llmAdapterService.deleteProvider(name)
     ElMessage.success('删除成功')
     loadProviders()
   } catch (error) {
@@ -334,7 +334,7 @@ const deleteProvider = async (name) => {
 
 const setActiveProvider = async (name) => {
   try {
-    await post(`/api/llm-adapter/active-provider`, { provider: name })
+    await llmAdapterService.setActiveProvider(name)
     ElMessage.success('设置成功')
     loadProviders()
   } catch (error) {
@@ -348,9 +348,7 @@ const updateActiveProviders = async () => {
       .filter(p => p.is_active)
       .map(p => p.name)
 
-    await post('/api/llm-adapter/active-providers', {
-      providers: activeProviderNames
-    })
+    await llmAdapterService.setActiveProviders(activeProviderNames)
     ElMessage.success('默认 Provider 设置成功')
   } catch (error) {
     ElMessage.error('设置失败')
@@ -381,7 +379,7 @@ const runTest = async () => {
   testResult.value = null
 
   try {
-    const res = await post('/api/llm-adapter/test', {
+    const res = await llmAdapterService.testProvider({
       provider: currentProvider.value,
       prompt: testPrompt.value
     })
@@ -395,7 +393,7 @@ const runTest = async () => {
 
 const updateLoadBalancer = async () => {
   try {
-    await post('/api/llm-adapter/load-balancer', { strategy: loadBalancer.value })
+    await llmAdapterService.setLoadBalancer(loadBalancer.value)
     ElMessage.success('设置成功')
   } catch (error) {
     ElMessage.error('设置失败')
