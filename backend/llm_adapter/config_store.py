@@ -107,7 +107,7 @@ class LLMAdapterConfigStore:
                 }
             }
 
-            # 检查是否已存在
+            # 检查是否已存在（基于名称，不区分大小写）
             config_path = self._get_config_path(config_id, name)
             if config_path.exists() and not overwrite:
                 raise FileExistsError(f"配置已存在: {config_path}")
@@ -115,6 +115,13 @@ class LLMAdapterConfigStore:
             # 保存到文件
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config_data, f, allow_unicode=True, indent=2)
+
+            logger.info(f"配置已保存: {config_path}")
+            return config_id
+
+        except Exception as e:
+            logger.error(f"保存配置失败: {str(e)}")
+            raise
 
             logger.info(f"配置已保存: {config_path}")
             return config_id
@@ -239,3 +246,46 @@ class LLMAdapterConfigStore:
         pattern = f"{config_id}_*.yaml"
         matching_files = list(self.configs_dir.glob(pattern))
         return matching_files[0] if matching_files else None
+
+    def save_active_providers(self, provider_names: List[str]) -> None:
+        """
+        保存默认的 Provider 列表
+
+        Args:
+            provider_names: Provider 名称列表
+        """
+        try:
+            data = {
+                'provider_names': provider_names,
+                'updated_at': datetime.now().isoformat()
+            }
+            file_path = self.configs_dir / "active_providers.yaml"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                yaml.dump(data, f, allow_unicode=True, indent=2)
+
+            logger.info(f"默认 Provider 列表已保存: {provider_names}")
+        except Exception as e:
+            logger.error(f"保存默认 Provider 列表失败: {str(e)}")
+            raise
+
+    def load_active_providers(self) -> List[str]:
+        """
+        加载默认的 Provider 列表
+
+        Returns:
+            List[str]: Provider 名称列表
+        """
+        try:
+            file_path = self.configs_dir / "active_providers.yaml"
+            if not file_path.exists():
+                return []
+
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+
+            provider_names = data.get('provider_names', [])
+            logger.info(f"默认 Provider 列表已加载: {provider_names}")
+            return provider_names
+        except Exception as e:
+            logger.error(f"加载默认 Provider 列表失败: {str(e)}")
+            return []

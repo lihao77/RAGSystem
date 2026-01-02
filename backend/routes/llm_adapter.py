@@ -26,83 +26,32 @@ llm_adapter_bp = Blueprint('llm_adapter', __name__)
 adapter = get_default_adapter()
 
 
-def initialize_default_provider():
-    """初始化默认的 LLM Provider"""
-    try:
-        # 检查是否已有 provider
-        if adapter.get_available_providers():
-            return
-
-        # 从环境变量读取配置
-        api_key = os.getenv('LLM_API_KEY', '')
-        api_endpoint = os.getenv('LLM_API_ENDPOINT', 'https://api.deepseek.com/v1')
-        model = os.getenv('LLM_MODEL_NAME', 'deepseek-chat')
-
-        if not api_key:
-            logger.warning("LLM_API_KEY 未设置，无法初始化默认 Provider")
-            return
-
-        # 根据端点判断 Provider 类型
-        if 'deepseek' in api_endpoint.lower():
-            provider = DeepSeekProvider(
-                api_key=api_key,
-                model=model,
-                api_endpoint=api_endpoint
-            )
-            adapter.register_provider(provider)
-            logger.info("初始化默认 DeepSeek Provider")
-        elif 'openai' in api_endpoint.lower():
-            provider = OpenAIProvider(
-                api_key=api_key,
-                model=model,
-                api_endpoint=api_endpoint
-            )
-            adapter.register_provider(provider)
-            logger.info("初始化默认 OpenAI Provider")
-        elif 'openrouter' in api_endpoint.lower():
-            provider = OpenRouterProvider(
-                api_key=api_key,
-                model=model,
-                api_endpoint=api_endpoint
-            )
-            adapter.register_provider(provider)
-            logger.info("初始化默认 OpenRouter Provider")
-    except Exception as e:
-        logger.error(f"初始化默认 Provider 失败: {str(e)}")
-
-
-# 初始化
-initialize_default_provider()
-
-
 @llm_adapter_bp.route('/providers', methods=['GET'])
 def get_providers():
     """
     获取所有 Provider 列表
 
     Returns:
-        JSON: Provider 列表和统计信息
+        JSON: Provider 列表
     """
     try:
         configs = adapter.get_provider_configs()
-        stats = adapter.get_stats()
-        active_provider = adapter.active_provider
+        active_providers = adapter.active_providers  # 改为列表
 
         providers = []
         for config in configs:
             name = config['name'].lower().replace(' ', '_')
-            provider_stats = stats.get(name, {})
 
             provider = {
                 **config,
-                'is_active': name == active_provider,
-                'stats': provider_stats
+                'is_active': name in active_providers  # 检查是否在列表中
             }
             providers.append(provider)
 
         return jsonify({
             'success': True,
             'providers': providers,
+            'active_providers': active_providers,  # 返回列表
             'load_balancer': adapter.load_balancer,
             'message': 'Provider 列表获取成功'
         })
@@ -237,32 +186,33 @@ def delete_provider(provider_name):
         }), 500
 
 
-@llm_adapter_bp.route('/active-provider', methods=['POST'])
-def set_active_provider():
+@llm_adapter_bp.route('/active-providers', methods=['POST'])
+def set_active_providers():
     """
-    设置活动的 Provider
+    设置活动的 Provider 列表
 
     Request Body:
-        - provider: Provider 名称
+        - providers: Provider 名称列表
 
     Returns:
         JSON: 设置结果
     """
     try:
         data = request.get_json()
-        provider_name = data.get('provider')
+        provider_names = data.get('providers', [])
 
-        if not provider_name:
+        if not isinstance(provider_names, list):
             return jsonify({
                 'success': False,
-                'message': '请提供 Provider 名称'
+                'message': 'providers 必须是列表'
             }), 400
 
-        adapter.set_active_provider(provider_name)
+        adapter.set_active_providers(provider_names)
 
         return jsonify({
             'success': True,
-            'message': '活动 Provider 设置成功'
+            'message': '活动 Provider 设置成功',
+            'active_providers': adapter.active_providers
         })
     except Exception as e:
         logger.error(f"设置活动 Provider 失败: {str(e)}")
@@ -359,31 +309,4 @@ def test_provider():
         return jsonify({
             'success': False,
             'message': f'测试 Provider 失败: {str(e)}'
-        }), 500
-
-
-@llm_adapter_bp.route('/stats', methods=['GET'])
-def get_stats():
-    """
-    获取统计信息
-
-    Query Parameters:
-        - provider: Provider 名称（可选）
-
-    Returns:
-        JSON: 统计信息
-    """
-    try:
-        provider_name = request.args.get('provider')
-        stats = adapter.get_stats(provider_name)
-
-        return jsonify({
-            'success': True,
-            'stats': stats
-        })
-    except Exception as e:
-        logger.error(f"获取统计信息失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'获取统计信息失败: {str(e)}'
         }), 500

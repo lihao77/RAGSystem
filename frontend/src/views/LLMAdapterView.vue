@@ -20,7 +20,6 @@
       <el-select v-model="loadBalancer" @change="updateLoadBalancer" style="margin-left: auto; width: 200px">
         <el-option label="轮询模式" value="round_robin" />
         <el-option label="随机模式" value="random" />
-        <el-option label="健康优先" value="health" />
       </el-select>
     </div>
 
@@ -36,12 +35,12 @@
               </el-tag>
             </div>
             <div class="provider-actions">
-              <el-button
-                :type="provider.is_active ? 'primary' : ''"
+              <el-checkbox
+                v-model="provider.is_active"
                 size="small"
-                @click="setActiveProvider(provider.name)">
-                {{ provider.is_active ? '当前激活' : '设为激活' }}
-              </el-button>
+                @change="updateActiveProviders">
+                默认
+              </el-checkbox>
               <el-button size="small" @click="testProvider(provider.name)">
                 测试
               </el-button>
@@ -74,28 +73,6 @@
             <el-tag :type="provider.supports_function_calling ? 'success' : 'info'" size="small">
               {{ provider.supports_function_calling ? '是' : '否' }}
             </el-tag>
-          </div>
-        </div>
-
-        <div class="provider-stats" v-if="provider.stats">
-          <el-divider>统计信息</el-divider>
-          <div class="stats-grid">
-            <div class="stat-item">
-              <div class="stat-label">总请求</div>
-              <div class="stat-value">{{ provider.stats.total_requests }}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">成功率</div>
-              <div class="stat-value">{{ (provider.stats.success_rate || 0).toFixed(1) }}%</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">平均延迟</div>
-              <div class="stat-value">{{ (provider.stats.avg_latency || 0).toFixed(2) }}s</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">总成本</div>
-              <div class="stat-value">${{ (provider.stats.total_cost || 0).toFixed(4) }}</div>
-            </div>
           </div>
         </div>
       </el-card>
@@ -365,6 +342,21 @@ const setActiveProvider = async (name) => {
   }
 }
 
+const updateActiveProviders = async () => {
+  try {
+    const activeProviderNames = providers.value
+      .filter(p => p.is_active)
+      .map(p => p.name)
+
+    await post('/api/llm-adapter/active-providers', {
+      providers: activeProviderNames
+    })
+    ElMessage.success('默认 Provider 设置成功')
+  } catch (error) {
+    ElMessage.error('设置失败')
+  }
+}
+
 const testProvider = (name) => {
   currentProvider.value = name
   testResult.value = null
@@ -507,31 +499,6 @@ onMounted(() => {
   color: #303133;
   font-size: 14px;
   font-weight: 500;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 16px;
-}
-
-.stat-item {
-  text-align: center;
-  padding: 16px;
-  background: #f5f7fa;
-  border-radius: 8px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #606266;
-  margin-bottom: 8px;
-}
-
-.stat-value {
-  font-size: 20px;
-  font-weight: bold;
-  color: #303133;
 }
 
 .api-test {

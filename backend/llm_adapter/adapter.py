@@ -11,7 +11,6 @@ import random
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Union
-from collections import defaultdict
 from .base import LLMProvider, LLMResponse, LLMProviderType
 from .providers import OpenAIProvider, DeepSeekProvider, OpenRouterProvider
 from .config_store import LLMAdapterConfigStore
@@ -28,21 +27,12 @@ class LLMAdapter:
     - 智能路由
     - 负载均衡
     - 故障转移
-    - 请求统计
-    - 成本追踪
     """
 
     def __init__(self):
         """初始化 LLM Adapter"""
         self.providers: Dict[str, LLMProvider] = {}
-        self.active_provider: Optional[str] = None
-        self.request_stats = defaultdict(lambda: {
-            "total_requests": 0,
-            "successful_requests": 0,
-            "failed_requests": 0,
-            "total_latency": 0.0,
-            "total_cost": 0.0
-        })
+        self.active_providers: List[str] = []  # 改为列表，支持多个默认Provider
         self.load_balancer = "round_robin"
         self._last_provider_index = 0
         self.config_store = LLMAdapterConfigStore()
@@ -57,6 +47,9 @@ class LLMAdapter:
         """
         try:
             logger.info("开始加载已保存的 LLM Adapter 配置...")
+
+            # 加载默认Provider列表
+            self.active_providers = self.config_store.load_active_providers()
 
             # 获取所有配置列表
             config_list = self.config_store.list_configs()
@@ -78,7 +71,8 @@ class LLMAdapter:
 
                 try:
                     # 注册 Provider（不保存配置，因为已经从文件加载）
-                    self.register_provider_from_config(config, save_config=False, config_id=config_id)
+                    # 不添加到active_providers，因为要从文件加载
+                    self.register_provider_from_config(config, save_config=False, config_id=config_id, add_to_active=False)
 
                     # 记录配置ID映射
                     provider_name = config.get('name', '').lower().replace(' ', '_')
@@ -96,22 +90,23 @@ class LLMAdapter:
         except Exception as e:
             logger.error(f"加载保存的配置失败: {str(e)}")
 
-    def register_provider(self, provider: LLMProvider) -> None:
+    def register_provider(self, provider: LLMProvider, add_to_active: bool = True) -> None:
         """
         注册 LLM Provider
 
         Args:
             provider: LLM Provider 实例
+            add_to_active: 是否添加到默认激活列表
         """
         provider_name = provider.name.lower().replace(" ", "_")
         self.providers[provider_name] = provider
 
-        if not self.active_provider:
-            self.active_provider = provider_name
+        if add_to_active and provider_name not in self.active_providers:
+            self.active_providers.append(provider_name)
 
         logger.info(f"已注册 Provider: {provider_name}")
 
-    def register_provider_from_config(self, config: Dict[str, Any], save_config: bool = True, config_id: Optional[str] = None) -> str:
+    def register_provider_from_config(self, config: Dict[str, Any], save_config: bool = True, config_id: Optional[str] = None, add_to_active: bool = True) -> str:
         """
         从配置注册 LLM Provider
 
@@ -119,18 +114,24 @@ class LLMAdapter:
             config: Provider 配置字典
             save_config: 是否保存配置到文件
             config_id: 配置ID（如果为None则生成新的）
+            add_to_active: 是否添加到默认激活列表
 
         Returns:
             str: 配置ID
         """
-        provider_type = config.get("provider_type", "").lower()
         name = config.get("name", "")
+        provider_type = config.get("provider_type", "").lower()
         api_key = config.get("api_key", "")
         api_endpoint = config.get("api_endpoint", "")
         model = config.get("model", "")
 
         if not all([name, api_key, model]):
             raise ValueError("Provider 配置必须包含 name, api_key 和 model")
+
+        # 检查同名 Provider 是否已存在
+        provider_name = name.lower().replace(" ", "_")
+        if provider_name in self.providers:
+            raise ValueError(f"Provider '{name}' 已存在，请使用不同的名称")
 
         provider_kwargs = {k: v for k, v in config.items()
                           if k not in ["provider_type", "name", "api_key", "api_endpoint", "model"]}
@@ -140,6 +141,7 @@ class LLMAdapter:
             provider = OpenAIProvider(
                 api_key=api_key,
                 model=model,
+                name=name,
                 api_endpoint=api_endpoint or "https://api.openai.com/v1",
                 **provider_kwargs
             )
@@ -147,6 +149,7 @@ class LLMAdapter:
             provider = DeepSeekProvider(
                 api_key=api_key,
                 model=model,
+                name=name,
                 api_endpoint=api_endpoint or "https://api.deepseek.com/v1",
                 **provider_kwargs
             )
@@ -154,13 +157,14 @@ class LLMAdapter:
             provider = OpenRouterProvider(
                 api_key=api_key,
                 model=model,
+                name=name,
                 api_endpoint=api_endpoint or "https://openrouter.ai/api/v1",
                 **provider_kwargs
             )
         else:
             raise ValueError(f"不支持的 Provider 类型: {provider_type}")
 
-        self.register_provider(provider)
+        self.register_provider(provider, add_to_active=add_to_active)
 
         # 保存配置到文件
         if save_config:
@@ -199,8 +203,11 @@ class LLMAdapter:
 
             # 从内存中删除
             del self.providers[provider_name]
-            if self.active_provider == provider_name:
-                self.active_provider = next(iter(self.providers.keys())) if self.providers else None
+
+            # 从激活列表中移除
+            if provider_name in self.active_providers:
+                self.active_providers.remove(provider_name)
+
             logger.info(f"已删除 Provider: {provider_name}")
         else:
             raise ValueError(f"Provider 不存在: {provider_name}")
@@ -223,19 +230,27 @@ class LLMAdapter:
 
         return self.providers[provider_name]
 
-    def set_active_provider(self, provider_name: str) -> None:
+    def set_active_providers(self, provider_names: List[str]) -> None:
         """
-        设置活动 Provider
+        设置默认的活动 Provider 列表
 
         Args:
-            provider_name: Provider 名称
+            provider_names: Provider 名称列表
         """
-        provider_name = provider_name.lower().replace(" ", "_")
-        if provider_name not in self.providers:
-            raise ValueError(f"Provider 不存在: {provider_name}")
+        # 验证所有Provider都存在
+        valid_providers = []
+        for name in provider_names:
+            provider_name = name.lower().replace(" ", "_")
+            if provider_name not in self.providers:
+                logger.warning(f"Provider 不存在: {name}")
+                continue
+            valid_providers.append(provider_name)
 
-        self.active_provider = provider_name
-        logger.info(f"设置活动 Provider: {provider_name}")
+        self.active_providers = valid_providers
+        logger.info(f"设置活动 Provider 列表: {self.active_providers}")
+
+        # 持久化保存
+        self.config_store.save_active_providers(valid_providers)
 
     def _select_provider_round_robin(self, excluded: List[str] = None) -> str:
         """
@@ -276,36 +291,6 @@ class LLMAdapter:
 
         return random.choice(available)
 
-    def _select_provider_by_health(self, excluded: List[str] = None) -> str:
-        """
-        基于健康状态选择 Provider（成功率最高的）
-
-        Args:
-            excluded: 排除的 Provider 列表
-
-        Returns:
-            str: 选中的 Provider 名称
-        """
-        best_provider = None
-        best_success_rate = 0
-
-        for provider_name in self.providers.keys():
-            if excluded and provider_name in excluded:
-                continue
-
-            stats = self.request_stats[provider_name]
-            if stats["total_requests"] > 0:
-                success_rate = stats["successful_requests"] / stats["total_requests"]
-                if success_rate > best_success_rate:
-                    best_success_rate = success_rate
-                    best_provider = provider_name
-
-        if not best_provider:
-            # 如果没有足够的数据，使用轮询
-            best_provider = self._select_provider_round_robin(excluded)
-
-        return best_provider
-
     def _select_provider(self, excluded: List[str] = None) -> str:
         """
         选择 Provider
@@ -320,15 +305,13 @@ class LLMAdapter:
             return self._select_provider_round_robin(excluded)
         elif self.load_balancer == "random":
             return self._select_provider_random(excluded)
-        elif self.load_balancer == "health":
-            return self._select_provider_by_health(excluded)
         else:
             raise ValueError(f"不支持的负载均衡策略: {self.load_balancer}")
 
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        provider: Optional[str] = None,
+        providers: Optional[List[str]] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -342,7 +325,7 @@ class LLMAdapter:
 
         Args:
             messages: 消息列表
-            provider: 使用的 Provider（如果为 None 则使用 active 或自动选择）
+            providers: 使用的 Provider 列表（如果为 None 则使用 active_providers）
             model: 使用的模型
             temperature: 温度参数
             max_tokens: 最大 token 数
@@ -355,18 +338,31 @@ class LLMAdapter:
             LLMResponse: 响应对象
         """
         failed_providers = []
-        provider_name = provider.lower().replace(" ", "_") if provider else None
 
-        # 如果指定了 provider 但不存在，则报错
-        if provider_name and provider_name not in self.providers:
-            raise ValueError(f"Provider 不存在: {provider_name}")
+        # 确定要使用的 Provider 列表
+        if not providers:
+            # 如果未指定，使用 active_providers
+            if not self.active_providers:
+                raise ValueError("没有可用的 Provider，请先配置 active_providers 或在调用时传入 providers 参数")
+            available_providers = self.active_providers.copy()
+        else:
+            # 验证并转换传入的 Provider 列表
+            available_providers = []
+            for name in providers:
+                provider_name = name.lower().replace(" ", "_")
+                if provider_name not in self.providers:
+                    logger.warning(f"Provider 不存在: {name}")
+                    continue
+                available_providers.append(provider_name)
 
-        # 选择 provider
-        if not provider_name:
-            provider_name = self._select_provider()
+            if not available_providers:
+                raise ValueError("传入的 Provider 列表中未找到有效的 Provider")
+
+        # 选择第一个 Provider
+        provider_name = self._select_provider_from_list(available_providers, failed_providers)
 
         attempts = 0
-        max_attempts = len(self.providers) if enable_fallback else 1
+        max_attempts = len(available_providers) if enable_fallback else 1
 
         while attempts < max_attempts:
             attempts += 1
@@ -384,8 +380,6 @@ class LLMAdapter:
                     **kwargs
                 )
 
-                self._update_stats(provider_name, response)
-
                 if not response.error:
                     return response
 
@@ -395,25 +389,61 @@ class LLMAdapter:
                 if not enable_fallback:
                     return response
 
-                # 选择下一个 provider
-                provider_name = self._select_provider(failed_providers)
+                # 从可用列表中移除失败的 Provider，选择下一个
+                remaining_providers = [p for p in available_providers if p not in failed_providers]
+                if not remaining_providers:
+                    break
+                provider_name = self._select_provider_from_list(remaining_providers, failed_providers)
 
             except Exception as e:
                 logger.error(f"Provider {provider_name} 调用异常: {str(e)}")
                 failed_providers.append(provider_name)
 
-                if not enable_fallback or len(failed_providers) >= len(self.providers):
+                if not enable_fallback or len(failed_providers) >= len(available_providers):
                     return LLMResponse(
                         error=f"所有 Provider 都调用失败: {str(e)}",
                         provider=provider_name
                     )
 
-                provider_name = self._select_provider(failed_providers)
+                remaining_providers = [p for p in available_providers if p not in failed_providers]
+                if not remaining_providers:
+                    break
+                provider_name = self._select_provider_from_list(remaining_providers, failed_providers)
 
         return LLMResponse(
             error=f"所有 Provider 都调用失败，已尝试: {', '.join(failed_providers)}",
             provider=provider_name
         )
+
+    def _select_provider_from_list(self, provider_list: List[str], excluded: List[str] = None) -> str:
+        """
+        从给定的 Provider 列表中选择
+
+        Args:
+            provider_list: 可用的 Provider 列表
+            excluded: 已排除的 Provider 列表
+
+        Returns:
+            str: 选中的 Provider 名称
+        """
+        if not provider_list:
+            raise ValueError("没有可用的 Provider")
+
+        available = [p for p in provider_list if not excluded or p not in excluded]
+        if not available:
+            raise ValueError("所有 Provider 都不可用")
+
+        if len(available) == 1:
+            return available[0]
+
+        if self.load_balancer == "round_robin":
+            index = self._last_provider_index % len(available)
+            self._last_provider_index += 1
+            return available[index]
+        elif self.load_balancer == "random":
+            return random.choice(available)
+        else:
+            return available[0]
 
     def generate_text(
         self,
@@ -451,58 +481,6 @@ class LLMAdapter:
             **kwargs
         )
 
-    def _update_stats(self, provider_name: str, response: LLMResponse) -> None:
-        """
-        更新统计信息
-
-        Args:
-            provider_name: Provider 名称
-            response: 响应对象
-        """
-        stats = self.request_stats[provider_name]
-        stats["total_requests"] += 1
-
-        if response.error:
-            stats["failed_requests"] += 1
-        else:
-            stats["successful_requests"] += 1
-
-        if response.latency:
-            stats["total_latency"] += response.latency
-
-        if response.cost:
-            stats["total_cost"] += response.cost
-
-    def get_stats(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
-        """
-        获取统计信息
-
-        Args:
-            provider_name: Provider 名称（如果为 None 则返回所有）
-
-        Returns:
-            Dict: 统计信息
-        """
-        if provider_name:
-            provider_name = provider_name.lower().replace(" ", "_")
-            if provider_name not in self.request_stats:
-                return {}
-
-            stats = self.request_stats[provider_name].copy()
-            if stats["total_requests"] > 0:
-                stats["success_rate"] = stats["successful_requests"] / stats["total_requests"]
-                stats["avg_latency"] = stats["total_latency"] / stats["successful_requests"]
-            else:
-                stats["success_rate"] = 0
-                stats["avg_latency"] = 0
-
-            return stats
-
-        all_stats = {}
-        for name in self.providers.keys():
-            all_stats[name] = self.get_stats(name)
-
-        return all_stats
 
     def get_available_providers(self) -> List[str]:
         """
@@ -526,9 +504,17 @@ class LLMAdapter:
                 "name": provider.name,
                 "provider_type": provider.provider_type.value,
                 "model": provider.model,
+                "temperature": provider.temperature,
+                "max_tokens": provider.max_tokens,
+                "timeout": provider.timeout,
+                "retry_attempts": provider.retry_attempts,
+                "retry_delay": provider.retry_delay,
                 "supports_function_calling": provider.supports_function_calling,
                 "is_available": provider.is_available()
             }
+            # 如果有api_endpoint，也包含在内
+            if hasattr(provider, 'api_endpoint'):
+                config["api_endpoint"] = provider.api_endpoint
             configs.append(config)
 
         return configs
@@ -538,9 +524,9 @@ class LLMAdapter:
         设置负载均衡策略
 
         Args:
-            strategy: 策略名称（round_robin, random, health）
+            strategy: 策略名称（round_robin, random）
         """
-        if strategy not in ["round_robin", "random", "health"]:
+        if strategy not in ["round_robin", "random"]:
             raise ValueError(f"不支持的负载均衡策略: {strategy}")
 
         self.load_balancer = strategy
@@ -605,7 +591,7 @@ class LLMAdapter:
                 self.register_provider_from_config(provider_config)
             except Exception as e:
                 logger.error(f"注册 Provider {name} 失败: {str(e)}")
-
+        print(self.providers)
         logger.info(f"配置已从 {config_path} 加载")
 
 

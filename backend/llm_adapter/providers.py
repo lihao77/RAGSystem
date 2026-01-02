@@ -17,17 +17,18 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider(LLMProvider):
     """OpenAI Provider 实现"""
 
-    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", **kwargs):
+    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", name: str = "OpenAI", **kwargs):
         """初始化 OpenAI Provider
 
         Args:
             api_key: API 密钥
             model: 模型名称
+            name: Provider 名称
             **kwargs: 其他参数
         """
         api_endpoint = kwargs.pop("api_endpoint", "https://api.openai.com/v1")
         super().__init__(
-            name="OpenAI",
+            name=name,
             api_key=api_key,
             api_endpoint=api_endpoint,
             model=model,
@@ -182,11 +183,11 @@ class OpenAIProvider(LLMProvider):
 class DeepSeekProvider(LLMProvider):
     """DeepSeek Provider 实现"""
 
-    def __init__(self, api_key: str, model: str = "deepseek-chat", **kwargs):
+    def __init__(self, api_key: str, model: str = "deepseek-chat", name: str = "DeepSeek", **kwargs):
         """初始化 DeepSeek Provider"""
         api_endpoint = kwargs.pop("api_endpoint", "https://api.deepseek.com/v1")
         super().__init__(
-            name="DeepSeek",
+            name=name,
             api_key=api_key,
             api_endpoint=api_endpoint,
             model=model,
@@ -337,11 +338,11 @@ class DeepSeekProvider(LLMProvider):
 class OpenRouterProvider(LLMProvider):
     """OpenRouter Provider 实现"""
 
-    def __init__(self, api_key: str, model: str = "anthropic/claude-3-sonnet-20240229", **kwargs):
+    def __init__(self, api_key: str, model: str = "anthropic/claude-3-sonnet-20240229", name: str = "OpenRouter", **kwargs):
         """初始化 OpenRouter Provider"""
         api_endpoint = kwargs.pop("api_endpoint", "https://openrouter.ai/api/v1")
         super().__init__(
-            name="OpenRouter",
+            name=name,
             api_key=api_key,
             api_endpoint=api_endpoint,
             model=model,
