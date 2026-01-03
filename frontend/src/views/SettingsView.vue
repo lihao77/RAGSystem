@@ -208,63 +208,68 @@
           LLM API 配置
         </el-divider>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="API 端点" prop="llm.api_endpoint">
-              <el-input v-model="config.llm.api_endpoint" placeholder="https://api.deepseek.com/v1">
+        <el-alert
+          title="推荐使用 LLMAdapter 统一管理 LLM 配置，支持多提供商和负载均衡"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 20px"
+        />
+
+        <LLMConfigSelector v-model="llmConfig" />
+
+        <el-collapse v-model="advancedLlmConfig">
+          <el-collapse-item title="高级配置（旧版配置方式）" name="advanced">
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="API 端点" prop="llm.api_endpoint">
+                  <el-input v-model="config.llm.api_endpoint" placeholder="https://api.deepseek.com/v1">
+                    <template #prefix>
+                      <el-icon>
+                        <Position />
+                      </el-icon>
+                    </template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="模型名称" prop="llm.model_name">
+                  <el-input v-model="config.llm.model_name" placeholder="deepseek-chat">
+                    <template #prefix>
+                      <el-icon>
+                        <Cpu />
+                      </el-icon>
+                    </template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-form-item label="API 密钥" prop="llm.api_key">
+              <el-input v-model="config.llm.api_key" type="password" placeholder="请输入 LLM API 密钥" show-password>
                 <template #prefix>
                   <el-icon>
-                    <Position />
+                    <Key />
                   </el-icon>
                 </template>
               </el-input>
             </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="模型名称" prop="llm.model_name">
-              <el-input v-model="config.llm.model_name" placeholder="deepseek-chat">
-                <template #prefix>
-                  <el-icon>
-                    <Cpu />
-                  </el-icon>
-                </template>
-              </el-input>
-            </el-form-item>
-          </el-col>
-        </el-row>
 
-        <el-form-item label="API 密钥" prop="llm.api_key">
-          <el-input v-model="config.llm.api_key" type="password" placeholder="请输入 LLM API 密钥" show-password>
-            <template #prefix>
-              <el-icon>
-                <Key />
-              </el-icon>
-            </template>
-          </el-input>
-        </el-form-item>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="生成温度" prop="llm.temperature">
-              <el-slider v-model="config.llm.temperature" :min="0" :max="2" :step="0.1" show-input />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="最大令牌数" prop="llm.max_tokens">
-              <el-input-number v-model="config.llm.max_tokens" :min="100" :max="32000" :step="512"
-                style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item>
-          <el-button type="success" plain @click="testLLM" :loading="testing.llm">
-            <el-icon>
-              <ChatDotRound />
-            </el-icon>
-            测试 API 连接
-          </el-button>
-        </el-form-item>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="生成温度" prop="llm.temperature">
+                  <el-slider v-model="config.llm.temperature" :min="0" :max="2" :step="0.1" show-input />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="最大令牌数" prop="llm.max_tokens">
+                  <el-input-number v-model="config.llm.max_tokens" :min="100" :max="32000" :step="512"
+                    style="width: 100%" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+        </el-collapse>
 
         <!-- 地理编码配置已移除 - 后续添加llmjson和json2graph时重新添加 -->
 
@@ -393,11 +398,25 @@ import {
   validateConfig
 } from '@/api/config'
 import { resetConfigStatusCache } from '@/composables/useConfigCheck'
+import LLMConfigSelector from '@/components/LLMConfigSelector.vue'
 
 defineOptions({ name: 'SettingsView' })
 
 // 表单引用
 const configForm = ref(null)
+
+// LLM 配置（用于 LLMConfigSelector 组件）
+const llmConfig = ref({
+  provider: '',
+  model_name: '',
+  temperature: 0.7,
+  max_tokens: 4096,
+  timeout: 30,
+  retry_attempts: 3
+})
+
+// 高级 LLM 配置折叠面板
+const advancedLlmConfig = ref([])
 
 // 配置数据
 const config = reactive({
@@ -502,6 +521,12 @@ const llmStatusIcon = computed(() => {
 
 // 计算属性：LLM 密钥标签
 const llmKeyTag = computed(() => {
+  if (llmConfig.value.provider) {
+    return {
+      text: '使用 LLMAdapter',
+      type: 'success'
+    }
+  }
   return {
     text: configStatus.llm.hasApiKey ? '密钥已设置' : '密钥未设置',
     type: configStatus.llm.hasApiKey ? 'success' : 'warning'
@@ -537,11 +562,7 @@ const configRules = {
     { required: true, message: '请输入 Neo4j 用户名', trigger: 'blur' }
   ],
   'llm.api_endpoint': [
-    { required: true, message: '请输入 LLM API 端点', trigger: 'blur' },
     { type: 'url', message: '请输入有效的 URL', trigger: 'blur' }
-  ],
-  'llm.model_name': [
-    { required: true, message: '请输入模型名称', trigger: 'blur' }
   ]
 }
 
@@ -555,11 +576,11 @@ const loadConfig = async (showMessage = true) => {
       Object.assign(config.neo4j, res.data.neo4j || {})
       Object.assign(config.llm, res.data.llm || {})
       Object.assign(config.system, res.data.system || {})
-      
+
       // 处理 embedding 配置 - 确保嵌套结构
       if (res.data.embedding) {
         config.embedding.mode = res.data.embedding.mode || 'local'
-        
+
         // 确保 local 和 remote 对象存在
         if (!config.embedding.local) {
           config.embedding.local = {}
@@ -567,17 +588,27 @@ const loadConfig = async (showMessage = true) => {
         if (!config.embedding.remote) {
           config.embedding.remote = {}
         }
-        
+
         // 合并 local 配置
         if (res.data.embedding.local) {
           Object.assign(config.embedding.local, res.data.embedding.local)
         }
-        
+
         // 合并 remote 配置
         if (res.data.embedding.remote) {
           Object.assign(config.embedding.remote, res.data.embedding.remote)
         }
       }
+
+      // 同步 LLM 配置到 llmConfig（用于 LLMConfigSelector 组件）
+      Object.assign(llmConfig.value, {
+        provider: config.llm.provider || '',
+        model_name: config.llm.model_name || config.llm.model || '',
+        temperature: config.llm.temperature,
+        max_tokens: config.llm.max_tokens,
+        timeout: config.llm.timeout || 30,
+        retry_attempts: config.llm.retry_attempts || 3
+      })
 
       // 更新状态
       updateStatus()
@@ -604,9 +635,15 @@ const updateStatus = () => {
   configStatus.neo4j.valid = !!(config.neo4j.uri && config.neo4j.user)
   configStatus.neo4j.hasPassword = !!config.neo4j.password
 
-  // LLM 状态
-  configStatus.llm.valid = !!(config.llm.api_endpoint && config.llm.model_name)
-  configStatus.llm.hasApiKey = !!config.llm.api_key
+  // LLM 状态 - 使用 LLMAdapter 或旧的配置方式
+  if (llmConfig.value.provider) {
+    configStatus.llm.valid = true
+    configStatus.llm.hasApiKey = true
+  } else {
+    // 旧的验证方式
+    configStatus.llm.valid = !!(config.llm.api_endpoint && config.llm.model_name)
+    configStatus.llm.hasApiKey = !!config.llm.api_key
+  }
 
   // 嵌入模型状态
   if (config.embedding.mode === 'local') {
@@ -631,6 +668,14 @@ const saveConfig = async () => {
 
     loading.saving = true
 
+    // 同步 LLM 配置从 llmConfig 到 config.llm
+    config.llm.provider = llmConfig.value.provider
+    config.llm.model_name = llmConfig.value.model_name
+    config.llm.temperature = llmConfig.value.temperature
+    config.llm.max_tokens = llmConfig.value.max_tokens
+    config.llm.timeout = llmConfig.value.timeout
+    config.llm.retry_attempts = llmConfig.value.retry_attempts
+
     // 准备保存的数据
     const configToSave = {
       neo4j: { ...config.neo4j },
@@ -647,7 +692,7 @@ const saveConfig = async () => {
     const res = await updateConfig(configToSave)
     if (res.success) {
       ElMessage.success('配置保存成功')
-      
+
       // 清除配置状态缓存（重要！）
       resetConfigStatusCache()
       console.log('配置缓存已清除，下次路由检查将使用新配置')
@@ -703,25 +748,9 @@ const testNeo4j = async () => {
   }
 }
 
-// 测试 LLM 连接
+// 测试 LLM 连接 - 已由 LLMConfigSelector 组件处理
 const testLLM = async () => {
-  testing.llm = true
-  try {
-    const res = await testLLMConnection(config.llm)
-
-    if (res.success) {
-      ElMessage.success('LLM 连接成功')
-      if (res.data?.reply) {
-        ElMessage.info('测试回复: ' + res.data.reply)
-      }
-    } else {
-      ElMessage.error(res.message)
-    }
-  } catch (error) {
-    ElMessage.error('测试失败: ' + error.message)
-  } finally {
-    testing.llm = false
-  }
+  // 此函数已废弃，测试功能在 LLMConfigSelector 组件中处理
 }
 
 // 刷新服务状态

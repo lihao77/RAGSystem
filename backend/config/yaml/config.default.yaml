@@ -4,25 +4,32 @@ neo4j:
   user: neo4j
   password: ""  # 可以从环境变量 NEO4J__PASSWORD 读取
 
-# LLM 配置
+# LLM 配置（支持 LLMAdapter）
 llm:
-  api_endpoint: https://api.deepseek.com/v1
-  api_key: ""  # 可以从环境变量 LLM__API_KEY 读取
-  model_name: deepseek-chat
+  # LLMAdapter 配置（推荐方式）
+  provider: ""  # LLM 提供商名称，如: openai, deepseek, openrouter
+  model_name: "deepseek-chat"  # 模型名称
   temperature: 0.7
   max_tokens: 4096
+  timeout: 30
+  retry_attempts: 3
+
+  # 旧版配置（向后兼容）
+  # 如果配置了 provider，以下配置将被忽略
+  api_endpoint: https://api.deepseek.com/v1
+  api_key: ""  # 可以从环境变量 LLM__API_KEY 读取
 
 # Embedding 配置
 embedding:
   # 模式选择: "local" 或 "remote"
   mode: local  # 可以从环境变量 EMBEDDING__MODE 读取
-  
+
   # 本地模型配置
   local:
     model_name: BAAI/bge-small-zh-v1.5  # 默认使用小模型
     device: cpu  # cpu 或 cuda
     cache_dir: null  # null 使用默认缓存目录
-  
+
   # 远程 API 配置（支持 OpenAI 兼容接口）
   remote:
     api_endpoint: ""  # 例如: https://api.openai.com/v1 或自建服务

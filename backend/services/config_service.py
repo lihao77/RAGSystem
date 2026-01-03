@@ -558,13 +558,12 @@ class ConfigService:
                 elif config.embedding.mode == 'remote':
                     vector_status['message'] = f'远程API: {config.embedding.remote.api_endpoint}'
             
-            # LLM 状态
-            llm_configured = bool(config.llm.api_endpoint and config.llm.api_key)
+            llm_configured = bool(config.llm.provider and config.llm.model_name)
             llm_status = {
                 'name': 'LLM',
                 'configured': llm_configured,
                 'status': 'not_configured' if not llm_configured else 'ready',
-                'message': '未配置' if not llm_configured else f'已配置: {config.llm.model_name}'
+                'message': '未配置' if not llm_configured else f'已配置: {config.llm.provider} - {config.llm.model_name}'
             }
             
             return {

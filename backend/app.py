@@ -24,7 +24,7 @@ from routes.evaluation import evaluation_bp
 # 使用重构后的graphrag路由（原版本备份在graphrag.py.backup）
 from routes.graphrag_refactored import graphrag_bp
 from routes.function_call import function_call_bp
-from routes.config import config_bp
+from routes.config_refactored import config_bp
 from routes.nodes import nodes_bp
 from routes.workflows import workflow_bp
 from routes.files import files_bp

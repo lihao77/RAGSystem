@@ -36,23 +36,17 @@ def get_providers():
     """
     try:
         configs = adapter.get_provider_configs()
-        active_providers = adapter.active_providers  # 改为列表
 
         providers = []
         for config in configs:
-            name = config['name'].lower().replace(' ', '_')
-
             provider = {
-                **config,
-                'is_active': name in active_providers  # 检查是否在列表中
+                **config
             }
             providers.append(provider)
 
         return jsonify({
             'success': True,
             'providers': providers,
-            'active_providers': active_providers,  # 返回列表
-            'load_balancer': adapter.load_balancer,
             'message': 'Provider 列表获取成功'
         })
     except Exception as e:
@@ -88,8 +82,8 @@ def create_provider():
                 'message': '请求数据不能为空'
             }), 400
 
-        # 必需字段
-        required_fields = ['provider_type', 'name', 'api_key', 'model']
+        # 必需字段（model 现在是可选的，因为可以使用 models 列表）
+        required_fields = ['provider_type', 'name', 'api_key']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({
@@ -122,7 +116,12 @@ def update_provider(provider_name):
         provider_name: Provider 名称
 
     Request Body:
-        同创建接口
+        - models: 支持模型列表（可选）
+        - temperature: 温度（可选）
+        - max_tokens: 最大Token（可选）
+        - timeout: 超时时间（可选）
+        - retry_attempts: 重试次数（可选）
+        - supports_function_calling: 支持工具调用（可选）
 
     Returns:
         JSON: 更新结果
@@ -136,16 +135,51 @@ def update_provider(provider_name):
                 'message': '请求数据不能为空'
             }), 400
 
-        # 由于 Provider 的属性大部分是初始化时设置的，这里采用删除后重建的方式
-        # 但保留配置ID
-        config_id = None
-        if provider_name in adapter.config_ids:
-            config_id = adapter.config_ids[provider_name]
+        # 获取旧的配置
+        config_id = adapter.config_ids.get(provider_name)
+        if not config_id:
+            return jsonify({
+                'success': False,
+                'message': f'Provider 不存在: {provider_name}'
+            }), 404
 
+        # 加载现有配置
+        config_data = adapter.config_store.load_config(config_id)
+        if not config_data or 'config' not in config_data:
+            return jsonify({
+                'success': False,
+                'message': f'无法加载 Provider 配置: {provider_name}'
+            }), 500
+
+        # 合并配置（保留原有值，用新值覆盖）
+        config = config_data['config'].copy()
+
+        # 只更新允许修改的字段
+        allowed_fields = [
+            'models', 'temperature', 'max_tokens', 'timeout',
+            'retry_attempts', 'supports_function_calling'
+        ]
+
+        for field in allowed_fields:
+            if field in data:
+                config[field] = data[field]
+
+        # 确保 config 包含所有必需字段
+        if 'provider_type' not in config:
+            config['provider_type'] = config_data['config'].get('provider_type', '')
+        if 'name' not in config:
+            config['name'] = config_data['config'].get('name', '')
+        if 'api_key' not in config:
+            config['api_key'] = config_data['config'].get('api_key', '')
+        if 'api_endpoint' not in config:
+            config['api_endpoint'] = config_data['config'].get('api_endpoint', '')
+
+        # 删除旧的 provider
         if provider_name in adapter.providers:
             adapter.remove_provider(provider_name, delete_config=False)
 
-        new_config_id = adapter.register_provider_from_config(data, config_id=config_id)
+        # 重新注册（使用更新后的配置）
+        new_config_id = adapter.register_provider_from_config(config, config_id=config_id)
 
         return jsonify({
             'success': True,
@@ -186,75 +220,6 @@ def delete_provider(provider_name):
         }), 500
 
 
-@llm_adapter_bp.route('/active-providers', methods=['POST'])
-def set_active_providers():
-    """
-    设置活动的 Provider 列表
-
-    Request Body:
-        - providers: Provider 名称列表
-
-    Returns:
-        JSON: 设置结果
-    """
-    try:
-        data = request.get_json()
-        provider_names = data.get('providers', [])
-
-        if not isinstance(provider_names, list):
-            return jsonify({
-                'success': False,
-                'message': 'providers 必须是列表'
-            }), 400
-
-        adapter.set_active_providers(provider_names)
-
-        return jsonify({
-            'success': True,
-            'message': '活动 Provider 设置成功',
-            'active_providers': adapter.active_providers
-        })
-    except Exception as e:
-        logger.error(f"设置活动 Provider 失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'设置活动 Provider 失败: {str(e)}'
-        }), 500
-
-
-@llm_adapter_bp.route('/load-balancer', methods=['POST'])
-def set_load_balancer():
-    """
-    设置负载均衡策略
-
-    Request Body:
-        - strategy: 策略名称（round_robin, random, health）
-
-    Returns:
-        JSON: 设置结果
-    """
-    try:
-        data = request.get_json()
-        strategy = data.get('strategy')
-
-        if not strategy:
-            return jsonify({
-                'success': False,
-                'message': '请提供策略名称'
-            }), 400
-
-        adapter.set_load_balancer(strategy)
-
-        return jsonify({
-            'success': True,
-            'message': '负载均衡策略设置成功'
-        })
-    except Exception as e:
-        logger.error(f"设置负载均衡策略失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'设置负载均衡策略失败: {str(e)}'
-        }), 500
 
 
 @llm_adapter_bp.route('/test', methods=['POST'])
@@ -263,8 +228,9 @@ def test_provider():
     测试 Provider
 
     Request Body:
-        - provider: Provider 名称（可选）
-        - prompt: 测试提示词
+        - provider: Provider 名称（必需）
+        - prompt: 测试提示词（必需）
+        - model: 模型名称（可选）
 
     Returns:
         JSON: 测试结果
@@ -273,6 +239,13 @@ def test_provider():
         data = request.get_json()
         provider_name = data.get('provider')
         prompt = data.get('prompt')
+        model = data.get('model')  # 可选的模型参数
+
+        if not provider_name:
+            return jsonify({
+                'success': False,
+                'message': '请提供 Provider 名称'
+            }), 400
 
         if not prompt:
             return jsonify({
@@ -286,6 +259,7 @@ def test_provider():
         response = adapter.chat_completion(
             messages=messages,
             provider=provider_name,
+            model=model,  # 传入模型参数
             temperature=0.7,
             max_tokens=500
         )

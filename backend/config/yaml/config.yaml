@@ -15,10 +15,13 @@ external_libs:
   llmjson: {}
 llm:
   api_endpoint: https://api.deepseek.com/v1
-  api_key: REDACTED_API_KEY
-  max_tokens: 4096
+  api_key: ''
+  max_tokens: 4608
   model_name: deepseek-chat
+  provider: test2
+  retry_attempts: 3
   temperature: 0.7
+  timeout: 30
 neo4j:
   password: admin123456
   uri: bolt://localhost:7687

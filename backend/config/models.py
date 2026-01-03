@@ -17,14 +17,20 @@ class Neo4jConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    """LLM API 配置"""
+    """LLM 配置 - 支持 LLMAdapter"""
     model_config = ConfigDict(extra='allow')
 
-    api_endpoint: str = "https://api.deepseek.com/v1"
-    api_key: str = ""
-    model_name: str = "deepseek-chat"
+    # LLMAdapter 配置（新版本）
+    provider: str = ""  # LLM 提供商名称（openai/deepseek/openrouter）
+    model_name: str = "deepseek-chat"  # 模型名称
     temperature: float = 0.7
     max_tokens: int = 4096
+    timeout: int = 30
+    retry_attempts: int = 3
+
+    # 旧版配置（向后兼容）
+    api_endpoint: str = "https://api.deepseek.com/v1"
+    api_key: str = ""
 
 
 class SystemConfig(BaseModel):

@@ -43,7 +43,7 @@ class OpenAIProvider(LLMProvider):
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: Optional[str] = None,
+        model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
@@ -51,7 +51,6 @@ class OpenAIProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """发送对话补全请求"""
-        model = model or self.model
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
 
@@ -202,7 +201,7 @@ class DeepSeekProvider(LLMProvider):
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: Optional[str] = None,
+        model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
@@ -210,7 +209,6 @@ class DeepSeekProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """发送对话补全请求"""
-        model = model or self.model
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
 
@@ -359,7 +357,7 @@ class OpenRouterProvider(LLMProvider):
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
-        model: Optional[str] = None,
+        model: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
@@ -367,7 +365,6 @@ class OpenRouterProvider(LLMProvider):
         **kwargs
     ) -> LLMResponse:
         """发送对话补全请求"""
-        model = model or self.model
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
 

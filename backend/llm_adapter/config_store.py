@@ -91,7 +91,7 @@ class LLMAdapterConfigStore:
                     'name': name,
                     'api_key': config.get('api_key', ''),
                     'api_endpoint': config.get('api_endpoint', ''),
-                    'model': config.get('model', ''),
+                    'models': config.get('models', []),
                     'temperature': config.get('temperature', 0.7),
                     'max_tokens': config.get('max_tokens', 4096),
                     'timeout': config.get('timeout', 30),
@@ -100,7 +100,7 @@ class LLMAdapterConfigStore:
                     'supports_function_calling': config.get('supports_function_calling', True),
                     # 保存其他额外参数
                     **{k: v for k, v in config.items() if k not in [
-                        'provider_type', 'name', 'api_key', 'api_endpoint', 'model',
+                        'provider_type', 'name', 'api_key', 'api_endpoint', 'models',
                         'temperature', 'max_tokens', 'timeout', 'retry_attempts',
                         'retry_delay', 'supports_function_calling'
                     ]}

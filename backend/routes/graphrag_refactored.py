@@ -10,7 +10,7 @@ from flask import Blueprint, request
 import logging
 from services.graphrag_service import get_graphrag_service
 from services.query_service import get_query_service
-from services.llm_service import get_llm_service
+from llm_adapter import get_default_adapter
 from utils.response_helpers import success_response, error_response
 from config import get_config
 
@@ -57,8 +57,8 @@ def query():
         
         # 获取配置
         config = get_config()
-        llm_service = get_llm_service()
-        
+        adapter = get_default_adapter()
+
         # 获取所有可用工具
         tools = get_tool_definitions()
         
@@ -127,17 +127,27 @@ def query():
             
             # 调用LLM（支持Function Calling）
             try:
-                response = llm_service.chat_completion(
+                response = adapter.chat_completion(
                     messages=messages,
+                    provider=config.llm.provider,
+                    model=config.llm.model_name,
                     tools=tools,
                     temperature=0.2
                 )
+
+                if response.error:
+                    logger.error(f'LLM调用失败: {response.error}')
+                    return error_response(message=f'LLM服务调用失败: {response.error}', status_code=500)
+
+                assistant_message = {
+                    'role': 'assistant',
+                    'content': response.content,
+                    'tool_calls': response.tool_calls
+                }
+                finish_reason = response.finish_reason
             except Exception as e:
                 logger.error(f'LLM调用失败: {e}')
                 return error_response(message=f'LLM服务调用失败: {str(e)}', status_code=500)
-            
-            assistant_message = response['choices'][0]['message']
-            finish_reason = response['choices'][0].get('finish_reason')
             
             # 记录对话轮次
             turn = {
@@ -224,11 +234,19 @@ def query():
                 logger.info('LLM表示任务完成')
                 # 再调用一次让LLM总结答案
                 try:
-                    final_response = llm_service.chat_completion(
+                    final_response = adapter.chat_completion(
                         messages=messages,
+                        provider=config.llm.provider,
+                        model=config.llm.model_name,
                         temperature=0.2
                     )
-                    final_answer = final_response['choices'][0]['message'].get('content', '')
+
+                    if final_response.error:
+                        logger.error(f'生成最终答案失败: {final_response.error}')
+                        final_answer = "查询已完成，但生成最终答案时出错。"
+                    else:
+                        final_answer = final_response.content or ''
+
                     conversation_turns.append({
                         'round': round_num + 2,
                         'final_answer': final_answer
