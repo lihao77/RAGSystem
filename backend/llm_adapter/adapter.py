@@ -308,6 +308,46 @@ class LLMAdapter:
         """
         return [name for name in self.providers.keys()]
 
+    def get_provider_config(self, provider_name: str) -> Dict[str, Any]:
+        """
+        获取指定 Provider 的配置
+
+        Args:
+            provider_name: Provider 名称
+
+        Returns:
+            Dict: Provider 配置
+        """
+        provider = self.get_provider(provider_name)
+
+        # 从配置文件加载原始配置以获取 models 列表
+        name = provider_name.lower().replace(" ", "_")
+        config_id = self.config_ids.get(name, '')
+        original_config = {}
+        if config_id:
+            config_data = self.config_store.load_config(config_id)
+            if config_data and 'config' in config_data:
+                original_config = config_data['config']
+
+        config = {
+            "name": provider.name,
+            "provider_type": provider.provider_type.value,
+            "models": original_config.get('models', []),  # 从配置中获取模型列表
+            "model": provider.model,  # 当前使用的模型
+            "temperature": provider.temperature,
+            "max_tokens": provider.max_tokens,
+            "timeout": provider.timeout,
+            "retry_attempts": provider.retry_attempts,
+            "retry_delay": provider.retry_delay,
+            "supports_function_calling": provider.supports_function_calling,
+            "is_available": provider.is_available()
+        }
+        # 如果有api_endpoint，也包含在内
+        if hasattr(provider, 'api_endpoint'):
+            config["api_endpoint"] = provider.api_endpoint
+
+        return config
+
     def get_provider_configs(self) -> List[Dict[str, Any]]:
         """
         获取所有 Provider 的配置
@@ -316,32 +356,13 @@ class LLMAdapter:
             List[Dict]: Provider 配置列表
         """
         configs = []
-        for name, provider in self.providers.items():
-            # 从配置文件加载原始配置以获取 models 列表
-            config_id = self.config_ids.get(name, '')
-            original_config = {}
-            if config_id:
-                config_data = self.config_store.load_config(config_id)
-                if config_data and 'config' in config_data:
-                    original_config = config_data['config']
-
-            config = {
-                "name": provider.name,
-                "provider_type": provider.provider_type.value,
-                "models": original_config.get('models', []),  # 从配置中获取模型列表
-                "model": provider.model,  # 保持向后兼容
-                "temperature": provider.temperature,
-                "max_tokens": provider.max_tokens,
-                "timeout": provider.timeout,
-                "retry_attempts": provider.retry_attempts,
-                "retry_delay": provider.retry_delay,
-                "supports_function_calling": provider.supports_function_calling,
-                "is_available": provider.is_available()
-            }
-            # 如果有api_endpoint，也包含在内
-            if hasattr(provider, 'api_endpoint'):
-                config["api_endpoint"] = provider.api_endpoint
-            configs.append(config)
+        for name in self.get_available_providers():
+            try:
+                config = self.get_provider_config(name)
+                configs.append(config)
+            except Exception as e:
+                logger.error(f"获取 Provider {name} 配置失败: {str(e)}")
+                continue
 
         return configs
 
