@@ -8,7 +8,6 @@ GraphRAG路由 - 基于知识图谱的问答系统（重构版）
 
 from flask import Blueprint, request
 import logging
-from services.graphrag_service import get_graphrag_service
 from services.query_service import get_query_service
 from llm_adapter import get_default_adapter
 from utils.response_helpers import success_response, error_response

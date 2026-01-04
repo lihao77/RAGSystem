@@ -1,9 +1,67 @@
 # -*- coding: utf-8 -*-
 """
-Agent 模块
-包含各种 SubAgent 实现
+Agent 模块 - 智能体系统
+
+包含：
+- 基础设施：BaseAgent, AgentContext, AgentResponse
+- 注册表：AgentRegistry
+- 编排器：AgentOrchestrator
+- 配置系统：AgentConfig, AgentConfigManager
+- 具体智能体：QAAgent, MasterAgent
 """
 
-from .chart_agent import ChartAgent
+# 基础设施
+from .base import (
+    BaseAgent,
+    AgentContext,
+    AgentResponse,
+    Message,
+    AgentExecutionError
+)
 
-__all__ = ['ChartAgent']
+# 注册表和编排器
+from .registry import AgentRegistry, get_registry, register_agent
+from .orchestrator import AgentOrchestrator, get_orchestrator
+
+# 配置系统
+from .agent_config import (
+    AgentConfig,
+    AgentLLMConfig,
+    AgentToolConfig,
+    AgentConfigPreset,
+    apply_preset
+)
+from .config_manager import AgentConfigManager, get_config_manager
+
+# 具体智能体
+from .qa_agent import QAAgent
+from .master_agent import MasterAgent
+
+__all__ = [
+    # 基础设施
+    'BaseAgent',
+    'AgentContext',
+    'AgentResponse',
+    'Message',
+    'AgentExecutionError',
+
+    # 注册表和编排器
+    'AgentRegistry',
+    'get_registry',
+    'register_agent',
+    'AgentOrchestrator',
+    'get_orchestrator',
+
+    # 配置系统
+    'AgentConfig',
+    'AgentLLMConfig',
+    'AgentToolConfig',
+    'AgentConfigPreset',
+    'apply_preset',
+    'AgentConfigManager',
+    'get_config_manager',
+
+    # 具体智能体
+    'QAAgent',
+    'MasterAgent',
+]

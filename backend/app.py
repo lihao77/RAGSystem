@@ -30,6 +30,8 @@ from routes.workflows import workflow_bp
 from routes.files import files_bp
 from routes.vector_management import vector_management_bp
 from routes.llm_adapter import llm_adapter_bp
+from routes.agent import agent_bp
+from routes.agent_config import agent_config_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -57,7 +59,7 @@ CORS(app,
          'http://localhost:8080', 'http://127.0.0.1:8080',
          'http://10.24.250.158:8080', 'http://10.24.250.158:8081', 'http://10.24.250.158:5173'
      ],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
      supports_credentials=True)
 
@@ -77,6 +79,8 @@ app.register_blueprint(workflow_bp)  # /api/workflows
 app.register_blueprint(files_bp)  # /api/files
 app.register_blueprint(vector_management_bp)  # /api/vector
 app.register_blueprint(llm_adapter_bp, url_prefix='/api/llm-adapter')
+app.register_blueprint(agent_bp, url_prefix='/api/agent')
+app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
 
 # 静态文件服务
 @app.route('/uploads/<filename>')

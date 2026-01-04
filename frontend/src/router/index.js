@@ -112,6 +112,17 @@ const routes = [
       cacheName: 'LLMAdapterView'
       // 设置页不需要配置检查
     }
+  },
+  {
+    path: '/agent-config',
+    name: 'agent-config',
+    component: () => import('../views/AgentConfigView.vue'),
+    meta: {
+      title: '智能体配置',
+      keepAlive: true,
+      cacheName: 'AgentConfigView'
+      // 智能体配置页不需要配置检查
+    }
   }
 ]
 

@@ -98,6 +98,31 @@ async function put(url, data) {
 }
 
 /**
+ * 通用PATCH请求方法
+ * @param {string} url - 请求路径
+ * @param {object} data - 请求数据
+ * @returns {Promise<any>} - 响应数据
+ */
+async function patch(url, data) {
+  try {
+    const response = await fetch(`${BASE_URL}${url}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('API请求错误:', error);
+    throw error;
+  }
+}
+
+/**
  * 通用DELETE请求方法
  * @param {string} url - 请求路径
  * @returns {Promise<any>} - 响应数据
@@ -117,4 +142,4 @@ async function del(url) {
   }
 }
 
-export { get, post, postFormData, put, del };
+export { get, post, postFormData, put, patch, del };

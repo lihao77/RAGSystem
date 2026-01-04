@@ -109,6 +109,12 @@
           </el-icon>
           <template #title><span>LLM Adapter 配置</span></template>
         </el-menu-item>
+        <el-menu-item index="/agent-config">
+          <el-icon>
+            <Avatar />
+          </el-icon>
+          <template #title><span>智能体配置</span></template>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon>
             <Setting />
@@ -139,9 +145,9 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { 
+import {
   Grid, Folder, Box, Fold, Expand, DataAnalysis, Tools, Connection,
-  HomeFilled, Location, Search, ChatDotRound, Setting, Share
+  HomeFilled, Location, Search, ChatDotRound, Setting, Share, Avatar
 } from '@element-plus/icons-vue';
 
 // 接收 props
