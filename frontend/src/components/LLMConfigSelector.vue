@@ -1,6 +1,6 @@
 <template>
   <div class="llm-config-selector">
-    <el-form-item label="LLM 配置">
+    <el-form-item label="LLM 配置" :label-width="labelWidth">
       <el-select
         v-model="selectedProvider"
         placeholder="请选择 LLM 配置"
@@ -25,7 +25,7 @@
     </el-form-item>
 
     <template v-if="selectedProvider">
-      <el-form-item label="模型">
+      <el-form-item label="模型" :label-width="labelWidth">
         <template v-if="currentProvider.models && currentProvider.models.length > 0">
           <el-select
             v-model="model.model_name"
@@ -62,19 +62,26 @@
 
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="温度">
-            <el-slider
+          <el-form-item label="温度" :label-width="labelWidth">
+            <!-- <el-slider
               v-model="model.temperature"
               :min="0"
               :max="2"
               :step="0.1"
               show-input
               :show-tooltip="false"
+            /> -->
+             <el-input-number
+              v-model="model.temperature"
+              :min="0"
+              :max="2"
+              :step="0.1"
+              style="width: 100%"
             />
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="最大Token">
+          <el-form-item label="最大Token" :label-width="labelWidth">
             <el-input-number
               v-model="model.max_tokens"
               :min="100"
@@ -88,7 +95,7 @@
 
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="超时时间(秒)">
+          <el-form-item label="超时时间(秒)" :label-width="labelWidth">
             <el-input-number
               v-model="model.timeout"
               :min="1"
@@ -99,7 +106,7 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="重试次数">
+          <el-form-item label="重试次数" :label-width="labelWidth">
             <el-input-number
               v-model="model.retry_attempts"
               :min="0"
@@ -219,6 +226,7 @@ const testLoading = ref(false)
 const testDialogVisible = ref(false)
 const testPrompt = ref('你好，请介绍一下自己')
 const testResult = ref(null)
+const labelWidth = '100px'
 
 // 计算属性
 const currentProvider = computed(() => {
@@ -332,7 +340,8 @@ onMounted(() => {
 
 <style scoped>
 .llm-config-selector {
-  padding: 10px 0;
+  /* padding: 10px 0; */
+  width: 100%;
 }
 
 .test-result {

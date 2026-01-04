@@ -40,9 +40,23 @@
               </el-tooltip>
             </template>
 
+            <!-- 自定义组件 -->
+            <!-- <component
+              v-if="field.component"
+              :is="field.component"
+              v-model="formData[field.name]"
+            /> -->
+
+            <!-- LLM配置选择器 -->
+            <LLMConfigSelector
+              v-if="field.type === 'llm_config'"
+              v-model="formData[field.name]"
+              :disabled="field.disabled"
+            />
+
             <!-- File selector -->
             <FileSelector
-              v-if="field.type === 'file_selector'"
+              v-else-if="field.type === 'file_selector'"
               v-model="formData[field.name]"
               :multiple="field.multiple"
               :file-extensions="field.fileExtensions"
@@ -195,6 +209,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { QuestionFilled } from '@element-plus/icons-vue';
 import FileSelector from '@/components/FileSelector.vue';
+import LLMConfigSelector from '@/components/LLMConfigSelector.vue';
 
 const props = defineProps({
   // 节点类型定义
@@ -298,6 +313,8 @@ const configGroups = computed(() => {
       precision: schema.precision,
       rows: schema.rows,
       order: schema.order || 999,
+      // 自定义组件
+      component: schema.component,
       // File selector specific metadata
       fileExtensions: schema.fileExtensions,
       mimeTypes: schema.mimeTypes,
@@ -318,6 +335,7 @@ const configGroups = computed(() => {
 
 // 映射schema类型到表单控件类型
 function mapSchemaType(schema) {
+  if (schema.format === 'llm_config') return 'llm_config';
   if (schema.format === 'file_selector') return 'file_selector';
   if (schema.format === 'textarea') return 'text';
   if (schema.format === 'json') return 'json';
@@ -332,12 +350,17 @@ function mapSchemaType(schema) {
 
 // 初始化表单数据
 function initFormData() {
-  const data = { ...props.modelValue };
+  // 使用深拷贝避免直接修改 props
+  const data = JSON.parse(JSON.stringify(props.modelValue || {}));
   
   // 处理特殊字段类型
   if (props.configSchema) {
     Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
       // JSON/对象/数组类型需要转换为字符串
+      if (schema.format === 'llm_config' || schema.format === 'file_selector') {
+        // 跳过自定义组件类型
+        return;
+      }
       if (schema.format === 'json' || schema.type === 'object' || 
           (schema.type === 'array' && schema.format === 'json')) {
         if (data[key] !== undefined && data[key] !== null) {
@@ -360,36 +383,21 @@ function initFormData() {
   }
   
   formData.value = data;
-  syncToJson();
+  // 这里不需要手动调用 syncToJson，因为 formData 的 watch 会处理
 }
 
 // 同步表单数据到JSON
 function syncToJson() {
-  // 处理JSON字符串字段，先解析再序列化，避免双重转义
-  const dataForJson = { ...formData.value };
-
-  if (props.configSchema) {
-    Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
-      if ((schema.format === 'json' || schema.type === 'object' ||
-           (schema.type === 'array' && schema.format === 'json')) &&
-          typeof dataForJson[key] === 'string') {
-        try {
-          dataForJson[key] = JSON.parse(dataForJson[key]);
-        } catch (e) {
-          // 如果解析失败，保持原字符串
-        }
-      }
-    });
-  }
-
-  jsonText.value = JSON.stringify(dataForJson, null, 2);
+  // 直接使用 getFormData 获取解析后的对象，再序列化
+  jsonText.value = JSON.stringify(getFormData(), null, 2);
 }
 
 // 从JSON同步到表单
 function syncFromJson() {
   try {
     const parsed = JSON.parse(jsonText.value);
-    formData.value = parsed;
+    // 仅 emit，让 props.modelValue 的 watch 来处理 formData 的更新
+    // 这样可以保持数据流向一致：JSON -> modelValue -> formData
     emit('update:modelValue', parsed);
   } catch (e) {
     ElMessage.error('JSON格式错误');
@@ -493,28 +501,19 @@ function resetForm() {
 
 // 监听表单数据变化
 watch(formData, (newVal) => {
-  // 解析 JSON 字符串字段
-  const parsedData = { ...newVal };
-  if (props.configSchema) {
-    Object.entries(props.configSchema.properties || {}).forEach(([key, schema]) => {
-      if ((schema.format === 'json' || schema.type === 'object' ||
-           (schema.type === 'array' && schema.format === 'json')) &&
-          typeof parsedData[key] === 'string') {
-        try {
-          parsedData[key] = JSON.parse(parsedData[key]);
-        } catch (e) {
-          // 保持原字符串
-        }
-      }
-    });
+  const parsedData = getFormData();
+  // 只有当解析后的数据确实发生变化时才 emit，避免无限循环
+  if (JSON.stringify(parsedData) !== JSON.stringify(props.modelValue)) {
+    emit('update:modelValue', parsedData);
   }
-  emit('update:modelValue', parsedData);
   syncToJson();
 }, { deep: true });
 
 // 监听外部值变化
 watch(() => props.modelValue, (newVal) => {
-  if (JSON.stringify(newVal) !== JSON.stringify(formData.value)) {
+  const currentParsedData = getFormData();
+  // 比较解析后的数据，确保“苹果对苹果”的比较
+  if (JSON.stringify(newVal) !== JSON.stringify(currentParsedData)) {
     initFormData();
   }
 }, { deep: true });
@@ -546,6 +545,7 @@ onMounted(() => {
   /* max-height: 600px; */
   overflow-y: auto;
   padding-right: 8px;
+  overflow-x: hidden;
 }
 
 .group-title {
@@ -579,5 +579,10 @@ onMounted(() => {
 
 :deep(.el-divider__text) {
   background-color: #f5f7fa;
+}
+
+/* 修复嵌套表单项（如 LLMConfigSelector 内部）边距被 Element Plus 默认样式消除的问题 */
+:deep(.el-form-item .el-form-item) {
+  margin-bottom: 18px;
 }
 </style>

@@ -51,13 +51,18 @@ class LLMJsonNode(INode):
     def validate(self) -> List[str]:
         """验证配置"""
         errors = super().validate()
-        if self._config and not self._config.api_key:
-            errors.append("API密钥不能为空")
+
+        # 验证LLM配置
+        if not self._config.llm_config.get("provider"):
+            errors.append("必须选择 LLM Provider")
+        if not self._config.llm_config.get("model_name"):
+            errors.append("必须选择或输入模型名称")
+
         return errors
-    
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """执行节点
-        
+
         Args:
             inputs: {
                 "files": List[str] - 文件路径列表,
@@ -73,23 +78,59 @@ class LLMJsonNode(INode):
                 "entities": [],
                 "stats": {"error": "llmjson 包未安装，请运行: pip install llmjson"}
             }
-        
+
         config = self._config
-        
-        # 初始化处理器
-        processor = LLMProcessor(
-            api_key=config.api_key,
-            base_url=config.base_url,
-            model=config.model,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            timeout=config.timeout,
-            max_retries=config.max_retries,
-            chunk_size=config.chunk_size,
-            chunk_overlap=config.chunk_overlap,
-            max_workers=config.max_workers,
-            enable_parallel=config.enable_parallel
-        )
+
+        # 从 Adapter 获取 Provider 配置
+        try:
+            from llm_adapter.adapter import get_default_adapter
+            adapter = get_default_adapter()
+
+            # 获取 Provider 实例和配置
+            provider_name = config.llm_config.get("provider")
+            if not provider_name:
+                return {
+                    "json_data": {},
+                    "entities": [],
+                    "stats": {"error": "未选择 LLM Provider"}
+                }
+
+            provider = adapter.get_provider(provider_name)
+            provider_config = adapter.get_provider_config(provider_name)
+
+            # 使用 llm_config 中的参数（覆盖 provider 默认配置）
+            model = config.llm_config.get("model_name") or provider_config.get("model")
+            temperature = config.llm_config.get("temperature", provider_config.get("temperature", 0.7))
+            max_tokens = config.llm_config.get("max_tokens", provider_config.get("max_tokens", 4096))
+            timeout = config.llm_config.get("timeout", provider_config.get("timeout", 30))
+            max_retries = config.llm_config.get("retry_attempts", provider_config.get("retry_attempts", 3))
+
+            print(f"Using LLM Provider: {provider_name}, Model: {model}")
+            print(f"Provider Endpoint: {provider.api_endpoint}")
+            print(f"Provider API Key: {provider.api_key}")
+            print(f"Config - Temperature: {temperature}, Max Tokens: {max_tokens}, Timeout: {timeout}, Max Retries: {max_retries}")
+            # 初始化处理器（使用 Adapter 中的实际配置）
+            processor = LLMProcessor(
+                api_key=provider.api_key,
+                base_url=provider.api_endpoint,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                max_retries=max_retries,
+                chunk_size=config.chunk_size,
+                chunk_overlap=config.chunk_overlap,
+                max_workers=config.max_workers,
+                enable_parallel=config.enable_parallel,
+                stream=True
+            )
+
+        except Exception as e:
+            return {
+                "json_data": {},
+                "entities": [],
+                "stats": {"error": f"从 Adapter 获取 Provider 配置失败: {str(e)}"}
+            }
         
         chunker = WordChunker(
             max_tokens=config.chunk_size,

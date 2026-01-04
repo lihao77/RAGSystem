@@ -4,100 +4,33 @@ LLMJson 节点配置
 """
 
 from pydantic import Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from nodes.base import NodeConfigBase
 
 
 class LLMJsonNodeConfig(NodeConfigBase):
     """llmjson 节点配置"""
-    
-    # LLM API 配置
-    api_key: str = Field(
-        default="", 
-        description="OpenAI API密钥",
+
+    # LLM 配置（使用 LLMConfigSelector）
+    llm_config: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "provider": "",
+            "model_name": "",
+            "temperature": 0.7,
+            "max_tokens": 4096,
+            "timeout": 30,
+            "retry_attempts": 3
+        },
+        description="LLM 配置（从 Adapter 中选择）",
         json_schema_extra={
-            'group': 'api',
-            'groupLabel': 'API配置',
+            'format': 'llm_config',
+            'group': 'llm',
+            'groupLabel': 'LLM 配置',
             'order': 1,
-            'format': 'password',
-            'placeholder': '请输入API密钥'
+            'component': 'LLMConfigSelector'  # 使用 LLMConfigSelector 组件
         }
     )
-    
-    base_url: str = Field(
-        default="https://api.openai.com/v1", 
-        description="API基础URL",
-        json_schema_extra={
-            'group': 'api',
-            'order': 2,
-            'placeholder': 'https://api.openai.com/v1'
-        }
-    )
-    
-    model: str = Field(
-        default="gpt-4o-mini", 
-        description="模型名称",
-        json_schema_extra={
-            'group': 'model',
-            'groupLabel': '模型配置',
-            'order': 1,
-            'options': [
-                {'label': 'GPT-4o Mini（推荐）', 'value': 'gpt-4o-mini'},
-                {'label': 'GPT-4o', 'value': 'gpt-4o'},
-                {'label': 'GPT-4 Turbo', 'value': 'gpt-4-turbo'},
-                {'label': 'GPT-3.5 Turbo', 'value': 'gpt-3.5-turbo'}
-            ]
-        }
-    )
-    
-    # 生成参数
-    temperature: float = Field(
-        default=0.1, 
-        description="生成温度（0-1）",
-        json_schema_extra={
-            'group': 'model',
-            'order': 2,
-            'minimum': 0.0,
-            'maximum': 1.0,
-            'multipleOf': 0.1
-        }
-    )
-    
-    max_tokens: int = Field(
-        default=4000, 
-        description="最大输出token数",
-        json_schema_extra={
-            'group': 'model',
-            'order': 3,
-            'minimum': 100,
-            'maximum': 128000,
-            'multipleOf': 100
-        }
-    )
-    
-    timeout: int = Field(
-        default=60, 
-        description="请求超时时间（秒）",
-        json_schema_extra={
-            'group': 'advanced',
-            'groupLabel': '高级配置',
-            'order': 1,
-            'minimum': 10,
-            'maximum': 300
-        }
-    )
-    
-    max_retries: int = Field(
-        default=3, 
-        description="最大重试次数",
-        json_schema_extra={
-            'group': 'advanced',
-            'order': 2,
-            'minimum': 0,
-            'maximum': 10
-        }
-    )
-    
+
     # 处理参数
     chunk_size: int = Field(
         default=2000, 
