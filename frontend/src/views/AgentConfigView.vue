@@ -178,6 +178,13 @@
                   />
                 </el-option-group>
               </el-select>
+              <el-checkbox
+                v-if="currentConfig.custom_params?.behavior"
+                v-model="currentConfig.custom_params.behavior.auto_execute_tools"
+                style="margin-top: 8px"
+              >
+                自动执行工具调用
+              </el-checkbox>
               <el-alert
                 type="info"
                 :closable="false"
@@ -196,8 +203,30 @@
               </el-alert>
             </el-form-item>
 
+            <!-- 行为配置 -->
+            <el-divider content-position="left">行为配置</el-divider>
+
+            <template v-if="currentConfig.custom_params?.behavior">
+              <el-form-item label="系统提示词">
+                <el-input
+                  v-model="currentConfig.custom_params.behavior.system_prompt"
+                  type="textarea"
+                  :rows="6"
+                  placeholder="定义智能体的角色、性格和任务目标..."
+                />
+              </el-form-item>
+
+              <el-form-item label="最大对话轮数">
+                <el-input-number
+                  v-model="currentConfig.custom_params.behavior.max_rounds"
+                  :min="1"
+                  :max="50"
+                />
+              </el-form-item>
+            </template>
+
             <!-- 自定义参数 -->
-            <el-divider content-position="left">自定义参数</el-divider>
+            <el-divider content-position="left">高级参数 (JSON)</el-divider>
 
             <el-form-item label="自定义参数">
               <el-input
@@ -497,7 +526,27 @@ const onSelectAgent = (agentName) => {
 const syncJsonFields = () => {
   if (!currentConfig.value) return
 
-  // 同步自定义参数
+  // 1. 确保 custom_params 存在
+  if (!currentConfig.value.custom_params) {
+    currentConfig.value.custom_params = {}
+  }
+
+  // 2. 确保 generic 类型的智能体有 behavior 对象
+  const isGeneric = currentConfig.value.custom_params.type === 'generic' || !currentConfig.value.custom_params.type
+  if (isGeneric && !currentConfig.value.custom_params.behavior) {
+    currentConfig.value.custom_params.behavior = {
+      system_prompt: '',
+      max_rounds: 10,
+      auto_execute_tools: true
+    }
+  }
+
+  // 3. 将其余参数显示在 JSON 编辑器中（排除 behavior 中已提取显示的字段）
+  // 实际上这里我们仍然把整个 custom_params 转为 JSON 显示在"高级参数"里，
+  // 这样用户可以改 JSON 也可以改表单，两者是绑定的（因为 v-model 指向同一个引用）
+  // 不过为了避免混淆，我们可以只在 JSON 里显示那些"未被提取"的字段？
+  // 鉴于实现复杂性，目前保持 JSON 显示完整内容，但用户主要操作表单即可。
+
   customParamsJson.value = JSON.stringify(
     currentConfig.value.custom_params || {},
     null,
@@ -513,9 +562,17 @@ const saveConfig = async () => {
 
   saving.value = true
   try {
-    // 解析自定义参数 JSON
+    // 1. 先从 JSON 编辑器更新 custom_params（防止用户直接改了 JSON）
     try {
-      currentConfig.value.custom_params = JSON.parse(customParamsJson.value)
+      const jsonParams = JSON.parse(customParamsJson.value)
+
+      // 2. 合并表单中的修改（如果有）
+      // 注意：由于表单直接 v-model 绑定到了 currentConfig.custom_params.behavior 上，
+      // 如果用户只改了表单没改 JSON 框，那么 currentConfig 里的数据是最新的。
+      // 如果用户改了 JSON 框，那么 JSON 框是最新的。
+      // 为了避免冲突，我们以 JSON 框的内容为准，重新赋值给 currentConfig
+      currentConfig.value.custom_params = jsonParams
+
     } catch (e) {
       ElMessage.error('自定义参数 JSON 格式错误')
       saving.value = false
@@ -762,6 +819,25 @@ onMounted(() => {
   loadPresets()
   loadAvailableTools()
 })
+
+// 监听配置对象的变化，实时更新 JSON 视图
+watch(
+  () => currentConfig.value?.custom_params,
+  (newVal) => {
+    if (newVal) {
+      // 避免 JSON 编辑器输入时产生的循环更新
+      // 只有当对象确实发生了非编辑器来源的变更时才更新
+      // 简单起见，这里总是更新，但用户体验上可能需要注意
+      // 为了更好的体验，我们只在非编辑模式下同步？
+      // 或者：既然我们有 JSON 编辑器，也许不需要实时双向绑定？
+      // 策略：单向流。加载时 Object -> JSON。
+      // 保存时：JSON -> Object。
+      // 表单修改时：Object 修改。此时需要同步到 JSON。
+      customParamsJson.value = JSON.stringify(newVal, null, 2)
+    }
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
