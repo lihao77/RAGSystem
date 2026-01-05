@@ -6,6 +6,14 @@
 import { get, post, put, patch, del } from './http.js'
 
 /**
+ * 创建新智能体
+ * @param {Object} agentConfig 智能体配置
+ */
+export async function createAgent(agentConfig) {
+  return await post('/api/agent/agents/create', agentConfig)
+}
+
+/**
  * 获取所有智能体配置
  */
 export async function getAllAgentConfigs() {
@@ -39,7 +47,15 @@ export async function patchAgentConfig(agentName, updates) {
 }
 
 /**
- * 删除智能体配置
+ * 删除智能体
+ * @param {string} agentName 智能体名称
+ */
+export async function deleteAgent(agentName) {
+  return await del(`/api/agent/agents/delete/${agentName}`)
+}
+
+/**
+ * 删除智能体配置（已弃用，请使用 deleteAgent）
  * @param {string} agentName 智能体名称
  */
 export async function deleteAgentConfig(agentName) {
@@ -117,5 +133,7 @@ export default {
   importAgentConfig,
   validateAgentConfig,
   getPresets,
-  getAvailableTools
+  getAvailableTools,
+  createAgent,
+  deleteAgent
 }

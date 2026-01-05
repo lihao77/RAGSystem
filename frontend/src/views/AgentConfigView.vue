@@ -12,10 +12,16 @@
           <template #header>
             <div class="card-header">
               <span>智能体列表</span>
-              <el-button size="small" @click="loadConfigs" :loading="loading">
-                <el-icon><Refresh /></el-icon>
-                刷新
-              </el-button>
+              <div>
+                <el-button size="small" type="primary" @click="showCreateDialog">
+                  <el-icon><Plus /></el-icon>
+                  新建
+                </el-button>
+                <el-button size="small" @click="loadConfigs" :loading="loading">
+                  <el-icon><Refresh /></el-icon>
+                  刷新
+                </el-button>
+              </div>
             </div>
           </template>
 
@@ -212,6 +218,10 @@
 
           <!-- 操作按钮 -->
           <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end">
+             <el-button type="danger" @click="handleDeleteAgent" :loading="deleting" plain>
+              <el-icon><Delete /></el-icon>
+              删除
+            </el-button>
             <el-button @click="exportConfig">
               <el-icon><Download /></el-icon>
               导出配置
@@ -269,6 +279,55 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 新建智能体对话框 -->
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新建智能体"
+      width="500px"
+    >
+      <el-form
+        ref="newAgentFormRef"
+        :model="newAgentForm"
+        :rules="createRules"
+        label-width="100px"
+      >
+        <el-form-item label="智能体ID" prop="agent_name">
+          <el-input
+            v-model="newAgentForm.agent_name"
+            placeholder="例如: translation_agent (小写字母开头，仅限字母数字下划线)"
+          />
+        </el-form-item>
+        <el-form-item label="显示名称" prop="display_name">
+          <el-input
+            v-model="newAgentForm.display_name"
+            placeholder="例如: 翻译助手"
+          />
+        </el-form-item>
+        <el-form-item label="描述" prop="description">
+          <el-input
+            v-model="newAgentForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="简要描述该智能体的功能"
+          />
+        </el-form-item>
+        <el-form-item label="系统提示词" prop="system_prompt">
+          <el-input
+            v-model="newAgentForm.system_prompt"
+            type="textarea"
+            :rows="5"
+            placeholder="定义智能体的角色和行为，例如：'你是一个专业的翻译助手...'"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleCreateAgent" :loading="creating">
+          创建
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -280,7 +339,9 @@ import {
   Check,
   Download,
   Upload,
-  CircleCheck
+  CircleCheck,
+  Plus,
+  Delete
 } from '@element-plus/icons-vue'
 import LLMConfigSelector from '@/components/LLMConfigSelector.vue'
 import {
@@ -291,13 +352,17 @@ import {
   importAgentConfig,
   validateAgentConfig,
   getPresets,
-  getAvailableTools
+  getAvailableTools,
+  createAgent,
+  deleteAgent
 } from '@/api/agentConfig'
 
 // 数据
 const loading = ref(false)
 const saving = ref(false)
 const importing = ref(false)
+const creating = ref(false)
+const deleting = ref(false)
 const agentConfigs = ref({})
 const selectedAgent = ref('')
 const currentConfig = ref(null)
@@ -309,6 +374,29 @@ const availableTools = ref([]) // 可用工具列表
 const importDialogVisible = ref(false)
 const importFormat = ref('yaml')
 const importText = ref('')
+
+// 新建对话框
+const createDialogVisible = ref(false)
+const newAgentForm = reactive({
+  agent_name: '',
+  display_name: '',
+  description: '',
+  type: 'generic',
+  system_prompt: ''
+})
+const newAgentFormRef = ref(null)
+const createRules = {
+  agent_name: [
+    { required: true, message: '请输入智能体ID', trigger: 'blur' },
+    { pattern: /^[a-z][a-z0-9_]*$/, message: '只能包含小写字母、数字和下划线，且以字母开头', trigger: 'blur' }
+  ],
+  display_name: [
+    { required: true, message: '请输入显示名称', trigger: 'blur' }
+  ],
+  system_prompt: [
+    { required: true, message: '请输入系统提示词', trigger: 'blur' }
+  ]
+}
 
 // JSON 字段
 const customParamsJson = ref('{}')
@@ -571,6 +659,90 @@ const validateConfig = async () => {
     }
   } catch (error) {
     ElMessage.error('验证失败: ' + error.message)
+  }
+}
+
+const showCreateDialog = () => {
+  newAgentForm.agent_name = ''
+  newAgentForm.display_name = ''
+  newAgentForm.description = ''
+  newAgentForm.type = 'generic'
+  newAgentForm.system_prompt = ''
+  createDialogVisible.value = true
+}
+
+const handleCreateAgent = async () => {
+  if (!newAgentFormRef.value) return
+
+  await newAgentFormRef.value.validate(async (valid) => {
+    if (valid) {
+      creating.value = true
+      try {
+        const payload = {
+          ...newAgentForm,
+          enabled: true,
+          custom_params: {
+            type: newAgentForm.type,
+            behavior: {
+              system_prompt: newAgentForm.system_prompt,
+              max_rounds: 10,
+              auto_execute_tools: true
+            }
+          }
+        }
+
+        // 移除临时字段，避免污染配置
+        delete payload.system_prompt
+        delete payload.type
+
+        const res = await createAgent(payload)
+        if (res.success) {
+          ElMessage.success('智能体创建成功')
+          createDialogVisible.value = false
+          await loadConfigs()
+          // 选中新创建的智能体
+          selectedAgent.value = newAgentForm.agent_name
+          currentConfig.value = JSON.parse(JSON.stringify(agentConfigs.value[newAgentForm.agent_name]))
+          syncJsonFields()
+        }
+      } catch (error) {
+        ElMessage.error('创建失败: ' + error.message)
+      } finally {
+        creating.value = false
+      }
+    }
+  })
+}
+
+const handleDeleteAgent = async () => {
+  if (!selectedAgent.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除智能体 "${currentConfig.value.display_name || selectedAgent.value}" 吗？此操作不可恢复。`,
+      '删除确认',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+
+    deleting.value = true
+    const res = await deleteAgent(selectedAgent.value)
+    if (res.success) {
+      ElMessage.success('智能体已删除')
+      selectedAgent.value = ''
+      currentConfig.value = null
+      await loadConfigs()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败: ' + error.message)
+    }
+  } finally {
+    deleting.value = false
   }
 }
 

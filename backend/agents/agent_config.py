@@ -140,9 +140,9 @@ class AgentConfig(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "agent_name": "qa_agent",
-                "display_name": "问答智能体",
-                "description": "知识图谱问答智能体",
+                "agent_name": "custom_agent",
+                "display_name": "自定义智能体",
+                "description": "通过配置定义的智能体",
                 "enabled": True,
                 "llm": {
                     "provider": "deepseek",
@@ -154,8 +154,13 @@ class AgentConfig(BaseModel):
                     "enabled_tools": ["query_kg", "semantic_search"]
                 },
                 "custom_params": {
-                    "max_rounds": 5,
-                    "enable_reasoning": True
+                    "type": "generic",
+                    "behavior": {
+                        "system_prompt": "你是一个专门做XX的智能体...",
+                        "max_rounds": 10,
+                        "auto_execute_tools": True,
+                        "task_patterns": ["查询.*", "分析.*"]
+                    }
                 }
             }
         }
