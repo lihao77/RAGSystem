@@ -1,0 +1,40 @@
+agents:
+  qa_agent:
+    agent_name: qa_agent
+    display_name: 问答智能体
+    description: 知识图谱问答智能体，使用 Function Calling 进行查询
+    enabled: true
+    llm:
+      provider: deepseek
+      model_name: deepseek-chat
+      temperature: 0.2
+      max_tokens: 8192
+      top_p: null
+      timeout: 60
+      retry_attempts: 3
+    tools:
+      enabled_tools: []
+    custom_params:
+      max_rounds: 10
+  master_agent:
+    agent_name: master_agent
+    display_name: 主协调智能体
+    description: 主协调智能体，负责任务分析、分解和结果整合
+    enabled: true
+    llm:
+      provider: test2
+      model_name: deepseek-chat
+      temperature: 0.7
+      max_tokens: 4096
+      top_p: null
+      timeout: 30
+      retry_attempts: 3
+    tools:
+      enabled_tools:
+      - get_graph_schema
+    custom_params:
+      analysis_temperature: 0
+      synthesis_temperature: 0.3
+metadata:
+  updated_at: '2026-01-04T22:03:29.453313'
+  version: '1.0'

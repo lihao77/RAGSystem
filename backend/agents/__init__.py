@@ -36,6 +36,10 @@ from .config_manager import AgentConfigManager, get_config_manager
 # 具体智能体
 from .qa_agent import QAAgent
 from .master_agent import MasterAgent
+from .generic_agent import GenericAgent
+
+# 动态加载
+from .agent_loader import AgentLoader, load_agents_from_config, register_agent_type
 
 __all__ = [
     # 基础设施
@@ -64,4 +68,10 @@ __all__ = [
     # 具体智能体
     'QAAgent',
     'MasterAgent',
+    'GenericAgent',
+
+    # 动态加载
+    'AgentLoader',
+    'load_agents_from_config',
+    'register_agent_type',
 ]

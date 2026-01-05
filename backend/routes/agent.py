@@ -7,7 +7,12 @@ Agent API 路由 - 智能体系统统一入口
 
 from flask import Blueprint, request
 import logging
-from agents import QAAgent, MasterAgent, get_orchestrator, AgentContext, get_config_manager
+from agents import (
+    AgentContext,
+    get_orchestrator,
+    get_config_manager,
+    load_agents_from_config
+)
 from llm_adapter import get_default_adapter
 from config import get_config
 from utils.response_helpers import success_response, error_response
@@ -22,40 +27,32 @@ _orchestrator = None
 
 
 def _get_orchestrator():
-    """获取或初始化全局 Orchestrator"""
+    """获取或初始化全局 Orchestrator（使用动态加载）"""
     global _orchestrator
 
     if _orchestrator is None:
         try:
             system_config = get_config()
             adapter = get_default_adapter()
-            config_manager = get_config_manager()
 
             # 创建 Orchestrator
             _orchestrator = get_orchestrator(llm_adapter=adapter)
 
-            # 加载 QAAgent 配置并注册
-            qa_agent_config = config_manager.get_config('qa_agent')
-            qa_agent = QAAgent(
+            # 🎉 使用动态加载机制加载所有智能体
+            agents = load_agents_from_config(
                 llm_adapter=adapter,
-                agent_config=qa_agent_config,
-                system_config=system_config
+                system_config=system_config,
+                orchestrator=_orchestrator
             )
-            _orchestrator.register_agent(qa_agent)
 
-            # 加载 MasterAgent 配置并注册
-            master_agent_config = config_manager.get_config('master_agent')
-            master_agent = MasterAgent(
-                llm_adapter=adapter,
-                orchestrator=_orchestrator,
-                agent_config=master_agent_config,
-                system_config=system_config
-            )
-            _orchestrator.register_agent(master_agent)
+            # 注册所有加载的智能体
+            for agent_name, agent in agents.items():
+                _orchestrator.register_agent(agent)
+                logger.info(f"已注册智能体: {agent_name}")
 
-            logger.info("Orchestrator 初始化成功")
+            logger.info(f"Orchestrator 初始化成功，已加载 {len(agents)} 个智能体")
         except Exception as e:
-            logger.error(f"Orchestrator 初始化失败: {e}")
+            logger.error(f"Orchestrator 初始化失败: {e}", exc_info=True)
             raise
 
     return _orchestrator

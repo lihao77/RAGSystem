@@ -21,7 +21,7 @@
 
           <el-menu :default-active="selectedAgent" @select="onSelectAgent">
             <el-menu-item
-              v-for="(config, name) in agentConfigs"
+              v-for="(config, name) in filteredAgentConfigs"
               :key="name"
               :index="name"
             >
@@ -41,7 +41,7 @@
             </el-menu-item>
           </el-menu>
 
-          <el-empty v-if="Object.keys(agentConfigs).length === 0" description="暂无智能体配置" />
+          <el-empty v-if="Object.keys(filteredAgentConfigs).length === 0" description="暂无智能体配置" />
         </el-card>
 
         <!-- 预设模板 -->
@@ -313,7 +313,18 @@ const importText = ref('')
 // JSON 字段
 const customParamsJson = ref('{}')
 
-// 计算属性
+// 计算属性：过滤掉系统智能体（master_agent）
+const filteredAgentConfigs = computed(() => {
+  const configs = {}
+  for (const [name, config] of Object.entries(agentConfigs.value)) {
+    // 排除 master_agent（系统智能体，不可配置）
+    if (name !== 'master_agent') {
+      configs[name] = config
+    }
+  }
+  return configs
+})
+
 const getPresetLabel = (key) => {
   const labels = {
     fast: 'Fast',
