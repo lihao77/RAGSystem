@@ -107,19 +107,8 @@ class GenericAgent(BaseAgent):
         """
         判断是否能处理该任务
 
-        通用智能体默认可以处理所有任务
-        可以在 behavior_config 中配置 task_patterns 来限制
+        通用智能体始终返回 True，让 MasterAgent 通过 LLM 智能分析来决定路由
         """
-        # 如果配置了任务模式，则进行匹配
-        task_patterns = self.behavior_config.get('task_patterns', [])
-        if task_patterns:
-            import re
-            for pattern in task_patterns:
-                if re.search(pattern, task, re.IGNORECASE):
-                    return True
-            return False
-
-        # 默认可以处理所有任务
         return True
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:

@@ -8,9 +8,9 @@
 import logging
 from typing import Dict, Optional, Type
 from .base import BaseAgent
-from .qa_agent import QAAgent
 from .master_agent import MasterAgent
 from .generic_agent import GenericAgent
+from .react_agent import ReActAgent
 from .config_manager import get_config_manager
 
 logger = logging.getLogger(__name__)
@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
-    'qa': QAAgent,
     'master': MasterAgent,
     'generic': GenericAgent,
+    'react': ReActAgent,
 }
 
 
@@ -204,12 +204,11 @@ class AgentLoader:
                 return agent_type
 
         # 2. 根据名称推断（向后兼容）
-        if agent_name == 'qa_agent':
-            return 'qa'
-        elif agent_name == 'master_agent':
+        if agent_name == 'master_agent':
             return 'master'
 
         # 3. 默认使用通用类型
+        logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'generic'")
         return 'generic'
 
     def _create_agent_instance(
@@ -250,6 +249,32 @@ class AgentLoader:
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
                 'behavior_config': agent_config.custom_params.get('behavior', {})
+            })
+
+        elif agent_class == ReActAgent:
+            # ReActAgent 需要额外参数
+            from tools.function_definitions import get_tool_definitions
+
+            # 获取所有工具
+            all_tools = get_tool_definitions()
+
+            # 根据配置过滤工具（与 GenericAgent 保持一致）
+            if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
+                enabled_tools = agent_config.tools.enabled_tools
+                filtered_tools = [
+                    tool for tool in all_tools
+                    if tool.get('function', {}).get('name') in enabled_tools
+                ]
+                logger.info(f"{agent_config.agent_name} 已根据配置过滤工具，启用: {enabled_tools}")
+            else:
+                filtered_tools = all_tools
+                logger.info(f"{agent_config.agent_name} 启用所有工具")
+
+            common_kwargs.update({
+                'agent_name': agent_config.agent_name,
+                'display_name': agent_config.display_name,
+                'description': agent_config.description,
+                'available_tools': filtered_tools
             })
 
         # 创建实例

@@ -8,7 +8,7 @@
 # 3. 新的智能体会自动加载并可用
 
 agents:
-  # ======== 现有智能体（使用专用类）========
+  # ======== 现有智能体（使用 ReAct 模式）========
 
   qa_agent:
     agent_name: qa_agent
@@ -24,8 +24,10 @@ agents:
         - search_knowledge_graph
         - get_entity_relations
     custom_params:
-      type: qa  # 指定使用 QAAgent 类
-      max_rounds: 10
+      type: react  # 使用 ReAct 智能体（推荐）
+      behavior:
+        max_rounds: 10
+        system_prompt: "你是一个知识图谱问答助手..."
 
   master_agent:
     agent_name: master_agent

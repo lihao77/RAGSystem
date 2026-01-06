@@ -7,7 +7,7 @@ Agent 模块 - 智能体系统
 - 注册表：AgentRegistry
 - 编排器：AgentOrchestrator
 - 配置系统：AgentConfig, AgentConfigManager
-- 具体智能体：QAAgent, MasterAgent
+- 具体智能体：MasterAgent, GenericAgent, ReActAgent
 """
 
 # 基础设施
@@ -34,9 +34,9 @@ from .agent_config import (
 from .config_manager import AgentConfigManager, get_config_manager
 
 # 具体智能体
-from .qa_agent import QAAgent
 from .master_agent import MasterAgent
 from .generic_agent import GenericAgent
+from .react_agent import ReActAgent
 
 # 动态加载
 from .agent_loader import AgentLoader, load_agents_from_config, register_agent_type
@@ -66,9 +66,9 @@ __all__ = [
     'get_config_manager',
 
     # 具体智能体
-    'QAAgent',
     'MasterAgent',
     'GenericAgent',
+    'ReActAgent',
 
     # 动态加载
     'AgentLoader',
