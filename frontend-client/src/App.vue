@@ -107,7 +107,12 @@
                         <pre class="tool-json">{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
                       </div>
                       <div v-if="tool.result" class="tool-result">
-                        <div class="tool-section-title">结果</div>
+                        <div class="tool-section-header">
+                          <div class="tool-section-title">结果</div>
+                          <button @click.stop="copyToClipboard(tool.result)" class="copy-btn" title="复制结果">
+                            📋
+                          </button>
+                        </div>
                         <pre class="tool-json" :class="{ 'collapsed': !tool.showResult }" @click="tool.showResult = !tool.showResult">{{ JSON.stringify(tool.result, null, 2) }}</pre>
                         <div v-if="!tool.showResult" class="expand-hint">点击展开</div>
                       </div>
@@ -392,7 +397,30 @@ const copyToClipboard = async (text) => {
   try {
     const textToCopy = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
     await navigator.clipboard.writeText(textToCopy);
-    // 可以添加一个提示，但为了简洁先不加
+
+    // 显示复制成功提示（使用原生提示，简单有效）
+    const notification = document.createElement('div');
+    notification.textContent = '✓ 已复制';
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #10b981;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      animation: slideIn 0.3s ease;
+    `;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+      notification.style.animation = 'slideOut 0.3s ease';
+      setTimeout(() => document.body.removeChild(notification), 300);
+    }, 2000);
   } catch (err) {
     console.error('复制失败:', err);
   }
@@ -482,6 +510,11 @@ const handleSend = async () => {
               };
             } else if (data.type === 'subtask_start') {
               // 子任务开始事件
+              // 先折叠之前所有的子任务（如果有多个）
+              if (currentMsg.subtasks.length > 0) {
+                currentMsg.subtasks.forEach(st => st.expanded = false);
+              }
+
               currentMsg.subtasks.push({
                 order: data.order,
                 agent_name: data.agent_name,
@@ -491,7 +524,7 @@ const handleSend = async () => {
                 tool_calls: [],       // 工具调用
                 result_summary: '',   // 结果摘要
                 status: 'running',    // running | success | error
-                expanded: false       // 默认折叠
+                expanded: true        // 新开始的子任务默认展开
               });
             } else if (data.type === 'thought_structured') {
               // ReActAgent 的结构化思考
@@ -539,6 +572,10 @@ const handleSend = async () => {
               if (subtask) {
                 subtask.result_summary = data.result_summary;
                 subtask.status = data.success === false ? 'error' : 'success';
+                // 子任务完成后自动折叠（如果有多个子任务）
+                if (currentMsg.subtasks.length > 1) {
+                  subtask.expanded = false;
+                }
               }
             } else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });
@@ -568,6 +605,29 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 复制提示动画 */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
 /* 打字机光标动画 */
 @keyframes blink {
   0%, 50% {
@@ -801,8 +861,12 @@ onMounted(() => {
 }
 
 .status-error {
-  color: #e53e3e;
-  background-color: #fff5f5;
+  color: #dc2626;
+  background-color: #fee2e2;
+  padding: 12px 16px;
+  border-left: 4px solid #dc2626;
+  border-radius: 6px;
+  font-weight: 500;
 }
 
 .status-icon {
@@ -1131,6 +1195,13 @@ onMounted(() => {
   color: #718096;
   font-weight: 600;
   letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.tool-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 6px;
 }
 
