@@ -880,6 +880,8 @@ onMounted(() => {
   border-radius: 8px;
   overflow: hidden;
   background-color: #eff6ff;
+  /* 添加淡入动画 */
+  animation: fadeInUp 0.4s ease;
 }
 
 .card-header {
@@ -925,6 +927,8 @@ onMounted(() => {
   padding: 16px;
   background-color: #ffffff;
   border-top: 1px solid #bfdbfe;
+  /* 添加展开动画 */
+  animation: expandDown 0.3s ease;
 }
 
 .analysis-reasoning {
@@ -952,6 +956,8 @@ onMounted(() => {
   overflow: hidden;
   background-color: #ffffff;
   transition: box-shadow 0.2s ease;
+  /* 添加淡入动画 */
+  animation: fadeInUp 0.5s ease;
 }
 
 .subtask-card:hover {
@@ -1022,6 +1028,17 @@ onMounted(() => {
 .subtask-preview {
   padding: 12px 16px;
   background-color: #fafafa;
+  /* 添加淡入动画 */
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .subtask-description {
@@ -1051,6 +1068,23 @@ onMounted(() => {
 .subtask-details {
   padding: 16px;
   background-color: #ffffff;
+  /* 添加展开动画 */
+  animation: expandDown 0.3s ease;
+}
+
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
 }
 
 .subtask-description-full {
@@ -1087,6 +1121,19 @@ onMounted(() => {
   background-color: #faf5ff;
   border-left: 3px solid #a855f7;
   border-radius: 4px;
+  /* 添加淡入动画 */
+  animation: fadeInUp 0.4s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .thinking-step:last-child {
@@ -1141,6 +1188,8 @@ onMounted(() => {
   border: 1px solid #e8e8e8;
   border-radius: 6px;
   margin-bottom: 8px;
+  /* 添加淡入动画 */
+  animation: fadeInUp 0.4s ease;
 }
 
 .tool-call-item:last-child {
@@ -1597,6 +1646,8 @@ button:disabled {
   background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
   border-left: 4px solid #10b981;
   border-radius: 8px;
+  /* 添加淡入动画 */
+  animation: fadeInUp 0.5s ease;
 }
 
 .answer-header {
