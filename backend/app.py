@@ -3,11 +3,13 @@
 知识图谱系统Flask后端
 """
 
+# 必须在导入 chromadb 之前设置环境变量
+import os
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'  # 禁用 ChromaDB 遥测
+os.environ['CHROMA_TELEMETRY_ENABLED'] = 'False'  # 额外保险
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-import os
-
-os.environ['ANONYMIZED_TELEMETRY'] = 'False'  # 禁用 ChromaDB 遥测
 
 import logging
 from werkzeug.exceptions import RequestEntityTooLarge

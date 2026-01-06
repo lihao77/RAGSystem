@@ -295,24 +295,88 @@ class MasterAgent(BaseAgent):
             "content": f"正在调用 {preferred_agent} 处理任务..."
         }
 
-        # 调用 Orchestrator 执行 (非流式)
-        # TODO: 未来可以让 Orchestrator 和所有 Agent 都支持流式
-        response = self.orchestrator.execute(
-            task=task,
-            context=context,
-            preferred_agent=preferred_agent
-        )
+        # 获取 Agent 实例
+        agent = self.orchestrator.agents.get(preferred_agent)
 
-        if response.success:
-            yield {
-                "type": "chunk",
-                "content": response.content
-            }
+        # 检查 Agent 是否支持流式执行
+        if agent and hasattr(agent, 'execute_stream'):
+            # 使用流式执行，实时转发事件
+            self.logger.info(f"[MasterAgent] 使用流式执行 {preferred_agent}")
+
+            for event in agent.execute_stream(task, context):
+                if event['type'] == 'final_answer':
+                    # 将 final_answer 转换为 chunk
+                    yield {
+                        "type": "chunk",
+                        "content": event['content']
+                    }
+                else:
+                    # 直接转发其他事件
+                    yield event
         else:
-            yield {
-                "type": "error",
-                "content": response.error or "执行失败"
-            }
+            # 降级到非流式执行（使用旧的回调机制）
+            self.logger.warning(f"[MasterAgent] Agent {preferred_agent} 不支持流式执行，使用回调模式")
+
+            event_queue = []
+
+            def event_callback(event_type: str, data: Dict[str, Any]):
+                if event_type == 'tool_start':
+                    event_queue.append({
+                        "type": "tool_start",
+                        "tool_name": data['tool_name'],
+                        "arguments": data['arguments'],
+                        "index": data['index'],
+                        "total": data['total']
+                    })
+                elif event_type == 'tool_end':
+                    event_queue.append({
+                        "type": "tool_end",
+                        "tool_name": data['tool_name'],
+                        "result": data['result'],
+                        "elapsed_time": data['elapsed_time'],
+                        "index": data['index'],
+                        "total": data['total']
+                    })
+                elif event_type == 'thought_structured':
+                    event_queue.append({
+                        "type": "thought_structured",
+                        "thought": data['thought'],
+                        "round": data['round'],
+                        "has_actions": data['has_actions'],
+                        "has_answer": data['has_answer']
+                    })
+
+            if agent and hasattr(agent, 'event_callback'):
+                old_callback = agent.event_callback
+                agent.event_callback = event_callback
+
+                response = self.orchestrator.execute(
+                    task=task,
+                    context=context,
+                    preferred_agent=preferred_agent
+                )
+
+                agent.event_callback = old_callback
+
+                for event in event_queue:
+                    yield event
+            else:
+                response = self.orchestrator.execute(
+                    task=task,
+                    context=context,
+                    preferred_agent=preferred_agent
+                )
+
+            if response.success:
+                yield {
+                    "type": "chunk",
+                    "content": response.content
+                }
+            else:
+                yield {
+                    "type": "error",
+                    "content": response.error or "执行失败"
+                }
 
         yield {
             "type": "agent_end",
@@ -383,13 +447,88 @@ class MasterAgent(BaseAgent):
                 ]
                 context.set_shared_data('previous_results', dep_results)
 
-            # 执行子任务 (非流式)
+            # 执行子任务，使用流式执行（如果支持）
             try:
-                response = self.orchestrator.execute(
-                    task=subtask_desc,
-                    context=context,
-                    preferred_agent=agent_name
-                )
+                # 获取 agent 实例
+                agent = self.orchestrator.agents.get(agent_name)
+
+                # 优先使用流式执行
+                if agent and hasattr(agent, 'execute_stream'):
+                    self.logger.info(f"[MasterAgent] 使用流式执行子任务: {agent_name}")
+
+                    # 实时转发事件
+                    final_content = ""
+                    for event in agent.execute_stream(subtask_desc, context):
+                        if event['type'] == 'final_answer':
+                            # 捕获最终答案
+                            final_content = event['content']
+                            # 不 yield，等待构建 response 后再处理
+                        else:
+                            # 实时转发事件
+                            yield event
+
+                    # 构建响应对象（模拟非流式返回）
+                    from .base import AgentResponse
+                    response = AgentResponse(
+                        success=True,
+                        content=final_content,
+                        agent_name=agent_name,
+                        execution_time=0  # 已在事件中报告
+                    )
+                else:
+                    # 降级到非流式执行（使用回调队列）
+                    self.logger.warning(f"[MasterAgent] Agent {agent_name} 不支持流式执行，使用回调模式")
+
+                    event_queue = []
+
+                    def event_callback(event_type: str, data: Dict[str, Any]):
+                        if event_type == 'tool_start':
+                            event_queue.append({
+                                "type": "tool_start",
+                                "tool_name": data['tool_name'],
+                                "arguments": data['arguments'],
+                                "index": data['index'],
+                                "total": data['total']
+                            })
+                        elif event_type == 'tool_end':
+                            event_queue.append({
+                                "type": "tool_end",
+                                "tool_name": data['tool_name'],
+                                "result": data['result'],
+                                "elapsed_time": data['elapsed_time'],
+                                "index": data['index'],
+                                "total": data['total']
+                            })
+                        elif event_type == 'thought_structured':
+                            event_queue.append({
+                                "type": "thought_structured",
+                                "thought": data['thought'],
+                                "round": data['round'],
+                                "has_actions": data['has_actions'],
+                                "has_answer": data['has_answer']
+                            })
+
+                    if agent and hasattr(agent, 'event_callback'):
+                        old_callback = agent.event_callback
+                        agent.event_callback = event_callback
+
+                        response = self.orchestrator.execute(
+                            task=subtask_desc,
+                            context=context,
+                            preferred_agent=agent_name
+                        )
+
+                        agent.event_callback = old_callback
+
+                        # 转发队列中的事件
+                        for event in event_queue:
+                            yield event
+                    else:
+                        response = self.orchestrator.execute(
+                            task=subtask_desc,
+                            context=context,
+                            preferred_agent=agent_name
+                        )
 
                 # 保存结果
                 subtask_responses[subtask.get('order')] = {
