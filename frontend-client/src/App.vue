@@ -27,115 +27,121 @@
             {{ msg.role === 'user' ? 'U' : 'AI' }}
           </div>
           <div class="message-content">
-            <!-- MasterAgent 的任务分析 -->
-            <div v-if="msg.thinking && msg.thinking.trim()" class="thinking-process master-thinking">
-              <div class="thinking-header" @click="msg.showMasterThinking = !msg.showMasterThinking">
-                <span class="icon">{{ msg.showMasterThinking ? '▼' : '▶' }}</span>
-                <span class="thinking-title">🧠 任务分析</span>
+            <!-- 加载状态（仅在助手消息且无任何内容时显示） -->
+            <div v-if="msg.role === 'assistant' && !msg.content && !msg.taskAnalysis && (!msg.subtasks || msg.subtasks.length === 0)" class="loading-dots">
+              <span>.</span><span>.</span><span>.</span>
+            </div>
+
+            <!-- 任务分析卡片（仅在有多个子任务或复杂任务时显示） -->
+            <div v-if="msg.taskAnalysis && (msg.taskAnalysis.subtask_count > 1 || msg.taskAnalysis.complexity !== 'simple')" class="task-analysis-card">
+              <div class="card-header" @click="msg.taskAnalysis.expanded = !msg.taskAnalysis.expanded">
+                <span class="icon">{{ msg.taskAnalysis.expanded ? '▼' : '▶' }}</span>
+                <span class="card-title">🧠 任务分析</span>
+                <span class="task-badge">{{ msg.taskAnalysis.complexity }}</span>
+                <span class="subtask-count">{{ msg.taskAnalysis.subtask_count }} 个子任务</span>
               </div>
-              <div v-if="msg.showMasterThinking" class="thinking-content master-analysis">
-                <pre class="analysis-text">{{ msg.thinking }}</pre>
+              <div v-if="msg.taskAnalysis.expanded" class="card-content">
+                <div class="analysis-reasoning">{{ msg.taskAnalysis.reasoning }}</div>
               </div>
             </div>
 
-            <!-- ReActAgent 的结构化思考过程 -->
-            <div v-if="msg.thinking_steps && msg.thinking_steps.length > 0" class="thinking-process agent-thinking">
-              <div class="thinking-header" @click="msg.showAgentThinking = !msg.showAgentThinking">
-                <span class="icon">{{ msg.showAgentThinking ? '▼' : '▶' }}</span>
-                <span class="thinking-title">🤖 推理步骤 ({{ msg.thinking_steps.length }} 步)</span>
-              </div>
-              <div v-if="msg.showAgentThinking" class="thinking-content">
-                <div v-for="(step, stepIndex) in msg.thinking_steps" :key="stepIndex" class="thinking-step">
-                  <div class="thinking-step-header">
-                    <span class="step-number">{{ stepIndex + 1 }}</span>
-                    <span class="step-actions">
-                      {{ step.has_actions ? '🔧 调用工具' : step.has_answer ? '✅ 得出答案' : '🤔 思考中' }}
-                    </span>
-                  </div>
-                  <div class="thinking-step-content">{{ step.thought }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 工具调用可视化 -->
-            <div v-if="msg.tool_calls && msg.tool_calls.length > 0" class="tool-calls">
-              <div class="tool-calls-header">
-                <span>🔧 工具调用记录</span>
-                <div class="tools-stats">
-                  <span class="stat-item">{{ msg.tool_calls.length }} 个工具</span>
-                  <span class="stat-item">⏱️ {{ getTotalToolTime(msg) }}s</span>
-                  <span class="stat-item">✅ {{ getSuccessToolCount(msg) }}/{{ msg.tool_calls.length }}</span>
-                </div>
-              </div>
-              <div v-for="(tool, tIndex) in msg.tool_calls" :key="tIndex" class="tool-call-item">
-                <div class="tool-call-header">
-                  <span class="tool-name">{{ tool.tool_name }}</span>
-                  <span v-if="tool.elapsed_time" class="tool-time">{{ tool.elapsed_time.toFixed(2) }}s</span>
-                  <span class="tool-status" :class="tool.status">
-                    {{ tool.status === 'running' ? '⏳' : tool.status === 'success' ? '✅' : '❌' }}
+            <!-- 子任务卡片列表 -->
+            <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
+              <div v-for="subtask in msg.subtasks" :key="subtask.order" class="subtask-card">
+                <div class="subtask-header" @click="subtask.expanded = !subtask.expanded">
+                  <span class="icon">{{ subtask.expanded ? '▼' : '▶' }}</span>
+                  <span class="subtask-title">
+                    <span class="subtask-number">步骤 {{ subtask.order }}</span>
+                    <span class="subtask-agent">{{ subtask.agent_display_name }}</span>
+                  </span>
+                  <span class="subtask-status" :class="subtask.status">
+                    {{ subtask.status === 'running' ? '⏳ 执行中' : subtask.status === 'success' ? '✅ 完成' : '❌ 失败' }}
                   </span>
                 </div>
-                <div v-if="Object.keys(tool.arguments || {}).length > 0" class="tool-arguments">
-                  <div class="tool-section-header">
-                    <span class="tool-section-title">参数</span>
-                    <button @click="copyToClipboard(tool.arguments)" class="copy-btn" title="复制">
-                      📋
-                    </button>
+
+                <div v-if="!subtask.expanded" class="subtask-preview">
+                  <div class="subtask-description">{{ subtask.description }}</div>
+                  <div v-if="subtask.result_summary" class="subtask-summary">
+                    {{ subtask.result_summary }}
                   </div>
-                  <pre>{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
                 </div>
-                <div v-if="tool.result && tool.status === 'success'" class="tool-result">
-                  <div class="tool-section-header">
-                    <span class="tool-section-title">结果</span>
-                    <div class="tool-result-actions">
-                      <button @click="tool.showFullResult = !tool.showFullResult" class="toggle-btn" title="切换详情">
-                        {{ tool.showFullResult ? '收起' : '详情' }}
-                      </button>
-                      <button @click="copyToClipboard(tool.result)" class="copy-btn" title="复制完整结果">
-                        📋
-                      </button>
+
+                <div v-if="subtask.expanded" class="subtask-details">
+                  <div class="subtask-description-full">
+                    <strong>任务描述：</strong>{{ subtask.description }}
+                  </div>
+
+                  <!-- 推理步骤 -->
+                  <div v-if="subtask.thinking_steps && subtask.thinking_steps.length > 0" class="thinking-steps">
+                    <div class="section-header">🤔 推理过程 ({{ subtask.thinking_steps.length }} 步)</div>
+                    <div v-for="(step, stepIndex) in subtask.thinking_steps" :key="stepIndex" class="thinking-step">
+                      <div class="step-meta">
+                        <span class="step-number">{{ stepIndex + 1 }}</span>
+                        <span class="step-type">
+                          {{ step.has_actions ? '🔧 调用工具' : step.has_answer ? '✅ 得出答案' : '🤔 思考中' }}
+                        </span>
+                      </div>
+                      <div class="step-content">{{ step.thought }}</div>
                     </div>
                   </div>
-                  <div v-if="!tool.showFullResult" class="tool-result-summary">
-                    {{ formatToolResult(tool.result) }}
+
+                  <!-- 工具调用 -->
+                  <div v-if="subtask.tool_calls && subtask.tool_calls.length > 0" class="tool-calls">
+                    <div class="section-header">
+                      🔧 工具调用 ({{ subtask.tool_calls.length }} 个)
+                      <span class="tools-stats">
+                        <span class="stat-item">⏱️ {{ getTotalToolTimeForSubtask(subtask) }}s</span>
+                        <span class="stat-item">✅ {{ getSuccessToolCountForSubtask(subtask) }}/{{ subtask.tool_calls.length }}</span>
+                      </span>
+                    </div>
+                    <div v-for="(tool, tIndex) in subtask.tool_calls" :key="tIndex" class="tool-call-item">
+                      <div class="tool-call-header">
+                        <span class="tool-name">{{ tool.tool_name }}</span>
+                        <span v-if="tool.elapsed_time" class="tool-time">{{ tool.elapsed_time.toFixed(2) }}s</span>
+                        <span class="tool-status" :class="tool.status">
+                          {{ tool.status === 'running' ? '⏳' : tool.status === 'success' ? '✅' : '❌' }}
+                        </span>
+                      </div>
+                      <div v-if="Object.keys(tool.arguments || {}).length > 0" class="tool-arguments">
+                        <div class="tool-section-title">参数</div>
+                        <pre class="tool-json">{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
+                      </div>
+                      <div v-if="tool.result" class="tool-result">
+                        <div class="tool-section-title">结果</div>
+                        <pre class="tool-json" :class="{ 'collapsed': !tool.showResult }" @click="tool.showResult = !tool.showResult">{{ JSON.stringify(tool.result, null, 2) }}</pre>
+                        <div v-if="!tool.showResult" class="expand-hint">点击展开</div>
+                      </div>
+                    </div>
                   </div>
-                  <pre v-else class="tool-result-full">{{ JSON.stringify(tool.result, null, 2) }}</pre>
+
+                  <!-- 结果摘要 -->
+                  <div v-if="subtask.result_summary" class="subtask-result">
+                    <div class="section-header">📋 结果摘要</div>
+                    <div class="result-content">{{ subtask.result_summary }}</div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- 状态更新显示（不包括 thought，thought 在上方单独显示） -->
-            <div v-if="msg.status && msg.status.length > 0" class="status-updates">
-              <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-item">
-                <div v-if="status.type === 'agent_start'" class="status-agent-start">
-                  <span class="status-icon">🤖</span>
-                  <span class="status-text">{{ status.content }}</span>
-                </div>
-                <div v-else-if="status.type === 'error'" class="status-error">
-                  <span class="status-icon">❌</span>
-                  <span class="status-text">{{ status.content }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 最终答案（放在最下面，仅对助手消息显示） -->
+            <!-- 最终答案（仅助手消息） -->
             <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
               <div class="answer-header">💡 最终答案</div>
               <div class="message-text" v-html="renderMarkdown(msg.content)"></div>
             </div>
 
-            <!-- 用户消息内容（简单显示） -->
+            <!-- 用户消息 -->
             <div v-if="msg.role === 'user' && msg.content && msg.content.trim()" class="user-message-text">
               {{ msg.content }}
             </div>
-          </div>
-        </div>
 
-        <div v-if="isLoading" class="message assistant">
-          <div class="message-avatar">AI</div>
-          <div class="message-content">
-            <div class="loading-dots">
-              <span>.</span><span>.</span><span>.</span>
+            <!-- 状态更新显示 -->
+            <div v-if="msg.status && msg.status.length > 0" class="status-updates">
+              <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-item">
+                <div v-if="status.type === 'error'" class="status-error">
+                  <span class="status-icon">❌</span>
+                  <span class="status-text">{{ status.content }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -371,6 +377,17 @@ const getSuccessToolCount = (msg) => {
   return msg.tool_calls.filter(tool => tool.status === 'success').length;
 };
 
+// 针对子任务的工具统计函数
+const getTotalToolTimeForSubtask = (subtask) => {
+  if (!subtask.tool_calls) return 0;
+  return subtask.tool_calls.reduce((sum, tool) => sum + (tool.elapsed_time || 0), 0).toFixed(2);
+};
+
+const getSuccessToolCountForSubtask = (subtask) => {
+  if (!subtask.tool_calls) return 0;
+  return subtask.tool_calls.filter(tool => tool.status === 'success').length;
+};
+
 const copyToClipboard = async (text) => {
   try {
     const textToCopy = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
@@ -402,15 +419,12 @@ const handleSend = async () => {
   const assistantMsgIndex = messages.value.push({
     role: 'assistant',
     content: '',
-    thinking: '',
-    thinking_steps: [],  // 新增：结构化思考步骤
-    tool_calls: [],      // 新增：工具调用记录
-    status: [],
-    showMasterThinking: true,  // MasterAgent 任务分析默认展开
-    showAgentThinking: true    // ReActAgent 推理步骤默认展开
+    taskAnalysis: null,  // 任务分析数据
+    subtasks: [],        // 子任务列表（统一格式）
+    status: []
   }) - 1;
 
-  isLoading.value = true; // 保持 loading 状态直到完成，但因为有了空消息，实际上不会显示 loading dots
+  isLoading.value = true; // 标记加载中，用于禁用发送按钮
 
   try {
     const response = await fetch('/api/agent/stream', {
@@ -458,47 +472,74 @@ const handleSend = async () => {
                 // 完整答案：使用打字机效果
                 typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
               }
-            } else if (data.type === 'thought') {
-              // MasterAgent 的任务分析 - 直接追加（避免打字机冲突）
-              currentMsg.thinking += data.content + '\n';
+            } else if (data.type === 'task_analysis') {
+              // 任务分析事件
+              currentMsg.taskAnalysis = {
+                complexity: data.complexity,
+                subtask_count: data.subtask_count,
+                reasoning: data.reasoning,
+                expanded: true  // 默认展开
+              };
+            } else if (data.type === 'subtask_start') {
+              // 子任务开始事件
+              currentMsg.subtasks.push({
+                order: data.order,
+                agent_name: data.agent_name,
+                agent_display_name: data.agent_display_name,
+                description: data.description,
+                thinking_steps: [],   // 推理步骤
+                tool_calls: [],       // 工具调用
+                result_summary: '',   // 结果摘要
+                status: 'running',    // running | success | error
+                expanded: false       // 默认折叠
+              });
             } else if (data.type === 'thought_structured') {
-              // ReActAgent 的结构化思考 - 使用打字机效果添加到数组
-              const timerId = `msg-${assistantMsgIndex}-step-${currentMsg.thinking_steps.length}`;
-              typewriterPush(
-                currentMsg.thinking_steps,
-                {
+              // ReActAgent 的结构化思考
+              const subtaskOrder = data.subtask_order;
+              const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
+              if (subtask) {
+                subtask.thinking_steps.push({
                   thought: data.thought,
                   round: data.round,
                   has_actions: data.has_actions,
                   has_answer: data.has_answer
-                },
-                'thought',
-                15,
-                timerId
-              );
-            } else if (data.type === 'tool_start') {
-              // 工具开始执行 - 立即显示（不需要打字机效果）
-              currentMsg.tool_calls.push({
-                tool_name: data.tool_name,
-                arguments: data.arguments,
-                status: 'running',
-                index: data.index,
-                total: data.total
-              });
-            } else if (data.type === 'tool_end') {
-              // 工具执行完成 - 立即更新（不需要打字机效果）
-              const toolIndex = currentMsg.tool_calls.findIndex(
-                t => t.tool_name === data.tool_name && t.status === 'running'
-              );
-              if (toolIndex >= 0) {
-                currentMsg.tool_calls[toolIndex].status = 'success';
-                currentMsg.tool_calls[toolIndex].result = data.result;
-                currentMsg.tool_calls[toolIndex].elapsed_time = data.elapsed_time;
+                });
               }
-            } else if (data.type === 'agent_start') {
-              currentMsg.status.push({ type: 'agent_start', content: data.content });
-            } else if (data.type === 'agent_end') {
-              // 可选：添加结束状态
+            } else if (data.type === 'tool_start') {
+              // 工具开始执行
+              const subtaskOrder = data.subtask_order;
+              const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
+              if (subtask) {
+                subtask.tool_calls.push({
+                  tool_name: data.tool_name,
+                  arguments: data.arguments,
+                  status: 'running',
+                  index: data.index,
+                  total: data.total,
+                  showResult: false  // 默认折叠结果
+                });
+              }
+            } else if (data.type === 'tool_end') {
+              // 工具执行完成
+              const subtaskOrder = data.subtask_order;
+              const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
+              if (subtask) {
+                const toolIndex = subtask.tool_calls.findIndex(
+                  t => t.tool_name === data.tool_name && t.status === 'running'
+                );
+                if (toolIndex >= 0) {
+                  subtask.tool_calls[toolIndex].status = 'success';
+                  subtask.tool_calls[toolIndex].result = data.result;
+                  subtask.tool_calls[toolIndex].elapsed_time = data.elapsed_time;
+                }
+              }
+            } else if (data.type === 'subtask_end') {
+              // 子任务结束事件
+              const subtask = currentMsg.subtasks.find(s => s.order === data.order);
+              if (subtask) {
+                subtask.result_summary = data.result_summary;
+                subtask.status = data.success === false ? 'error' : 'success';
+              }
             } else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });
             }
@@ -719,10 +760,21 @@ onMounted(() => {
   line-height: 1.7;
   font-size: 15px;
   color: #2c3e50;
+  /* 防止长文本撑开容器 */
+  min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .message-text {
   margin-bottom: 12px;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 /* 状态更新 - 极简标签 */
@@ -757,113 +809,227 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* 思考过程 - 扁平折叠 */
-.thinking-process {
+/* 任务分析卡片 */
+.task-analysis-card {
   margin-top: 16px;
-  border: 1px solid #e8e8e8;
+  border: 1px solid #dbeafe;
   border-radius: 8px;
   overflow: hidden;
-  background-color: #fafafa;
-}
-
-/* MasterAgent 任务分析 - 浅蓝色主题 */
-.master-thinking {
-  border-color: #dbeafe;
   background-color: #eff6ff;
 }
 
-.master-thinking .thinking-header {
+.card-header {
   background-color: #dbeafe;
-  border-bottom: 1px solid #bfdbfe;
-}
-
-.master-thinking .thinking-title {
-  color: #1e40af;
-}
-
-.master-analysis {
-  background-color: #eff6ff;
-  border-top: 1px solid #bfdbfe;
-}
-
-.analysis-text {
-  margin: 0;
-  padding: 0;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  font-size: 13px;
-  color: #1e40af;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  background-color: transparent;
-}
-
-/* ReActAgent 推理步骤 - 浅紫色主题 */
-.agent-thinking {
-  border-color: #e9d5ff;
-  background-color: #faf5ff;
-}
-
-.agent-thinking .thinking-header {
-  background-color: #e9d5ff;
-  border-bottom: 1px solid #d8b4fe;
-}
-
-.agent-thinking .thinking-title {
-  color: #6b21a8;
-}
-
-.thinking-header {
-  background-color: transparent;
   padding: 12px 16px;
   font-size: 13px;
-  color: #718096;
   cursor: pointer;
   user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: 500;
-  transition: color 0.2s ease;
+  transition: background-color 0.2s ease;
 }
 
-.thinking-header:hover {
-  color: #4a5568;
+.card-header:hover {
+  background-color: #bfdbfe;
 }
 
-.thinking-title {
+.card-title {
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.task-badge {
+  padding: 2px 8px;
+  background-color: #3b82f6;
+  color: white;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.subtask-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #1e40af;
   font-weight: 600;
 }
 
-.thinking-header .icon {
-  font-size: 10px;
-  transition: transform 0.2s ease;
-}
-
-.thinking-content {
+.card-content {
   padding: 16px;
   background-color: #ffffff;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  font-size: 13px;
-  color: #4a5568;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  border-top: 1px solid #e8e8e8;
+  border-top: 1px solid #bfdbfe;
 }
 
-/* 结构化思考步骤 */
-.thinking-step {
+.analysis-reasoning {
+  font-size: 13px;
+  color: #4a5568;
+  line-height: 1.6;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* 子任务卡片容器 */
+.subtasks-container {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 子任务卡片 */
+.subtask-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #ffffff;
+  transition: box-shadow 0.2s ease;
+}
+
+.subtask-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.subtask-header {
+  background-color: #f8f9fa;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #e8e8e8;
+  transition: background-color 0.2s ease;
+}
+
+.subtask-header:hover {
+  background-color: #f0f0f0;
+}
+
+.subtask-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtask-number {
+  font-weight: 700;
+  color: #4a5568;
+  font-size: 13px;
+}
+
+.subtask-agent {
+  padding: 2px 8px;
+  background-color: #e9d5ff;
+  color: #6b21a8;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.subtask-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.subtask-status.running {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.subtask-status.success {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.subtask-status.error {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+/* 子任务预览（折叠状态） */
+.subtask-preview {
+  padding: 12px 16px;
+  background-color: #fafafa;
+}
+
+.subtask-description {
+  font-size: 13px;
+  color: #4a5568;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.subtask-summary {
+  font-size: 12px;
+  color: #718096;
+  font-style: italic;
+  padding-left: 16px;
+  border-left: 2px solid #cbd5e0;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* 子任务详情（展开状态） */
+.subtask-details {
+  padding: 16px;
+  background-color: #ffffff;
+}
+
+.subtask-description-full {
+  font-size: 13px;
+  color: #4a5568;
+  line-height: 1.6;
   margin-bottom: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid #f0f0f0;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.section-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a5568;
+  margin: 16px 0 12px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 推理步骤 */
+.thinking-steps {
+  margin-bottom: 16px;
+}
+
+.thinking-step {
+  margin-bottom: 12px;
+  padding: 12px;
+  background-color: #faf5ff;
+  border-left: 3px solid #a855f7;
+  border-radius: 4px;
 }
 
 .thinking-step:last-child {
   margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
 }
 
-.thinking-step-header {
+.step-meta {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -883,75 +1049,52 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.step-actions {
+.step-type {
   font-size: 12px;
   color: #718096;
   font-weight: 500;
 }
 
-.thinking-step-content {
-  margin-left: 36px;
-  line-height: 1.6;
-  color: #4a5568;
-}
-
-/* 工具调用可视化 */
-.tool-calls {
-  margin: 16px 0;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  overflow: hidden;
-  background-color: #fafafa;
-}
-
-.tool-calls-header {
-  background-color: #f5f5f5;
-  padding: 10px 16px;
+.step-content {
   font-size: 13px;
-  font-weight: 600;
   color: #4a5568;
-  border-bottom: 1px solid #e8e8e8;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  line-height: 1.6;
+  margin-left: 36px;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
-.tools-stats {
-  display: flex;
-  gap: 16px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.stat-item {
-  color: #718096;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* 工具调用（在子任务内） */
+.tool-calls {
+  margin-bottom: 16px;
 }
 
 .tool-call-item {
-  padding: 16px;
-  background-color: #ffffff;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 12px;
+  background-color: #f8f9fa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  margin-bottom: 8px;
 }
 
 .tool-call-item:last-child {
-  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .tool-call-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid #e8e8e8;
 }
 
 .tool-name {
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #5a67d8;
   flex: 1;
@@ -964,7 +1107,7 @@ onMounted(() => {
 }
 
 .tool-status {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .tool-status.running {
@@ -977,19 +1120,110 @@ onMounted(() => {
   50% { opacity: 1; }
 }
 
+.tool-arguments,
+.tool-result {
+  margin-top: 8px;
+}
+
 .tool-section-title {
   font-size: 11px;
   text-transform: uppercase;
   color: #718096;
   font-weight: 600;
   letter-spacing: 0.5px;
+  margin-bottom: 6px;
 }
 
-.tool-section-header {
+.tool-arguments .tool-json {
+  cursor: default;
+}
+
+.tool-arguments .tool-json:hover {
+  background-color: #f8f9fa;
+}
+
+.tool-result .tool-json {
+  cursor: pointer;
+}
+
+.tool-json {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #4a5568;
+  background-color: #f8f9fa;
+  padding: 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-width: 100%;
+  transition: background-color 0.2s ease;
+}
+
+.tool-result .tool-json:hover {
+  background-color: #e8eaed;
+}
+
+.tool-json.collapsed {
+  max-height: 100px;
+  overflow: hidden;
+  position: relative;
+}
+
+.tool-json.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, #f8f9fa);
+}
+
+.expand-hint {
+  font-size: 11px;
+  color: #718096;
+  text-align: center;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.tools-stats {
   display: flex;
-  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.stat-item {
+  color: #718096;
+  display: flex;
   align-items: center;
-  margin-bottom: 6px;
+  gap: 4px;
+}
+
+/* 子任务结果 */
+.subtask-result {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.result-content {
+  font-size: 13px;
+  color: #4a5568;
+  line-height: 1.6;
+  padding: 12px;
+  background-color: #f0fdf4;
+  border-left: 3px solid #22c55e;
+  border-radius: 4px;
+  /* 防止长文本撑开容器 */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .copy-btn {

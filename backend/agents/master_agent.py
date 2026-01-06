@@ -171,6 +171,37 @@ class MasterAgent(BaseAgent):
         """
         return True  # 处理所有任务
 
+    def _get_agent_display_name(self, agent_name: str) -> str:
+        """
+        获取智能体的友好显示名称
+
+        优先从智能体的配置中获取 display_name，如果没有则使用默认映射
+
+        Args:
+            agent_name: 智能体技术名称（如 'react_agent'）
+
+        Returns:
+            str: 友好显示名称（如 'ReAct智能体'）
+        """
+        # 尝试从 orchestrator 获取智能体实例
+        agent = self.orchestrator.agents.get(agent_name)
+
+        # 如果智能体存在且有配置，从配置中获取 display_name
+        if agent and hasattr(agent, 'agent_config') and agent.agent_config:
+            display_name = agent.agent_config.display_name
+            if display_name:
+                return display_name
+
+        # 降级：使用默认映射
+        agent_display_names = {
+            'react_agent': 'ReAct智能体',
+            'qa_agent': '问答智能体',
+            'search_agent': '搜索智能体',
+            'master_agent': 'MasterAgent',
+            'workflow_agent': '工作流智能体'
+        }
+        return agent_display_names.get(agent_name, agent_name)
+
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """
         执行任务
@@ -220,19 +251,14 @@ class MasterAgent(BaseAgent):
 
         Yields:
             {
-                "type": "thought" | "agent_start" | "agent_end" | "chunk" | "done" | "error",
-                "content": "..."
+                "type": "task_analysis" | "subtask_start" | "subtask_end" | "thought_structured" | "tool_start" | "tool_end" | "chunk" | "error",
+                "content": "..." | other fields
             }
         """
         start_time = time.time()
 
         try:
             # 1. 分析任务
-            yield {
-                "type": "thought",
-                "content": "正在分析任务需求..."
-            }
-
             self.logger.info(f"[MasterAgent] 开始分析任务: {task}")
             analysis = self._analyze_task(task, context)
 
@@ -243,15 +269,19 @@ class MasterAgent(BaseAgent):
                 }
                 return
 
-            # Yield 分析结果
-            yield {
-                "type": "thought",
-                "content": f"任务分析完成。\n- 复杂度: {analysis.get('complexity')}\n- 思考: {analysis.get('reasoning')}"
-            }
-
             # 2. 根据复杂度决定执行方式
             complexity = analysis.get('complexity', 'simple')
             needs_multiple = analysis.get('needs_multiple_agents', False)
+            subtasks = analysis.get('subtasks', [])
+            subtask_count = len(subtasks) if needs_multiple else 1
+
+            # Yield 任务分析结果（新格式）
+            yield {
+                "type": "task_analysis",
+                "complexity": complexity,
+                "subtask_count": subtask_count,
+                "reasoning": analysis.get('reasoning', '')  # 不限制长度
+            }
 
             # 如果是简单任务，委托给单个智能体
             if complexity == 'simple' or not needs_multiple:
@@ -274,29 +304,44 @@ class MasterAgent(BaseAgent):
         context: AgentContext,
         analysis: Dict[str, Any]
     ) -> Generator[Dict[str, Any], None, None]:
-        """流式委托给单个智能体"""
+        """流式委托给单个智能体（统一使用子任务事件）"""
         subtasks = analysis.get('subtasks', [])
         preferred_agent = subtasks[0].get('agent') if subtasks else None
 
         # 🚨 防止死循环：如果推荐的智能体是 master_agent 或为空，说明是通用对话
         if not preferred_agent or preferred_agent == 'master_agent':
             self.logger.info("[MasterAgent] 无需特定智能体，由 MasterAgent 直接处理通用对话")
+            # 通用对话也作为一个子任务
             yield {
-                "type": "thought",
-                "content": "这是一个通用对话任务，我将直接回答。"
+                "type": "subtask_start",
+                "order": 1,
+                "agent_name": "master_agent",
+                "agent_display_name": "MasterAgent",
+                "description": task
             }
             yield from self._stream_general_chat(task, context)
+            yield {
+                "type": "subtask_end",
+                "order": 1,
+                "result_summary": ""  # 通用对话没有摘要
+            }
             return
 
-        # 执行任务
+        # 发送子任务开始事件
+        agent_display_name = self._get_agent_display_name(preferred_agent)
         yield {
-            "type": "agent_start",
-            "agent": preferred_agent,
-            "content": f"正在调用 {preferred_agent} 处理任务..."
+            "type": "subtask_start",
+            "order": 1,
+            "agent_name": preferred_agent,
+            "agent_display_name": agent_display_name,
+            "description": subtasks[0].get('description', task) if subtasks else task
         }
 
         # 获取 Agent 实例
         agent = self.orchestrator.agents.get(preferred_agent)
+
+        # 用于收集最终答案
+        final_content = ""
 
         # 检查 Agent 是否支持流式执行
         if agent and hasattr(agent, 'execute_stream'):
@@ -305,13 +350,17 @@ class MasterAgent(BaseAgent):
 
             for event in agent.execute_stream(task, context):
                 if event['type'] == 'final_answer':
-                    # 将 final_answer 转换为 chunk（一次性返回完整答案，前端打字机效果）
+                    # 捕获最终答案
+                    final_content = event['content']
+                    # 将 final_answer 转换为 chunk
                     yield {
                         "type": "chunk",
                         "content": event['content']
                     }
                 else:
-                    # 直接转发其他事件
+                    # 转发其他事件，添加 subtask_order
+                    if event['type'] in ['thought_structured', 'tool_start', 'tool_end']:
+                        event['subtask_order'] = 1
                     yield event
         else:
             # 降级到非流式执行（使用旧的回调机制）
@@ -326,7 +375,8 @@ class MasterAgent(BaseAgent):
                         "tool_name": data['tool_name'],
                         "arguments": data['arguments'],
                         "index": data['index'],
-                        "total": data['total']
+                        "total": data['total'],
+                        "subtask_order": 1  # 添加子任务标识
                     })
                 elif event_type == 'tool_end':
                     event_queue.append({
@@ -335,7 +385,8 @@ class MasterAgent(BaseAgent):
                         "result": data['result'],
                         "elapsed_time": data['elapsed_time'],
                         "index": data['index'],
-                        "total": data['total']
+                        "total": data['total'],
+                        "subtask_order": 1  # 添加子任务标识
                     })
                 elif event_type == 'thought_structured':
                     event_queue.append({
@@ -343,7 +394,8 @@ class MasterAgent(BaseAgent):
                         "thought": data['thought'],
                         "round": data['round'],
                         "has_actions": data['has_actions'],
-                        "has_answer": data['has_answer']
+                        "has_answer": data['has_answer'],
+                        "subtask_order": 1  # 添加子任务标识
                     })
 
             if agent and hasattr(agent, 'event_callback'):
@@ -368,6 +420,7 @@ class MasterAgent(BaseAgent):
                 )
 
             if response.success:
+                final_content = response.content
                 yield {
                     "type": "chunk",
                     "content": response.content
@@ -377,6 +430,15 @@ class MasterAgent(BaseAgent):
                     "type": "error",
                     "content": response.error or "执行失败"
                 }
+                return
+
+        # 发送子任务结束事件
+        result_summary = final_content[:200] + "..." if len(final_content) > 200 else final_content
+        yield {
+            "type": "subtask_end",
+            "order": 1,
+            "result_summary": result_summary
+        }
 
         yield {
             "type": "agent_end",
@@ -425,13 +487,8 @@ class MasterAgent(BaseAgent):
         context: AgentContext,
         analysis: Dict[str, Any]
     ) -> Generator[Dict[str, Any], None, None]:
-        """流式协调多个智能体"""
+        """流式协调多个智能体（使用统一子任务事件）"""
         subtasks = analysis.get('subtasks', [])
-
-        yield {
-            "type": "thought",
-            "content": f"任务已分解为 {len(subtasks)} 个子任务，开始依次执行..."
-        }
 
         results = []
         subtask_responses = {}
@@ -440,11 +497,16 @@ class MasterAgent(BaseAgent):
             subtask_desc = subtask.get('description', '')
             agent_name = subtask.get('agent', '')
             depends_on = subtask.get('depends_on', [])
+            subtask_order = subtask.get('order')
 
+            # 发送子任务开始事件
+            agent_display_name = self._get_agent_display_name(agent_name)
             yield {
-                "type": "agent_start",
-                "agent": agent_name,
-                "content": f"正在执行步骤 {subtask.get('order')}: {subtask_desc}"
+                "type": "subtask_start",
+                "order": subtask_order,
+                "agent_name": agent_name,
+                "agent_display_name": agent_display_name,
+                "description": subtask_desc
             }
 
             # 检查依赖
@@ -464,15 +526,19 @@ class MasterAgent(BaseAgent):
                 if agent and hasattr(agent, 'execute_stream'):
                     self.logger.info(f"[MasterAgent] 使用流式执行子任务: {agent_name}")
 
-                    # 实时转发事件
+                    # 实时转发事件，添加 subtask_order
                     final_content = ""
                     for event in agent.execute_stream(subtask_desc, context):
                         if event['type'] == 'final_answer':
                             # 捕获最终答案
                             final_content = event['content']
                             # 不 yield，等待构建 response 后再处理
+                        elif event['type'] in ['thought_structured', 'tool_start', 'tool_end']:
+                            # 转发其他事件，添加 subtask_order
+                            event['subtask_order'] = subtask_order
+                            yield event
                         else:
-                            # 实时转发事件
+                            # 其他事件直接转发
                             yield event
 
                     # 构建响应对象（模拟非流式返回）
@@ -496,7 +562,8 @@ class MasterAgent(BaseAgent):
                                 "tool_name": data['tool_name'],
                                 "arguments": data['arguments'],
                                 "index": data['index'],
-                                "total": data['total']
+                                "total": data['total'],
+                                "subtask_order": subtask_order  # 添加 subtask_order
                             })
                         elif event_type == 'tool_end':
                             event_queue.append({
@@ -505,7 +572,8 @@ class MasterAgent(BaseAgent):
                                 "result": data['result'],
                                 "elapsed_time": data['elapsed_time'],
                                 "index": data['index'],
-                                "total": data['total']
+                                "total": data['total'],
+                                "subtask_order": subtask_order  # 添加 subtask_order
                             })
                         elif event_type == 'thought_structured':
                             event_queue.append({
@@ -513,7 +581,8 @@ class MasterAgent(BaseAgent):
                                 "thought": data['thought'],
                                 "round": data['round'],
                                 "has_actions": data['has_actions'],
-                                "has_answer": data['has_answer']
+                                "has_answer": data['has_answer'],
+                                "subtask_order": subtask_order  # 添加 subtask_order
                             })
 
                     if agent and hasattr(agent, 'event_callback'):
@@ -550,10 +619,12 @@ class MasterAgent(BaseAgent):
                 results.append(subtask_responses[subtask.get('order')])
                 context.store_result(f'subtask_{subtask.get("order")}', response.data)
 
-                # Yield 中间结果摘要
+                # 发送子任务结束事件
+                result_summary = response.content[:200] + "..." if len(response.content) > 200 else response.content
                 yield {
-                    "type": "thought",
-                    "content": f"步骤 {subtask.get('order')} 完成。结果摘要: {response.content[:100]}..."
+                    "type": "subtask_end",
+                    "order": subtask_order,
+                    "result_summary": result_summary
                 }
 
             except Exception as e:
@@ -564,15 +635,13 @@ class MasterAgent(BaseAgent):
                     'success': False,
                     'error': str(e)
                 })
+                # 发送子任务失败事件
                 yield {
-                    "type": "error",
-                    "content": f"步骤 {subtask.get('order')} 失败: {str(e)}"
+                    "type": "subtask_end",
+                    "order": subtask_order,
+                    "result_summary": f"执行失败: {str(e)}",
+                    "success": False
                 }
-
-            yield {
-                "type": "agent_end",
-                "agent": agent_name
-            }
 
         # 整合结果（使用流式）
         yield {
