@@ -2,8 +2,8 @@ embedding:
   local:
     cache_dir: null
     device: cpu
-    model_name: paraphrase-multilingual-MiniLM-L12-v2
-  mode: remote
+    model_name: BAAI/bge-large-zh-v1.5
+  mode: local
   remote:
     api_endpoint: https://api-inference.modelscope.cn/v1
     api_key: ms-94340098-d1cf-4237-ba1f-fa8333b6e97f
@@ -21,7 +21,7 @@ llm:
   provider: test2
   retry_attempts: 3
   temperature: 0.7
-  timeout: 30
+  timeout: 100
 neo4j:
   password: admin123456
   uri: bolt://localhost:7687

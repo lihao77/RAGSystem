@@ -8,10 +8,12 @@ from flask import jsonify
 from db import get_session
 from routes.graphrag import (
     get_graph_schema,
-    generate_cypher_with_llm,
     execute_cypher,
-    generate_answer_with_llm,
     convert_neo4j_types
+)
+from services.cypher_generator import (
+    get_cypher_generator,
+    generate_answer_from_query_results  # 使用新的答案生成函数
 )
 
 logger = logging.getLogger(__name__)
@@ -237,22 +239,23 @@ def query_knowledge_graph_with_nl(question, history=None):
         
         # 2. 生成Cypher查询
         logger.info(f'生成Cypher查询: {question}')
-        cypher = generate_cypher_with_llm(question, graph_schema, history)
+        generator = get_cypher_generator()
+        cypher = generator.generate(question, graph_schema, history)
         if not cypher:
             return {
                 "success": False,
                 "error": "生成查询语句失败"
             }
-        
+
         logger.info(f'生成的Cypher: {cypher}')
-        
+
         # 3. 执行查询（带自动重试机制）
         max_retries = 2
         retry_count = 0
         query_records = []
         graph_data = {}
         last_error = None
-        
+
         while retry_count <= max_retries:
             try:
                 logger.info(f'执行Cypher查询 (尝试 {retry_count + 1}/{max_retries + 1})...')
@@ -260,16 +263,16 @@ def query_knowledge_graph_with_nl(question, history=None):
                 query_records = query_result.get('records', [])
                 graph_data = query_result.get('graph', {})
                 logger.info(f'查询结果数量: {len(query_records)}')
-                
+
                 # 如果查到结果，直接返回
                 if len(query_records) > 0:
                     break
-                    
+
                 # 如果没查到结果，尝试生成更宽泛的查询
                 if retry_count < max_retries:
                     logger.warning(f'查询返回0条结果，尝试生成更宽泛的查询...')
-                    broader_question = f"{question}（提示：上次查询返回0条结果，请生成更宽泛的查询，去掉State类型前缀限制，使用CONTAINS代替STARTS WITH，扩大时间范围）"
-                    cypher = generate_cypher_with_llm(broader_question, graph_schema, history)
+                    retry_hint = "上次查询返回0条结果，请生成更宽泛的查询，去掉State类型前缀限制，使用CONTAINS代替STARTS WITH，扩大时间范围"
+                    cypher = generator.generate(question, graph_schema, history, retry_hint=retry_hint)
                     if not cypher:
                         break
                     logger.info(f'重试Cypher: {cypher}')
@@ -281,12 +284,12 @@ def query_knowledge_graph_with_nl(question, history=None):
             except Exception as e:
                 last_error = str(e)
                 logger.error(f'执行查询失败: {e}')
-                
+
                 # 如果是语法错误，尝试让LLM修正
                 if retry_count < max_retries and ('Syntax' in str(e) or 'syntax' in str(e)):
                     logger.warning(f'Cypher语法错误，尝试重新生成...')
-                    error_hint = f"{question}（提示：上次查询语法错误：{str(e)}，请修正Cypher语句）"
-                    cypher = generate_cypher_with_llm(error_hint, graph_schema, history)
+                    retry_hint = f"上次查询语法错误：{str(e)}，请修正Cypher语句"
+                    cypher = generator.generate(question, graph_schema, history, retry_hint=retry_hint)
                     if not cypher:
                         break
                     logger.info(f'修正后的Cypher: {cypher}')
@@ -303,7 +306,7 @@ def query_knowledge_graph_with_nl(question, history=None):
         if len(query_records) == 0:
             answer = f"未查询到相关数据。可能原因：\n1. 该时间段或实体没有相关记录\n2. 数据可能使用了不同的命名或时间格式\n\n执行的查询：\n{cypher}"
         else:
-            answer = generate_answer_with_llm(question, query_records, cypher, history)
+            answer = generate_answer_from_query_results(question, query_records, cypher, history)
         
         return {
             "success": True,

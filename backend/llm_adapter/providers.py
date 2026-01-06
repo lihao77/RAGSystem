@@ -208,7 +208,7 @@ class DeepSeekProvider(LLMProvider):
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs
     ) -> LLMResponse:
-        """发送对话补全请求"""
+        """发送对话补全请求（带重试机制）"""
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
 
@@ -221,62 +221,104 @@ class DeepSeekProvider(LLMProvider):
         }
 
         if tools:
+            # 只有当 tools 不为空时才添加到 payload
             payload["tools"] = tools
             if tool_choice:
                 payload["tool_choice"] = tool_choice
 
         start_time = self._before_request()
         response_data = None
+        last_error = None
 
-        try:
-            response = requests.post(
-                f"{self.api_endpoint}/chat/completions",
-                headers=self.headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            response_data = response.json()
+        # 重试循环
+        for attempt in range(self.retry_attempts):
+            try:
+                logger.info(f"DeepSeek API 调用 (尝试 {attempt + 1}/{self.retry_attempts})")
 
-            self._validate_response(response_data)
+                response = requests.post(
+                    f"{self.api_endpoint}/chat/completions",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                response_data = response.json()
 
-            choice = response_data["choices"][0]
-            usage_data = response_data.get("usage", {})
+                self._validate_response(response_data)
 
-            # 只提取 LLMResponse 需要的字段，忽略其他额外字段
-            usage = {
-                "prompt_tokens": usage_data.get("prompt_tokens", 0),
-                "completion_tokens": usage_data.get("completion_tokens", 0),
-                "total_tokens": usage_data.get("total_tokens", 0)
-            }
+                choice = response_data["choices"][0]
+                usage_data = response_data.get("usage", {})
 
-            latency = self._after_request(start_time)
+                # 只提取 LLMResponse 需要的字段，忽略其他额外字段
+                usage = {
+                    "prompt_tokens": usage_data.get("prompt_tokens", 0),
+                    "completion_tokens": usage_data.get("completion_tokens", 0),
+                    "total_tokens": usage_data.get("total_tokens", 0)
+                }
 
-            cost = self.calculate_cost(
-                usage["prompt_tokens"],
-                usage["completion_tokens"],
-                model
-            )
+                latency = self._after_request(start_time)
 
-            return LLMResponse(
-                content=choice["message"].get("content"),
-                finish_reason=choice.get("finish_reason"),
-                usage=usage,
-                model=model,
-                provider=self.name,
-                cost=cost,
-                latency=latency,
-                tool_calls=choice["message"].get("tool_calls")
-            )
+                cost = self.calculate_cost(
+                    usage["prompt_tokens"],
+                    usage["completion_tokens"],
+                    model
+                )
 
-        except Exception as e:
-            logger.error(f"DeepSeek API 调用失败: {str(e)}")
-            return LLMResponse(
-                error=str(e),
-                model=model,
-                provider=self.name,
-                latency=self._after_request(start_time) if response_data else 0
-            )
+                return LLMResponse(
+                    content=choice["message"].get("content"),
+                    finish_reason=choice.get("finish_reason"),
+                    usage=usage,
+                    model=model,
+                    provider=self.name,
+                    cost=cost,
+                    latency=latency,
+                    tool_calls=choice["message"].get("tool_calls")
+                )
+
+            except requests.exceptions.Timeout as e:
+                last_error = f"请求超时 (timeout={self.timeout}s)"
+                logger.warning(f"DeepSeek API 超时 (尝试 {attempt + 1}/{self.retry_attempts}): {last_error}")
+
+                if attempt < self.retry_attempts - 1:
+                    # 不是最后一次尝试，等待后重试
+                    import time
+                    time.sleep(self.retry_delay)
+                    continue
+
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                logger.warning(f"DeepSeek API 请求失败 (尝试 {attempt + 1}/{self.retry_attempts}): {last_error}")
+
+                # 如果是 400 错误，记录详细的错误信息
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_detail = e.response.json()
+                        logger.error(f"DeepSeek API 400 错误详情: {json.dumps(error_detail, ensure_ascii=False, indent=2)}")
+                    except:
+                        logger.error(f"DeepSeek API 响应内容: {e.response.text[:500]}")
+
+                if attempt < self.retry_attempts - 1:
+                    import time
+                    time.sleep(self.retry_delay)
+                    continue
+
+            except Exception as e:
+                last_error = str(e)
+                logger.error(f"DeepSeek API 调用失败 (尝试 {attempt + 1}/{self.retry_attempts}): {last_error}")
+
+                if attempt < self.retry_attempts - 1:
+                    import time
+                    time.sleep(self.retry_delay)
+                    continue
+
+        # 所有重试都失败
+        logger.error(f"DeepSeek API 调用失败，已重试 {self.retry_attempts} 次: {last_error}")
+        return LLMResponse(
+            error=last_error,
+            model=model,
+            provider=self.name,
+            latency=self._after_request(start_time) if response_data else 0
+        )
 
     def generate_text(
         self,

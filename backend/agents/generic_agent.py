@@ -83,7 +83,7 @@ class GenericAgent(BaseAgent):
             'system_prompt',
             f"你是 {self.display_name}，{self.description}"
         )
-        self.max_rounds = self.behavior_config.get('max_rounds', 10)
+        self.max_rounds = self.behavior_config.get('max_rounds', 15)  # 增加到15轮，应对复杂查询
         self.auto_execute_tools = self.behavior_config.get('auto_execute_tools', True)
 
         # 加载工具定义
@@ -154,11 +154,28 @@ class GenericAgent(BaseAgent):
                     "content": msg['content']
                 })
 
-            # 添加当前任务
-            messages.append({
-                "role": "user",
-                "content": task
-            })
+            # 检查最后一条消息是否就是当前任务
+            # 如果历史中已经包含当前任务，就不再重复添加
+            if not history or history[-1].get('content') != task:
+                # 添加当前任务
+                messages.append({
+                    "role": "user",
+                    "content": task
+                })
+
+            # 清理消息历史，确保 user 和 assistant 消息交替
+            # 移除连续的相同角色消息（保留最后一个）
+            cleaned_messages = [messages[0]]  # 保留 system 消息
+            for msg in messages[1:]:
+                # 如果当前消息和上一条消息角色相同，跳过上一条
+                if msg['role'] == 'system':
+                    continue  # 跳过额外的 system 消息
+                if cleaned_messages[-1]['role'] == msg['role']:
+                    # 相同角色，替换而不是添加
+                    cleaned_messages[-1] = msg
+                else:
+                    cleaned_messages.append(msg)
+            messages = cleaned_messages
 
             # 获取 LLM 配置
             llm_config = self.get_llm_config()
@@ -197,8 +214,14 @@ class GenericAgent(BaseAgent):
                     # 执行工具调用
                     tool_results = []
                     for tool_call in response.tool_calls:
-                        tool_name = tool_call.get('name')
-                        tool_args = tool_call.get('arguments', {})
+                        # DeepSeek/OpenAI 格式: tool_call['function']['name']
+                        tool_name = tool_call.get('function', {}).get('name')
+                        tool_args = tool_call.get('function', {}).get('arguments', {})
+
+                        # arguments 可能是字符串，需要解析为字典
+                        if isinstance(tool_args, str):
+                            import json
+                            tool_args = json.loads(tool_args)
 
                         self.logger.info(f"执行工具: {tool_name}, 参数: {tool_args}")
 
@@ -218,18 +241,37 @@ class GenericAgent(BaseAgent):
                         })
 
                     # 将工具结果添加到消息中
-                    messages.append({
+                    assistant_msg = {
                         "role": "assistant",
-                        "content": response.content,
+                        "content": response.content or "",  # 确保 content 不为 None
                         "tool_calls": response.tool_calls
-                    })
+                    }
+                    messages.append(assistant_msg)
 
-                    for tool_result in tool_results:
-                        messages.append({
+                    # 添加工具结果消息，必须包含 tool_call_id 来匹配工具调用
+                    for i, tool_call in enumerate(response.tool_calls):
+                        tool_result = tool_results[i]
+
+                        # 确保 content 是字符串
+                        result_content = tool_result['result']
+                        if isinstance(result_content, dict):
+                            # 如果结果是字典，提取有用的信息转换为字符串
+                            if result_content.get('success'):
+                                # 成功的情况，提取 data 中的 answer
+                                result_str = result_content.get('data', {}).get('answer', str(result_content))
+                            else:
+                                # 失败的情况，提取 error 信息
+                                result_str = f"错误: {result_content.get('error', str(result_content))}"
+                        else:
+                            result_str = str(result_content)
+
+                        tool_msg = {
                             "role": "tool",
-                            "content": str(tool_result['result']),
-                            "tool_name": tool_result['tool_name']
-                        })
+                            "content": result_str,
+                            "tool_call_id": tool_call.get('id'),  # 必须字段，用于匹配工具调用
+                            "name": tool_result['tool_name']       # DeepSeek API 要求使用 'name' 而不是 'tool_name'
+                        }
+                        messages.append(tool_msg)
 
                     # 继续下一轮
                     continue
@@ -247,16 +289,39 @@ class GenericAgent(BaseAgent):
                         }
                     )
 
-            # 达到最大轮数
+            # 达到最大轮数，强制生成最终答案
+            self.logger.warning(f"已达到最大轮数 {self.max_rounds}，强制生成最终答案")
+
+            # 添加一条强制性消息，要求总结答案
+            messages.append({
+                "role": "user",
+                "content": "你已经完成了多次工具调用并收集了足够的信息。请基于以上工具调用的结果，直接回答用户最初的问题，不要再调用工具。"
+            })
+
+            # 最后一次调用LLM，不提供tools参数（强制生成文本答案）
+            final_response = self.llm_adapter.chat_completion(
+                messages=messages,
+                tools=None,  # 不提供工具，强制生成答案
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=llm_config.get('temperature', 0.3),
+                max_tokens=llm_config.get('max_tokens'),
+                timeout=llm_config.get('timeout'),
+                max_retries=llm_config.get('retry_attempts')
+            )
+
+            final_answer = final_response.content if final_response.content else "抱歉，无法生成最终答案。"
+
             return AgentResponse(
                 success=True,
-                content=f"已达到最大轮数 ({self.max_rounds})，当前答案：{response.content}",
+                content=final_answer,
                 agent_name=self.name,
                 execution_time=time.time() - start_time,
                 tool_calls=tool_calls_history,
                 metadata={
                     'rounds': rounds,
-                    'max_rounds_reached': True
+                    'max_rounds_reached': True,
+                    'forced_final_answer': True
                 }
             )
 

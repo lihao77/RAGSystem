@@ -12,7 +12,7 @@ MasterAgent - 主协调智能体
 import logging
 import json
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Generator
 from .base import BaseAgent, AgentContext, AgentResponse
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class MasterAgent(BaseAgent):
 你需要判断：
 1. 任务复杂度（simple/medium/complex）
 2. 是否需要多个智能体（true/false）
-3. 如果需要多个智能体，请给出任务分解方案
+3. **必须在 subtasks 中明确指定要使用的智能体**（即使只有一个）
 
 请以 JSON 格式返回：
 {{
@@ -64,15 +64,49 @@ class MasterAgent(BaseAgent):
   ]
 }}
 
+**重要：subtasks 数组不能为空！**
+- 如果是 simple 任务，subtasks 中应该有 **1个** 元素，指定使用哪个智能体
+- 如果是 complex 任务，subtasks 中应该有 **多个** 元素，按执行顺序排列
+- 如果任务是闲聊或不需要特定智能体的通用对话，agent 设为 "master_agent"
+
 **判断标准：**
 - simple: 单一查询、单一操作，一个智能体即可完成
 - medium: 需要多步骤，但可以由一个智能体通过工具调用完成
 - complex: 需要不同类型的操作（查询+分析+可视化+报告），必须多个智能体协作
 
-**示例：**
-- "查询2023年数据" → simple，qa_agent
-- "分析数据并找出趋势" → medium，qa_agent（可以用工具）
-- "生成完整报告，包含数据、图表和分析" → complex，需要 qa_agent + chart_agent + analysis_agent
+**示例1：**
+输入: "查询南宁2023年洪涝灾害数据"
+输出:
+{{
+  "complexity": "simple",
+  "needs_multiple_agents": false,
+  "reasoning": "这是一个明确的知识图谱查询任务，qa_agent 可以独立完成",
+  "subtasks": [
+    {{
+      "description": "查询南宁2023年洪涝灾害数据",
+      "agent": "qa_agent",
+      "order": 1,
+      "depends_on": []
+    }}
+  ]
+}}
+
+**示例2：**
+输入: "你好"
+输出:
+{{
+  "complexity": "simple",
+  "needs_multiple_agents": false,
+  "reasoning": "这是通用闲聊，不需要特定智能体",
+  "subtasks": [
+    {{
+      "description": "回复用户问候",
+      "agent": "master_agent",
+      "order": 1,
+      "depends_on": []
+    }}
+  ]
+}}
 
 只返回 JSON，不要有其他内容。
 """
@@ -140,20 +174,6 @@ class MasterAgent(BaseAgent):
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """
         执行任务
-
-        流程：
-        1. 分析任务复杂度
-        2. 判断是否需要分解
-        3. 如果需要，分解并协调执行
-        4. 整合结果
-        5. 返回统一答案
-
-        Args:
-            task: 用户任务
-            context: 上下文
-
-        Returns:
-            AgentResponse
         """
         start_time = time.time()
 
@@ -193,6 +213,232 @@ class MasterAgent(BaseAgent):
                 agent_name=self.name,
                 execution_time=time.time() - start_time
             )
+
+    def stream_execute(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
+        """
+        流式执行任务（支持 Server-Sent Events）
+
+        Yields:
+            {
+                "type": "thought" | "agent_start" | "agent_end" | "chunk" | "done" | "error",
+                "content": "..."
+            }
+        """
+        start_time = time.time()
+
+        try:
+            # 1. 分析任务
+            yield {
+                "type": "thought",
+                "content": "正在分析任务需求..."
+            }
+
+            self.logger.info(f"[MasterAgent] 开始分析任务: {task}")
+            analysis = self._analyze_task(task, context)
+
+            if not analysis:
+                yield {
+                    "type": "error",
+                    "content": "任务分析失败"
+                }
+                return
+
+            # Yield 分析结果
+            yield {
+                "type": "thought",
+                "content": f"任务分析完成。\n- 复杂度: {analysis.get('complexity')}\n- 思考: {analysis.get('reasoning')}"
+            }
+
+            # 2. 根据复杂度决定执行方式
+            complexity = analysis.get('complexity', 'simple')
+            needs_multiple = analysis.get('needs_multiple_agents', False)
+
+            # 如果是简单任务，委托给单个智能体
+            if complexity == 'simple' or not needs_multiple:
+                yield from self._stream_delegate_to_single_agent(task, context, analysis)
+                return
+
+            # 复杂任务，分解并协调执行
+            yield from self._stream_coordinate_multiple_agents(task, context, analysis)
+
+        except Exception as e:
+            self.logger.error(f"[MasterAgent] 执行失败: {e}", exc_info=True)
+            yield {
+                "type": "error",
+                "content": str(e)
+            }
+
+    def _stream_delegate_to_single_agent(
+        self,
+        task: str,
+        context: AgentContext,
+        analysis: Dict[str, Any]
+    ) -> Generator[Dict[str, Any], None, None]:
+        """流式委托给单个智能体"""
+        subtasks = analysis.get('subtasks', [])
+        preferred_agent = subtasks[0].get('agent') if subtasks else None
+
+        # 🚨 防止死循环：如果推荐的智能体是 master_agent 或为空，说明是通用对话
+        if not preferred_agent or preferred_agent == 'master_agent':
+            self.logger.info("[MasterAgent] 无需特定智能体，由 MasterAgent 直接处理通用对话")
+            yield {
+                "type": "thought",
+                "content": "这是一个通用对话任务，我将直接回答。"
+            }
+            yield from self._stream_general_chat(task, context)
+            return
+
+        # 执行任务
+        yield {
+            "type": "agent_start",
+            "agent": preferred_agent,
+            "content": f"正在调用 {preferred_agent} 处理任务..."
+        }
+
+        # 调用 Orchestrator 执行 (非流式)
+        # TODO: 未来可以让 Orchestrator 和所有 Agent 都支持流式
+        response = self.orchestrator.execute(
+            task=task,
+            context=context,
+            preferred_agent=preferred_agent
+        )
+
+        if response.success:
+            yield {
+                "type": "chunk",
+                "content": response.content
+            }
+        else:
+            yield {
+                "type": "error",
+                "content": response.error or "执行失败"
+            }
+
+        yield {
+            "type": "agent_end",
+            "agent": preferred_agent
+        }
+
+    def _stream_general_chat(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
+        """流式通用对话"""
+        try:
+            messages = [
+                {"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"},
+                {"role": "user", "content": task}
+            ]
+
+            llm_config = self.get_llm_config()
+
+            # 使用 chat_completion (这里暂时还是非流式，直到 LLMAdapter 支持流式)
+            # 理想情况下 adapter.chat_completion 应该支持 stream=True
+            response = self.llm_adapter.chat_completion(
+                messages=messages,
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=0.7,
+                max_tokens=llm_config.get('max_tokens', 1000)
+            )
+
+            if response.error:
+                yield {"type": "error", "content": response.error}
+            else:
+                yield {"type": "chunk", "content": response.content}
+
+        except Exception as e:
+            yield {"type": "error", "content": str(e)}
+
+    def _stream_coordinate_multiple_agents(
+        self,
+        task: str,
+        context: AgentContext,
+        analysis: Dict[str, Any]
+    ) -> Generator[Dict[str, Any], None, None]:
+        """流式协调多个智能体"""
+        subtasks = analysis.get('subtasks', [])
+
+        yield {
+            "type": "thought",
+            "content": f"任务已分解为 {len(subtasks)} 个子任务，开始依次执行..."
+        }
+
+        results = []
+        subtask_responses = {}
+
+        for subtask in sorted(subtasks, key=lambda x: x.get('order', 0)):
+            subtask_desc = subtask.get('description', '')
+            agent_name = subtask.get('agent', '')
+            depends_on = subtask.get('depends_on', [])
+
+            yield {
+                "type": "agent_start",
+                "agent": agent_name,
+                "content": f"正在执行步骤 {subtask.get('order')}: {subtask_desc}"
+            }
+
+            # 检查依赖
+            if depends_on:
+                dep_results = [
+                    subtask_responses.get(dep_order)
+                    for dep_order in depends_on
+                ]
+                context.set_shared_data('previous_results', dep_results)
+
+            # 执行子任务 (非流式)
+            try:
+                response = self.orchestrator.execute(
+                    task=subtask_desc,
+                    context=context,
+                    preferred_agent=agent_name
+                )
+
+                # 保存结果
+                subtask_responses[subtask.get('order')] = {
+                    'description': subtask_desc,
+                    'agent': response.agent_name,
+                    'success': response.success,
+                    'content': response.content,
+                    'data': response.data,
+                    'execution_time': response.execution_time
+                }
+                results.append(subtask_responses[subtask.get('order')])
+                context.store_result(f'subtask_{subtask.get("order")}', response.data)
+
+                # Yield 中间结果摘要
+                yield {
+                    "type": "thought",
+                    "content": f"步骤 {subtask.get('order')} 完成。结果摘要: {response.content[:100]}..."
+                }
+
+            except Exception as e:
+                self.logger.error(f"子任务执行失败: {e}")
+                results.append({
+                    'description': subtask_desc,
+                    'agent': agent_name,
+                    'success': False,
+                    'error': str(e)
+                })
+                yield {
+                    "type": "error",
+                    "content": f"步骤 {subtask.get('order')} 失败: {str(e)}"
+                }
+
+            yield {
+                "type": "agent_end",
+                "agent": agent_name
+            }
+
+        # 整合结果
+        yield {
+            "type": "thought",
+            "content": "所有子任务完成，正在整合最终结果..."
+        }
+
+        final_answer = self._synthesize_results(task, results)
+
+        yield {
+            "type": "chunk",
+            "content": final_answer
+        }
 
     def _analyze_task(
         self,
@@ -279,20 +525,17 @@ class MasterAgent(BaseAgent):
     ) -> AgentResponse:
         """
         委托给单个智能体执行
-
-        Args:
-            task: 任务
-            context: 上下文
-            analysis: 任务分析结果
-
-        Returns:
-            AgentResponse
         """
         self.logger.info("[MasterAgent] 任务较简单，委托给单个智能体")
 
         # 从分析结果获取推荐的智能体
         subtasks = analysis.get('subtasks', [])
         preferred_agent = subtasks[0].get('agent') if subtasks else None
+
+        # 🚨 防止死循环：如果推荐的智能体是 master_agent 或为空，说明是通用对话，直接由 MasterAgent 回答
+        if not preferred_agent or preferred_agent == 'master_agent':
+            self.logger.info("[MasterAgent] 无需特定智能体，由 MasterAgent 直接处理通用对话")
+            return self._handle_general_chat(task, context)
 
         # 执行任务
         response = self.orchestrator.execute(
@@ -306,6 +549,40 @@ class MasterAgent(BaseAgent):
         response.metadata['complexity'] = analysis.get('complexity', 'simple')
 
         return response
+
+    def _handle_general_chat(self, task: str, context: AgentContext) -> AgentResponse:
+        """
+        处理通用对话任务（不涉及具体智能体）
+        """
+        try:
+            messages = [
+                {"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"},
+                {"role": "user", "content": task}
+            ]
+
+            llm_config = self.get_llm_config()
+
+            response = self.llm_adapter.chat_completion(
+                messages=messages,
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=0.7,
+                max_tokens=llm_config.get('max_tokens', 1000)
+            )
+
+            if response.error:
+                return AgentResponse(success=False, error=response.error, agent_name=self.name)
+
+            return AgentResponse(
+                success=True,
+                content=response.content,
+                agent_name=self.name,
+                metadata={'type': 'general_chat'}
+            )
+
+        except Exception as e:
+            self.logger.error(f"通用对话处理失败: {e}")
+            return AgentResponse(success=False, error=str(e), agent_name=self.name)
 
     def _coordinate_multiple_agents(
         self,

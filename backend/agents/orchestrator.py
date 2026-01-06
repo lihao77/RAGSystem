@@ -233,6 +233,16 @@ class AgentOrchestrator:
         """列出所有可用智能体"""
         return self.registry.list_agents()
 
+    @property
+    def agents(self) -> Dict[str, 'BaseAgent']:
+        """
+        获取所有已注册的智能体字典（只读）
+
+        Returns:
+            Dict[str, BaseAgent]: 智能体名称到实例的映射
+        """
+        return self.registry._agents
+
 
 # 全局单例
 _global_orchestrator: Optional[AgentOrchestrator] = None

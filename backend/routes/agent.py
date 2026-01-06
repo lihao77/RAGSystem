@@ -5,8 +5,9 @@ Agent API 路由 - 智能体系统统一入口
 提供智能体系统的 API 接口
 """
 
-from flask import Blueprint, request
+from flask import Blueprint, request, Response, stream_with_context
 import logging
+import json
 from agents import (
     AgentContext,
     get_orchestrator,
@@ -50,7 +51,11 @@ def _get_orchestrator():
                 _orchestrator.register_agent(agent)
                 logger.info(f"已注册智能体: {agent_name}")
 
-            logger.info(f"Orchestrator 初始化成功，已加载 {len(agents)} 个智能体")
+            # 验证注册结果
+            registered_agents = _orchestrator.list_agents()
+            logger.info(f"Orchestrator 初始化成功，已加载 {len(agents)} 个智能体，已注册 {len(registered_agents)} 个智能体")
+            logger.info(f"已加载的智能体列表: {list(agents.keys())}")
+            logger.info(f"已注册的智能体列表: {[a['name'] for a in registered_agents]}")
         except Exception as e:
             logger.error(f"Orchestrator 初始化失败: {e}", exc_info=True)
             raise
@@ -284,6 +289,65 @@ def execute():
     except Exception as e:
         logger.error(f'执行任务失败: {e}', exc_info=True)
         return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/stream', methods=['POST'])
+def stream_execute():
+    """
+    流式执行智能体任务（Server-Sent Events）
+
+    Request:
+        {
+            "task": "任务描述",
+            "session_id": "会话ID（可选）"
+        }
+
+    Response:
+        text/event-stream
+        data: {"type": "thought", "content": "..."}
+        data: {"type": "agent_start", "agent": "qa_agent", "content": "..."}
+        data: {"type": "chunk", "content": "部分回答..."}
+        data: {"type": "done", "session_id": "..."}
+    """
+    data = request.get_json()
+    task = data.get('task', '').strip()
+    session_id = data.get('session_id')
+
+    if not task:
+        return error_response(message='任务描述不能为空', status_code=400)
+
+    logger.info(f'流式执行任务: {task}')
+
+    def generate():
+        try:
+            # 获取 Orchestrator
+            orchestrator = _get_orchestrator()
+
+            # 创建上下文
+            if session_id:
+                context = AgentContext(session_id=session_id)
+            else:
+                import uuid
+                context = AgentContext(session_id=str(uuid.uuid4()))
+
+            # 获取 MasterAgent
+            master_agent = orchestrator.agents.get('master_agent')
+            if not master_agent:
+                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'})}\n\n"
+                return
+
+            # 调用 MasterAgent 的 stream_execute
+            for event in master_agent.stream_execute(task, context):
+                yield f"data: {json.dumps(event)}\n\n"
+
+            # 结束事件
+            yield f"data: {json.dumps({'type': 'done', 'session_id': context.session_id})}\n\n"
+
+        except Exception as e:
+            logger.error(f"流式执行异常: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 
 @agent_bp.route('/execute/<agent_name>', methods=['POST'])
