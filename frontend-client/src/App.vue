@@ -16,7 +16,7 @@
     </div>
 
     <div class="chat-main">
-      <div class="chat-messages" ref="messagesRef">
+      <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
         <div v-if="messages.length === 0" class="welcome-screen">
           <h1>多智能体系统</h1>
           <p class="welcome-subtitle">开始对话，探索知识图谱</p>
@@ -27,7 +27,35 @@
             {{ msg.role === 'user' ? 'U' : 'AI' }}
           </div>
           <div class="message-content">
-            <div class="message-text" v-html="renderMarkdown(msg.content)"></div>
+            <!-- MasterAgent 的任务分析 -->
+            <div v-if="msg.thinking && msg.thinking.trim()" class="thinking-process master-thinking">
+              <div class="thinking-header" @click="msg.showMasterThinking = !msg.showMasterThinking">
+                <span class="icon">{{ msg.showMasterThinking ? '▼' : '▶' }}</span>
+                <span class="thinking-title">🧠 任务分析</span>
+              </div>
+              <div v-if="msg.showMasterThinking" class="thinking-content master-analysis">
+                <pre class="analysis-text">{{ msg.thinking }}</pre>
+              </div>
+            </div>
+
+            <!-- ReActAgent 的结构化思考过程 -->
+            <div v-if="msg.thinking_steps && msg.thinking_steps.length > 0" class="thinking-process agent-thinking">
+              <div class="thinking-header" @click="msg.showAgentThinking = !msg.showAgentThinking">
+                <span class="icon">{{ msg.showAgentThinking ? '▼' : '▶' }}</span>
+                <span class="thinking-title">🤖 推理步骤 ({{ msg.thinking_steps.length }} 步)</span>
+              </div>
+              <div v-if="msg.showAgentThinking" class="thinking-content">
+                <div v-for="(step, stepIndex) in msg.thinking_steps" :key="stepIndex" class="thinking-step">
+                  <div class="thinking-step-header">
+                    <span class="step-number">{{ stepIndex + 1 }}</span>
+                    <span class="step-actions">
+                      {{ step.has_actions ? '🔧 调用工具' : step.has_answer ? '✅ 得出答案' : '🤔 思考中' }}
+                    </span>
+                  </div>
+                  <div class="thinking-step-content">{{ step.thought }}</div>
+                </div>
+              </div>
+            </div>
 
             <!-- 工具调用可视化 -->
             <div v-if="msg.tool_calls && msg.tool_calls.length > 0" class="tool-calls">
@@ -76,7 +104,7 @@
               </div>
             </div>
 
-            <!-- 状态更新显示（不包括 thought，thought 在下方单独显示） -->
+            <!-- 状态更新显示（不包括 thought，thought 在上方单独显示） -->
             <div v-if="msg.status && msg.status.length > 0" class="status-updates">
               <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-item">
                 <div v-if="status.type === 'agent_start'" class="status-agent-start">
@@ -90,34 +118,15 @@
               </div>
             </div>
 
-            <!-- MasterAgent 的任务分析 -->
-            <div v-if="msg.thinking && msg.thinking.trim()" class="thinking-process master-thinking">
-              <div class="thinking-header" @click="msg.showMasterThinking = !msg.showMasterThinking">
-                <span class="icon">{{ msg.showMasterThinking ? '▼' : '▶' }}</span>
-                <span class="thinking-title">🧠 任务分析</span>
-              </div>
-              <div v-if="msg.showMasterThinking" class="thinking-content master-analysis">
-                <pre class="analysis-text">{{ msg.thinking }}</pre>
-              </div>
+            <!-- 最终答案（放在最下面，仅对助手消息显示） -->
+            <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
+              <div class="answer-header">💡 最终答案</div>
+              <div class="message-text" v-html="renderMarkdown(msg.content)"></div>
             </div>
 
-            <!-- ReActAgent 的结构化思考过程 -->
-            <div v-if="msg.thinking_steps && msg.thinking_steps.length > 0" class="thinking-process agent-thinking">
-              <div class="thinking-header" @click="msg.showAgentThinking = !msg.showAgentThinking">
-                <span class="icon">{{ msg.showAgentThinking ? '▼' : '▶' }}</span>
-                <span class="thinking-title">🤖 推理步骤 ({{ msg.thinking_steps.length }} 步)</span>
-              </div>
-              <div v-if="msg.showAgentThinking" class="thinking-content">
-                <div v-for="(step, stepIndex) in msg.thinking_steps" :key="stepIndex" class="thinking-step">
-                  <div class="thinking-step-header">
-                    <span class="step-number">{{ stepIndex + 1 }}</span>
-                    <span class="step-actions">
-                      {{ step.has_actions ? '🔧 调用工具' : step.has_answer ? '✅ 得出答案' : '🤔 思考中' }}
-                    </span>
-                  </div>
-                  <div class="thinking-step-content">{{ step.thought }}</div>
-                </div>
-              </div>
+            <!-- 用户消息内容（简单显示） -->
+            <div v-if="msg.role === 'user' && msg.content && msg.content.trim()" class="user-message-text">
+              {{ msg.content }}
             </div>
           </div>
         </div>
@@ -168,12 +177,16 @@ const history = ref([]);
 // 打字机效果的定时器存储
 const typewriterTimers = ref(new Map());
 
+// 用户是否在底部（用于智能滚动）
+const isUserAtBottom = ref(true);
+
 const startNewChat = () => {
   messages.value = [];
   inputMessage.value = '';
   // 清除所有打字机定时器
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
+  isUserAtBottom.value = true;
 };
 
 /**
@@ -252,11 +265,40 @@ const renderMarkdown = (text) => {
   return marked.parse(text || '');
 };
 
-const scrollToBottom = async () => {
+/**
+ * 检查用户是否在底部
+ */
+const checkIfAtBottom = () => {
+  if (!messagesRef.value) return true;
+
+  const container = messagesRef.value;
+  const threshold = 100; // 距离底部100px以内认为是在底部
+
+  return (
+    container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+  );
+};
+
+/**
+ * 智能滚动到底部
+ * 只在用户原本就在底部时才自动滚动
+ */
+const scrollToBottom = async (force = false) => {
   await nextTick();
-  if (messagesRef.value) {
+
+  if (!messagesRef.value) return;
+
+  // 如果强制滚动或用户在底部，则滚动到底部
+  if (force || isUserAtBottom.value) {
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
   }
+};
+
+/**
+ * 监听用户滚动，更新是否在底部的状态
+ */
+const handleScroll = () => {
+  isUserAtBottom.value = checkIfAtBottom();
 };
 
 const adjustTextareaHeight = () => {
@@ -351,7 +393,10 @@ const handleSend = async () => {
 
   inputMessage.value = '';
   if (textareaRef.value) textareaRef.value.style.height = 'auto';
-  scrollToBottom();
+
+  // 强制滚动到底部（用户刚发送消息）
+  isUserAtBottom.value = true;
+  scrollToBottom(true);
 
   // Create empty assistant message
   const assistantMsgIndex = messages.value.push({
@@ -400,12 +445,22 @@ const handleSend = async () => {
             const currentMsg = messages.value[assistantMsgIndex];
 
             if (data.type === 'chunk') {
-              // 最终答案 - 使用打字机效果
-              typewriter(currentMsg, 'content', data.content, 15, `msg-${assistantMsgIndex}-content`);
+              // 最终答案处理
+              const content = data.content;
+
+              // 判断是真流式（MasterAgent 通用对话）还是完整答案（ReActAgent）
+              // 真流式：短内容（<= 10字符）且已有内容
+              // 完整答案：长内容或第一个chunk
+              if (content.length <= 10 && currentMsg.content.length > 0) {
+                // 真流式：直接追加
+                currentMsg.content += content;
+              } else {
+                // 完整答案：使用打字机效果
+                typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
+              }
             } else if (data.type === 'thought') {
-              // MasterAgent 的任务分析 - 使用打字机效果
-              const newText = data.content + '\n';
-              typewriter(currentMsg, 'thinking', newText, 10, `msg-${assistantMsgIndex}-thinking`);
+              // MasterAgent 的任务分析 - 直接追加（避免打字机冲突）
+              currentMsg.thinking += data.content + '\n';
             } else if (data.type === 'thought_structured') {
               // ReActAgent 的结构化思考 - 使用打字机效果添加到数组
               const timerId = `msg-${assistantMsgIndex}-step-${currentMsg.thinking_steps.length}`;
@@ -463,6 +518,12 @@ const handleSend = async () => {
     scrollToBottom();
   }
 };
+
+// 组件挂载时初始化
+onMounted(() => {
+  // 初始状态：用户在底部
+  isUserAtBottom.value = true;
+});
 </script>
 
 <style scoped>
@@ -1222,6 +1283,40 @@ button:disabled {
 .history-list::-webkit-scrollbar-thumb {
   background: #3a3a3a;
   border-radius: 3px;
+}
+
+/* 最终答案样式 */
+.final-answer {
+  margin-top: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+  border-left: 4px solid #10b981;
+  border-radius: 8px;
+}
+
+.answer-header {
+  font-size: 16px;
+  font-weight: 600;
+  color: #10b981;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.final-answer .message-text {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #2d3748;
+}
+
+/* 用户消息文本样式 */
+.user-message-text {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #1a202c;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .chat-messages::-webkit-scrollbar-thumb:hover {

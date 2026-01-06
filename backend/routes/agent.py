@@ -333,21 +333,23 @@ def stream_execute():
             # 获取 MasterAgent
             master_agent = orchestrator.agents.get('master_agent')
             if not master_agent:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'}, ensure_ascii=False)}\n\n"
                 return
 
             # 调用 MasterAgent 的 stream_execute
             for event in master_agent.stream_execute(task, context):
-                yield f"data: {json.dumps(event)}\n\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             # 结束事件
-            yield f"data: {json.dumps({'type': 'done', 'session_id': context.session_id})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'session_id': context.session_id}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"流式执行异常: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response.headers['Content-Type'] = 'text/event-stream; charset=utf-8'
+    return response
 
 
 @agent_bp.route('/execute/<agent_name>', methods=['POST'])

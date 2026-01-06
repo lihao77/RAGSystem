@@ -265,6 +265,60 @@ class LLMAdapter:
                 provider=provider_name
             )
 
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        provider: str,
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """
+        流式对话补全请求（生成器）
+
+        Args:
+            messages: 消息列表
+            provider: 使用的 Provider 名称（必需）
+            model: 使用的模型（必需）
+            temperature: 温度参数
+            max_tokens: 最大 token 数
+            **kwargs: 其他参数
+
+        Yields:
+            Dict[str, Any]: 流式数据块
+        """
+        # 验证Provider是否存在
+        provider_name = provider.lower().replace(" ", "_")
+        if provider_name not in self.providers:
+            yield {
+                "content": "",
+                "error": f"Provider 不存在: {provider}",
+                "finish_reason": "error"
+            }
+            return
+
+        try:
+            provider_instance = self.providers[provider_name]
+
+            # 调用 Provider 的流式方法
+            for chunk in provider_instance.chat_completion_stream(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            ):
+                yield chunk
+
+        except Exception as e:
+            logger.error(f"Provider {provider_name} 流式调用异常: {str(e)}")
+            yield {
+                "content": "",
+                "error": f"Provider 调用失败: {str(e)}",
+                "finish_reason": "error"
+            }
+
     def generate_text(
         self,
         prompt: str,

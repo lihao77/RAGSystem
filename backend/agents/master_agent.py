@@ -305,7 +305,7 @@ class MasterAgent(BaseAgent):
 
             for event in agent.execute_stream(task, context):
                 if event['type'] == 'final_answer':
-                    # 将 final_answer 转换为 chunk
+                    # 将 final_answer 转换为 chunk（一次性返回完整答案，前端打字机效果）
                     yield {
                         "type": "chunk",
                         "content": event['content']
@@ -384,7 +384,7 @@ class MasterAgent(BaseAgent):
         }
 
     def _stream_general_chat(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
-        """流式通用对话"""
+        """流式通用对话（真流式）"""
         try:
             messages = [
                 {"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"},
@@ -393,22 +393,30 @@ class MasterAgent(BaseAgent):
 
             llm_config = self.get_llm_config()
 
-            # 使用 chat_completion (这里暂时还是非流式，直到 LLMAdapter 支持流式)
-            # 理想情况下 adapter.chat_completion 应该支持 stream=True
-            response = self.llm_adapter.chat_completion(
+            # 使用真正的流式 API
+            for chunk in self.llm_adapter.chat_completion_stream(
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
                 temperature=0.7,
                 max_tokens=llm_config.get('max_tokens', 1000)
-            )
+            ):
+                # 检查是否有错误
+                if 'error' in chunk:
+                    yield {"type": "error", "content": chunk['error']}
+                    break
 
-            if response.error:
-                yield {"type": "error", "content": response.error}
-            else:
-                yield {"type": "chunk", "content": response.content}
+                # 实时转发内容
+                content = chunk.get('content', '')
+                if content:  # 只转发非空内容
+                    yield {"type": "chunk", "content": content}
+
+                # 检查是否完成
+                if chunk.get('finish_reason') in ['stop', 'length']:
+                    break
 
         except Exception as e:
+            self.logger.error(f"流式对话失败: {e}")
             yield {"type": "error", "content": str(e)}
 
     def _stream_coordinate_multiple_agents(
@@ -566,18 +574,24 @@ class MasterAgent(BaseAgent):
                 "agent": agent_name
             }
 
-        # 整合结果
+        # 整合结果（使用流式）
         yield {
             "type": "thought",
             "content": "所有子任务完成，正在整合最终结果..."
         }
 
-        final_answer = self._synthesize_results(task, results)
+        # 使用流式整合，实时 yield 每个 token
+        for chunk in self._synthesize_results_stream(task, results):
+            content = chunk.get('content', '')
+            if content:
+                yield {
+                    "type": "chunk",
+                    "content": content
+                }
 
-        yield {
-            "type": "chunk",
-            "content": final_answer
-        }
+            # 检查是否完成
+            if chunk.get('finish_reason') in ['stop', 'length']:
+                break
 
     def _analyze_task(
         self,
@@ -833,7 +847,7 @@ class MasterAgent(BaseAgent):
         results: List[Dict[str, Any]]
     ) -> str:
         """
-        整合多个智能体的结果为统一答案
+        整合多个智能体的结果为统一答案（非流式版本）
 
         Args:
             original_task: 原始任务
@@ -890,6 +904,78 @@ class MasterAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"结果整合异常: {e}", exc_info=True)
             return self._simple_synthesis(results)
+
+    def _synthesize_results_stream(
+        self,
+        original_task: str,
+        results: List[Dict[str, Any]]
+    ):
+        """
+        流式整合多个智能体的结果为统一答案（生成器版本）
+
+        Args:
+            original_task: 原始任务
+            results: 各子任务的执行结果
+
+        Yields:
+            Dict[str, Any]: 流式数据块 {"content": "...", "finish_reason": "..."}
+        """
+        try:
+            # 格式化结果
+            results_text = ""
+            for i, result in enumerate(results, 1):
+                results_text += f"\n子任务 {i}: {result.get('description', '')}\n"
+                results_text += f"执行智能体: {result.get('agent', '')}\n"
+                if result.get('success'):
+                    results_text += f"结果: {result.get('content', '')[:500]}...\n"
+                else:
+                    results_text += f"失败: {result.get('error', '')}\n"
+                results_text += "-" * 50 + "\n"
+
+            # 构建提示词
+            prompt = self.RESULT_SYNTHESIS_PROMPT.format(
+                task=original_task,
+                results=results_text
+            )
+
+            # 调用 LLM 流式整合
+            messages = [
+                {"role": "system", "content": "你是一个结果整合专家，擅长将多个信息源整合为连贯的回答。"},
+                {"role": "user", "content": prompt}
+            ]
+
+            # 获取 LLM 配置（用于结果整合，使用稍高的温度）
+            llm_config = self.get_llm_config()
+            synthesis_temperature = self.get_custom_param('synthesis_temperature', default=0.3)
+
+            # 使用流式 API
+            for chunk in self.llm_adapter.chat_completion_stream(
+                messages=messages,
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=synthesis_temperature,
+                max_tokens=llm_config.get('max_tokens', 2000)
+            ):
+                # 检查错误
+                if 'error' in chunk:
+                    self.logger.error(f"结果整合失败: {chunk['error']}")
+                    # 降级方案：返回简单拼接
+                    yield {"content": self._simple_synthesis(results), "finish_reason": "stop"}
+                    break
+
+                # 转发内容
+                content = chunk.get('content', '')
+                if content:
+                    yield {"content": content, "finish_reason": chunk.get('finish_reason')}
+
+                # 检查是否完成
+                if chunk.get('finish_reason') in ['stop', 'length']:
+                    break
+
+        except Exception as e:
+            self.logger.error(f"流式结果整合异常: {e}", exc_info=True)
+            # 降级方案：返回简单拼接
+            yield {"content": self._simple_synthesis(results), "finish_reason": "stop"}
 
     def _simple_synthesis(self, results: List[Dict[str, Any]]) -> str:
         """

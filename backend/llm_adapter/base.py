@@ -86,6 +86,53 @@ class LLMProvider(ABC):
         """
         pass
 
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """
+        流式对话补全请求（生成器）
+
+        子类可以选择实现此方法以支持流式响应。
+        如果不实现，将降级到非流式版本。
+
+        Args:
+            messages: 消息列表
+            model: 使用的模型
+            temperature: 温度参数
+            max_tokens: 最大 token 数
+            **kwargs: 其他参数
+
+        Yields:
+            Dict[str, Any]: 流式数据块，格式为:
+                {
+                    "content": "文本片段",
+                    "finish_reason": None | "stop" | "length",
+                    "model": "模型名称"
+                }
+        """
+        # 默认实现：降级到非流式，一次性返回
+        response = self.chat_completion(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
+
+        if response.error:
+            yield {"content": "", "error": response.error, "finish_reason": "error"}
+        else:
+            yield {
+                "content": response.content or "",
+                "finish_reason": response.finish_reason or "stop",
+                "model": response.model
+            }
+
     @abstractmethod
     def generate_text(
         self,

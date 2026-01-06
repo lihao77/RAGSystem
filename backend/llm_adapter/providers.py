@@ -338,6 +338,97 @@ class DeepSeekProvider(LLMProvider):
             **kwargs
         )
 
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """
+        流式对话补全请求
+
+        Yields:
+            Dict[str, Any]: 流式数据块
+        """
+        temperature = temperature if temperature is not None else self.temperature
+        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        model = model or self.model
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,  # 启用流式
+            **kwargs
+        }
+
+        try:
+            logger.info(f"DeepSeek 流式 API 调用: model={model}")
+
+            response = requests.post(
+                f"{self.api_endpoint}/chat/completions",
+                headers=self.headers,
+                json=payload,
+                timeout=self.timeout,
+                stream=True  # 启用流式响应
+            )
+            response.raise_for_status()
+
+            # 逐行读取 SSE 流
+            for line in response.iter_lines():
+                if not line:
+                    continue
+
+                line = line.decode('utf-8')
+
+                # 跳过注释行
+                if line.startswith(':'):
+                    continue
+
+                # 解析 SSE 数据
+                if line.startswith('data: '):
+                    data_str = line[6:]  # 移除 "data: " 前缀
+
+                    # 检查是否为结束标记
+                    if data_str.strip() == '[DONE]':
+                        yield {
+                            "content": "",
+                            "finish_reason": "stop",
+                            "model": model
+                        }
+                        break
+
+                    try:
+                        chunk_data = json.loads(data_str)
+
+                        # 提取内容
+                        if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                            choice = chunk_data["choices"][0]
+                            delta = choice.get("delta", {})
+                            content = delta.get("content", "")
+                            finish_reason = choice.get("finish_reason")
+
+                            yield {
+                                "content": content,
+                                "finish_reason": finish_reason,
+                                "model": model
+                            }
+
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"无法解析 SSE 数据块: {data_str[:100]}")
+                        continue
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"DeepSeek 流式 API 请求失败: {str(e)}")
+            yield {
+                "content": "",
+                "error": str(e),
+                "finish_reason": "error"
+            }
+
     def _get_provider_type(self) -> LLMProviderType:
         return LLMProviderType.DEEPSEEK
 
