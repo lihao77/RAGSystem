@@ -121,8 +121,33 @@ class ReActAgent(BaseAgent):
                 tools_desc_lines.append("**示例**:")
                 for example in func['examples']:
                     tools_desc_lines.append(f"  ```json\n  {example}\n  ```")
-                    
+
         tools_desc = "\n".join(tools_desc_lines)
+
+        # 🔒 动态生成示例：使用当前智能体可用的工具
+        # 避免硬编码工具名称，防止 LLM 学习到未授权的工具
+        example_tool_name = self.available_tools[0]['function']['name'] if self.available_tools else "tool_name"
+        example_params = self.available_tools[0]['function'].get('parameters', {}).get('properties', {})
+
+        # 构造示例参数（取第一个参数作为示例）
+        if example_params:
+            first_param = list(example_params.keys())[0]
+            example_arg = {first_param: "示例值"}
+        else:
+            example_arg = {}
+
+        parallel_example = f"""```json
+{{
+  "thought": "分析任务需求，如果需要执行多个独立操作，可以并行调用工具",
+  "actions": [
+    {{
+      "tool": "{example_tool_name}",
+      "arguments": {example_arg}
+    }}
+  ],
+  "final_answer": null
+}}
+```"""
 
         return f"""{self.base_prompt}
 
@@ -152,32 +177,18 @@ class ReActAgent(BaseAgent):
 ```
 
 **重要规则：**
-1. **可以一次执行多个独立的工具调用**（actions 是数组）
+1. **只能使用上面"可用工具"部分列出的工具**，不要使用其他工具
+2. **可以一次执行多个独立的工具调用**（actions 是数组）
    - 如果多个工具调用之间没有依赖关系，可以在一轮中同时调用
    - 例如：同时查询多个地区的数据、同时检索不同类型的信息
-2. **有依赖关系的工具调用需要分轮执行**
+3. **有依赖关系的工具调用需要分轮执行**
    - 如果工具B需要工具A的结果，则分两轮：先调用A，下一轮基于结果调用B
-3. 在 thought 中解释你为什么选择这些工具
-4. 当你有足够信息回答问题时，在 final_answer 中给出答案
-5. 如果工具返回了错误，在下一轮 thought 中分析原因并调整策略
+4. 在 thought 中解释你为什么选择这些工具
+5. 当你有足够信息回答问题时，在 final_answer 中给出答案
+6. 如果工具返回了错误，在下一轮 thought 中分析原因并调整策略
 
 **并行调用示例**：
-```json
-{{
-  "thought": "需要查询南宁和桂林两个城市的洪涝灾害数据，这两个查询是独立的，可以并行执行",
-  "actions": [
-    {{
-      "tool": "query_knowledge_graph_with_nl",
-      "arguments": {{"question": "南宁市的洪涝灾害历史"}}
-    }},
-    {{
-      "tool": "query_knowledge_graph_with_nl",
-      "arguments": {{"question": "桂林市的洪涝灾害历史"}}
-    }}
-  ],
-  "final_answer": null
-}}
-```
+{parallel_example}
 
 只返回 JSON，不要有其他内容。
 """
@@ -286,6 +297,34 @@ class ReActAgent(BaseAgent):
                         arguments = action.get('arguments', {})
 
                         if not tool_name:
+                            continue
+
+                        # 🔒 安全检查：验证工具权限
+                        allowed_tool_names = [
+                            tool['function']['name']
+                            for tool in self.available_tools
+                        ]
+                        if tool_name not in allowed_tool_names:
+                            error_msg = f"权限拒绝：智能体 '{self.name}' 不允许使用工具 '{tool_name}'。允许的工具: {allowed_tool_names}"
+                            self.logger.warning(f"[ReAct] {error_msg}")
+
+                            # 返回权限错误
+                            result = {
+                                "success": False,
+                                "error": error_msg
+                            }
+
+                            # yield 工具错误事件
+                            yield {
+                                "type": "tool_error",
+                                "tool_name": tool_name,
+                                "error": error_msg,
+                                "index": idx,
+                                "total": len(actions)
+                            }
+
+                            # 添加到观察结果
+                            observations.append(f"**工具 {idx}: {tool_name}**\n错误: {error_msg}")
                             continue
 
                         self.logger.info(f"[ReAct] [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")

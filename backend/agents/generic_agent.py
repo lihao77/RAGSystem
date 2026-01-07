@@ -202,6 +202,13 @@ class GenericAgent(BaseAgent):
                 if response.tool_calls and self.auto_execute_tools:
                     # 执行工具调用
                     tool_results = []
+
+                    # 🔒 安全检查：预先构建允许的工具列表
+                    allowed_tool_names = [
+                        tool['function']['name']
+                        for tool in self.tools
+                    ]
+
                     for tool_call in response.tool_calls:
                         # DeepSeek/OpenAI 格式: tool_call['function']['name']
                         tool_name = tool_call.get('function', {}).get('name')
@@ -212,10 +219,19 @@ class GenericAgent(BaseAgent):
                             import json
                             tool_args = json.loads(tool_args)
 
-                        self.logger.info(f"执行工具: {tool_name}, 参数: {tool_args}")
+                        # 🔒 安全检查：验证工具权限
+                        if tool_name not in allowed_tool_names:
+                            error_msg = f"权限拒绝：智能体 '{self.name}' 不允许使用工具 '{tool_name}'。允许的工具: {allowed_tool_names}"
+                            self.logger.warning(error_msg)
+                            result = {
+                                "success": False,
+                                "error": error_msg
+                            }
+                        else:
+                            self.logger.info(f"执行工具: {tool_name}, 参数: {tool_args}")
+                            # 执行工具
+                            result = execute_tool(tool_name, tool_args)
 
-                        # 执行工具
-                        result = execute_tool(tool_name, tool_args)
                         tool_results.append({
                             'tool_name': tool_name,
                             'arguments': tool_args,
