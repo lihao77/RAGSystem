@@ -32,100 +32,21 @@
               <span>.</span><span>.</span><span>.</span>
             </div>
 
-            <!-- 任务分析卡片（仅在有多个子任务或复杂任务时显示） -->
-            <div v-if="msg.taskAnalysis && (msg.taskAnalysis.subtask_count > 1 || msg.taskAnalysis.complexity !== 'simple')" class="task-analysis-card">
-              <div class="card-header" @click="msg.taskAnalysis.expanded = !msg.taskAnalysis.expanded">
-                <span class="icon">{{ msg.taskAnalysis.expanded ? '▼' : '▶' }}</span>
-                <span class="card-title">🧠 任务分析</span>
-                <span class="task-badge">{{ msg.taskAnalysis.complexity }}</span>
-                <span class="subtask-count">{{ msg.taskAnalysis.subtask_count }} 个子任务</span>
-              </div>
-              <div v-if="msg.taskAnalysis.expanded" class="card-content">
-                <div class="analysis-reasoning">{{ msg.taskAnalysis.reasoning }}</div>
-              </div>
-            </div>
+            <!-- 任务分析卡片 -->
+            <TaskAnalysisCard
+              v-if="msg.taskAnalysis"
+              :taskAnalysis="msg.taskAnalysis"
+              @update:expanded="msg.taskAnalysis.expanded = $event"
+            />
 
             <!-- 子任务卡片列表 -->
             <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
-              <div v-for="subtask in msg.subtasks" :key="subtask.order" class="subtask-card">
-                <div class="subtask-header" @click="subtask.expanded = !subtask.expanded">
-                  <span class="icon">{{ subtask.expanded ? '▼' : '▶' }}</span>
-                  <span class="subtask-title">
-                    <span class="subtask-number">步骤 {{ subtask.order }}</span>
-                    <span class="subtask-agent">{{ subtask.agent_display_name }}</span>
-                  </span>
-                  <span class="subtask-status" :class="subtask.status">
-                    {{ subtask.status === 'running' ? '⏳ 执行中' : subtask.status === 'success' ? '✅ 完成' : '❌ 失败' }}
-                  </span>
-                </div>
-
-                <div v-if="!subtask.expanded" class="subtask-preview">
-                  <div class="subtask-description">{{ subtask.description }}</div>
-                  <div v-if="subtask.result_summary" class="subtask-summary">
-                    {{ subtask.result_summary }}
-                  </div>
-                </div>
-
-                <div v-if="subtask.expanded" class="subtask-details">
-                  <div class="subtask-description-full">
-                    <strong>任务描述：</strong>{{ subtask.description }}
-                  </div>
-
-                  <!-- 推理步骤 -->
-                  <div v-if="subtask.thinking_steps && subtask.thinking_steps.length > 0" class="thinking-steps">
-                    <div class="section-header">🤔 推理过程 ({{ subtask.thinking_steps.length }} 步)</div>
-                    <div v-for="(step, stepIndex) in subtask.thinking_steps" :key="stepIndex" class="thinking-step">
-                      <div class="step-meta">
-                        <span class="step-number">{{ stepIndex + 1 }}</span>
-                        <span class="step-type">
-                          {{ step.has_actions ? '🔧 调用工具' : step.has_answer ? '✅ 得出答案' : '🤔 思考中' }}
-                        </span>
-                      </div>
-                      <div class="step-content">{{ step.thought }}</div>
-                    </div>
-                  </div>
-
-                  <!-- 工具调用 -->
-                  <div v-if="subtask.tool_calls && subtask.tool_calls.length > 0" class="tool-calls">
-                    <div class="section-header">
-                      🔧 工具调用 ({{ subtask.tool_calls.length }} 个)
-                      <span class="tools-stats">
-                        <span class="stat-item">⏱️ {{ getTotalToolTimeForSubtask(subtask) }}s</span>
-                        <span class="stat-item">✅ {{ getSuccessToolCountForSubtask(subtask) }}/{{ subtask.tool_calls.length }}</span>
-                      </span>
-                    </div>
-                    <div v-for="(tool, tIndex) in subtask.tool_calls" :key="tIndex" class="tool-call-item">
-                      <div class="tool-call-header">
-                        <span class="tool-name">{{ tool.tool_name }}</span>
-                        <span v-if="tool.elapsed_time" class="tool-time">{{ tool.elapsed_time.toFixed(2) }}s</span>
-                        <span class="tool-status" :class="tool.status">
-                          {{ tool.status === 'running' ? '⏳' : tool.status === 'success' ? '✅' : '❌' }}
-                        </span>
-                      </div>
-                      <div v-if="Object.keys(tool.arguments || {}).length > 0" class="tool-arguments">
-                        <div class="tool-section-title">参数</div>
-                        <pre class="tool-json">{{ JSON.stringify(tool.arguments, null, 2) }}</pre>
-                      </div>
-                      <div v-if="tool.result" class="tool-result">
-                        <div class="tool-section-header">
-                          <div class="tool-section-title">结果</div>
-                          <button @click.stop="copyToClipboard(tool.result)" class="copy-btn" title="复制结果">
-                            📋
-                          </button>
-                        </div>
-                        <pre class="tool-json" :class="{ 'collapsed': !tool.showResult }" @click="tool.showResult = !tool.showResult">{{ JSON.stringify(tool.result, null, 2) }}</pre>
-                        <div v-if="!tool.showResult" class="expand-hint">点击展开</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- 结果摘要 -->
-                  <div v-if="subtask.result_summary" class="subtask-result">
-                    <div class="section-header">📋 结果摘要</div>
-                    <div class="result-content">{{ subtask.result_summary }}</div>
-                  </div>
-                </div>
-              </div>
+              <SubtaskCard
+                v-for="subtask in msg.subtasks"
+                :key="subtask.order"
+                :subtask="subtask"
+                @update:expanded="subtask.expanded = $event"
+              />
             </div>
 
             <!-- 最终答案（仅助手消息） -->
@@ -152,23 +73,11 @@
         </div>
       </div>
 
-      <div class="chat-input-area">
-        <div class="input-wrapper">
-          <textarea
-            v-model="inputMessage"
-            @keydown.enter.prevent="handleEnter"
-            placeholder="输入您的问题..."
-            rows="1"
-            ref="textareaRef"
-          ></textarea>
-          <button :disabled="!inputMessage.trim() || isLoading" @click="handleSend">
-            发送
-          </button>
-        </div>
-        <div class="disclaimer">
-          AI 可能会生成不准确的信息，请核实重要信息。
-        </div>
-      </div>
+      <ChatInput
+        v-model="inputMessage"
+        :isLoading="isLoading"
+        @send="handleSend"
+      />
     </div>
   </div>
 </template>
@@ -177,12 +86,16 @@
 import { ref, nextTick, onMounted, watch } from 'vue';
 import axios from 'axios';
 import { marked } from 'marked';
+import SubtaskCard from './components/SubtaskCard.vue';
+import ToolCallsList from './components/ToolCallsList.vue';
+import ThinkingSteps from './components/ThinkingSteps.vue';
+import TaskAnalysisCard from './components/TaskAnalysisCard.vue';
+import ChatInput from './components/ChatInput.vue';
 
 const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const messagesRef = ref(null);
-const textareaRef = ref(null);
 const history = ref([]);
 
 // 打字机效果的定时器存储
@@ -312,22 +225,6 @@ const handleScroll = () => {
   isUserAtBottom.value = checkIfAtBottom();
 };
 
-const adjustTextareaHeight = () => {
-  const el = textareaRef.value;
-  if (el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-  }
-};
-
-watch(inputMessage, adjustTextareaHeight);
-
-const handleEnter = (e) => {
-  if (!e.shiftKey) {
-    handleSend();
-  }
-};
-
 const sendMessage = (text) => {
   inputMessage.value = text;
   handleSend();
@@ -382,50 +279,6 @@ const getSuccessToolCount = (msg) => {
   return msg.tool_calls.filter(tool => tool.status === 'success').length;
 };
 
-// 针对子任务的工具统计函数
-const getTotalToolTimeForSubtask = (subtask) => {
-  if (!subtask.tool_calls) return 0;
-  return subtask.tool_calls.reduce((sum, tool) => sum + (tool.elapsed_time || 0), 0).toFixed(2);
-};
-
-const getSuccessToolCountForSubtask = (subtask) => {
-  if (!subtask.tool_calls) return 0;
-  return subtask.tool_calls.filter(tool => tool.status === 'success').length;
-};
-
-const copyToClipboard = async (text) => {
-  try {
-    const textToCopy = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
-    await navigator.clipboard.writeText(textToCopy);
-
-    // 显示复制成功提示（使用原生提示，简单有效）
-    const notification = document.createElement('div');
-    notification.textContent = '✓ 已复制';
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #10b981;
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      z-index: 10000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      animation: slideIn 0.3s ease;
-    `;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.style.animation = 'slideOut 0.3s ease';
-      setTimeout(() => document.body.removeChild(notification), 300);
-    }, 2000);
-  } catch (err) {
-    console.error('复制失败:', err);
-  }
-};
-
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
@@ -437,7 +290,6 @@ const handleSend = async () => {
   });
 
   inputMessage.value = '';
-  if (textareaRef.value) textareaRef.value.style.height = 'auto';
 
   // 强制滚动到底部（用户刚发送消息）
   isUserAtBottom.value = true;
@@ -871,74 +723,6 @@ onMounted(() => {
 
 .status-icon {
   font-size: 14px;
-}
-
-/* 任务分析卡片 */
-.task-analysis-card {
-  margin-top: 16px;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  overflow: hidden;
-  background-color: #eff6ff;
-  /* 添加淡入动画 */
-  animation: fadeInUp 0.4s ease;
-}
-
-.card-header {
-  background-color: #dbeafe;
-  padding: 12px 16px;
-  font-size: 13px;
-  cursor: pointer;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  transition: background-color 0.2s ease;
-}
-
-.card-header:hover {
-  background-color: #bfdbfe;
-}
-
-.card-title {
-  font-weight: 600;
-  color: #1e40af;
-}
-
-.task-badge {
-  padding: 2px 8px;
-  background-color: #3b82f6;
-  color: white;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.subtask-count {
-  margin-left: auto;
-  font-size: 12px;
-  color: #1e40af;
-  font-weight: 600;
-}
-
-.card-content {
-  padding: 16px;
-  background-color: #ffffff;
-  border-top: 1px solid #bfdbfe;
-  /* 添加展开动画 */
-  animation: expandDown 0.3s ease;
-}
-
-.analysis-reasoning {
-  font-size: 13px;
-  color: #4a5568;
-  line-height: 1.6;
-  /* 防止长文本撑开容器 */
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
 }
 
 /* 子任务卡片容器 */
@@ -1456,88 +1240,6 @@ onMounted(() => {
 
 .tool-result-full::-webkit-scrollbar-thumb:hover {
   background: #b0b0b0;
-}
-
-/* 输入区域 - 极简悬浮 */
-.chat-input-area {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 24px;
-  background: linear-gradient(to top, #ffffff 70%, rgba(255, 255, 255, 0));
-  pointer-events: none;
-}
-
-.input-wrapper {
-  max-width: 900px;
-  margin: 0 auto;
-  position: relative;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
-  background-color: #ffffff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-  display: flex;
-  align-items: flex-end;
-  padding: 12px;
-  pointer-events: auto;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.input-wrapper:focus-within {
-  border-color: #667eea;
-  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.15);
-}
-
-textarea {
-  flex: 1;
-  border: none;
-  resize: none;
-  padding: 8px 12px;
-  font-family: inherit;
-  font-size: 15px;
-  max-height: 200px;
-  outline: none;
-  color: #2c3e50;
-  line-height: 1.5;
-}
-
-textarea::placeholder {
-  color: #a0aec0;
-}
-
-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  align-self: flex-end;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-button:disabled {
-  background: #e2e8f0;
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-}
-
-.disclaimer {
-  text-align: center;
-  font-size: 12px;
-  color: #a0aec0;
-  margin-top: 12px;
-  font-weight: 400;
 }
 
 /* Loading 动画 - 简约点 */
