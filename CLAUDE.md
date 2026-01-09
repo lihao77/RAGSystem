@@ -21,23 +21,89 @@ Routes (API层) → Services (业务层) → 数据访问层 (Neo4j/ChromaDB)
 5. **向量检索** (`backend/services/`) - 基于 ChromaDB 的语义搜索
 
 ### 智能体系统（核心特性）
+
+#### 架构设计
 智能体系统采用 **MasterAgent 统一入口架构**：
 - 所有用户请求通过 MasterAgent 作为唯一入口
-- MasterAgent 自动分析任务复杂度并决定执行策略
+- MasterAgent 自动分析任务复杂度并决定执行策略（simple/complex）
 - 支持任务自动分解和多智能体协调
-- 详见 `backend/agents/UNIFIED_ENTRY_ARCHITECTURE.md`
+- 详见 `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md`
 
-**核心组件**：
-- `BaseAgent` - 智能体基类，定义统一接口
-- `AgentOrchestrator` - 编排器，管理路由和协调
-- `MasterAgent` - 主协调智能体，系统统一入口
-- `QAAgent` - 知识图谱问答智能体，使用 Function Calling
+#### 核心组件
+- `BaseAgent` - 智能体基类，定义统一接口 (`backend/agents/base.py`)
+- `AgentOrchestrator` - 编排器，管理路由和协调 (`backend/agents/orchestrator.py`)
+- `MasterAgent` - 主协调智能体，系统统一入口 (`backend/agents/master_agent.py`)
+- `AgentLoader` - 动态加载器，从配置文件加载智能体 (`backend/agents/agent_loader.py`)
 
-**API 端点**：
+#### 智能体配置化系统
+**所有智能体通过 YAML 配置文件定义**，无需编写代码：
+- 配置文件: `backend/agents/configs/agent_configs.yaml`
+- 配置模型: `backend/agents/agent_config.py` (AgentConfig, AgentLLMConfig, AgentToolConfig)
+- 配置管理: `backend/agents/config_manager.py`
+
+**两种智能体实现模板**：
+1. **GenericAgent** (`backend/agents/generic_agent.py`)
+   - 通用智能体模板，适用于标准查询、分析任务
+   - 支持多轮对话（可配置 max_rounds）
+   - 根据配置过滤可用工具 (tools.enabled_tools)
+
+2. **ReActAgent** (`backend/agents/react_agent.py`)
+   - 推理与行动智能体，使用 Structured Output 代替 Function Calling
+   - 支持任何支持 JSON mode 的模型
+   - 推理过程完全可见 (thought → actions → observation)
+   - 运行时工具权限验证
+
+**配置示例**：
+```yaml
+agents:
+  qa_agent:
+    agent_name: qa_agent
+    display_name: 知识图谱问答智能体
+    enabled: true
+    llm:
+      provider: deepseek
+      model_name: deepseek-chat
+      temperature: 0.2
+      max_tokens: 4096
+    tools:
+      enabled_tools:
+        - query_knowledge_graph_with_nl
+        - find_causal_chain
+    custom_params:
+      type: react  # 或 generic
+      behavior:
+        system_prompt: "你是一个知识图谱问答助手..."
+        max_rounds: 10
+```
+
+#### 自研工具调用机制
+**不依赖特定 LLM 提供商的 Function Calling API**，支持任何大模型：
+- **工具定义**: `backend/tools/function_definitions.py` (11个专业工具)
+  1. `query_knowledge_graph_with_nl` - 自然语言查询（核心工具）
+  2. `search_knowledge_graph` - 结构化搜索
+  3. `get_entity_relations` - 关系探索
+  4. `execute_cypher_query` - 直接执行Cypher
+  5. `analyze_temporal_pattern` - 时序分析
+  6. `find_causal_chain` - 因果追踪
+  7. `compare_entities` - 实体对比
+  8. `aggregate_statistics` - 聚合统计
+  9. `get_spatial_neighbors` - 空间邻近查询
+  10. `get_graph_schema` - 图谱Schema
+  11. `query_emergency_plan` - 应急预案检索（向量RAG）
+  12. `generate_chart` - ECharts图表生成
+
+- **工具执行器**: `backend/tools/tool_executor.py`
+  - `execute_tool(tool_name, arguments)` 统一执行入口
+  - 路由到具体服务实现
+  - 错误处理与结果包装
+
+#### API 端点
 ```bash
-GET  /api/agent/agents      # 列出所有智能体
-POST /api/agent/execute     # 执行任务（自动路由到 MasterAgent）
-POST /api/agent/collaborate # 多智能体协作
+GET  /api/agent/agents           # 列出所有智能体
+POST /api/agent/execute          # 执行任务（自动路由到 MasterAgent）
+POST /api/agent/execute-stream   # 流式执行（SSE）
+GET  /api/agent/config           # 获取所有智能体配置
+PUT  /api/agent/config/:name     # 更新智能体配置
 ```
 
 ### 节点系统设计
@@ -114,6 +180,64 @@ embedding:
 ```
 
 ## 开发指南
+
+### 添加/配置智能体
+**通过 YAML 配置文件添加智能体，无需编写代码**：
+
+1. 编辑 `backend/agents/configs/agent_configs.yaml`
+2. 添加新的智能体配置：
+   ```yaml
+   agents:
+     my_agent:
+       agent_name: my_agent
+       display_name: 我的智能体
+       description: 专门处理XX任务
+       enabled: true
+       llm:
+         provider: deepseek
+         temperature: 0.3
+       tools:
+         enabled_tools:
+           - query_knowledge_graph_with_nl
+           - find_causal_chain
+       custom_params:
+         type: react  # 或 generic
+         behavior:
+           system_prompt: "你是一个专门做XX的智能体..."
+           max_rounds: 10
+   ```
+3. 重启后端，智能体自动加载
+4. 或通过前端 `/agent-config` 界面在线配置
+
+### 添加新工具
+1. 在 `backend/tools/function_definitions.py` 中添加工具定义：
+   ```python
+   {
+       "type": "function",
+       "function": {
+           "name": "my_tool",
+           "description": "工具描述",
+           "parameters": {
+               "type": "object",
+               "properties": {
+                   "param1": {"type": "string", "description": "参数说明"}
+               },
+               "required": ["param1"]
+           }
+       }
+   }
+   ```
+2. 在 `backend/tools/tool_executor.py` 中实现工具逻辑：
+   ```python
+   def execute_tool(tool_name, arguments):
+       if tool_name == 'my_tool':
+           return my_tool_impl(arguments)
+
+   def my_tool_impl(arguments):
+       # 实现工具逻辑
+       return {"success": True, "data": result}
+   ```
+3. 在智能体配置中启用该工具
 
 ### 添加新节点
 1. 在 `backend/nodes/` 创建节点目录
@@ -249,10 +373,14 @@ response = adapter.generate(
 ## 文档资源
 
 ### 智能体系统
-- **统一入口架构**: `backend/agents/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
-- **MasterAgent 指南**: `backend/agents/MASTER_AGENT_GUIDE.md` - 使用和配置
-- **使用指南**: `backend/agents/USAGE_GUIDE.md` - 快速开始
-- **设计文档**: `backend/agents/AGENT_SYSTEM_DESIGN.md` - 系统设计
+- **统一入口架构**: `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
+- **智能体配置**: `backend/agents/configs/agent_configs.yaml` - 配置文件示例
+- **配置模型**: `backend/agents/agent_config.py` - AgentConfig 数据模型
+- **动态加载**: `backend/agents/agent_loader.py` - 智能体加载机制
+
+### 工具系统
+- **工具定义**: `backend/tools/function_definitions.py` - 所有工具的定义
+- **工具执行**: `backend/tools/tool_executor.py` - 工具执行逻辑
 
 ### 其他文档
 - **快速参考**: `QUICK_REFERENCE.md` - 常用信息速查

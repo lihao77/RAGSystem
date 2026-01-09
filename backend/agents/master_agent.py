@@ -509,13 +509,36 @@ class MasterAgent(BaseAgent):
                 "description": subtask_desc
             }
 
-            # 检查依赖
+            # 检查依赖并传递前置任务结果
+            enhanced_subtask_desc = subtask_desc
             if depends_on:
                 dep_results = [
                     subtask_responses.get(dep_order)
                     for dep_order in depends_on
+                    if dep_order in subtask_responses
                 ]
                 context.set_shared_data('previous_results', dep_results)
+
+                # 在子任务描述中增强上下文，明确包含前置任务的结果
+                if dep_results:
+                    dep_context = "\n\n【前置任务结果】\n"
+                    for dep in dep_results:
+                        dep_context += f"- 任务: {dep.get('description', '未知')}\n"
+                        if dep.get('success'):
+                            # 截取合理长度的结果内容
+                            dep_content = dep.get('content', '')
+                            if len(dep_content) > 1000:
+                                dep_content = dep_content[:1000] + "...(内容过长，已截断)"
+                            dep_context += f"  结果: {dep_content}\n"
+                            # 如果有结构化数据，也传递
+                            if dep.get('data'):
+                                dep_context += f"  数据: {json.dumps(dep.get('data'), ensure_ascii=False, indent=2)}\n"
+                        else:
+                            dep_context += f"  失败: {dep.get('error', '未知错误')}\n"
+                        dep_context += "\n"
+
+                    enhanced_subtask_desc = f"{subtask_desc}\n{dep_context}"
+                    self.logger.info(f"[MasterAgent] 子任务 {subtask_order} 已增强上下文，包含 {len(dep_results)} 个前置任务的结果")
 
             # 执行子任务，使用流式执行（如果支持）
             try:
@@ -528,7 +551,7 @@ class MasterAgent(BaseAgent):
 
                     # 实时转发事件，添加 subtask_order
                     final_content = ""
-                    for event in agent.execute_stream(subtask_desc, context):
+                    for event in agent.execute_stream(enhanced_subtask_desc, context):
                         if event['type'] == 'final_answer':
                             # 捕获最终答案
                             final_content = event['content']
@@ -590,7 +613,7 @@ class MasterAgent(BaseAgent):
                         agent.event_callback = event_callback
 
                         response = self.orchestrator.execute(
-                            task=subtask_desc,
+                            task=enhanced_subtask_desc,
                             context=context,
                             preferred_agent=agent_name
                         )
@@ -602,7 +625,7 @@ class MasterAgent(BaseAgent):
                             yield event
                     else:
                         response = self.orchestrator.execute(
-                            task=subtask_desc,
+                            task=enhanced_subtask_desc,
                             context=context,
                             preferred_agent=agent_name
                         )
@@ -846,19 +869,42 @@ class MasterAgent(BaseAgent):
 
             self.logger.info(f"[MasterAgent] 执行子任务 {subtask.get('order')}: {subtask_desc}")
 
-            # 检查依赖
+            # 检查依赖并传递前置任务结果
+            enhanced_subtask_desc = subtask_desc
             if depends_on:
                 # 将依赖任务的结果添加到上下文
                 dep_results = [
                     subtask_responses.get(dep_order)
                     for dep_order in depends_on
+                    if dep_order in subtask_responses
                 ]
                 context.set_shared_data('previous_results', dep_results)
 
-            # 执行子任务
+                # 在子任务描述中增强上下文，明确包含前置任务的结果
+                if dep_results:
+                    dep_context = "\n\n【前置任务结果】\n"
+                    for dep in dep_results:
+                        dep_context += f"- 任务: {dep.get('description', '未知')}\n"
+                        if dep.get('success'):
+                            # 截取合理长度的结果内容
+                            dep_content = dep.get('content', '')
+                            if len(dep_content) > 1000:
+                                dep_content = dep_content[:1000] + "...(内容过长，已截断)"
+                            dep_context += f"  结果: {dep_content}\n"
+                            # 如果有结构化数据，也传递
+                            if dep.get('data'):
+                                dep_context += f"  数据: {json.dumps(dep.get('data'), ensure_ascii=False, indent=2)}\n"
+                        else:
+                            dep_context += f"  失败: {dep.get('error', '未知错误')}\n"
+                        dep_context += "\n"
+
+                    enhanced_subtask_desc = f"{subtask_desc}\n{dep_context}"
+                    self.logger.info(f"[MasterAgent] 子任务 {subtask.get('order')} 已增强上下文，包含 {len(dep_results)} 个前置任务的结果")
+
+            # 执行子任务（使用增强后的描述）
             try:
                 response = self.orchestrator.execute(
-                    task=subtask_desc,
+                    task=enhanced_subtask_desc,
                     context=context,
                     preferred_agent=agent_name
                 )

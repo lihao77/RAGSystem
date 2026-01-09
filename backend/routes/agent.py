@@ -43,7 +43,8 @@ def _get_orchestrator():
             agents = load_agents_from_config(
                 llm_adapter=adapter,
                 system_config=system_config,
-                orchestrator=_orchestrator
+                orchestrator=_orchestrator,
+                use_v2=False
             )
 
             # 注册所有加载的智能体
