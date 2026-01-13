@@ -102,7 +102,7 @@ const totalToolCalls = computed(() => {
   align-items: center;
   margin-bottom: 16px;
   font-size: 13px;
-  color: #718096;
+  color: var(--color-text-secondary);
   font-weight: 600;
 }
 
@@ -117,7 +117,7 @@ const totalToolCalls = computed(() => {
   top: 10px;
   bottom: 0;
   width: 2px;
-  background-color: #e2e8f0;
+  background-color: var(--color-border);
   z-index: 0;
 }
 
@@ -138,7 +138,7 @@ const totalToolCalls = computed(() => {
   flex-shrink: 0;
   width: 24px;
   height: 24px;
-  background: #667eea;
+  background: var(--color-primary);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -159,13 +159,13 @@ const totalToolCalls = computed(() => {
 }
 
 .thought-bubble {
-  background: #f7fafc;
+  background: var(--color-bg-app);
   padding: 10px 14px;
   border-radius: 8px 8px 8px 0;
-  color: #4a5568;
+  color: var(--color-text-secondary);
   font-size: 13px;
   line-height: 1.5;
-  border: 1px solid #edf2f7;
+  border: 1px solid var(--color-border);
 }
 
 .step-tools {
@@ -176,15 +176,15 @@ const totalToolCalls = computed(() => {
 
 .tool-item-minimal {
   background: white;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   overflow: hidden;
   transition: all 0.2s ease;
 }
 
 .tool-item-minimal:hover {
-  border-color: #cbd5e0;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-sm);
 }
 
 .tool-header-row {
@@ -197,7 +197,7 @@ const totalToolCalls = computed(() => {
 }
 
 .tool-header-row:hover {
-  background: #f8fafc;
+  background: var(--color-bg-app);
 }
 
 .tool-status-dot {
@@ -207,34 +207,34 @@ const totalToolCalls = computed(() => {
   background: #ccc;
 }
 
-.tool-status-dot.success { background: #48bb78; }
-.tool-status-dot.error { background: #f56565; }
+.tool-status-dot.success { background: var(--color-success); }
+.tool-status-dot.error { background: var(--color-error); }
 .tool-status-dot.running {
-  background: #4299e1;
+  background: var(--color-warning);
   animation: pulse 1.5s infinite;
 }
 
 .tool-name {
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--color-text-main);
   flex: 1;
 }
 
 .tool-time {
   font-size: 11px;
-  color: #a0aec0;
+  color: var(--color-text-muted);
 }
 
 .tool-expand-icon {
   font-size: 10px;
-  color: #a0aec0;
+  color: var(--color-text-muted);
 }
 .tool-details-panel {
   padding: 0 12px 12px 12px;
-  background: #f8fafc;
-  border-top: 1px solid #edf2f7;
+  background: var(--color-bg-app);
+  border-top: 1px solid var(--color-border);
 }
 
 .detail-section {
@@ -246,7 +246,8 @@ const totalToolCalls = computed(() => {
   justify-content: space-between;
   align-items: center;
   padding: 6px 8px;
-  background: #f1f5f9;
+  background: white;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
@@ -255,35 +256,34 @@ const totalToolCalls = computed(() => {
 }
 
 .detail-toggle:hover {
-  background: #e2e8f0;
+  background: var(--color-bg-app);
 }
 
 .detail-label {
   font-size: 11px;
   font-weight: 600;
-  color: #718096;
+  color: var(--color-text-muted);
   text-transform: uppercase;
 }
 
 .detail-icon {
   font-size: 10px;
-  color: #a0aec0;
+  color: var(--color-text-muted);
 }
 
 .detail-code {
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   background: white;
   padding: 8px;
   border-radius: 4px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   overflow-x: auto;
   margin: 0;
-  color: #4a5568;
+  color: var(--color-text-secondary);
   max-height: 300px;
   overflow-y: auto;
 }
-/* ... 保持原有动画样式不变 ... */
 
 @keyframes pulse {
   0% { opacity: 0.5; }

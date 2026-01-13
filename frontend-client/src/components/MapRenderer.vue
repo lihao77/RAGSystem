@@ -250,10 +250,11 @@ watch(() => props.mapData, () => {
 .map-renderer {
   width: 100%;
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   margin-bottom: 16px;
+  border: 1px solid var(--color-border);
 }
 
 .map-header {
@@ -261,8 +262,9 @@ watch(() => props.mapData, () => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: var(--color-bg-sidebar);
+  color: var(--color-text-main);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .map-title {
@@ -279,10 +281,11 @@ watch(() => props.mapData, () => {
 
 .map-type-badge {
   padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
   border-radius: 12px;
   font-size: 12px;
-  font-weight: normal;
+  font-weight: 600;
 }
 
 .map-actions {
@@ -293,9 +296,9 @@ watch(() => props.mapData, () => {
 .action-btn {
   width: 32px;
   height: 32px;
-  border: none;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
   border-radius: 6px;
   cursor: pointer;
   font-size: 16px;
@@ -306,8 +309,8 @@ watch(() => props.mapData, () => {
 }
 
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
+  background: var(--color-bg-app);
+  color: var(--color-text-main);
 }
 
 .map-container {
@@ -329,14 +332,14 @@ watch(() => props.mapData, () => {
 
 .map-legend {
   padding: 12px 16px;
-  background: #f5f5f5;
-  border-top: 1px solid #e0e0e0;
+  background: var(--color-bg-app);
+  border-top: 1px solid var(--color-border);
 }
 
 .legend-title {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-main);
   margin-bottom: 8px;
 }
 
@@ -350,7 +353,7 @@ watch(() => props.mapData, () => {
 .legend-min,
 .legend-max {
   font-size: 12px;
-  color: #666;
+  color: var(--color-text-muted);
   min-width: 50px;
 }
 
@@ -363,7 +366,7 @@ watch(() => props.mapData, () => {
 
 .map-stats {
   font-size: 12px;
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 /* Leaflet 弹出窗口样式 */
@@ -375,11 +378,11 @@ watch(() => props.mapData, () => {
 :deep(.marker-popup strong) {
   display: block;
   margin-bottom: 4px;
-  color: #333;
+  color: var(--color-text-main);
 }
 
 :deep(.marker-popup span) {
-  color: #666;
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 </style>

@@ -40,15 +40,16 @@ const toggleExpanded = () => {
 <style scoped>
 .task-analysis-card {
   margin-top: 16px;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  background-color: #eff6ff;
+  background-color: var(--color-bg-app);
   animation: fadeInUp 0.4s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
-  background-color: #dbeafe;
+  background-color: var(--color-bg-sidebar);
   padding: 12px 16px;
   font-size: 13px;
   cursor: pointer;
@@ -58,21 +59,22 @@ const toggleExpanded = () => {
   gap: 8px;
   font-weight: 500;
   transition: background-color 0.2s ease;
+  border-bottom: 1px solid transparent;
 }
 
 .card-header:hover {
-  background-color: #bfdbfe;
+  background-color: var(--color-bg-app);
 }
 
 .card-title {
   font-weight: 600;
-  color: #1e40af;
+  color: var(--color-primary);
 }
 
 .task-badge {
   padding: 2px 8px;
-  background-color: #3b82f6;
-  color: white;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
@@ -82,25 +84,26 @@ const toggleExpanded = () => {
 .subtask-count {
   margin-left: auto;
   font-size: 12px;
-  color: #1e40af;
+  color: var(--color-text-secondary);
   font-weight: 600;
 }
 
 .icon {
   font-size: 10px;
   transition: transform 0.2s ease;
+  color: var(--color-text-muted);
 }
 
 .card-content {
   padding: 16px;
-  background-color: #ffffff;
-  border-top: 1px solid #bfdbfe;
+  background-color: var(--color-bg-sidebar);
+  border-top: 1px solid var(--color-border);
   animation: expandDown 0.3s ease;
 }
 
 .analysis-reasoning {
   font-size: 13px;
-  color: #4a5568;
+  color: var(--color-text-secondary);
   line-height: 1.6;
   word-wrap: break-word;
   word-break: break-word;

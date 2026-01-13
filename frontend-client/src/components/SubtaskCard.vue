@@ -31,18 +31,6 @@
         :steps="subtask.react_steps"
       />
 
-      <!-- 旧版推理步骤（兼容） -->
-      <ThinkingSteps
-        v-else-if="subtask.thinking_steps && subtask.thinking_steps.length > 0"
-        :steps="subtask.thinking_steps"
-      />
-
-      <!-- 旧版工具调用（兼容，仅在没有 react_steps 时显示） -->
-      <ToolCallsList
-        v-if="(!subtask.react_steps || subtask.react_steps.length === 0) && subtask.tool_calls && subtask.tool_calls.length > 0"
-        :toolCalls="subtask.tool_calls"
-      />
-
       <!-- 结果摘要（展开后显示完整内容） -->
       <div v-if="subtask.result_summary" class="subtask-result">
         <div class="section-header">📋 完整结果</div>
@@ -56,8 +44,6 @@
 <script setup>
 import { defineProps, defineEmits } from 'vue';
 import ReActStepsList from './ReActStepsList.vue';
-import ThinkingSteps from './ThinkingSteps.vue';
-import ToolCallsList from './ToolCallsList.vue';
 
 const props = defineProps({
   subtask: {

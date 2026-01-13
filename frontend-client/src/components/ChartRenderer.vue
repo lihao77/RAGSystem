@@ -119,11 +119,12 @@ onUnmounted(() => {
 <style scoped>
 .chart-renderer {
   margin: 16px 0;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  background-color: #ffffff;
+  background-color: white;
   animation: fadeInUp 0.5s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 @keyframes fadeInUp {
@@ -142,8 +143,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e8e8e8;
+  background-color: var(--color-bg-sidebar);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .chart-title {
@@ -152,7 +153,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--color-text-main);
 }
 
 .chart-icon {
@@ -166,17 +167,19 @@ onUnmounted(() => {
 
 .action-btn {
   background: transparent;
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--color-border);
   padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s ease;
+  color: var(--color-text-secondary);
 }
 
 .action-btn:hover {
-  background-color: #f5f5f5;
-  border-color: #d0d0d0;
+  background-color: var(--color-bg-app);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-main);
 }
 
 .chart-container {
@@ -193,7 +196,7 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   z-index: 9999;
-  background-color: #ffffff;
+  background-color: white;
   padding: 40px;
 }
 </style>
