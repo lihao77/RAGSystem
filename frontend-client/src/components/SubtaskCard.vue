@@ -25,22 +25,29 @@
         <strong>任务描述：</strong>{{ subtask.description }}
       </div>
 
-      <!-- 推理步骤 -->
+      <!-- ReAct 推理流程（新版） -->
+      <ReActStepsList
+        v-if="subtask.react_steps && subtask.react_steps.length > 0"
+        :steps="subtask.react_steps"
+      />
+
+      <!-- 旧版推理步骤（兼容） -->
       <ThinkingSteps
-        v-if="subtask.thinking_steps && subtask.thinking_steps.length > 0"
+        v-else-if="subtask.thinking_steps && subtask.thinking_steps.length > 0"
         :steps="subtask.thinking_steps"
       />
 
-      <!-- 工具调用 -->
+      <!-- 旧版工具调用（兼容，仅在没有 react_steps 时显示） -->
       <ToolCallsList
-        v-if="subtask.tool_calls && subtask.tool_calls.length > 0"
+        v-if="(!subtask.react_steps || subtask.react_steps.length === 0) && subtask.tool_calls && subtask.tool_calls.length > 0"
         :toolCalls="subtask.tool_calls"
       />
 
-      <!-- 结果摘要 -->
+      <!-- 结果摘要（展开后显示完整内容） -->
       <div v-if="subtask.result_summary" class="subtask-result">
-        <div class="section-header">📋 结果摘要</div>
-        <div class="result-content">{{ subtask.result_summary }}</div>
+        <div class="section-header">📋 完整结果</div>
+        <!-- 使用 Markdown 渲染或预格式化文本 -->
+        <div class="result-content-full">{{ subtask.result_summary }}</div>
       </div>
     </div>
   </div>
@@ -48,6 +55,7 @@
 
 <script setup>
 import { defineProps, defineEmits } from 'vue';
+import ReActStepsList from './ReActStepsList.vue';
 import ThinkingSteps from './ThinkingSteps.vue';
 import ToolCallsList from './ToolCallsList.vue';
 
@@ -218,17 +226,22 @@ const getStatusText = (status) => {
   border-top: 1px solid #f0f0f0;
 }
 
-.result-content {
+/* 完整结果样式 */
+.result-content-full {
   font-size: 13px;
   color: #4a5568;
   line-height: 1.6;
-  padding: 12px;
+  padding: 16px;
   background-color: #f0fdf4;
   border-left: 3px solid #22c55e;
   border-radius: 4px;
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
+  white-space: pre-wrap; /* 保持换行 */
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace; /* 使用等宽字体以对齐数据 */
+  max-height: 400px;
+  overflow-y: auto; /* 内容过长时滚动 */
 }
 
 /* 动画 */

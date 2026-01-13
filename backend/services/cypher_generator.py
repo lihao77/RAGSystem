@@ -372,17 +372,17 @@ class CypherGenerator:
    - **事件节点** (:事件:entity)
      - ID格式: `E-<行政区划码>-<日期>-<事件类型>`
      - 示例: `E-450000-20231001-TYPHOON`
-     - 属性: id, name, geo_description, source
+     - 属性: id, name, geo_description, source, geometry(wkt)
    
    - **地点节点** (:地点:entity)
      - ID格式: `L-<行政区划码>[>子区域]` 或 `L-RIVER-<名称>`
      - 示例: `L-450100`（南宁市）, `L-450103>新竹街道`, `L-RIVER-长江`
-     - 属性: id, name, geo_description, admin_level（查询请勿使用此属性）
+     - 属性: id, name, geo_description, geometry(wkt), admin_level（查询请勿使用此属性）
    
    - **设施节点** (:设施:entity)
      - ID格式: `F-<行政区划码>-<设施名称>`
      - 示例: `F-420500-三峡大坝`, `F-450381-潘厂水库`
-     - 属性: id, name, geo_description, facility_type
+     - 属性: id, name, geo_description, facility_type, geometry(wkt)
 
 #### 2. 状态节点 (:State) - **状态ID包含实体ID信息**
    - **事件状态** (ES-*)

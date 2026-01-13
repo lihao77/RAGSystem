@@ -130,11 +130,11 @@ def _generate_result_summary(records):
 def execute_tool(tool_name, arguments):
     """
     执行指定的工具
-    
+
     Args:
         tool_name: 工具名称
         arguments: 工具参数（字典）
-    
+
     Returns:
         工具执行结果
     """
@@ -163,6 +163,12 @@ def execute_tool(tool_name, arguments):
             return query_emergency_plan(**arguments)
         elif tool_name == "generate_chart":
             return generate_chart(**arguments)
+        elif tool_name == "generate_map":
+            return generate_map(**arguments)
+        elif tool_name == "get_entity_geometry":
+            return get_entity_geometry(**arguments)
+        elif tool_name == "transform_data":
+            return transform_data(**arguments)
         elif tool_name == "process_data_file":
             return process_data_file(**arguments)
         else:
@@ -1285,6 +1291,373 @@ def generate_chart(data, chart_type=None, title="",
         return error_response(f"生成图表失败: {str(e)}")
 
 
+def generate_map(data, map_type="heatmap", title="", name_field="", value_field="", geometry_field="geometry"):
+    """
+    生成地图可视化配置（Leaflet 地图）
+
+    支持多种地图类型，从知识图谱数据中提取 WKT geometry 并转换为 Leaflet 格式
+
+    返回格式（标准化）:
+    {
+        "success": True,
+        "data": {
+            "results": {
+                "map_type": "heatmap/marker/circle",
+                "heat_data": [[lat, lng, intensity], ...],  # 热力图数据（heatmap）
+                "markers": [{"name": "...", "lat": ..., "lng": ..., "value": ...}],  # 标记点数据（marker/circle）
+                "bounds": [[minLat, minLng], [maxLat, maxLng]],  # 地图边界
+                "center": [lat, lng],  # 地图中心
+                "title": "...",
+                "value_field": "...",
+                "total_points": int
+            },
+            "metadata": {...},
+            "summary": "..."
+        }
+    }
+
+    Args:
+        data: 数据列表（List[Dict]）或数据文件路径（str）
+              每条记录必须包含 geometry 字段（WKT格式：POINT (lng lat)）
+        map_type: 地图类型
+                  - 'heatmap': 热力图（展示数值密度分布）
+                  - 'marker': 标记点（展示精确位置和数值）
+                  - 'circle': 圆圈标记（圆的大小代表数值大小）
+        title: 地图标题
+        name_field: 地名字段（如 "city", "区域"）- 可选（marker/circle 时建议提供）
+        value_field: 数值字段（如 "受灾人口", "经济损失"）- 必填
+        geometry_field: 几何字段名（默认 "geometry"）
+    """
+    import pandas as pd
+    import json
+    import os
+    import re
+
+    try:
+        # 1. 参数验证
+        if not value_field:
+            return error_response("缺少必填参数: value_field。请指定数值字段。")
+
+        # 验证地图类型
+        supported_types = ['heatmap', 'marker', 'circle']
+        if map_type not in supported_types:
+            return error_response(
+                f"不支持的地图类型: {map_type}。支持的类型: {', '.join(supported_types)}"
+            )
+
+        # 2. 数据加载
+        df = None
+        if isinstance(data, str):
+            if os.path.exists(data):
+                try:
+                    if data.endswith('.csv'):
+                        df = pd.read_csv(data)
+                    else:
+                        df = pd.read_json(data)
+                except Exception:
+                    try:
+                        with open(data, 'r', encoding='utf-8') as f:
+                            content = json.load(f)
+                            if isinstance(content, list):
+                                df = pd.DataFrame(content)
+                            elif isinstance(content, dict) and 'results' in content:
+                                df = pd.DataFrame(content['results'])
+                            else:
+                                return error_response("文件内容无法解析为表格")
+                    except Exception as e:
+                        return error_response(f"无法读取数据文件: {str(e)}")
+            else:
+                return error_response(f"数据文件不存在: {data}")
+        elif isinstance(data, list):
+            df = pd.DataFrame(data)
+        else:
+            return error_response("数据格式错误：需要列表或文件路径")
+
+        if df is None or df.empty:
+            return error_response("数据为空")
+
+        # 3. 验证字段存在性
+        columns = df.columns.tolist()
+        if value_field not in columns:
+            return error_response(f"数值字段 '{value_field}' 在数据中不存在。可用字段: {columns}")
+        if geometry_field not in columns:
+            return error_response(
+                f"几何字段 '{geometry_field}' 在数据中不存在。可用字段: {columns}\n"
+                "请确保数据包含 geometry 字段（WKT格式，如 'POINT (lng lat)'）"
+            )
+
+        # 4. 解析 WKT geometry 并提取坐标
+        def parse_wkt_point(wkt_str):
+            """
+            解析 WKT POINT 格式: "POINT (lng lat)"
+            返回 (lat, lng) 或 None
+            """
+            if pd.isna(wkt_str) or not isinstance(wkt_str, str):
+                return None
+
+            # 正则提取坐标：POINT (lng lat)
+            match = re.search(r'POINT\s*\(\s*([\d.+-]+)\s+([\d.+-]+)\s*\)', wkt_str, re.IGNORECASE)
+            if match:
+                lng = float(match.group(1))
+                lat = float(match.group(2))
+                return (lat, lng)  # Leaflet 使用 [lat, lng] 顺序
+            return None
+
+        # 5. 构建地图数据
+        heat_data = []
+        markers = []
+        valid_count = 0
+
+        # 计算数值范围（用于标准化）
+        values = df[value_field].dropna().astype(float)
+        if len(values) == 0:
+            return error_response(f"{value_field} 字段没有有效的数值数据")
+
+        min_value = float(values.min())
+        max_value = float(values.max())
+
+        for idx, row in df.iterrows():
+            # 解析坐标
+            coords = parse_wkt_point(row[geometry_field])
+            if coords is None:
+                continue
+
+            lat, lng = coords
+            value = float(row[value_field]) if pd.notnull(row[value_field]) else 0
+
+            # 热力图数据: [lat, lng, normalized_intensity]
+            # 归一化到 0.1-1.0 范围（避免完全为0的点不显示）
+            if max_value > min_value:
+                normalized_intensity = 0.1 + 0.9 * (value - min_value) / (max_value - min_value)
+            else:
+                normalized_intensity = 0.5
+
+            heat_data.append([lat, lng, normalized_intensity])
+
+            # 标记点数据（保留原始值用于显示）
+            marker_data = {
+                "lat": lat,
+                "lng": lng,
+                "value": value
+            }
+
+            # 添加地名（如果有）
+            if name_field and name_field in columns and pd.notnull(row[name_field]):
+                marker_data["name"] = str(row[name_field])
+            else:
+                marker_data["name"] = f"点 {valid_count + 1}"
+
+            # Circle 类型需要半径
+            if map_type == 'circle':
+                # 根据数值大小计算半径（归一化到 500-5000 米）
+                if max_value > min_value:
+                    normalized = (value - min_value) / (max_value - min_value)
+                    marker_data["radius"] = int(500 + normalized * 4500)
+                else:
+                    marker_data["radius"] = 2000
+
+            markers.append(marker_data)
+            valid_count += 1
+
+        if valid_count == 0:
+            return error_response(
+                f"没有有效的地理坐标数据。请检查 {geometry_field} 字段是否包含有效的 WKT POINT 格式。"
+            )
+
+        # 6. 计算地图边界（用于自动定位）
+        lats = [point[0] for point in heat_data]
+        lngs = [point[1] for point in heat_data]
+        bounds = [
+            [min(lats), min(lngs)],  # 西南角
+            [max(lats), max(lngs)]   # 东北角
+        ]
+
+        # 7. 计算中心点
+        center = [
+            (min(lats) + max(lats)) / 2,
+            (min(lngs) + max(lngs)) / 2
+        ]
+
+        # 8. 智能生成标题
+        if not title:
+            map_type_name = {
+                'heatmap': '热力图',
+                'marker': '标记点地图',
+                'circle': '圆圈标记地图'
+            }.get(map_type, '地图')
+            title = f"{value_field}分布{map_type_name}"
+
+        # 9. 构建返回数据
+        result_data = {
+            "map_type": map_type,
+            "heat_data": heat_data if map_type == 'heatmap' else [],      # [[lat, lng, intensity], ...]
+            "markers": markers if map_type in ['marker', 'circle'] else [],  # [{"name": "...", "lat": ..., "lng": ..., "value": ...}, ...]
+            "bounds": bounds,             # [[minLat, minLng], [maxLat, maxLng]]
+            "center": center,             # [lat, lng]
+            "title": title,
+            "value_field": value_field,
+            "total_points": valid_count,
+            "value_range": {"min": min_value, "max": max_value}
+        }
+
+        # 使用标准化响应
+        return success_response(
+            results=result_data,
+            summary=f"地图配置已生成 ({map_type})，共 {valid_count} 个有效数据点"
+        )
+
+    except Exception as e:
+        logger.error(f"生成地图失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return error_response(f"生成地图失败: {str(e)}")
+
+
+def get_entity_geometry(entity_ids):
+    """
+    根据实体 ID 获取几何信息（WKT 格式）
+
+    Args:
+        entity_ids: 实体 ID 列表，如 ["L-450100", "L-450200", "E-450000-20211012-FLOOD"]
+
+    Returns:
+        标准化响应:
+        {
+            "success": True,
+            "data": {
+                "results": [
+                    {"id": "L-450100", "geometry": "POINT (108.55 25.18)"},
+                    {"id": "L-450200", "geometry": "POINT (109.42 24.33)"}
+                ],
+                "metadata": {...},
+                "summary": "获取到 X 个实体的几何信息"
+            }
+        }
+    """
+    session = None
+    try:
+        session = get_session()
+
+        # 参数验证
+        if not entity_ids or not isinstance(entity_ids, list):
+            return error_response("参数 entity_ids 必须是非空列表")
+
+        # 查询实体的 geometry 属性
+        cypher = """
+        MATCH (e:entity)
+        WHERE e.id IN $entity_ids AND e.geometry IS NOT NULL
+        RETURN e.id AS id, e.geometry AS geometry
+        """
+
+        result = session.run(cypher, {"entity_ids": entity_ids})
+        records = [convert_neo4j_types(dict(record)) for record in result]
+
+        # 使用标准化响应
+        return success_response(
+            results=records,
+            summary=f"获取到 {len(records)} 个实体的几何信息（共查询 {len(entity_ids)} 个 ID）"
+        )
+
+    except Exception as e:
+        logger.error(f'获取实体几何信息失败: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
+        return error_response(f"获取实体几何信息失败: {str(e)}")
+    finally:
+        if session:
+            session.close()
+
+
+def transform_data(python_code, description=""):
+    """
+    执行 Python 代码进行数据转换（纯内存操作）
+
+    适用于 LLM 已经从前一个工具获得数据，需要快速转换的场景。
+    LLM 直接在代码中硬编码数据，无需传递 data 参数。
+
+    Args:
+        python_code: Python 转换代码，必须设置 result 变量作为输出
+        description: 操作描述（可选）
+
+    Returns:
+        标准化响应:
+        {
+            "success": True,
+            "data": {
+                "results": [...],  # 转换后的数据（从 result 变量获取）
+                "metadata": {...},  # 自动生成
+                "summary": "数据转换成功"
+            }
+        }
+
+    Example:
+        python_code = '''
+# 直接在代码中定义数据
+raw_data = [
+    {"name": "南宁", "lng": 108.37, "lat": 22.82, "value": 1500},
+    {"name": "柳州", "lng": 109.42, "lat": 24.33, "value": 800}
+]
+
+# 转换数据
+result = []
+for item in raw_data:
+    result.append({
+        'name': item['name'],
+        'value': item['value'],
+        'geometry': f"POINT ({item['lng']} {item['lat']})"
+    })
+'''
+        transform_data(python_code, "添加 geometry 字段")
+    """
+    import pandas as pd
+    import json
+
+    try:
+        logger.info(f"执行数据转换: {description}")
+
+        # 参数验证
+        if not python_code or not python_code.strip():
+            return error_response("参数 python_code 不能为空")
+
+        # 准备执行环境
+        local_vars = {
+            'pd': pd,
+            'json': json,
+            'result': None,    # 输出结果（用户必须设置）
+            '__builtins__': __builtins__
+        }
+
+        # 安全限制：禁止导入敏感模块
+        forbidden_modules = ['os', 'sys', 'subprocess', 'shutil']
+        for mod in forbidden_modules:
+            if f"import {mod}" in python_code or f"from {mod}" in python_code:
+                return error_response(f"安全警告: 禁止在代码中使用 {mod} 模块")
+
+        # 执行代码
+        logger.info("开始执行转换代码...")
+        exec(python_code, local_vars, local_vars)
+
+        # 获取结果
+        result_data = local_vars.get('result')
+        if result_data is None:
+            return error_response(
+                "代码执行成功，但未设置 result 变量。\n"
+                "请在代码末尾添加：result = <转换后的数据>"
+            )
+
+        # 使用标准化响应（自动生成元数据）
+        return success_response(
+            results=result_data,
+            summary=f"数据转换成功：{description}" if description else "数据转换成功"
+        )
+
+    except Exception as e:
+        logger.error(f"数据转换失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return error_response(f"数据转换失败: {str(e)}")
+
+
 def process_data_file(source_path, python_code, description=""):
     """
     执行数据处理工具
@@ -1293,12 +1666,31 @@ def process_data_file(source_path, python_code, description=""):
         source_path: 源文件路径
         python_code: Python 处理代码
         description: 操作描述
+
+    Returns:
+        标准化响应（自动生成元数据和摘要）:
+        {
+            "success": True,
+            "data": {
+                "results": list,         # 处理后的数据列表
+                "metadata": {            # 自动生成
+                    "total_count": int,
+                    "fields": list,
+                    "sample": dict
+                },
+                "summary": str,          # 自动生成
+                "debug": {
+                    "result_path": str,
+                    "source_path": str,
+                    "file_size": str
+                }
+            }
+        }
     """
     import pandas as pd
     import json
     import os
     import uuid
-    import tempfile
 
     try:
         logger.info(f"执行数据处理: {description}")
@@ -1306,10 +1698,7 @@ def process_data_file(source_path, python_code, description=""):
 
         # 1. 验证源文件存在
         if not os.path.exists(source_path):
-            return {
-                "success": False,
-                "error": f"源文件不存在: {source_path}"
-            }
+            return error_response(f"源文件不存在: {source_path}")
 
         # 2. 生成结果文件路径
         result_dir = os.path.dirname(source_path)
@@ -1317,74 +1706,49 @@ def process_data_file(source_path, python_code, description=""):
         result_path = os.path.join(result_dir, result_filename)
 
         # 3. 准备执行环境
-        # 注意：local_vars 必须同时作为 globals 和 locals 传入 exec()
-        # 否则在 lambda、列表推导式等嵌套作用域中无法访问这些变量
         local_vars = {
             'pd': pd,
             'json': json,
             'source_path': source_path,
             'result_path': result_path,
-            # 添加内置函数，确保代码可以正常执行
             '__builtins__': __builtins__
         }
 
-        # 4. 安全限制（简单版）：禁止导入敏感模块
+        # 4. 安全限制：禁止导入敏感模块
         forbidden_modules = ['os', 'sys', 'subprocess', 'shutil']
         for mod in forbidden_modules:
             if f"import {mod}" in python_code or f"from {mod}" in python_code:
-                return {
-                    "success": False,
-                    "error": f"安全警告: 禁止在代码中使用 {mod} 模块"
-                }
+                return error_response(f"安全警告: 禁止在代码中使用 {mod} 模块")
 
         # 5. 执行代码
-        # 关键修复：使用 local_vars 同时作为 globals 和 locals
-        # 这样在 lambda、apply 等嵌套作用域中也能访问 pd、json 等变量
         logger.info("开始执行 Python 代码...")
         exec(python_code, local_vars, local_vars)
 
         # 6. 验证结果文件是否生成
         if not os.path.exists(result_path):
-            return {
-                "success": False,
-                "error": "代码执行成功，但未生成结果文件。请检查代码是否正确写入 result_path。"
-            }
+            return error_response("代码执行成功，但未生成结果文件。请检查代码是否正确写入 result_path。")
 
-        # 7. 读取结果文件的元数据（不读取全文）
+        # 7. 读取处理后的完整数据
         file_size = os.path.getsize(result_path)
 
-        # 尝试读取前几行作为预览
-        preview_data = None
-        try:
-            with open(result_path, 'r', encoding='utf-8') as f:
-                # 只读取前 1000 字符用于预览
-                content_preview = f.read(1000)
-                try:
-                    # 尝试解析为 JSON
-                    json_data = json.loads(content_preview)
-                    preview_data = json_data
-                except:
-                    # 如果截断导致解析失败，或者不是 JSON，则保留字符串
-                    preview_data = content_preview + "..."
-        except Exception as e:
-            preview_data = f"无法预览: {str(e)}"
+        with open(result_path, 'r', encoding='utf-8') as f:
+            processed_data = json.load(f)
 
-        return {
-            "success": True,
-            "data": {
-                "message": "数据处理成功",
-                "result_path": result_path,
-                "source_path": source_path,
-                "file_size": f"{file_size / 1024:.2f} KB",
-                "preview": preview_data
-            }
+        # 8. 使用标准化响应，自动生成元数据和摘要
+        # 直接传递处理后的数据，让 success_response 自动分析
+        debug_info = {
+            "result_path": result_path,
+            "source_path": source_path,
+            "file_size": f"{file_size / 1024:.2f} KB"
         }
+
+        return success_response(
+            results=processed_data,
+            debug=debug_info
+        )
 
     except Exception as e:
         logger.error(f"数据处理失败: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": f"代码执行错误: {str(e)}"
-        }
+        return error_response(f"代码执行错误: {str(e)}")

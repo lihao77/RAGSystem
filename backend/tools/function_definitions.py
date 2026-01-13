@@ -390,6 +390,89 @@ TOOLS = [
                 "required": ["source_path", "python_code"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_map",
+            "description": "生成地图可视化配置（Leaflet 地图）。从知识图谱数据中提取 WKT geometry 并转换为地图格式。支持热力图、标记点、圆圈标记等多种地图类型。\n\n**使用说明**：\n1. 数据中必须包含 geometry 字段（WKT格式：POINT (lng lat)）。\n2. 必须指定 value_field（数值字段）。\n3. 可选指定 name_field（地名字段，用于标记点显示）。\n\n**适用场景**：\n- 展示受灾地区的空间分布（热力图）\n- 标记具体灾害事件位置（标记点）\n- 对比不同地区的受灾程度（圆圈标记）\n\n**地图类型选择**：\n- heatmap：热力图 - 展示数值的空间密度分布，适合宏观了解影响范围\n- marker：标记点 - 精确标记位置，点击可查看详情\n- circle：圆圈标记 - 圆的大小代表数值大小，适合直观对比\n\n**重要提示**：\n- 数据必须从知识图谱查询获得（包含geometry字段）\n- geometry格式示例：'POINT (108.55015524500028 25.17981577140806)'\n- 如果数据是文件路径，需确保文件包含geometry列",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "description": "数据源。可以是包含 geometry 字段的数据列表(List[Dict])，也可以是 JSON/CSV 文件路径。"
+                    },
+                    "map_type": {
+                        "type": "string",
+                        "description": "地图类型（默认 heatmap）：\n- heatmap: 热力图 - 展示数值的空间密度分布\n- marker: 标记点 - 精确标记位置，显示名称和数值\n- circle: 圆圈标记 - 圆的大小代表数值大小",
+                        "enum": ["heatmap", "marker", "circle"],
+                        "default": "heatmap"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "地图标题（可选，不指定则自动生成）"
+                    },
+                    "name_field": {
+                        "type": "string",
+                        "description": "地名字段（可选）。用于在标记点上显示名称。例如：'city', 'name', '行政区划'"
+                    },
+                    "value_field": {
+                        "type": "string",
+                        "description": "数值字段（必填）。用于映射热力图强度或圆圈大小的字段。例如：'受灾人口', '经济损失', 'value'"
+                    },
+                    "geometry_field": {
+                        "type": "string",
+                        "description": "几何字段名（默认 'geometry'）。包含 WKT POINT 格式坐标的字段名。",
+                        "default": "geometry"
+                    }
+                },
+                "required": ["data", "value_field"]
+            }
+        }
+    },
+    # 14. 获取实体几何信息
+    {
+        "type": "function",
+        "function": {
+            "name": "get_entity_geometry",
+            "description": "根据实体 ID 列表获取实体的几何信息（WKT 格式坐标，可能存在线数据以及面数据）。\n\n**适用场景**：\n- 为地图可视化准备带坐标的实体数据\n- 获取特定实体的地理位置信息\n- 补充查询结果中缺失的 geometry 字段\n\n**使用说明**：\n1. 传入实体 ID 列表（如从其他工具的查询结果中提取）\n2. 返回 id 和 geometry 的映射列表\n3. 只返回有 geometry 属性的实体（:entity 标签）\n\n**典型用法**：\n```\n# 先查询实体，获取 ID\nresult1 = query_knowledge_graph_with_nl(\"2023年广西各市的洪涝灾害事件\")\nentity_ids = [item['event_id'] for item in result1]\n\n# 获取这些实体的几何信息\ngeometry_data = get_entity_geometry(entity_ids)\n\n# 合并数据后传给 generate_map\n```\n\n**重要提示**：\n- 只查询基础实体节点（:entity 标签），不包括状态节点（:State）\n- geometry 字段格式为 WKT，如 \"POINT (108.55 25.18)\"\n- 如果某个 ID 没有 geometry 属性，不会出现在结果中",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "实体 ID 列表。例如: [\"L-450100\", \"L-450200\", \"E-450000-20211012-FLOOD\"]"
+                    }
+                },
+                "required": ["entity_ids"]
+            }
+        }
+    },
+    # 15. 内存数据转换
+    {
+        "type": "function",
+        "function": {
+            "name": "transform_data",
+            "description": "执行 Python 代码进行数据转换（纯内存操作）。适用于你已经从前一个工具获得数据，需要快速转换的场景。\n\n**适用场景**：\n- 为地图可视化添加 geometry 字段\n- 合并多个数据源\n- 数据格式转换和字段重命名\n- 简单的数据计算和映射\n\n**与 process_data_file 的区别**：\n- transform_data：内存操作，直接在代码中硬编码数据\n- process_data_file：文件操作，适合大数据（> 1000 条）\n\n**使用规则**：\n1. **直接在 python_code 中硬编码数据**（从前一个工具的结果中复制）\n2. **必须设置 `result` 变量**作为输出\n3. 可以使用 `pd`（pandas）和 `json` 模块\n\n**典型用法**：\n\n```python\n# 示例 1: 为地图数据添加 geometry 字段\n# 假设你从 query_knowledge_graph_with_nl 获得了业务数据\n# 又从 get_entity_geometry 获得了坐标数据\n\npython_code = '''\n# 业务数据（从前一个工具复制）\nbusiness_data = [\n    {\"location_id\": \"L-450100\", \"name\": \"南宁市\", \"value\": 1500},\n    {\"location_id\": \"L-450200\", \"name\": \"柳州市\", \"value\": 800}\n]\n\n# 几何数据（从 get_entity_geometry 获得）\ngeometry_data = [\n    {\"id\": \"L-450100\", \"geometry\": \"POINT (108.37 22.82)\"},\n    {\"id\": \"L-450200\", \"geometry\": \"POINT (109.42 24.33)\"}\n]\n\n# 合并数据\nresult = []\nfor item in business_data:\n    geo = next((g for g in geometry_data if g['id'] == item['location_id']), None)\n    if geo:\n        result.append({\n            'name': item['name'],\n            'value': item['value'],\n            'geometry': geo['geometry']\n        })\n'''\n\n# 示例 2: 简单的字段转换\npython_code = '''\nraw_data = [\n    {\"city\": \"南宁\", \"lng\": 108.37, \"lat\": 22.82, \"loss\": 1500},\n    {\"city\": \"柳州\", \"lng\": 109.42, \"lat\": 24.33, \"loss\": 800}\n]\n\nresult = []\nfor item in raw_data:\n    result.append({\n        'name': item['city'],\n        'value': item['loss'],\n        'geometry': f\"POINT ({item['lng']} {item['lat']})\"\n    })\n'''\n\n# 示例 3: 使用 pandas\npython_code = '''\nimport pandas as pd\n\nraw_data = [{\"name\": \"南宁\", \"lng\": 108.37, \"lat\": 22.82, \"value\": 1500}]\ndf = pd.DataFrame(raw_data)\ndf['geometry'] = df.apply(lambda row: f\"POINT ({row['lng']} {row['lat']})\", axis=1)\nresult = df.to_dict('records')\n'''\n```\n\n**重要提示**：\n- 数据量应该较小（< 1000 条），否则请使用 process_data_file\n- 代码末尾**必须设置** `result = ...`\n- 数据直接硬编码在 python_code 中，不要传递文件路径",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "python_code": {
+                        "type": "string",
+                        "description": "Python 转换代码。在代码中直接定义数据（硬编码），最后必须设置 result 变量。可以使用 pd（pandas）和 json 模块。"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "操作描述（可选）。例如: '添加 geometry 字段', '合并业务数据和几何数据'"
+                    }
+                },
+                "required": ["python_code"]
+            }
+        }
     }
 ]
 

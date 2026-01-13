@@ -369,14 +369,14 @@ class ReActAgent(BaseAgent):
                             "total": len(actions)
                         }
 
-                        # 关键：检查工具是否返回了图表配置，如果是，额外发送一个 'chart_generated' 事件
+                        # 关键：检查工具是否返回了图表配置或地图配置，如果是，额外发送相应事件
                         # 让前端能直接捕获并渲染，不需要等最终答案
                         # 适配新的标准化响应格式
                         if isinstance(result, dict) and result.get('success'):
                             data = result.get('data', {})
                             results = data.get('results', {})
 
-                            # 检查 results 中是否有 echarts_config
+                            # 检查是否有图表配置
                             if isinstance(results, dict) and 'echarts_config' in results:
                                 echarts_config = results['echarts_config']
                                 chart_type = results.get('chart_type', 'bar')
@@ -386,6 +386,17 @@ class ReActAgent(BaseAgent):
                                     "type": "chart_generated",
                                     "echarts_config": echarts_config,
                                     "chart_type": chart_type,
+                                    "title": title
+                                }
+
+                            # 检查是否有地图配置
+                            elif isinstance(results, dict) and 'map_type' in results:
+                                map_type = results.get('map_type')
+                                title = results.get('title', '地图可视化')
+
+                                yield {
+                                    "type": "map_generated",
+                                    "mapData": results,  # 包含 map_type, heat_data, markers, bounds等
                                     "title": title
                                 }
 
@@ -632,7 +643,7 @@ class ReActAgent(BaseAgent):
             "success": bool,
             "data": {
                 "results": ...,      # 纯净数据
-                "metadata": {...},   # 元数据
+                "metadata": {...},   # 元数据（优先使用）
                 "summary": "...",    # 摘要
                 "answer": "..."      # 答案（可选）
             }
@@ -649,7 +660,7 @@ class ReActAgent(BaseAgent):
             # 3. 提取核心字段
             pure_data = data.get('results')
             summary = data.get('summary', '')
-            metadata = data.get('metadata', {})
+            metadata = data.get('metadata', {})  # 工具返回的元数据
             answer = data.get('answer')  # 查询类工具的完整答案
 
             # 4. 如果没有标准化格式，尝试兼容旧格式
@@ -676,20 +687,40 @@ class ReActAgent(BaseAgent):
                 os.makedirs(save_dir, exist_ok=True)
                 file_path = os.path.join(save_dir, file_name)
 
-                # B. 构建元数据提示
+                # B. 构建元数据提示（优先使用工具返回的 metadata）
                 meta_info = summary if summary else "数据量过大，已自动转存。"
 
-                # 添加详细的数据结构信息
-                if isinstance(pure_data, list):
-                    meta_info += f" 类型: List, 长度: {len(pure_data)} 条。"
-                    if len(pure_data) > 0:
-                        first_item = pure_data[0]
-                        if isinstance(first_item, dict):
-                            keys_info = [f"{k}({type(v).__name__})" for k, v in first_item.items()]
-                            meta_info += f" 包含字段: {', '.join(keys_info)}"
-                            meta_info += f"\n  样本数据 (第1条): {json.dumps(first_item, ensure_ascii=False)[:200]}..."
-                elif isinstance(pure_data, dict):
-                    meta_info += f" 类型: Dict, 顶层键: {list(pure_data.keys())}"
+                # 优先使用工具返回的 metadata
+                if metadata and metadata.get('fields'):
+                    total_count = metadata.get('total_count', 0)
+                    fields = metadata.get('fields', [])
+                    sample = metadata.get('sample')
+
+                    meta_info += f" 类型: {metadata.get('data_type', 'List')}, 总数: {total_count} 条。"
+
+                    # 显示字段信息
+                    if fields:
+                        field_info = [f"{f['name']}({f['type']})" for f in fields[:10]]
+                        meta_info += f" 包含字段: {', '.join(field_info)}"
+                        if len(fields) > 10:
+                            meta_info += f" 等 {len(fields)} 个字段"
+
+                    # 显示样本数据
+                    if sample:
+                        meta_info += f"\n  样本数据 (第1条): {json.dumps(sample, ensure_ascii=False)[:300]}..."
+
+                else:
+                    # 如果工具未返回 metadata，回退到原有逻辑（从 pure_data 提取）
+                    if isinstance(pure_data, list):
+                        meta_info += f" 类型: List, 长度: {len(pure_data)} 条。"
+                        if len(pure_data) > 0:
+                            first_item = pure_data[0]
+                            if isinstance(first_item, dict):
+                                keys_info = [f"{k}({type(v).__name__})" for k, v in first_item.items()]
+                                meta_info += f" 包含字段: {', '.join(keys_info)}"
+                                meta_info += f"\n  样本数据 (第1条): {json.dumps(first_item, ensure_ascii=False)[:200]}..."
+                    elif isinstance(pure_data, dict):
+                        meta_info += f" 类型: Dict, 顶层键: {list(pure_data.keys())}"
 
                 # C. 保存纯净数据到文件
                 with open(file_path, 'w', encoding='utf-8') as f:

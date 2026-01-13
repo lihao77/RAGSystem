@@ -13,6 +13,7 @@
 <script setup>
 import { computed } from 'vue';
 import ChartRenderer from './ChartRenderer.vue';
+import MapRenderer from './MapRenderer.vue';
 
 const props = defineProps({
   contents: {
@@ -21,7 +22,7 @@ const props = defineProps({
     // 数据格式示例:
     // [
     //   { type: 'chart', echartsConfig: {...}, title: '图表标题', chartType: 'bar' },
-    //   { type: 'map', mapConfig: {...}, title: '地图标题' },
+    //   { type: 'map', mapData: {...}, title: '地图标题' },
     //   { type: 'table', tableData: [...], columns: [...] }
     // ]
   }
@@ -30,8 +31,8 @@ const props = defineProps({
 // 模态类型与组件的映射
 const RENDERER_MAP = {
   chart: ChartRenderer,
+  map: MapRenderer,
   // 未来扩展:
-  // map: MapRenderer,
   // table: TableRenderer,
   // image: ImageRenderer,
   // video: VideoRenderer,

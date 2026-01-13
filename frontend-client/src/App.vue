@@ -380,50 +380,77 @@ const handleSend = async () => {
                 agent_name: data.agent_name,
                 agent_display_name: data.agent_display_name,
                 description: data.description,
-                thinking_steps: [],   // 推理步骤
-                tool_calls: [],       // 工具调用
+                react_steps: [],      // ReAct 推理步骤（新增）
+                tool_calls: [],       // 工具调用（保留用于兼容性）
                 result_summary: '',   // 结果摘要
                 status: 'running',    // running | success | error
-                expanded: true        // 新开始的子任务默认展开
+                expanded: true,       // 新开始的子任务默认展开
+                currentStep: null     // 当前正在进行的步骤
               });
             } else if (data.type === 'thought_structured') {
               // ReActAgent 的结构化思考
               const subtaskOrder = data.subtask_order;
               const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
               if (subtask) {
-                subtask.thinking_steps.push({
-                  thought: data.thought,
+                // 创建新的 ReAct 步骤
+                const newStep = {
                   round: data.round,
-                  has_actions: data.has_actions,
-                  has_answer: data.has_answer
-                });
+                  thought: data.thought,
+                  toolCalls: [],
+                  expanded: true
+                };
+                subtask.react_steps.push(newStep);
+                subtask.currentStep = newStep; // 保存当前步骤的引用
               }
             } else if (data.type === 'tool_start') {
               // 工具开始执行
               const subtaskOrder = data.subtask_order;
               const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
-              if (subtask) {
+              if (subtask && subtask.currentStep) {
+                // 将工具调用添加到当前步骤
+                subtask.currentStep.toolCalls.push({
+                  tool_name: data.tool_name,
+                  arguments: data.arguments,
+                  status: 'running',
+                  index: data.index,
+                  total: data.total,
+                  showResult: false,
+                  showArgs: false
+                });
+
+                // 兼容性：也添加到 tool_calls 数组
                 subtask.tool_calls.push({
                   tool_name: data.tool_name,
                   arguments: data.arguments,
                   status: 'running',
                   index: data.index,
                   total: data.total,
-                  showResult: false  // 默认折叠结果
+                  showResult: false
                 });
               }
             } else if (data.type === 'tool_end') {
               // 工具执行完成
               const subtaskOrder = data.subtask_order;
               const subtask = currentMsg.subtasks.find(s => s.order === subtaskOrder);
-              if (subtask) {
-                const toolIndex = subtask.tool_calls.findIndex(
+              if (subtask && subtask.currentStep) {
+                // 更新当前步骤中的工具状态
+                const toolIndex = subtask.currentStep.toolCalls.findIndex(
                   t => t.tool_name === data.tool_name && t.status === 'running'
                 );
                 if (toolIndex >= 0) {
-                  subtask.tool_calls[toolIndex].status = 'success';
-                  subtask.tool_calls[toolIndex].result = data.result;
-                  subtask.tool_calls[toolIndex].elapsed_time = data.elapsed_time;
+                  subtask.currentStep.toolCalls[toolIndex].status = 'success';
+                  subtask.currentStep.toolCalls[toolIndex].result = data.result;
+                  subtask.currentStep.toolCalls[toolIndex].elapsed_time = data.elapsed_time;
+                }
+
+                // 兼容性：同步更新 tool_calls 数组
+                const oldToolIndex = subtask.tool_calls.findIndex(
+                  t => t.tool_name === data.tool_name && t.status === 'running'
+                );
+                if (oldToolIndex >= 0) {
+                  subtask.tool_calls[oldToolIndex].status = 'success';
+                  subtask.tool_calls[oldToolIndex].result = data.result;
+                  subtask.tool_calls[oldToolIndex].elapsed_time = data.elapsed_time;
                 }
               }
             } else if (data.type === 'subtask_end') {
@@ -444,6 +471,13 @@ const handleSend = async () => {
                 echartsConfig: data.echarts_config,
                 title: data.title || '数据可视化',
                 chartType: data.chart_type || 'bar'
+              });
+            } else if (data.type === 'map_generated') {
+              // 地图生成事件 - 实时渲染地图
+              currentMsg.multimodalContents.push({
+                type: 'map',
+                mapData: data.mapData,
+                title: data.title || '地图可视化'
               });
             } else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });

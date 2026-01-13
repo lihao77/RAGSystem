@@ -642,12 +642,11 @@ class MasterAgent(BaseAgent):
                 results.append(subtask_responses[subtask.get('order')])
                 context.store_result(f'subtask_{subtask.get("order")}', response.data)
 
-                # 发送子任务结束事件
-                result_summary = response.content[:200] + "..." if len(response.content) > 200 else response.content
+                # 发送子任务结束事件（返回完整结果，不再截断）
                 yield {
                     "type": "subtask_end",
                     "order": subtask_order,
-                    "result_summary": result_summary
+                    "result_summary": response.content  # 返回完整内容，由前端处理展示
                 }
 
             except Exception as e:
