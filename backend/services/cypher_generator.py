@@ -377,7 +377,7 @@ class CypherGenerator:
    - **地点节点** (:地点:entity)
      - ID格式: `L-<行政区划码>[>子区域]` 或 `L-RIVER-<名称>`
      - 示例: `L-450100`（南宁市）, `L-450103>新竹街道`, `L-RIVER-长江`
-     - 属性: id, name, geo_description, admin_level
+     - 属性: id, name, geo_description, admin_level（查询请勿使用此属性）
    
    - **设施节点** (:设施:entity)
      - ID格式: `F-<行政区划码>-<设施名称>`
@@ -544,6 +544,31 @@ CALL (ns) {{
 WITH p, node_infos,
      [r IN rs | {{start: startNode(r).id, end: endNode(r).id, type: type(r), props: properties(r)}}] AS rel_infos
 RETURN node_infos AS nodes, rel_infos AS relationships
+```
+
+查询示例：在2019年期间广西发生的受灾人口统计数据详情
+```cypher
+MATCH (s:State)
+WHERE s.start_time >= date('2019-01-01') 
+  AND s.start_time <= date('2019-12-31')
+  AND s.id STARTS WITH 'LS-L-45' 
+
+MATCH (s)-[ha:hasAttribute]->(attr:Attribute)
+WHERE ha.type CONTAINS '人口' 
+  AND attr.value IS NOT NULL
+
+WITH s, ha, attr
+MATCH (city:地点:entity)
+WHERE city.id IN s.entity_ids
+
+AND city.name IS NOT NULL
+
+RETURN city.name AS city_name, 
+       collect({
+           type: ha.type, 
+           value: attr.value
+       }) AS population_data
+LIMIT 100
 ```
 """
 

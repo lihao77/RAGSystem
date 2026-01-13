@@ -49,6 +49,12 @@
               />
             </div>
 
+            <!-- 多模态内容展示（图表、地图等） -->
+            <MultimodalContent
+              v-if="msg.multimodalContents && msg.multimodalContents.length > 0"
+              :contents="msg.multimodalContents"
+            />
+
             <!-- 最终答案（仅助手消息） -->
             <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
               <div class="answer-header">💡 最终答案</div>
@@ -91,6 +97,7 @@ import ToolCallsList from './components/ToolCallsList.vue';
 import ThinkingSteps from './components/ThinkingSteps.vue';
 import TaskAnalysisCard from './components/TaskAnalysisCard.vue';
 import ChatInput from './components/ChatInput.vue';
+import MultimodalContent from './components/MultimodalContent.vue';
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -301,6 +308,7 @@ const handleSend = async () => {
     content: '',
     taskAnalysis: null,  // 任务分析数据
     subtasks: [],        // 子任务列表（统一格式）
+    multimodalContents: [], // 多模态内容列表（图表、地图等）
     status: []
   }) - 1;
 
@@ -429,6 +437,14 @@ const handleSend = async () => {
                   subtask.expanded = false;
                 }
               }
+            } else if (data.type === 'chart_generated') {
+              // 图表生成事件 - 实时渲染图表
+              currentMsg.multimodalContents.push({
+                type: 'chart',
+                echartsConfig: data.echarts_config,
+                title: data.title || '数据可视化',
+                chartType: data.chart_type || 'bar'
+              });
             } else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });
             }

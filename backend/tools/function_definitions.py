@@ -332,24 +332,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_chart",
-            "description": "生成数据可视化图表。基于查询结果数据自动生成 ECharts 图表配置。适用于：\n\n**时序趋势分析**：\n- 历史数据变化趋势（折线图）\n- 多指标对比（多系列折线图/柱状图）\n- 增长率分析\n\n**对比分析**：\n- 不同实体对比（柱状图）\n- 排名展示（横向柱状图）\n- 多维度对比（分组柱状图）\n\n**分布分析**：\n- 占比构成（饼图）\n- 相关性分析（散点图）\n- 分布特征（直方图）\n\n⚠️使用场景：\n1. 当用户明确要求图表、图形、可视化时\n2. 数据量 >= 3 条，适合可视化展示\n3. 包含可对比的数值数据\n4. 需要直观展示趋势或对比关系\n\n⚠️不适用场景：\n1. 数据量 < 3 条\n2. 纯文本描述性数据\n3. 单一数值（无对比意义）\n\n**工作流程**：\n1. 先调用图谱查询工具获取数据\n2. 将查询结果传给 generate_chart\n3. 返回 ECharts 配置 + 数据摘要",
+            "description": "生成数据可视化图表配置。根据指定的数据和字段映射生成 ECharts 配置。\n\n**使用说明**：\n1. 支持直接传入数据列表，也支持传入文件路径（由 process_data_file 生成的）。\n2. **必须**明确指定 x_field（X轴/类目轴）和 y_field（Y轴/数值轴）。\n3. **必须**明确指定 chart_type（图表类型）。\n\n**适用场景**：\n- 当用户要求画图时。\n- 数据包含明确的类别/时间和数值。\n\n**不适用场景**：\n- 数据极其稀疏或非结构化。\n- 纯文本内容。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "data": {
-                        "type": "array",
-                        "description": "数据列表，每个元素是一个字典。例如：\n[\n  {\"时间\": \"2020\", \"受灾人口\": 1000},\n  {\"时间\": \"2021\", \"受灾人口\": 1200}\n]",
-                        "items": {
-                            "type": "object"
-                        }
-                    },
-                    "question": {
                         "type": "string",
-                        "description": "原始问题（用于智能选择图表类型和生成标题）。例如：'南宁市2020-2023年受灾人口变化趋势'"
+                        "description": "数据源。可以是数据列表(List[Dict])，也可以是包含数据的 JSON/CSV 文件路径（推荐）。"
                     },
                     "chart_type": {
                         "type": "string",
-                        "description": "图表类型（可选，不指定则自动选择）：\n- line: 折线图（适合时序趋势）\n- bar: 柱状图（适合类别对比）\n- pie: 饼图（适合占比分布）\n- scatter: 散点图（适合相关性分析）",
+                        "description": "图表类型（必填）：\n- line: 折线图（适合时序趋势）\n- bar: 柱状图（适合类别对比）\n- pie: 饼图（适合占比分布）\n- scatter: 散点图（适合相关性分析）",
                         "enum": ["line", "bar", "pie", "scatter"]
                     },
                     "title": {
@@ -358,18 +351,43 @@ TOOLS = [
                     },
                     "x_field": {
                         "type": "string",
-                        "description": "X轴字段名（用于line/bar/scatter）。例如：'时间'、'地点'。不指定则自动选择第一个字段"
+                        "description": "X轴字段名（必填）。用于映射到类目轴或时间轴的字段。例如：'time', 'city'。"
                     },
                     "y_field": {
                         "type": "string",
-                        "description": "Y轴字段名（用于line/bar/scatter）。例如：'受灾人口'、'经济损失'。不指定则自动选择第二个字段"
+                        "description": "Y轴字段名（必填）。用于映射到数值轴的字段。例如：'value', 'count'。"
                     },
                     "series_field": {
                         "type": "string",
-                        "description": "系列分组字段名（用于多系列图表）。例如：'地点'（按地点分组）、'类型'（按类型分组）"
+                        "description": "系列分组字段名（可选）。如果数据需要按某字段分组展示（如“按城市分组显示不同颜色的折线”），请指定此字段。"
                     }
                 },
-                "required": ["data"]
+                "required": ["data", "chart_type", "x_field", "y_field"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "process_data_file",
+            "description": "通用数据处理工具。当需要将上一个工具输出的文件转换为下一个工具需要的格式时使用。支持执行 Python/Pandas 代码对数据进行清洗、过滤、转换、重塑。\n\n**使用场景**：\n1. 格式转换：JSON -> CSV，List[Dict] -> List[Value]\n2. 数据提取：从复杂对象中提取特定字段\n3. 数据过滤：筛选满足条件的记录\n4. 数据重组：合并、透视、聚合数据\n\n**重要规则**：\n1. 代码环境已预置 pandas (pd) 和 json 库\n2. 输入文件路径通过 source_path 参数传入，代码中直接读取\n3. 处理结果必须保存到 result_path 指定的文件中\n4. 代码必须是合法的 Python 脚本片段",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": "源文件路径（通常是上一个工具返回的临时文件路径）"
+                    },
+                    "python_code": {
+                        "type": "string",
+                        "description": "用于处理数据的 Python 代码。代码中应包含：\n1. 读取 source_path\n2. 处理数据 (DataFrame 操作)\n3. 将结果保存到 result_path (系统会自动生成此路径并注入到环境变量或全局变量)\n\n示例：\n```python\nimport pandas as pd\nimport json\n\n# 读取源文件\nwith open(source_path, 'r', encoding='utf-8') as f:\n    data = json.load(f)\n\n# 转换为 DataFrame\ndf = pd.DataFrame(data)\n\n# 提取需要的字段\nresult_df = df[['time', 'value']]\n\n# 保存结果 (result_path 变量由系统注入)\nresult_df.to_json(result_path, orient='records', force_ascii=False)\n```"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "对本次数据转换操作的简短描述，例如：'提取时间和受灾人口字段'"
+                    }
+                },
+                "required": ["source_path", "python_code"]
             }
         }
     }

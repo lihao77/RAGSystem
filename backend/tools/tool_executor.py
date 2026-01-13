@@ -15,6 +15,7 @@ from services.cypher_generator import (
     get_cypher_generator,
     generate_answer_from_query_results  # 使用新的答案生成函数
 )
+from tools.response_builder import success_response, error_response
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,8 @@ def execute_tool(tool_name, arguments):
             return query_emergency_plan(**arguments)
         elif tool_name == "generate_chart":
             return generate_chart(**arguments)
+        elif tool_name == "process_data_file":
+            return process_data_file(**arguments)
         else:
             return {
                 "success": False,
@@ -327,34 +330,43 @@ def search_knowledge_graph(keyword="", category="", document_source="",
 def query_knowledge_graph_with_nl(question, history=None):
     """
     使用自然语言查询知识图谱
-    
+
     这是对原有 /api/graphrag/query 接口的封装
+
+    返回格式（标准化）:
+    {
+        "success": True,
+        "data": {
+            "results": [...],      # 纯净的查询记录
+            "metadata": {...},     # 自动生成的元数据
+            "summary": "...",      # 自动生成的摘要
+            "answer": "...",       # 完整的文本答案
+            "debug": {
+                "cypher": "...",
+                "execution_time": 0.5
+            }
+        }
+    }
     """
+    import time
+    start_time = time.time()
+
     try:
         if not question or not question.strip():
-            return {
-                "success": False,
-                "error": "问题不能为空"
-            }
-        
+            return error_response("问题不能为空")
+
         # 1. 获取图谱结构
         logger.info(f'获取图谱结构...')
         graph_schema = get_graph_schema()
         if not graph_schema:
-            return {
-                "success": False,
-                "error": "获取图谱结构失败"
-            }
-        
+            return error_response("获取图谱结构失败")
+
         # 2. 生成Cypher查询
         logger.info(f'生成Cypher查询: {question}')
         generator = get_cypher_generator()
         cypher = generator.generate(question, graph_schema, history)
         if not cypher:
-            return {
-                "success": False,
-                "error": "生成查询语句失败"
-            }
+            return error_response("生成查询语句失败")
 
         logger.info(f'生成的Cypher: {cypher}')
 
@@ -389,7 +401,7 @@ def query_knowledge_graph_with_nl(question, history=None):
                 else:
                     logger.warning(f'达到最大重试次数，返回空结果')
                     break
-                    
+
             except Exception as e:
                 last_error = str(e)
                 logger.error(f'执行查询失败: {e}')
@@ -404,12 +416,11 @@ def query_knowledge_graph_with_nl(question, history=None):
                     logger.info(f'修正后的Cypher: {cypher}')
                     retry_count += 1
                 else:
-                    return {
-                        "success": False,
-                        "error": f"执行查询失败: {str(e)}",
-                        "cypher": cypher
-                    }
-        
+                    return error_response(
+                        f"执行查询失败: {str(e)}",
+                        debug={"cypher": cypher}
+                    )
+
         # 4. 生成回答
         logger.info(f'生成回答...')
         if len(query_records) == 0:
@@ -417,33 +428,23 @@ def query_knowledge_graph_with_nl(question, history=None):
         else:
             answer = generate_answer_from_query_results(question, query_records, cypher, history)
 
-        # 优化：智能压缩返回数据，避免占满 Agent 上下文
-        # 策略：只返回 Agent 真正需要的信息
+        # 5. 使用标准化响应构造器返回结果
+        execution_time = time.time() - start_time
 
-        # 1. 压缩查询结果：只保留关键字段，移除冗余数据
-        compressed_results = _compress_query_results(query_records[:10])  # 从20减到10条
-
-        # 2. 生成简洁的结果摘要（用于 Agent 理解数据结构）
-        result_summary = _generate_result_summary(query_records)
-
-        return {
-            "success": True,
-            "data": {
-                "answer": answer,  # ✅ 完整答案，Agent 核心依赖
-                "result_summary": result_summary,  # ✅ 简洁摘要（替代完整结果）
-                "sample_results": compressed_results,  # ✅ 压缩的示例数据
-                "total_results": len(query_records),  # ✅ 结果数量
-                "cypher": cypher[:500] + "..." if len(cypher) > 500 else cypher  # ⚠️ 截断过长的 Cypher
-                # ❌ 移除 graph_data（Agent 不需要图可视化）
+        return success_response(
+            results=query_records,  # 纯净的查询记录（不压缩，让 _format_observation 处理）
+            answer=answer,          # 完整的文本答案
+            debug={
+                "cypher": cypher[:500] + "..." if len(cypher) > 500 else cypher,
+                "execution_time": round(execution_time, 2),
+                "retry_count": retry_count
             }
-        }
-        
+            # metadata 和 summary 会自动生成
+        )
+
     except Exception as e:
         logger.error(f'自然语言查询失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
 
 
 def get_entity_relations(entity_id):
@@ -874,7 +875,19 @@ def compare_entities(entity_names, time_range=None, compare_attributes=None):
 
 
 def aggregate_statistics(attribute, aggregation, entity_type=None, time_range=None, group_by=None):
-    """聚合统计"""
+    """
+    聚合统计
+
+    返回格式（标准化）:
+    {
+        "success": True,
+        "data": {
+            "results": [...],      # 聚合统计结果
+            "metadata": {...},     # 自动生成
+            "summary": "..."       # 自动生成
+        }
+    }
+    """
     session = None
     try:
         session = get_session()
@@ -904,15 +917,10 @@ def aggregate_statistics(attribute, aggregation, entity_type=None, time_range=No
             else:
                 # 如果没有找到该类型的实体，返回空结果
                 logger.warning(f"未找到类型为 {entity_type} 的实体")
-                return {
-                    "success": True,
-                    "data": {
-                        "records": [],
-                        "aggregation": aggregation,
-                        "attribute": attribute,
-                        "message": f"未找到类型为 '{entity_type}' 的实体"
-                    }
-                }
+                return success_response(
+                    results=[],
+                    summary=f"未找到类型为 '{entity_type}' 的实体"
+                )
 
         if time_range and len(time_range) == 2:
             cypher += """
@@ -944,21 +952,14 @@ def aggregate_statistics(attribute, aggregation, entity_type=None, time_range=No
         result = session.run(cypher, params)
         records = [convert_neo4j_types(dict(record)) for record in result]
 
-        return {
-            "success": True,
-            "data": {
-                "records": records,
-                "aggregation": aggregation,
-                "attribute": attribute
-            }
-        }
+        return success_response(
+            results=records,
+            summary=f"聚合统计完成：{aggregation}({attribute})" + (f"，按 {group_by} 分组" if group_by else "")
+        )
 
     except Exception as e:
         logger.error(f'聚合统计失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
@@ -1123,75 +1124,267 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
         }
 
 
-def generate_chart(data, question="", chart_type=None, title="", 
+def generate_chart(data, chart_type=None, title="",
                    x_field="", y_field="", series_field=""):
     """
-    生成图表配置
-    
-    使用 ChartAgent 根据数据和问题生成 ECharts 配置
-    
-    Args:
-        data: 数据列表，每个元素是字典
-        question: 原始问题（用于智能选择图表类型）
-        chart_type: 指定图表类型（可选）
-        title: 图表标题（可选）
-        x_field: X轴字段名
-        y_field: Y轴字段名
-        series_field: 系列字段名
-    
-    Returns:
-        {
-            "success": True/False,
-            "chart_type": "折线图/柱状图/...",
-            "echarts_config": {...},
-            "data_summary": {...},
-            "message": "..."
+    生成图表配置 (纯代码逻辑版)
+
+    直接根据 Agent 传入的参数生成 ECharts 配置，不进行复杂的推断。
+    Agent 负责指定 chart_type, x_field, y_field。
+
+    返回格式（标准化）:
+    {
+        "success": True,
+        "data": {
+            "results": {"echarts_config": {...}},  # 图表配置
+            "metadata": {...},                      # 自动生成
+            "summary": "..."                        # 自动生成
         }
+    }
+
+    Args:
+        data: 数据列表（List[Dict]）或数据文件路径（str）
+        chart_type: 指定图表类型 ('line', 'bar', 'pie', 'scatter') - 必填
+        title: 图表标题
+        x_field: X轴字段名 - 必填
+        y_field: Y轴字段名 - 必填
+        series_field: 系列分组字段名
     """
+    import pandas as pd
+    import json
+    import os
+
     try:
-        from agents import ChartAgent
-        
-        # 数据验证
-        if not data or not isinstance(data, list):
-            return {
-                "success": False,
-                "error": "数据格式错误：需要列表类型"
+        # 1. 快速检查必填参数 (Fail Fast)
+        missing_params = []
+        if not x_field: missing_params.append("x_field")
+        if not y_field: missing_params.append("y_field")
+        if not chart_type: chart_type = 'bar'
+
+        if missing_params:
+            return error_response(
+                f"缺少必填参数: {', '.join(missing_params)}。请根据数据元数据，明确指定 X 轴和 Y 轴的字段名。"
+            )
+
+        # 2. 数据加载
+        df = None
+        if isinstance(data, str):
+            if os.path.exists(data):
+                try:
+                    if data.endswith('.csv'):
+                        df = pd.read_csv(data)
+                    else:
+                        df = pd.read_json(data)
+                except Exception:
+                     # 兜底：尝试标准 JSON 读取
+                    try:
+                        with open(data, 'r', encoding='utf-8') as f:
+                            content = json.load(f)
+                            if isinstance(content, list):
+                                df = pd.DataFrame(content)
+                            elif isinstance(content, dict) and 'results' in content:
+                                df = pd.DataFrame(content['results'])
+                            else:
+                                return error_response("文件内容无法解析为表格")
+                    except Exception as e:
+                        return error_response(f"无法读取数据文件: {str(e)}")
+            else:
+                return error_response(f"数据文件不存在: {data}")
+        elif isinstance(data, list):
+            df = pd.DataFrame(data)
+        else:
+            return error_response("数据格式错误：需要列表或文件路径")
+
+        if df is None or df.empty:
+            return error_response("数据为空")
+
+        # 3. 验证字段存在性
+        columns = df.columns.tolist()
+        if x_field not in columns:
+            return error_response(f"X轴字段 '{x_field}' 在数据中不存在。可用字段: {columns}")
+        if y_field not in columns:
+            return error_response(f"Y轴字段 '{y_field}' 在数据中不存在。可用字段: {columns}")
+        if series_field and series_field not in columns:
+            return error_response(f"系列字段 '{series_field}' 在数据中不存在。可用字段: {columns}")
+
+        # 4. 构建 ECharts Option
+        # 转换数据 (处理 NaN)
+        dataset_source = df.where(pd.notnull(df), None).to_dict(orient='records')
+
+        # 智能生成标题
+        final_title = title
+        if not final_title:
+            final_title = f"{y_field} 随 {x_field} 变化"
+
+        option = {
+            "title": {
+                "text": final_title,
+                "left": "center"
+            },
+            "tooltip": {
+                "trigger": "axis" if chart_type != 'pie' else 'item'
+            },
+            "legend": {
+                "top": "bottom"
+            },
+            "dataset": {
+                "source": dataset_source
+            },
+            "xAxis": {
+                "type": "category", # 默认 X 轴为类目轴
+                "name": x_field
+            } if chart_type != 'pie' else None,
+            "yAxis": {
+                "type": "value",
+                "name": y_field
+            } if chart_type != 'pie' else None,
+            "series": []
+        }
+
+        # 处理多系列 (Pivot)
+        if series_field:
+            try:
+                # 尝试透视表转换，以便 ECharts 更容易处理多系列
+                pivot_df = df.pivot(index=x_field, columns=series_field, values=y_field)
+                # 重置索引，第一列是 X，后面是各系列
+                pivot_df = pivot_df.reset_index()
+
+                # 更新 dataset source
+                option['dataset']['source'] = pivot_df.where(pd.notnull(pivot_df), None).to_dict(orient='records')
+
+                # 动态添加 series
+                series_names = [c for c in pivot_df.columns if c != x_field]
+                for s_name in series_names:
+                    option['series'].append({
+                        "type": chart_type,
+                        "name": str(s_name),
+                        "encode": {"x": x_field, "y": s_name}
+                    })
+            except Exception as e:
+                return error_response(f"数据透视失败（可能存在重复的 X+Series 组合）: {str(e)}")
+        else:
+            # 单系列
+            series_cfg = {
+                "type": chart_type,
+                "encode": {"x": x_field, "y": y_field},
+                "name": y_field
             }
-        
-        if len(data) == 0:
-            return {
-                "success": False,
-                "error": "数据为空，无法生成图表"
-            }
-        
-        if len(data) < 3:
-            return {
-                "success": False,
-                "error": f"数据量过少（{len(data)}条），建议至少3条数据才能生成有意义的图表",
-                "suggestion": "可以尝试扩大时间范围或查询更多实体"
-            }
-        
-        # 创建 ChartAgent 实例
-        agent = ChartAgent()
-        
-        # 生成图表
-        result = agent.generate_chart(
-            data=data,
-            question=question,
-            chart_type=chart_type,
-            title=title,
-            x_field=x_field,
-            y_field=y_field,
-            series_field=series_field
+            if chart_type == 'pie':
+                series_cfg['encode'] = {"itemName": x_field, "value": y_field}
+                series_cfg['radius'] = '50%'
+
+            option['series'].append(series_cfg)
+
+        # 使用标准化响应
+        return success_response(
+            results={"echarts_config": option, "chart_type": chart_type},
+            summary=f"图表配置已生成 ({chart_type})"
         )
-        
-        return result
-    
+
     except Exception as e:
-        logger.error(f"生成图表失败: {e}")
+        return error_response(f"生成图表失败: {str(e)}")
+
+
+def process_data_file(source_path, python_code, description=""):
+    """
+    执行数据处理工具
+
+    Args:
+        source_path: 源文件路径
+        python_code: Python 处理代码
+        description: 操作描述
+    """
+    import pandas as pd
+    import json
+    import os
+    import uuid
+    import tempfile
+
+    try:
+        logger.info(f"执行数据处理: {description}")
+        logger.info(f"源文件: {source_path}")
+
+        # 1. 验证源文件存在
+        if not os.path.exists(source_path):
+            return {
+                "success": False,
+                "error": f"源文件不存在: {source_path}"
+            }
+
+        # 2. 生成结果文件路径
+        result_dir = os.path.dirname(source_path)
+        result_filename = f"processed_{uuid.uuid4().hex}.json"
+        result_path = os.path.join(result_dir, result_filename)
+
+        # 3. 准备执行环境
+        # 注意：local_vars 必须同时作为 globals 和 locals 传入 exec()
+        # 否则在 lambda、列表推导式等嵌套作用域中无法访问这些变量
+        local_vars = {
+            'pd': pd,
+            'json': json,
+            'source_path': source_path,
+            'result_path': result_path,
+            # 添加内置函数，确保代码可以正常执行
+            '__builtins__': __builtins__
+        }
+
+        # 4. 安全限制（简单版）：禁止导入敏感模块
+        forbidden_modules = ['os', 'sys', 'subprocess', 'shutil']
+        for mod in forbidden_modules:
+            if f"import {mod}" in python_code or f"from {mod}" in python_code:
+                return {
+                    "success": False,
+                    "error": f"安全警告: 禁止在代码中使用 {mod} 模块"
+                }
+
+        # 5. 执行代码
+        # 关键修复：使用 local_vars 同时作为 globals 和 locals
+        # 这样在 lambda、apply 等嵌套作用域中也能访问 pd、json 等变量
+        logger.info("开始执行 Python 代码...")
+        exec(python_code, local_vars, local_vars)
+
+        # 6. 验证结果文件是否生成
+        if not os.path.exists(result_path):
+            return {
+                "success": False,
+                "error": "代码执行成功，但未生成结果文件。请检查代码是否正确写入 result_path。"
+            }
+
+        # 7. 读取结果文件的元数据（不读取全文）
+        file_size = os.path.getsize(result_path)
+
+        # 尝试读取前几行作为预览
+        preview_data = None
+        try:
+            with open(result_path, 'r', encoding='utf-8') as f:
+                # 只读取前 1000 字符用于预览
+                content_preview = f.read(1000)
+                try:
+                    # 尝试解析为 JSON
+                    json_data = json.loads(content_preview)
+                    preview_data = json_data
+                except:
+                    # 如果截断导致解析失败，或者不是 JSON，则保留字符串
+                    preview_data = content_preview + "..."
+        except Exception as e:
+            preview_data = f"无法预览: {str(e)}"
+
+        return {
+            "success": True,
+            "data": {
+                "message": "数据处理成功",
+                "result_path": result_path,
+                "source_path": source_path,
+                "file_size": f"{file_size / 1024:.2f} KB",
+                "preview": preview_data
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"数据处理失败: {e}")
         import traceback
         traceback.print_exc()
         return {
             "success": False,
-            "error": f"生成图表失败: {str(e)}"
+            "error": f"代码执行错误: {str(e)}"
         }

@@ -11,8 +11,10 @@ ReAct Agent - 使用 Structured Output 替代 Function Calling
 
 import logging
 import json
+import os
 import time
 from typing import Optional, Dict, Any, List
+import uuid
 from .base import BaseAgent, AgentContext, AgentResponse
 from tools.tool_executor import execute_tool
 
@@ -187,6 +189,20 @@ class ReActAgent(BaseAgent):
 5. 当你有足够信息回答问题时，在 final_answer 中给出答案
 6. 如果工具返回了错误，在下一轮 thought 中分析原因并调整策略
 
+**关于数据处理的重要规则：**
+1. **小数据**：直接在 `thought` 中分析。
+2. **大数据**：如果工具返回结果提示“数据已保存至文件”，说明数据量过大。
+   - **不要** 尝试让工具打印文件内容。
+   - **直接** 将该文件路径作为参数传递给下一个工具。
+3. **数据格式转换（关键）**：
+   - 如果上一个工具输出的文件格式（例如 JSON 列表）不符合下一个工具的要求（例如需要 CSV 格式，或需要提取特定字段），你 **不能** 直接传递文件路径。
+   - 你必须使用 `process_data_file` 工具，编写 Pandas 代码将数据转换为目标格式。
+   - **步骤**：
+     1. 观察上一个工具返回的元数据（字段名、数据类型）。
+     2. 思考下一个工具需要什么格式（例如需要 'time' 和 'value' 两个字段）。
+     3. 调用 `process_data_file`，在 `python_code` 中编写 DataFrame 转换逻辑。
+     4. 将 `process_data_file` 返回的新文件路径传递给下一个工具。
+
 **并行调用示例**：
 {parallel_example}
 
@@ -352,6 +368,26 @@ class ReActAgent(BaseAgent):
                             "index": idx,
                             "total": len(actions)
                         }
+
+                        # 关键：检查工具是否返回了图表配置，如果是，额外发送一个 'chart_generated' 事件
+                        # 让前端能直接捕获并渲染，不需要等最终答案
+                        # 适配新的标准化响应格式
+                        if isinstance(result, dict) and result.get('success'):
+                            data = result.get('data', {})
+                            results = data.get('results', {})
+
+                            # 检查 results 中是否有 echarts_config
+                            if isinstance(results, dict) and 'echarts_config' in results:
+                                echarts_config = results['echarts_config']
+                                chart_type = results.get('chart_type', 'bar')
+                                title = echarts_config.get('title', {}).get('text', '图表分析')
+
+                                yield {
+                                    "type": "chart_generated",
+                                    "echarts_config": echarts_config,
+                                    "chart_type": chart_type,
+                                    "title": title
+                                }
 
                         # 记录工具调用
                         tool_calls_history.append({
@@ -576,16 +612,106 @@ class ReActAgent(BaseAgent):
                 execution_time=time.time() - start_time
             )
 
+    # def _format_observation(self, result: Any) -> str:
+    #     """格式化工具执行结果为观察文本"""
+    #     if isinstance(result, dict):
+    #         if result.get('success'):
+    #             data = result.get('data', {})
+    #             if 'answer' in data:
+    #                 return data['answer']
+    #             return json.dumps(data, ensure_ascii=False, indent=2)
+    #         else:
+    #             return f"错误: {result.get('error', '未知错误')}"
+    #     return str(result)
     def _format_observation(self, result: Any) -> str:
-        """格式化工具执行结果为观察文本"""
+        """
+        格式化观察结果：实现数据流与控制流的分离策略
+
+        新版本支持标准化工具响应格式：
+        {
+            "success": bool,
+            "data": {
+                "results": ...,      # 纯净数据
+                "metadata": {...},   # 元数据
+                "summary": "...",    # 摘要
+                "answer": "..."      # 答案（可选）
+            }
+        }
+        """
+        # 1. 处理错误响应
         if isinstance(result, dict):
-            if result.get('success'):
-                data = result.get('data', {})
-                if 'answer' in data:
-                    return data['answer']
-                return json.dumps(data, ensure_ascii=False, indent=2)
-            else:
+            if not result.get('success'):
                 return f"错误: {result.get('error', '未知错误')}"
+
+            # 2. 提取 data 字段
+            data = result.get('data', {})
+
+            # 3. 提取核心字段
+            pure_data = data.get('results')
+            summary = data.get('summary', '')
+            metadata = data.get('metadata', {})
+            answer = data.get('answer')  # 查询类工具的完整答案
+
+            # 4. 如果没有标准化格式，尝试兼容旧格式
+            if pure_data is None:
+                # 兼容旧格式：直接返回 data
+                pure_data = data
+
+            # 5. 转换为字符串以判断大小
+            content_str = json.dumps(pure_data, ensure_ascii=False) if isinstance(pure_data, (dict, list)) else str(pure_data)
+
+            # 6. 【核心逻辑】阈值判断 (2000 字符)
+            if len(content_str) < 2000:
+                # 小数据：直接透传
+                # 如果有 answer，也一并返回
+                if answer:
+                    return f"{answer}\n\n[数据详情]\n{json.dumps(data, ensure_ascii=False, indent=2)}"
+                return json.dumps(data, ensure_ascii=False, indent=2)
+
+            # 7. 【大数据处理】执行分离策略
+            else:
+                # A. 生成存储路径
+                file_name = f"data_{uuid.uuid4().hex}.json"
+                save_dir = "./static/temp_data"
+                os.makedirs(save_dir, exist_ok=True)
+                file_path = os.path.join(save_dir, file_name)
+
+                # B. 构建元数据提示
+                meta_info = summary if summary else "数据量过大，已自动转存。"
+
+                # 添加详细的数据结构信息
+                if isinstance(pure_data, list):
+                    meta_info += f" 类型: List, 长度: {len(pure_data)} 条。"
+                    if len(pure_data) > 0:
+                        first_item = pure_data[0]
+                        if isinstance(first_item, dict):
+                            keys_info = [f"{k}({type(v).__name__})" for k, v in first_item.items()]
+                            meta_info += f" 包含字段: {', '.join(keys_info)}"
+                            meta_info += f"\n  样本数据 (第1条): {json.dumps(first_item, ensure_ascii=False)[:200]}..."
+                elif isinstance(pure_data, dict):
+                    meta_info += f" 类型: Dict, 顶层键: {list(pure_data.keys())}"
+
+                # C. 保存纯净数据到文件
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(pure_data, f, ensure_ascii=False, indent=2)
+
+                # D. 构建返回信息
+                observation_parts = []
+
+                # 如果有 answer（查询类工具），先返回 answer
+                if answer:
+                    observation_parts.append(f"[查询结果]\n{answer}")
+                    observation_parts.append("")  # 空行分隔
+
+                # 然后返回数据引用信息
+                observation_parts.append(f"[系统提示] {meta_info}")
+                observation_parts.append(f'数据已保存至文件: "{file_path}"')
+                observation_parts.append("请使用此文件路径作为后续工具（如绘图、分析）的输入参数，不要尝试直接读取内容。")
+                observation_parts.append("如果下一个工具需要的格式与上述字段不匹配，请先调用 `process_data_file` 工具进行转换。")
+
+                return "\n".join(observation_parts)
+
+        # 8. 兼容非字典响应
         return str(result)
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
