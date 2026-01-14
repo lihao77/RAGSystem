@@ -58,5 +58,6 @@ const getRendererProps = (item) => {
   flex-direction: column;
   gap: 16px;
   margin: 16px 0;
+  background: transparent;
 }
 </style>

@@ -239,31 +239,71 @@ class ReActAgent(BaseAgent):
                 # 获取 LLM 配置
                 llm_config = self.get_llm_config()
 
-                # 调用 LLM（使用 JSON mode）
-                response = self.llm_adapter.chat_completion(
-                    messages=messages,
-                    provider=llm_config.get('provider'),
-                    model=llm_config.get('model_name'),
-                    temperature=llm_config.get('temperature', 0.3),
-                    max_tokens=llm_config.get('max_tokens'),
-                    response_format={"type": "json_object"}
-                )
+                # 重试机制：最多尝试 3 次解析
+                max_parse_retries = 3
+                output = None
 
-                if response.error:
+                for retry_attempt in range(max_parse_retries):
+                    # 调用 LLM（使用 JSON mode）
+                    response = self.llm_adapter.chat_completion(
+                        messages=messages,
+                        provider=llm_config.get('provider'),
+                        model=llm_config.get('model_name'),
+                        temperature=llm_config.get('temperature', 0.3),
+                        max_tokens=llm_config.get('max_tokens'),
+                        response_format={"type": "json_object"}
+                    )
+
+                    if response.error:
+                        yield {
+                            "type": "error",
+                            "content": f"LLM 调用失败: {response.error}"
+                        }
+                        return
+
+                    # 解析 JSON 响应
+                    try:
+                        output = json.loads(response.content)
+                        # 解析成功，跳出重试循环
+                        if retry_attempt > 0:
+                            self.logger.info(f"第 {retry_attempt + 1} 次尝试成功解析 JSON")
+                        break
+                    except json.JSONDecodeError as e:
+                        # 尝试使用 strict=False 解析
+                        try:
+                            output = json.loads(response.content, strict=False)
+                            self.logger.info(f"使用 strict=False 成功解析 JSON (尝试 {retry_attempt + 1}/{max_parse_retries})")
+                            break
+                        except json.JSONDecodeError as e2:
+                            self.logger.warning(
+                                f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {str(e2)}"
+                            )
+
+                            if retry_attempt < max_parse_retries - 1:
+                                # 还有重试机会，向 LLM 反馈错误并要求重新生成
+                                self.logger.info("要求 LLM 重新生成有效的 JSON...")
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": response.content[:200] + "..."  # 只添加部分内容
+                                })
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"你的上一个响应包含 JSON 格式错误: {str(e2)}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
+                                })
+                            else:
+                                # 已达到最大重试次数
+                                self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {response.content[:500]}... (已截断)")
+                                yield {
+                                    "type": "error",
+                                    "content": f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {str(e2)}"
+                                }
+                                return
+
+                # 如果所有重试都失败
+                if output is None:
                     yield {
                         "type": "error",
-                        "content": f"LLM 调用失败: {response.error}"
-                    }
-                    return
-
-                # 解析 JSON 响应
-                try:
-                    output = json.loads(response.content)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"无法解析 LLM 响应: {response.content}")
-                    yield {
-                        "type": "error",
-                        "content": f"LLM 返回了无效的 JSON: {str(e)}"
+                        "content": "无法从 LLM 获取有效的 JSON 响应"
                     }
                     return
 
@@ -468,35 +508,76 @@ class ReActAgent(BaseAgent):
                 # 获取 LLM 配置
                 llm_config = self.get_llm_config()
 
-                # 调用 LLM（使用 JSON mode）
-                response = self.llm_adapter.chat_completion(
-                    messages=messages,
-                    provider=llm_config.get('provider'),
-                    model=llm_config.get('model_name'),
-                    temperature=llm_config.get('temperature', 0.3),
-                    max_tokens=llm_config.get('max_tokens'),
-                    # 关键：使用 JSON mode 而不是 function calling
-                    response_format={"type": "json_object"}
-                )
+                # 重试机制：最多尝试 3 次解析
+                max_parse_retries = 3
+                output = None
 
-                if response.error:
-                    return AgentResponse(
-                        success=False,
-                        content="",
-                        error=f"LLM 调用失败: {response.error}",
-                        agent_name=self.name,
-                        execution_time=time.time() - start_time
+                for retry_attempt in range(max_parse_retries):
+                    # 调用 LLM（使用 JSON mode）
+                    response = self.llm_adapter.chat_completion(
+                        messages=messages,
+                        provider=llm_config.get('provider'),
+                        model=llm_config.get('model_name'),
+                        temperature=llm_config.get('temperature', 0.3),
+                        max_tokens=llm_config.get('max_tokens'),
+                        response_format={"type": "json_object"}
                     )
 
-                # 解析 JSON 响应
-                try:
-                    output = json.loads(response.content)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"无法解析 LLM 响应: {response.content}")
+                    if response.error:
+                        return AgentResponse(
+                            success=False,
+                            content="",
+                            error=f"LLM 调用失败: {response.error}",
+                            agent_name=self.name,
+                            execution_time=time.time() - start_time
+                        )
+
+                    # 解析 JSON 响应
+                    try:
+                        output = json.loads(response.content)
+                        # 解析成功，跳出重试循环
+                        if retry_attempt > 0:
+                            self.logger.info(f"第 {retry_attempt + 1} 次尝试成功解析 JSON")
+                        break
+                    except json.JSONDecodeError as e:
+                        # 尝试使用 strict=False 解析
+                        try:
+                            output = json.loads(response.content, strict=False)
+                            self.logger.info(f"使用 strict=False 成功解析 JSON (尝试 {retry_attempt + 1}/{max_parse_retries})")
+                            break
+                        except json.JSONDecodeError as e2:
+                            self.logger.warning(
+                                f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {str(e2)}"
+                            )
+
+                            if retry_attempt < max_parse_retries - 1:
+                                # 还有重试机会，向 LLM 反馈错误并要求重新生成
+                                self.logger.info("要求 LLM 重新生成有效的 JSON...")
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": response.content[:200] + "..."  # 只添加部分内容
+                                })
+                                messages.append({
+                                    "role": "user",
+                                    "content": f"你的上一个响应包含 JSON 格式错误: {str(e2)}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
+                                })
+                            else:
+                                # 已达到最大重试次数
+                                self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {response.content[:500]}... (已截断)")
+                                return AgentResponse(
+                                    success=False,
+                                    content="",
+                                    error=f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {str(e2)}",
+                                    agent_name=self.name,
+                                    execution_time=time.time() - start_time
+                                )
+
+                # 如果所有重试都失败
+                if output is None:
                     return AgentResponse(
                         success=False,
                         content="",
-                        error=f"LLM 返回了无效的 JSON: {str(e)}",
+                        error="无法从 LLM 获取有效的 JSON 响应",
                         agent_name=self.name,
                         execution_time=time.time() - start_time
                     )

@@ -249,12 +249,20 @@ watch(() => props.mapData, () => {
 <style scoped>
 .map-renderer {
   width: 100%;
-  background: white;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-shadow);
   overflow: hidden;
   margin-bottom: 16px;
-  border: 1px solid var(--color-border);
+  border: var(--glass-border);
+  transition: all 0.3s ease;
+}
+
+.map-renderer:hover {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
 }
 
 .map-header {
@@ -262,9 +270,9 @@ watch(() => props.mapData, () => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: var(--color-bg-sidebar);
+  background: rgba(255, 255, 255, 0.3);
   color: var(--color-text-main);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .map-title {
@@ -273,6 +281,7 @@ watch(() => props.mapData, () => {
   gap: 8px;
   font-size: 16px;
   font-weight: 600;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
 }
 
 .map-icon {
@@ -280,12 +289,14 @@ watch(() => props.mapData, () => {
 }
 
 .map-type-badge {
-  padding: 2px 8px;
-  background: var(--color-primary-light);
+  padding: 2px 10px;
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(199, 210, 254, 0.8));
   color: var(--color-primary);
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .map-actions {
@@ -296,8 +307,8 @@ watch(() => props.mapData, () => {
 .action-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid var(--color-border);
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.4);
   color: var(--color-text-secondary);
   border-radius: 6px;
   cursor: pointer;
@@ -309,8 +320,9 @@ watch(() => props.mapData, () => {
 }
 
 .action-btn:hover {
-  background: var(--color-bg-app);
+  background: rgba(255, 255, 255, 0.6);
   color: var(--color-text-main);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .map-container {
@@ -318,6 +330,7 @@ watch(() => props.mapData, () => {
   height: 500px;
   position: relative;
   transition: all 0.3s ease;
+  z-index: 1; /* Ensure map stays above background blur if needed */
 }
 
 .map-container.fullscreen {
@@ -332,8 +345,9 @@ watch(() => props.mapData, () => {
 
 .map-legend {
   padding: 12px 16px;
-  background: var(--color-bg-app);
-  border-top: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
 }
 
 .legend-title {
@@ -341,6 +355,7 @@ watch(() => props.mapData, () => {
   font-weight: 600;
   color: var(--color-text-main);
   margin-bottom: 8px;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
 }
 
 .legend-scale {
@@ -362,6 +377,8 @@ watch(() => props.mapData, () => {
   height: 20px;
   background: linear-gradient(to right, blue, cyan, lime, yellow, red);
   border-radius: 4px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .map-stats {

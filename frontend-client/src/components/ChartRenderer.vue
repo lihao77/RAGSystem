@@ -119,12 +119,20 @@ onUnmounted(() => {
 <style scoped>
 .chart-renderer {
   margin: 16px 0;
-  border: 1px solid var(--color-border);
+  border: var(--glass-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background-color: white;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   animation: fadeInUp 0.5s ease;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s ease;
+}
+
+.chart-renderer:hover {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
 }
 
 @keyframes fadeInUp {
@@ -143,8 +151,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: var(--color-bg-sidebar);
-  border-bottom: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .chart-title {
@@ -154,6 +162,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-main);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
 }
 
 .chart-icon {
@@ -166,8 +175,8 @@ onUnmounted(() => {
 }
 
 .action-btn {
-  background: transparent;
-  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
@@ -177,9 +186,10 @@ onUnmounted(() => {
 }
 
 .action-btn:hover {
-  background-color: var(--color-bg-app);
-  border-color: var(--color-border-hover);
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.5);
   color: var(--color-text-main);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .chart-container {
@@ -187,6 +197,7 @@ onUnmounted(() => {
   height: 400px;
   padding: 16px;
   transition: all 0.3s ease;
+  background: transparent;
 }
 
 .chart-container.fullscreen {
@@ -196,7 +207,8 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   z-index: 9999;
-  background-color: white;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
   padding: 40px;
 }
 </style>

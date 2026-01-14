@@ -40,16 +40,24 @@ const toggleExpanded = () => {
 <style scoped>
 .task-analysis-card {
   margin-top: 16px;
-  border: 1px solid var(--color-border);
+  border: var(--glass-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background-color: var(--color-bg-app);
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   animation: fadeInUp 0.4s ease;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s ease;
+}
+
+.task-analysis-card:hover {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
 }
 
 .card-header {
-  background-color: var(--color-bg-sidebar);
+  background: rgba(255, 255, 255, 0.3);
   padding: 12px 16px;
   font-size: 13px;
   cursor: pointer;
@@ -58,27 +66,30 @@ const toggleExpanded = () => {
   align-items: center;
   gap: 8px;
   font-weight: 500;
-  transition: background-color 0.2s ease;
-  border-bottom: 1px solid transparent;
+  transition: background 0.2s ease;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .card-header:hover {
-  background-color: var(--color-bg-app);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .card-title {
   font-weight: 600;
   color: var(--color-primary);
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
 }
 
 .task-badge {
-  padding: 2px 8px;
-  background-color: var(--color-primary-light);
+  padding: 2px 10px;
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(199, 210, 254, 0.8));
   color: var(--color-primary);
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .subtask-count {
@@ -96,8 +107,8 @@ const toggleExpanded = () => {
 
 .card-content {
   padding: 16px;
-  background-color: var(--color-bg-sidebar);
-  border-top: 1px solid var(--color-border);
+  background: transparent;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
   animation: expandDown 0.3s ease;
 }
 

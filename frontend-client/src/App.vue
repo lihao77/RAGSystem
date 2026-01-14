@@ -48,10 +48,6 @@
         <!-- Message Stream -->
         <div v-else class="message-stream">
           <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
-            <div class="message-avatar">
-              {{ msg.role === 'user' ? 'U' : 'AI' }}
-            </div>
-
             <div class="message-content-wrapper">
               <div class="message-content">
                 <!-- Loading State -->
@@ -84,10 +80,6 @@
 
                 <!-- Final Answer -->
                 <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
-                  <div class="answer-header">
-                    <span class="icon">✨</span>
-                    <span>Conclusion</span>
-                  </div>
                   <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                 </div>
 
@@ -362,25 +354,28 @@ onMounted(() => {
   display: flex;
   height: 100vh;
   width: 100vw;
-  background-color: var(--color-bg-app);
+  background-color: transparent;
   overflow: hidden;
 }
 
 /* Sidebar */
 .sidebar {
   width: 280px;
-  background-color: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
   display: flex;
   flex-direction: column;
   padding: var(--spacing-md);
   flex-shrink: 0;
+  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.02);
 }
 
 .new-chat-btn {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
-  background-color: var(--color-primary);
+  background: linear-gradient(135deg, var(--color-primary), #4f46e5);
   color: white;
   border: none;
   border-radius: var(--radius-md);
@@ -391,13 +386,12 @@ onMounted(() => {
   gap: var(--spacing-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
 }
 
 .new-chat-btn:hover {
-  background-color: var(--color-primary-hover);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
 }
 
 .history-list {
@@ -414,10 +408,11 @@ onMounted(() => {
   color: var(--color-text-muted);
   margin-bottom: var(--spacing-sm);
   letter-spacing: 0.05em;
+  padding-left: var(--spacing-xs);
 }
 
 .history-item {
-  padding: var(--spacing-sm) var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
   margin-bottom: var(--spacing-xs);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -425,13 +420,16 @@ onMounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
-  transition: background-color var(--transition-fast);
+  transition: all var(--transition-fast);
   font-size: 0.9rem;
+  border: 1px solid transparent;
 }
 
 .history-item:hover {
-  background-color: var(--color-bg-app);
+  background-color: rgba(255, 255, 255, 0.5);
   color: var(--color-text-main);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 }
 
 .history-title {
@@ -539,7 +537,7 @@ onMounted(() => {
 
 /* Messages */
 .message-stream {
-  max-width: 900px;
+  max-width: 800px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -551,37 +549,23 @@ onMounted(() => {
   gap: var(--spacing-md);
   opacity: 0;
   animation: fadeIn 0.3s ease forwards;
+  width: 100%;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.message.assistant {
+  justify-content: flex-start;
 }
 
 @keyframes fadeIn {
   to { opacity: 1; }
 }
 
-.message-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.message.user .message-avatar {
-  background-color: var(--color-bg-message-user);
-  color: var(--color-primary);
-}
-
-.message.assistant .message-avatar {
-  background-color: var(--color-primary);
-  color: white;
-  box-shadow: var(--shadow-sm);
-}
-
 .message-content-wrapper {
-  flex: 1;
+  max-width: 85%;
   min-width: 0;
 }
 
@@ -593,9 +577,9 @@ onMounted(() => {
 
 .user-text {
   background-color: var(--color-bg-message-user);
-  padding: var(--spacing-md);
-  border-radius: var(--radius-lg);
-  border-top-left-radius: 2px;
+  padding: 10px 16px;
+  border-radius: 20px;
+  border-top-right-radius: 4px; /* Optional: OpenAI-like small corner */
   color: var(--color-text-main);
   line-height: 1.6;
   font-size: 1rem;
@@ -603,23 +587,10 @@ onMounted(() => {
 
 /* Final Answer */
 .final-answer {
-  background-color: white;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.answer-header {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  color: var(--color-success);
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: var(--spacing-md);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
 }
 
 .markdown-body {

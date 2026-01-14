@@ -92,13 +92,14 @@ const handleSend = () => {
 }
 
 .input-container {
-  background-color: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 24px;
   box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.05),
-    0 10px 15px -3px rgba(0, 0, 0, 0.05),
-    0 0 0 1px rgba(0, 0, 0, 0.03);
+    0 8px 32px 0 rgba(31, 38, 135, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3);
   padding: 8px;
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   transform: translateY(0);
@@ -106,10 +107,11 @@ const handleSend = () => {
 
 .input-container:focus-within {
   transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.65);
   box-shadow:
-    0 20px 25px -5px rgba(99, 102, 241, 0.15),
-    0 8px 10px -6px rgba(99, 102, 241, 0.1);
-  background-color: #ffffff;
+    0 12px 40px 0 rgba(31, 38, 135, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.8);
 }
 
 .input-wrapper {
@@ -150,24 +152,26 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   border: none;
-  background: linear-gradient(135deg, var(--color-primary), #4f46e5);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(79, 70, 229, 0.9));
   color: white;
   border-radius: 18px;
   cursor: pointer;
   transition: all var(--transition-fast);
   margin-bottom: 3px;
   margin-right: 3px;
-  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  backdrop-filter: blur(4px);
 }
 
 .send-btn:hover:not(:disabled) {
   transform: scale(1.05);
-  box-shadow: 0 4px 8px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 1), rgba(79, 70, 229, 1));
 }
 
 .send-btn:disabled {
-  background: var(--color-bg-app);
-  color: var(--color-text-muted);
+  background: rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.6);
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -187,8 +191,8 @@ textarea::placeholder {
 }
 
 .send-btn:disabled .spinner {
-  border-color: var(--color-border);
-  border-top-color: var(--color-text-muted);
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: rgba(255, 255, 255, 0.8);
 }
 
 @keyframes spin {
@@ -202,5 +206,6 @@ textarea::placeholder {
   color: var(--color-text-muted);
   opacity: 0.8;
   font-weight: 500;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
 }
 </style>
