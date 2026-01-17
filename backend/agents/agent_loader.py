@@ -10,7 +10,6 @@ from typing import Dict, Optional, Type
 from .base import BaseAgent
 from .master_agent import MasterAgent
 from .master_agent_v2.master_agent_v2 import MasterAgentV2
-from .generic_agent import GenericAgent
 from .react_agent import ReActAgent
 from .config_manager import get_config_manager
 
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'master': MasterAgent,
     'master_v2': MasterAgentV2,
-    'generic': GenericAgent,
     'react': ReActAgent,
 }
 
@@ -232,9 +230,9 @@ class AgentLoader:
         if agent_name == 'master_agent':
             return 'master'
 
-        # 3. 默认使用通用类型
-        logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'generic'")
-        return 'generic'
+        # 3. 默认使用 react 类型
+        logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
+        return 'react'
 
     def _create_agent_instance(
         self,
@@ -267,15 +265,6 @@ class AgentLoader:
                 raise ValueError(f"{agent_class.__name__} 需要 orchestrator 参数")
             common_kwargs['orchestrator'] = self.orchestrator
 
-        elif agent_class == GenericAgent:
-            # GenericAgent 需要额外参数
-            common_kwargs.update({
-                'agent_name': agent_config.agent_name,
-                'display_name': agent_config.display_name,
-                'description': agent_config.description,
-                'behavior_config': agent_config.custom_params.get('behavior', {})
-            })
-
         elif agent_class == ReActAgent:
             # ReActAgent 需要额外参数
             from tools.function_definitions import get_tool_definitions
@@ -283,7 +272,7 @@ class AgentLoader:
             # 获取所有工具
             all_tools = get_tool_definitions()
 
-            # 根据配置过滤工具（与 GenericAgent 保持一致）
+            # 根据配置过滤工具
             if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
                 enabled_tools = agent_config.tools.enabled_tools
                 filtered_tools = [

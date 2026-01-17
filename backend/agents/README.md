@@ -6,16 +6,16 @@
 
 ⚠️ **关于旧版 `qa_agent.py` (QAAgent 类)**
 
-从 2026-01-06 起，系统已废弃独立的 `QAAgent` 类，改用更灵活的 **GenericAgent** 和 **ReActAgent**：
+从 2026-01-06 起，系统已废弃独立的 `QAAgent` 类和 `GenericAgent`，统一使用 **ReActAgent**：
 
 - ✅ **推荐使用**: `type: react` (ReActAgent) - 支持并行工具调用、可解释性强
-- ✅ **备选方案**: `type: generic` (GenericAgent) - 使用 Function Calling API
 - ❌ **已废弃**: `type: qa` (QAAgent) - 旧的专用类，已从 `agent_loader.py` 移除
+- ❌ **已废弃**: `type: generic` (GenericAgent) - 已移除
 
-**迁移指南**: 如果你的配置中仍在使用 `type: qa`，请改为：
+**迁移指南**: 如果你的配置中仍在使用 `type: qa` 或 `type: generic`，请改为：
 ```yaml
 custom_params:
-  type: react  # 或 generic
+  type: react
   behavior:
     max_rounds: 10
     system_prompt: "..."
@@ -74,7 +74,7 @@ Specialized Agents (qa_agent, emergency_plan_agent, etc.)
    - 多智能体协调
    - 结果整合
 
-3. **执行层** (`generic_agent.py`, `react_agent.py`, etc.)
+3. **执行层** (`react_agent.py`, etc.)
    - 具体任务执行
    - 工具调用
    - 多轮对话
@@ -186,7 +186,7 @@ capable_agents = registry.find_capable_agents(task, context)
     ↓
 解析配置 (AgentConfig)
     ↓
-确定 Agent 类型 (generic/react)
+确定 Agent 类型 (react)
     ↓
 过滤工具 (enabled_tools)
     ↓
@@ -363,45 +363,9 @@ def execute(task, context):
     return self._generate_final_answer(messages)
 ```
 
-**5b. Generic Agent 执行流程 (Function Calling)**
+**5b. (已废弃) Generic Agent 执行流程**
 
-```python
-# generic_agent.py
-def execute(task, context):
-    messages = [
-        {"role": "system", "content": self.system_prompt},
-        {"role": "user", "content": task}
-    ]
-
-    rounds = 0
-    while rounds < self.max_rounds:
-        rounds += 1
-
-        # 调用 LLM (带工具定义)
-        response = self.llm_adapter.chat_completion(
-            messages=messages,
-            tools=self.tools  # Function calling
-        )
-
-        # 检查工具调用
-        if response.tool_calls:
-            # 执行所有工具
-            for tool_call in response.tool_calls:
-                tool_name = tool_call['function']['name']
-                arguments = json.loads(tool_call['function']['arguments'])
-                result = execute_tool(tool_name, arguments)
-
-                # 添加工具结果到消息
-                messages.append({
-                    "role": "tool",
-                    "content": str(result),
-                    "tool_call_id": tool_call['id']
-                })
-            continue
-
-        # 没有工具调用，返回答案
-        return AgentResponse(success=True, content=response.content)
-```
+GenericAgent 已从系统中移除。请使用 ReActAgent。
 
 #### 6. 工具执行
 
@@ -507,7 +471,7 @@ agents:
 
     # 自定义参数
     custom_params:
-      type: react                           # Agent 类型: generic | react
+      type: react                           # Agent 类型: react
       behavior:
         max_rounds: 10                      # 最大推理轮数
         system_prompt: |                    # 系统提示词
@@ -576,8 +540,7 @@ metadata:
 #### 4. 自定义参数 (custom_params)
 
 **type**：Agent 类型
-- `generic`: 使用 Function Calling，标准的工具调用模式
-- `react`: 使用 ReAct 推理模式，支持并行工具调用
+- `react`: 使用 ReAct 推理模式，支持并行工具调用（推荐）
 
 **behavior.max_rounds**：
 - 最大推理轮数，防止无限循环
@@ -592,50 +555,7 @@ metadata:
 
 ## Agent 类型
 
-### 1. GenericAgent (Function Calling)
-
-**特点**：
-- ✅ 使用 OpenAI 兼容的 Function Calling API
-- ✅ 工具调用结构化、可靠
-- ✅ 模型原生支持
-- ❌ 每次只能调用一个工具
-- ❌ 不显示推理过程
-- ❌ 消息格式复杂（tool_call_id 等）
-
-**适用场景**：
-- 需要高度可靠的工具调用
-- 使用 OpenAI/Claude 等原生支持 Function Calling 的模型
-- 简单的单步骤查询
-
-**配置示例**：
-```yaml
-custom_params:
-  type: generic
-  behavior:
-    auto_execute_tools: true
-    max_rounds: 10
-```
-
-**执行流程**：
-```
-用户问题
-  ↓
-LLM 分析 (带 tools 定义)
-  ↓
-返回 tool_calls
-  ↓
-执行工具 (顺序执行，每次1个)
-  ↓
-将结果作为 tool 消息添加
-  ↓
-继续调用 LLM
-  ↓
-重复直到没有 tool_calls
-  ↓
-返回最终答案
-```
-
-### 2. ReActAgent (JSON Mode)
+### ReActAgent (推荐，JSON Mode)
 
 **特点**：
 - ✅ 显示完整推理过程 (thought)
@@ -704,7 +624,7 @@ LLM 继续分析或给出答案
 }
 ```
 
-### 3. MasterAgent (特殊)
+### MasterAgent (特殊)
 
 **特点**：
 - 系统级 Agent，不可配置
@@ -1221,7 +1141,7 @@ agents/
 ├── __init__.py                  # 导出接口
 ├── base.py                      # BaseAgent 基类
 ├── master_agent.py              # MasterAgent 实现
-├── generic_agent.py             # GenericAgent 实现
+├── generic_agent.py             # (已废弃) GenericAgent 实现
 ├── react_agent.py               # ReActAgent 实现
 ├── orchestrator.py              # 编排器
 ├── agent_loader.py              # 动态加载器

@@ -154,7 +154,7 @@ class AgentConfig(BaseModel):
                     "enabled_tools": ["query_kg", "semantic_search"]
                 },
                 "custom_params": {
-                    "type": "generic",
+                    "type": "react",
                     "behavior": {
                         "system_prompt": "你是一个专门做XX的智能体...",
                         "max_rounds": 10,

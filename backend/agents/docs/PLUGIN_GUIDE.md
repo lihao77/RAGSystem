@@ -33,7 +33,7 @@ agents:
         - query_knowledge_graph_with_nl
         - search_knowledge_graph
     custom_params:
-      type: generic  # 使用通用模板
+      type: react  # 使用 ReAct 模板
       behavior:
         system_prompt: "你是一个专门做XX的智能体..."
         max_rounds: 10
@@ -74,26 +74,27 @@ curl -X POST http://localhost:5000/api/agent/execute \
 
 ## 智能体类型
 
-### 1. Generic Agent（通用智能体）
+### 1. ReAct Agent
 
 适用场景：
 - ✅ 标准的查询任务
 - ✅ 需要调用工具的任务
-- ✅ 不需要特殊逻辑的任务
+- ✅ 需要并行工具调用的场景
+- ✅ 需要可解释推理过程的场景
 
 配置示例：
 ```yaml
 my_agent:
   agent_name: my_agent
   custom_params:
-    type: generic  # 使用通用模板
+    type: react  # 使用通用模板
     behavior:
       system_prompt: "..."
       max_rounds: 10
       auto_execute_tools: true
 ```
 
-### 2. 专用 Agent（如 QA、Master）
+### 2. 专用 Agent（如 Master）
 
 适用场景：
 - ❌ 需要特殊初始化逻辑
@@ -101,14 +102,6 @@ my_agent:
 - ❌ 需要访问特殊资源
 
 这些智能体仍需要通过代码实现。
-
-配置示例：
-```yaml
-qa_agent:
-  agent_name: qa_agent
-  custom_params:
-    type: qa  # 指定使用 QAAgent 类
-```
 
 ## 配置详解
 
@@ -245,7 +238,7 @@ facility_monitor:
       - get_entity_relations
       - analyze_temporal_pattern
   custom_params:
-    type: generic
+    type: react
     behavior:
       system_prompt: |
         你是一个设施监控专家。
@@ -270,7 +263,7 @@ emergency_assistant:
     enabled_tools:
       - query_emergency_plan
   custom_params:
-    type: generic
+    type: react
     behavior:
       system_prompt: |
         你是应急预案专家。
@@ -295,7 +288,7 @@ quick_query:
     enabled_tools:
       - search_knowledge_graph
   custom_params:
-    type: generic
+    type: react
     behavior:
       system_prompt: "你是快速查询助手，提供简洁的答案。"
       max_rounds: 3      # 快速响应

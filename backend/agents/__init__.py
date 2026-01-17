@@ -35,7 +35,6 @@ from .config_manager import AgentConfigManager, get_config_manager
 
 # 具体智能体
 from .master_agent import MasterAgent
-from .generic_agent import GenericAgent
 from .react_agent import ReActAgent
 
 # 动态加载
@@ -67,7 +66,6 @@ __all__ = [
 
     # 具体智能体
     'MasterAgent',
-    'GenericAgent',
     'ReActAgent',
 
     # 动态加载

@@ -42,7 +42,7 @@ agents:
       analysis_temperature: 0.0
       synthesis_temperature: 0.3
 
-  # ======== 新增智能体（使用通用模板）========
+  # ======== 新增智能体（使用 ReAct 模板）========
 
   # 示例 1：设施监控智能体
   facility_monitor:
@@ -60,7 +60,7 @@ agents:
         - get_entity_relations
         - analyze_temporal_pattern
     custom_params:
-      type: generic  # 使用通用智能体模板
+      type: react  # 使用 ReAct 智能体模板
       behavior:
         system_prompt: |
           你是一个专业的设施监控智能体。
@@ -96,7 +96,7 @@ agents:
         # 只启用应急预案相关工具
         - query_emergency_plan
     custom_params:
-      type: generic
+      type: react
       behavior:
         system_prompt: |
           你是一个应急预案专家智能体。
@@ -136,7 +136,7 @@ agents:
         - aggregate_statistics
         - generate_chart
     custom_params:
-      type: generic
+      type: react
       behavior:
         system_prompt: |
           你是一个专业的数据分析智能体。
@@ -169,7 +169,7 @@ agents:
       enabled_tools:
         - search_knowledge_graph
     custom_params:
-      type: generic
+      type: react
       behavior:
         system_prompt: "你是一个快速查询助手，提供简洁的答案。"
         max_rounds: 3  # 快速响应，减少轮次

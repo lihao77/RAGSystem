@@ -21,6 +21,10 @@ wheels/
 *.egg
 MANIFEST
 
+.claude/
+.agent/
+
+
 # Flask
 instance/
 .webassets-cache

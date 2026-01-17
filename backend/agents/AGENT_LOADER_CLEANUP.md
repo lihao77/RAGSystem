@@ -1,5 +1,7 @@
 # Agent Loader 清理报告
 
+> **注意**: 本文档记录的是历史清理操作。文档中提到的 `GenericAgent` 已在后续版本中被移除，系统现在统一使用 `ReActAgent`。
+
 **日期**: 2026-01-06
 **目的**: 移除旧的 `qa_agent.py` (QAAgent 类) 依赖，完整支持 ReActAgent
 

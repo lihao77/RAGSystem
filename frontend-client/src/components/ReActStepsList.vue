@@ -309,6 +309,10 @@ const totalToolCalls = computed(() => {
   line-height: 1.6;
   color: var(--color-text-main);
   font-weight: 500;
+  /* display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden; */
 }
 
 /* Tool Items */

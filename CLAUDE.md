@@ -41,13 +41,8 @@ Routes (API层) → Services (业务层) → 数据访问层 (Neo4j/ChromaDB)
 - 配置模型: `backend/agents/agent_config.py` (AgentConfig, AgentLLMConfig, AgentToolConfig)
 - 配置管理: `backend/agents/config_manager.py`
 
-**两种智能体实现模板**：
-1. **GenericAgent** (`backend/agents/generic_agent.py`)
-   - 通用智能体模板，适用于标准查询、分析任务
-   - 支持多轮对话（可配置 max_rounds）
-   - 根据配置过滤可用工具 (tools.enabled_tools)
-
-2. **ReActAgent** (`backend/agents/react_agent.py`)
+**智能体实现模板**：
+**ReActAgent** (`backend/agents/react_agent.py`)
    - 推理与行动智能体，使用 Structured Output 代替 Function Calling
    - 支持任何支持 JSON mode 的模型
    - 推理过程完全可见 (thought → actions → observation)
@@ -70,7 +65,7 @@ agents:
         - query_knowledge_graph_with_nl
         - find_causal_chain
     custom_params:
-      type: react  # 或 generic
+      type: react
       behavior:
         system_prompt: "你是一个知识图谱问答助手..."
         max_rounds: 10
@@ -201,7 +196,7 @@ embedding:
            - query_knowledge_graph_with_nl
            - find_causal_chain
        custom_params:
-         type: react  # 或 generic
+         type: react
          behavior:
            system_prompt: "你是一个专门做XX的智能体..."
            max_rounds: 10
