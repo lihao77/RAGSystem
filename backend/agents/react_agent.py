@@ -495,7 +495,7 @@ class ReActAgent(BaseAgent):
                         })
 
                         # 格式化观察结果
-                        observation = self._format_observation(result)
+                        observation = self._format_observation(result, tool_name=tool_name)
                         observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
 
                     # 将所有结果作为 user 消息添加
@@ -710,7 +710,7 @@ class ReActAgent(BaseAgent):
                         })
 
                         # 格式化观察结果
-                        observation = self._format_observation(result)
+                        observation = self._format_observation(result, tool_name=tool_name)
                         observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
 
                     # 将所有结果作为 user 消息添加
@@ -762,7 +762,7 @@ class ReActAgent(BaseAgent):
     #         else:
     #             return f"错误: {result.get('error', '未知错误')}"
     #     return str(result)
-    def _format_observation(self, result: Any) -> str:
+    def _format_observation(self, result: Any, tool_name: str = None) -> str:
         """
         格式化观察结果：实现数据流与控制流的分离策略
 
@@ -776,6 +776,13 @@ class ReActAgent(BaseAgent):
                 "answer": "..."      # 答案（可选）
             }
         }
+
+        Args:
+            result: 工具执行结果
+            tool_name: 工具名称（用于特殊处理）
+
+        Returns:
+            格式化后的观察文本
         """
         # 1. 处理错误响应
         if isinstance(result, dict):
@@ -795,6 +802,25 @@ class ReActAgent(BaseAgent):
             if pure_data is None:
                 # 兼容旧格式：直接返回 data
                 pure_data = data
+
+            # 🔧 特殊处理：Skills 工具（activate_skill, load_skill_resource, execute_skill_script）
+            # 这些工具返回的是 Markdown 内容，应该直接呈现给 AI，不进行大数据处理
+            is_skill_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
+
+            if is_skill_tool:
+                # Skills 工具直接返回内容，不进行大小判断
+                self.logger.info(f"[Skills] {tool_name} 返回内容，直接呈现给 AI")
+
+                # 提取 main_content 或 content 字段
+                if isinstance(pure_data, dict):
+                    skill_content = pure_data.get('main_content') or pure_data.get('content')
+                    if skill_content:
+                        # 返回格式：摘要 + Skill 内容
+                        result_text = f"{summary}\n\n{skill_content}"
+                        return result_text
+
+                # 如果没有找到特定字段，返回整个 data
+                return json.dumps(data, ensure_ascii=False, indent=2)
 
             # 5. 转换为字符串以判断大小
             content_str = json.dumps(pure_data, ensure_ascii=False) if isinstance(pure_data, (dict, list)) else str(pure_data)

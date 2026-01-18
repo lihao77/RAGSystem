@@ -183,6 +183,14 @@ def patch_config(agent_name):
             tools_data.update(data['tools'])
             tools = AgentToolConfig(**tools_data)
 
+        skills = None
+        if 'skills' in data:
+            # 合并现有配置
+            from agents.agent_config import AgentSkillConfig
+            skills_data = config.skills.model_dump()
+            skills_data.update(data['skills'])
+            skills = AgentSkillConfig(**skills_data)
+
         custom_params = data.get('custom_params')
         enabled = data.get('enabled')
 
@@ -191,6 +199,7 @@ def patch_config(agent_name):
             agent_name=agent_name,
             llm=llm,
             tools=tools,
+            skills=skills,
             custom_params=custom_params,
             enabled=enabled,
             save=True

@@ -107,7 +107,7 @@ def create_agent():
             "display_name": "新智能体",
             "description": "描述",
             "custom_params": {
-                "type": "generic",
+                "type": "react",
                 "behavior": {
                     system_prompt: "你是一XXX的智能体..."
                     max_rounds: 10

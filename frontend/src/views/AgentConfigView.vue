@@ -471,7 +471,7 @@ const newAgentForm = reactive({
   agent_name: '',
   display_name: '',
   description: '',
-  type: 'generic',
+  type: 'react',
   system_prompt: ''
 })
 const newAgentFormRef = ref(null)

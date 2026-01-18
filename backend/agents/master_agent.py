@@ -352,10 +352,17 @@ class MasterAgent(BaseAgent):
                 if event['type'] == 'final_answer':
                     # 捕获最终答案
                     final_content = event['content']
-                    # 将 final_answer 转换为 chunk
+
+                    # 🔧 将 final_answer 转换为 chunk
+                    # 如果内容是 JSON 对象，包装为 Markdown 代码块
+                    chunk_content = event['content']
+                    if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
+                        import json
+                        chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
+
                     yield {
                         "type": "chunk",
-                        "content": event['content']
+                        "content": chunk_content
                     }
                 else:
                     # 转发其他事件，添加 subtask_order
@@ -421,9 +428,16 @@ class MasterAgent(BaseAgent):
 
             if response.success:
                 final_content = response.content
+
+                # 🔧 如果内容是 JSON 对象，包装为 Markdown 代码块
+                chunk_content = response.content
+                if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
+                    import json
+                    chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
+
                 yield {
                     "type": "chunk",
-                    "content": response.content
+                    "content": chunk_content
                 }
             else:
                 yield {
@@ -433,7 +447,15 @@ class MasterAgent(BaseAgent):
                 return
 
         # 发送子任务结束事件
-        result_summary = final_content[:200] + "..." if len(final_content) > 200 else final_content
+        # 处理 final_content 可能是字符串或对象的情况
+        if isinstance(final_content, str):
+            result_summary = final_content[:200] + "..." if len(final_content) > 200 else final_content
+        else:
+            # 如果是对象（如JSON），转换为字符串后截取
+            import json
+            content_str = json.dumps(final_content, ensure_ascii=False, indent=2)
+            result_summary = content_str[:200] + "..." if len(content_str) > 200 else content_str
+
         yield {
             "type": "subtask_end",
             "order": 1,
@@ -444,6 +466,13 @@ class MasterAgent(BaseAgent):
             "type": "agent_end",
             "agent": preferred_agent
         }
+
+        # 🎯 为单智能体任务生成 final_answer 事件
+        # 确保前端能够显示最终答案
+        # yield {
+        #     "type": "final_answer",
+        #     "content": final_content
+        # }
 
     def _stream_general_chat(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
         """流式通用对话（真流式）"""
