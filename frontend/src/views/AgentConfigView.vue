@@ -203,6 +203,65 @@
               </el-alert>
             </el-form-item>
 
+            <!-- Skills 配置 -->
+            <el-divider content-position="left">Skills 配置</el-divider>
+
+            <el-alert
+              title="Skills 配置说明"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 16px"
+            >
+              Skills 是 Markdown 格式的领域知识指南，教 AI 如何执行特定任务。
+              <ul style="margin: 8px 0 0 0; padding-left: 20px">
+                <li><strong>渐进式披露</strong>: 只有当 AI 判断需要时才激活 Skill</li>
+                <li><strong>工具自动注入</strong>: 启用 Skills 后，系统自动添加 3 个工具：activate_skill、load_skill_resource、execute_skill_script</li>
+                <li><strong>不选择 = 不启用任何 Skill</strong></li>
+              </ul>
+            </el-alert>
+
+            <el-form-item label="启用的 Skills">
+              <el-select
+                v-model="currentConfig.skills.enabled_skills"
+                multiple
+                placeholder="选择启用的 Skills（留空表示不启用任何 Skill）"
+                style="width: 100%"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="skill in availableSkills"
+                  :key="skill.name"
+                  :label="skill.display_name || skill.name"
+                  :value="skill.name"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center">
+                    <span>{{ skill.display_name || skill.name }}</span>
+                    <el-tag size="small" type="info" style="margin-left: 8px">{{ skill.name }}</el-tag>
+                  </div>
+                  <div style="font-size: 12px; color: #999; margin-top: 4px">
+                    {{ skill.description }}
+                  </div>
+                </el-option>
+              </el-select>
+              <el-alert
+                type="info"
+                :closable="false"
+                style="margin-top: 8px"
+              >
+                <template #default>
+                  <div style="font-size: 12px">
+                    <strong>Skills 启用逻辑：</strong>
+                    <ul style="margin: 4px 0 0 0; padding-left: 20px">
+                      <li>不选择任何 Skill = 不启用 Skills 功能（默认）</li>
+                      <li>选择特定 Skill = 启用选中的 Skills，并自动注入 3 个系统工具</li>
+                      <li>AI 根据任务场景自主判断是否激活 Skill</li>
+                    </ul>
+                  </div>
+                </template>
+              </el-alert>
+            </el-form-item>
+
             <!-- 行为配置 -->
             <el-divider content-position="left">行为配置</el-divider>
 
@@ -382,6 +441,7 @@ import {
   validateAgentConfig,
   getPresets,
   getAvailableTools,
+  getAvailableSkills,
   createAgent,
   deleteAgent
 } from '@/api/agentConfig'
@@ -398,6 +458,7 @@ const currentConfig = ref(null)
 const presets = ref({})
 const applyingPreset = ref('')
 const availableTools = ref([]) // 可用工具列表
+const availableSkills = ref([]) // 可用 Skills 列表
 
 // 导入对话框
 const importDialogVisible = ref(false)
@@ -517,6 +578,18 @@ const loadAvailableTools = async () => {
   }
 }
 
+const loadAvailableSkills = async () => {
+  try {
+    const res = await getAvailableSkills()
+    if (res.success) {
+      availableSkills.value = res.data
+    }
+  } catch (error) {
+    console.error('加载 Skills 列表失败:', error)
+    ElMessage.error('加载 Skills 列表失败')
+  }
+}
+
 const onSelectAgent = (agentName) => {
   selectedAgent.value = agentName
   currentConfig.value = JSON.parse(JSON.stringify(agentConfigs.value[agentName]))
@@ -531,7 +604,17 @@ const syncJsonFields = () => {
     currentConfig.value.custom_params = {}
   }
 
-  // 2. 确保 generic 类型的智能体有 behavior 对象
+  // 2. 确保 tools 配置存在
+  if (!currentConfig.value.tools) {
+    currentConfig.value.tools = { enabled_tools: [] }
+  }
+
+  // 3. 确保 skills 配置存在
+  if (!currentConfig.value.skills) {
+    currentConfig.value.skills = { enabled_skills: [] }
+  }
+
+  // 4. 确保 generic 类型的智能体有 behavior 对象
   const isGeneric = currentConfig.value.custom_params.type === 'generic' || !currentConfig.value.custom_params.type
   if (isGeneric && !currentConfig.value.custom_params.behavior) {
     currentConfig.value.custom_params.behavior = {
@@ -818,6 +901,7 @@ onMounted(() => {
   loadConfigs()
   loadPresets()
   loadAvailableTools()
+  loadAvailableSkills()
 })
 
 // 监听配置对象的变化，实时更新 JSON 视图

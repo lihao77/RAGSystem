@@ -474,6 +474,8 @@ TOOLS = [
             }
         }
     }
+    # 注意：load_skill_resource 和 execute_skill_script 工具已由 agent_loader.py 自动注入
+    # 当智能体启用了 Skills 时，这两个工具会自动添加到该智能体的工具列表中
 ]
 
 

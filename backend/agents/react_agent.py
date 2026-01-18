@@ -64,6 +64,7 @@ class ReActAgent(BaseAgent):
         agent_config = None,
         system_config = None,
         available_tools: Optional[List[Dict[str, Any]]] = None,
+        available_skills: Optional[List] = None,  # 新增：Skills 列表
         event_callback = None  # 新增：事件回调函数
     ):
         super().__init__(
@@ -77,6 +78,7 @@ class ReActAgent(BaseAgent):
 
         self.display_name = display_name or agent_name
         self.available_tools = available_tools or []
+        self.available_skills = available_skills or []  # 新增：保存 Skills
         self.event_callback = event_callback  # 保存回调函数
 
         # 从配置获取行为参数
@@ -84,7 +86,7 @@ class ReActAgent(BaseAgent):
         self.max_rounds = behavior_config.get('max_rounds', 10)
         self.base_prompt = behavior_config.get('system_prompt', '')
 
-        logger.info(f"ReActAgent '{self.name}' 初始化完成，可用工具: {len(self.available_tools)}")
+        logger.info(f"ReActAgent '{self.name}' 初始化完成，可用工具: {len(self.available_tools)}，可用 Skills: {len(self.available_skills)}")
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
         """发送事件到回调函数"""
@@ -126,6 +128,9 @@ class ReActAgent(BaseAgent):
 
         tools_desc = "\n".join(tools_desc_lines)
 
+        # 构建 Skills 说明
+        skills_desc = self._format_skills_description()
+
         # 🔒 动态生成示例：使用当前智能体可用的工具
         # 避免硬编码工具名称，防止 LLM 学习到未授权的工具
         example_tool_name = self.available_tools[0]['function']['name'] if self.available_tools else "tool_name"
@@ -156,6 +161,10 @@ class ReActAgent(BaseAgent):
 ## 可用工具
 
 {tools_desc}
+
+## 领域知识 (Skills)
+
+{skills_desc}
 
 ## 工作方式
 
@@ -208,6 +217,44 @@ class ReActAgent(BaseAgent):
 
 只返回 JSON，不要有其他内容。
 """
+
+    def _format_skills_description(self) -> str:
+        """
+        格式化 Skills 说明（仅列出 name 和 description）
+
+        根据 Claude Skills 的渐进式披露原则：
+        1. System Prompt 只包含 name + description（最小化信息）
+        2. AI 判断需要时，调用 activate_skill 工具激活 Skill 并加载主文件
+        3. AI 根据主文件提示，调用 load_skill_resource 加载引用文件
+        4. AI 根据主文件指示，调用 execute_skill_script 执行脚本
+
+        Skills 不是工具，而是领域知识指南，告诉 Agent 如何更好地完成特定任务。
+        """
+        if not self.available_skills:
+            return "当前无可用的领域知识。"
+
+        lines = []
+        lines.append("## 领域知识 Skills")
+        lines.append("")
+        lines.append("以下是可用的领域知识 Skills。使用流程：")
+        lines.append("")
+        lines.append("**第 1 步**：当任务匹配某个 Skill 的场景时，调用 `activate_skill(skill_name)` 激活它")
+        lines.append("  - 效果：加载 SKILL.md 主文件，获取完整指导流程")
+        lines.append("  - 返回：主文件内容 + 可用的资源和脚本列表")
+        lines.append("")
+        lines.append("**第 2 步**：根据主文件中的提示，使用 `load_skill_resource` 加载详细文档")
+        lines.append("")
+        lines.append("**第 3 步**：根据主文件中的指示，使用 `execute_skill_script` 执行脚本")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+        for idx, skill in enumerate(self.available_skills, 1):
+            lines.append(f"### Skill {idx}: {skill.name}")
+            lines.append(f"**适用场景**: {skill.description}")
+            lines.append("")
+
+        return "\n".join(lines)
 
     def execute_stream(self, task: str, context: AgentContext):
         """

@@ -515,3 +515,47 @@ def _get_tool_category(tool_name: str) -> str:
 
     # 默认分类
     return 'other'
+
+
+@agent_config_bp.route('/skills', methods=['GET'])
+def list_available_skills():
+    """
+    列出所有可用的 Skills
+
+    Returns:
+        {
+            "success": true,
+            "data": [
+                {
+                    "name": "disaster-report-example",
+                    "display_name": "灾害报告示例",
+                    "description": "演示如何撰写灾害报告的示例 Skill"
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        from agents.skills.skill_loader import get_skill_loader
+
+        # 加载所有 Skills
+        skill_loader = get_skill_loader()
+        all_skills = skill_loader.load_all_skills()
+
+        # 转换为前端需要的格式
+        skill_list = []
+        for skill in all_skills:
+            skill_list.append({
+                'name': skill.name,
+                'display_name': skill.name.replace('-', ' ').title(),  # 默认显示名称
+                'description': skill.description
+            })
+
+        return success_response(
+            data=skill_list,
+            message=f'共有 {len(skill_list)} 个可用 Skill'
+        )
+
+    except Exception as e:
+        logger.error(f'获取 Skills 列表失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)

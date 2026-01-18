@@ -96,6 +96,22 @@ class AgentToolConfig(BaseModel):
     )
 
 
+class AgentSkillConfig(BaseModel):
+    """
+    智能体的 Skills 配置
+
+    定义智能体可以访问哪些 Skills
+    """
+    enabled_skills: List[str] = Field(
+        default_factory=list,
+        description="启用的 Skill 名称列表，留空表示不启用任何 Skill"
+    )
+    auto_inject: bool = Field(
+        default=True,
+        description="是否自动检测并注入匹配的 Skill（True）还是只在 system prompt 中列出（False）"
+    )
+
+
 class AgentConfig(BaseModel):
     """
     智能体完整配置
@@ -132,6 +148,11 @@ class AgentConfig(BaseModel):
         description="工具配置"
     )
 
+    skills: AgentSkillConfig = Field(
+        default_factory=AgentSkillConfig,
+        description="Skills 配置"
+    )
+
     custom_params: Dict[str, Any] = Field(
         default_factory=dict,
         description="智能体特定的自定义参数"
@@ -152,6 +173,10 @@ class AgentConfig(BaseModel):
                 },
                 "tools": {
                     "enabled_tools": ["query_kg", "semantic_search"]
+                },
+                "skills": {
+                    "enabled_skills": ["disaster-report-example"],
+                    "auto_inject": True
                 },
                 "custom_params": {
                     "type": "react",

@@ -268,6 +268,7 @@ class AgentLoader:
         elif agent_class == ReActAgent:
             # ReActAgent 需要额外参数
             from tools.function_definitions import get_tool_definitions
+            from .skills.skill_loader import get_skill_loader
 
             # 获取所有工具
             all_tools = get_tool_definitions()
@@ -284,11 +285,128 @@ class AgentLoader:
                 filtered_tools = all_tools
                 logger.info(f"{agent_config.agent_name} 启用所有工具")
 
+            # 加载 Skills（根据配置过滤）
+            skill_loader = get_skill_loader()
+            all_skills = skill_loader.load_all_skills()
+
+            filtered_skills = []
+            if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
+                enabled_skill_names = agent_config.skills.enabled_skills
+                filtered_skills = [
+                    skill for skill in all_skills
+                    if skill.name in enabled_skill_names
+                ]
+                logger.info(f"{agent_config.agent_name} 已根据配置过滤 Skills，启用: {enabled_skill_names}")
+
+                # 🔧 自动注入 Skills 系统工具（内置能力，无需用户配置）
+                skill_tools = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "activate_skill",
+                            "description": """激活一个 Skill 并加载其主文件内容（SKILL.md）。
+
+**使用时机**：
+- 当你判断用户任务匹配某个 Skill 的适用场景时，首先激活该 Skill
+- 激活后你将获得该 Skill 的完整指导流程和工作方法
+
+**效果**：
+- 加载 SKILL.md 主文件内容
+- 系统记录该 Skill 已激活，便于上下文管理
+- 返回 Skill 的完整指导内容
+
+**后续操作**：
+- 根据主文件中的提示，使用 `load_skill_resource` 加载详细文档
+- 根据主文件中的指示，使用 `execute_skill_script` 执行脚本
+
+**重要**：每个任务通常只需激活一个 Skill。如果需要切换到不同的 Skill，再次调用此工具。""",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "skill_name": {
+                                        "type": "string",
+                                        "description": "要激活的 Skill 名称，例如：'disaster-report-example'"
+                                    }
+                                },
+                                "required": ["skill_name"]
+                            }
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "load_skill_resource",
+                            "description": """加载 Skill 的引用文件内容（Additional Resources）。
+
+**前置条件**：
+- 你需要先使用 `activate_skill` 激活 Skill
+- 然后根据主文件（SKILL.md）中的提示，加载详细的引用文件
+
+**使用场景**：
+- 当主文件提到某个引用文件时（如 [report-template.md](report-template.md)）
+- 需要查看详细的模板、指南、示例等
+
+**重要**：此工具用于加载**额外的引用文件**，不是主文件。主文件通过 `activate_skill` 加载。""",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "skill_name": {
+                                        "type": "string",
+                                        "description": "Skill 名称"
+                                    },
+                                    "resource_file": {
+                                        "type": "string",
+                                        "description": "要加载的引用文件名，例如：'report-template.md'、'advanced-analysis.md'"
+                                    }
+                                },
+                                "required": ["skill_name", "resource_file"]
+                            }
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "execute_skill_script",
+                            "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "skill_name": {
+                                        "type": "string",
+                                        "description": "Skill 名称"
+                                    },
+                                    "script_name": {
+                                        "type": "string",
+                                        "description": "脚本文件名，例如：'validate_data.py'"
+                                    },
+                                    "arguments": {
+                                        "type": "array",
+                                        "description": "传递给脚本的命令行参数（可选）",
+                                        "items": {"type": "string"}
+                                    }
+                                },
+                                "required": ["skill_name", "script_name"]
+                            }
+                        }
+                    }
+                ]
+
+                # 自动添加到工具列表（避免重复）
+                existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+                for skill_tool in skill_tools:
+                    tool_name = skill_tool.get('function', {}).get('name')
+                    if tool_name not in existing_tool_names:
+                        filtered_tools.append(skill_tool)
+                        logger.info(f"  → 自动注入 Skills 系统工具: {tool_name}")
+            else:
+                logger.info(f"{agent_config.agent_name} 未配置 Skills，不加载任何 Skill")
+
             common_kwargs.update({
                 'agent_name': agent_config.agent_name,
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
-                'available_tools': filtered_tools
+                'available_tools': filtered_tools,
+                'available_skills': filtered_skills  # 新增：传递 Skills
             })
 
         # 创建实例

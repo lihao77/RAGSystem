@@ -122,6 +122,13 @@ export async function getAvailableTools() {
   return await get('/api/agent-config/tools')
 }
 
+/**
+ * 获取所有可用的 Skills 列表
+ */
+export async function getAvailableSkills() {
+  return await get('/api/agent-config/skills')
+}
+
 export default {
   getAllAgentConfigs,
   getAgentConfig,
@@ -134,6 +141,7 @@ export default {
   validateAgentConfig,
   getPresets,
   getAvailableTools,
+  getAvailableSkills,
   createAgent,
   deleteAgent
 }
