@@ -310,7 +310,10 @@ const handleSend = async () => {
               if (subtask) {
                 subtask.result_summary = data.result_summary;
                 subtask.status = data.success === false ? 'error' : 'success';
-                if (currentMsg.subtasks.length > 1) subtask.expanded = false;
+
+                // 🔧 统一逻辑：完成的子任务总是折叠（包括单智能体）
+                // 这样前端更简洁，用户需要时可以手动展开查看详情
+                subtask.expanded = false;
               }
             } else if (data.type === 'chart_generated') {
               currentMsg.multimodalContents.push({

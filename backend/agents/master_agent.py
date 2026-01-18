@@ -283,13 +283,8 @@ class MasterAgent(BaseAgent):
                 "reasoning": analysis.get('reasoning', '')  # 不限制长度
             }
 
-            # 如果是简单任务，委托给单个智能体
-            if complexity == 'simple' or not needs_multiple:
-                yield from self._stream_delegate_to_single_agent(task, context, analysis)
-                return
-
-            # 复杂任务，分解并协调执行
-            yield from self._stream_coordinate_multiple_agents(task, context, analysis)
+            # 🎯 统一执行流程：无论单智能体还是多智能体，都执行子任务列表
+            yield from self._stream_execute_subtasks(task, context, analysis)
 
         except Exception as e:
             self.logger.error(f"[MasterAgent] 执行失败: {e}", exc_info=True)
@@ -298,181 +293,278 @@ class MasterAgent(BaseAgent):
                 "content": str(e)
             }
 
-    def _stream_delegate_to_single_agent(
+    def _stream_execute_subtasks(
         self,
         task: str,
         context: AgentContext,
         analysis: Dict[str, Any]
     ) -> Generator[Dict[str, Any], None, None]:
-        """流式委托给单个智能体（统一使用子任务事件）"""
+        """
+        统一的子任务执行流程（单智能体和多智能体）
+
+        核心思想：
+        - 单智能体 = 1个子任务，直接输出智能体的回答作为最终答案
+        - 多智能体 = N个子任务，需要整合所有子任务的结果
+        """
         subtasks = analysis.get('subtasks', [])
-        preferred_agent = subtasks[0].get('agent') if subtasks else None
+        needs_multiple = analysis.get('needs_multiple_agents', False)
 
-        # 🚨 防止死循环：如果推荐的智能体是 master_agent 或为空，说明是通用对话
-        if not preferred_agent or preferred_agent == 'master_agent':
-            self.logger.info("[MasterAgent] 无需特定智能体，由 MasterAgent 直接处理通用对话")
-            # 通用对话也作为一个子任务
-            yield {
-                "type": "subtask_start",
-                "order": 1,
-                "agent_name": "master_agent",
-                "agent_display_name": "MasterAgent",
-                "description": task
-            }
-            yield from self._stream_general_chat(task, context)
-            yield {
-                "type": "subtask_end",
-                "order": 1,
-                "result_summary": ""  # 通用对话没有摘要
-            }
-            return
+        # 收集所有子任务的结果（用于多智能体整合）
+        results = []
+        subtask_responses = {}
 
-        # 发送子任务开始事件
-        agent_display_name = self._get_agent_display_name(preferred_agent)
-        yield {
-            "type": "subtask_start",
-            "order": 1,
-            "agent_name": preferred_agent,
-            "agent_display_name": agent_display_name,
-            "description": subtasks[0].get('description', task) if subtasks else task
-        }
+        # 遍历执行所有子任务
+        for subtask in sorted(subtasks, key=lambda x: x.get('order', 0)):
+            subtask_order = subtask.get('order')
+            subtask_desc = subtask.get('description', '')
+            agent_name = subtask.get('agent', '')
+            depends_on = subtask.get('depends_on', [])
 
-        # 获取 Agent 实例
-        agent = self.orchestrator.agents.get(preferred_agent)
-
-        # 用于收集最终答案
-        final_content = ""
-
-        # 检查 Agent 是否支持流式执行
-        if agent and hasattr(agent, 'execute_stream'):
-            # 使用流式执行，实时转发事件
-            self.logger.info(f"[MasterAgent] 使用流式执行 {preferred_agent}")
-
-            for event in agent.execute_stream(task, context):
-                if event['type'] == 'final_answer':
-                    # 捕获最终答案
-                    final_content = event['content']
-
-                    # 🔧 将 final_answer 转换为 chunk
-                    # 如果内容是 JSON 对象，包装为 Markdown 代码块
-                    chunk_content = event['content']
-                    if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
-                        import json
-                        chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
-
-                    yield {
-                        "type": "chunk",
-                        "content": chunk_content
-                    }
-                else:
-                    # 转发其他事件，添加 subtask_order
-                    if event['type'] in ['thought_structured', 'tool_start', 'tool_end']:
-                        event['subtask_order'] = 1
-                    yield event
-        else:
-            # 降级到非流式执行（使用旧的回调机制）
-            self.logger.warning(f"[MasterAgent] Agent {preferred_agent} 不支持流式执行，使用回调模式")
-
-            event_queue = []
-
-            def event_callback(event_type: str, data: Dict[str, Any]):
-                if event_type == 'tool_start':
-                    event_queue.append({
-                        "type": "tool_start",
-                        "tool_name": data['tool_name'],
-                        "arguments": data['arguments'],
-                        "index": data['index'],
-                        "total": data['total'],
-                        "subtask_order": 1  # 添加子任务标识
-                    })
-                elif event_type == 'tool_end':
-                    event_queue.append({
-                        "type": "tool_end",
-                        "tool_name": data['tool_name'],
-                        "result": data['result'],
-                        "elapsed_time": data['elapsed_time'],
-                        "index": data['index'],
-                        "total": data['total'],
-                        "subtask_order": 1  # 添加子任务标识
-                    })
-                elif event_type == 'thought_structured':
-                    event_queue.append({
-                        "type": "thought_structured",
-                        "thought": data['thought'],
-                        "round": data['round'],
-                        "has_actions": data['has_actions'],
-                        "has_answer": data['has_answer'],
-                        "subtask_order": 1  # 添加子任务标识
-                    })
-
-            if agent and hasattr(agent, 'event_callback'):
-                old_callback = agent.event_callback
-                agent.event_callback = event_callback
-
-                response = self.orchestrator.execute(
-                    task=task,
-                    context=context,
-                    preferred_agent=preferred_agent
-                )
-
-                agent.event_callback = old_callback
-
-                for event in event_queue:
-                    yield event
-            else:
-                response = self.orchestrator.execute(
-                    task=task,
-                    context=context,
-                    preferred_agent=preferred_agent
-                )
-
-            if response.success:
-                final_content = response.content
-
-                # 🔧 如果内容是 JSON 对象，包装为 Markdown 代码块
-                chunk_content = response.content
-                if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
-                    import json
-                    chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
-
+            # 🚨 防止死循环：如果推荐的智能体是 master_agent 或为空，说明是通用对话
+            if not agent_name or agent_name == 'master_agent':
+                self.logger.info("[MasterAgent] 无需特定智能体，由 MasterAgent 直接处理通用对话")
                 yield {
-                    "type": "chunk",
-                    "content": chunk_content
+                    "type": "subtask_start",
+                    "order": subtask_order,
+                    "agent_name": "master_agent",
+                    "agent_display_name": "MasterAgent",
+                    "description": task
                 }
-            else:
+                yield from self._stream_general_chat(task, context)
                 yield {
-                    "type": "error",
-                    "content": response.error or "执行失败"
+                    "type": "subtask_end",
+                    "order": subtask_order,
+                    "result_summary": ""  # 通用对话没有摘要
                 }
                 return
 
-        # 发送子任务结束事件
-        # 处理 final_content 可能是字符串或对象的情况
-        if isinstance(final_content, str):
-            result_summary = final_content[:200] + "..." if len(final_content) > 200 else final_content
+            # 发送子任务开始事件
+            agent_display_name = self._get_agent_display_name(agent_name)
+            yield {
+                "type": "subtask_start",
+                "order": subtask_order,
+                "agent_name": agent_name,
+                "agent_display_name": agent_display_name,
+                "description": subtask_desc
+            }
+
+            # 检查依赖并传递前置任务结果（多智能体专用）
+            enhanced_subtask_desc = subtask_desc
+            if depends_on and needs_multiple:
+                dep_results = [
+                    subtask_responses.get(dep_order)
+                    for dep_order in depends_on
+                    if dep_order in subtask_responses
+                ]
+                context.set_shared_data('previous_results', dep_results)
+
+                # 在子任务描述中增强上下文
+                if dep_results:
+                    import json
+                    dep_context = "\n\n【前置任务结果】\n"
+                    for dep in dep_results:
+                        dep_context += f"- 任务: {dep.get('description', '未知')}\n"
+                        if dep.get('success'):
+                            dep_content = dep.get('content', '')
+                            if len(dep_content) > 1000:
+                                dep_content = dep_content[:1000] + "...(内容过长，已截断)"
+                            dep_context += f"  结果: {dep_content}\n"
+                            if dep.get('data'):
+                                dep_context += f"  数据: {json.dumps(dep.get('data'), ensure_ascii=False, indent=2)}\n"
+                        else:
+                            dep_context += f"  失败: {dep.get('error', '未知错误')}\n"
+                        dep_context += "\n"
+
+                    enhanced_subtask_desc = f"{subtask_desc}\n{dep_context}"
+                    self.logger.info(f"[MasterAgent] 子任务 {subtask_order} 已增强上下文")
+
+            # 执行子任务
+            try:
+                final_content = ""
+                agent = self.orchestrator.agents.get(agent_name)
+
+                # 优先使用流式执行
+                if agent and hasattr(agent, 'execute_stream'):
+                    self.logger.info(f"[MasterAgent] 使用流式执行 {agent_name}")
+
+                    for event in agent.execute_stream(enhanced_subtask_desc, context):
+                        if event['type'] == 'final_answer':
+                            # 捕获最终答案
+                            final_content = event['content']
+
+                            # 🔧 单智能体任务：将 final_answer 转换为 chunk（直接作为最终答案）
+                            # 多智能体任务：不转换，等待后续整合
+                            if not needs_multiple:
+                                chunk_content = event['content']
+                                if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
+                                    import json
+                                    chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
+
+                                yield {
+                                    "type": "chunk",
+                                    "content": chunk_content
+                                }
+                        else:
+                            # 转发其他事件，添加 subtask_order
+                            if event['type'] in ['thought_structured', 'tool_start', 'tool_end']:
+                                event['subtask_order'] = subtask_order
+                            yield event
+
+                    # 构建响应对象
+                    from .base import AgentResponse
+                    response = AgentResponse(
+                        success=True,
+                        content=final_content,
+                        agent_name=agent_name,
+                        execution_time=0
+                    )
+
+                else:
+                    # 降级到非流式执行
+                    self.logger.warning(f"[MasterAgent] Agent {agent_name} 不支持流式执行")
+
+                    event_queue = []
+
+                    def event_callback(event_type: str, data: Dict[str, Any]):
+                        if event_type == 'tool_start':
+                            event_queue.append({
+                                "type": "tool_start",
+                                "tool_name": data['tool_name'],
+                                "arguments": data['arguments'],
+                                "index": data['index'],
+                                "total": data['total'],
+                                "subtask_order": subtask_order
+                            })
+                        elif event_type == 'tool_end':
+                            event_queue.append({
+                                "type": "tool_end",
+                                "tool_name": data['tool_name'],
+                                "result": data['result'],
+                                "elapsed_time": data['elapsed_time'],
+                                "index": data['index'],
+                                "total": data['total'],
+                                "subtask_order": subtask_order
+                            })
+                        elif event_type == 'thought_structured':
+                            event_queue.append({
+                                "type": "thought_structured",
+                                "thought": data['thought'],
+                                "round": data['round'],
+                                "has_actions": data['has_actions'],
+                                "has_answer": data['has_answer'],
+                                "subtask_order": subtask_order
+                            })
+
+                    if agent and hasattr(agent, 'event_callback'):
+                        old_callback = agent.event_callback
+                        agent.event_callback = event_callback
+
+                        response = self.orchestrator.execute(
+                            task=enhanced_subtask_desc,
+                            context=context,
+                            preferred_agent=agent_name
+                        )
+
+                        agent.event_callback = old_callback
+
+                        for event in event_queue:
+                            yield event
+                    else:
+                        response = self.orchestrator.execute(
+                            task=enhanced_subtask_desc,
+                            context=context,
+                            preferred_agent=agent_name
+                        )
+
+                    if response.success:
+                        final_content = response.content
+
+                        # 🔧 单智能体任务：包装为 chunk
+                        if not needs_multiple:
+                            chunk_content = response.content
+                            if isinstance(chunk_content, dict) or isinstance(chunk_content, list):
+                                import json
+                                chunk_content = f"```json\n{json.dumps(chunk_content, ensure_ascii=False, indent=2)}\n```"
+
+                            yield {
+                                "type": "chunk",
+                                "content": chunk_content
+                            }
+                    else:
+                        yield {
+                            "type": "error",
+                            "content": response.error or "执行失败"
+                        }
+                        return
+
+                # 保存子任务结果（用于多智能体依赖传递）
+                subtask_responses[subtask_order] = {
+                    'description': subtask_desc,
+                    'agent': response.agent_name,
+                    'success': response.success,
+                    'content': response.content,
+                    'data': response.data,
+                    'execution_time': response.execution_time
+                }
+                results.append(subtask_responses[subtask_order])
+                context.store_result(f'subtask_{subtask_order}', response.data)
+
+                # 发送子任务结束事件
+                # 处理 result_summary
+                if isinstance(final_content, str):
+                    # result_summary = final_content[:200] + "..." if len(final_content) > 200 else final_content
+                    result_summary = final_content
+                else:
+                    import json
+                    content_str = json.dumps(final_content, ensure_ascii=False, indent=2)
+                    # result_summary = content_str[:200] + "..." if len(content_str) > 200 else content_str
+                    result_summary = content_str
+
+                yield {
+                    "type": "subtask_end",
+                    "order": subtask_order,
+                    "result_summary": result_summary
+                }
+
+            except Exception as e:
+                self.logger.error(f"子任务执行失败: {e}")
+                results.append({
+                    'description': subtask_desc,
+                    'agent': agent_name,
+                    'success': False,
+                    'error': str(e)
+                })
+                yield {
+                    "type": "subtask_end",
+                    "order": subtask_order,
+                    "result_summary": f"执行失败: {str(e)}",
+                    "success": False
+                }
+
+        # 🎯 多智能体任务：整合所有子任务的结果
+        if needs_multiple and len(subtasks) > 1:
+            yield {
+                "type": "thought",
+                "content": "所有子任务完成，正在整合最终结果..."
+            }
+
+            # 流式整合结果
+            for chunk in self._synthesize_results_stream(task, results):
+                content = chunk.get('content', '')
+                if content:
+                    yield {
+                        "type": "chunk",
+                        "content": content
+                    }
+
+                if chunk.get('finish_reason') in ['stop', 'length']:
+                    break
         else:
-            # 如果是对象（如JSON），转换为字符串后截取
-            import json
-            content_str = json.dumps(final_content, ensure_ascii=False, indent=2)
-            result_summary = content_str[:200] + "..." if len(content_str) > 200 else content_str
-
-        yield {
-            "type": "subtask_end",
-            "order": 1,
-            "result_summary": result_summary
-        }
-
-        yield {
-            "type": "agent_end",
-            "agent": preferred_agent
-        }
-
-        # 🎯 为单智能体任务生成 final_answer 事件
-        # 确保前端能够显示最终答案
-        # yield {
-        #     "type": "final_answer",
-        #     "content": final_content
-        # }
+            # 🎯 单智能体任务：发送 agent_end 事件
+            yield {
+                "type": "agent_end",
+                "agent": subtasks[0].get('agent') if subtasks else 'master_agent'
+            }
 
     def _stream_general_chat(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
         """流式通用对话（真流式）"""
@@ -509,209 +601,6 @@ class MasterAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"流式对话失败: {e}")
             yield {"type": "error", "content": str(e)}
-
-    def _stream_coordinate_multiple_agents(
-        self,
-        task: str,
-        context: AgentContext,
-        analysis: Dict[str, Any]
-    ) -> Generator[Dict[str, Any], None, None]:
-        """流式协调多个智能体（使用统一子任务事件）"""
-        subtasks = analysis.get('subtasks', [])
-
-        results = []
-        subtask_responses = {}
-
-        for subtask in sorted(subtasks, key=lambda x: x.get('order', 0)):
-            subtask_desc = subtask.get('description', '')
-            agent_name = subtask.get('agent', '')
-            depends_on = subtask.get('depends_on', [])
-            subtask_order = subtask.get('order')
-
-            # 发送子任务开始事件
-            agent_display_name = self._get_agent_display_name(agent_name)
-            yield {
-                "type": "subtask_start",
-                "order": subtask_order,
-                "agent_name": agent_name,
-                "agent_display_name": agent_display_name,
-                "description": subtask_desc
-            }
-
-            # 检查依赖并传递前置任务结果
-            enhanced_subtask_desc = subtask_desc
-            if depends_on:
-                dep_results = [
-                    subtask_responses.get(dep_order)
-                    for dep_order in depends_on
-                    if dep_order in subtask_responses
-                ]
-                context.set_shared_data('previous_results', dep_results)
-
-                # 在子任务描述中增强上下文，明确包含前置任务的结果
-                if dep_results:
-                    dep_context = "\n\n【前置任务结果】\n"
-                    for dep in dep_results:
-                        dep_context += f"- 任务: {dep.get('description', '未知')}\n"
-                        if dep.get('success'):
-                            # 截取合理长度的结果内容
-                            dep_content = dep.get('content', '')
-                            if len(dep_content) > 1000:
-                                dep_content = dep_content[:1000] + "...(内容过长，已截断)"
-                            dep_context += f"  结果: {dep_content}\n"
-                            # 如果有结构化数据，也传递
-                            if dep.get('data'):
-                                dep_context += f"  数据: {json.dumps(dep.get('data'), ensure_ascii=False, indent=2)}\n"
-                        else:
-                            dep_context += f"  失败: {dep.get('error', '未知错误')}\n"
-                        dep_context += "\n"
-
-                    enhanced_subtask_desc = f"{subtask_desc}\n{dep_context}"
-                    self.logger.info(f"[MasterAgent] 子任务 {subtask_order} 已增强上下文，包含 {len(dep_results)} 个前置任务的结果")
-
-            # 执行子任务，使用流式执行（如果支持）
-            try:
-                # 获取 agent 实例
-                agent = self.orchestrator.agents.get(agent_name)
-
-                # 优先使用流式执行
-                if agent and hasattr(agent, 'execute_stream'):
-                    self.logger.info(f"[MasterAgent] 使用流式执行子任务: {agent_name}")
-
-                    # 实时转发事件，添加 subtask_order
-                    final_content = ""
-                    for event in agent.execute_stream(enhanced_subtask_desc, context):
-                        if event['type'] == 'final_answer':
-                            # 捕获最终答案
-                            final_content = event['content']
-                            # 不 yield，等待构建 response 后再处理
-                        elif event['type'] in ['thought_structured', 'tool_start', 'tool_end']:
-                            # 转发其他事件，添加 subtask_order
-                            event['subtask_order'] = subtask_order
-                            yield event
-                        else:
-                            # 其他事件直接转发
-                            yield event
-
-                    # 构建响应对象（模拟非流式返回）
-                    from .base import AgentResponse
-                    response = AgentResponse(
-                        success=True,
-                        content=final_content,
-                        agent_name=agent_name,
-                        execution_time=0  # 已在事件中报告
-                    )
-                else:
-                    # 降级到非流式执行（使用回调队列）
-                    self.logger.warning(f"[MasterAgent] Agent {agent_name} 不支持流式执行，使用回调模式")
-
-                    event_queue = []
-
-                    def event_callback(event_type: str, data: Dict[str, Any]):
-                        if event_type == 'tool_start':
-                            event_queue.append({
-                                "type": "tool_start",
-                                "tool_name": data['tool_name'],
-                                "arguments": data['arguments'],
-                                "index": data['index'],
-                                "total": data['total'],
-                                "subtask_order": subtask_order  # 添加 subtask_order
-                            })
-                        elif event_type == 'tool_end':
-                            event_queue.append({
-                                "type": "tool_end",
-                                "tool_name": data['tool_name'],
-                                "result": data['result'],
-                                "elapsed_time": data['elapsed_time'],
-                                "index": data['index'],
-                                "total": data['total'],
-                                "subtask_order": subtask_order  # 添加 subtask_order
-                            })
-                        elif event_type == 'thought_structured':
-                            event_queue.append({
-                                "type": "thought_structured",
-                                "thought": data['thought'],
-                                "round": data['round'],
-                                "has_actions": data['has_actions'],
-                                "has_answer": data['has_answer'],
-                                "subtask_order": subtask_order  # 添加 subtask_order
-                            })
-
-                    if agent and hasattr(agent, 'event_callback'):
-                        old_callback = agent.event_callback
-                        agent.event_callback = event_callback
-
-                        response = self.orchestrator.execute(
-                            task=enhanced_subtask_desc,
-                            context=context,
-                            preferred_agent=agent_name
-                        )
-
-                        agent.event_callback = old_callback
-
-                        # 转发队列中的事件
-                        for event in event_queue:
-                            yield event
-                    else:
-                        response = self.orchestrator.execute(
-                            task=enhanced_subtask_desc,
-                            context=context,
-                            preferred_agent=agent_name
-                        )
-
-                # 保存结果
-                subtask_responses[subtask.get('order')] = {
-                    'description': subtask_desc,
-                    'agent': response.agent_name,
-                    'success': response.success,
-                    'content': response.content,
-                    'data': response.data,
-                    'execution_time': response.execution_time
-                }
-                results.append(subtask_responses[subtask.get('order')])
-                context.store_result(f'subtask_{subtask.get("order")}', response.data)
-
-                # 发送子任务结束事件（返回完整结果，不再截断）
-                yield {
-                    "type": "subtask_end",
-                    "order": subtask_order,
-                    "result_summary": response.content  # 返回完整内容，由前端处理展示
-                }
-
-            except Exception as e:
-                self.logger.error(f"子任务执行失败: {e}")
-                results.append({
-                    'description': subtask_desc,
-                    'agent': agent_name,
-                    'success': False,
-                    'error': str(e)
-                })
-                # 发送子任务失败事件
-                yield {
-                    "type": "subtask_end",
-                    "order": subtask_order,
-                    "result_summary": f"执行失败: {str(e)}",
-                    "success": False
-                }
-
-        # 整合结果（使用流式）
-        yield {
-            "type": "thought",
-            "content": "所有子任务完成，正在整合最终结果..."
-        }
-
-        # 使用流式整合，实时 yield 每个 token
-        for chunk in self._synthesize_results_stream(task, results):
-            content = chunk.get('content', '')
-            if content:
-                yield {
-                    "type": "chunk",
-                    "content": content
-                }
-
-            # 检查是否完成
-            if chunk.get('finish_reason') in ['stop', 'length']:
-                break
 
     def _analyze_task(
         self,
