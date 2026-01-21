@@ -37,7 +37,7 @@
             class="step-thought"
             :class="{ running: isStepRunning(step) }"
           >
-            <div class="thought-icon">💭</div>
+            <!-- <div class="thought-icon">💭</div> -->
             <div class="thought-text">{{ step.thought }}</div>
           </div>
 
@@ -248,7 +248,7 @@ const isStepRunning = (step) => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  margin-left: var(--spacing-2xl);
+  margin-left: var(--spacing-xl);
   padding-left: var(--spacing-xl);
   border-left: 2px solid var(--color-border);
 }

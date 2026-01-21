@@ -14,7 +14,7 @@
     <div class="subtask-body" :style="contentStyle">
       <div class="subtask-slider" :style="sliderStyle">
         <!-- 详情 (Top) -->
-        <div ref="detailRef" class="subtask-details">
+        <div ref="detailRef" class="subtask-details" :style="{ opacity: subtask.expanded ? 1 : 0 }">
           <div class="subtask-description-full">
             <strong>任务描述：</strong>{{ subtask.description }}
           </div>
@@ -28,18 +28,34 @@
           <!-- 结果摘要 -->
           <div v-if="subtask.result_summary" class="subtask-result">
             <div class="section-header">📋 完整结果</div>
-            <div class="result-content-full">{{ subtask.result_summary }}</div>
+            <div class="result-content-full result-markdown" v-html="renderMarkdown(subtask.result_summary)"></div>
           </div>
         </div>
 
         <!-- 预览 (Bottom) -->
-        <div ref="previewRef" class="subtask-preview">
+        <div ref="previewRef" class="subtask-preview" :style="{ opacity: subtask.expanded ? 0 : 1 }">
           <div class="subtask-description">{{ subtask.description }}</div>
-          <div v-if="subtask.result_summary" class="subtask-summary">
-            {{ subtask.result_summary }}
-          </div>
+          <div v-if="subtask.result_summary" class="subtask-summary result-markdown" v-html="renderMarkdown(subtask.result_summary)"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- 外部悬浮收起按钮 -->
+  <div v-if="subtask.expanded" class="collapse-trigger-external">
+    <div class="trigger-content" @click="toggleExpanded">
+      <svg class="icon-up" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"></path>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 外部展开按钮（预览模式下显示） -->
+  <div v-else class="expand-trigger-external">
+    <div class="trigger-content" @click="toggleExpanded">
+      <svg class="icon-down" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"></path>
+      </svg>
     </div>
   </div>
 </template>
@@ -47,6 +63,7 @@
 <script setup>
 import { ref, defineProps, defineEmits, onMounted, onUnmounted, computed } from 'vue';
 import ReActStepsList from './ReActStepsList.vue';
+import { marked } from 'marked';
 
 const props = defineProps({
   subtask: {
@@ -68,6 +85,12 @@ const getStatusText = (status) => {
     'error': '❌ 失败'
   };
   return statusMap[status] || status;
+};
+
+// Markdown 渲染
+const renderMarkdown = (text) => {
+  if (!text) return '';
+  return marked(text);
 };
 
 // Animation Logic
@@ -123,7 +146,7 @@ const sliderStyle = computed(() => {
   transition: all var(--transition-normal);
   animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--glass-shadow);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
   display: flex;
   flex-direction: column;
 }
@@ -236,6 +259,7 @@ const sliderStyle = computed(() => {
 .subtask-details {
   padding: var(--spacing-lg);
   box-sizing: border-box;
+  transition: opacity 0.5s ease;
 }
 
 .subtask-description-full {
@@ -277,16 +301,124 @@ const sliderStyle = computed(() => {
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
-  white-space: pre-wrap;
+  /* white-space: pre-wrap;  <-- 移除，因为 markdown 会处理换行 */
   font-family: var(--font-mono);
   max-height: 500px;
   overflow-y: auto;
+}
+
+/* Markdown 样式 */
+.result-markdown :deep(p) {
+  margin-bottom: 0.8em;
+}
+
+.result-markdown :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.result-markdown :deep(code) {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+}
+
+.result-markdown :deep(pre) {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.result-markdown :deep(ul), .result-markdown :deep(ol) {
+  padding-left: 20px;
+  margin-bottom: 0.8em;
+}
+
+.result-markdown :deep(img) {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.result-markdown :deep(a) {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.result-markdown :deep(a:hover) {
+  text-decoration: underline;
 }
 
 /* 预览 (Bottom) */
 .subtask-preview {
   padding: var(--spacing-lg);
   box-sizing: border-box;
+  transition: opacity 0.5s ease;
+}
+
+/* 外部悬浮收起按钮 */
+.collapse-trigger-external {
+  margin-top: -12px;
+  margin-bottom: var(--spacing-lg);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  animation: fadeIn 0.3s forwards 0.3s;
+}
+
+.trigger-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-muted);
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  border-radius: 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.trigger-content:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  transform: scale(1.15) translateY(-2px);
+  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.25);
+  background: var(--color-bg-elevated);
+}
+
+.icon-up {
+  width: 20px;
+  height: 20px;
+}
+
+.expand-trigger-external {
+  margin-top: -12px;
+  margin-bottom: var(--spacing-sm);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  animation: fadeIn 0.3s forwards;
+}
+
+.icon-down {
+  width: 20px;
+  height: 20px;
+  transform: rotate(180deg);
+}
+
+@keyframes fadeIn {
+  to { opacity: 1; }
 }
 
 .subtask-description {
