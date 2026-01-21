@@ -193,14 +193,14 @@ const totalToolCalls = computed(() => {
 /* Timeline Track */
 .timeline-container {
   position: relative;
-  padding-left: 28px;
+  padding-left: 30px;
 }
 
 .timeline-line-track {
   position: absolute;
-  left: 11px;
+  left: 12px;
   top: 12px;
-  bottom: 24px;
+  bottom: 0px;
   width: 2px;
   background: rgba(99, 102, 241, 0.1);
   border-radius: 2px;
@@ -209,13 +209,16 @@ const totalToolCalls = computed(() => {
 
 .timeline-line-progress {
   position: absolute;
-  top: 0;
+  top: -100%;
   left: 0;
   right: 0;
-  height: 60%;
+  height: 100%;
   background: linear-gradient(to bottom,
-    var(--color-primary) 0%,
-    rgba(139, 92, 246, 0.5) 50%,
+    transparent 0%,
+    transparent 40%,
+    var(--color-primary) 50%,
+    rgba(139, 92, 246, 0.5) 60%,
+    transparent 70%,
     transparent 100%
   );
   filter: blur(1px);
@@ -225,7 +228,7 @@ const totalToolCalls = computed(() => {
 /* Timeline Item */
 .timeline-item {
   position: relative;
-  margin-bottom: 28px;
+  margin-bottom: 30px;
   animation: slideIn 0.5s ease-out backwards;
   animation-delay: var(--delay);
 }
@@ -237,7 +240,7 @@ const totalToolCalls = computed(() => {
 /* Marker */
 .timeline-marker-wrapper {
   position: absolute;
-  left: -28px;
+  left: -30px;
   top: 0;
   width: 24px;
   height: 24px;
@@ -287,6 +290,11 @@ const totalToolCalls = computed(() => {
   padding: 14px 16px;
   margin-bottom: 12px;
   position: relative;
+  transition: box-shadow 0.15s ease-out;
+}
+
+.step-thought:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
 }
 
 .glass-card {
@@ -329,15 +337,12 @@ const totalToolCalls = computed(() => {
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 12px;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 0.15s ease-out;
 }
 
-/* .glass-chip:hover {
-  background: rgba(255, 255, 255, 0.7);
-  transform: translateY(-2px) translateX(2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
-  border-color: rgba(255, 255, 255, 0.8);
-} */
+.glass-chip:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+}
 
 .tool-header {
   display: flex;
@@ -497,8 +502,8 @@ const totalToolCalls = computed(() => {
 }
 
 @keyframes flow {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
+  0% { transform: translateY(0); }
+  100% { transform: translateY(200%); }
 }
 
 @keyframes spin {

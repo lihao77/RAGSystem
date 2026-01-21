@@ -95,12 +95,12 @@ const getStatusText = (status) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  /* border-bottom: 1px solid rgba(255, 255, 255, 0.2); */
   transition: background 0.2s ease;
 }
 
 .subtask-header:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .subtask-title {
@@ -196,8 +196,8 @@ const getStatusText = (status) => {
   color: #4a5568;
   line-height: 1.6;
   margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  /* padding-bottom: 16px; */
+  /* border-bottom: 1px solid rgba(255, 255, 255, 0.3); */
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
