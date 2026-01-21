@@ -11,42 +11,41 @@
       </span>
     </div>
 
-    <!-- 折叠状态：预览 -->
-    <transition name="expand">
-      <div v-show="!subtask.expanded" class="subtask-preview">
-        <div class="subtask-description">{{ subtask.description }}</div>
-        <div v-if="subtask.result_summary" class="subtask-summary">
-          {{ subtask.result_summary }}
+    <div class="subtask-body" :style="contentStyle">
+      <div class="subtask-slider" :style="sliderStyle">
+        <!-- 详情 (Top) -->
+        <div ref="detailRef" class="subtask-details">
+          <div class="subtask-description-full">
+            <strong>任务描述：</strong>{{ subtask.description }}
+          </div>
+
+          <!-- ReAct 推理流程 -->
+          <ReActStepsList
+            v-if="subtask.react_steps && subtask.react_steps.length > 0"
+            :steps="subtask.react_steps"
+          />
+
+          <!-- 结果摘要 -->
+          <div v-if="subtask.result_summary" class="subtask-result">
+            <div class="section-header">📋 完整结果</div>
+            <div class="result-content-full">{{ subtask.result_summary }}</div>
+          </div>
+        </div>
+
+        <!-- 预览 (Bottom) -->
+        <div ref="previewRef" class="subtask-preview">
+          <div class="subtask-description">{{ subtask.description }}</div>
+          <div v-if="subtask.result_summary" class="subtask-summary">
+            {{ subtask.result_summary }}
+          </div>
         </div>
       </div>
-    </transition>
-
-    <!-- 展开状态：详情 -->
-    <transition name="expand">
-      <div v-show="subtask.expanded" class="subtask-details">
-        <div class="subtask-description-full">
-          <strong>任务描述：</strong>{{ subtask.description }}
-        </div>
-
-        <!-- ReAct 推理流程（新版） -->
-        <ReActStepsList
-          v-if="subtask.react_steps && subtask.react_steps.length > 0"
-          :steps="subtask.react_steps"
-        />
-
-        <!-- 结果摘要（展开后显示完整内容） -->
-        <div v-if="subtask.result_summary" class="subtask-result">
-          <div class="section-header">📋 完整结果</div>
-          <!-- 使用 Markdown 渲染或预格式化文本 -->
-          <div class="result-content-full">{{ subtask.result_summary }}</div>
-        </div>
-      </div>
-    </transition>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue';
+import { ref, defineProps, defineEmits, onMounted, onUnmounted, computed } from 'vue';
 import ReActStepsList from './ReActStepsList.vue';
 
 const props = defineProps({
@@ -70,6 +69,46 @@ const getStatusText = (status) => {
   };
   return statusMap[status] || status;
 };
+
+// Animation Logic
+const detailRef = ref(null);
+const previewRef = ref(null);
+const detailHeight = ref(0);
+const previewHeight = ref(0);
+let resizeObserver;
+
+onMounted(() => {
+  resizeObserver = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      if (entry.target === detailRef.value) {
+        detailHeight.value = entry.target.offsetHeight;
+      } else if (entry.target === previewRef.value) {
+        previewHeight.value = entry.target.offsetHeight;
+      }
+    }
+  });
+
+  if (detailRef.value) resizeObserver.observe(detailRef.value);
+  if (previewRef.value) resizeObserver.observe(previewRef.value);
+});
+
+onUnmounted(() => {
+  if (resizeObserver) resizeObserver.disconnect();
+});
+
+const contentStyle = computed(() => {
+  const height = props.subtask.expanded ? detailHeight.value : previewHeight.value;
+  // Prevent zero height flash during init
+  if (height === 0) return { height: 'auto' };
+  return { height: `${height}px` };
+});
+
+const sliderStyle = computed(() => {
+  // If expanded, translateY is 0 (show detail at top)
+  // If collapsed, translateY is -detailHeight (slide up to show preview at bottom)
+  const translateY = props.subtask.expanded ? 0 : -detailHeight.value;
+  return { transform: `translateY(${translateY}px)` };
+});
 </script>
 
 <style scoped>
@@ -85,6 +124,8 @@ const getStatusText = (status) => {
   animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--glass-shadow);
   margin-bottom: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
 }
 
 .subtask-card:hover {
@@ -101,6 +142,8 @@ const getStatusText = (status) => {
   align-items: center;
   gap: var(--spacing-md);
   transition: all var(--transition-fast);
+  z-index: 10;
+  position: relative;
 }
 
 .subtask-header:hover {
@@ -162,7 +205,7 @@ const getStatusText = (status) => {
 
 .icon {
   font-size: 10px;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--color-text-muted);
   display: inline-block;
 }
@@ -171,39 +214,28 @@ const getStatusText = (status) => {
   transform: rotate(90deg);
 }
 
-/* 预览（折叠状态） */
-.subtask-preview {
-  padding: var(--spacing-lg);
-  background: var(--color-bg-primary);
+/* 动画容器 */
+.subtask-body {
+  position: relative;
   overflow: hidden;
+  background: var(--color-bg-primary);
+  /* 使用稍慢的 duration 让动画更优雅 */
+  transition: height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: height;
 }
 
-.subtask-description {
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-  line-height: 1.8;
-  margin-bottom: var(--spacing-md);
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
+.subtask-slider {
+  display: flex;
+  flex-direction: column;
+  /* Transform transition matching the height transition */
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 
-.subtask-summary {
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  padding-left: var(--spacing-lg);
-  border-left: 3px solid var(--color-border);
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.7;
-}
-
-/* 详情（展开状态） */
+/* 详情 (Top) */
 .subtask-details {
   padding: var(--spacing-lg);
-  background: var(--color-bg-primary);
-  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .subtask-description-full {
@@ -251,19 +283,31 @@ const getStatusText = (status) => {
   overflow-y: auto;
 }
 
-/* Expand/Collapse Transition */
-.expand-enter-active,
-.expand-leave-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 2000px;
+/* 预览 (Bottom) */
+.subtask-preview {
+  padding: var(--spacing-lg);
+  box-sizing: border-box;
 }
 
-.expand-enter-from,
-.expand-leave-to {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
+.subtask-description {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  line-height: 1.8;
+  margin-bottom: var(--spacing-md);
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.subtask-summary {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  padding-left: var(--spacing-lg);
+  border-left: 3px solid var(--color-border);
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.7;
 }
 
 /* 动画 */
