@@ -20,111 +20,6 @@ from tools.response_builder import success_response, error_response
 logger = logging.getLogger(__name__)
 
 
-# ==================== 辅助函数：结果压缩 ====================
-
-def _compress_query_results(records, max_records=10):
-    """
-    压缩查询结果，只保留关键字段，移除冗余数据
-
-    策略：
-    1. 限制返回条数
-    2. 移除过长的嵌套对象
-    3. 截断超长字符串
-    """
-    if not records:
-        return []
-
-    compressed = []
-    for record in records[:max_records]:
-        compressed_record = {}
-        for key, value in record.items():
-            compressed_record[key] = _compress_value(value)
-        compressed.append(compressed_record)
-
-    return compressed
-
-
-def _compress_value(value, max_str_length=200, max_list_items=5):
-    """
-    递归压缩单个值
-
-    Args:
-        value: 要压缩的值
-        max_str_length: 字符串最大长度
-        max_list_items: 列表最大元素数
-    """
-    # 字符串：截断
-    if isinstance(value, str):
-        if len(value) > max_str_length:
-            return value[:max_str_length] + f"... (截断，总长{len(value)})"
-        return value
-
-    # 列表：限制元素数量，递归压缩每个元素
-    elif isinstance(value, list):
-        if len(value) > max_list_items:
-            compressed_list = [_compress_value(item) for item in value[:max_list_items]]
-            return compressed_list + [f"... (还有{len(value) - max_list_items}项)"]
-        return [_compress_value(item) for item in value]
-
-    # 字典：递归压缩每个值，但移除明显冗余的键
-    elif isinstance(value, dict):
-        # 移除已知的冗余字段
-        redundant_keys = {'_raw', 'metadata', 'internal_id'}
-        compressed_dict = {}
-        for k, v in value.items():
-            if k not in redundant_keys:
-                compressed_dict[k] = _compress_value(v)
-        return compressed_dict
-
-    # 其他类型（数字、布尔等）：直接返回
-    else:
-        return value
-
-
-def _generate_result_summary(records):
-    """
-    生成结果摘要，用于 Agent 快速理解数据结构
-
-    Returns:
-        str: 简洁的摘要信息
-    """
-    if not records:
-        return "无查询结果"
-
-    record_count = len(records)
-
-    # 分析第一条记录的字段
-    if record_count > 0:
-        first_record = records[0]
-        field_info = []
-
-        for key, value in first_record.items():
-            # 识别字段类型
-            if isinstance(value, list):
-                field_type = f"列表({len(value)}项)"
-            elif isinstance(value, dict):
-                field_type = f"对象({len(value)}个字段)"
-            elif isinstance(value, str):
-                field_type = "文本"
-            elif isinstance(value, (int, float)):
-                field_type = "数值"
-            else:
-                field_type = str(type(value).__name__)
-
-            field_info.append(f"  - {key}: {field_type}")
-
-        summary = f"查询返回 {record_count} 条记录\n"
-        summary += "字段结构:\n"
-        summary += "\n".join(field_info[:8])  # 最多显示8个字段
-
-        if len(field_info) > 8:
-            summary += f"\n  ... (还有{len(field_info) - 8}个字段)"
-
-        return summary
-
-    return f"查询返回 {record_count} 条记录"
-
-
 # ==================== 工具执行函数 ====================
 
 def execute_tool(tool_name, arguments):
@@ -178,66 +73,62 @@ def execute_tool(tool_name, arguments):
         elif tool_name == "execute_skill_script":
             return execute_skill_script(**arguments)
         else:
-            return {
-                "success": False,
-                "error": f"未知的工具: {tool_name}"
-            }
+            return error_response(f"未知的工具: {tool_name}")
     except Exception as e:
         logger.error(f"执行工具 {tool_name} 失败: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
 
 
-def search_knowledge_graph(keyword="", category="", document_source="", 
+def search_knowledge_graph(keyword="", category="", document_source="",
                            time_range=None, location=None, advanced_query=""):
     """
     搜索知识图谱中的实体和状态
-    
-    根据category参数决定查询基础实体(:entity)还是状态节点(:State)
+
+    优化策略：
+    - 基础实体查询：直接查询 :entity 节点（当需要基础属性时）
+    - 状态查询：直接在状态ID上过滤，无需先查基础实体（符合"状态ID优先"原则）
     """
     session = None
     try:
         session = get_session()
-        
+
         # 格式化时间范围
         time_range_new = {'start': '', 'end': ''}
         if time_range and len(time_range) == 2:
             time_range_new['start'] = time_range[0]
             time_range_new['end'] = time_range[1]
-        
+
         params = {}
         entities = []
-        
+
         # 根据category决定查询策略
         if category in ['地点', '设施', '事件']:
             # 查询基础实体节点 (:地点:entity, :设施:entity, :事件:entity)
             cypher = f'MATCH (n:{category}:entity) WHERE 1=1'
-            
+
             # 关键词匹配
             if keyword and keyword.strip():
                 cypher += ' AND (n.name CONTAINS $keyword OR n.id CONTAINS $keyword OR n.geo_description CONTAINS $keyword)'
                 params['keyword'] = keyword
-            
+
             # 来源
             if document_source and document_source.strip():
                 cypher += ' AND n.source = $source'
                 params['source'] = document_source
-            
+
             # 地理位置（对地点节点特殊处理）
             if location and len(location) > 0 and location[-1] and location[-1].strip():
                 cypher += ' AND n.id CONTAINS $location'
                 params['location'] = location[-1]
-            
+
             # 高级查询
             if advanced_query and advanced_query.strip():
                 cypher += f' AND ({advanced_query})'
-            
+
             cypher += ' RETURN n.id AS id, n.name AS name, labels(n) AS labels, n.source AS source, properties(n) AS properties LIMIT 100'
-            
+
             result = session.run(cypher, params)
             for record in result:
                 entity = {
@@ -249,38 +140,28 @@ def search_knowledge_graph(keyword="", category="", document_source="",
                     'properties': convert_neo4j_types(record['properties'])
                 }
                 entities.append(entity)
-        
+
         elif category == 'State' or category == '':
-            # 查询状态节点 (:State)
+            # 查询状态节点 (:State) - 使用"状态ID优先"原则
             cypher = 'MATCH (n:State) WHERE 1=1'
-            
-            # 关键词匹配（通过entity_ids字段）
+
+            # 关键词匹配 - 直接在状态ID上过滤（无需先查基础实体）
+            # 状态ID格式: LS-L-450100-..., FS-F-450381-潘厂水库-..., ES-E-450000-..., JS-...
             if keyword and keyword.strip():
-                # 先查基础实体ID
-                entity_ids_result = session.run(
-                    'MATCH (e) WHERE e:entity AND e.name CONTAINS $keyword RETURN e.id AS id LIMIT 100',
-                    {'keyword': keyword}
-                )
-                entity_ids = [record['id'] for record in entity_ids_result]
-                
-                if entity_ids:
-                    cypher += ' AND (ANY(eid IN n.entity_ids WHERE eid IN $entityids) OR n.id CONTAINS $keyword)'
-                    params['entityids'] = entity_ids
-                    params['keyword'] = keyword
-                else:
-                    cypher += ' AND n.id CONTAINS $keyword'
-                    params['keyword'] = keyword
-            
+                # 同时搜索状态ID和entity_ids字段
+                cypher += ' AND (n.id CONTAINS $keyword OR ANY(eid IN n.entity_ids WHERE eid CONTAINS $keyword))'
+                params['keyword'] = keyword
+
             # 来源
             if document_source and document_source.strip():
                 cypher += ' AND n.source = $source'
                 params['source'] = document_source
-            
-            # 地理位置
+
+            # 地理位置 - 直接在状态ID上过滤
             if location and len(location) > 0 and location[-1] and location[-1].strip():
-                cypher += ' AND (ANY(eid IN n.entity_ids WHERE eid CONTAINS $location) OR n.id CONTAINS $location)'
+                cypher += ' AND (n.id CONTAINS $location OR ANY(eid IN n.entity_ids WHERE eid CONTAINS $location))'
                 params['location'] = location[-1]
-            
+
             # 时间范围（修复：包含跨越时间段的状态）
             if time_range_new['start'] and time_range_new['end']:
                 cypher += ''' AND (
@@ -290,13 +171,13 @@ def search_knowledge_graph(keyword="", category="", document_source="",
                 )'''
                 params['startTime'] = time_range_new['start']
                 params['endTime'] = time_range_new['end']
-            
+
             # 高级查询
             if advanced_query and advanced_query.strip():
                 cypher += f' AND ({advanced_query})'
-            
+
             cypher += ' RETURN n.id AS id, n.state_type AS state_type, n.time AS time, n.source AS source, n.entity_ids AS entity_ids, properties(n) AS properties LIMIT 100'
-            
+
             result = session.run(cypher, params)
             for record in result:
                 entity = {
@@ -309,31 +190,24 @@ def search_knowledge_graph(keyword="", category="", document_source="",
                     'properties': convert_neo4j_types(record['properties'])
                 }
                 entities.append(entity)
-        
+
         else:
             # 不支持的category
-            return {
-                "success": False,
-                "error": f"不支持的category: {category}，可选值：'地点'、'设施'、'事件'、'State'"
-            }
-        
-        return {
-            "success": True,
-            "data": {
-                "entities": entities,
+            return error_response(f"不支持的category: {category}，可选值：'地点'、'设施'、'事件'、'State'")
+
+        return success_response(
+            results=entities,
+            metadata={
                 "count": len(entities),
                 "query_type": "基础实体" if category in ['地点', '设施', '事件'] else "状态节点"
             }
-        }
-        
+        )
+
     except Exception as e:
         logger.error(f'搜索知识图谱失败: {e}')
         import traceback
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
@@ -463,36 +337,38 @@ def get_entity_relations(entity_id):
     """
     获取实体的关系信息
 
-    这是对原有 /api/search/relations/<entity_id> 接口的封装
-    优化：区分基础实体和状态节点，使用标签过滤提高效率
-    优化：压缩节点属性数据，减少 Agent 上下文占用
+    优化策略：
+    - 基础实体（L-*, F-*, E-*）：查询实体节点及其直接关系（包括hasState关系）
+    - 状态节点（LS-*, FS-*, ES-*, JS-*）：查询状态节点及其关系（hasAttribute, hasRelation, nextState等）
+
+    返回标准格式的关系数据，智能体系统会自动处理长返回数据的summary和存储
     """
     session = None
     try:
         session = get_session()
 
-        # 优化：根据ID格式判断是基础实体还是状态节点
+        # 根据ID格式判断是基础实体还是状态节点
         # 基础实体ID: L-*, F-*, E-*
         # 状态节点ID: LS-*, FS-*, ES-*, JS-*
         is_state = entity_id.startswith(('LS-', 'FS-', 'ES-', 'JS-'))
 
         if is_state:
             # 查询状态节点及其关系
+            # 状态节点的关系类型: hasAttribute（属性）, hasRelation（因果）, nextState（时序）, contain（包含）
             cypher = """
             MATCH (n:State)
             WHERE n.id = $entity_id OR n.id CONTAINS $entity_id
             OPTIONAL MATCH (n)-[r]-(m)
             RETURN n, r, m
-            LIMIT 50
             """
         else:
-            # 查询基础实体节点及其关系（更高效）
+            # 查询基础实体节点及其关系
+            # 基础实体的关系类型: locatedIn（空间层级）, occurredAt（事件发生地）, hasState（状态链）
             cypher = """
             MATCH (n:entity)
-            WHERE n.id = $entity_id
+            WHERE n.id = $entity_id OR n.id CONTAINS $entity_id
             OPTIONAL MATCH (n)-[r]-(m)
             RETURN n, r, m
-            LIMIT 50
             """
 
         result = session.run(cypher, {'entity_id': entity_id})
@@ -506,22 +382,11 @@ def get_entity_relations(entity_id):
                 node = record['n']
                 node_id = str(node.id)
                 if node_id not in nodes:
-                    # 优化：只保留关键属性，压缩完整属性
                     props = convert_neo4j_types(dict(node))
-                    key_props = {
-                        'id': props.get('id'),
-                        'name': props.get('name'),
-                        'state_type': props.get('state_type'),
-                        'time': props.get('time')
-                    }
-                    # 过滤掉 None 值
-                    key_props = {k: v for k, v in key_props.items() if v is not None}
-
                     nodes[node_id] = {
                         'id': node.id,
                         'labels': list(node.labels),
-                        'key_properties': key_props,  # ✅ 只保留关键属性
-                        'full_properties_compressed': _compress_value(props)  # ✅ 压缩完整属性
+                        'properties': props
                     }
 
             # 处理关联节点
@@ -530,19 +395,10 @@ def get_entity_relations(entity_id):
                 node_id = str(node.id)
                 if node_id not in nodes:
                     props = convert_neo4j_types(dict(node))
-                    key_props = {
-                        'id': props.get('id'),
-                        'name': props.get('name'),
-                        'state_type': props.get('state_type'),
-                        'time': props.get('time')
-                    }
-                    key_props = {k: v for k, v in key_props.items() if v is not None}
-
                     nodes[node_id] = {
                         'id': node.id,
                         'labels': list(node.labels),
-                        'key_properties': key_props,
-                        'full_properties_compressed': _compress_value(props)
+                        'properties': props
                     }
 
             # 处理关系
@@ -554,31 +410,29 @@ def get_entity_relations(entity_id):
                     'type': rel.type,
                     'source': str(rel.start_node.id),
                     'target': str(rel.end_node.id),
-                    'properties': _compress_value(rel_props)  # ✅ 压缩关系属性
+                    'properties': rel_props
                 })
 
-        # 优化：限制关系数量，避免过多数据
-        MAX_RELATIONS = 30
-        truncated = len(relationships) > MAX_RELATIONS
-        relationships = relationships[:MAX_RELATIONS]
-
-        return {
-            "success": True,
-            "data": {
-                "nodes": list(nodes.values()),
-                "relationships": relationships,
-                "count": len(relationships),
-                "node_type": "State" if is_state else "Entity",
-                "truncated": truncated  # ✅ 标记是否截断
-            }
+        # 构造结果数据
+        result_data = {
+            "nodes": list(nodes.values()),
+            "relationships": relationships
         }
+
+        # 使用标准响应构造器
+        return success_response(
+            results=result_data,
+            metadata={
+                "node_count": len(nodes),
+                "relationship_count": len(relationships),
+                "node_type": "State" if is_state else "Entity"
+            },
+            debug={"cypher": cypher, "entity_id": entity_id}
+        )
 
     except Exception as e:
         logger.error(f'获取实体关系失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e), debug={"entity_id": entity_id})
     finally:
         if session:
             session.close()
@@ -589,90 +443,67 @@ def execute_cypher_query(cypher):
     执行Cypher查询
 
     这是对原有 /api/graphrag/cypher/execute 接口的封装
-    优化：压缩返回数据，减少 Agent 上下文占用
+    返回标准格式的查询结果，智能体系统会自动处理长返回数据的summary和存储
     """
     try:
         if not cypher or not cypher.strip():
-            return {
-                "success": False,
-                "error": "Cypher语句不能为空"
-            }
+            return error_response("Cypher语句不能为空")
 
         # 安全检查
         cypher_upper = cypher.upper()
         dangerous_keywords = ['CREATE', 'DELETE', 'SET', 'REMOVE', 'MERGE', 'DROP']
         for keyword in dangerous_keywords:
             if keyword in cypher_upper:
-                return {
-                    "success": False,
-                    "error": f"不允许执行包含{keyword}操作的查询"
-                }
+                return error_response(f"不允许执行包含{keyword}操作的查询")
 
         query_result = execute_cypher(cypher)
         records = query_result.get('records', [])
 
-        # 优化：压缩返回数据
-        # 1. 限制返回结果数量（Agent 通常不需要所有结果）
-        # 2. 压缩每条记录的数据
-        # 3. 移除 graph_data（Agent 不需要图可视化）
-        compressed_results = _compress_query_results(records, max_records=15)
-        result_summary = _generate_result_summary(records)
-
-        return {
-            "success": True,
-            "data": {
-                "results": compressed_results,  # ✅ 压缩后的结果
-                "result_summary": result_summary,  # ✅ 结果摘要
-                "count": len(records),  # ✅ 总数量
-                "truncated": len(records) > 15  # ✅ 是否被截断
-                # ❌ 移除 graph_data
-            }
-        }
+        # 使用标准响应构造器
+        return success_response(
+            results=records,
+            debug={"cypher": cypher}  # 可选：包含执行的Cypher语句用于调试
+        )
 
     except Exception as e:
         logger.error(f'执行Cypher查询失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e), debug={"cypher": cypher})
 
 
 def get_graph_schema_tool():
     """
     获取图谱结构信息
-    
+
     这是对原有 /api/graphrag/schema 接口的封装
     """
     try:
         schema = get_graph_schema()
         if schema:
-            return {
-                "success": True,
-                "data": schema
-            }
+            return success_response(
+                results=schema,
+                summary="成功获取图谱结构信息"
+            )
         else:
-            return {
-                "success": False,
-                "error": "获取图谱结构失败"
-            }
+            return error_response("获取图谱结构失败")
     except Exception as e:
         logger.error(f'获取图谱结构失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
 
 
 def analyze_temporal_pattern(entity_name, start_date, end_date, metric=None):
     """
     分析时序模式
-    优化：压缩返回记录数，只保留关键时序数据
+
+    优化策略：
+    - 使用状态ID过滤（符合"状态ID优先"原则）
+    - 当指定 metric 时，同时返回属性值和趋势分析
+    - 返回完整的时序数据，智能体系统会自动处理长返回数据
     """
     session = None
     try:
         session = get_session()
 
-        # 构建查询
+        # 构建查询 - 直接在状态ID上过滤
         cypher = """
         MATCH (s:State)
         WHERE s.id CONTAINS $entity_name
@@ -681,17 +512,19 @@ def analyze_temporal_pattern(entity_name, start_date, end_date, metric=None):
         """
 
         if metric:
+            # 当指定 metric 时，获取对应的属性值
             cypher += """
             OPTIONAL MATCH (s)-[ha:hasAttribute]->(attr:Attribute)
             WHERE ha.type = $metric
-            RETURN s.time AS time, s.start_time AS start, s.end_time AS end,
-                   attr.value AS value, s.state_type AS state_type
+            RETURN s.id AS state_id, s.time AS time, s.start_time AS start, s.end_time AS end,
+                   s.state_type AS state_type, ha.type AS attr_name, attr.value AS value
             ORDER BY s.start_time
             """
         else:
+            # 不指定 metric 时，只返回状态信息
             cypher += """
-            RETURN s.time AS time, s.start_time AS start, s.end_time AS end,
-                   s.state_type AS state_type, count(s) AS count
+            RETURN s.id AS state_id, s.time AS time, s.start_time AS start, s.end_time AS end,
+                   s.state_type AS state_type
             ORDER BY s.start_time
             """
 
@@ -707,73 +540,72 @@ def analyze_temporal_pattern(entity_name, start_date, end_date, metric=None):
         result = session.run(cypher, params)
         records = [convert_neo4j_types(dict(record)) for record in result]
 
-        # 简单的趋势分析
+        # 增强的趋势分析
+        trend_analysis = {'count': len(records)}
+
         if records and metric:
-            values = [float(r.get('value', 0)) for r in records if r.get('value')]
+            # 提取数值类型的属性值进行分析
+            values = []
+            for r in records:
+                val_str = r.get('value', '')
+                if val_str:
+                    # 尝试提取数字（支持 "100万人"、"1.5亿元" 等格式）
+                    import re
+                    match = re.search(r'([\d.]+)', str(val_str))
+                    if match:
+                        values.append(float(match.group(1)))
+
             if values:
-                trend_analysis = {
-                    'count': len(values),
+                trend_analysis.update({
                     'min': min(values),
                     'max': max(values),
-                    'avg': sum(values) / len(values),
-                    'trend': 'increasing' if len(values) > 1 and values[-1] > values[0] else 'decreasing'
-                }
-            else:
-                trend_analysis = None
-        else:
-            trend_analysis = {'count': len(records)}
+                    'avg': round(sum(values) / len(values), 2),
+                    'trend': 'increasing' if len(values) > 1 and values[-1] > values[0] else 'decreasing',
+                    'valid_values': len(values)
+                })
 
-        # 优化：限制返回的时序记录数量
-        # 策略：如果记录太多，采样关键时间点（开始、中间、结束）
-        MAX_RECORDS = 20
-        if len(records) > MAX_RECORDS:
-            # 保留开始、结束和均匀间隔的中间点
-            step = len(records) // (MAX_RECORDS - 2)
-            sampled_records = [records[0]]  # 开始
-            sampled_records.extend(records[step::step][:MAX_RECORDS-2])  # 中间点
-            sampled_records.append(records[-1])  # 结束
-            compressed_records = sampled_records
-            truncated = True
-        else:
-            compressed_records = records
-            truncated = False
-
-        return {
-            "success": True,
-            "data": {
-                "records": compressed_records,  # ✅ 压缩后的记录
-                "analysis": trend_analysis,  # ✅ 趋势分析（基于完整数据）
+        # 使用标准响应构造器
+        return success_response(
+            results=records,
+            metadata={
+                "analysis": trend_analysis,
                 "time_range": f"{start_date} 至 {end_date}",
-                "total_records": len(records),  # ✅ 原始记录总数
-                "truncated": truncated  # ✅ 是否被采样
-            }
-        }
+                "metric": metric,
+                "entity_name": entity_name
+            },
+            debug={"cypher": cypher}
+        )
 
     except Exception as e:
         logger.error(f'时序分析失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
 
 
 def find_causal_chain(start_event, end_event=None, max_depth=3, direction="forward"):
-    """查找因果链路"""
+    """
+    查找因果链路
+
+    优化策略：
+    - 使用状态ID过滤（符合"状态ID优先"原则）
+    - 返回完整的节点属性信息（包括关键 hasAttribute 数据）
+    - 返回完整的因果链数据，智能体系统会自动处理长返回数据
+    """
     session = None
     try:
         session = get_session()
-        
+
         if direction == "forward":
             rel_pattern = "-[:hasRelation*1..{max_depth}]->"
         elif direction == "backward":
             rel_pattern = "<-[:hasRelation*1..{max_depth}]-"
         else:  # both
             rel_pattern = "-[:hasRelation*1..{max_depth}]-"
-        
+
         if end_event:
+            # 查询从 start_event 到 end_event 的因果路径
             cypher = f"""
             MATCH (start:State)
             WHERE start.id CONTAINS $start_event
@@ -781,106 +613,136 @@ def find_causal_chain(start_event, end_event=None, max_depth=3, direction="forwa
             WHERE end.id CONTAINS $end_event
             MATCH path = (start){rel_pattern.replace('{max_depth}', str(max_depth))}(end)
             WITH path, nodes(path) AS ns, relationships(path) AS rs
-            RETURN [n IN ns | {{id: n.id, state_type: n.state_type, time: n.time}}] AS nodes,
-                   [r IN rs | {{type: type(r), relation_type: r.type}}] AS relationships
-            LIMIT 10
+            UNWIND ns AS n
+            OPTIONAL MATCH (n)-[ha:hasAttribute]->(a:Attribute)
+            WITH path, ns, rs, n, collect({{type: ha.type, value: a.value}}) AS attrs
+            WITH path, rs, collect({{
+                id: n.id,
+                state_type: n.state_type,
+                time: n.time,
+                entity_ids: n.entity_ids,
+                attributes: attrs
+            }}) AS node_infos
+            RETURN node_infos AS nodes,
+                   [r IN rs | {{type: type(r), relation_type: r.type, properties: properties(r)}}] AS relationships
             """
             params = {'start_event': start_event, 'end_event': end_event}
         else:
+            # 查询从 start_event 出发的所有因果路径
             cypher = f"""
             MATCH (start:State)
             WHERE start.id CONTAINS $start_event
             MATCH path = (start){rel_pattern.replace('{max_depth}', str(max_depth))}(target:State)
-            WITH path, nodes(path) AS ns, relationships(path) AS rs
             WHERE length(path) > 0
-            RETURN [n IN ns | {{id: n.id, state_type: n.state_type, time: n.time}}] AS nodes,
-                   [r IN rs | {{type: type(r), relation_type: r.type}}] AS relationships
-            ORDER BY length(path) DESC
-            LIMIT 20
+            WITH path, nodes(path) AS ns, relationships(path) AS rs
+            UNWIND ns AS n
+            OPTIONAL MATCH (n)-[ha:hasAttribute]->(a:Attribute)
+            WITH path, ns, rs, n, collect({{type: ha.type, value: a.value}}) AS attrs
+            WITH path, rs, collect({{
+                id: n.id,
+                state_type: n.state_type,
+                time: n.time,
+                entity_ids: n.entity_ids,
+                attributes: attrs
+            }}) AS node_infos
+            RETURN node_infos AS nodes,
+                   [r IN rs | {{type: type(r), relation_type: r.type, properties: properties(r)}}] AS relationships
+            ORDER BY size(rs) DESC
             """
             params = {'start_event': start_event}
-        
+
         result = session.run(cypher, params)
         chains = [convert_neo4j_types(dict(record)) for record in result]
-        
-        return {
-            "success": True,
-            "data": {
-                "chains": chains,
-                "count": len(chains),
-                "direction": direction
-            }
-        }
-        
+
+        return success_response(
+            results=chains,
+            metadata={
+                "direction": direction,
+                "max_depth": max_depth,
+                "has_end_event": end_event is not None,
+                "chain_count": len(chains)
+            },
+            debug={"cypher": cypher}
+        )
+
     except Exception as e:
         logger.error(f'因果链查找失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
 
 
 def compare_entities(entity_names, time_range=None, compare_attributes=None):
-    """比较多个实体"""
+    """
+    比较多个实体
+
+    优化策略：
+    - 使用批量查询代替多次单独查询（提高效率）
+    - 使用状态ID过滤（符合"状态ID优先"原则）
+    - 返回完整的对比数据，智能体系统会自动处理长返回数据
+    """
     session = None
     try:
         session = get_session()
-        
-        comparisons = {}
-        
-        for entity_name in entity_names:
-            cypher = """
-            MATCH (s:State)
-            WHERE s.id CONTAINS $entity_name
+
+        # 使用批量查询代替多次单独查询
+        cypher = """
+        MATCH (s:State)
+        WHERE ANY(entity IN $entity_names WHERE s.id CONTAINS entity)
+        """
+
+        params = {'entity_names': entity_names}
+
+        if time_range and len(time_range) == 2:
+            cypher += """
+            AND s.start_time >= date($start_date)
+            AND s.end_time <= date($end_date)
             """
-            
-            params = {'entity_name': entity_name}
-            
-            if time_range and len(time_range) == 2:
-                cypher += """
-                AND s.start_time >= date($start_date)
-                AND s.end_time <= date($end_date)
-                """
-                params['start_date'] = time_range[0]
-                params['end_date'] = time_range[1]
-            
-            if compare_attributes:
-                cypher += """
-                OPTIONAL MATCH (s)-[ha:hasAttribute]->(attr:Attribute)
-                WHERE ha.type IN $attributes
-                RETURN s.id AS state_id, s.time AS time, 
-                       collect({attr: ha.type, value: attr.value}) AS attributes
-                LIMIT 50
-                """
-                params['attributes'] = compare_attributes
-            else:
-                cypher += """
-                RETURN s.id AS state_id, s.time AS time, s.state_type AS state_type,
-                       properties(s) AS properties
-                LIMIT 50
-                """
-            
-            result = session.run(cypher, params)
-            records = [convert_neo4j_types(dict(record)) for record in result]
-            comparisons[entity_name] = records
-        
-        return {
-            "success": True,
-            "data": {
-                "comparisons": comparisons,
-                "entity_count": len(entity_names)
-            }
-        }
-        
+            params['start_date'] = time_range[0]
+            params['end_date'] = time_range[1]
+
+        if compare_attributes:
+            cypher += """
+            OPTIONAL MATCH (s)-[ha:hasAttribute]->(attr:Attribute)
+            WHERE ha.type IN $attributes
+            RETURN s.id AS state_id, s.time AS time, s.entity_ids AS entity_ids,
+                   collect({attr: ha.type, value: attr.value}) AS attributes
+            """
+            params['attributes'] = compare_attributes
+        else:
+            cypher += """
+            RETURN s.id AS state_id, s.time AS time, s.state_type AS state_type,
+                   s.entity_ids AS entity_ids, properties(s) AS properties
+            """
+
+        result = session.run(cypher, params)
+        records = [convert_neo4j_types(dict(record)) for record in result]
+
+        # 按实体分组（通过 entity_ids 字段）
+        comparisons = {name: [] for name in entity_names}
+
+        for record in records:
+            entity_ids = record.get('entity_ids', [])
+            # 将记录分配到匹配的实体
+            for name in entity_names:
+                if any(name in eid for eid in entity_ids):
+                    comparisons[name].append(record)
+
+        return success_response(
+            results=comparisons,
+            metadata={
+                "entity_count": len(entity_names),
+                "time_range": time_range,
+                "compare_attributes": compare_attributes,
+                "total_records": len(records)
+            },
+            debug={"cypher": cypher}
+        )
+
     except Exception as e:
         logger.error(f'实体比较失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
@@ -889,6 +751,10 @@ def compare_entities(entity_names, time_range=None, compare_attributes=None):
 def aggregate_statistics(attribute, aggregation, entity_type=None, time_range=None, group_by=None):
     """
     聚合统计
+
+    优化策略：
+    - 使用状态ID前缀进行高效过滤（LS-L-*, FS-F-*, ES-E-*）
+    - 无需先查询基础实体再过滤
 
     返回格式（标准化）:
     {
@@ -912,27 +778,39 @@ def aggregate_statistics(attribute, aggregation, entity_type=None, time_range=No
 
         params = {'attribute': attribute}
 
-        # 修复：正确处理 entity_type 过滤
+        # 优化：使用状态ID前缀过滤，无需先查基础实体
+        # 状态ID格式: LS-L-*, FS-F-*, ES-E-*
         if entity_type:
-            # 先查找该类型的所有基础实体ID
-            entity_lookup_cypher = f"""
-            MATCH (e:{entity_type}:entity)
-            RETURN e.id AS entity_id
-            """
-            entity_result = session.run(entity_lookup_cypher)
-            entity_ids = [record['entity_id'] for record in entity_result]
-
-            if entity_ids:
-                # 通过 entity_ids 字段过滤状态节点
-                cypher += " AND ANY(eid IN s.entity_ids WHERE eid IN $entity_ids)"
-                params['entity_ids'] = entity_ids
+            if entity_type == '地点':
+                # 地点状态: LS-L-*
+                cypher += " AND s.id STARTS WITH 'LS-L-'"
+            elif entity_type == '设施':
+                # 设施状态: FS-F-*
+                cypher += " AND s.id STARTS WITH 'FS-F-'"
+            elif entity_type == '事件':
+                # 事件状态: ES-E-*
+                cypher += " AND s.id STARTS WITH 'ES-E-'"
             else:
-                # 如果没有找到该类型的实体，返回空结果
-                logger.warning(f"未找到类型为 {entity_type} 的实体")
-                return success_response(
-                    results=[],
-                    summary=f"未找到类型为 '{entity_type}' 的实体"
-                )
+                # 如果是其他类型，尝试通过entity_ids过滤
+                # 先查找该类型的所有基础实体ID
+                entity_lookup_cypher = f"""
+                MATCH (e:{entity_type}:entity)
+                RETURN e.id AS entity_id
+                """
+                entity_result = session.run(entity_lookup_cypher)
+                entity_ids = [record['entity_id'] for record in entity_result]
+
+                if entity_ids:
+                    # 通过 entity_ids 字段过滤状态节点
+                    cypher += " AND ANY(eid IN s.entity_ids WHERE eid IN $entity_ids)"
+                    params['entity_ids'] = entity_ids
+                else:
+                    # 如果没有找到该类型的实体，返回空结果
+                    logger.warning(f"未找到类型为 {entity_type} 的实体")
+                    return success_response(
+                        results=[],
+                        summary=f"未找到类型为 '{entity_type}' 的实体"
+                    )
 
         if time_range and len(time_range) == 2:
             cypher += """
@@ -981,38 +859,41 @@ def get_spatial_neighbors(entity_name, radius=1, neighbor_type=None):
     """
     获取空间邻近实体
 
-    修复：添加完整的空间关系类型，包括 :hasState
-    优化：限制返回数量，只保留关键字段
+    优化策略：
+    - 明确使用 :entity 标签查询基础实体（空间关系在基础实体层级）
+    - 空间关系类型：locatedIn（层级关系）、occurredAt（事件发生地）
+
+    返回完整的空间邻近数据，智能体系统会自动处理长返回数据
     """
     session = None
     try:
         session = get_session()
 
-        # 构建查询（添加 :hasState 关系）
+        # 构建查询（明确标签，提高效率）
+        # 空间关系主要在基础实体层级，所以查询 :entity 节点
         cypher = f"""
-        MATCH (center)
+        MATCH (center:entity)
         WHERE center.id CONTAINS $entity_name OR center.name CONTAINS $entity_name
-        MATCH path = (center)-[:locatedIn|occurredAt|hasState*1..{radius}]-(neighbor)
+        MATCH path = (center)-[:locatedIn|occurredAt*1..{radius}]-(neighbor:entity)
         """
 
         params = {'entity_name': entity_name}
 
         if neighbor_type:
+            # 过滤邻居类型（地点、设施、事件）
             cypher += f" WHERE $neighbor_type IN labels(neighbor)"
             params['neighbor_type'] = neighbor_type
 
-        # 优化：限制返回数量，减少从30到25
         cypher += """
         RETURN DISTINCT neighbor.id AS id, neighbor.name AS name,
                labels(neighbor) AS labels, length(path) AS distance
         ORDER BY distance
-        LIMIT 25
         """
 
         result = session.run(cypher, params)
         neighbors = [convert_neo4j_types(dict(record)) for record in result]
 
-        # 优化：按距离分组统计，提供摘要信息
+        # 按距离分组统计
         distance_summary = {}
         for n in neighbors:
             dist = n.get('distance', 0)
@@ -1020,24 +901,20 @@ def get_spatial_neighbors(entity_name, radius=1, neighbor_type=None):
                 distance_summary[dist] = 0
             distance_summary[dist] += 1
 
-        return {
-            "success": True,
-            "data": {
-                "neighbors": neighbors,  # ✅ 已压缩到25个
-                "count": len(neighbors),
+        return success_response(
+            results=neighbors,
+            metadata={
                 "center": entity_name,
                 "radius": radius,
-                "distance_summary": distance_summary,  # ✅ 距离分布摘要
-                "truncated": len(neighbors) >= 25  # ✅ 可能被截断
-            }
-        }
+                "neighbor_type": neighbor_type,
+                "distance_summary": distance_summary
+            },
+            debug={"cypher": cypher}
+        )
 
     except Exception as e:
         logger.error(f'空间邻近查询失败: {e}')
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return error_response(str(e))
     finally:
         if session:
             session.close()
@@ -1046,21 +923,21 @@ def get_spatial_neighbors(entity_name, radius=1, neighbor_type=None):
 def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=None):
     """
     查询应急预案文档
-    
+
     使用向量语义搜索从应急预案知识库中检索相关内容
-    
+
     Args:
         query: 查询问题或关键词
         top_k: 返回结果数量，默认5
         min_similarity: 最小相似度阈值（0-1），默认0.3
         document_filter: 文档来源过滤（可选）
-    
+
     Returns:
         检索结果，包含文档片段、相似度、元数据
     """
     try:
         from vector_store import VectorRetriever, get_vector_client
-        
+
         # 智能选择集合：优先使用专用集合，如果为空则使用 documents
         client = get_vector_client()
         try:
@@ -1068,17 +945,17 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
             collection_name = "emergency_plans" if emergency_collection.count() > 0 else "documents"
         except:
             collection_name = "documents"  # 集合不存在，使用默认集合
-        
+
         logger.info(f"使用集合: {collection_name}")
-        
+
         # 初始化检索器
         retriever = VectorRetriever(collection_name=collection_name)
-        
+
         # 构建过滤条件
         filters = {}
         if document_filter:
             filters["document_id"] = document_filter
-        
+
         # 执行向量检索
         results = retriever.search(
             query=query,
@@ -1086,20 +963,20 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
             filters=filters if filters else None,
             include_distances=True
         )
-        
+
         # 日志：显示检索到的相似度
         if results:
             similarities = [r.get('similarity', 0) for r in results[:5]]
             logger.info(f"检索到 {len(results)} 条结果，前5条相似度: {similarities}")
-        
+
         # 过滤低相似度结果
         filtered_results = [
-            r for r in results 
+            r for r in results
             if r.get('similarity', 0) >= min_similarity
         ][:top_k]
-        
+
         logger.info(f"相似度过滤后: {len(filtered_results)} 条结果（阈值={min_similarity}）")
-        
+
         # 格式化返回结果
         formatted_results = []
         for idx, result in enumerate(filtered_results):
@@ -1111,29 +988,26 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
                 "chunk_index": result['metadata'].get('chunk_index', 0),
                 "metadata": result['metadata']
             })
-        
-        return {
-            "success": True,
-            "data": {
-                "results": formatted_results,
-                "count": len(formatted_results),
+
+        return success_response(
+            results=formatted_results,
+            metadata={
                 "query": query,
                 "total_searched": len(results),
-                "min_similarity": min_similarity
+                "min_similarity": min_similarity,
+                "collection_name": collection_name
             },
-            "message": f"检索到 {len(formatted_results)} 条相关预案内容"
-        }
-        
+            summary=f"检索到 {len(formatted_results)} 条相关预案内容"
+        )
+
     except Exception as e:
         logger.error(f'应急预案检索失败: {e}')
         import traceback
         traceback.print_exc()
-        
-        return {
-            "success": False,
-            "error": str(e),
-            "message": "向量检索功能可能尚未初始化，请先索引应急预案文档"
-        }
+
+        return error_response(
+            f"{str(e)} - 向量检索功能可能尚未初始化，请先索引应急预案文档"
+        )
 
 
 def generate_chart(data, chart_type=None, title="",
@@ -1523,6 +1397,11 @@ def get_entity_geometry(entity_ids):
     """
     根据实体 ID 获取几何信息（WKT 格式）
 
+    优化策略：
+    - 同时支持基础实体（L-*, F-*, E-*）和状态节点（LS-*, FS-*, ES-*, JS-*）
+    - 基础实体节点有 geometry 属性
+    - 状态节点也可能有 geometry 属性（从基础实体继承）
+
     Args:
         entity_ids: 实体 ID 列表，如 ["L-450100", "L-450200", "E-450000-20211012-FLOOD"]
 
@@ -1532,8 +1411,8 @@ def get_entity_geometry(entity_ids):
             "success": True,
             "data": {
                 "results": [
-                    {"id": "L-450100", "geometry": "POINT (108.55 25.18)"},
-                    {"id": "L-450200", "geometry": "POINT (109.42 24.33)"}
+                    {"id": "L-450100", "geometry": "POINT (108.55 25.18)", "type": "entity"},
+                    {"id": "LS-L-450100-...", "geometry": "POINT (108.55 25.18)", "type": "state"}
                 ],
                 "metadata": {...},
                 "summary": "获取到 X 个实体的几何信息"
@@ -1548,20 +1427,42 @@ def get_entity_geometry(entity_ids):
         if not entity_ids or not isinstance(entity_ids, list):
             return error_response("参数 entity_ids 必须是非空列表")
 
-        # 查询实体的 geometry 属性
-        cypher = """
-        MATCH (e:entity)
-        WHERE e.id IN $entity_ids AND e.geometry IS NOT NULL
-        RETURN e.id AS id, e.geometry AS geometry
-        """
+        # 分离基础实体ID和状态节点ID
+        base_entity_ids = []
+        state_entity_ids = []
 
-        result = session.run(cypher, {"entity_ids": entity_ids})
-        records = [convert_neo4j_types(dict(record)) for record in result]
+        for eid in entity_ids:
+            if eid.startswith(('LS-', 'FS-', 'ES-', 'JS-')):
+                state_entity_ids.append(eid)
+            else:
+                base_entity_ids.append(eid)
+
+        all_records = []
+
+        # 查询基础实体的 geometry
+        if base_entity_ids:
+            cypher_base = """
+            MATCH (e:entity)
+            WHERE e.id IN $entity_ids AND e.geometry IS NOT NULL
+            RETURN e.id AS id, e.geometry AS geometry, 'entity' AS type
+            """
+            result = session.run(cypher_base, {"entity_ids": base_entity_ids})
+            all_records.extend([convert_neo4j_types(dict(record)) for record in result])
+
+        # 查询状态节点的 geometry（如果有）
+        if state_entity_ids:
+            cypher_state = """
+            MATCH (s:State)
+            WHERE s.id IN $entity_ids AND s.geometry IS NOT NULL
+            RETURN s.id AS id, s.geometry AS geometry, 'state' AS type
+            """
+            result = session.run(cypher_state, {"entity_ids": state_entity_ids})
+            all_records.extend([convert_neo4j_types(dict(record)) for record in result])
 
         # 使用标准化响应
         return success_response(
-            results=records,
-            summary=f"获取到 {len(records)} 个实体的几何信息（共查询 {len(entity_ids)} 个 ID）"
+            results=all_records,
+            summary=f"获取到 {len(all_records)} 个实体的几何信息（共查询 {len(entity_ids)} 个 ID）"
         )
 
     except Exception as e:

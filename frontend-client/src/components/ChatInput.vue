@@ -86,32 +86,24 @@ const handleSend = () => {
 <style scoped>
 .chat-input-area {
   width: 100%;
-  max-width: 850px;
+  max-width: 750px;
   margin: 0 auto;
   position: relative;
 }
 
 .input-container {
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 24px;
-  box-shadow:
-    0 8px 32px 0 rgba(31, 38, 135, 0.05),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
   padding: 8px;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: all var(--transition-normal);
   transform: translateY(0);
 }
 
 .input-container:focus-within {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.65);
-  box-shadow:
-    0 12px 40px 0 rgba(31, 38, 135, 0.1),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  border-color: rgba(255, 255, 255, 0.8);
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-secondary);
+  box-shadow: var(--shadow-md);
 }
 
 .input-wrapper {
@@ -124,17 +116,17 @@ const handleSend = () => {
 
 textarea {
   flex: 1;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: none;
   background: transparent;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-family: inherit;
   resize: none;
   max-height: 200px;
   overflow-y: auto;
-  line-height: 1.6;
-  color: var(--color-text-main);
-  min-height: 48px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  min-height: 44px;
 }
 
 textarea:focus {
@@ -146,53 +138,47 @@ textarea::placeholder {
 }
 
 .send-btn {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(79, 70, 229, 0.9));
-  color: white;
-  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border-radius: 12px;
   cursor: pointer;
   transition: all var(--transition-fast);
-  margin-bottom: 3px;
-  margin-right: 3px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-  backdrop-filter: blur(4px);
+  margin-bottom: 4px;
+  margin-right: 4px;
 }
 
 .send-btn:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 1), rgba(79, 70, 229, 1));
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
 }
 
 .send-btn:disabled {
-  background: rgba(148, 163, 184, 0.2);
-  color: rgba(148, 163, 184, 0.6);
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: not-allowed;
-  box-shadow: none;
+  border-color: transparent;
+  opacity: 0.5;
 }
 
 .send-icon {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
   border-radius: 50%;
-  border-top-color: white;
+  border-top-color: var(--color-primary);
   animation: spin 0.8s linear infinite;
-}
-
-.send-btn:disabled .spinner {
-  border-color: rgba(255, 255, 255, 0.4);
-  border-top-color: rgba(255, 255, 255, 0.8);
 }
 
 @keyframes spin {
@@ -202,10 +188,10 @@ textarea::placeholder {
 .disclaimer {
   margin-top: 12px;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--color-text-muted);
-  opacity: 0.8;
-  font-weight: 500;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
+  opacity: 0.5;
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 </style>

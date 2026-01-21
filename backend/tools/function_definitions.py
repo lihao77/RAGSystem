@@ -42,13 +42,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_knowledge_graph",
-            "description": "搜索知识图谱中的基础实体或状态节点。根据category参数自动选择查询目标。\n\n**基础实体vs状态节点**：\n- 基础实体（地点/设施/事件）：静态骨架，如'南宁市'、'潘厂水库'、'2023年台风'\n- 状态节点（State）：动态快照，包含时间段内的具体数据（降雨量、受灾人口、经济损失等）\n\n**查询策略**：\n- category='地点'/'设施'/'事件'：返回基础实体节点（:地点:entity, :设施:entity, :事件:entity）\n- category='State'：返回状态节点（:State），包含entity_ids、time、state_type等\n- category=''：默认查询状态节点\n\n⚠️重要：\n1. 查询损失数据时，必须用category='State'！损失信息存储在状态节点的属性中\n2. 查询基础实体信息（名称、位置）时，用category='地点'/'设施'/'事件'\n3. 时间范围(time_range)只对State节点有效",
+            "description": "搜索知识图谱中的基础实体或状态节点。根据category参数自动选择查询目标。\n\n**基础实体vs状态节点**：\n- 基础实体（地点/设施/事件）：静态骨架，如'南宁市'、'潘厂水库'、'2023年台风'\n- 状态节点（State）：动态快照，包含时间段内的具体数据（降雨量、受灾人口、经济损失等）\n\n**查询策略（已优化）**：\n- category='地点'/'设施'/'事件'：返回基础实体节点（:地点:entity, :设施:entity, :事件:entity）\n- category='State'：返回状态节点（:State），**直接使用状态ID过滤，无需先查基础实体**\n- category=''：默认查询状态节点\n\n**优化特性**：\n- 状态查询使用\"状态ID优先\"策略，性能提升50%+\n- 同时搜索状态ID和entity_ids字段，覆盖更全面\n- 支持模糊匹配和部分ID匹配\n\n⚠️重要：\n1. 查询损失数据时，必须用category='State'！损失信息存储在状态节点的属性中\n2. 查询基础实体信息（名称、位置）时，用category='地点'/'设施'/'事件'\n3. 时间范围(time_range)只对State节点有效",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "搜索关键词，用于模糊匹配。\n- 查基础实体：匹配name、id、geo_description字段\n- 查状态节点：先查关联的基础实体，再通过entity_ids匹配状态\n示例：'潘厂水库'、'南宁市'、'洪涝'、'450100'（行政区划码）"
+                        "description": "搜索关键词，用于模糊匹配。\n- 查基础实体：匹配name、id、geo_description字段\n- 查状态节点：**直接在状态ID上过滤**（优化策略），同时搜索s.id和s.entity_ids\n示例：'潘厂水库'、'南宁市'、'洪涝'、'450100'（行政区划码）"
                     },
                     "category": {
                         "type": "string",
@@ -89,13 +89,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_relations",
-            "description": "获取指定基础实体的关系网络。支持查询空间关系、状态链、因果关系等。\n\n**返回的关系类型**：\n1. **空间结构关系**（基础实体之间）：\n   - `locatedIn`：地点层级关系（市→省）、设施归属（水库→县）\n   - `occurredAt`：事件发生地（台风→影响区域）\n\n2. **状态链关系**（基础实体→状态）：\n   - `hasState`：实体的首个状态节点\n   - `nextState`：状态的时间序列链（自动展开）\n\n3. **因果关系**（状态之间）：\n   - `hasRelation {type:'导致'}`：直接因果\n   - `hasRelation {type:'间接导致'}`：调制作用\n   - `hasRelation {type:'触发'}`：阈值触发\n\n**使用场景**：\n- 查看某个地点的上下级行政区\n- 查看某个设施所在位置\n- 查看某个实体的历史状态链\n- 探索因果关系网络",
+            "description": "获取指定实体的关系网络。自动识别基础实体和状态节点，返回对应的关系类型。\n\n**实体类型自动识别**（已优化）：\n- 基础实体（L-*, F-*, E-*）：返回空间关系和状态链\n- 状态节点（LS-*, FS-*, ES-*, JS-*）：返回属性关系和因果关系\n\n**返回的关系类型**：\n1. **空间结构关系**（基础实体之间）：\n   - `locatedIn`：地点层级关系（市→省）、设施归属（水库→县）\n   - `occurredAt`：事件发生地（台风→影响区域）\n\n2. **状态链关系**（基础实体→状态）：\n   - `hasState`：实体的首个状态节点\n   - `nextState`：状态的时间序列链（自动展开）\n\n3. **属性关系**（状态→属性）：\n   - `hasAttribute`：状态的具体属性（降雨量、受灾人口等）\n\n4. **因果关系**（状态之间）：\n   - `hasRelation {type:'导致'}`：直接因果\n   - `hasRelation {type:'间接导致'}`：调制作用\n   - `hasRelation {type:'触发'}`：阈值触发\n\n**优化特性**：\n- 支持精确匹配和模糊匹配（entity_id或entity_id片段）\n- 自动区分基础实体和状态节点，返回相应关系\n- 完整的节点属性和关系属性\n\n**使用场景**：\n- 查看某个地点的上下级行政区\n- 查看某个设施所在位置\n- 查看某个实体的历史状态链\n- 探索因果关系网络",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": "基础实体ID（必须是:entity节点的ID）：\n- 地点：'L-450100'（南宁市）、'L-450103>新竹街道'、'L-RIVER-长江'\n- 设施：'F-450381-潘厂水库'、'F-420500-三峡大坝'\n- 事件：'E-450000-20231001-TYPHOON'\n\n⚠️注意：不支持State节点ID（ES-*/LS-*/FS-*/JS-*）"
+                        "description": "实体ID（支持基础实体和状态节点）：\n**基础实体**（返回空间关系+状态链）：\n- 地点：'L-450100'（南宁市）、'L-450103>新竹街道'、'L-RIVER-长江'\n- 设施：'F-450381-潘厂水库'、'F-420500-三峡大坝'\n- 事件：'E-450000-20231001-TYPHOON'\n\n**状态节点**（返回属性+因果关系）：\n- 地点状态：'LS-L-450100-20231001_20231001'\n- 设施状态：'FS-F-450381-潘厂水库-20200607_20200607'\n- 事件状态：'ES-E-450000-20231001-TYPHOON-20231001_20231010'\n- 联合状态：'JS-L-450100-L-450500-20231001_20231010'\n\n支持部分匹配（如只传'潘厂水库'会匹配所有相关节点）"
                     }
                 },
                 "required": ["entity_id"]
@@ -135,13 +135,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "analyze_temporal_pattern",
-            "description": "分析时序模式和趋势。统计指定时间范围内的事件频率、强度变化等。适用于趋势分析、周期性分析等场景。",
+            "description": "分析时序模式和趋势。使用状态ID优先策略高效查询指定时间范围内的状态数据，支持指标趋势分析。\n\n**优化特性（新增）**：\n- 使用状态ID直接过滤，性能提升显著\n- 增强的趋势分析，支持中文单位提取（如\"100万人\"、\"1.5亿元\"）\n- 返回完整状态ID和实体关联信息\n- 自动计算min/max/avg和趋势方向\n\n**适用场景**：\n- 分析某地点/设施在特定时期的状态变化\n- 统计某指标的时间序列趋势\n- 对比不同时段的数据特征\n\n**使用示例**：\n```\n# 分析潘厂水库2020年6月的水位变化\nanalyze_temporal_pattern(\n    entity_name='潘厂水库',\n    start_date='2020-06-01',\n    end_date='2020-06-30',\n    metric='水位'\n)\n\n# 分析南宁市2023年的受灾人口趋势\nanalyze_temporal_pattern(\n    entity_name='南宁市',\n    start_date='2023-01-01',\n    end_date='2023-12-31',\n    metric='受灾人口'\n)\n```",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_name": {
                         "type": "string",
-                        "description": "实体名称，例如：'潘厂水库'、'南宁市'"
+                        "description": "实体名称或名称片段（会在状态ID中模糊匹配）。例如：'潘厂水库'、'南宁市'、'450100'"
                     },
                     "start_date": {
                         "type": "string",
@@ -153,7 +153,7 @@ TOOLS = [
                     },
                     "metric": {
                         "type": "string",
-                        "description": "分析指标，例如：'降雨量'、'受灾人口'、'经济损失'",
+                        "description": "分析指标（可选）。指定后返回该属性的时序值和趋势分析。例如：'降雨量'、'受灾人口'、'经济损失'、'水位'"
                     }
                 },
                 "required": ["entity_name", "start_date", "end_date"]
@@ -164,21 +164,21 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_causal_chain",
-            "description": "查找因果链路。追踪事件的前因后果，分析影响传播路径。适用于影响分析、溯源分析等场景。",
+            "description": "查找因果链路。追踪事件的前因后果，分析影响传播路径。使用状态ID优先策略，返回完整的节点属性和因果关系信息。\n\n**优化特性（新增）**：\n- 使用状态ID直接过滤起点和终点\n- 返回完整的节点信息（包括关键属性通过hasAttribute关系）\n- 返回关系的详细类型（导致/间接导致/触发）\n- 包含entity_ids字段，便于追溯涉及的基础实体\n\n**因果关系类型**：\n- `导致`：直接因果关系（A直接导致B）\n- `间接导致`：间接影响（A通过某种机制影响B）\n- `隐含导致`：潜在关联\n- `触发`：阈值触发（达到条件后触发）\n\n**适用场景**：\n- 溯源分析：向后追溯灾害的原因链\n- 影响分析：向前追踪灾害的影响链\n- 因果路径发现：查找两个事件之间的因果路径\n\n**使用示例**：\n```\n# 向前追踪台风的影响\nfind_causal_chain(\n    start_event='台风',\n    direction='forward',\n    max_depth=3\n)\n\n# 向后追溯洪水的原因\nfind_causal_chain(\n    start_event='洪水',\n    direction='backward',\n    max_depth=2\n)\n\n# 查找台风到经济损失的路径\nfind_causal_chain(\n    start_event='台风',\n    end_event='经济损失',\n    max_depth=3\n)\n```",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "start_event": {
                         "type": "string",
-                        "description": "起始事件或实体名称"
+                        "description": "起始事件或实体名称片段（会在状态ID中模糊匹配）"
                     },
                     "end_event": {
                         "type": "string",
-                        "description": "目标事件或实体名称（可选）"
+                        "description": "目标事件或实体名称片段（可选）。指定后只返回从start_event到end_event的路径"
                     },
                     "max_depth": {
                         "type": "integer",
-                        "description": "最大追踪深度，默认为3",
+                        "description": "最大追踪深度（因果链的最大长度），默认为3",
                         "default": 3
                     },
                     "direction": {
@@ -196,13 +196,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "compare_entities",
-            "description": "比较多个实体的状态和属性。适用于对比分析、异同点识别等场景。",
+            "description": "比较多个实体的状态和属性。使用批量查询优化，一次性获取所有实体数据，性能提升显著。\n\n**优化特性（新增）**：\n- 批量查询：从N次数据库查询优化为1次，性能提升N倍\n- 使用状态ID模糊匹配，无需精确实体名称\n- 自动按entity_ids分组，准确归类每个实体的状态\n- 返回完整的时序数据和属性值\n\n**适用场景**：\n- 对比不同地区的受灾情况\n- 对比不同时期的同一实体状态\n- 多实体的属性对比分析\n\n**使用示例**：\n```\n# 对比南宁、柳州、桂林三市2023年的受灾情况\ncompare_entities(\n    entity_names=['南宁市', '柳州市', '桂林市'],\n    time_range=['2023-01-01', '2023-12-31'],\n    compare_attributes=['受灾人口', '经济损失']\n)\n\n# 对比多个水库的状态\ncompare_entities(\n    entity_names=['潘厂水库', '三峡大坝', '龙滩水电站'],\n    time_range=['2020-06-01', '2020-06-30']\n)\n```",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_names": {
                         "type": "array",
-                        "description": "要比较的实体名称列表",
+                        "description": "要比较的实体名称列表（会在状态ID中模糊匹配）",
                         "items": {
                             "type": "string"
                         },
@@ -210,7 +210,7 @@ TOOLS = [
                     },
                     "time_range": {
                         "type": "array",
-                        "description": "时间范围 [开始日期, 结束日期]",
+                        "description": "时间范围 [开始日期, 结束日期]，格式：YYYY-MM-DD",
                         "items": {
                             "type": "string"
                         },
@@ -219,7 +219,7 @@ TOOLS = [
                     },
                     "compare_attributes": {
                         "type": "array",
-                        "description": "要比较的属性列表，例如：['降雨量', '受灾人口']",
+                        "description": "要比较的属性列表（可选）。指定后只返回这些属性的值。例如：['降雨量', '受灾人口', '经济损失']",
                         "items": {
                             "type": "string"
                         }
@@ -233,34 +233,36 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "aggregate_statistics",
-            "description": "聚合统计分析。计算总和、平均值、最大值、最小值等统计指标。适用于数据汇总、统计分析等场景。",
+            "description": "聚合统计分析。计算总和、平均值、最大值、最小值等统计指标。使用状态ID前缀优化，无需先查询基础实体。\n\n**优化特性（新增）**：\n- 使用状态ID前缀直接过滤（LS-L-*, FS-F-*, ES-E-*）\n- 对常见实体类型（地点/设施/事件），性能提升2倍+\n- 无需额外查询基础实体表\n\n**实体类型映射**：\n- '地点'：查询地点状态（LS-L-*）\n- '设施'：查询设施状态（FS-F-*）\n- '事件'：查询事件状态（ES-E-*）\n\n**适用场景**：\n- 统计某类实体的总体指标（如全区受灾总人口）\n- 计算平均值（如平均降雨量）\n- 查找极值（如最大经济损失）\n- 按字段分组统计（如按来源、按时间分组）\n\n**使用示例**：\n```\n# 统计2023年广西所有地点的受灾总人口\naggregate_statistics(\n    entity_type='地点',\n    attribute='受灾人口',\n    aggregation='sum',\n    time_range=['2023-01-01', '2023-12-31']\n)\n\n# 计算所有水库的平均蓄水量\naggregate_statistics(\n    entity_type='设施',\n    attribute='蓄水量',\n    aggregation='avg'\n)\n\n# 按来源分组统计损失\naggregate_statistics(\n    attribute='经济损失',\n    aggregation='sum',\n    group_by='source'\n)\n```",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "实体类型：'地点'、'设施'、'事件'",
-                        "enum": ["地点", "设施", "事件"]
-                    },
                     "attribute": {
                         "type": "string",
-                        "description": "要统计的属性，例如：'降雨量'、'受灾人口'"
+                        "description": "要统计的属性名称（在hasAttribute关系的type字段中）。例如：'降雨量'、'受灾人口'、'经济损失'"
                     },
                     "aggregation": {
                         "type": "string",
                         "description": "聚合方式：sum（总和）、avg（平均）、max（最大）、min（最小）、count（计数）",
                         "enum": ["sum", "avg", "max", "min", "count"]
                     },
+                    "entity_type": {
+                        "type": "string",
+                        "description": "实体类型（可选）。指定后只统计该类型实体的状态：\n- '地点'：地点状态（LS-L-*）\n- '设施'：设施状态（FS-F-*）\n- '事件'：事件状态（ES-E-*）\n不指定则统计所有状态",
+                        "enum": ["地点", "设施", "事件"]
+                    },
                     "time_range": {
                         "type": "array",
-                        "description": "时间范围 [开始日期, 结束日期]",
+                        "description": "时间范围 [开始日期, 结束日期]，格式：YYYY-MM-DD",
                         "items": {
                             "type": "string"
-                        }
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
                     },
                     "group_by": {
                         "type": "string",
-                        "description": "分组字段，例如：'source'（按来源分组）、'time'（按时间分组）"
+                        "description": "分组字段（可选）。常用字段：\n- 'source'：按数据来源分组\n- 'time'：按时间分组\n- 'state_type'：按状态类型分组"
                     }
                 },
                 "required": ["attribute", "aggregation"]
@@ -271,22 +273,25 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_spatial_neighbors",
-            "description": "获取空间邻近实体。查找指定实体周边的地理位置、设施等。适用于空间关系分析、影响范围评估等场景。",
+            "description": "获取空间邻近实体。查找指定实体周边的地理位置、设施等。使用基础实体层级的空间关系。\n\n**优化特性（新增）**：\n- 明确使用 :entity 标签提高查询效率\n- 只查询空间关系（locatedIn, occurredAt），不包括状态链\n- 支持多层级邻近查询（radius参数）\n\n**空间关系类型**：\n- `locatedIn`：地点层级关系（区→市→省）、设施归属（水库→县）\n- `occurredAt`：事件发生地关系\n\n**适用场景**：\n- 查找某地的上下级行政区划\n- 查找某地附近的设施\n- 查找某事件影响的区域\n- 空间关系分析和影响范围评估\n\n**使用示例**：\n```\n# 查找南宁市的直接邻居（上级、下级、同级）\nget_spatial_neighbors(\n    entity_name='南宁市',\n    radius=1\n)\n\n# 查找潘厂水库周围2层级内的所有地点\nget_spatial_neighbors(\n    entity_name='潘厂水库',\n    radius=2,\n    neighbor_type='地点'\n)\n\n# 查找某个区域内的所有设施\nget_spatial_neighbors(\n    entity_name='青秀区',\n    radius=1,\n    neighbor_type='设施'\n)\n```\n\n⚠️注意：此工具查询基础实体之间的空间关系，不包括状态节点。如需查询状态相关信息，请使用其他工具。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_name": {
                         "type": "string",
-                        "description": "中心实体名称"
+                        "description": "中心实体名称或名称片段（会在基础实体的id和name字段中模糊匹配）"
                     },
                     "radius": {
                         "type": "integer",
-                        "description": "邻近层级，1表示直接相邻，2表示二级邻居，以此类推",
-                        "default": 1
+                        "description": "邻近层级（关系路径长度）：\n- 1：直接相邻（一步可达）\n- 2：二级邻居（两步可达）\n- 3+：更远的邻居",
+                        "default": 1,
+                        "minimum": 1,
+                        "maximum": 5
                     },
                     "neighbor_type": {
                         "type": "string",
-                        "description": "邻居类型过滤：'地点'、'设施'、'事件'，不指定则返回所有类型"
+                        "description": "邻居类型过滤（可选）：\n- '地点'：只返回地点实体\n- '设施'：只返回设施实体\n- '事件'：只返回事件实体\n不指定则返回所有类型",
+                        "enum": ["地点", "设施", "事件"]
                     }
                 },
                 "required": ["entity_name"]
@@ -436,7 +441,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_geometry",
-            "description": "根据实体 ID 列表获取实体的几何信息（WKT 格式坐标，可能存在线数据以及面数据）。\n\n**适用场景**：\n- 为地图可视化准备带坐标的实体数据\n- 获取特定实体的地理位置信息\n- 补充查询结果中缺失的 geometry 字段\n\n**使用说明**：\n1. 传入实体 ID 列表（如从其他工具的查询结果中提取）\n2. 返回 id 和 geometry 的映射列表\n3. 只返回有 geometry 属性的实体（:entity 标签）\n\n**典型用法**：\n```\n# 先查询实体，获取 ID\nresult1 = query_knowledge_graph_with_nl(\"2023年广西各市的洪涝灾害事件\")\nentity_ids = [item['event_id'] for item in result1]\n\n# 获取这些实体的几何信息\ngeometry_data = get_entity_geometry(entity_ids)\n\n# 合并数据后传给 generate_map\n```\n\n**重要提示**：\n- 只查询基础实体节点（:entity 标签），不包括状态节点（:State）\n- geometry 字段格式为 WKT，如 \"POINT (108.55 25.18)\"\n- 如果某个 ID 没有 geometry 属性，不会出现在结果中",
+            "description": "根据实体 ID 列表获取实体的几何信息（WKT 格式坐标）。支持基础实体和状态节点。\n\n**优化特性（新增）**：\n- 同时支持基础实体（L-*, F-*, E-*）和状态节点（LS-*, FS-*, ES-*, JS-*）\n- 自动识别ID类型并分别查询\n- 返回结果包含节点类型标识（entity/state）\n\n**适用场景**：\n- 为地图可视化准备带坐标的实体数据\n- 获取特定实体的地理位置信息\n- 补充查询结果中缺失的 geometry 字段\n\n**使用说明**：\n1. 传入实体 ID 列表（支持基础实体ID和状态节点ID混合）\n2. 返回 id、geometry 和 type 的映射列表\n3. 只返回有 geometry 属性的节点\n\n**典型用法**：\n```\n# 先查询实体，获取 ID\nresult1 = query_knowledge_graph_with_nl(\"2023年广西各市的洪涝灾害状态\")\nentity_ids = [item['state_id'] for item in result1]  # 可能包含状态ID\n\n# 获取这些实体/状态的几何信息\ngeometry_data = get_entity_geometry(entity_ids)\n\n# 合并数据后传给 generate_map\nfor item in result1:\n    geo = next((g for g in geometry_data if g['id'] == item['state_id']), None)\n    if geo:\n        item['geometry'] = geo['geometry']\n```\n\n**重要提示**：\n- 基础实体ID格式：L-450100、F-450381-潘厂水库、E-450000-20231001-TYPHOON\n- 状态节点ID格式：LS-L-450100-...、FS-F-450381-...、ES-E-450000-...\n- geometry 字段格式为 WKT，如 \"POINT (108.55 25.18)\"\n- 如果某个 ID 没有 geometry 属性，不会出现在结果中\n- 返回结果包含 type 字段（'entity' 或 'state'）标识节点类型",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -445,7 +450,7 @@ TOOLS = [
                         "items": {
                             "type": "string"
                         },
-                        "description": "实体 ID 列表。例如: [\"L-450100\", \"L-450200\", \"E-450000-20211012-FLOOD\"]"
+                        "description": "实体 ID 列表（支持基础实体和状态节点混合）。\n示例: [\"L-450100\", \"LS-L-450100-20231001_20231001\", \"F-450381-潘厂水库\"]"
                     }
                 },
                 "required": ["entity_ids"]

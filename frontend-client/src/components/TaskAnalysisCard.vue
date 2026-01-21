@@ -1,14 +1,16 @@
 <template>
   <div v-if="shouldShow" class="task-analysis-card">
     <div class="card-header" @click="toggleExpanded">
-      <span class="icon">{{ taskAnalysis.expanded ? '▼' : '▶' }}</span>
+      <span class="icon" :class="{ expanded: taskAnalysis.expanded }">▶</span>
       <span class="card-title">🧠 任务分析</span>
       <span class="task-badge">{{ taskAnalysis.complexity }}</span>
       <span class="subtask-count">{{ taskAnalysis.subtask_count }} 个子任务</span>
     </div>
-    <div v-if="taskAnalysis.expanded" class="card-content">
-      <div class="analysis-reasoning">{{ taskAnalysis.reasoning }}</div>
-    </div>
+    <transition name="expand">
+      <div v-show="taskAnalysis.expanded" class="card-content">
+        <div class="analysis-reasoning">{{ taskAnalysis.reasoning }}</div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -39,86 +41,103 @@ const toggleExpanded = () => {
 
 <style scoped>
 .task-analysis-card {
-  margin-top: 16px;
-  border: var(--glass-border);
+  margin-top: var(--spacing-md);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  animation: fadeInUp 0.4s ease;
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  animation: fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--glass-shadow);
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .task-analysis-card:hover {
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-hover);
 }
 
 .card-header {
-  background: rgba(255, 255, 255, 0.3);
-  padding: 12px 16px;
-  font-size: 13px;
+  background: var(--color-bg-elevated);
+  padding: var(--spacing-md);
+  font-size: 0.9rem;
   cursor: pointer;
   user-select: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  transition: background 0.2s ease;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  gap: var(--spacing-sm);
+  font-weight: 600;
+  transition: all var(--transition-fast);
 }
 
 .card-header:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--color-bg-tertiary);
 }
 
 .card-title {
   font-weight: 600;
-  color: var(--color-primary);
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
+  color: var(--color-primary-hover);
 }
 
 .task-badge {
-  padding: 2px 10px;
-  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(199, 210, 254, 0.8));
-  color: var(--color-primary);
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 4px 12px;
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  letter-spacing: 0.05em;
+  border: 1px solid var(--color-border);
 }
 
 .subtask-count {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 0.85rem;
   color: var(--color-text-secondary);
   font-weight: 600;
 }
 
 .icon {
   font-size: 10px;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--color-text-muted);
+  display: inline-block;
+}
+
+.icon.expanded {
+  transform: rotate(90deg);
 }
 
 .card-content {
-  padding: 16px;
+  padding: var(--spacing-lg);
   background: transparent;
-  border-top: 1px solid rgba(255, 255, 255, 0.3);
-  animation: expandDown 0.3s ease;
+  overflow: hidden;
 }
 
 .analysis-reasoning {
-  font-size: 13px;
+  font-size: 0.9rem;
   color: var(--color-text-secondary);
-  line-height: 1.6;
+  line-height: 1.8;
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
+}
+
+/* Expand/Collapse Transition */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 500px;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
 }
 
 @keyframes fadeInUp {
@@ -129,21 +148,6 @@ const toggleExpanded = () => {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes expandDown {
-  from {
-    opacity: 0;
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-  }
-  to {
-    opacity: 1;
-    max-height: 2000px;
-    padding-top: 16px;
-    padding-bottom: 16px;
   }
 }
 </style>

@@ -33,7 +33,10 @@
 
         <div class="timeline-content">
           <!-- 思考内容 -->
-          <div class="step-thought glass-card">
+          <div
+            class="step-thought"
+            :class="{ running: isStepRunning(step) }"
+          >
             <div class="thought-icon">💭</div>
             <div class="thought-text">{{ step.thought }}</div>
           </div>
@@ -43,7 +46,7 @@
             <div
               v-for="(tool, toolIndex) in step.toolCalls"
               :key="toolIndex"
-              class="tool-item glass-chip"
+              class="tool-item"
               :class="tool.status"
             >
               <div class="tool-header" @click="tool.expanded = !tool.expanded">
@@ -124,22 +127,16 @@ props.steps.forEach(step => {
 const totalToolCalls = computed(() => {
   return props.steps.reduce((sum, step) => sum + (step.toolCalls?.length || 0), 0);
 });
+
+// Check if a step is currently running (has any running tool)
+const isStepRunning = (step) => {
+  return step.toolCalls?.some(tool => tool.status === 'running') || false;
+};
 </script>
 
 <style scoped>
-/* Glass Morphism Variables */
-:root {
-  --glass-border: 1px solid rgba(255, 255, 255, 0.4);
-  --glass-bg: rgba(255, 255, 255, 0.45);
-  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  --success-gradient: linear-gradient(135deg, #10b981 0%, #34d399 100%);
-  --error-gradient: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
-  --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
-}
-
 .react-timeline {
-  padding: 12px 4px;
+  padding: var(--spacing-lg) 0;
   font-family: var(--font-sans);
 }
 
@@ -148,208 +145,137 @@ const totalToolCalls = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  padding: 0 4px;
+  margin-bottom: var(--spacing-xl);
+  padding: 0 var(--spacing-xs);
 }
 
 .timeline-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--color-text-main);
+  gap: var(--spacing-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
   letter-spacing: -0.01em;
 }
 
 .pulse-icon {
-  font-size: 16px;
-  animation: float 3s ease-in-out infinite;
+  font-size: 1.1rem;
+  opacity: 0.9;
 }
 
 .step-badge {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--color-primary);
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid var(--glass-border);
+  letter-spacing: 0.03em;
 }
 
 .timeline-stats {
-  font-size: 12px;
+  font-size: 0.8rem;
   color: var(--color-text-secondary);
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.3);
-  padding: 4px 10px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
-/* Timeline Track */
+/* Timeline Container - No left border */
 .timeline-container {
   position: relative;
-  padding-left: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
 }
 
 .timeline-line-track {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  bottom: 0px;
-  width: 2px;
-  background: rgba(99, 102, 241, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.timeline-line-progress {
-  position: absolute;
-  top: -100%;
-  left: 0;
-  right: 0;
-  height: 100%;
-  background: linear-gradient(to bottom,
-    transparent 0%,
-    transparent 40%,
-    var(--color-primary) 50%,
-    rgba(139, 92, 246, 0.5) 60%,
-    transparent 70%,
-    transparent 100%
-  );
-  filter: blur(1px);
-  animation: flow 3s infinite linear;
+  display: none;
 }
 
 /* Timeline Item */
 .timeline-item {
   position: relative;
-  margin-bottom: 30px;
   animation: slideIn 0.5s ease-out backwards;
   animation-delay: var(--delay);
 }
 
-.timeline-item:last-child {
-  margin-bottom: 0;
-}
-
-/* Marker */
 .timeline-marker-wrapper {
-  position: absolute;
-  left: -30px;
-  top: 0;
-  width: 24px;
-  height: 24px;
+  display: none;
+}
+
+.timeline-content {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
+  flex-direction: column;
+  gap: var(--spacing-md);
 }
 
-.timeline-marker {
-  width: 20px;
-  height: 20px;
-  background: var(--primary-gradient);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8), 0 4px 10px rgba(99, 102, 241, 0.3);
-  position: relative;
-}
-
-.marker-text {
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  z-index: 2;
-}
-
-.marker-glow {
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  opacity: 0.4;
-  filter: blur(4px);
-  animation: pulse-glow 2s infinite;
-  z-index: 1;
-}
-
-/* Thought Bubble */
+/* Thought Block - Flat, Lighter Background, No Shadow */
 .step-thought {
   display: flex;
-  gap: 12px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  position: relative;
-  transition: box-shadow 0.15s ease-out;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  border-left: 3px solid var(--color-primary);
+  transition: all var(--transition-fast);
 }
 
-.step-thought:hover {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
-}
-
-.glass-card {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-  border-radius: 16px;
-  border-top-left-radius: 4px;
+.step-thought.running {
+  background: var(--color-bg-tertiary);
+  border-left-color: var(--color-primary-hover);
+  box-shadow: -2px 0 20px var(--color-primary-glow);
 }
 
 .thought-icon {
-  font-size: 16px;
-  opacity: 0.8;
-  padding-top: 2px;
+  font-size: 1.2rem;
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .thought-text {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-text-main);
-  font-weight: 500;
-  /* display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden; */
+  font-size: 0.9rem;
+  line-height: 1.8;
+  color: var(--color-text-primary);
+  font-weight: 400;
 }
 
-/* Tool Items */
+/* Tool Items - Darker Flat Blocks, More Indented */
 .step-tools {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-left: 8px;
+  gap: var(--spacing-sm);
+  margin-left: var(--spacing-2xl);
+  padding-left: var(--spacing-xl);
+  border-left: 2px solid var(--color-border);
 }
 
-.glass-chip {
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 12px;
+.tool-item {
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   overflow: hidden;
-  transition: box-shadow 0.15s ease-out;
+  transition: all var(--transition-fast);
 }
 
-.glass-chip:hover {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+.tool-item.running {
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 1px var(--color-warning);
+}
+
+.tool-item:hover {
+  background: var(--color-bg-secondary);
 }
 
 .tool-header {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
+  padding: var(--spacing-md);
   cursor: pointer;
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 /* Status Indicators */
@@ -360,13 +286,14 @@ const totalToolCalls = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ccc;
+  background: var(--color-text-muted);
   z-index: 2;
 }
 
@@ -380,46 +307,47 @@ const totalToolCalls = computed(() => {
 }
 
 /* Status Colors */
-.success .status-dot { background: #10b981; }
-.success .status-ring { border-color: #10b981; }
+.success .status-dot { background: var(--color-success); }
+.success .status-ring { border-color: var(--color-success); }
 
-.error .status-dot { background: #ef4444; }
-.error .status-ring { border-color: #ef4444; }
+.error .status-dot { background: var(--color-error); }
+.error .status-ring { border-color: var(--color-error); }
 
-.running .status-dot { background: #f59e0b; }
+.running .status-dot { background: var(--color-warning); }
 .running .status-ring {
-  border-color: #f59e0b;
+  border-color: var(--color-warning);
   border-top-color: transparent;
   animation: spin 1s linear infinite;
 }
 
 .tool-name {
   flex: 1;
-  /* font-family: 'JetBrains Mono', monospace; */
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text-main);
+  color: var(--color-text-primary);
   letter-spacing: -0.02em;
 }
 
 .tool-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-sm);
 }
 
 .tool-time {
-  font-size: 10px;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--color-text-muted);
-  background: rgba(0, 0, 0, 0.03);
-  padding: 2px 6px;
-  border-radius: 4px;
+  background: var(--color-bg-elevated);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
 }
 
 .tool-expand-btn {
   color: var(--color-text-muted);
-  transition: transform 0.3s ease;
+  transition: transform var(--transition-normal);
   display: flex;
   align-items: center;
 }
@@ -428,10 +356,10 @@ const totalToolCalls = computed(() => {
   transform: rotate(180deg);
 }
 
-/* Details Panel */
+/* Details Panel - Darker Background */
 .tool-details {
-  border-top: 1px solid rgba(0, 0, 0, 0.03);
-  background: rgba(255, 255, 255, 0.2);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-app);
 }
 
 .detail-block {
@@ -439,73 +367,61 @@ const totalToolCalls = computed(() => {
 }
 
 .detail-header {
-  padding: 8px 14px;
-  font-size: 11px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-secondary);
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.1);
-  transition: background 0.2s;
+  background: var(--color-bg-secondary);
+  transition: background var(--transition-fast);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .detail-header:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--color-bg-tertiary);
 }
 
 .code-tag {
-  font-size: 9px;
+  font-size: 0.65rem;
   padding: 2px 6px;
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--color-primary);
-  border-radius: 4px;
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
+  border-radius: var(--radius-sm);
   font-weight: 700;
+  letter-spacing: 0.05em;
 }
 
 .result-tag {
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .code-wrapper {
-  padding: 10px 14px;
-  background: rgba(250, 250, 255, 0.5);
+  padding: var(--spacing-md);
+  background: var(--color-bg-app);
 }
 
 .detail-code {
   margin: 0;
-  /* font-family: 'JetBrains Mono', monospace; */
-  font-size: 11px;
-  line-height: 1.5;
-  color: #334155;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 300px;
+  max-height: 400px;
   overflow-y: auto;
 }
 
 .result-code {
-  color: #0f172a;
+  color: var(--color-text-primary);
 }
 
 /* Animations */
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.2; transform: scale(1.5); }
-}
-
-@keyframes flow {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(200%); }
-}
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -517,8 +433,8 @@ const totalToolCalls = computed(() => {
 
 .slide-fade-enter-active,
 .slide-fade-leave-active {
-  transition: all 0.3s ease-out;
-  max-height: 500px;
+  transition: all var(--transition-normal);
+  max-height: 600px;
   opacity: 1;
 }
 
