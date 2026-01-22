@@ -9,6 +9,12 @@
         <span class="map-type-badge">{{ mapTypeName }}</span>
       </div>
       <div class="map-actions">
+        <button @click="downloadMap" class="action-btn" title="下载地图截图">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button @click="resetView" class="action-btn" title="重置视图">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        </button>
         <button @click="toggleFullscreen" class="action-btn" title="全屏">
           <span v-if="!isFullscreen">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
@@ -16,12 +22,6 @@
           <span v-else>
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
           </span>
-        </button>
-        <button @click="downloadMap" class="action-btn" title="下载地图截图">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button @click="resetView" class="action-btn" title="重置视图">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
         </button>
       </div>
     </div>
@@ -117,6 +117,7 @@ const props = defineProps({
 
 // State
 const mapContainer = ref(null);
+const fullscreenContainer = ref(null);
 const mapInstance = ref(null);
 const isFullscreen = ref(false);
 const currentLayers = ref([]);
@@ -125,11 +126,17 @@ const currentLayers = ref([]);
 const mapTypeName = ref('');
 
 // Methods
-const initMap = () => {
-  if (!mapContainer.value) return;
+const initMap = (container) => {
+  if (!container) return;
+
+  // 销毁旧实例
+  if (mapInstance.value) {
+    mapInstance.value.remove();
+    mapInstance.value = null;
+  }
 
   // 创建地图实例
-  mapInstance.value = L.map(mapContainer.value, {
+  mapInstance.value = L.map(container, {
     center: props.mapData.center || [23.5, 108.5], // 默认中心：广西
     zoom: props.mapData.map_type === 'heatmap' ? 7 : 8,
     zoomControl: true,
@@ -234,15 +241,17 @@ const updateMapTypeName = () => {
   mapTypeName.value = typeNames[props.mapData.map_type] || '地图';
 };
 
-const toggleFullscreen = () => {
+const toggleFullscreen = async () => {
   isFullscreen.value = !isFullscreen.value;
 
-  // 等待 DOM 更新后刷新地图尺寸
-  setTimeout(() => {
-    if (mapInstance.value) {
-      mapInstance.value.invalidateSize();
-    }
-  }, 100);
+  // 等待 DOM 更新
+  await nextTick();
+
+  // 根据全屏状态重新初始化地图到正确的容器
+  const targetContainer = isFullscreen.value ? fullscreenContainer.value : mapContainer.value;
+  if (targetContainer) {
+    initMap(targetContainer);
+  }
 };
 
 const resetView = () => {

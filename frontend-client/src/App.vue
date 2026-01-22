@@ -26,9 +26,9 @@ import 'highlight.js/styles/github-dark.css';
   --color-bg-elevated: #27272a;  /* 浮层 */
 
   /* Text Colors - Pure & Crisp */
-  --color-text-primary: #f4f4f5;   /* Zinc 100 */
-  --color-text-secondary: #a1a1aa; /* Zinc 400 */
-  --color-text-muted: #52525b;     /* Zinc 600 */
+  --color-text-primary: #ffffff;   /* Zinc 100 */
+  --color-text-secondary: #dddddd; /* Zinc 400 */
+  --color-text-muted: #616161;     /* Zinc 600 */
   --color-text-inverse: #09090b;
 
   /* Message Backgrounds */

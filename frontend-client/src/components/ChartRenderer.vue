@@ -3,49 +3,77 @@
     <div class="chart-header">
       <div class="chart-title">
         <span class="chart-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="13" width="4" height="9" rx="1"></rect><rect x="12" y="7" width="4" height="15" rx="1"></rect><rect x="6" y="15" width="4" height="7" rx="1"></rect></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="18" y="13" width="4" height="9" rx="1"></rect>
+            <rect x="12" y="7" width="4" height="15" rx="1"></rect>
+            <rect x="6" y="15" width="4" height="7" rx="1"></rect>
+          </svg>
         </span>
         <span>{{ title }}</span>
       </div>
       <div class="chart-actions">
+        <button @click="downloadChart" class="action-btn" title="下载图表">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
         <button @click="toggleFullscreen" class="action-btn" title="全屏">
           <span v-if="!isFullscreen">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+            </svg>
           </span>
           <span v-else>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+            </svg>
           </span>
-        </button>
-        <button @click="downloadChart" class="action-btn" title="下载图表">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
       </div>
     </div>
     <Teleport to="body" :disabled="!isFullscreen">
-      <div
-        v-if="isFullscreen"
-        class="chart-fullscreen-overlay"
-      >
+      <div v-if="isFullscreen" class="chart-fullscreen-overlay">
         <div class="chart-fullscreen-header">
-           <div class="chart-title">
+          <div class="chart-title">
             <span class="chart-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="13" width="4" height="9" rx="1"></rect><rect x="12" y="7" width="4" height="15" rx="1"></rect><rect x="6" y="15" width="4" height="7" rx="1"></rect></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="18" y="13" width="4" height="9" rx="1"></rect>
+                <rect x="12" y="7" width="4" height="15" rx="1"></rect>
+                <rect x="6" y="15" width="4" height="7" rx="1"></rect>
+              </svg>
             </span>
             <span>{{ title }}</span>
           </div>
-          <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
-             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
-          </button>
+          <div class="chart-actions">
+            <button @click="downloadChart" class="action-btn" title="下载图表">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+            <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div ref="fullscreenContainer" class="chart-fullscreen-content"></div>
       </div>
     </Teleport>
 
-    <div
-      ref="chartContainer"
-      class="chart-container"
-      v-show="!isFullscreen"
-    ></div>
+    <div ref="chartContainer" class="chart-container" v-show="!isFullscreen"></div>
   </div>
 </template>
 
@@ -142,7 +170,7 @@ const initChart = (container) => {
 
   // 合并配置
   const finalOption = {
-    ...baseOption,
+    // ...baseOption,
     ...props.echartsConfig,
     // 确保 backgroundColor 是透明的，除非 config 里明确覆盖
     backgroundColor: props.echartsConfig.backgroundColor || 'transparent'
@@ -172,7 +200,7 @@ const toggleFullscreen = async () => {
   // 根据全屏状态重新初始化图表到正确的容器
   const targetContainer = isFullscreen.value ? fullscreenContainer.value : chartContainer.value;
   if (targetContainer) {
-      initChart(targetContainer);
+    initChart(targetContainer);
   }
 };
 
@@ -294,6 +322,17 @@ onUnmounted(() => {
   background: var(--color-bg-primary);
 }
 
+.chart-container.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: var(--color-bg-app);
+  padding: var(--spacing-2xl);
+}
+
 .chart-fullscreen-overlay {
   position: fixed;
   top: 0;
@@ -318,18 +357,19 @@ onUnmounted(() => {
 .chart-fullscreen-content {
   flex: 1;
   width: 100%;
-  height: 100%;
   padding: var(--spacing-lg);
+  background: var(--color-bg-primary);
 }
 
 .close-btn {
-    background: transparent;
-    border: 1px solid var(--color-border);
-    color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
 }
+
 .close-btn:hover {
-    background: var(--color-error-bg);
-    color: var(--color-error);
-    border-color: var(--color-error);
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border-color: var(--color-error);
 }
 </style>

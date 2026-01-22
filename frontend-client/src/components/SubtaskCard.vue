@@ -47,7 +47,9 @@
   <div v-if="subtask.expanded" class="collapse-trigger-external">
     <div class="trigger-content" @click="toggleExpanded">
       <svg class="icon-up" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
-        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"></path>
+        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"
+        stroke="currentColor"
+        stroke-width="30"></path>
       </svg>
     </div>
   </div>
@@ -56,7 +58,9 @@
   <div v-else class="expand-trigger-external">
     <div class="trigger-content" @click="toggleExpanded">
       <svg class="icon-down" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
-        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"></path>
+        <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"
+        stroke="currentColor"
+        stroke-width="30"></path>
       </svg>
     </div>
   </div>
@@ -311,7 +315,7 @@ const sliderStyle = computed(() => {
 
 /* 外部悬浮收起按钮 */
 .collapse-trigger-external {
-  margin-top: -6px;
+  margin-top: -12px;
   margin-bottom: var(--spacing-sm);
   height: 44px; /* Increased from 28px */
   display: flex;
@@ -352,7 +356,7 @@ const sliderStyle = computed(() => {
 }
 
 .expand-trigger-external {
-  margin-top: -6px; 
+  margin-top: -12px; 
   margin-bottom: var(--spacing-sm);
   height: 44px; /* Increased from 28px */
   display: flex;
