@@ -279,8 +279,8 @@ const sliderStyle = computed(() => {
 
 /* 结果摘要 */
 .subtask-result {
-  margin-top: var(--spacing-xl);
-  padding-top: var(--spacing-xl);
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
   border-top: 1px solid var(--color-border);
 }
 
@@ -311,9 +311,9 @@ const sliderStyle = computed(() => {
 
 /* 外部悬浮收起按钮 */
 .collapse-trigger-external {
-  margin-top: -12px;
+  margin-top: -6px;
   margin-bottom: var(--spacing-sm);
-  height: 28px;
+  height: 44px; /* Increased from 28px */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -326,49 +326,68 @@ const sliderStyle = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  color: var(--color-text-muted);
+  width: 40px; /* Increased from 24px */
+  height: 40px; /* Increased from 24px */
+  color: var(--color-primary); /* Changed from muted to primary for visibility */
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border-radius: 12px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 50%; /* Make it fully circular */
+  /* background: var(--color-bg-primary);
+  border: 1px solid var(--color-border); */
+  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); */
+  cursor: pointer;
 }
 
 .trigger-content:hover {
   color: var(--color-primary);
   border-color: var(--color-primary);
   transform: scale(1.15) translateY(-2px);
-  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.25);
-  background: var(--color-bg-elevated);
+  /* box-shadow: 0 4px 12px rgba(129, 140, 248, 0.25); */
+  /* background: var(--color-bg-elevated); */
 }
 
 .icon-up {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
+  animation: pulse-scale 2s infinite ease-in-out;
 }
 
 .expand-trigger-external {
-  margin-top: -12px;
+  margin-top: -6px; 
   margin-bottom: var(--spacing-sm);
-  height: 28px;
+  height: 44px; /* Increased from 28px */
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   opacity: 0;
   animation: fadeIn 0.3s forwards;
 }
 
 .icon-down {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   transform: rotate(180deg);
+  animation: pulse-scale-rotate 2s infinite ease-in-out;
 }
 
 @keyframes fadeIn {
   to { opacity: 1; }
+}
+
+@keyframes pulse-scale {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* Specific rotation for icon-down needs to be combined with scale */
+.icon-down {
+  animation: pulse-scale-rotate 2s infinite ease-in-out;
+}
+
+@keyframes pulse-scale-rotate {
+  0% { transform: scale(1) rotate(180deg); }
+  50% { transform: scale(1.2) rotate(180deg); }
+  100% { transform: scale(1) rotate(180deg); }
 }
 
 .subtask-description {

@@ -62,13 +62,33 @@
                 />
 
                 <!-- Subtasks -->
-                <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-list">
-                  <SubtaskCard
-                    v-for="subtask in msg.subtasks"
-                    :key="subtask.order"
-                    :subtask="subtask"
-                    @update:expanded="subtask.expanded = $event"
+                <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
+                  <!-- 常驻 Ticker (现在同时作为 Header) -->
+                  <SubtaskStatusTicker
+                    :subtasks="msg.subtasks"
+                    :expanded="msg.showFullSubtasks"
+                    @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
                   />
+
+                  <!-- 完整详情模式 (List) -->
+                  <transition
+                    name="expand"
+                    @enter="enter"
+                    @after-enter="afterEnter"
+                    @leave="leave"
+                  >
+                    <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
+                        <!-- 移除旧的 Header -->
+                        <div class="subtasks-list">
+                          <SubtaskCard
+                            v-for="subtask in msg.subtasks"
+                            :key="subtask.order"
+                            :subtask="subtask"
+                            @update:expanded="subtask.expanded = $event"
+                          />
+                        </div>
+                    </div>
+                  </transition>
                 </div>
 
                 <!-- Multimodal Content -->
@@ -115,6 +135,7 @@
 import { ref, nextTick, onMounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskCard from '../components/SubtaskCard.vue';
+import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue'; // Import Ticker
 import TaskAnalysisCard from '../components/TaskAnalysisCard.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
@@ -183,6 +204,30 @@ const handleScroll = () => {
   isUserAtBottom.value = checkIfAtBottom();
 };
 
+// Expand Animation Hooks
+const enter = (el) => {
+  el.style.height = '0';
+  el.style.opacity = '0';
+  // Force reflow
+  el.offsetHeight;
+  el.style.height = el.scrollHeight + 'px';
+  el.style.opacity = '1';
+};
+
+const afterEnter = (el) => {
+  el.style.height = 'auto';
+  el.style.opacity = '';
+};
+
+const leave = (el) => {
+  el.style.height = el.scrollHeight + 'px';
+  el.style.opacity = '1';
+  // Force reflow
+  el.offsetHeight;
+  el.style.height = '0';
+  el.style.opacity = '0';
+};
+
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
@@ -197,6 +242,7 @@ const handleSend = async () => {
     content: '',
     taskAnalysis: null,
     subtasks: [],
+    showFullSubtasks: false, // 默认简洁模式
     multimodalContents: [],
     status: []
   }) - 1;

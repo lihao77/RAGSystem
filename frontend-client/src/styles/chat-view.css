@@ -461,11 +461,120 @@
 }
 
 /* ===== Subtasks ===== */
+.subtasks-container {
+    width: 100%;
+    /* margin-bottom: var(--spacing-md); */
+}
+
+.subtasks-full-view {
+    /* 与 Ticker 形成统一容器 */
+    background: var(--glass-bg-light);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--color-border);
+    border-top: none; /* 移除顶部边框以衔接 Ticker */
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg); /* 下方圆角 */
+    padding: var(--spacing-md);
+    margin-top: 0;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden; /* 必须为 hidden 才能让高度动画生效 */
+    /* 移除之前的 animation，改用 Vue transition 控制 */
+    /* animation: slideDown 0.3s ease; */
+    transition: height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s ease,
+                padding 0.3s ease; /* 确保 padding 也能平滑过渡 */
+}
+
+/* 动画类名对应 Vue transition name="expand" */
+.expand-enter-active,
+.expand-leave-active {
+    overflow: hidden;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+    /* 这里不仅要控制高度，还要控制 padding，否则 padding 会导致跳动 */
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+}
+
+.subtasks-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    /* 移除下划线，让界面更干净 */
+    /* padding-bottom: var(--spacing-sm); */
+    /* border-bottom: 1px solid var(--color-border); */
+    padding-left: var(--spacing-sm);
+}
+
+.subtasks-list-header h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
+.toggle-minimal-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.toggle-minimal-btn:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+}
+
 .subtasks-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  /* gap: var(--spacing-md); */ /* 移除原有间距，由分割线或 padding 控制 */
 }
+
+/* 覆盖 SubtaskCard 样式以适应列表视图 */
+.subtasks-list :deep(.subtask-card) {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    border-radius: 0 !important;
+    margin-bottom: 0 !important;
+    animation: none !important;
+    /* border-bottom: 1px solid var(--color-border) !important; */
+}
+
+.subtasks-list :deep(.subtask-card:last-child) {
+    border-bottom: none !important;
+}
+
+.subtasks-list :deep(.subtask-header) {
+    background: transparent !important;
+    padding: var(--spacing-sm) var(--spacing-xs) !important;
+}
+
+.subtasks-list :deep(.subtask-body),
+.subtasks-list :deep(.subtask-details),
+.subtasks-list :deep(.subtask-preview) {
+    background: transparent !important;
+    padding-left: var(--spacing-md) !important; /* 增加左侧缩进，体现层级 */
+    padding-right: var(--spacing-xs) !important;
+    padding-top: 0 !important;
+    padding-bottom: var(--spacing-md) !important;
+}
+
+/* 隐藏外部折叠按钮，因为已经是列表形式 */
+/* .subtasks-list :deep(.collapse-trigger-external),
+.subtasks-list :deep(.expand-trigger-external) {
+    display: none !important;
+} */
 
 /* ===== Status Updates ===== */
 .status-updates {
