@@ -110,59 +110,62 @@ const initChart = (container) => {
     chartInstance.value.dispose();
   }
 
-  // 创建新实例
-  chartInstance.value = echarts.init(container, 'dark');
+  // 检测当前主题
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
 
-  // 基础配置 - 适配暗黑模式
+  // 创建新实例
+  chartInstance.value = echarts.init(container, isDark ? 'dark' : null);
+
+  // 基础配置 - 适配模式
   const baseOption = {
     backgroundColor: 'transparent',
     textStyle: {
-      color: '#a1a1aa' // var(--color-text-secondary)
+      color: isDark ? '#a1a1aa' : '#52525b' // var(--color-text-secondary)
     },
     title: {
       textStyle: {
-        color: '#f4f4f5' // var(--color-text-primary)
+        color: isDark ? '#f4f4f5' : '#18181b' // var(--color-text-primary)
       }
     },
     legend: {
       textStyle: {
-        color: '#f4f4f5'
+        color: isDark ? '#f4f4f5' : '#18181b'
       }
     },
     tooltip: {
-      backgroundColor: '#27272a', // var(--color-bg-secondary)
-      borderColor: '#3f3f46',     // var(--color-border)
+      backgroundColor: isDark ? '#27272a' : '#ffffff', // var(--color-bg-secondary)
+      borderColor: isDark ? '#3f3f46' : '#e4e4e7',     // var(--color-border)
       textStyle: {
-        color: '#f4f4f5'
+        color: isDark ? '#f4f4f5' : '#18181b'
       }
     },
     xAxis: {
       axisLine: {
         lineStyle: {
-          color: '#52525b' // var(--color-text-muted)
+          color: isDark ? '#52525b' : '#a1a1aa' // var(--color-text-muted)
         }
       },
       axisLabel: {
-        color: '#a1a1aa'
+        color: isDark ? '#a1a1aa' : '#52525b'
       },
       splitLine: {
         lineStyle: {
-          color: '#3f3f46' // var(--color-bg-tertiary)
+          color: isDark ? '#3f3f46' : '#e4e4e7' // var(--color-bg-tertiary)
         }
       }
     },
     yAxis: {
       axisLine: {
         lineStyle: {
-          color: '#52525b'
+          color: isDark ? '#52525b' : '#a1a1aa'
         }
       },
       axisLabel: {
-        color: '#a1a1aa'
+        color: isDark ? '#a1a1aa' : '#52525b'
       },
       splitLine: {
         lineStyle: {
-          color: '#3f3f46'
+          color: isDark ? '#3f3f46' : '#e4e4e7'
         }
       }
     }
@@ -208,10 +211,13 @@ const toggleFullscreen = async () => {
 const downloadChart = () => {
   if (!chartInstance.value) return;
 
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const backgroundColor = isDark ? '#18181b' : '#ffffff';
+
   const url = chartInstance.value.getDataURL({
     type: 'png',
     pixelRatio: 2,
-    backgroundColor: '#fff'
+    backgroundColor: backgroundColor
   });
 
   const link = document.createElement('a');
@@ -229,6 +235,21 @@ watch(() => props.echartsConfig, (newConfig) => {
 
 onMounted(() => {
   initChart(chartContainer.value);
+
+  // 监听主题变化
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.attributeName === 'data-theme') {
+        const targetContainer = isFullscreen.value ? fullscreenContainer.value : chartContainer.value;
+        initChart(targetContainer);
+      }
+    });
+  });
+
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme']
+  });
 });
 
 onUnmounted(() => {

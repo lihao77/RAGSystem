@@ -44,7 +44,7 @@
 .new-chat-btn:hover {
   background: var(--color-bg-tertiary);
   border-color: var(--color-border-hover);
-  color: white;
+  color: var(--color-text-primary);
 }
 
 .new-chat-btn .icon {
@@ -112,8 +112,8 @@
 .avatar {
   width: 36px;
   height: 36px;
-  background: linear-gradient(135deg, var(--color-primary), #818cf8);
-  color: white;
+  background: var(--color-text-primary);
+  color: var(--color-bg-primary);
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
@@ -613,11 +613,13 @@
   backdrop-filter: none;
   padding: 60px var(--spacing-xl) var(--spacing-lg);
   position: absolute;
-  bottom: 0;
+  top: 100%;
+  bottom: auto;
+  transform: translateY(-100%);
   left: 0;
   right: 0;
   z-index: 10;
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   justify-content: center;
   pointer-events: none; /* Allow clicks to pass through the gradient area */
@@ -629,8 +631,9 @@
 }
 
 .input-area-wrapper.centered {
-  bottom: 50%;
-  transform: translateY(50%);
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-40px);
   background: none;
   padding: 0 var(--spacing-xl);
   pointer-events: none; /* Wrapper is still transparent/ghostly */

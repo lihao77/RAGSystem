@@ -92,6 +92,7 @@ const handleSend = () => {
 }
 
 .input-container {
+  /* background: var(--color-bg-secondary); */
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: 20px;
@@ -102,7 +103,7 @@ const handleSend = () => {
 
 .input-container:focus-within {
   border-color: var(--color-border-hover);
-  background: var(--color-bg-secondary);
+  /* background: var(--color-bg-primary); */
   box-shadow: var(--shadow-md);
 }
 
