@@ -56,8 +56,24 @@ const getRendererProps = (item) => {
 .multimodal-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin: 16px 0;
+  gap: var(--spacing-md);
+  margin: 0;
   background: transparent;
+}
+
+/* 确保子组件符合整体风格 */
+.multimodal-container > * {
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

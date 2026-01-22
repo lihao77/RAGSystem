@@ -2,29 +2,55 @@
   <div class="chart-renderer">
     <div class="chart-header">
       <div class="chart-title">
-        <span class="chart-icon">📊</span>
+        <span class="chart-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="13" width="4" height="9" rx="1"></rect><rect x="12" y="7" width="4" height="15" rx="1"></rect><rect x="6" y="15" width="4" height="7" rx="1"></rect></svg>
+        </span>
         <span>{{ title }}</span>
       </div>
       <div class="chart-actions">
         <button @click="toggleFullscreen" class="action-btn" title="全屏">
-          <span v-if="!isFullscreen">⛶</span>
-          <span v-else>⛶</span>
+          <span v-if="!isFullscreen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </span>
+          <span v-else>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+          </span>
         </button>
         <button @click="downloadChart" class="action-btn" title="下载图表">
-          💾
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
       </div>
     </div>
+    <Teleport to="body" :disabled="!isFullscreen">
+      <div
+        v-if="isFullscreen"
+        class="chart-fullscreen-overlay"
+      >
+        <div class="chart-fullscreen-header">
+           <div class="chart-title">
+            <span class="chart-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="13" width="4" height="9" rx="1"></rect><rect x="12" y="7" width="4" height="15" rx="1"></rect><rect x="6" y="15" width="4" height="7" rx="1"></rect></svg>
+            </span>
+            <span>{{ title }}</span>
+          </div>
+          <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
+             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+          </button>
+        </div>
+        <div ref="fullscreenContainer" class="chart-fullscreen-content"></div>
+      </div>
+    </Teleport>
+
     <div
       ref="chartContainer"
       class="chart-container"
-      :class="{ 'fullscreen': isFullscreen }"
+      v-show="!isFullscreen"
     ></div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as echarts from 'echarts';
 
 const props = defineProps({
@@ -43,12 +69,13 @@ const props = defineProps({
 });
 
 const chartContainer = ref(null);
+const fullscreenContainer = ref(null);
 const chartInstance = ref(null);
 const isFullscreen = ref(false);
 
 // 初始化图表
-const initChart = () => {
-  if (!chartContainer.value) return;
+const initChart = (container) => {
+  if (!container) return;
 
   // 销毁旧实例
   if (chartInstance.value) {
@@ -56,10 +83,73 @@ const initChart = () => {
   }
 
   // 创建新实例
-  chartInstance.value = echarts.init(chartContainer.value);
+  chartInstance.value = echarts.init(container, 'dark');
+
+  // 基础配置 - 适配暗黑模式
+  const baseOption = {
+    backgroundColor: 'transparent',
+    textStyle: {
+      color: '#a1a1aa' // var(--color-text-secondary)
+    },
+    title: {
+      textStyle: {
+        color: '#f4f4f5' // var(--color-text-primary)
+      }
+    },
+    legend: {
+      textStyle: {
+        color: '#f4f4f5'
+      }
+    },
+    tooltip: {
+      backgroundColor: '#27272a', // var(--color-bg-secondary)
+      borderColor: '#3f3f46',     // var(--color-border)
+      textStyle: {
+        color: '#f4f4f5'
+      }
+    },
+    xAxis: {
+      axisLine: {
+        lineStyle: {
+          color: '#52525b' // var(--color-text-muted)
+        }
+      },
+      axisLabel: {
+        color: '#a1a1aa'
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#3f3f46' // var(--color-bg-tertiary)
+        }
+      }
+    },
+    yAxis: {
+      axisLine: {
+        lineStyle: {
+          color: '#52525b'
+        }
+      },
+      axisLabel: {
+        color: '#a1a1aa'
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#3f3f46'
+        }
+      }
+    }
+  };
+
+  // 合并配置
+  const finalOption = {
+    ...baseOption,
+    ...props.echartsConfig,
+    // 确保 backgroundColor 是透明的，除非 config 里明确覆盖
+    backgroundColor: props.echartsConfig.backgroundColor || 'transparent'
+  };
 
   // 设置配置
-  chartInstance.value.setOption(props.echartsConfig);
+  chartInstance.value.setOption(finalOption);
 
   // 添加响应式
   window.addEventListener('resize', handleResize);
@@ -73,12 +163,17 @@ const handleResize = () => {
 };
 
 // 切换全屏
-const toggleFullscreen = () => {
+const toggleFullscreen = async () => {
   isFullscreen.value = !isFullscreen.value;
-  // 等待DOM更新后调整大小
-  setTimeout(() => {
-    handleResize();
-  }, 100);
+
+  // 等待 DOM 更新
+  await nextTick();
+
+  // 根据全屏状态重新初始化图表到正确的容器
+  const targetContainer = isFullscreen.value ? fullscreenContainer.value : chartContainer.value;
+  if (targetContainer) {
+      initChart(targetContainer);
+  }
 };
 
 // 下载图表
@@ -105,7 +200,7 @@ watch(() => props.echartsConfig, (newConfig) => {
 }, { deep: true });
 
 onMounted(() => {
-  initChart();
+  initChart(chartContainer.value);
 });
 
 onUnmounted(() => {
@@ -118,97 +213,123 @@ onUnmounted(() => {
 
 <style scoped>
 .chart-renderer {
-  margin: 16px 0;
-  border: var(--glass-border);
+  margin: 0;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  animation: fadeInUp 0.5s ease;
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--glass-shadow);
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .chart-renderer:hover {
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-secondary);
 }
 
 .chart-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+  transition: all var(--transition-fast);
 }
 
 .chart-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: var(--spacing-sm);
+  font-size: 0.9rem;
   font-weight: 600;
-  color: var(--color-text-main);
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
+  color: var(--color-text-primary);
 }
 
 .chart-icon {
-  font-size: 16px;
+  font-size: 1rem;
+  opacity: 0.9;
 }
 
 .chart-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .action-btn {
-  background: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  padding: 4px 12px;
-  border-radius: 4px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s ease;
+  font-size: 0.9rem;
+  transition: all var(--transition-fast);
   color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  cursor: pointer;
 }
 
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.6);
-  border-color: rgba(255, 255, 255, 0.5);
-  color: var(--color-text-main);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+  /* transform: translateY(-1px);/ */
+}
+
+.action-btn:active {
+  transform: translateY(0);
 }
 
 .chart-container {
   width: 100%;
   height: 400px;
-  padding: 16px;
-  transition: all 0.3s ease;
-  background: transparent;
+  padding: var(--spacing-lg);
+  transition: all var(--transition-normal);
+  background: var(--color-bg-primary);
 }
 
-.chart-container.fullscreen {
+.chart-fullscreen-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
   z-index: 9999;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  padding: 40px;
+  background: var(--color-bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-fullscreen-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chart-fullscreen-content {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  padding: var(--spacing-lg);
+}
+
+.close-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+}
+.close-btn:hover {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border-color: var(--color-error);
 }
 </style>

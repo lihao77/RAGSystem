@@ -28,14 +28,16 @@
           <!-- 结果摘要 -->
           <div v-if="subtask.result_summary" class="subtask-result">
             <div class="section-header">📋 完整结果</div>
-            <div class="result-content-full result-markdown" v-html="renderMarkdown(subtask.result_summary)"></div>
+            <div class="result-content-full">{{ subtask.result_summary }}</div>
           </div>
         </div>
 
         <!-- 预览 (Bottom) -->
         <div ref="previewRef" class="subtask-preview" :style="{ opacity: subtask.expanded ? 0 : 1 }">
           <div class="subtask-description">{{ subtask.description }}</div>
-          <div v-if="subtask.result_summary" class="subtask-summary result-markdown" v-html="renderMarkdown(subtask.result_summary)"></div>
+          <div v-if="subtask.result_summary" class="subtask-summary">
+            {{ subtask.result_summary }}
+          </div>
         </div>
       </div>
     </div>
@@ -63,7 +65,6 @@
 <script setup>
 import { ref, defineProps, defineEmits, onMounted, onUnmounted, computed } from 'vue';
 import ReActStepsList from './ReActStepsList.vue';
-import { marked } from 'marked';
 
 const props = defineProps({
   subtask: {
@@ -85,12 +86,6 @@ const getStatusText = (status) => {
     'error': '❌ 失败'
   };
   return statusMap[status] || status;
-};
-
-// Markdown 渲染
-const renderMarkdown = (text) => {
-  if (!text) return '';
-  return marked(text);
 };
 
 // Animation Logic
@@ -266,7 +261,7 @@ const sliderStyle = computed(() => {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
   line-height: 1.8;
-  margin-bottom: var(--spacing-xl);
+  /* margin-bottom: var(--spacing-xl); */
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
@@ -301,55 +296,10 @@ const sliderStyle = computed(() => {
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
-  /* white-space: pre-wrap;  <-- 移除，因为 markdown 会处理换行 */
+  white-space: pre-wrap;
   font-family: var(--font-mono);
   max-height: 500px;
   overflow-y: auto;
-}
-
-/* Markdown 样式 */
-.result-markdown :deep(p) {
-  margin-bottom: 0.8em;
-}
-
-.result-markdown :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.result-markdown :deep(code) {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 2px 4px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.8em;
-}
-
-.result-markdown :deep(pre) {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 12px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 8px 0;
-}
-
-.result-markdown :deep(ul), .result-markdown :deep(ol) {
-  padding-left: 20px;
-  margin-bottom: 0.8em;
-}
-
-.result-markdown :deep(img) {
-  max-width: 100%;
-  border-radius: 8px;
-  margin: 8px 0;
-}
-
-.result-markdown :deep(a) {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.result-markdown :deep(a:hover) {
-  text-decoration: underline;
 }
 
 /* 预览 (Bottom) */
@@ -362,7 +312,7 @@ const sliderStyle = computed(() => {
 /* 外部悬浮收起按钮 */
 .collapse-trigger-external {
   margin-top: -12px;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
   height: 28px;
   display: flex;
   align-items: center;
@@ -425,7 +375,7 @@ const sliderStyle = computed(() => {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
   line-height: 1.8;
-  margin-bottom: var(--spacing-md);
+  /* margin-bottom: var(--spacing-md); */
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;

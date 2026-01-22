@@ -2,23 +2,74 @@
   <div class="map-renderer">
     <div class="map-header">
       <div class="map-title">
-        <span class="map-icon">🗺️</span>
+        <span class="map-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+        </span>
         <span>{{ title }}</span>
         <span class="map-type-badge">{{ mapTypeName }}</span>
       </div>
       <div class="map-actions">
         <button @click="toggleFullscreen" class="action-btn" title="全屏">
-          <span v-if="!isFullscreen">⛶</span>
-          <span v-else>⛶</span>
+          <span v-if="!isFullscreen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </span>
+          <span v-else>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+          </span>
         </button>
-        <button @click="downloadMap" class="action-btn" title="下载地图截图">💾</button>
-        <button @click="resetView" class="action-btn" title="重置视图">🔄</button>
+        <button @click="downloadMap" class="action-btn" title="下载地图截图">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button @click="resetView" class="action-btn" title="重置视图">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        </button>
       </div>
     </div>
+    <Teleport to="body" :disabled="!isFullscreen">
+      <div
+        v-if="isFullscreen"
+        class="map-fullscreen-overlay"
+      >
+        <div class="map-fullscreen-header">
+          <div class="map-title">
+            <span class="map-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+            </span>
+            <span>{{ title }}</span>
+            <span class="map-type-badge">{{ mapTypeName }}</span>
+          </div>
+          <div class="map-actions">
+            <button @click="downloadMap" class="action-btn" title="下载地图截图">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button @click="resetView" class="action-btn" title="重置视图">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
+            <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div ref="fullscreenContainer" class="map-fullscreen-content"></div>
+        <!-- 这里的 legend 是全屏模式下的 -->
+        <div class="map-legend fullscreen-legend" v-if="mapData.value_range">
+          <div class="legend-title">{{ mapData.value_field }}</div>
+          <div class="legend-scale">
+            <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+            <div class="legend-gradient"></div>
+            <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+          </div>
+          <div class="map-stats">
+            <span>数据点：{{ mapData.total_points }}</span>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <div
       ref="mapContainer"
       class="map-container"
-      :class="{ 'fullscreen': isFullscreen }"
+      v-show="!isFullscreen"
     ></div>
     <div class="map-legend" v-if="mapData.value_range">
       <div class="legend-title">{{ mapData.value_field }}</div>
@@ -35,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.heat';
@@ -222,7 +273,7 @@ const formatNumber = (num) => {
 
 // Lifecycle
 onMounted(() => {
-  initMap();
+  initMap(mapContainer.value);
 });
 
 onBeforeUnmount(() => {
@@ -249,157 +300,241 @@ watch(() => props.mapData, () => {
 <style scoped>
 .map-renderer {
   width: 100%;
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: var(--radius-lg);
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-bottom: 16px;
-  border: var(--glass-border);
-  transition: all 0.3s ease;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  transition: all var(--transition-normal);
 }
 
 .map-renderer:hover {
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-hover);
 }
 
 .map-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.3);
-  color: var(--color-text-main);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+  transition: all var(--transition-fast);
 }
 
 .map-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
+  gap: var(--spacing-sm);
+  font-size: 0.9rem;
   font-weight: 600;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
+  color: var(--color-text-primary);
 }
 
 .map-icon {
-  font-size: 20px;
+  font-size: 1rem;
+  opacity: 0.9;
 }
 
 .map-type-badge {
-  padding: 2px 10px;
-  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(199, 210, 254, 0.8));
+  padding: 4px 12px;
+  background: rgba(129, 140, 248, 0.15);
   color: var(--color-primary);
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .map-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .action-btn {
-  width: 32px;
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.4);
-  color: var(--color-text-secondary);
-  border-radius: 6px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 16px;
-  transition: all 0.3s ease;
+  font-size: 0.9rem;
+  transition: all var(--transition-fast);
+  color: var(--color-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 32px;
+  height: 32px;
 }
 
 .action-btn:hover {
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--color-text-main);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+  /* transform: translateY(-1px); */
+}
+
+.action-btn:active {
+  transform: translateY(0);
 }
 
 .map-container {
   width: 100%;
   height: 500px;
   position: relative;
-  transition: all 0.3s ease;
-  z-index: 1; /* Ensure map stays above background blur if needed */
+  transition: all var(--transition-normal);
+  background: var(--color-bg-primary);
+  z-index: 1;
 }
 
-.map-container.fullscreen {
+.map-fullscreen-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
   z-index: 9999;
-  background: white;
+  background: var(--color-bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+.map-fullscreen-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.map-fullscreen-content {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  /* 确保地图容器占满剩余空间 */
+}
+
+.fullscreen-legend {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000; /* 确保在地图之上 */
+  background: rgba(24, 24, 27, 0.8); /* 半透明背景 */
+  backdrop-filter: blur(10px);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border);
+  min-width: 200px;
+}
+
+.close-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+}
+.close-btn:hover {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border-color: var(--color-error);
 }
 
 .map-legend {
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.3);
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border);
 }
 
 .legend-title {
-  font-size: 14px;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text-main);
-  margin-bottom: 8px;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5);
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-sm);
 }
 
 .legend-scale {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
 }
 
 .legend-min,
 .legend-max {
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
   min-width: 50px;
 }
 
 .legend-gradient {
   flex: 1;
   height: 20px;
-  background: linear-gradient(to right, blue, cyan, lime, yellow, red);
-  border-radius: 4px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: linear-gradient(to right,
+    rgba(0, 0, 255, 0.9),
+    rgba(0, 255, 255, 0.9),
+    rgba(0, 255, 0, 0.9),
+    rgba(255, 255, 0, 0.9),
+    rgba(255, 0, 0, 0.9)
+  );
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
 }
 
 .map-stats {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text-muted);
 }
 
 /* Leaflet 弹出窗口样式 */
 :deep(.marker-popup) {
-  font-family: inherit;
-  padding: 4px;
+  font-family: var(--font-sans);
+  padding: var(--spacing-xs);
 }
 
 :deep(.marker-popup strong) {
   display: block;
-  margin-bottom: 4px;
-  color: var(--color-text-main);
+  margin-bottom: var(--spacing-xs);
+  color: var(--color-text-primary);
 }
 
 :deep(.marker-popup span) {
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 0.8rem;
+}
+
+/* Leaflet 控件样式 - 深色主题 */
+:deep(.leaflet-control-zoom a) {
+  background: var(--color-bg-secondary) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+}
+
+:deep(.leaflet-control-zoom a:hover) {
+  background: var(--color-bg-tertiary) !important;
+  border-color: var(--color-border-hover) !important;
+}
+
+:deep(.leaflet-bar) {
+  border: 1px solid var(--color-border) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+:deep(.leaflet-popup-content-wrapper) {
+  background: var(--color-bg-secondary) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+:deep(.leaflet-popup-tip) {
+  background: var(--color-bg-secondary) !important;
+  border: 1px solid var(--color-border) !important;
 }
 </style>
