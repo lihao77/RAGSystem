@@ -101,7 +101,6 @@ celerybeat-schedule
 *.sage.py
 
 config.json
-config.js
 
 *_configs/
 
