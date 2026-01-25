@@ -1,8 +1,15 @@
 # ============================================
-# RAGSystem Requirements
-# 版本: v2.0
-# 更新日期: 2026-01-22
+# RAGSystem Requirements (完整安装)
+# 版本: v3.0 (SQLite + sqlite-vec)
+# 更新日期: 2026-01-24
 # Python版本: 3.10+
+# ============================================
+#
+# 重大更新：
+# - 使用 SQLite + sqlite-vec 替代 ChromaDB
+# - 使用远程 Embedding API 替代本地模型
+# - 体积减少 ~500MB (移除 PyTorch/sentence-transformers)
+#
 # ============================================
 
 # Flask核心框架
@@ -31,13 +38,15 @@ python-docx==1.2.0
 tiktoken==0.12.0
 json-repair==0.54.3
 
-# 向量数据库和语义搜索
-chromadb==0.4.22
-sentence-transformers==5.2.0  # 升级以兼容新版依赖
+# 向量数据库 (新版：SQLite + sqlite-vec)
+# 零依赖部署，单文件数据库，支持向量检索
+sqlite-vec>=0.1.0
+
+# 中文分词（用于文本预处理）
 jieba==0.42.1
 
 # 数据处理
-numpy==1.26.4  # 固定版本以兼容chromadb
+numpy>=1.26.0
 pandas==2.3.3
 
 # 空间数据处理，搭配neo4j使用
@@ -46,19 +55,3 @@ shapely==2.1.2
 # 自定义依赖（需源码安装）
 # llmjson: git+https://github.com/lihao77/llmjson.git
 # json2graph: git+https://github.com/lihao77/json2graph-for-review.git
-
-# 可选依赖（由上述包自动安装）
-# transformers==4.57.3
-# torch==2.9.1
-# scikit-learn==1.7.2
-# scipy==1.15.3
-
-# JSON处理（Python内置，但列出以确保兼容性）
-# json - 内置模块
-
-# 系统相关（Python内置）
-# os - 内置模块
-# subprocess - 内置模块
-# datetime - 内置模块
-# uuid - 内置模块
-# logging - 内置模块

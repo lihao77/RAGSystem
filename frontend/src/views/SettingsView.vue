@@ -34,21 +34,21 @@
           </div>
           
           <div class="service-actions">
-            <el-button v-if="service.status === 'not_configured'" 
-                       size="small" 
+            <el-button v-if="service.status === 'not_configured'"
+                       size="small"
                        type="warning"
                        @click="scrollToConfig(service.name)">
               立即配置
             </el-button>
-            <el-button v-else-if="service.status === 'error'" 
-                       size="small" 
+            <el-button v-else-if="service.status === 'error'"
+                       size="small"
                        type="primary"
-                       @click="reinitService(service.name)">
+                       @click="reinitServiceHandler(service.name)">
               重新初始化
             </el-button>
-            <el-button v-else-if="service.configured" 
-                       size="small" 
-                       @click="reinitService(service.name)">
+            <el-button v-else-if="service.configured"
+                       size="small"
+                       @click="reinitServiceHandler(service.name)">
               重新加载
             </el-button>
           </div>
@@ -395,7 +395,9 @@ import {
   testNeo4jConnection,
   testLLMConnection,
   reloadConfig,
-  validateConfig
+  validateConfig,
+  getServicesStatus,
+  reinitService
 } from '@/api/config'
 import { resetConfigStatusCache } from '@/composables/useConfigCheck'
 import LLMConfigSelector from '@/components/LLMConfigSelector.vue'
@@ -757,9 +759,8 @@ const testLLM = async () => {
 const refreshServiceStatus = async () => {
   loading.serviceStatus = true
   try {
-    const response = await fetch('/api/config/services/status')
-    const res = await response.json()
-    
+    const res = await getServicesStatus()
+
     if (res.success && res.data.services) {
       serviceStatus.value = res.data.services.map(service => ({
         name: service.name,
@@ -776,22 +777,19 @@ const refreshServiceStatus = async () => {
 }
 
 // 重新初始化服务
-const reinitService = async (serviceName) => {
+const reinitServiceHandler = async (serviceName) => {
   const serviceMap = {
     'Neo4j': 'neo4j',
     '向量数据库': 'vector',
     'LLM': 'llm'
   }
-  
+
   const serviceKey = serviceMap[serviceName]
   if (!serviceKey) return
-  
+
   try {
-    const response = await fetch(`/api/config/services/${serviceKey}/reinit`, {
-      method: 'POST'
-    })
-    const res = await response.json()
-    
+    const res = await reinitService(serviceKey)
+
     if (res.success) {
       ElMessage.success(res.message)
       refreshServiceStatus()

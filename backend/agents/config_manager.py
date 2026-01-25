@@ -82,46 +82,27 @@ class AgentConfigManager:
 
     def _create_default_configs(self):
         """创建默认配置"""
-        # QAAgent 默认配置
-        qa_config = AgentConfig(
-            agent_name="qa_agent",
-            display_name="问答智能体",
-            description="知识图谱问答智能体，使用 Function Calling 进行查询",
-            enabled=True,
-            llm=AgentLLMConfig(
-                temperature=0.2,
-                max_tokens=4096,
-                timeout=30,
-                retry_attempts=3
-            ),
-            tools=AgentToolConfig(
-                enabled_tools=["query_kg", "semantic_search", "cypher_query"]
-            ),
-            custom_params={
-                "max_rounds": 5  # 最大对话轮数
-            }
-        )
 
-        # MasterAgent 默认配置
-        master_config = AgentConfig(
-            agent_name="master_agent",
-            display_name="主协调智能体",
-            description="主协调智能体，负责任务分析、分解和结果整合",
-            enabled=True,
-            llm=AgentLLMConfig(
-                temperature=0.0,  # 分析任务时需要确定性
-                max_tokens=2000,
-                timeout=30,
-                retry_attempts=3
-            ),
-            custom_params={
-                "analysis_temperature": 0.0,
-                "synthesis_temperature": 0.3
-            }
-        )
+        # # MasterAgent 默认配置
+        # master_config = AgentConfig(
+        #     agent_name="master_agent",
+        #     display_name="主协调智能体",
+        #     description="主协调智能体，负责任务分析、分解和结果整合",
+        #     enabled=True,
+        #     llm=AgentLLMConfig(
+        #         temperature=0.0,  # 分析任务时需要确定性
+        #         max_tokens=2000,
+        #         timeout=30,
+        #         retry_attempts=3
+        #     ),
+        #     custom_params={
+        #         "analysis_temperature": 0.0,
+        #         "synthesis_temperature": 0.3
+        #     }
+        # )
 
-        self._configs["qa_agent"] = qa_config
-        self._configs["master_agent"] = master_config
+
+        # self._configs["master_agent"] = master_config
 
         # 保存到文件
         self._save_configs()

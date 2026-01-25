@@ -806,7 +806,7 @@ const showCreateDialog = () => {
   newAgentForm.agent_name = ''
   newAgentForm.display_name = ''
   newAgentForm.description = ''
-  newAgentForm.type = 'generic'
+  newAgentForm.type = 'react'
   newAgentForm.system_prompt = ''
   createDialogVisible.value = true
 }

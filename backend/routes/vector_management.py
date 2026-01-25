@@ -21,34 +21,38 @@ def list_collections():
     """列出所有向量集合"""
     try:
         client = get_vector_client()
-        collections = client.list_collections()
-        
+        collections = client.list_collections()  # 返回字符串列表
+
         # 获取每个集合的统计信息
         collection_stats = []
-        for collection in collections:
+        for collection_name in collections:
             try:
-                indexer = DocumentIndexer(collection_name=collection.name)
-                stats = indexer.get_collection_stats()
+                # 获取集合详细信息
+                info = client.get_collection_info(collection_name)
                 collection_stats.append({
-                    "name": collection.name,
-                    "total_chunks": stats.get('total_chunks', 0),
-                    "embedding_dimension": stats.get('embedding_dimension', 0),
-                    "model_name": stats.get('model_name', ''),
-                    "metadata": collection.metadata
+                    "name": info.get('name', collection_name),
+                    "total_chunks": info.get('document_count', 0),
+                    "embedding_dimension": info.get('vector_dimension', 0),
+                    "model_name": '',  # SQLite 不存储模型名称
+                    "metadata": info.get('metadata', {})
                 })
             except Exception as e:
-                logger.error(f"获取集合统计失败 {collection.name}: {e}")
+                logger.error(f"获取集合统计失败 {collection_name}: {e}")
                 collection_stats.append({
-                    "name": collection.name,
+                    "name": collection_name,
+                    "total_chunks": 0,
+                    "embedding_dimension": 0,
+                    "model_name": '',
+                    "metadata": {},
                     "error": str(e)
                 })
-        
+
         return jsonify({
             "success": True,
             "data": collection_stats,
             "count": len(collection_stats)
         })
-        
+
     except Exception as e:
         logger.error(f"列出集合失败: {e}")
         return jsonify({

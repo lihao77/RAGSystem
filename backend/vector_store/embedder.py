@@ -1,199 +1,333 @@
+# -*- coding: utf-8 -*-
 """
-文本向量化器 - 支持本地模型和远程 API
+文本向量化器 - 统一的 Embedding 接口
+
+支持多种 Embedding 方式:
+1. 远程 API (推荐): OpenAI、DeepSeek、智谱等兼容服务
+2. 自定义模型: 通过 HTTP API 调用自建服务
+
+不再依赖 sentence-transformers 和 PyTorch，大幅减少依赖体积。
 """
 
 import logging
+import requests
 from typing import List, Union, Optional
-from sentence_transformers import SentenceTransformer
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
-class TextEmbedder:
-    """文本向量化器（单例模式，延迟初始化）"""
-    
-    _instance: Optional['TextEmbedder'] = None
-    _model: Optional[SentenceTransformer] = None
-    _model_name: Optional[str] = None
-    
-    # 默认模型：多语言支持，轻量级
-    DEFAULT_MODEL = 'BAAI/bge-small-zh-v1.5'
-    
-    def __new__(cls, model_name: str = None):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def __init__(self, model_name: str = None):
-        # 如果模型已经加载且模型名称相同，跳过重复加载
-        target_model = model_name or self.DEFAULT_MODEL
-        
-        if self._model is not None:
-            if self._model_name == target_model:
-                logger.debug(f"模型已加载，跳过重复初始化: {self._model_name}")
-                return
-            else:
-                # 模型切换
-                logger.info(f"检测到模型切换: {self._model_name} -> {target_model}")
-                self._load_model(target_model)
-        else:
-            # 首次加载
-            self._load_model(target_model)
-    
-    def _load_model(self, model_name: str):
-        """加载sentence-transformers模型"""
-        try:
-            logger.info(f"加载embedding模型: {model_name}")
-            self._model = SentenceTransformer(model_name)
-            self._model_name = model_name
-            logger.info(f"模型加载成功，向量维度: {self.embedding_dim}")
-            
-        except Exception as e:
-            logger.error(f"模型加载失败: {e}")
-            raise
-    
+class EmbedderBase(ABC):
+    """Embedder 抽象基类"""
+
+    @abstractmethod
+    def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
+        """
+        文本向量化
+
+        Args:
+            texts: 单个文本或文本列表
+
+        Returns:
+            向量列表，每个向量是 float 列表
+        """
+        pass
+
     @property
-    def model(self) -> SentenceTransformer:
-        """获取模型实例"""
-        if self._model is None:
-            self._load_model(self.DEFAULT_MODEL)
-        return self._model
-    
+    @abstractmethod
+    def embedding_dim(self) -> int:
+        """获取向量维度"""
+        pass
+
+
+class RemoteEmbedder(EmbedderBase):
+    """
+    远程 API Embedder
+
+    支持 OpenAI 兼容的 Embedding API:
+    - OpenAI: https://api.openai.com/v1
+    - DeepSeek: https://api.deepseek.com/v1
+    - 智谱 AI: https://open.bigmodel.cn/api/paas/v4
+    - 自建服务: 任何兼容 OpenAI 格式的服务
+    """
+
+    def __init__(
+        self,
+        api_endpoint: str,
+        api_key: str,
+        model_name: str = "text-embedding-3-small",
+        timeout: int = 30,
+        max_retries: int = 3,
+        batch_size: int = 100
+    ):
+        """
+        初始化远程 Embedder
+
+        Args:
+            api_endpoint: API 端点 (例如: https://api.openai.com/v1)
+            api_key: API 密钥
+            model_name: 模型名称
+            timeout: 请求超时时间（秒）
+            max_retries: 最大重试次数
+            batch_size: 批处理大小（单次请求最多文本数）
+        """
+        self.api_endpoint = api_endpoint.rstrip("/")
+        self.api_key = api_key
+        self.model_name = model_name
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.batch_size = batch_size
+
+        # 缓存向量维度
+        self._embedding_dim: Optional[int] = None
+
+        logger.info(f"✅ 远程 Embedder 已初始化")
+        logger.info(f"   API: {self.api_endpoint}")
+        logger.info(f"   模型: {self.model_name}")
+
+    def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
+        """文本向量化"""
+        # 统一处理为列表
+        if isinstance(texts, str):
+            texts = [texts]
+            single_text = True
+        else:
+            single_text = False
+
+        if not texts:
+            return []
+
+        # 批处理（避免单次请求过大）
+        all_embeddings = []
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i:i + self.batch_size]
+            logger.info(f"处理第 {i // self.batch_size + 1} 批，共 {len(batch)} 条文本")
+
+            embeddings = self._embed_batch(batch)
+
+            # 验证批次结果
+            if not embeddings:
+                raise RuntimeError(f"批次 {i // self.batch_size + 1} 返回空结果")
+
+            if len(embeddings) != len(batch):
+                raise RuntimeError(
+                    f"批次 {i // self.batch_size + 1} 返回的向量数量 ({len(embeddings)}) "
+                    f"与输入文本数量 ({len(batch)}) 不匹配"
+                )
+
+            all_embeddings.extend(embeddings)
+
+        # 如果输入是单个文本，返回单个向量
+        if single_text:
+            return [all_embeddings[0]]
+
+        return all_embeddings
+
+    def _embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """批量向量化（单次 API 调用）"""
+        url = f"{self.api_endpoint}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_name,
+            "input": texts,
+            "encoding_format": "float"  # 明确指定编码格式 (ModelScope 等 API 需要)
+        }
+
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout
+                )
+
+                # 详细的错误信息
+                if not response.ok:
+                    error_detail = ""
+                    try:
+                        error_data = response.json()
+                        error_detail = f"\n响应内容: {error_data}"
+                    except:
+                        error_detail = f"\n响应文本: {response.text[:500]}"
+
+                    logger.error(
+                        f"Embedding API 请求失败 (尝试 {attempt + 1}/{self.max_retries}):\n"
+                        f"URL: {url}\n"
+                        f"状态码: {response.status_code}"
+                        f"{error_detail}"
+                    )
+
+                response.raise_for_status()
+
+                # 解析响应数据
+                data = response.json()
+
+                # 调试日志：记录响应结构
+                logger.debug(f"Embedding API 响应结构: {list(data.keys()) if data else 'None'}")
+
+                # 验证响应数据结构
+                if not data:
+                    raise ValueError("API 返回空响应")
+
+                if "data" not in data:
+                    logger.error(f"API 响应缺少 'data' 字段，完整响应: {data}")
+                    raise ValueError(f"API 响应格式错误: 缺少 'data' 字段。响应内容: {data}")
+
+                if not data["data"]:
+                    raise ValueError(f"API 返回的 'data' 字段为空: {data}")
+
+                # 提取 embeddings
+                embeddings = [item["embedding"] for item in data["data"]]
+
+                # 缓存向量维度
+                if self._embedding_dim is None and embeddings:
+                    self._embedding_dim = len(embeddings[0])
+                    logger.info(f"向量维度: {self._embedding_dim}")
+
+                return embeddings
+
+            except (requests.exceptions.RequestException, ValueError, KeyError) as e:
+                logger.warning(f"Embedding API 调用失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
+
+                if attempt == self.max_retries - 1:
+                    logger.error(
+                        f"Embedding API 调用失败，已达最大重试次数\n"
+                        f"请检查:\n"
+                        f"1. API 端点: {self.api_endpoint}\n"
+                        f"2. API Key 是否有效\n"
+                        f"3. 模型名称: {self.model_name}\n"
+                        f"4. 网络连接是否正常\n"
+                        f"5. API 响应格式是否正确"
+                    )
+                    raise
+
+        # 如果所有重试都失败，抛出异常而不是返回空列表
+        raise RuntimeError(f"Embedding API 调用失败，已重试 {self.max_retries} 次")
+
     @property
     def embedding_dim(self) -> int:
         """获取向量维度"""
-        return self.model.get_sentence_embedding_dimension()
-    
-    @property
-    def model_name(self) -> str:
-        """获取模型名称"""
-        return self._model_name
-    
-    def embed_text(self, text: str) -> List[float]:
+        if self._embedding_dim is None:
+            # 通过一个测试文本获取维度
+            test_embedding = self.embed("test")
+            if test_embedding:
+                self._embedding_dim = len(test_embedding[0])
+            else:
+                raise RuntimeError("无法获取向量维度")
+
+        return self._embedding_dim
+
+
+class TextEmbedder:
+    """
+    统一的 Embedder 接口（单例模式）
+
+    根据配置自动选择合适的 Embedder 实现
+    """
+
+    _instance: Optional['TextEmbedder'] = None
+    _embedder: Optional[EmbedderBase] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        logger.info("TextEmbedder 已创建（延迟初始化）")
+
+    def initialize(self, config=None):
         """
-        将单个文本转换为向量
-        
+        初始化 Embedder
+
         Args:
-            text: 输入文本
-            
-        Returns:
-            向量列表
+            config: AppConfig 配置对象
         """
-        try:
-            if not text or not text.strip():
-                raise ValueError("输入文本不能为空")
-            
-            embedding = self.model.encode(text, convert_to_numpy=True)
-            return embedding.tolist()
-            
-        except Exception as e:
-            logger.error(f"文本向量化失败: {e}")
-            raise
-    
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """
-        批量将文本转换为向量
-        
-        Args:
-            texts: 文本列表
-            
-        Returns:
-            向量列表的列表
-        """
-        try:
-            if not texts:
-                return []
-            
-            # 过滤空文本
-            valid_texts = [t for t in texts if t and t.strip()]
-            if not valid_texts:
-                raise ValueError("所有文本都为空")
-            
-            # 批量编码
-            embeddings = self.model.encode(
-                valid_texts,
-                convert_to_numpy=True,
-                show_progress_bar=len(valid_texts) > 10  # 超过10条显示进度
+        if self._embedder is not None:
+            logger.debug("Embedder 已初始化，跳过重复初始化")
+            return
+
+        # 加载配置
+        if config is None:
+            from config import get_config
+            config = get_config()
+
+        mode = config.embedding.mode.lower()
+
+        if mode == "remote":
+            # 使用远程 API
+            self._embedder = RemoteEmbedder(
+                api_endpoint=config.embedding.remote.api_endpoint,
+                api_key=config.embedding.remote.api_key,
+                model_name=config.embedding.remote.model_name,
+                timeout=config.embedding.remote.timeout,
+                max_retries=config.embedding.remote.max_retries,
+                batch_size=config.embedding.remote.batch_size
             )
-            
-            return embeddings.tolist()
-            
-        except Exception as e:
-            logger.error(f"批量文本向量化失败: {e}")
-            raise
-    
-    def embed_query(self, query: str) -> List[float]:
+        else:
+            raise ValueError(
+                f"不支持的 embedding 模式: {mode}\n"
+                f"目前仅支持 'remote' 模式（使用远程 API）\n"
+                f"请在 config.yaml 中配置:\n"
+                f"embedding:\n"
+                f"  mode: remote\n"
+                f"  remote:\n"
+                f"    api_endpoint: https://api.openai.com/v1\n"
+                f"    api_key: your_api_key\n"
+                f"    model_name: text-embedding-3-small"
+            )
+
+        logger.info(f"✅ Embedder 初始化完成 (模式: {mode})")
+
+    def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
         """
-        查询文本向量化（别名方法，语义更清晰）
-        
+        文本向量化
+
         Args:
-            query: 查询文本
-            
+            texts: 单个文本或文本列表
+
         Returns:
             向量列表
         """
-        return self.embed_text(query)
+        if self._embedder is None:
+            self.initialize()
+
+        return self._embedder.embed(texts)
+
+    @property
+    def embedding_dim(self) -> int:
+        """获取向量维度"""
+        if self._embedder is None:
+            self.initialize()
+
+        return self._embedder.embedding_dim
+
+    def ensure_initialized(self):
+        """确保已初始化"""
+        if self._embedder is None:
+            self.initialize()
 
 
-# 全局单例实例
-_embedder = None
+# 全局单例
+_text_embedder: Optional[TextEmbedder] = None
 
 
-def get_embedder(model_name: str = None) -> TextEmbedder:
+def get_embedder() -> TextEmbedder:
     """
-    获取全局TextEmbedder实例（单例）
-    
-    Args:
-        model_name: 模型名称，如果为None则使用默认模型
-        
+    获取全局 TextEmbedder 单例
+
     Returns:
-        TextEmbedder实例
+        TextEmbedder 实例
     """
-    global _embedder
-    if _embedder is None:
-        _embedder = TextEmbedder(model_name)
-    elif model_name is not None:
-        # 如果指定了模型名称，确保使用正确的模型
-        _embedder.__init__(model_name)
-    return _embedder
-
-
-def create_embedder_from_config(config):
-    """
-    从配置创建 Embedder（使用单例，避免重复初始化）
-    
-    根据配置的 embedding.mode 选择本地或远程模式
-    
-    Args:
-        config: 配置对象
-    
-    Returns:
-        TextEmbedder 或 RemoteEmbedder 实例
-    """
-    global _embedder
-    
-    mode = config.embedding.mode.lower()
-    
-    if mode == "local":
-        # 本地模式 - 使用单例
-        logger.info("使用本地 Embedding 模型")
-        local_config = config.embedding.local
-        
-        # 复用全局单例，避免重复初始化
-        if _embedder is None:
-            _embedder = TextEmbedder(model_name=local_config.model_name)
-        else:
-            # 如果已存在，检查是否需要切换模型
-            _embedder.__init__(model_name=local_config.model_name)
-        
-        return _embedder
-    
-    elif mode == "remote":
-        # 远程模式
-        logger.info("使用远程 Embedding API")
-        from vector_store.remote_embedder import create_remote_embedder_from_config
-        
-        return create_remote_embedder_from_config(config)
-    
-    else:
-        raise ValueError(f"不支持的 embedding 模式: {mode}，请使用 'local' 或 'remote'")
+    global _text_embedder
+    if _text_embedder is None:
+        _text_embedder = TextEmbedder()
+    return _text_embedder

@@ -941,10 +941,15 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
         # 智能选择集合：优先使用专用集合，如果为空则使用 documents
         client = get_vector_client()
         try:
-            emergency_collection = client.get_collection("emergency_plans")
-            collection_name = "emergency_plans" if emergency_collection.count() > 0 else "documents"
+            # 检查 emergency_plans 集合是否存在且有文档
+            collections = client.list_collections()
+            if "emergency_plans" in collections:
+                count = client.count_documents("emergency_plans")
+                collection_name = "emergency_plans" if count > 0 else "documents"
+            else:
+                collection_name = "documents"
         except:
-            collection_name = "documents"  # 集合不存在，使用默认集合
+            collection_name = "documents"  # 集合不存在或查询失败，使用默认集合
 
         logger.info(f"使用集合: {collection_name}")
 

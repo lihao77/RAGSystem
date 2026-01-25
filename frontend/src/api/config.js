@@ -79,6 +79,14 @@ export function getServicesStatus() {
   return http.get('/api/config/services/status')
 }
 
+/**
+ * 重新初始化指定服务
+ * @param {string} serviceKey - 服务标识符 ('neo4j', 'vector', 'llm')
+ */
+export function reinitService(serviceKey) {
+  return http.post(`/api/config/services/${serviceKey}/reinit`)
+}
+
 export default {
   getConfig,
   getRawConfig,
@@ -89,5 +97,6 @@ export default {
   reloadConfig,
   exportConfig,
   getConfigSchema,
-  getServicesStatus
+  getServicesStatus,
+  reinitService
 }

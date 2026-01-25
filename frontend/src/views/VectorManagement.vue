@@ -320,7 +320,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Plus, View, Search, Delete, Upload, UploadFilled } from '@element-plus/icons-vue'
 import { vectorService } from '@/api'
-import axios from 'axios'
+import { listFiles } from '@/api/fileService'
 
 // 状态
 const loading = ref(false)
@@ -412,10 +412,10 @@ const handleFileRemove = () => {
 // 加载文件管理系统中的文件
 const loadSystemFiles = async () => {
   try {
-    const response = await axios.get('/api/files')
+    const response = await listFiles()
     console.log('文件列表响应:', response)
-    if (response.data.success) {
-      systemFiles.value = response.data.files
+    if (response.success) {
+      systemFiles.value = response.files
     }
   } catch (error) {
     console.error('加载文件列表失败:', error)
@@ -468,9 +468,7 @@ const indexDocument = async () => {
       formData.append('chunk_size', indexForm.value.chunk_size)
       formData.append('overlap', indexForm.value.overlap)
 
-      response = await axios.post('/api/vector/index', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      response = await vectorService.indexFileUpload(formData)
     }
     // 方式2: 选择文件
     else if (indexMode.value === 'select') {

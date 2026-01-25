@@ -2,7 +2,7 @@
  * 向量库管理服务
  */
 
-import { get, post, del } from './http';
+import { get, post, postFormData, del } from './http';
 
 /**
  * 获取所有向量集合列表
@@ -34,7 +34,7 @@ export const searchVectors = (collectionName, query, topK = 5) => {
 };
 
 /**
- * 索引新文档
+ * 索引新文档（JSON 数据）
  * @param {Object} params - 索引参数
  * @param {string} params.collection_name - 集合名称
  * @param {string} params.document_id - 文档ID
@@ -45,6 +45,14 @@ export const searchVectors = (collectionName, query, topK = 5) => {
  */
 export const indexDocument = (params) => {
   return post('/api/vector/index', params);
+};
+
+/**
+ * 上传文件并索引（FormData）
+ * @param {FormData} formData - 包含文件和索引参数的 FormData
+ */
+export const indexFileUpload = (formData) => {
+  return postFormData('/api/vector/index', formData);
 };
 
 /**

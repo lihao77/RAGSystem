@@ -58,6 +58,7 @@ class RemoteEmbeddingConfig(BaseModel):
     model_name: str = "text-embedding-3-small"
     timeout: int = 30
     max_retries: int = 3
+    batch_size: int = 10  # 单次请求最多处理的文本数量（ModelScope 建议 10-20）
 
 
 class EmbeddingConfig(BaseModel):
@@ -67,6 +68,36 @@ class EmbeddingConfig(BaseModel):
     mode: str = "local"  # "local" 或 "remote"
     local: LocalEmbeddingConfig = Field(default_factory=LocalEmbeddingConfig)
     remote: RemoteEmbeddingConfig = Field(default_factory=RemoteEmbeddingConfig)
+
+
+class SQLiteVectorConfig(BaseModel):
+    """SQLite + sqlite-vec 向量存储配置"""
+    model_config = ConfigDict(extra='allow')
+
+    database_path: str = "data/vector_store.db"  # 数据库文件路径
+    vector_dimension: int = 768  # 向量维度（需与 Embedding 模型匹配）
+    distance_metric: str = "cosine"  # 距离度量: cosine, l2, ip
+
+
+class PostgreSQLVectorConfig(BaseModel):
+    """PostgreSQL + pgvector 向量存储配置（未来扩展）"""
+    model_config = ConfigDict(extra='allow')
+
+    host: str = "localhost"
+    port: int = 5432
+    database: str = "ragsystem"
+    user: str = "postgres"
+    password: str = ""
+    vector_dimension: int = 768
+
+
+class VectorStoreConfig(BaseModel):
+    """向量存储配置"""
+    model_config = ConfigDict(extra='allow')
+
+    backend: str = "sqlite_vec"  # 后端类型: sqlite_vec, postgresql (未来)
+    sqlite_vec: SQLiteVectorConfig = Field(default_factory=SQLiteVectorConfig)
+    postgresql: PostgreSQLVectorConfig = Field(default_factory=PostgreSQLVectorConfig)
 
 
 class ExternalLibsConfig(BaseModel):
@@ -86,6 +117,7 @@ class AppConfig(BaseModel):
     )
 
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)

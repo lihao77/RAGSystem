@@ -4,6 +4,26 @@ neo4j:
   user: neo4j
   password: ""  # 可以从环境变量 NEO4J__PASSWORD 读取
 
+# 向量存储配置（新版）
+vector_store:
+  # 后端选择: "sqlite_vec" (推荐) 或 "postgresql" (未来扩展)
+  backend: sqlite_vec  # 可以从环境变量 VECTOR_STORE__BACKEND 读取
+
+  # SQLite + sqlite-vec 配置
+  sqlite_vec:
+    database_path: data/vector_store.db  # 相对于 backend/ 目录的路径
+    vector_dimension: 768  # 向量维度（需与 Embedding 模型匹配）
+    distance_metric: cosine  # 距离度量: cosine (推荐), l2, ip
+
+  # PostgreSQL + pgvector 配置（未来扩展）
+  postgresql:
+    host: localhost
+    port: 5432
+    database: ragsystem
+    user: postgres
+    password: ""  # 可以从环境变量 VECTOR_STORE__POSTGRESQL__PASSWORD 读取
+    vector_dimension: 768
+
 # LLM 配置（支持 LLMAdapter）
 llm:
   # LLMAdapter 配置（推荐方式）
@@ -21,22 +41,24 @@ llm:
 
 # Embedding 配置
 embedding:
-  # 模式选择: "local" 或 "remote"
-  mode: local  # 可以从环境变量 EMBEDDING__MODE 读取
+  # 模式选择: "remote" (推荐，使用远程 API，无需本地模型)
+  mode: remote  # 可以从环境变量 EMBEDDING__MODE 读取
 
-  # 本地模型配置
+  # 本地模型配置（已弃用，不推荐使用）
+  # 需要安装 sentence-transformers 和 PyTorch (~500MB)
   local:
-    model_name: BAAI/bge-small-zh-v1.5  # 默认使用小模型
-    device: cpu  # cpu 或 cuda
-    cache_dir: null  # null 使用默认缓存目录
+    model_name: BAAI/bge-small-zh-v1.5
+    device: cpu
+    cache_dir: null
 
-  # 远程 API 配置（支持 OpenAI 兼容接口）
+  # 远程 API 配置（推荐）
   remote:
-    api_endpoint: ""  # 例如: https://api.openai.com/v1 或自建服务
+    api_endpoint: ""  # 例如: https://api.openai.com/v1 或 https://api.deepseek.com/v1
     api_key: ""  # 可以从环境变量 EMBEDDING__REMOTE__API_KEY 读取
     model_name: text-embedding-3-small  # 远程模型名称
     timeout: 30  # 请求超时时间（秒）
     max_retries: 3  # 最大重试次数
+    batch_size: 10  # 单次请求最多处理的文本数量（不同 API 限制不同，建议 10-50）
 
 # 系统配置
 system:
