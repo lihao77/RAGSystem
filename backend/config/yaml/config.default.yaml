@@ -11,7 +11,7 @@ vector_store:
 
   # SQLite + sqlite-vec 配置
   sqlite_vec:
-    database_path: data/vector_store.db  # 相对于 backend/ 目录的路径
+    database_path: data/ragsystem.db  # 统一数据库路径（相对于 backend/ 目录）
     vector_dimension: 768  # 向量维度（需与 Embedding 模型匹配）
     distance_metric: cosine  # 距离度量: cosine (推荐), l2, ip
 

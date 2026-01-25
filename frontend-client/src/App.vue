@@ -55,7 +55,7 @@ onMounted(() => {
   --color-primary: #818cf8;
   --color-primary-hover: #a5b4fc;
   --color-primary-glow: rgba(129, 140, 248, 0.15);
-  --color-primary-subtle: rgba(129, 140, 248, 0.08);
+  --color-primary-subtle: rgba(255, 255, 255, 0.4);
 
   /* Background Layers - Matte Deep Space */
   --color-bg-app: #09090b;       /* Zinc 950 - 最深背景 */
@@ -95,9 +95,9 @@ onMounted(() => {
   --glass-blur: 20px;
 
   /* Refined Shadows */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -1px rgba(0,0,0,0.15);
-  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.4), 0 4px 6px -2px rgba(0,0,0,0.2);
+  --shadow-sm: 0 1px 2px rgba(255, 255, 255, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(255, 255, 255, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 10px 15px -3px rgba(255, 255, 255, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
 
   /* Spacing - 4px Grid */
   --spacing-xs: 4px;
@@ -129,7 +129,7 @@ onMounted(() => {
   --color-primary: #4f46e5;
   --color-primary-hover: #4338ca;
   --color-primary-glow: rgba(79, 70, 229, 0.15);
-  --color-primary-subtle: rgba(79, 70, 229, 0.08);
+  --color-primary-subtle: rgba(100, 100, 100, 0.4);
 
   /* Background Layers - Light */
   --color-bg-app: #f4f4f5;       /* Zinc 100 */
@@ -158,6 +158,12 @@ onMounted(() => {
   --glass-bg-light: rgba(255, 255, 255, 0.6);
   --glass-border: rgba(0, 0, 0, 0.05);
   --glass-shadow: 0 4px 12px rgba(0,0,0,0.05);
+
+  /* Refined Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);  
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(255, 255, 255, 0.15);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(255, 255, 255, 0.2);
+
 }
 
 /* ===== Global Reset ===== */
