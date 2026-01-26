@@ -623,7 +623,7 @@ class MasterAgent(BaseAgent):
             agents_info = "\n".join([
                 f"- {agent['name']}: {agent['description']}"
                 for agent in agents
-                if agent['name'] != 'master_agent'  # 排除自己
+                if not agent['name'].startswith('master_agent')  # 排除所有 master 类型智能体
             ])
 
             # 构建提示词

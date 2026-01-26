@@ -69,8 +69,7 @@ def reload_agents():
         agents = load_agents_from_config(
             llm_adapter=adapter,
             system_config=system_config,
-            orchestrator=_orchestrator,
-            use_v2=False
+            orchestrator=_orchestrator
         )
 
         # 重新注册

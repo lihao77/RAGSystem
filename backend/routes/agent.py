@@ -43,8 +43,7 @@ def _get_orchestrator():
             agents = load_agents_from_config(
                 llm_adapter=adapter,
                 system_config=system_config,
-                orchestrator=_orchestrator,
-                use_v2=False
+                orchestrator=_orchestrator
             )
 
             # 注册所有加载的智能体
@@ -94,8 +93,7 @@ def reload_agents():
         agents = load_agents_from_config(
             llm_adapter=adapter,
             system_config=system_config,
-            orchestrator=_orchestrator,
-            use_v2=False
+            orchestrator=_orchestrator
         )
 
         # 重新注册
@@ -347,7 +345,8 @@ def stream_execute():
     Request:
         {
             "task": "任务描述",
-            "session_id": "会话ID（可选）"
+            "session_id": "会话ID（可选）",
+            "use_v2": false  // 是否使用 MasterAgent V2（可选，默认 false）
         }
 
     Response:
@@ -360,11 +359,12 @@ def stream_execute():
     data = request.get_json()
     task = data.get('task', '').strip()
     session_id = data.get('session_id')
+    use_v2 = data.get('use_v2', False)  # ✨ 支持 V2 切换
 
     if not task:
         return error_response(message='任务描述不能为空', status_code=400)
 
-    logger.info(f'流式执行任务: {task}')
+    logger.info(f'流式执行任务: {task} (使用 V2: {use_v2})')
 
     def generate():
         try:
@@ -378,11 +378,17 @@ def stream_execute():
                 import uuid
                 context = AgentContext(session_id=str(uuid.uuid4()))
 
-            # 获取 MasterAgent
-            master_agent = orchestrator.agents.get('master_agent')
-            if not master_agent:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'}, ensure_ascii=False)}\n\n"
-                return
+            # ✨ 根据 use_v2 参数选择 MasterAgent 版本
+            if use_v2:
+                master_agent = orchestrator.agents.get('master_agent_v2')
+                if not master_agent:
+                    yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent V2 未找到，请确认已正确加载'}, ensure_ascii=False)}\n\n"
+                    return
+            else:
+                master_agent = orchestrator.agents.get('master_agent')
+                if not master_agent:
+                    yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'}, ensure_ascii=False)}\n\n"
+                    return
 
             # 调用 MasterAgent 的 stream_execute
             for event in master_agent.stream_execute(task, context):

@@ -9,7 +9,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_knowledge_graph_with_nl",
-            "description": "使用自然语言查询知识图谱。系统会自动将自然语言问题转换为Cypher查询，执行并返回结构化结果。这是最强大的工具，适用于复杂的关联查询、因果分析、时序分析等场景。推荐优先使用此工具。\n\n⚠️重要：损失数据可能存储在事件状态(ES-E-)、地点状态(LS-L-)或联合状态(JS-)中，查询时需要覆盖所有State类型！",
+            "description": "使用自然语言查询知识图谱。自动将问题转换为Cypher查询并返回结果。适用于复杂查询、因果分析、时序分析。优先使用此工具。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -42,17 +42,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_knowledge_graph",
-            "description": "搜索知识图谱中的基础实体或状态节点。根据category参数自动选择查询目标。\n\n**基础实体vs状态节点**：\n- 基础实体（地点/设施/事件）：静态骨架，如'南宁市'、'潘厂水库'、'2023年台风'\n- 状态节点（State）：动态快照，包含时间段内的具体数据（降雨量、受灾人口、经济损失等）\n\n**查询策略（已优化）**：\n- category='地点'/'设施'/'事件'：返回基础实体节点（:地点:entity, :设施:entity, :事件:entity）\n- category='State'：返回状态节点（:State），**直接使用状态ID过滤，无需先查基础实体**\n- category=''：默认查询状态节点\n\n**优化特性**：\n- 状态查询使用\"状态ID优先\"策略，性能提升50%+\n- 同时搜索状态ID和entity_ids字段，覆盖更全面\n- 支持模糊匹配和部分ID匹配\n\n⚠️重要：\n1. 查询损失数据时，必须用category='State'！损失信息存储在状态节点的属性中\n2. 查询基础实体信息（名称、位置）时，用category='地点'/'设施'/'事件'\n3. 时间范围(time_range)只对State节点有效",
+            "description": "搜索知识图谱中的实体或状态节点。基础实体(地点/设施/事件)是静态骨架，State节点包含时间段内的具体数据。category参数决定查询目标：'地点'/'设施'/'事件'查基础实体，'State'查状态节点。损失数据查询必须用category='State'。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "搜索关键词，用于模糊匹配。\n- 查基础实体：匹配name、id、geo_description字段\n- 查状态节点：**直接在状态ID上过滤**（优化策略），同时搜索s.id和s.entity_ids\n示例：'潘厂水库'、'南宁市'、'洪涝'、'450100'（行政区划码）"
+                        "description": "搜索关键词，用于模糊匹配。查基础实体时匹配name/id字段，查State节点时在状态ID上过滤。"
                     },
                     "category": {
                         "type": "string",
-                        "description": "节点类别（决定查询哪类节点）：\n- '地点'：查询地点基础实体（行政区、河流等）\n- '设施'：查询设施基础实体（水库、大坝、水文站等）\n- '事件'：查询事件基础实体（台风、洪水等）\n- 'State'：查询状态节点（包含时序数据和属性）\n- ''（空）：默认查询State节点",
+                        "description": "节点类别：'地点'(行政区/河流)、'设施'(水库/大坝)、'事件'(台风/洪水)、'State'(时序数据)、''(默认State)。",
                         "enum": ["地点", "设施", "事件", "State", ""]
                     },
                     "document_source": {
@@ -89,13 +89,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_relations",
-            "description": "获取指定实体的关系网络。自动识别基础实体和状态节点，返回对应的关系类型。\n\n**实体类型自动识别**（已优化）：\n- 基础实体（L-*, F-*, E-*）：返回空间关系和状态链\n- 状态节点（LS-*, FS-*, ES-*, JS-*）：返回属性关系和因果关系\n\n**返回的关系类型**：\n1. **空间结构关系**（基础实体之间）：\n   - `locatedIn`：地点层级关系（市→省）、设施归属（水库→县）\n   - `occurredAt`：事件发生地（台风→影响区域）\n\n2. **状态链关系**（基础实体→状态）：\n   - `hasState`：实体的首个状态节点\n   - `nextState`：状态的时间序列链（自动展开）\n\n3. **属性关系**（状态→属性）：\n   - `hasAttribute`：状态的具体属性（降雨量、受灾人口等）\n\n4. **因果关系**（状态之间）：\n   - `hasRelation {type:'导致'}`：直接因果\n   - `hasRelation {type:'间接导致'}`：调制作用\n   - `hasRelation {type:'触发'}`：阈值触发\n\n**优化特性**：\n- 支持精确匹配和模糊匹配（entity_id或entity_id片段）\n- 自动区分基础实体和状态节点，返回相应关系\n- 完整的节点属性和关系属性\n\n**使用场景**：\n- 查看某个地点的上下级行政区\n- 查看某个设施所在位置\n- 查看某个实体的历史状态链\n- 探索因果关系网络",
+            "description": "获取实体的关系网络。自动识别基础实体和State节点，返回对应关系。基础实体返回空间关系和状态链，State节点返回属性关系和因果关系。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": "实体ID（支持基础实体和状态节点）：\n**基础实体**（返回空间关系+状态链）：\n- 地点：'L-450100'（南宁市）、'L-450103>新竹街道'、'L-RIVER-长江'\n- 设施：'F-450381-潘厂水库'、'F-420500-三峡大坝'\n- 事件：'E-450000-20231001-TYPHOON'\n\n**状态节点**（返回属性+因果关系）：\n- 地点状态：'LS-L-450100-20231001_20231001'\n- 设施状态：'FS-F-450381-潘厂水库-20200607_20200607'\n- 事件状态：'ES-E-450000-20231001-TYPHOON-20231001_20231010'\n- 联合状态：'JS-L-450100-L-450500-20231001_20231010'\n\n支持部分匹配（如只传'潘厂水库'会匹配所有相关节点）"
+                        "description": "实体ID，支持基础实体(L-/F-/E-)和State节点(LS-/FS-/ES-/JS-)，支持部分匹配。"
                     }
                 },
                 "required": ["entity_id"]
@@ -135,7 +135,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "analyze_temporal_pattern",
-            "description": "分析时序模式和趋势。使用状态ID优先策略高效查询指定时间范围内的状态数据，支持指标趋势分析。\n\n**优化特性（新增）**：\n- 使用状态ID直接过滤，性能提升显著\n- 增强的趋势分析，支持中文单位提取（如\"100万人\"、\"1.5亿元\"）\n- 返回完整状态ID和实体关联信息\n- 自动计算min/max/avg和趋势方向\n\n**适用场景**：\n- 分析某地点/设施在特定时期的状态变化\n- 统计某指标的时间序列趋势\n- 对比不同时段的数据特征\n\n**使用示例**：\n```\n# 分析潘厂水库2020年6月的水位变化\nanalyze_temporal_pattern(\n    entity_name='潘厂水库',\n    start_date='2020-06-01',\n    end_date='2020-06-30',\n    metric='水位'\n)\n\n# 分析南宁市2023年的受灾人口趋势\nanalyze_temporal_pattern(\n    entity_name='南宁市',\n    start_date='2023-01-01',\n    end_date='2023-12-31',\n    metric='受灾人口'\n)\n```",
+            "description": "分析时序模式和趋势。查询指定时间范围内的状态数据，支持指标趋势分析。自动计算min/max/avg和趋势方向。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -164,7 +164,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_causal_chain",
-            "description": "查找因果链路。追踪事件的前因后果，分析影响传播路径。使用状态ID优先策略，返回完整的节点属性和因果关系信息。\n\n**优化特性（新增）**：\n- 使用状态ID直接过滤起点和终点\n- 返回完整的节点信息（包括关键属性通过hasAttribute关系）\n- 返回关系的详细类型（导致/间接导致/触发）\n- 包含entity_ids字段，便于追溯涉及的基础实体\n\n**因果关系类型**：\n- `导致`：直接因果关系（A直接导致B）\n- `间接导致`：间接影响（A通过某种机制影响B）\n- `隐含导致`：潜在关联\n- `触发`：阈值触发（达到条件后触发）\n\n**适用场景**：\n- 溯源分析：向后追溯灾害的原因链\n- 影响分析：向前追踪灾害的影响链\n- 因果路径发现：查找两个事件之间的因果路径\n\n**使用示例**：\n```\n# 向前追踪台风的影响\nfind_causal_chain(\n    start_event='台风',\n    direction='forward',\n    max_depth=3\n)\n\n# 向后追溯洪水的原因\nfind_causal_chain(\n    start_event='洪水',\n    direction='backward',\n    max_depth=2\n)\n\n# 查找台风到经济损失的路径\nfind_causal_chain(\n    start_event='台风',\n    end_event='经济损失',\n    max_depth=3\n)\n```",
+            "description": "查找因果链路。追踪事件的前因后果，分析影响传播路径。支持forward(影响)/backward(原因)/both三个方向。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -196,7 +196,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "compare_entities",
-            "description": "比较多个实体的状态和属性。使用批量查询优化，一次性获取所有实体数据，性能提升显著。\n\n**优化特性（新增）**：\n- 批量查询：从N次数据库查询优化为1次，性能提升N倍\n- 使用状态ID模糊匹配，无需精确实体名称\n- 自动按entity_ids分组，准确归类每个实体的状态\n- 返回完整的时序数据和属性值\n\n**适用场景**：\n- 对比不同地区的受灾情况\n- 对比不同时期的同一实体状态\n- 多实体的属性对比分析\n\n**使用示例**：\n```\n# 对比南宁、柳州、桂林三市2023年的受灾情况\ncompare_entities(\n    entity_names=['南宁市', '柳州市', '桂林市'],\n    time_range=['2023-01-01', '2023-12-31'],\n    compare_attributes=['受灾人口', '经济损失']\n)\n\n# 对比多个水库的状态\ncompare_entities(\n    entity_names=['潘厂水库', '三峡大坝', '龙滩水电站'],\n    time_range=['2020-06-01', '2020-06-30']\n)\n```",
+            "description": "比较多个实体的状态和属性。一次性获取所有实体数据，支持按属性列表过滤。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -233,7 +233,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "aggregate_statistics",
-            "description": "聚合统计分析。计算总和、平均值、最大值、最小值等统计指标。使用状态ID前缀优化，无需先查询基础实体。\n\n**优化特性（新增）**：\n- 使用状态ID前缀直接过滤（LS-L-*, FS-F-*, ES-E-*）\n- 对常见实体类型（地点/设施/事件），性能提升2倍+\n- 无需额外查询基础实体表\n\n**实体类型映射**：\n- '地点'：查询地点状态（LS-L-*）\n- '设施'：查询设施状态（FS-F-*）\n- '事件'：查询事件状态（ES-E-*）\n\n**适用场景**：\n- 统计某类实体的总体指标（如全区受灾总人口）\n- 计算平均值（如平均降雨量）\n- 查找极值（如最大经济损失）\n- 按字段分组统计（如按来源、按时间分组）\n\n**使用示例**：\n```\n# 统计2023年广西所有地点的受灾总人口\naggregate_statistics(\n    entity_type='地点',\n    attribute='受灾人口',\n    aggregation='sum',\n    time_range=['2023-01-01', '2023-12-31']\n)\n\n# 计算所有水库的平均蓄水量\naggregate_statistics(\n    entity_type='设施',\n    attribute='蓄水量',\n    aggregation='avg'\n)\n\n# 按来源分组统计损失\naggregate_statistics(\n    attribute='经济损失',\n    aggregation='sum',\n    group_by='source'\n)\n```",
+            "description": "聚合统计分析。计算sum/avg/max/min等统计指标。支持按实体类型(地点/设施/事件)过滤，支持时间范围和分组。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -273,24 +273,24 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_spatial_neighbors",
-            "description": "获取空间邻近实体。查找指定实体周边的地理位置、设施等。使用基础实体层级的空间关系。\n\n**优化特性（新增）**：\n- 明确使用 :entity 标签提高查询效率\n- 只查询空间关系（locatedIn, occurredAt），不包括状态链\n- 支持多层级邻近查询（radius参数）\n\n**空间关系类型**：\n- `locatedIn`：地点层级关系（区→市→省）、设施归属（水库→县）\n- `occurredAt`：事件发生地关系\n\n**适用场景**：\n- 查找某地的上下级行政区划\n- 查找某地附近的设施\n- 查找某事件影响的区域\n- 空间关系分析和影响范围评估\n\n**使用示例**：\n```\n# 查找南宁市的直接邻居（上级、下级、同级）\nget_spatial_neighbors(\n    entity_name='南宁市',\n    radius=1\n)\n\n# 查找潘厂水库周围2层级内的所有地点\nget_spatial_neighbors(\n    entity_name='潘厂水库',\n    radius=2,\n    neighbor_type='地点'\n)\n\n# 查找某个区域内的所有设施\nget_spatial_neighbors(\n    entity_name='青秀区',\n    radius=1,\n    neighbor_type='设施'\n)\n```\n\n⚠️注意：此工具查询基础实体之间的空间关系，不包括状态节点。如需查询状态相关信息，请使用其他工具。",
+            "description": "获取空间邻近实体。查找指定实体周边的地理位置、设施等，使用locatedIn/occurredAt关系。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_name": {
                         "type": "string",
-                        "description": "中心实体名称或名称片段（会在基础实体的id和name字段中模糊匹配）"
+                        "description": "中心实体名称或名称片段"
                     },
                     "radius": {
                         "type": "integer",
-                        "description": "邻近层级（关系路径长度）：\n- 1：直接相邻（一步可达）\n- 2：二级邻居（两步可达）\n- 3+：更远的邻居",
+                        "description": "邻近层级(1-5)，1为直接相邻，数字越大范围越广。",
                         "default": 1,
                         "minimum": 1,
                         "maximum": 5
                     },
                     "neighbor_type": {
                         "type": "string",
-                        "description": "邻居类型过滤（可选）：\n- '地点'：只返回地点实体\n- '设施'：只返回设施实体\n- '事件'：只返回事件实体\n不指定则返回所有类型",
+                        "description": "邻居类型过滤：'地点'/'设施'/'事件'，不指定则返回所有类型。",
                         "enum": ["地点", "设施", "事件"]
                     }
                 },
@@ -302,7 +302,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_emergency_plan",
-            "description": "查询应急预案文档。使用语义搜索从应急预案知识库中检索相关内容。适用于：\n\n**应急响应规范查询**：\n- 响应等级启动条件（Ⅰ级/Ⅱ级/Ⅲ级/Ⅳ级）\n- 应急响应流程和步骤\n- 各部门职责分工\n- 应急预案触发标准\n\n**操作指南查询**：\n- 防汛减灾措施\n- 应急处置方案\n- 预警发布流程\n- 灾后恢复程序\n\n**规范标准查询**：\n- 灾害等级划分标准\n- 安全阈值规定\n- 技术规范要求\n\n⚠️使用场景：\n1. 当问题涉及'应急响应'、'预案'、'措施'、'标准'、'流程'等关键词时优先使用\n2. 补充图谱查询：图谱提供历史事实数据，预案提供规范操作指南\n3. 决策支持：结合历史数据（图谱）和标准流程（预案）给出综合建议\n\n返回结果包含：文档片段、相似度评分、元数据（文档来源、章节等）",
+            "description": "查询应急预案文档。使用语义搜索从应急预案知识库检索。适用于查询响应等级、应急流程、部门职责、操作指南、标准规范等。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -337,17 +337,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_chart",
-            "description": "生成数据可视化图表配置。根据指定的数据和字段映射生成 ECharts 配置。\n\n**使用说明**：\n1. 支持直接传入数据列表，也支持传入文件路径（由 process_data_file 生成的）。\n2. **必须**明确指定 x_field（X轴/类目轴）和 y_field（Y轴/数值轴）。\n3. **必须**明确指定 chart_type（图表类型）。\n\n**适用场景**：\n- 当用户要求画图时。\n- 数据包含明确的类别/时间和数值。\n\n**不适用场景**：\n- 数据极其稀疏或非结构化。\n- 纯文本内容。",
+            "description": "生成ECharts图表配置。支持数据列表或文件路径，必须指定chart_type、x_field、y_field。支持line/bar/pie/scatter四种图表。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "data": {
                         "type": "string",
-                        "description": "数据源。可以是数据列表(List[Dict])，也可以是包含数据的 JSON/CSV 文件路径（推荐）。"
+                        "description": "数据源。可以是JSON格式的字符串(如'[{\"a\":1},{\"b\":2}]')，也可以是JSON/CSV文件路径。"
                     },
                     "chart_type": {
                         "type": "string",
-                        "description": "图表类型（必填）：\n- line: 折线图（适合时序趋势）\n- bar: 柱状图（适合类别对比）\n- pie: 饼图（适合占比分布）\n- scatter: 散点图（适合相关性分析）",
+                        "description": "图表类型：line(折线图)/bar(柱状图)/pie(饼图)/scatter(散点图)。",
                         "enum": ["line", "bar", "pie", "scatter"]
                     },
                     "title": {
@@ -356,15 +356,15 @@ TOOLS = [
                     },
                     "x_field": {
                         "type": "string",
-                        "description": "X轴字段名（必填）。用于映射到类目轴或时间轴的字段。例如：'time', 'city'。"
+                        "description": "X轴字段名，用于映射到类目轴或时间轴。"
                     },
                     "y_field": {
                         "type": "string",
-                        "description": "Y轴字段名（必填）。用于映射到数值轴的字段。例如：'value', 'count'。"
+                        "description": "Y轴字段名，用于映射到数值轴。"
                     },
                     "series_field": {
                         "type": "string",
-                        "description": "系列分组字段名（可选）。如果数据需要按某字段分组展示（如“按城市分组显示不同颜色的折线”），请指定此字段。"
+                        "description": "系列分组字段名(可选)，用于按字段分组显示不同系列。"
                     }
                 },
                 "required": ["data", "chart_type", "x_field", "y_field"]
@@ -375,7 +375,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "process_data_file",
-            "description": "通用数据处理工具。当需要将上一个工具输出的文件转换为下一个工具需要的格式时使用。支持执行 Python/Pandas 代码对数据进行清洗、过滤、转换、重塑。\n\n**使用场景**：\n1. 格式转换：JSON -> CSV，List[Dict] -> List[Value]\n2. 数据提取：从复杂对象中提取特定字段\n3. 数据过滤：筛选满足条件的记录\n4. 数据重组：合并、透视、聚合数据\n\n**重要规则**：\n1. 代码环境已预置 pandas (pd) 和 json 库\n2. 输入文件路径通过 source_path 参数传入，代码中直接读取\n3. 处理结果必须保存到 result_path 指定的文件中\n4. 代码必须是合法的 Python 脚本片段",
+            "description": "通用数据处理工具。执行Python/Pandas代码处理数据文件，支持格式转换、字段提取、过滤、聚合等操作。代码环境已预置pandas和json库。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -385,7 +385,7 @@ TOOLS = [
                     },
                     "python_code": {
                         "type": "string",
-                        "description": "用于处理数据的 Python 代码。代码中应包含：\n1. 读取 source_path\n2. 处理数据 (DataFrame 操作)\n3. 将结果保存到 result_path (系统会自动生成此路径并注入到环境变量或全局变量)\n\n示例：\n```python\nimport pandas as pd\nimport json\n\n# 读取源文件\nwith open(source_path, 'r', encoding='utf-8') as f:\n    data = json.load(f)\n\n# 转换为 DataFrame\ndf = pd.DataFrame(data)\n\n# 提取需要的字段\nresult_df = df[['time', 'value']]\n\n# 保存结果 (result_path 变量由系统注入)\nresult_df.to_json(result_path, orient='records', force_ascii=False)\n```"
+                        "description": "Python代码，需包含读取source_path、处理数据、保存到result_path三步。result_path由系统自动注入。推荐保存为JSON格式（json.dump），也支持CSV格式（会自动转换）。"
                     },
                     "description": {
                         "type": "string",
@@ -400,17 +400,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_map",
-            "description": "生成地图可视化配置（Leaflet 地图）。从知识图谱数据中提取 WKT geometry 并转换为地图格式。支持热力图、标记点、圆圈标记等多种地图类型。\n\n**使用说明**：\n1. 数据中必须包含 geometry 字段（WKT格式：POINT (lng lat)）。\n2. 必须指定 value_field（数值字段）。\n3. 可选指定 name_field（地名字段，用于标记点显示）。\n\n**适用场景**：\n- 展示受灾地区的空间分布（热力图）\n- 标记具体灾害事件位置（标记点）\n- 对比不同地区的受灾程度（圆圈标记）\n\n**地图类型选择**：\n- heatmap：热力图 - 展示数值的空间密度分布，适合宏观了解影响范围\n- marker：标记点 - 精确标记位置，点击可查看详情\n- circle：圆圈标记 - 圆的大小代表数值大小，适合直观对比\n\n**重要提示**：\n- 数据必须从知识图谱查询获得（包含geometry字段）\n- geometry格式示例：'POINT (108.55015524500028 25.17981577140806)'\n- 如果数据是文件路径，需确保文件包含geometry列",
+            "description": "生成Leaflet地图可视化配置。从知识图谱数据提取WKT geometry并转换为地图格式。支持heatmap/marker/circle三种类型，必须包含geometry字段。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "data": {
                         "type": "string",
-                        "description": "数据源。可以是包含 geometry 字段的数据列表(List[Dict])，也可以是 JSON/CSV 文件路径。"
+                        "description": "数据源。可以是JSON格式的字符串(必须包含geometry字段)，也可以是JSON/CSV文件路径。"
                     },
                     "map_type": {
                         "type": "string",
-                        "description": "地图类型（默认 heatmap）：\n- heatmap: 热力图 - 展示数值的空间密度分布\n- marker: 标记点 - 精确标记位置，显示名称和数值\n- circle: 圆圈标记 - 圆的大小代表数值大小",
+                        "description": "地图类型：heatmap(热力图)/marker(标记点)/circle(圆圈标记)。",
                         "enum": ["heatmap", "marker", "circle"],
                         "default": "heatmap"
                     },
@@ -441,7 +441,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_geometry",
-            "description": "根据实体 ID 列表获取实体的几何信息（WKT 格式坐标）。支持基础实体和状态节点。\n\n**优化特性（新增）**：\n- 同时支持基础实体（L-*, F-*, E-*）和状态节点（LS-*, FS-*, ES-*, JS-*）\n- 自动识别ID类型并分别查询\n- 返回结果包含节点类型标识（entity/state）\n\n**适用场景**：\n- 为地图可视化准备带坐标的实体数据\n- 获取特定实体的地理位置信息\n- 补充查询结果中缺失的 geometry 字段\n\n**使用说明**：\n1. 传入实体 ID 列表（支持基础实体ID和状态节点ID混合）\n2. 返回 id、geometry 和 type 的映射列表\n3. 只返回有 geometry 属性的节点\n\n**典型用法**：\n```\n# 先查询实体，获取 ID\nresult1 = query_knowledge_graph_with_nl(\"2023年广西各市的洪涝灾害状态\")\nentity_ids = [item['state_id'] for item in result1]  # 可能包含状态ID\n\n# 获取这些实体/状态的几何信息\ngeometry_data = get_entity_geometry(entity_ids)\n\n# 合并数据后传给 generate_map\nfor item in result1:\n    geo = next((g for g in geometry_data if g['id'] == item['state_id']), None)\n    if geo:\n        item['geometry'] = geo['geometry']\n```\n\n**重要提示**：\n- 基础实体ID格式：L-450100、F-450381-潘厂水库、E-450000-20231001-TYPHOON\n- 状态节点ID格式：LS-L-450100-...、FS-F-450381-...、ES-E-450000-...\n- geometry 字段格式为 WKT，如 \"POINT (108.55 25.18)\"\n- 如果某个 ID 没有 geometry 属性，不会出现在结果中\n- 返回结果包含 type 字段（'entity' 或 'state'）标识节点类型",
+            "description": "根据实体ID列表获取几何信息(WKT坐标)。支持基础实体和State节点混合，返回id、geometry和type的映射列表。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -450,7 +450,7 @@ TOOLS = [
                         "items": {
                             "type": "string"
                         },
-                        "description": "实体 ID 列表（支持基础实体和状态节点混合）。\n示例: [\"L-450100\", \"LS-L-450100-20231001_20231001\", \"F-450381-潘厂水库\"]"
+                        "description": "实体ID列表，支持基础实体和State节点混合。"
                     }
                 },
                 "required": ["entity_ids"]
@@ -462,13 +462,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "transform_data",
-            "description": "执行 Python 代码进行数据转换（纯内存操作）。适用于你已经从前一个工具获得数据，需要快速转换的场景。\n\n**适用场景**：\n- 为地图可视化添加 geometry 字段\n- 合并多个数据源\n- 数据格式转换和字段重命名\n- 简单的数据计算和映射\n\n**与 process_data_file 的区别**：\n- transform_data：内存操作，直接在代码中硬编码数据\n- process_data_file：文件操作，适合大数据（> 1000 条）\n\n**使用规则**：\n1. **直接在 python_code 中硬编码数据**（从前一个工具的结果中复制）\n2. **必须设置 `result` 变量**作为输出\n3. 可以使用 `pd`（pandas）和 `json` 模块\n\n**典型用法**：\n\n```python\n# 示例 1: 为地图数据添加 geometry 字段\n# 假设你从 query_knowledge_graph_with_nl 获得了业务数据\n# 又从 get_entity_geometry 获得了坐标数据\n\npython_code = '''\n# 业务数据（从前一个工具复制）\nbusiness_data = [\n    {\"location_id\": \"L-450100\", \"name\": \"南宁市\", \"value\": 1500},\n    {\"location_id\": \"L-450200\", \"name\": \"柳州市\", \"value\": 800}\n]\n\n# 几何数据（从 get_entity_geometry 获得）\ngeometry_data = [\n    {\"id\": \"L-450100\", \"geometry\": \"POINT (108.37 22.82)\"},\n    {\"id\": \"L-450200\", \"geometry\": \"POINT (109.42 24.33)\"}\n]\n\n# 合并数据\nresult = []\nfor item in business_data:\n    geo = next((g for g in geometry_data if g['id'] == item['location_id']), None)\n    if geo:\n        result.append({\n            'name': item['name'],\n            'value': item['value'],\n            'geometry': geo['geometry']\n        })\n'''\n\n# 示例 2: 简单的字段转换\npython_code = '''\nraw_data = [\n    {\"city\": \"南宁\", \"lng\": 108.37, \"lat\": 22.82, \"loss\": 1500},\n    {\"city\": \"柳州\", \"lng\": 109.42, \"lat\": 24.33, \"loss\": 800}\n]\n\nresult = []\nfor item in raw_data:\n    result.append({\n        'name': item['city'],\n        'value': item['loss'],\n        'geometry': f\"POINT ({item['lng']} {item['lat']})\"\n    })\n'''\n\n# 示例 3: 使用 pandas\npython_code = '''\nimport pandas as pd\n\nraw_data = [{\"name\": \"南宁\", \"lng\": 108.37, \"lat\": 22.82, \"value\": 1500}]\ndf = pd.DataFrame(raw_data)\ndf['geometry'] = df.apply(lambda row: f\"POINT ({row['lng']} {row['lat']})\", axis=1)\nresult = df.to_dict('records')\n'''\n```\n\n**重要提示**：\n- 数据量应该较小（< 1000 条），否则请使用 process_data_file\n- 代码末尾**必须设置** `result = ...`\n- 数据直接硬编码在 python_code 中，不要传递文件路径",
+            "description": "执行Python代码进行内存数据转换。适用于小数据量(<1000条)的快速转换，如添加geometry字段、合并数据、格式转换等。代码中直接硬编码数据，最后必须设置result变量为list或dict（不要使用json.dumps序列化）。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "python_code": {
                         "type": "string",
-                        "description": "Python 转换代码。在代码中直接定义数据（硬编码），最后必须设置 result 变量。可以使用 pd（pandas）和 json 模块。"
+                        "description": "Python转换代码。在代码中硬编码数据，最后必须设置result变量为list或dict（例如result = filtered_data，不要用json.dumps）。可使用pd和json模块。"
                     },
                     "description": {
                         "type": "string",

@@ -8,20 +8,36 @@
         <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
       </button>
     </div>
-    <ChatView />
+
+    <!-- Version Toggle -->
+    <div class="version-toggle">
+      <button @click="toggleVersion" class="version-btn" :title="useV2 ? '切换到 V1' : '切换到 V2'">
+        <span class="version-label">{{ useV2 ? 'V2' : 'V1' }}</span>
+      </button>
+    </div>
+
+    <ChatView v-if="!useV2" />
+    <ChatViewV2 v-else />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import ChatView from './views/ChatView.vue';
+import ChatViewV2 from './views/ChatViewV2.vue';
 import 'highlight.js/styles/github-dark.css';
 
 const isDark = ref(true);
+const useV2 = ref(false);
 
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   updateTheme();
+};
+
+const toggleVersion = () => {
+  useV2.value = !useV2.value;
+  localStorage.setItem('useV2', useV2.value ? 'true' : 'false');
 };
 
 const updateTheme = () => {
@@ -45,6 +61,12 @@ onMounted(() => {
     isDark.value = true;
   }
   updateTheme();
+
+  // 检查版本偏好
+  const savedVersion = localStorage.getItem('useV2');
+  if (savedVersion) {
+    useV2.value = savedVersion === 'true';
+  }
 });
 </script>
 
@@ -253,5 +275,40 @@ body {
   background: var(--color-bg-secondary);
   border-color: var(--color-border-hover);
   transform: translateY(-2px);
+}
+
+/* ===== Version Toggle ===== */
+.version-toggle {
+  position: fixed;
+  top: 20px;
+  right: 72px;
+  z-index: 1000;
+}
+
+.version-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  box-shadow: var(--shadow-md);
+}
+
+.version-btn:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-hover);
+  transform: translateY(-2px);
+}
+
+.version-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
 }
 </style>

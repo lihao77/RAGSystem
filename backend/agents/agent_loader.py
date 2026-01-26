@@ -9,7 +9,6 @@ import logging
 from typing import Dict, Optional, Type
 from .base import BaseAgent
 from .master_agent import MasterAgent
-from .master_agent_v2.master_agent_v2 import MasterAgentV2
 from .react_agent import ReActAgent
 from .config_manager import get_config_manager
 
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'master': MasterAgent,
-    'master_v2': MasterAgentV2,
     'react': ReActAgent,
 }
 
@@ -43,7 +41,7 @@ class AgentLoader:
     负责从配置文件动态加载智能体实例
     """
 
-    def __init__(self, llm_adapter, system_config, orchestrator=None, use_v2=False):
+    def __init__(self, llm_adapter, system_config, orchestrator=None):
         """
         初始化加载器
 
@@ -51,12 +49,10 @@ class AgentLoader:
             llm_adapter: LLM 适配器
             system_config: 系统配置
             orchestrator: 编排器（可选，MasterAgent 需要）
-            use_v2: 是否使用 MasterAgent V2（默认 False）
         """
         self.llm_adapter = llm_adapter
         self.system_config = system_config
         self.orchestrator = orchestrator
-        self.use_v2 = use_v2
         self.config_manager = get_config_manager()
 
     def load_agent(self, agent_name: str) -> Optional[BaseAgent]:
@@ -117,21 +113,25 @@ class AgentLoader:
         # 1. 加载用户配置的智能体
         for agent_name, agent_config in all_configs.items():
             # 跳过 MasterAgent（由系统单独加载）
-            if agent_name == 'master_agent':
-                logger.info(f"跳过 master_agent（系统智能体，不从配置加载）")
+            if agent_name in ['master_agent', 'master_agent_v2']:
+                logger.info(f"跳过 {agent_name}（系统智能体，不从配置加载）")
                 continue
 
             agent = self.load_agent(agent_name)
             if agent is not None:
                 agents[agent_name] = agent
 
-        # 2. 强制加载 MasterAgent（系统级智能体）
+        # 2. 强制加载 MasterAgent V1（系统级智能体）
         master_agent = self._load_system_master_agent()
         if master_agent is not None:
-            # 根据版本使用不同的 key
-            agent_key = 'master_agent_v2' if self.use_v2 else 'master_agent'
-            agents[agent_key] = master_agent
-            logger.info(f"✅ 已加载系统智能体: {agent_key}（不可配置）")
+            agents['master_agent'] = master_agent
+            logger.info(f"✅ 已加载系统智能体: master_agent V1（不可配置）")
+
+        # 3. 强制加载 MasterAgent V2（系统级智能体）
+        master_agent_v2 = self._load_system_master_agent_v2()
+        if master_agent_v2 is not None:
+            agents['master_agent_v2'] = master_agent_v2
+            logger.info(f"✅ 已加载系统智能体: master_agent_v2（不可配置）")
 
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
@@ -143,10 +143,8 @@ class AgentLoader:
         MasterAgent 是系统核心组件，负责任务分解和智能体协调，
         其配置不应暴露给用户修改。
 
-        根据 use_v2 参数选择加载 V1 或 V2 版本。
-
         Returns:
-            MasterAgent 或 MasterAgentV2 实例
+            MasterAgent 实例
         """
         try:
             if self.orchestrator is None:
@@ -157,17 +155,10 @@ class AgentLoader:
 
             # 硬编码的 MasterAgent 配置
             # provider 和 model_name 留空，使用系统配置作为兜底
-            agent_name = 'master_agent_v2' if self.use_v2 else 'master_agent'
-            display_name = '主协调智能体 V2' if self.use_v2 else '主协调智能体'
-            description = (
-                '主协调智能体 V2，支持 DAG 和混合模式执行' if self.use_v2
-                else '主协调智能体，负责任务分析、分解和结果整合'
-            )
-
             master_config = AgentConfig(
-                agent_name=agent_name,
-                display_name=display_name,
-                description=description,
+                agent_name='master_agent',
+                display_name='主协调智能体',
+                description='主协调智能体，负责任务分析、分解和结果整合',
                 enabled=True,
                 llm=AgentLLMConfig(
                     provider=None,  # 使用系统配置
@@ -183,30 +174,76 @@ class AgentLoader:
                 }
             )
 
-            # 根据版本创建实例
-            if self.use_v2:
-                from .master_agent_v2.master_agent_v2 import MasterAgentV2
-                master_agent = MasterAgentV2(
-                    llm_adapter=self.llm_adapter,
-                    orchestrator=self.orchestrator,
-                    agent_config=master_config,
-                    system_config=self.system_config
-                )
-                logger.info("MasterAgentV2 已创建（系统级配置）")
-            else:
-                from .master_agent import MasterAgent
-                master_agent = MasterAgent(
-                    llm_adapter=self.llm_adapter,
-                    orchestrator=self.orchestrator,
-                    agent_config=master_config,
-                    system_config=self.system_config
-                )
-                logger.info("MasterAgent 已创建（系统级配置）")
+            from .master_agent import MasterAgent
+            master_agent = MasterAgent(
+                llm_adapter=self.llm_adapter,
+                orchestrator=self.orchestrator,
+                agent_config=master_config,
+                system_config=self.system_config
+            )
+            logger.info("MasterAgent 已创建（系统级配置）")
 
             return master_agent
 
         except Exception as e:
             logger.error(f"加载 MasterAgent 失败: {e}", exc_info=True)
+            return None
+
+    def _load_system_master_agent_v2(self) -> Optional[BaseAgent]:
+        """
+        加载系统级 MasterAgent V2（硬编码配置，不受用户控制）
+
+        MasterAgent V2 支持并行执行、DAG 编排、失败重试等高级特性。
+
+        Returns:
+            MasterAgent V2 实例
+        """
+        try:
+            if self.orchestrator is None:
+                logger.warning("orchestrator 未提供，无法加载 MasterAgent V2")
+                return None
+
+            from .agent_config import AgentConfig, AgentLLMConfig
+
+            # 硬编码的 MasterAgent V2 配置
+            master_v2_config = AgentConfig(
+                agent_name='master_agent_v2',
+                display_name='主协调智能体 V2',
+                description='主协调智能体 V2，支持并行执行、DAG 编排、失败重试',
+                enabled=True,
+                llm=AgentLLMConfig(
+                    provider=None,  # 使用系统配置
+                    model_name=None,  # 使用系统配置
+                    temperature=0.0,  # 任务分析需要极高确定性
+                    max_tokens=4000,  # V2 需要更大的上下文（用于 DAG 生成）
+                    timeout=60,  # V2 可能需要更长时间
+                    retry_attempts=3
+                ),
+                custom_params={
+                    'analysis_temperature': 0.0,
+                    'synthesis_temperature': 0.3,
+                    'max_workers': 3,  # 并行执行的最大线程数
+                    'max_retries': 1,  # 任务失败重试次数
+                    'retry_delay': 1.0  # 重试延迟（秒）
+                }
+            )
+
+            from .master_agent_v2.master_agent_v2 import MasterAgentV2
+            master_agent_v2 = MasterAgentV2(
+                llm_adapter=self.llm_adapter,
+                orchestrator=self.orchestrator,
+                agent_config=master_v2_config,
+                system_config=self.system_config
+            )
+            logger.info("MasterAgent V2 已创建（系统级配置）")
+
+            return master_agent_v2
+
+        except ImportError as e:
+            logger.error(f"MasterAgent V2 模块未找到，请确认已正确安装: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"加载 MasterAgent V2 失败: {e}", exc_info=True)
             return None
 
     def _get_agent_type(self, agent_name: str, agent_config) -> str:
@@ -259,8 +296,8 @@ class AgentLoader:
         }
 
         # 根据不同类型添加特殊参数
-        if agent_class == MasterAgent or agent_class == MasterAgentV2:
-            # MasterAgent/V2 需要 orchestrator
+        if agent_class == MasterAgent:
+            # MasterAgent 需要 orchestrator
             if self.orchestrator is None:
                 raise ValueError(f"{agent_class.__name__} 需要 orchestrator 参数")
             common_kwargs['orchestrator'] = self.orchestrator
@@ -418,8 +455,7 @@ class AgentLoader:
 def load_agents_from_config(
     llm_adapter,
     system_config,
-    orchestrator=None,
-    use_v2=False
+    orchestrator=None
 ) -> Dict[str, BaseAgent]:
     """
     从配置文件加载所有智能体（便捷函数）
@@ -428,10 +464,9 @@ def load_agents_from_config(
         llm_adapter: LLM 适配器
         system_config: 系统配置
         orchestrator: 编排器（可选）
-        use_v2: 是否使用 MasterAgent V2（默认 False）
 
     Returns:
         智能体字典
     """
-    loader = AgentLoader(llm_adapter, system_config, orchestrator, use_v2=use_v2)
+    loader = AgentLoader(llm_adapter, system_config, orchestrator)
     return loader.load_all_agents()

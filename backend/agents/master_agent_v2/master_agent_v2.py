@@ -1,33 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-MasterAgentV2 - 增强的主协调智能体
+MasterAgent V2 - 增强的主协调智能体
 
-新增功能：
-1. 三种执行模式：直接回答、静态 DAG、混合模式
-2. 智能任务分析（自动选择执行模式）
-3. 增强的上下文管理（结果缓存、依赖传递）
-4. 失败恢复机制（重试、跳过、降级）
-5. 流式执行支持
-6. 执行统计和监控
-
-相比 V1 的改进：
-- V1: 简单的任务分解 + 顺序执行
-- V2: 智能模式选择 + DAG 调度 + 动态执行 + 失败恢复
+核心改进：
+1. ✅ DAG 执行引擎 - 支持并行执行
+2. ✅ 增强的上下文管理 - 结构化上下文传递
+3. ✅ 失败处理与重试 - 自动重试机制
+4. ✅ 执行计划可视化 - DAG 可视化数据
+5. ✅ 流式状态更新 - 实时进度反馈
 """
 
-import asyncio
 import logging
 import json
 import time
-from typing import Dict, Any, Optional, List, AsyncGenerator, Generator
-from ..base import BaseAgent, AgentContext, AgentResponse
-from .enhanced_context import EnhancedAgentContext
-from .execution_plan import (
-    ExecutionPlan,
-    ExecutionMode,
-    create_execution_plan
-)
-from .hybrid_scheduler import HybridScheduler
+from typing import Dict, List, Any, Optional, Generator
+
+from agents.base import BaseAgent, AgentContext, AgentResponse
+from .execution_plan import ExecutionPlan, SubTask, TaskStatus, ExecutionMode
+from .enhanced_context import EnhancedContext, TaskResult
+from .dag_executor import DAGExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -36,101 +27,141 @@ class MasterAgentV2(BaseAgent):
     """
     MasterAgent V2 - 增强的主协调智能体
 
-    核心能力：
-    1. 智能任务分析 - 自动判断最优执行模式
-    2. 三种执行模式:
-       - DirectAnswer: 简单对话，直接回答
-       - StaticPlan: 复杂任务，预定义 DAG
-       - HybridPlan: 超复杂任务，宏观静态 + 微观动态
-    3. 增强的上下文 - 结果缓存、依赖管理、摘要
-    4. 失败恢复 - 多种策略（重试、跳过、降级）
-    5. 流式执行 - 实时反馈执行进度
+    改进点：
+    1. DAG 执行引擎 - 支持任务并行执行
+    2. 增强的上下文管理 - 结构化上下文传递，避免字符串拼接
+    3. 失败处理与重试 - 子任务失败自动重试
+    4. 执行计划可视化 - 生成 DAG 可视化数据
+    5. 流式状态更新 - 实时任务进度和状态
     """
 
-    # 任务分析提示词（V2 版本，支持三种模式）
-    TASK_ANALYSIS_PROMPT_V2 = """你是一个高级任务规划专家。分析用户任务并选择最优执行模式。
+    # 任务分析提示词
+    TASK_ANALYSIS_PROMPT = """你是一个任务规划专家。分析用户的任务，判断复杂度并制定执行计划。
 
-**可用智能体**:
+可用智能体：
 {agents_info}
 
-**用户任务**:
+请分析以下任务：
 "{task}"
 
-**执行模式说明**:
-1. **direct_answer**: 简单对话、闲聊、无需调用工具
-   - 示例: "你好", "今天天气怎么样", "介绍一下自己"
+你需要判断：
+1. 执行模式（simple/sequential/parallel/dag）
+   - simple: 单个智能体直接处理
+   - sequential: 多个步骤，必须按顺序执行
+   - parallel: 多个独立步骤，可以并行执行
+   - dag: 复杂的依赖关系，需要 DAG 执行
 
-2. **static_plan**: 复杂任务，需要多步骤，可预先规划 DAG
-   - 示例: "查询数据 → 分析 → 生成报告"
-   - 任务依赖明确，可以并行执行
+2. 子任务分解
+   - 每个子任务必须指定使用的智能体
+   - 明确标注依赖关系（depends_on）
 
-3. **hybrid_plan**: 超复杂任务，部分可规划，部分需动态决策
-   - 示例: "先查询数据（静态），再根据结果动态探索（动态）"
-   - 适合不确定性高、需要反馈循环的任务
-
-**请输出 JSON**:
-
-**模式 1: direct_answer**
+请以 JSON 格式返回：
 {{
-  "mode": "direct_answer",
-  "reasoning": "分析理由",
-  "answer": "直接回答内容"
-}}
-
-**模式 2: static_plan**
-{{
-  "mode": "static_plan",
-  "reasoning": "分析理由",
-  "execution_strategy": "sequential|parallel",
+  "mode": "simple|sequential|parallel|dag",
+  "reasoning": "你的分析理由",
   "subtasks": [
     {{
       "id": "task_1",
-      "description": "任务描述",
-      "agent": "agent_name",
-      "depends_on": [],
-      "estimated_complexity": 3,
-      "optional": false,
-      "fallback_strategy": "retry|skip|use_cache|ask_llm|abort"
+      "order": 1,
+      "description": "子任务描述",
+      "agent_name": "智能体名称",
+      "depends_on": []
     }}
   ]
 }}
 
-**模式 3: hybrid_plan**
+**重要规则：**
+- subtasks 数组不能为空
+- 如果是 simple 模式，只需 1 个子任务
+- 每个子任务必须有唯一的 id（如 "task_1", "task_2"）
+- depends_on 使用任务 ID，不是 order
+
+**示例1：简单任务**
+输入: "查询南宁2023年洪涝灾害数据"
+输出:
 {{
-  "mode": "hybrid_plan",
-  "reasoning": "分析理由",
-  "stages": [
+  "mode": "simple",
+  "reasoning": "单一查询任务，qa_agent 可以直接完成",
+  "subtasks": [
     {{
-      "stage_id": "stage_1",
-      "name": "阶段名称",
-      "type": "static|dynamic",
-      "description": "阶段描述",
-      "depends_on": [],
-
-      // type=static 时:
-      "subtasks": [...],  // 同 static_plan
-
-      // type=dynamic 时:
-      "max_rounds": 5,
-      "available_agents": ["agent1", "agent2"],
-      "goal": "动态阶段的目标"
+      "id": "task_1",
+      "order": 1,
+      "description": "查询南宁2023年洪涝灾害数据",
+      "agent_name": "qa_agent",
+      "depends_on": []
     }}
   ]
 }}
 
-**选择建议**:
-- 95% 的任务应该是 direct_answer 或 static_plan
-- 只有非常复杂、不确定性高的任务才用 hybrid_plan
-- 如果不确定，优先选择更简单的模式
+**示例2：问候/闲聊**
+输入: "你好"
+输出:
+{{
+  "mode": "simple",
+  "reasoning": "这是简单的问候，不需要调用专业智能体，master_agent 直接回复即可",
+  "subtasks": [
+    {{
+      "id": "task_1",
+      "order": 1,
+      "description": "回复用户问候",
+      "agent_name": "master_agent_v2",
+      "depends_on": []
+    }}
+  ]
+}}
 
-**fallback_strategy 说明**:
-- retry: 重试（默认）
-- skip: 跳过（适合可选任务）
-- use_cache: 使用缓存
-- ask_llm: 询问 LLM 替代方案
-- abort: 中止整个流程
+**示例3：并行任务**
+输入: "查询广西2023年和2024年的台风数据，并对比分析"
+输出:
+{{
+  "mode": "parallel",
+  "reasoning": "2023和2024年的数据查询可以并行，然后再对比",
+  "subtasks": [
+    {{
+      "id": "task_1",
+      "order": 1,
+      "description": "查询广西2023年台风数据",
+      "agent_name": "qa_agent",
+      "depends_on": []
+    }},
+    {{
+      "id": "task_2",
+      "order": 1,
+      "description": "查询广西2024年台风数据",
+      "agent_name": "qa_agent",
+      "depends_on": []
+    }},
+    {{
+      "id": "task_3",
+      "order": 2,
+      "description": "对比分析2023和2024年台风数据",
+      "agent_name": "qa_agent",
+      "depends_on": ["task_1", "task_2"]
+    }}
+  ]
+}}
+
+**注意：如果任务是问候、闲聊或不需要专业知识的通用对话，agent_name 必须设为 "master_agent_v2"**
 
 只返回 JSON，不要有其他内容。
+"""
+
+    # 结果整合提示词
+    RESULT_SYNTHESIS_PROMPT = """你是一个结果整合专家。将多个智能体的执行结果整合为一个完整的回答。
+
+原始任务：
+"{task}"
+
+各智能体执行结果：
+{results}
+
+请整合以上结果，生成一个完整、连贯的回答。要求：
+1. 逻辑清晰，结构合理
+2. 突出重点信息
+3. 如果有图表，说明图表展示的内容
+4. 给出总结性的结论
+
+请直接返回整合后的回答，不要有额外的说明。
 """
 
     def __init__(
@@ -141,7 +172,7 @@ class MasterAgentV2(BaseAgent):
         system_config=None
     ):
         """
-        初始化 MasterAgentV2
+        初始化 MasterAgent V2
 
         Args:
             llm_adapter: LLM 适配器
@@ -151,13 +182,12 @@ class MasterAgentV2(BaseAgent):
         """
         super().__init__(
             name='master_agent_v2',
-            description='MasterAgent V2 - 增强的主协调智能体，支持 DAG 和混合模式执行',
+            description='MasterAgent V2 - 支持并行执行的增强版主协调智能体',
             capabilities=[
-                'task_analysis_v2',
+                'task_analysis',
                 'dag_execution',
-                'hybrid_execution',
-                'failure_recovery',
-                'stream_execution',
+                'parallel_execution',
+                'failure_retry',
                 'context_management'
             ],
             llm_adapter=llm_adapter,
@@ -166,27 +196,28 @@ class MasterAgentV2(BaseAgent):
         )
 
         self.orchestrator = orchestrator
-        self.scheduler = HybridScheduler(orchestrator, self)
 
-        self.logger.info("MasterAgentV2 初始化完成")
+        # 创建 DAG 执行器
+        self.dag_executor = DAGExecutor(
+            orchestrator=orchestrator,
+            max_workers=3,  # 最多3个任务并行
+            max_retries=1,  # 失败重试1次
+            retry_delay=1.0  # 重试延迟1秒
+        )
+
+        logger.info("MasterAgent V2 初始化完成")
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
-        """
-        判断是否能处理该任务
-
-        V2 作为统一入口，处理所有任务
-        """
+        """判断是否能处理该任务（处理所有任务）"""
         return True
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """
-        同步执行任务（阻塞版本）
-
-        注意：V2 主要设计为异步流式执行，此方法为兼容性保留
+        执行任务（非流式）
 
         Args:
             task: 用户任务
-            context: 上下文
+            context: 智能体上下文
 
         Returns:
             AgentResponse
@@ -194,152 +225,67 @@ class MasterAgentV2(BaseAgent):
         start_time = time.time()
 
         try:
-            # 升级为增强上下文
-            enhanced_context = self._ensure_enhanced_context(context)
+            # 1. 分析任务并生成执行计划
+            logger.info(f"[MasterAgent V2] 开始分析任务: {task}")
+            plan = self._analyze_and_plan(task, context)
 
-            # 1. 分析任务
-            self.logger.info(f"[MasterAgentV2] 分析任务: {task}")
-            analysis = self._analyze_task_v2(task, enhanced_context)
-
-            if not analysis:
+            if not plan:
                 return AgentResponse(
                     success=False,
                     error="任务分析失败",
                     agent_name=self.name
                 )
 
-            # 2. 创建执行计划
-            try:
-                plan = create_execution_plan(analysis)
-            except ValueError as e:
-                return AgentResponse(
-                    success=False,
-                    error=f"创建执行计划失败: {e}",
-                    agent_name=self.name
-                )
+            # 2. 创建增强上下文
+            enhanced_ctx = EnhancedContext(session_id=context.session_id)
 
-            self.logger.info(f"[MasterAgentV2] 执行模式: {plan.mode.value}")
+            # 3. 执行计划
+            logger.info(f"[MasterAgent V2] 执行模式: {plan.mode.value}")
+            execution_result = self.dag_executor.execute_plan(
+                plan=plan,
+                context=enhanced_ctx,
+                agent_context=context
+            )
 
-            # 3. 执行计划（使用 asyncio 运行异步代码）
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            try:
-                result = loop.run_until_complete(
-                    self._execute_plan_sync(plan, enhanced_context)
-                )
-            finally:
-                loop.close()
+            # 4. 整合结果
+            if plan.mode == ExecutionMode.SIMPLE:
+                # 单智能体，直接返回结果
+                if plan.subtasks and plan.subtasks[0].result:
+                    task_result = enhanced_ctx.get_task_result(plan.subtasks[0].id)
+                    final_content = task_result.content if task_result else "执行完成"
+                else:
+                    final_content = "任务执行完成"
+            else:
+                # 多智能体，整合结果
+                final_content = self._synthesize_results(task, enhanced_ctx)
 
             execution_time = time.time() - start_time
 
             return AgentResponse(
-                success=True,
-                content=result['content'],
+                success=execution_result['success'],
+                content=final_content,
                 data={
-                    'plan_summary': plan.get_summary(),
-                    'stats': enhanced_context.get_summary(),
-                    'execution_details': result.get('details')
+                    'plan': plan.to_dict(),
+                    'execution_result': execution_result
+                },
+                metadata={
+                    'mode': plan.mode.value,
+                    'total_tasks': execution_result['total_tasks'],
+                    'completed_tasks': execution_result['completed_tasks'],
+                    'failed_tasks': execution_result['failed_tasks']
                 },
                 agent_name=self.name,
                 execution_time=execution_time
             )
 
         except Exception as e:
-            self.logger.error(f"[MasterAgentV2] 执行失败: {e}", exc_info=True)
+            logger.error(f"[MasterAgent V2] 执行失败: {e}", exc_info=True)
             return AgentResponse(
                 success=False,
-                error=f"执行失败: {str(e)}",
+                error=str(e),
                 agent_name=self.name,
                 execution_time=time.time() - start_time
             )
-
-    async def execute_stream(
-        self,
-        task: str,
-        context: AgentContext
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        异步流式执行任务（推荐使用）
-
-        Args:
-            task: 用户任务
-            context: 上下文
-
-        Yields:
-            执行事件流
-        """
-        start_time = time.time()
-
-        try:
-            # 升级为增强上下文
-            enhanced_context = self._ensure_enhanced_context(context)
-
-            # 1. 分析任务
-            self.logger.info(f"[MasterAgentV2] 分析任务: {task}")
-
-            yield {
-                "type": "task_analysis_start",
-                "message": "正在分析任务..."
-            }
-
-            analysis = self._analyze_task_v2(task, enhanced_context)
-
-            if not analysis:
-                yield {
-                    "type": "error",
-                    "content": "任务分析失败"
-                }
-                return
-
-            # 发送分析结果
-            yield {
-                "type": "task_analysis_complete",
-                "mode": analysis.get('mode'),
-                "reasoning": analysis.get('reasoning', '')
-            }
-
-            # 2. 创建执行计划
-            try:
-                plan = create_execution_plan(analysis)
-            except ValueError as e:
-                yield {
-                    "type": "error",
-                    "content": f"创建执行计划失败: {e}"
-                }
-                return
-
-            self.logger.info(
-                f"[MasterAgentV2] 执行模式: {plan.mode.value}, "
-                f"计划摘要: {plan.get_summary()}"
-            )
-
-            # 发送计划摘要
-            yield {
-                "type": "execution_plan",
-                "plan_summary": plan.get_summary()
-            }
-
-            # 3. 执行计划（流式）
-            async for event in self.scheduler.execute_plan(plan, enhanced_context):
-                yield event
-
-            # 4. 发送执行统计
-            execution_time = time.time() - start_time
-            stats = enhanced_context.get_summary()
-            stats['execution_time'] = execution_time
-
-            yield {
-                "type": "execution_complete",
-                "stats": stats
-            }
-
-        except Exception as e:
-            self.logger.error(f"[MasterAgentV2] 流式执行失败: {e}", exc_info=True)
-            yield {
-                "type": "error",
-                "content": str(e)
-            }
 
     def stream_execute(
         self,
@@ -347,67 +293,131 @@ class MasterAgentV2(BaseAgent):
         context: AgentContext
     ) -> Generator[Dict[str, Any], None, None]:
         """
-        同步流式执行任务（兼容 V1 接口）
+        流式执行任务
 
-        这是 execute_stream 的同步包装器，用于兼容现有的同步代码（如 routes）
+        Yields:
+            Dict: 事件字典
+        """
+        try:
+            # 1. 分析任务并生成执行计划
+            logger.info(f"[MasterAgent V2] 流式执行 - 开始分析任务: {task}")
+
+            yield {
+                'type': 'status',
+                'content': '正在分析任务...'
+            }
+
+            plan = self._analyze_and_plan(task, context)
+
+            if not plan:
+                yield {'type': 'error', 'content': '任务分析失败'}
+                return
+
+            # 2. 发送执行计划
+            yield {
+                'type': 'plan',
+                'plan': plan.to_dict(),
+                'mode': plan.mode.value,
+                'subtask_count': len(plan.subtasks)
+            }
+
+            # ✨ 兼容 V1：发送 task_analysis 事件
+            yield {
+                'type': 'task_analysis',
+                'complexity': plan.mode.value,
+                'subtask_count': len(plan.subtasks),
+                'reasoning': plan.reasoning
+            }
+
+            # 3. 创建增强上下文
+            enhanced_ctx = EnhancedContext(session_id=context.session_id)
+
+            # 4. 执行计划（通过生成器发送流式事件）
+            logger.info(f"[MasterAgent V2] 开始执行计划，模式: {plan.mode.value}")
+
+            # ✨ 使用生成器版本的执行计划，实时转发事件
+            execution_result = None
+            for event in self.dag_executor.execute_plan_stream(
+                plan=plan,
+                context=enhanced_ctx,
+                agent_context=context
+            ):
+                # 实时转发事件到前端
+                if event.get('type') == 'execution_result':
+                    # 这是最终的执行结果，保存下来
+                    execution_result = event.get('result')
+                else:
+                    # 其他事件立即转发
+                    yield event
+
+            # 如果没有收到执行结果，创建一个默认结果
+            if execution_result is None:
+                execution_result = {
+                    'success': False,
+                    'total_tasks': len(plan.subtasks),
+                    'completed_tasks': 0,
+                    'failed_tasks': 0,
+                    'execution_time': 0
+                }
+
+            # 5. 整合结果（流式）
+            if plan.mode != ExecutionMode.SIMPLE and len(plan.subtasks) > 1:
+                yield {
+                    'type': 'status',
+                    'content': '正在整合结果...'
+                }
+
+                # 流式整合
+                for chunk in self._synthesize_results_stream(task, enhanced_ctx):
+                    yield {
+                        'type': 'chunk',
+                        'content': chunk.get('content', '')
+                    }
+                    if chunk.get('finish_reason') in ['stop', 'length']:
+                        break
+            else:
+                # 单智能体，发送最终结果
+                if plan.subtasks and plan.subtasks[0].result:
+                    task_result = enhanced_ctx.get_task_result(plan.subtasks[0].id)
+                    if task_result:
+                        yield {
+                            'type': 'chunk',
+                            'content': str(task_result.content)
+                        }
+
+            # 6. 发送完成事件
+            yield {
+                'type': 'execution_complete',
+                'success': execution_result['success'],
+                'summary': {
+                    'total_tasks': execution_result['total_tasks'],
+                    'completed_tasks': execution_result['completed_tasks'],
+                    'failed_tasks': execution_result['failed_tasks'],
+                    'execution_time': execution_result['execution_time']
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"[MasterAgent V2] 流式执行失败: {e}", exc_info=True)
+            yield {
+                'type': 'error',
+                'content': str(e)
+            }
+
+    def _analyze_and_plan(
+        self,
+        task: str,
+        context: AgentContext
+    ) -> Optional[ExecutionPlan]:
+        """
+        分析任务并生成执行计划
 
         Args:
             task: 用户任务
             context: 上下文
 
-        Yields:
-            执行事件流
-        """
-        # 使用 asyncio.run 执行异步生成器
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            async_gen = self.execute_stream(task, context)
-
-            # 手动迭代异步生成器
-            while True:
-                try:
-                    event = loop.run_until_complete(async_gen.__anext__())
-                    yield event
-                except StopAsyncIteration:
-                    break
-        finally:
-            loop.close()
-
-    def _ensure_enhanced_context(
-        self,
-        context: AgentContext
-    ) -> EnhancedAgentContext:
-        """
-        确保上下文是 EnhancedAgentContext
-
-        Args:
-            context: 原始上下文
-
         Returns:
-            EnhancedAgentContext
-        """
-        if isinstance(context, EnhancedAgentContext):
-            return context
-
-        # 升级为增强上下文
-        return EnhancedAgentContext.from_base(context, self.llm_adapter)
-
-    def _analyze_task_v2(
-        self,
-        task: str,
-        context: EnhancedAgentContext
-    ) -> Optional[Dict[str, Any]]:
-        """
-        分析任务（V2 版本，支持三种模式）
-
-        Args:
-            task: 用户任务
-            context: 增强上下文
-
-        Returns:
-            分析结果字典
+            ExecutionPlan 或 None
         """
         try:
             # 获取可用智能体信息
@@ -415,43 +425,33 @@ class MasterAgentV2(BaseAgent):
             agents_info = "\n".join([
                 f"- {agent['name']}: {agent['description']}"
                 for agent in agents
-                if agent['name'] not in ['master_agent', 'master_agent_v2']
+                if not agent['name'].startswith('master_agent')  # 排除所有 master 类型智能体
             ])
 
             # 构建提示词
-            prompt = self.TASK_ANALYSIS_PROMPT_V2.format(
+            prompt = self.TASK_ANALYSIS_PROMPT.format(
                 agents_info=agents_info,
                 task=task
             )
 
             # 调用 LLM 分析
             messages = [
-                {
-                    "role": "system",
-                    "content": "你是一个高级任务规划专家，擅长分析任务复杂度并选择最优执行策略。"
-                },
+                {"role": "system", "content": "你是一个任务规划专家，擅长分析任务复杂度和制定DAG执行计划。"},
                 {"role": "user", "content": prompt}
             ]
 
             llm_config = self.get_llm_config()
-            analysis_temperature = self.get_custom_param('analysis_temperature', default=0.0)
 
             response = self.llm_adapter.chat_completion(
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
-                temperature=analysis_temperature,
-                max_tokens=llm_config.get('max_tokens', 2000),
-                timeout=llm_config.get('timeout'),
-                max_retries=llm_config.get('retry_attempts'),
-                response_format={"type": "json_object"}
+                temperature=0.0,  # 任务分析需要确定性
+                max_tokens=llm_config.get('max_tokens', 2000)
             )
 
-            # 记录 LLM 调用
-            context.increment_llm_calls()
-
             if response.error:
-                self.logger.error(f"LLM 分析失败: {response.error}")
+                logger.error(f"LLM 分析失败: {response.error}")
                 return None
 
             # 解析 JSON
@@ -463,100 +463,130 @@ class MasterAgentV2(BaseAgent):
 
             analysis = json.loads(content)
 
-            self.logger.info(
-                f"[MasterAgentV2] 任务分析完成: 模式={analysis.get('mode')}, "
-                f"理由={analysis.get('reasoning', '')[:100]}"
+            # 构建执行计划
+            mode_str = analysis.get('mode', 'simple')
+            mode = ExecutionMode(mode_str)
+
+            subtasks = []
+            for st in analysis.get('subtasks', []):
+                subtask = SubTask(
+                    id=st['id'],
+                    order=st['order'],
+                    description=st['description'],
+                    agent_name=st['agent_name'],
+                    depends_on=st.get('depends_on', [])
+                )
+                subtasks.append(subtask)
+
+            plan = ExecutionPlan(
+                mode=mode,
+                reasoning=analysis.get('reasoning', ''),
+                subtasks=subtasks
             )
 
-            return analysis
+            logger.info(f"[MasterAgent V2] 执行计划生成成功: mode={mode.value}, subtasks={len(subtasks)}")
+
+            return plan
 
         except json.JSONDecodeError as e:
-            self.logger.error(f"解析 LLM 响应失败: {e}")
-            self.logger.error(f"原始响应: {response.content}")
+            logger.error(f"解析 LLM 响应失败: {e}")
+            logger.error(f"原始响应: {response.content}")
             return None
         except Exception as e:
-            self.logger.error(f"任务分析失败: {e}", exc_info=True)
+            logger.error(f"任务分析失败: {e}", exc_info=True)
             return None
 
-    async def _execute_plan_sync(
+    def _synthesize_results(
         self,
-        plan: ExecutionPlan,
-        context: EnhancedAgentContext
-    ) -> Dict[str, Any]:
+        original_task: str,
+        context: EnhancedContext
+    ) -> str:
         """
-        同步执行计划（收集所有流式事件）
+        整合多个任务的结果（非流式）
 
         Args:
-            plan: 执行计划
+            original_task: 原始任务
             context: 增强上下文
 
         Returns:
-            执行结果字典
+            整合后的答案
         """
-        content_chunks = []
-        details = []
+        try:
+            results_summary = context.get_all_results_summary()
 
-        async for event in self.scheduler.execute_plan(plan, context):
-            event_type = event.get('type')
+            prompt = self.RESULT_SYNTHESIS_PROMPT.format(
+                task=original_task,
+                results=results_summary
+            )
 
-            # 收集内容块
-            if event_type == 'chunk':
-                content_chunks.append(event.get('content', ''))
-
-            # 收集详细信息
-            details.append(event)
-
-        # 拼接内容
-        full_content = ''.join(content_chunks)
-
-        return {
-            'content': full_content,
-            'details': details
-        }
-
-    def get_info(self) -> Dict[str, Any]:
-        """
-        获取智能体信息
-
-        Returns:
-            智能体信息字典
-        """
-        base_info = super().get_info()
-
-        base_info.update({
-            'version': 'v2',
-            'execution_modes': [
-                'direct_answer',
-                'static_plan',
-                'hybrid_plan'
-            ],
-            'features': [
-                'DAG 调度',
-                '混合模式执行',
-                '失败恢复',
-                '流式执行',
-                '增强上下文管理'
+            messages = [
+                {"role": "system", "content": "你是一个结果整合专家。"},
+                {"role": "user", "content": prompt}
             ]
-        })
 
-        return base_info
+            llm_config = self.get_llm_config()
 
+            response = self.llm_adapter.chat_completion(
+                messages=messages,
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=0.3,
+                max_tokens=llm_config.get('max_tokens', 2000)
+            )
 
-# 便捷函数：从 V1 迁移到 V2
-def upgrade_to_v2(master_agent_v1, orchestrator) -> MasterAgentV2:
-    """
-    从 MasterAgent V1 升级到 V2
+            if response.error:
+                logger.error(f"结果整合失败: {response.error}")
+                return results_summary  # 降级方案
 
-    Args:
-        master_agent_v1: V1 实例
-        orchestrator: 编排器
+            return response.content
 
-    Returns:
-        MasterAgentV2 实例
-    """
-    return MasterAgentV2(
-        llm_adapter=master_agent_v1.llm_adapter,
-        orchestrator=orchestrator,
-        agent_config=master_agent_v1.agent_config,
-        system_config=master_agent_v1.system_config
-    )
+        except Exception as e:
+            logger.error(f"结果整合异常: {e}", exc_info=True)
+            return context.get_all_results_summary()
+
+    def _synthesize_results_stream(
+        self,
+        original_task: str,
+        context: EnhancedContext
+    ):
+        """
+        流式整合多个任务的结果
+
+        Yields:
+            Dict: {"content": "...", "finish_reason": "..."}
+        """
+        try:
+            results_summary = context.get_all_results_summary()
+
+            prompt = self.RESULT_SYNTHESIS_PROMPT.format(
+                task=original_task,
+                results=results_summary
+            )
+
+            messages = [
+                {"role": "system", "content": "你是一个结果整合专家。"},
+                {"role": "user", "content": prompt}
+            ]
+
+            llm_config = self.get_llm_config()
+
+            for chunk in self.llm_adapter.chat_completion_stream(
+                messages=messages,
+                provider=llm_config.get('provider'),
+                model=llm_config.get('model_name'),
+                temperature=0.3,
+                max_tokens=llm_config.get('max_tokens', 2000)
+            ):
+                if 'error' in chunk:
+                    logger.error(f"流式整合失败: {chunk['error']}")
+                    yield {"content": results_summary, "finish_reason": "stop"}
+                    break
+
+                yield chunk
+
+                if chunk.get('finish_reason') in ['stop', 'length']:
+                    break
+
+        except Exception as e:
+            logger.error(f"流式整合异常: {e}", exc_info=True)
+            yield {"content": context.get_all_results_summary(), "finish_reason": "stop"}

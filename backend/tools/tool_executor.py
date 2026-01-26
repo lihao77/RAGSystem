@@ -1060,27 +1060,38 @@ def generate_chart(data, chart_type=None, title="",
         # 2. 数据加载
         df = None
         if isinstance(data, str):
-            if os.path.exists(data):
-                try:
-                    if data.endswith('.csv'):
-                        df = pd.read_csv(data)
-                    else:
-                        df = pd.read_json(data)
-                except Exception:
-                     # 兜底：尝试标准 JSON 读取
+            # 首先尝试解析为 JSON 字符串
+            try:
+                content = json.loads(data)
+                if isinstance(content, list):
+                    df = pd.DataFrame(content)
+                elif isinstance(content, dict) and 'results' in content:
+                    df = pd.DataFrame(content['results'])
+                else:
+                    return error_response("JSON 数据格式错误：需要列表或包含 results 字段的字典")
+            except json.JSONDecodeError:
+                # 如果不是 JSON 字符串，尝试作为文件路径处理
+                if os.path.exists(data):
                     try:
-                        with open(data, 'r', encoding='utf-8') as f:
-                            content = json.load(f)
-                            if isinstance(content, list):
-                                df = pd.DataFrame(content)
-                            elif isinstance(content, dict) and 'results' in content:
-                                df = pd.DataFrame(content['results'])
-                            else:
-                                return error_response("文件内容无法解析为表格")
-                    except Exception as e:
-                        return error_response(f"无法读取数据文件: {str(e)}")
-            else:
-                return error_response(f"数据文件不存在: {data}")
+                        if data.endswith('.csv'):
+                            df = pd.read_csv(data)
+                        else:
+                            df = pd.read_json(data)
+                    except Exception:
+                         # 兜底：尝试标准 JSON 读取
+                        try:
+                            with open(data, 'r', encoding='utf-8') as f:
+                                content = json.load(f)
+                                if isinstance(content, list):
+                                    df = pd.DataFrame(content)
+                                elif isinstance(content, dict) and 'results' in content:
+                                    df = pd.DataFrame(content['results'])
+                                else:
+                                    return error_response("文件内容无法解析为表格")
+                        except Exception as e:
+                            return error_response(f"无法读取数据文件: {str(e)}")
+                else:
+                    return error_response(f"数据既不是有效的 JSON 字符串，也不是存在的文件路径: {data[:100]}...")
         elif isinstance(data, list):
             df = pd.DataFrame(data)
         else:
@@ -1233,26 +1244,37 @@ def generate_map(data, map_type="heatmap", title="", name_field="", value_field=
         # 2. 数据加载
         df = None
         if isinstance(data, str):
-            if os.path.exists(data):
-                try:
-                    if data.endswith('.csv'):
-                        df = pd.read_csv(data)
-                    else:
-                        df = pd.read_json(data)
-                except Exception:
+            # 首先尝试解析为 JSON 字符串
+            try:
+                content = json.loads(data)
+                if isinstance(content, list):
+                    df = pd.DataFrame(content)
+                elif isinstance(content, dict) and 'results' in content:
+                    df = pd.DataFrame(content['results'])
+                else:
+                    return error_response("JSON 数据格式错误：需要列表或包含 results 字段的字典")
+            except json.JSONDecodeError:
+                # 如果不是 JSON 字符串，尝试作为文件路径处理
+                if os.path.exists(data):
                     try:
-                        with open(data, 'r', encoding='utf-8') as f:
-                            content = json.load(f)
-                            if isinstance(content, list):
-                                df = pd.DataFrame(content)
-                            elif isinstance(content, dict) and 'results' in content:
-                                df = pd.DataFrame(content['results'])
-                            else:
-                                return error_response("文件内容无法解析为表格")
-                    except Exception as e:
-                        return error_response(f"无法读取数据文件: {str(e)}")
-            else:
-                return error_response(f"数据文件不存在: {data}")
+                        if data.endswith('.csv'):
+                            df = pd.read_csv(data)
+                        else:
+                            df = pd.read_json(data)
+                    except Exception:
+                        try:
+                            with open(data, 'r', encoding='utf-8') as f:
+                                content = json.load(f)
+                                if isinstance(content, list):
+                                    df = pd.DataFrame(content)
+                                elif isinstance(content, dict) and 'results' in content:
+                                    df = pd.DataFrame(content['results'])
+                                else:
+                                    return error_response("文件内容无法解析为表格")
+                        except Exception as e:
+                            return error_response(f"无法读取数据文件: {str(e)}")
+                else:
+                    return error_response(f"数据既不是有效的 JSON 字符串，也不是存在的文件路径: {data[:100]}...")
         elif isinstance(data, list):
             df = pd.DataFrame(data)
         else:
@@ -1643,8 +1665,22 @@ def process_data_file(source_path, python_code, description=""):
         # 7. 读取处理后的完整数据
         file_size = os.path.getsize(result_path)
 
-        with open(result_path, 'r', encoding='utf-8') as f:
-            processed_data = json.load(f)
+        # 尝试读取结果文件，支持 JSON 和 CSV 格式
+        try:
+            with open(result_path, 'r', encoding='utf-8') as f:
+                processed_data = json.load(f)
+        except json.JSONDecodeError:
+            # 如果不是 JSON，尝试作为 CSV 读取
+            try:
+                df = pd.read_csv(result_path)
+                processed_data = df.to_dict('records')
+                logger.info(f"结果文件是 CSV 格式，已转换为 {len(processed_data)} 条记录")
+            except Exception as csv_error:
+                # 如果也不是 CSV，尝试作为文本读取
+                with open(result_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    logger.warning(f"结果文件既不是 JSON 也不是 CSV，返回原始文本（前500字符）")
+                    return error_response(f"结果文件格式不支持。请确保代码将数据保存为 JSON 格式（使用 json.dump）。\n文件内容预览：{content[:500]}")
 
         # 8. 使用标准化响应，自动生成元数据和摘要
         # 直接传递处理后的数据，让 success_response 自动分析

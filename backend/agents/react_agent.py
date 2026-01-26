@@ -221,12 +221,21 @@ class ReActAgent(BaseAgent):
 
 **重要规则：**
 1. **只能使用上面"可用工具"部分列出的工具**，不要使用其他工具
-2. **可以一次执行多个独立的工具调用**（actions 是数组）
-   - 如果多个工具调用之间没有依赖关系，可以在一轮中同时调用
-   - 例如：同时查询多个地区的数据、同时检索不同类型的信息
-3. **有依赖关系的工具调用需要分轮执行**
-   - 如果工具B需要工具A的结果，则分两轮：先调用A，下一轮基于结果调用B
-4. 在 thought 中解释你为什么选择这些工具
+2. **thought 必须简洁**（不超过100字）
+   - 只说明核心决策：用什么工具、为什么用
+   - 不要重复描述数据内容或详细推理过程
+   - 让工具调用本身展现你的思路
+   - 示例：
+     - ❌ 差："用户要求查询广西各市受灾人口数据，数据包含10个城市，字段有城市名、受灾人口、紧急转移人口等，我需要先用transform_data转换格式，然后用generate_chart生成图表，柱状图比较适合..."
+     - ✅ 好："使用transform_data转换为列表格式，然后用generate_chart生成柱状图展示各市受灾人口对比"
+3. **可以一次执行多个工具调用**（actions 是数组）
+   - 如果工具之间没有依赖，可以并行执行（例如：同时查询多个地区）
+   - 如果工具B依赖工具A的结果，可以在同一轮中链式调用，使用占位符引用前面工具的结果
+4. **链式调用：使用占位符引用前面工具的结果**
+   - 格式：{{result_N}} 表示引用第N个工具的结果（N从1开始）
+   - 示例：第2个工具可以用 {{result_1}} 引用第1个工具的结果
+   - 也可以使用 JSON 路径：{{result_1.data.results}} 提取特定字段
+   - 注意：只能引用前面的工具（如第3个工具可以引用 {{result_1}} 或 {{result_2}}）
 5. 当你有足够信息回答问题时，在 final_answer 中给出答案
 6. 如果工具返回了错误，在下一轮 thought 中分析原因并调整策略
 
@@ -427,16 +436,21 @@ class ReActAgent(BaseAgent):
                     }
                     return
 
-                # 检查是否需要执行工具（支持多个工具并行）
+                # 检查是否需要执行工具（支持多个工具并行和链式调用）
                 if actions and len(actions) > 0:
                     self.logger.info(f"[ReAct] 执行 {len(actions)} 个工具调用")
 
                     # 收集所有工具的执行结果
                     observations = []
+                    # 🔗 链式调用支持：存储每个工具的结果，供后续工具引用
+                    tool_results = {}
 
                     for idx, action in enumerate(actions, 1):
                         tool_name = action.get('tool')
                         arguments = action.get('arguments', {})
+
+                        # 🔗 替换参数中的占位符
+                        arguments = self._resolve_tool_references(arguments, tool_results, idx)
 
                         if not tool_name:
                             continue
@@ -532,6 +546,9 @@ class ReActAgent(BaseAgent):
                             'arguments': arguments,
                             'result': result
                         })
+
+                        # 🔗 存储工具结果供后续工具引用（按索引）
+                        tool_results[idx] = result
 
                         # 格式化观察结果（使用新的格式化器）
                         is_skills_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
@@ -814,3 +831,154 @@ class ReActAgent(BaseAgent):
         ReAct Agent 始终返回 True，让 MasterAgent 通过 LLM 智能分析来决定路由
         """
         return True
+
+    def _safe_json_dumps(self, obj):
+        """
+        安全地序列化对象为 JSON 字符串，处理 NaN/Infinity 等特殊值
+
+        Args:
+            obj: 要序列化的对象
+
+        Returns:
+            JSON 字符串
+        """
+        import json
+        import math
+
+        def clean_value(value):
+            """递归清理 NaN 和 Infinity"""
+            if isinstance(value, float):
+                if math.isnan(value) or math.isinf(value):
+                    return None  # 将 NaN/Inf 转换为 null
+                return value
+            elif isinstance(value, dict):
+                return {k: clean_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [clean_value(item) for item in value]
+            else:
+                return value
+
+        cleaned_obj = clean_value(obj)
+        return json.dumps(cleaned_obj, ensure_ascii=False)
+
+    def _resolve_tool_references(self, arguments: dict, tool_results: dict, current_idx: int) -> dict:
+        """
+        解析工具参数中的引用占位符，替换为前面工具的实际结果
+
+        支持的占位符格式：
+        - {result_N}  - 引用第N个工具的完整结果
+        - {result_N.data.results} - 引用第N个工具结果中的特定字段（JSON路径）
+        - {result_1} 到 {result_N-1}  - 只能引用当前工具之前的结果
+
+        Args:
+            arguments: 工具的原始参数字典
+            tool_results: 已执行工具的结果字典 {idx: result}
+            current_idx: 当前工具的索引（从1开始）
+
+        Returns:
+            替换后的参数字典
+        """
+        import re
+        import json
+
+        def replace_placeholder(match):
+            """替换单个占位符"""
+            full_match = match.group(0)  # 完整的 {{...}}
+            ref_expr = match.group(1)     # {{}} 内的内容
+
+            # 解析引用：result_N 或 result_N.path.to.field
+            parts = ref_expr.split('.', 1)
+            base_ref = parts[0]  # result_N
+            json_path = parts[1] if len(parts) > 1 else None  # path.to.field
+
+            # 提取索引 N
+            if not base_ref.startswith('result_'):
+                self.logger.warning(f"[链式调用] 无效的占位符格式: {full_match}")
+                return full_match  # 保持原样
+
+            try:
+                ref_idx = int(base_ref.replace('result_', ''))
+            except ValueError:
+                self.logger.warning(f"[链式调用] 无法解析索引: {full_match}")
+                return full_match
+
+            # 检查是否引用了后面的工具（不允许）
+            if ref_idx >= current_idx:
+                self.logger.warning(
+                    f"[链式调用] 工具 {current_idx} 不能引用后面的工具 {ref_idx}"
+                )
+                return full_match
+
+            # 检查引用的工具是否已执行
+            if ref_idx not in tool_results:
+                self.logger.warning(
+                    f"[链式调用] 工具 {current_idx} 引用的工具 {ref_idx} 尚未执行"
+                )
+                return full_match
+
+            # 获取引用的结果
+            result = tool_results[ref_idx]
+
+            # 如果有 JSON 路径，提取特定字段
+            if json_path:
+                try:
+                    value = result
+                    for key in json_path.split('.'):
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                        else:
+                            self.logger.warning(
+                                f"[链式调用] 无法访问路径 {json_path}，当前值不是字典"
+                            )
+                            return full_match
+
+                    # 如果提取的值是字符串，直接返回；否则序列化为 JSON
+                    if isinstance(value, str):
+                        return value
+                    else:
+                        return self._safe_json_dumps(value)
+                except Exception as e:
+                    self.logger.warning(
+                        f"[链式调用] 提取 JSON 路径失败: {json_path}, 错误: {e}"
+                    )
+                    return full_match
+            else:
+                # 没有 JSON 路径，返回完整结果
+                # 如果结果是标准化响应，提取 data.results
+                if isinstance(result, dict) and result.get('success'):
+                    data = result.get('data', {})
+                    results = data.get('results')
+
+                    # 如果 results 是字符串（JSON字符串），直接返回
+                    if isinstance(results, str):
+                        return results
+                    # 如果 results 是字典或列表，序列化为 JSON
+                    elif results is not None:
+                        return self._safe_json_dumps(results)
+
+                # 兜底：返回整个 result 的 JSON 序列化
+                return self._safe_json_dumps(result)
+
+        # 递归处理参数字典中的所有字符串值
+        def process_value(value):
+            if isinstance(value, str):
+                # 查找所有占位符 {result_N} 或 {result_N.path} 并替换
+                # 使用单层花括号，更简洁直观
+                pattern = r'\{(result_\d+(?:\.[a-zA-Z0-9_\.]+)?)\}'
+                return re.sub(pattern, replace_placeholder, value)
+            elif isinstance(value, dict):
+                return {k: process_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [process_value(item) for item in value]
+            else:
+                return value
+
+        resolved = process_value(arguments)
+
+        # 如果有替换发生，记录日志
+        if resolved != arguments:
+            self.logger.info(
+                f"[链式调用] 工具 {current_idx} 的参数中发现占位符，已替换"
+            )
+
+        return resolved
