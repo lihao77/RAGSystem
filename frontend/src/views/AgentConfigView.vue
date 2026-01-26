@@ -160,7 +160,7 @@
               <el-select
                 v-model="currentConfig.tools.enabled_tools"
                 multiple
-                placeholder="选择启用的工具（留空表示全部启用）"
+                placeholder="选择工具（不选表示不启用任何工具）"
                 style="width: 100%"
                 clearable
                 filterable
@@ -194,9 +194,8 @@
                   <div style="font-size: 12px">
                     <strong>工具启用逻辑：</strong>
                     <ul style="margin: 4px 0 0 0; padding-left: 20px">
-                      <li>不选择任何工具 = 启用所有工具（默认）</li>
-                      <li>选择特定工具 = 仅启用选中的工具</li>
-                      <li>若要完全禁用该智能体，请关闭上方的"启用状态"开关</li>
+                      <li><strong>不选择任何工具</strong> = 不启用任何工具</li>
+                      <li><strong>选择特定工具</strong> = 仅启用选中的工具</li>
                     </ul>
                   </div>
                 </template>

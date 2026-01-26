@@ -275,15 +275,17 @@ class AgentLoader:
 
             # 根据配置过滤工具
             if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
+                # 配置了具体工具列表
                 enabled_tools = agent_config.tools.enabled_tools
                 filtered_tools = [
                     tool for tool in all_tools
                     if tool.get('function', {}).get('name') in enabled_tools
                 ]
-                logger.info(f"{agent_config.agent_name} 已根据配置过滤工具，启用: {enabled_tools}")
+                logger.info(f"{agent_config.agent_name} 启用工具: {enabled_tools}")
             else:
-                filtered_tools = all_tools
-                logger.info(f"{agent_config.agent_name} 启用所有工具")
+                # 空列表或未配置，不启用任何工具
+                filtered_tools = []
+                logger.info(f"{agent_config.agent_name} 未配置工具或配置为空列表，不启用任何工具")
 
             # 加载 Skills（根据配置过滤）
             skill_loader = get_skill_loader()

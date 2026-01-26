@@ -92,7 +92,7 @@ class AgentToolConfig(BaseModel):
     """
     enabled_tools: List[str] = Field(
         default_factory=list,
-        description="启用的工具名称列表，留空表示启用所有工具"
+        description="启用的工具名称列表。空列表表示不启用任何工具"
     )
 
 

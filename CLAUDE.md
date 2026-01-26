@@ -101,6 +101,164 @@ GET  /api/agent/config           # 获取所有智能体配置
 PUT  /api/agent/config/:name     # 更新智能体配置
 ```
 
+### Skills 系统（领域知识增强）
+
+Skills 系统为智能体提供领域知识注入能力，采用渐进式披露和依赖隔离设计。
+
+#### 核心特性
+
+1. **渐进式披露（Progressive Disclosure）**
+   - 初始仅加载 Skill 名称和描述（~100 tokens）
+   - 按需加载详细文档（Additional Resources）
+   - 零上下文执行工具脚本（Utility Scripts）
+   - 节省 60-95% 上下文消耗
+
+2. **依赖完全隔离**
+   - 每个 Skill 拥有独立的 Python 虚拟环境
+   - 自动创建和管理虚拟环境（`.venv/`）
+   - 自动安装 `requirements.txt` 中的依赖
+   - 避免版本冲突和环境污染
+   - 跨平台 UTF-8 编码支持
+
+3. **权限精细控制**
+   - 基于配置的 Skills 分配
+   - 每个智能体只能访问授权的 Skills
+   - 自动注入 Skills 系统工具（`load_skill_resource`, `execute_skill_script`）
+
+#### Skill 目录结构
+
+```
+backend/agents/skills/
+├── my-skill/
+│   ├── SKILL.md                # 主文件（必需，包含 YAML Front Matter）
+│   ├── requirements.txt        # 依赖声明（可选，用于脚本）
+│   ├── .venv/                  # 虚拟环境（自动创建）
+│   ├── additional-doc.md       # 引用文档（按需加载）
+│   └── scripts/
+│       └── process_data.py     # 工具脚本（零上下文执行）
+```
+
+#### SKILL.md 格式
+
+```markdown
+---
+name: my-skill
+description: 简短描述 Skill 的功能和使用场景
+---
+
+# Skill 标题
+
+## 核心流程
+简洁的操作步骤...
+
+## 详细文档
+完整说明请参见 [additional-doc.md](additional-doc.md)
+
+## 工具脚本
+使用验证脚本：
+\`\`\`bash
+python scripts/process_data.py
+\`\`\`
+```
+
+#### 智能体配置
+
+```yaml
+agents:
+  qa_agent:
+    tools:
+      enabled_tools:
+        - query_knowledge_graph_with_nl
+        # Skills 工具无需手动添加，会自动注入
+
+    skills:
+      enabled_skills:
+        - disaster-report-example  # 启用的 Skill 列表
+        - data-analysis-skill
+      auto_inject: true            # 自动注入 Skills 系统工具
+```
+
+#### Skills 系统工具
+
+当智能体启用 Skills 时，自动获得两个工具：
+
+1. **load_skill_resource** - 加载引用文档
+   ```json
+   {
+     "tool": "load_skill_resource",
+     "arguments": {
+       "skill_name": "my-skill",
+       "resource_file": "additional-doc.md"
+     }
+   }
+   ```
+
+2. **execute_skill_script** - 执行工具脚本（在隔离环境中）
+   ```json
+   {
+     "tool": "execute_skill_script",
+     "arguments": {
+       "skill_name": "my-skill",
+       "script_name": "process_data.py",
+       "arguments": []
+     }
+   }
+   ```
+
+#### 依赖隔离配置
+
+```yaml
+# backend/config/yaml/config.yaml
+skills:
+  # 隔离模式: venv (推荐) | docker (生产) | shared (开发)
+  isolation_mode: venv
+
+  # 自动安装依赖
+  auto_install_dependencies: true
+
+  # 虚拟环境目录名
+  venv_dir_name: .venv
+```
+
+#### 核心组件
+
+- **SkillLoader** (`backend/agents/skills/skill_loader.py`)
+  - 加载所有 Skills
+  - 解析 SKILL.md 的 YAML Front Matter
+  - 提供按需加载资源文件的接口
+
+- **SkillEnvironment** (`backend/agents/skills/skill_environment.py`)
+  - 管理虚拟环境（创建、依赖安装）
+  - 在隔离环境中执行脚本
+  - 强制 UTF-8 编码（解决 Windows GBK 问题）
+
+- **工具执行器** (`backend/tools/tool_executor.py`)
+  - `load_skill_resource()` - 加载资源文件
+  - `execute_skill_script()` - 执行脚本（调用 SkillEnvironment）
+
+#### 文档资源
+
+- **系统概述**: `backend/agents/skills/README.md`
+- **依赖隔离指南**: `backend/agents/skills/SKILL_DEPENDENCY_ISOLATION.md`
+- **使用机制**: `backend/agents/skills/HOW_AI_USES_SKILLS.md`
+- **权限控制**: `backend/agents/skills/SKILLS_PERMISSION_CONTROL.md`
+- **测试 Skill**: `backend/agents/skills/test-isolation-skill/`
+
+#### 测试
+
+```bash
+# 测试依赖隔离功能
+cd backend
+python test_skill_isolation.py
+
+# 测试结果：
+# ✓ Skill 成功加载
+# ✓ 虚拟环境自动创建
+# ✓ 依赖自动安装
+# ✓ 脚本在隔离环境中执行
+# ✓ 后端依赖不可见（环境隔离成功）
+```
+
 ### 节点系统设计
 节点系统是本项目的核心特色，采用 Schema-driven UI 设计：
 - 所有节点继承 `INode` 接口和 `NodeConfigBase` 配置基类
@@ -217,6 +375,81 @@ embedding:
    ```
 3. 重启后端，智能体自动加载
 4. 或通过前端 `/agent-config` 界面在线配置
+
+### 创建新 Skill
+
+**通过文件系统创建 Skill，无需编写代码**：
+
+1. 创建 Skill 目录结构
+   ```bash
+   mkdir -p backend/agents/skills/my-skill/scripts
+   ```
+
+2. 创建 `SKILL.md`（必需）
+   ```markdown
+   ---
+   name: my-skill
+   description: 简短描述功能和使用场景（用于智能体判断何时使用）
+   ---
+
+   # 我的 Skill
+
+   ## 核心流程
+   1. 步骤一...
+   2. 步骤二...
+
+   ## 详细文档
+   更多信息参见 [详细文档](details.md)
+
+   ## 工具脚本
+   使用数据处理脚本：
+   \`\`\`bash
+   python scripts/process.py
+   \`\`\`
+   ```
+
+3. 创建 `requirements.txt`（可选，用于脚本依赖）
+   ```txt
+   # Use English comments to avoid encoding issues
+   pandas>=2.0.0
+   requests>=2.31.0
+   ```
+
+4. 创建工具脚本（可选）
+   ```python
+   # backend/agents/skills/my-skill/scripts/process.py
+   #!/usr/bin/env python
+   # -*- coding: utf-8 -*-
+   import sys
+
+   def main():
+       print("Processing...")
+       return 0
+
+   if __name__ == "__main__":
+       sys.exit(main())
+   ```
+
+5. 在智能体配置中启用
+   ```yaml
+   agents:
+     qa_agent:
+       skills:
+         enabled_skills:
+           - my-skill
+   ```
+
+6. 测试 Skill
+   ```bash
+   cd backend
+   python test_skill_isolation.py
+   ```
+
+**重要提示**：
+- ✅ `requirements.txt` 使用英文注释（避免 Windows GBK 编码问题）
+- ✅ 仅包含脚本必需的依赖（最小化原则）
+- ✅ 固定版本范围（如 `pandas>=2.0.0,<3.0.0`）
+- ❌ 避免巨型依赖（如 torch, tensorflow）
 
 ### 添加新工具
 1. 在 `backend/tools/function_definitions.py` 中添加工具定义：
@@ -408,12 +641,36 @@ response = adapter.generate(
 3. 确认 API Key 正确且有效
 4. 检查网络连接
 
+### Skill 依赖隔离问题
+1. **虚拟环境创建失败**
+   - 检查目录权限：`chmod -R 755 backend/agents/skills/`
+   - 确认磁盘空间充足（虚拟环境约 50MB）
+
+2. **依赖安装超时**
+   - 使用国内镜像：在 `requirements.txt` 首行添加 `-i https://pypi.tuna.tsinghua.edu.cn/simple`
+   - 检查网络连接
+
+3. **脚本找不到模块**
+   - 删除虚拟环境重建：`rm -rf .venv && rm .venv/.installed`
+   - 检查 `requirements.txt` 编码（使用英文注释）
+
+4. **UTF-8 编码错误**
+   - 已通过 `PYTHONIOENCODING=utf-8` 和 `PYTHONUTF8=1` 环境变量解决
+   - 如仍有问题，检查脚本文件编码是否为 UTF-8
+
 ## 文档资源
 
 ### 智能体系统
 - **统一入口架构**: `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
 - **智能体配置**: `backend/agents/configs/agent_configs.yaml` - 配置文件示例
 - **配置模型**: `backend/agents/agent_config.py` - AgentConfig 数据模型
+
+### Skills 系统
+- **系统概述**: `backend/agents/skills/README.md` - Skills 系统整体介绍
+- **依赖隔离指南**: `backend/agents/skills/SKILL_DEPENDENCY_ISOLATION.md` - 完整依赖管理文档
+- **使用机制**: `backend/agents/skills/HOW_AI_USES_SKILLS.md` - 智能体如何使用 Skills
+- **权限控制**: `backend/agents/skills/SKILLS_PERMISSION_CONTROL.md` - 权限配置说明
+- **测试 Skill**: `backend/agents/skills/test-isolation-skill/` - 环境隔离测试示例
 - **动态加载**: `backend/agents/agent_loader.py` - 智能体加载机制
 
 ### 工具系统

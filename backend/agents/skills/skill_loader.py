@@ -33,6 +33,7 @@ class Skill:
         self.content = content  # Markdown 内容（不含 YAML 前置部分）
         self.skill_dir = skill_dir  # Skill 目录路径
         self.metadata = metadata or {}
+        self._environment = None  # 延迟初始化环境管理器
 
     def get_resource_file_content(self, file_name: str) -> Optional[str]:
         """
@@ -82,6 +83,46 @@ class Skill:
 
         logger.warning(f"脚本不存在: {script_path}")
         return None
+
+    def get_environment(self):
+        """
+        获取环境管理器（延迟初始化）
+
+        Returns:
+            SkillEnvironment 实例
+        """
+        if self._environment is None:
+            from .skill_environment import get_skill_environment
+            self._environment = get_skill_environment(self.skill_dir)
+        return self._environment
+
+    def execute_script(self, script_name: str, arguments: List[str] = None, timeout: int = 30) -> Dict:
+        """
+        在隔离环境中执行脚本
+
+        Args:
+            script_name: 脚本名称
+            arguments: 命令行参数
+            timeout: 超时时间（秒）
+
+        Returns:
+            执行结果字典 {stdout, stderr, return_code}
+        """
+        script_path = self.get_script_path(script_name)
+        if not script_path:
+            return {
+                "stdout": "",
+                "stderr": f"脚本不存在: {script_name}",
+                "return_code": 1
+            }
+
+        env = self.get_environment()
+        return env.execute_script(script_path, arguments, timeout)
+
+    def has_scripts(self) -> bool:
+        """检查是否有 scripts 目录"""
+        scripts_dir = self.skill_dir / "scripts"
+        return scripts_dir.exists() and scripts_dir.is_dir()
 
     def to_dict(self) -> Dict:
         """转换为字典格式（用于序列化）"""

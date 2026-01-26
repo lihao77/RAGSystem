@@ -51,6 +51,20 @@ embedding:
     device: cpu
     cache_dir: null
 
+# Skills 系统配置
+skills:
+  # 依赖隔离模式
+  # - venv: 虚拟环境隔离（推荐，每个 Skill 独立环境）
+  # - docker: Docker 容器隔离（生产环境，暂未实现）
+  # - shared: 共享环境（开发测试，依赖可能冲突）
+  isolation_mode: venv
+
+  # 自动安装依赖（首次执行脚本时自动安装 requirements.txt）
+  auto_install_dependencies: true
+
+  # 虚拟环境目录名（相对于 Skill 目录）
+  venv_dir_name: .venv
+
   # 远程 API 配置（推荐）
   remote:
     api_endpoint: ""  # 例如: https://api.openai.com/v1 或 https://api.deepseek.com/v1

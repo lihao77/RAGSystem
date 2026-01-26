@@ -1785,6 +1785,11 @@ def execute_skill_script(skill_name, script_name, arguments=None):
 
     零上下文执行：脚本内容不加载到上下文，只返回执行结果
 
+    ✨ 新特性：支持依赖隔离
+    - 每个 Skill 可以有独立的虚拟环境
+    - 自动安装 requirements.txt 中的依赖
+    - 避免污染后端系统环境
+
     Args:
         skill_name: Skill 名称
         script_name: 脚本文件名
@@ -1794,7 +1799,6 @@ def execute_skill_script(skill_name, script_name, arguments=None):
         脚本执行结果（stdout, stderr, return_code）
     """
     try:
-        import subprocess
         from agents.skills.skill_loader import get_skill_loader
 
         # 获取 Skill
@@ -1811,47 +1815,32 @@ def execute_skill_script(skill_name, script_name, arguments=None):
                 f"Skill '{skill_name}' 没有 scripts 目录"
             )
 
-        # 获取脚本路径
-        script_path = skill.get_script_path(script_name)
-
-        if not script_path:
-            return error_response(
-                f"脚本 '{script_name}' 不存在"
-            )
-
-        # 构建命令
+        # 🔧 使用 Skill 的 execute_script 方法（支持环境隔离）
         script_args = arguments if arguments else []
-        command = ['python', str(script_path)] + script_args
-
         logger.info(f"执行 Skill 脚本: {skill_name}/{script_name} {script_args}")
 
-        # 执行脚本（零上下文执行）
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
+        result = skill.execute_script(
+            script_name=script_name,
+            arguments=script_args,
             timeout=30
         )
 
-        logger.info(f"脚本执行完成，返回码: {result.returncode}")
+        logger.info(f"脚本执行完成，返回码: {result['return_code']}")
 
         return success_response(
-            message=f"脚本 {script_name} 执行完成",
             results={
                 "script_name": script_name,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "return_code": result.returncode,
+                "stdout": result['stdout'],
+                "stderr": result['stderr'],
+                "return_code": result['return_code'],
                 "skill": skill_name
             },
+            summary=f"脚本 {script_name} 执行完成（返回码: {result['return_code']}）",
             metadata={
-                "command": " ".join(command),
-                "success": result.returncode == 0
+                "success": result['return_code'] == 0
             }
         )
 
-    except subprocess.TimeoutExpired:
-        return error_response("脚本执行超时（> 30秒）")
     except Exception as e:
         logger.error(f"执行 Skill 脚本失败: {e}")
         import traceback
