@@ -83,7 +83,7 @@ backend/nodes/
 2. [检查清单](node-config-ui/NODE_CONFIG_CHECKLIST.md) - 验证完整性
 3. [更新日志](node-config-ui/NODE_CONFIG_CHANGELOG.md) - 追踪变更
 
-## 🆕 最新更新
+##  最新更新
 
 ### 2025-12-26 - 节点配置UI升级
 - ✅ 智能表单生成

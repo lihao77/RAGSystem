@@ -16,6 +16,31 @@ logger = logging.getLogger(__name__)
 agent_config_bp = Blueprint('agent_config', __name__)
 
 
+def _reload_agents():
+    """
+    重新加载 orchestrator 中的智能体（用于配置更新后刷新）
+
+    这个函数会：
+    1. 清除旧的智能体注册
+    2. 重新加载所有启用的智能体
+    3. 注册到 orchestrator
+    """
+    try:
+        # 延迟导入避免循环依赖
+        from routes.agent import reload_agents
+
+        # 调用重新加载函数
+        success = reload_agents()
+        if success:
+            logger.info("智能体重新加载成功")
+        else:
+            logger.warning("智能体重新加载失败，但不影响配置保存")
+
+    except Exception as e:
+        logger.error(f"重新加载智能体异常: {e}", exc_info=True)
+        # 不抛出异常，避免影响配置更新
+
+
 @agent_config_bp.route('/configs', methods=['GET'])
 def list_configs():
     """
@@ -127,6 +152,9 @@ def update_config(agent_name):
         config_manager = get_config_manager()
         config_manager.set_config(config, save=True)
 
+        # 🔧 重新加载 orchestrator 中的智能体（反映 enabled 状态变化）
+        _reload_agents()
+
         return success_response(
             data=config.model_dump(),
             message=f'智能体 "{agent_name}" 配置已更新'
@@ -204,6 +232,9 @@ def patch_config(agent_name):
             enabled=enabled,
             save=True
         )
+
+        # 🔧 重新加载 orchestrator 中的智能体（反映 enabled 状态变化）
+        _reload_agents()
 
         return success_response(
             data=updated_config.model_dump(),

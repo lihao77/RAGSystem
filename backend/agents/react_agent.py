@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any, List
 import uuid
 from .base import BaseAgent, AgentContext, AgentResponse
 from tools.tool_executor import execute_tool
+from .context_manager import ContextManager, ContextConfig, ObservationFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,38 @@ class ReActAgent(BaseAgent):
         self.max_rounds = behavior_config.get('max_rounds', 10)
         self.base_prompt = behavior_config.get('system_prompt', '')
 
-        logger.info(f"ReActAgent '{self.name}' 初始化完成，可用工具: {len(self.available_tools)}，可用 Skills: {len(self.available_skills)}")
+        #  获取模型的上下文限制
+        llm_config = self.get_llm_config()
+        model_max_tokens = llm_config.get('max_tokens', 4096)
+
+        # 为上下文管理预留空间（模型 max_tokens 的 60%）
+        # 留出 40% 给 system prompt、输出和其他开销
+        context_token_budget = int(model_max_tokens * 0.6)
+
+        # 用户可以在 behavior_config 中覆盖这个值
+        max_context_tokens = behavior_config.get('max_context_tokens', context_token_budget)
+
+        #  初始化上下文管理器
+        context_config = ContextConfig(
+            max_history_turns=behavior_config.get('max_history_turns', 10),
+            max_tokens=max_context_tokens,
+            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window')
+        )
+        self.context_manager = ContextManager(context_config)
+
+        #  初始化观察结果格式化器
+        self.observation_formatter = ObservationFormatter(
+            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data')
+        )
+
+        logger.info(
+            f"ReActAgent '{self.name}' 初始化完成，"
+            f"可用工具: {len(self.available_tools)}，"
+            f"可用 Skills: {len(self.available_skills)}，"
+            f"模型 max_tokens: {model_max_tokens}, "
+            f"上下文预算: {max_context_tokens} tokens, "
+            f"压缩策略: {context_config.compression_strategy}"
+        )
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
         """发送事件到回调函数"""
@@ -283,6 +315,13 @@ class ReActAgent(BaseAgent):
                 rounds += 1
                 self.logger.info(f"[ReAct] 第 {rounds} 轮推理")
 
+                #  应用上下文管理（防止超出限制）
+                managed_messages = self.context_manager.manage_messages(
+                    messages,
+                    system_prompt=self._build_system_prompt()
+                )
+                self.logger.info(f"[ReAct] {self.context_manager.format_context_summary(managed_messages)}")
+
                 # 获取 LLM 配置
                 llm_config = self.get_llm_config()
 
@@ -293,7 +332,7 @@ class ReActAgent(BaseAgent):
                 for retry_attempt in range(max_parse_retries):
                     # 调用 LLM（使用 JSON mode）
                     response = self.llm_adapter.chat_completion(
-                        messages=messages,
+                        messages=managed_messages,  #  使用管理后的消息
                         provider=llm_config.get('provider'),
                         model=llm_config.get('model_name'),
                         temperature=llm_config.get('temperature', 0.3),
@@ -494,8 +533,13 @@ class ReActAgent(BaseAgent):
                             'result': result
                         })
 
-                        # 格式化观察结果
-                        observation = self._format_observation(result, tool_name=tool_name)
+                        # 格式化观察结果（使用新的格式化器）
+                        is_skills_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
+                        observation = self.observation_formatter.format(
+                            result,
+                            tool_name=tool_name,
+                            is_skills_tool=is_skills_tool
+                        )
                         observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
 
                     # 将所有结果作为 user 消息添加
@@ -552,6 +596,13 @@ class ReActAgent(BaseAgent):
                 rounds += 1
                 self.logger.info(f"[ReAct] 第 {rounds} 轮推理")
 
+                #  应用上下文管理（防止超出限制）
+                managed_messages = self.context_manager.manage_messages(
+                    messages,
+                    system_prompt=self._build_system_prompt()
+                )
+                self.logger.info(f"[ReAct] {self.context_manager.format_context_summary(managed_messages)}")
+
                 # 获取 LLM 配置
                 llm_config = self.get_llm_config()
 
@@ -562,7 +613,7 @@ class ReActAgent(BaseAgent):
                 for retry_attempt in range(max_parse_retries):
                     # 调用 LLM（使用 JSON mode）
                     response = self.llm_adapter.chat_completion(
-                        messages=messages,
+                        messages=managed_messages,  #  使用管理后的消息
                         provider=llm_config.get('provider'),
                         model=llm_config.get('model_name'),
                         temperature=llm_config.get('temperature', 0.3),
@@ -709,8 +760,13 @@ class ReActAgent(BaseAgent):
                             'result': result
                         })
 
-                        # 格式化观察结果
-                        observation = self._format_observation(result, tool_name=tool_name)
+                        # 格式化观察结果（使用新的格式化器）
+                        is_skills_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
+                        observation = self.observation_formatter.format(
+                            result,
+                            tool_name=tool_name,
+                            is_skills_tool=is_skills_tool
+                        )
                         observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
 
                     # 将所有结果作为 user 消息添加
@@ -750,154 +806,6 @@ class ReActAgent(BaseAgent):
                 agent_name=self.name,
                 execution_time=time.time() - start_time
             )
-
-    # def _format_observation(self, result: Any) -> str:
-    #     """格式化工具执行结果为观察文本"""
-    #     if isinstance(result, dict):
-    #         if result.get('success'):
-    #             data = result.get('data', {})
-    #             if 'answer' in data:
-    #                 return data['answer']
-    #             return json.dumps(data, ensure_ascii=False, indent=2)
-    #         else:
-    #             return f"错误: {result.get('error', '未知错误')}"
-    #     return str(result)
-    def _format_observation(self, result: Any, tool_name: str = None) -> str:
-        """
-        格式化观察结果：实现数据流与控制流的分离策略
-
-        新版本支持标准化工具响应格式：
-        {
-            "success": bool,
-            "data": {
-                "results": ...,      # 纯净数据
-                "metadata": {...},   # 元数据（优先使用）
-                "summary": "...",    # 摘要
-                "answer": "..."      # 答案（可选）
-            }
-        }
-
-        Args:
-            result: 工具执行结果
-            tool_name: 工具名称（用于特殊处理）
-
-        Returns:
-            格式化后的观察文本
-        """
-        # 1. 处理错误响应
-        if isinstance(result, dict):
-            if not result.get('success'):
-                return f"错误: {result.get('error', '未知错误')}"
-
-            # 2. 提取 data 字段
-            data = result.get('data', {})
-
-            # 3. 提取核心字段
-            pure_data = data.get('results')
-            summary = data.get('summary', '')
-            metadata = data.get('metadata', {})  # 工具返回的元数据
-            answer = data.get('answer')  # 查询类工具的完整答案
-
-            # 4. 如果没有标准化格式，尝试兼容旧格式
-            if pure_data is None:
-                # 兼容旧格式：直接返回 data
-                pure_data = data
-
-            # 🔧 特殊处理：Skills 工具（activate_skill, load_skill_resource, execute_skill_script）
-            # 这些工具返回的是 Markdown 内容，应该直接呈现给 AI，不进行大数据处理
-            is_skill_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
-
-            if is_skill_tool:
-                # Skills 工具直接返回内容，不进行大小判断
-                self.logger.info(f"[Skills] {tool_name} 返回内容，直接呈现给 AI")
-
-                # 提取 main_content 或 content 字段
-                if isinstance(pure_data, dict):
-                    skill_content = pure_data.get('main_content') or pure_data.get('content')
-                    if skill_content:
-                        # 返回格式：摘要 + Skill 内容
-                        result_text = f"{summary}\n\n{skill_content}"
-                        return result_text
-
-                # 如果没有找到特定字段，返回整个 data
-                return json.dumps(data, ensure_ascii=False, indent=2)
-
-            # 5. 转换为字符串以判断大小
-            content_str = json.dumps(pure_data, ensure_ascii=False) if isinstance(pure_data, (dict, list)) else str(pure_data)
-
-            # 6. 【核心逻辑】阈值判断 (2000 字符)
-            if len(content_str) < 2000:
-                # 小数据：直接透传
-                # 如果有 answer，也一并返回
-                if answer:
-                    return f"{answer}\n\n[数据详情]\n{json.dumps(data, ensure_ascii=False, indent=2)}"
-                return json.dumps(data, ensure_ascii=False, indent=2)
-
-            # 7. 【大数据处理】执行分离策略
-            else:
-                # A. 生成存储路径
-                file_name = f"data_{uuid.uuid4().hex}.json"
-                save_dir = "./static/temp_data"
-                os.makedirs(save_dir, exist_ok=True)
-                file_path = os.path.join(save_dir, file_name)
-
-                # B. 构建元数据提示（优先使用工具返回的 metadata）
-                meta_info = summary if summary else "数据量过大，已自动转存。"
-
-                # 优先使用工具返回的 metadata
-                if metadata and metadata.get('fields'):
-                    total_count = metadata.get('total_count', 0)
-                    fields = metadata.get('fields', [])
-                    sample = metadata.get('sample')
-
-                    meta_info += f" 类型: {metadata.get('data_type', 'List')}, 总数: {total_count} 条。"
-
-                    # 显示字段信息
-                    if fields:
-                        field_info = [f"{f['name']}({f['type']})" for f in fields[:10]]
-                        meta_info += f" 包含字段: {', '.join(field_info)}"
-                        if len(fields) > 10:
-                            meta_info += f" 等 {len(fields)} 个字段"
-
-                    # 显示样本数据
-                    if sample:
-                        meta_info += f"\n  样本数据 (第1条): {json.dumps(sample, ensure_ascii=False)[:300]}..."
-
-                else:
-                    # 如果工具未返回 metadata，回退到原有逻辑（从 pure_data 提取）
-                    if isinstance(pure_data, list):
-                        meta_info += f" 类型: List, 长度: {len(pure_data)} 条。"
-                        if len(pure_data) > 0:
-                            first_item = pure_data[0]
-                            if isinstance(first_item, dict):
-                                keys_info = [f"{k}({type(v).__name__})" for k, v in first_item.items()]
-                                meta_info += f" 包含字段: {', '.join(keys_info)}"
-                                meta_info += f"\n  样本数据 (第1条): {json.dumps(first_item, ensure_ascii=False)[:200]}..."
-                    elif isinstance(pure_data, dict):
-                        meta_info += f" 类型: Dict, 顶层键: {list(pure_data.keys())}"
-
-                # C. 保存纯净数据到文件
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(pure_data, f, ensure_ascii=False, indent=2)
-
-                # D. 构建返回信息
-                observation_parts = []
-
-                # 如果有 answer（查询类工具），先返回 answer
-                if answer:
-                    observation_parts.append(f"[查询结果]\n{answer}")
-                    observation_parts.append("")  # 空行分隔
-
-                # 然后返回数据引用信息
-                observation_parts.append(f"[系统提示] {meta_info}")
-                observation_parts.append(f'数据已保存至文件: "{file_path}"')
-                observation_parts.append("请使用此文件路径作为后续工具（如绘图、分析）的输入参数，不要尝试直接读取内容。")
-                observation_parts.append("如果下一个工具需要的格式与上述字段不匹配，请先调用 `process_data_file` 工具进行转换。")
-
-                return "\n".join(observation_parts)
-
-        # 8. 兼容非字典响应
-        return str(result)
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         """

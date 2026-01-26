@@ -64,6 +64,53 @@ def _get_orchestrator():
     return _orchestrator
 
 
+def reload_agents():
+    """
+    重新加载 orchestrator 中的智能体（用于配置更新后刷新）
+
+    这个函数会：
+    1. 清除旧的智能体注册
+    2. 重新加载所有启用的智能体
+    3. 注册到 orchestrator
+
+    Returns:
+        bool: 是否重新加载成功
+    """
+    global _orchestrator
+
+    if _orchestrator is None:
+        logger.warning("orchestrator 未初始化，跳过重新加载")
+        return False
+
+    try:
+        # 清空现有智能体（保留注册表对象）
+        _orchestrator.registry.clear()
+        logger.info("已清空 orchestrator 中的智能体注册")
+
+        # 重新加载智能体
+        system_config = get_config()
+        adapter = get_default_adapter()
+
+        agents = load_agents_from_config(
+            llm_adapter=adapter,
+            system_config=system_config,
+            orchestrator=_orchestrator,
+            use_v2=False
+        )
+
+        # 重新注册
+        for agent_name, agent in agents.items():
+            _orchestrator.register_agent(agent)
+            logger.info(f"已重新注册智能体: {agent_name}")
+
+        logger.info(f"智能体重新加载完成，共加载 {len(agents)} 个智能体")
+        return True
+
+    except Exception as e:
+        logger.error(f"重新加载智能体失败: {e}", exc_info=True)
+        return False
+
+
 @agent_bp.route('/agents', methods=['GET'])
 def list_agents():
     """
