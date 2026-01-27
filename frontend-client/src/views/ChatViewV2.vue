@@ -1,4 +1,4 @@
-<template>
+template>
   <div class="chat-view">
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -8,7 +8,6 @@
           <span>New Chat</span>
         </button>
       </div>
-
 
       <div class="history-list">
         <div class="history-label">Recent</div>
@@ -26,7 +25,7 @@
         <div class="avatar">U</div>
         <div class="user-info">
           <div class="username">User</div>
-          <div class="user-status">Pro Plan</div>
+          <div class="user-status">Master V2</div>
         </div>
       </div>
     </aside>
@@ -38,10 +37,23 @@
         <div v-if="messages.length === 0" class="welcome-screen">
           <div class="welcome-content">
             <div class="welcome-header">
-              <div class="logo-placeholder">🧠</div>
-              <h1>RAG Agent System V2</h1>
-              <p class="welcome-subtitle">Advanced Knowledge Graph Analysis with Parallel Execution</p>
-              
+              <div class="logo-placeholder">🤖</div>
+              <h1>Master Agent V2</h1>
+              <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
+              <div class="v2-features">
+                <div class="feature-badge">
+                  <span class="badge-icon">🧠</span>
+                  <span>Dynamic Planning</span>
+                </div>
+                <div class="feature-badge">
+                  <span class="badge-icon">🔄</span>
+                  <span>Real-time Adaptation</span>
+                </div>
+                <div class="feature-badge">
+                  <span class="badge-icon">🎯</span>
+                  <span>Agent-as-Tool</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -52,37 +64,20 @@
             <div class="message-content-wrapper">
               <div class="message-content">
                 <!-- Loading State -->
-                <div v-if="msg.role === 'assistant' && !msg.content && !msg.taskAnalysis && !msg.executionPlan && (!msg.subtasks || msg.subtasks.length === 0)" class="loading-indicator">
+                <div v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0)" class="loading-indicator">
                   <div class="dot"></div><div class="dot"></div><div class="dot"></div>
                 </div>
 
-                <!-- Task Analysis (V1 兼容) -->
-                <TaskAnalysisCard
-                  v-if="msg.taskAnalysis"
-                  :taskAnalysis="msg.taskAnalysis"
-                  @update:expanded="msg.taskAnalysis.expanded = $event"
-                />
-
-                <!-- Execution Plan (V2 新增) -->
-                <ExecutionPlanCard
-                  v-if="msg.executionPlan"
-                  :plan="msg.executionPlan"
-                />
-
-                <!-- Parallel Status Panel (V2 新增 - 动态显示) -->
-                <ParallelStatusPanel
-                  v-if="hasParallelTasks(msg.subtasks)"
-                  :subtasks="msg.subtasks"
-                />
-
-                <!-- Subtasks (V1 兼容 - 保留原有显示) -->
+                <!-- Subtasks (Agent Calls) -->
                 <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
+                  <!-- Status Ticker (Header) -->
                   <SubtaskStatusTicker
                     :subtasks="msg.subtasks"
                     :expanded="msg.showFullSubtasks"
                     @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
                   />
 
+                  <!-- Full Details View -->
                   <transition
                     name="expand"
                     @enter="enter"
@@ -90,14 +85,14 @@
                     @leave="leave"
                   >
                     <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
-                        <div class="subtasks-list">
-                          <SubtaskCard
-                            v-for="subtask in msg.subtasks"
-                            :key="subtask.order"
-                            :subtask="subtask"
-                            @update:expanded="subtask.expanded = $event"
-                          />
-                        </div>
+                      <div class="subtasks-list">
+                        <SubtaskCard
+                          v-for="subtask in msg.subtasks"
+                          :key="subtask.order"
+                          :subtask="subtask"
+                          @update:expanded="subtask.expanded = $event"
+                        />
+                      </div>
                     </div>
                   </transition>
                 </div>
@@ -147,12 +142,8 @@ import { ref, nextTick, onMounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskCard from '../components/SubtaskCard.vue';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
-import TaskAnalysisCard from '../components/TaskAnalysisCard.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
-// V2 Components
-import ExecutionPlanCard from '../components/ExecutionPlanCard.vue';
-import ParallelStatusPanel from '../components/ParallelStatusPanel.vue';
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -168,13 +159,6 @@ const startNewChat = () => {
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
-};
-
-// 判断是否有并行任务（用于自动显示并行面板）
-const hasParallelTasks = (subtasks) => {
-  if (!subtasks) return false;
-  const running = subtasks.filter(t => t.status === 'running');
-  return running.length > 1;
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
@@ -256,12 +240,9 @@ const handleSend = async () => {
   isUserAtBottom.value = true;
   scrollToBottom(true);
 
-  // V2 消息结构
   const assistantMsgIndex = messages.value.push({
     role: 'assistant',
     content: '',
-    taskAnalysis: null,        // V1 兼容
-    executionPlan: null,       // ✨ V2 新增
     subtasks: [],
     showFullSubtasks: false,
     multimodalContents: [],
@@ -271,14 +252,14 @@ const handleSend = async () => {
   isLoading.value = true;
 
   try {
-    // ✨ 明确使用 V2
+    // 🔑 关键差异：use_v2 参数指定使用 Master V2
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         task: content,
         session_id: null,
-        use_v2: true  // ✨ 明确请求使用 V2
+        use_v2: true  // ✨ 使用 Master V2
       })
     });
 
@@ -307,38 +288,12 @@ const handleSend = async () => {
               } else {
                 typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
               }
-            }
-            // V1 兼容事件
-            else if (data.type === 'task_analysis') {
-              currentMsg.taskAnalysis = {
-                complexity: data.complexity,
-                subtask_count: data.subtask_count,
-                reasoning: data.reasoning,
-                expanded: true
-              };
-            }
-            // ✨ V2 新增事件：执行计划
-            else if (data.type === 'plan') {
-              currentMsg.executionPlan = data.plan;
-            }
-            // ✨ V2 新增事件：状态消息
-            else if (data.type === 'status') {
-              currentMsg.status.push({ type: 'info', content: data.content });
-            }
-            // 子任务开始
-            else if (data.type === 'subtask_start') {
-              console.log('[V2] subtask_start:', {
-                task_id: data.task_id,
-                order: data.order,
-                agent_name: data.agent_name,
-                description: data.description
-              });
-
+            } else if (data.type === 'subtask_start') {
+              // Master V2 发送的 Agent 调用开始事件
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
               currentMsg.subtasks.push({
-                task_id: data.task_id,      // ✨ V2 新增
                 order: data.order,
                 agent_name: data.agent_name,
                 agent_display_name: data.agent_display_name,
@@ -350,20 +305,9 @@ const handleSend = async () => {
                 expanded: true,
                 currentStep: null
               });
-            }
-            else if (data.type === 'thought_structured') {
-              console.log('[V2] thought_structured:', {
-                subtask_order: data.subtask_order,
-                task_id: data.task_id,
-                round: data.round,
-                thought_preview: data.thought?.substring(0, 50) + '...'
-              });
-
-              // ✅ 优先使用 task_id 查找（更可靠），降级到 order
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
-
+            } else if (data.type === 'thought_structured') {
+              // Master V2 的思考过程（与 ReAct Agent 相同格式）
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
               if (subtask) {
                 const newStep = {
                   round: data.round,
@@ -373,37 +317,11 @@ const handleSend = async () => {
                 };
                 subtask.react_steps.push(newStep);
                 subtask.currentStep = newStep;
-              } else {
-                console.warn('[V2] thought_structured: subtask not found for order', data.subtask_order, data);
               }
-            }
-            else if (data.type === 'tool_start') {
-              console.log('[V2] tool_start:', {
-                subtask_order: data.subtask_order,
-                task_id: data.task_id,
-                tool_name: data.tool_name,
-                index: data.index
-              });
-
-              // ✅ 优先使用 task_id 查找（更可靠），降级到 order
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
-
-              if (subtask) {
-                // 确保有 currentStep，如果没有则创建一个临时的
-                if (!subtask.currentStep) {
-                  console.warn('[V2] tool_start received without currentStep, creating temporary step');
-                  const tempStep = {
-                    round: data.round || subtask.react_steps.length + 1,
-                    thought: '(工具调用中...)',
-                    toolCalls: [],
-                    expanded: true
-                  };
-                  subtask.react_steps.push(tempStep);
-                  subtask.currentStep = tempStep;
-                }
-
+            } else if (data.type === 'tool_start') {
+              // Agent 内部的工具调用
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
+              if (subtask && subtask.currentStep) {
                 const toolCall = {
                   tool_name: data.tool_name,
                   arguments: data.arguments,
@@ -415,17 +333,11 @@ const handleSend = async () => {
                 };
                 subtask.currentStep.toolCalls.push(toolCall);
                 subtask.tool_calls.push(toolCall);
-              } else {
-                console.warn('[V2] tool_start: subtask not found for order', data.subtask_order, data);
               }
-            }
-            else if (data.type === 'tool_end') {
-              // ✅ 优先使用 task_id 查找（更可靠），降级到 order
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
-
-              if (subtask) {
+            } else if (data.type === 'tool_end') {
+              // Agent 内部的工具完成
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
+              if (subtask && subtask.currentStep) {
                 const updateTool = (list) => {
                   const idx = list.findIndex(t => t.tool_name === data.tool_name && t.status === 'running');
                   if (idx >= 0) {
@@ -434,94 +346,32 @@ const handleSend = async () => {
                     list[idx].elapsed_time = data.elapsed_time;
                   }
                 };
-
-                if (subtask.currentStep) {
-                  updateTool(subtask.currentStep.toolCalls);
-                }
+                updateTool(subtask.currentStep.toolCalls);
                 updateTool(subtask.tool_calls);
-              } else {
-                console.warn('[V2] tool_end: subtask not found for order', data.subtask_order, data);
               }
-            }
-            else if (data.type === 'tool_error') {
-              // ✅ 优先使用 task_id 查找（更可靠），降级到 order
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
-
-              if (subtask) {
-                const updateTool = (list) => {
-                  const idx = list.findIndex(t => t.tool_name === data.tool_name && t.status === 'running');
-                  if (idx >= 0) {
-                    list[idx].status = 'error';
-                    list[idx].result = { error: data.error };
-                    list[idx].elapsed_time = 0;
-                  }
-                };
-
-                if (subtask.currentStep) {
-                  updateTool(subtask.currentStep.toolCalls);
-                }
-                updateTool(subtask.tool_calls);
-              } else {
-                console.warn('[V2] tool_error: subtask not found for order', data.subtask_order, data);
-              }
-            }
-            else if (data.type === 'subtask_end') {
-              // ✅ 优先使用 task_id 查找（更可靠），降级到 order
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.order);
-
+            } else if (data.type === 'subtask_end') {
+              // Master V2 的 Agent 调用结束
+              const subtask = currentMsg.subtasks.find(s => s.order === data.order);
               if (subtask) {
                 subtask.result_summary = data.result_summary;
                 subtask.status = data.success === false ? 'error' : 'success';
                 subtask.expanded = false;
-              } else {
-                console.warn('[V2] subtask_end: subtask not found', {
-                  task_id: data.task_id,
-                  order: data.order,
-                  available_subtasks: currentMsg.subtasks.map(s => ({ task_id: s.task_id, order: s.order }))
-                });
               }
-            }
-            // final_answer 事件（ReAct 完成时发送，不需要特殊渲染）
-            else if (data.type === 'final_answer') {
-              // 此事件表示 ReAct 智能体已完成推理
-              // 结果会通过 subtask_end 的 result_summary 展示
-              // 这里只记录日志，避免重复渲染
-              console.log('[V2] ReAct final_answer received:', data);
-            }
-            // ✨ V2 新增事件：任务跳过
-            else if (data.type === 'subtask_skipped') {
-              const subtask = currentMsg.subtasks.find(s => s.task_id === data.task_id);
-              if (subtask) {
-                subtask.status = 'skipped';
-                subtask.result_summary = data.reason;
-              }
-            }
-            // 多模态内容
-            else if (data.type === 'chart_generated') {
+            } else if (data.type === 'chart_generated') {
               currentMsg.multimodalContents.push({
                 type: 'chart',
                 echartsConfig: data.echarts_config,
                 title: data.title || 'Data Visualization',
                 chartType: data.chart_type || 'bar'
               });
-            }
-            else if (data.type === 'map_generated') {
+            } else if (data.type === 'map_generated') {
               currentMsg.multimodalContents.push({
                 type: 'map',
                 mapData: data.mapData,
                 title: data.title || 'Map Visualization'
               });
-            }
-            else if (data.type === 'error') {
+            } else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });
-            }
-            else {
-              // 捕获未处理的事件类型，帮助调试
-              console.warn('[V2] Unhandled event type:', data.type, data);
             }
             scrollToBottom();
           } catch (e) {
@@ -544,25 +394,54 @@ onMounted(() => {
 });
 </script>
 
-<style scoped src="../styles/chat-view.css"></style>
+<style scoped src="../styles/chat-view.css">
+/* 继承 V1 的样式文件，保持风格一致 */
+</style>
+
 <style scoped>
+/* V2 特定样式 */
+.v2-features {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-xl);
+  justify-content: center;
+  flex-wrap: wrap;
+}
 
+.feature-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--glass-bg-light);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  transition: all var(--transition-normal);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
 
-.version-badge.v2 {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
+.feature-badge:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-primary);
+  color: var(--color-text-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.badge-icon {
+  font-size: 1.2rem;
+}
+
+/* User status badge for V2 */
+.user-status {
   font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  color: var(--color-primary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-
-.version-label {
-  flex: 1;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
 </style>

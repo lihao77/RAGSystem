@@ -206,36 +206,41 @@ class AgentLoader:
             from .agent_config import AgentConfig, AgentLLMConfig
 
             # 硬编码的 MasterAgent V2 配置
+            # 新版 Master V2: 将 Agent 当作工具，通过 ReAct 模式动态调用
             master_v2_config = AgentConfig(
                 agent_name='master_agent_v2',
-                display_name='主协调智能体 V2',
-                description='主协调智能体 V2，支持并行执行、DAG 编排、失败重试',
+                display_name='Master Agent V2 (动态编排)',
+                description='动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策',
                 enabled=True,
                 llm=AgentLLMConfig(
                     provider=None,  # 使用系统配置
                     model_name=None,  # 使用系统配置
-                    temperature=0.0,  # 任务分析需要极高确定性
-                    max_tokens=4000,  # V2 需要更大的上下文（用于 DAG 生成）
-                    timeout=60,  # V2 可能需要更长时间
+                    temperature=0.3,  # ReAct 模式需要一定的灵活性
+                    max_tokens=4096,  # 需要更大的上下文
+                    timeout=60,
                     retry_attempts=3
                 ),
                 custom_params={
-                    'analysis_temperature': 0.0,
-                    'synthesis_temperature': 0.3,
-                    'max_workers': 3,  # 并行执行的最大线程数
-                    'max_retries': 1,  # 任务失败重试次数
-                    'retry_delay': 1.0  # 重试延迟（秒）
+                    'type': 'master_v2',
+                    'behavior': {
+                        'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
+                        'max_rounds': 15,  # ReAct 循环的最大轮数
+                        'max_history_turns': 15,
+                        'max_context_tokens': 2400,
+                        'compression_strategy': 'sliding_window',
+                        'data_save_dir': './static/temp_data'
+                    }
                 }
             )
 
-            from .master_agent_v2.master_agent_v2 import MasterAgentV2
+            from .master_agent_v2.master_v2 import MasterAgentV2
             master_agent_v2 = MasterAgentV2(
-                llm_adapter=self.llm_adapter,
                 orchestrator=self.orchestrator,
+                llm_adapter=self.llm_adapter,
                 agent_config=master_v2_config,
                 system_config=self.system_config
             )
-            logger.info("MasterAgent V2 已创建（系统级配置）")
+            logger.info("MasterAgent V2 已创建（新版动态编排架构）")
 
             return master_agent_v2
 
