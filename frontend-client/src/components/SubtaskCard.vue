@@ -3,7 +3,7 @@
     <div class="subtask-header" @click="toggleExpanded">
       <span class="icon" :class="{ expanded: subtask.expanded }">▶</span>
       <span class="subtask-title">
-        <span class="subtask-number">步骤 {{ subtask.order }}</span>
+        <span class="subtask-number">步骤 {{ getStepLabel(subtask) }}</span>
         <span class="subtask-agent">{{ subtask.agent_display_name }}</span>
       </span>
       <span class="subtask-status" :class="subtask.status">
@@ -81,6 +81,15 @@ const emit = defineEmits(['update:expanded']);
 
 const toggleExpanded = () => {
   emit('update:expanded', !props.subtask.expanded);
+};
+
+const getStepLabel = (subtask) => {
+  // 🎯 如果有 round 和 round_index，显示为 "1-1", "2-1" 格式
+  if (subtask.round !== undefined && subtask.round_index !== undefined) {
+    return `${subtask.round}-${subtask.round_index}`;
+  }
+  // 降级：使用全局 order
+  return subtask.order;
 };
 
 const getStatusText = (status) => {

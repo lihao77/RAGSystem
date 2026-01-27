@@ -161,7 +161,7 @@ class MasterAgentV2(BaseAgent):
             result: Agent 执行结果
 
         Returns:
-            str: 结果摘要
+            str: 结果摘要（完整内容或截断）
         """
         if not result.get('success'):
             error = result.get('error', '未知错误')
@@ -170,16 +170,14 @@ class MasterAgentV2(BaseAgent):
         # 提取结果内容
         data = result.get('data', {})
         results = data.get('results', '')
-        summary = data.get('summary', '')
 
-        # 优先使用 summary
-        if summary:
-            return summary
-
-        # 否则从 results 中提取摘要
-        if isinstance(results, str):
-            # 文本结果：截取前200字符
-            return results[:200] + "..." if len(results) > 200 else results
+        # 🎯 优先使用完整的 results（这是子 Agent 的 final_answer）
+        if isinstance(results, str) and results:
+            # 如果内容较短（≤500字符），返回完整内容
+            if len(results) <= 500:
+                return results
+            # 否则截断
+            return results[:500] + "..."
         elif isinstance(results, dict):
             # 字典结果：显示键数量
             return f"返回了 {len(results)} 个字段"
@@ -187,7 +185,9 @@ class MasterAgentV2(BaseAgent):
             # 列表结果：显示元素数量
             return f"返回了 {len(results)} 条记录"
         else:
-            return "执行成功"
+            # 降级：使用 summary
+            summary = data.get('summary', '')
+            return summary if summary else "执行成功"
 
     def _get_available_agent_tools(self):
         """
@@ -321,6 +321,7 @@ class MasterAgentV2(BaseAgent):
 
             rounds = 0
             agent_calls_history = []
+            global_agent_order = 0  # 🎯 全局 Agent 调用计数器
 
             while rounds < self.max_rounds:
                 rounds += 1
@@ -416,54 +417,80 @@ class MasterAgentV2(BaseAgent):
                             observations.append(f"**Agent 调用 {idx}**: 失败\n错误: {error_msg}")
                             continue
 
+                        # 🎯 使用全局计数器确保每个 Agent 有唯一的 order
+                        global_agent_order += 1
+                        current_order = global_agent_order
+
                         # 提取参数
                         agent_task = arguments.get('task', '')
                         context_hint = arguments.get('context_hint')
 
-                        self.logger.info(f"[MasterV2] [{idx}/{len(actions)}] 调用 Agent: {agent_name}")
+                        self.logger.info(f"[MasterV2] [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
                         self.logger.info(f"[MasterV2] 任务: {agent_task[:100]}...")
 
                         # 🎯 使用前端已支持的 subtask_start 事件（而非 agent_call_start）
                         # 这样前端可以无缝展示 Agent 调用，就像 Master V1 的子任务一样
-                        task_id = f"v2_agent_{rounds}_{idx}"  # 生成唯一的 task_id
+                        task_id = f"v2_agent_{rounds}_{idx}"  # 使用 round 和 idx
                         agent_display_name = self._get_agent_display_name(agent_name)
 
                         yield {
                             "type": "subtask_start",
                             "task_id": task_id,  # V2 新增 task_id 用于精确追踪
-                            "order": idx,
+                            "order": current_order,  # 全局顺序（用于前端排序）
+                            "round": rounds,  # 🎯 新增：第几轮推理
+                            "round_index": idx,  # 🎯 新增：轮次内的索引
                             "agent_name": agent_name,
                             "agent_display_name": agent_display_name,
                             "description": agent_task
                         }
 
-                        # 🎯 在 Agent 调用后，立即发送 thought（关联到这个 subtask）
-                        yield {
-                            "type": "thought_structured",
-                            "task_id": task_id,  # 关联到当前 Agent 调用
-                            "subtask_order": idx,
-                            "thought": thought,
-                            "round": rounds,
-                            "has_actions": True,
-                            "has_answer": False
-                        }
-
-                        # 执行 Agent
+                        # 执行 Agent（流式）
                         agent_start = time.time()
-                        result = self.agent_executor.execute_agent(
+
+                        # 🎯 使用流式执行，透传 Agent 内部的所有事件
+                        agent_result = None
+                        for event in self.agent_executor.execute_agent_stream(
                             agent_name=agent_name,
                             task=agent_task,
                             context=context,
                             context_hint=context_hint
-                        )
+                        ):
+                            # 判断是否是最终结果（标准化格式）
+                            if isinstance(event, dict) and 'success' in event and 'data' in event:
+                                # 这是最终结果，不透传
+                                agent_result = event
+                            # 🎯 过滤掉子 Agent 的 final_answer（避免前端误认为是整个流程结束）
+                            elif event.get('type') == 'final_answer':
+                                # 记录但不透传，Master V2 会在所有 Agent 执行完后发送真正的 final_answer
+                                pass
+                            else:
+                                # 透传子 Agent 的事件（thought, tool_start, tool_end 等）
+                                # 🎯 添加 task_id 和 subtask_order 关联到当前 Agent 调用
+                                if event.get('type') in ['thought_structured', 'tool_start', 'tool_end']:
+                                    # 如果事件已有 subtask_order，保留它（这是子 Agent 内部的顺序）
+                                    # 同时添加 task_id 用于前端精确定位到哪个 Agent 调用
+                                    if 'subtask_order' not in event:
+                                        event['subtask_order'] = current_order
+                                    event['task_id'] = task_id  # 关联到当前 Agent 调用
+                                yield event
+
                         elapsed_time = time.time() - agent_start
+
+                        # 使用收集到的最终结果
+                        if agent_result is None:
+                            agent_result = {
+                                "success": False,
+                                "error": "Agent 未返回结果"
+                            }
+
+                        result = agent_result
 
                         # 🎯 使用前端已支持的 subtask_end 事件（而非 agent_call_end）
                         result_summary = self._format_agent_result_summary(result)
                         yield {
                             "type": "subtask_end",
                             "task_id": task_id,
-                            "order": idx,
+                            "order": current_order,  # 🎯 使用全局计数器
                             "result_summary": result_summary,
                             "success": result.get('success', False)
                         }

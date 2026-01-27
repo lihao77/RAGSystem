@@ -40,7 +40,7 @@ class AgentExecutor:
         context_hint: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        执行指定的 Agent
+        执行指定的 Agent（非流式版本，用于兼容）
 
         Args:
             agent_name: Agent 名称（如 'qa_agent'）
@@ -49,24 +49,13 @@ class AgentExecutor:
             context_hint: 可选的上下文提示
 
         Returns:
-            标准化的工具响应格式:
-            {
-                "success": True/False,
-                "data": {
-                    "results": agent_response.content,  # Agent 的回答
-                    "metadata": {...},
-                    "summary": "..."
-                },
-                "error": "..." (if failed)
-            }
+            标准化的工具响应格式
         """
         try:
-            # 1. 从 orchestrator 获取 Agent 实例
             agent = self.orchestrator.agents.get(agent_name)
             if not agent:
                 return self._error_response(f"Agent '{agent_name}' 不存在")
 
-            # 2. 增强任务描述（如果有 context_hint）
             enhanced_task = task
             if context_hint:
                 enhanced_task = f"{task}\n\n【上下文提示】{context_hint}"
@@ -74,17 +63,13 @@ class AgentExecutor:
             self.logger.info(f"执行 Agent: {agent_name}")
             self.logger.info(f"任务: {enhanced_task[:200]}...")
 
-            # 3. 调用 Agent 执行任务
-            # 注意：这里直接调用 agent.execute，不通过 orchestrator.execute
-            # 因为我们已经在 Master V2 的上下文中，不需要重新路由
             response = agent.execute(enhanced_task, context)
 
-            # 4. 转换为标准化工具响应格式
             if response.success:
                 return {
                     "success": True,
                     "data": {
-                        "results": response.content,  # Agent 的完整回答
+                        "results": response.content,
                         "metadata": {
                             "agent_name": agent_name,
                             "execution_time": response.execution_time,
@@ -101,6 +86,77 @@ class AgentExecutor:
         except Exception as e:
             self.logger.error(f"执行 Agent '{agent_name}' 时出错: {e}", exc_info=True)
             return self._error_response(str(e))
+
+    def execute_agent_stream(
+        self,
+        agent_name: str,
+        task: str,
+        context: AgentContext,
+        context_hint: Optional[str] = None
+    ):
+        """
+        流式执行指定的 Agent（生成器版本）
+
+        Args:
+            agent_name: Agent 名称（如 'qa_agent'）
+            task: 要委托的任务描述
+            context: 执行上下文
+            context_hint: 可选的上下文提示
+
+        Yields:
+            Agent 内部的执行事件（thought_structured, tool_start, tool_end 等）
+
+        Returns (最后一个 yield):
+            标准化的工具响应格式
+        """
+        try:
+            # 1. 获取 Agent 实例
+            agent = self.orchestrator.agents.get(agent_name)
+            if not agent:
+                yield self._error_response(f"Agent '{agent_name}' 不存在")
+                return
+
+            # 2. 增强任务描述
+            enhanced_task = task
+            if context_hint:
+                enhanced_task = f"{task}\n\n【上下文提示】{context_hint}"
+
+            self.logger.info(f"流式执行 Agent: {agent_name}")
+            self.logger.info(f"任务: {enhanced_task[:200]}...")
+
+            # 3. 检查 Agent 是否支持流式执行
+            if not hasattr(agent, 'execute_stream'):
+                # 降级到非流式执行
+                self.logger.warning(f"Agent '{agent_name}' 不支持流式执行，使用非流式模式")
+                result = self.execute_agent(agent_name, task, context, context_hint)
+                yield result
+                return
+
+            # 4. 流式执行 Agent，透传所有事件
+            final_content = ""
+            for event in agent.execute_stream(enhanced_task, context):
+                # 透传事件到上层（Master V2）
+                yield event
+
+                # 🎯 收集子 Agent 的最终答案
+                if event.get('type') == 'final_answer':
+                    final_content = event.get('content', '')
+
+            # 5. 返回最终结果（标准化格式），包含完整的 final_answer 内容
+            yield {
+                "success": True,
+                "data": {
+                    "results": final_content,  # 🎯 这是子 Agent 的完整答案
+                    "metadata": {
+                        "agent_name": agent_name
+                    },
+                    "summary": self._generate_summary_from_content(final_content)
+                }
+            }
+
+        except Exception as e:
+            self.logger.error(f"流式执行 Agent '{agent_name}' 时出错: {e}", exc_info=True)
+            yield self._error_response(str(e))
 
     def _generate_summary(self, response: AgentResponse) -> str:
         """
@@ -132,6 +188,26 @@ class AgentExecutor:
                 summary_parts.append(f"，返回 {content_len} 字符")
 
         return "".join(summary_parts)
+
+    def _generate_summary_from_content(self, content: str) -> str:
+        """
+        从内容生成摘要（用于流式执行）
+
+        Args:
+            content: 完整内容
+
+        Returns:
+            摘要文本（前200字符或完整内容）
+        """
+        if not content:
+            return "Agent 执行完成"
+
+        # 如果内容较短，直接返回
+        if len(content) <= 200:
+            return content
+
+        # 否则返回前200字符 + 省略号
+        return content[:200] + "..."
 
     def _error_response(self, error_msg: str) -> Dict[str, Any]:
         """

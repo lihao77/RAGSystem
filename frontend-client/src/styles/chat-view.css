@@ -539,6 +539,26 @@
   /* gap: var(--spacing-md); */ /* 移除原有间距，由分割线或 padding 控制 */
 }
 
+/* 🎯 V2: 轮次分组样式 */
+.round-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.round-group:last-child {
+  margin-bottom: 0;
+}
+
+.round-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
 /* 覆盖 SubtaskCard 样式以适应列表视图 */
 .subtasks-list :deep(.subtask-card) {
     background: transparent !important;

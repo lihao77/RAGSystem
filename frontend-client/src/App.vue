@@ -17,14 +17,14 @@
     </div>
 
     <ChatView v-if="!useV2" />
-    <!-- <ChatViewV2 v-else /> -->
+    <ChatViewV2 v-else />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import ChatView from './views/ChatView.vue';
-// import ChatViewV2 from './views/ChatViewV2.vue';
+import ChatViewV2 from './views/ChatViewV2.vue';
 import 'highlight.js/styles/github-dark.css';
 
 const isDark = ref(true);

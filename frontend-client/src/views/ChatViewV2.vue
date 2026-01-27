@@ -1,4 +1,4 @@
-template>
+<template>
   <div class="chat-view">
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -25,7 +25,7 @@ template>
         <div class="avatar">U</div>
         <div class="user-info">
           <div class="username">User</div>
-          <div class="user-status">Master V2</div>
+          <div class="user-status">Pro Plan · V2</div>
         </div>
       </div>
     </aside>
@@ -37,23 +37,9 @@ template>
         <div v-if="messages.length === 0" class="welcome-screen">
           <div class="welcome-content">
             <div class="welcome-header">
-              <div class="logo-placeholder">🤖</div>
-              <h1>Master Agent V2</h1>
+              <div class="logo-placeholder">🧠</div>
+              <h1>RAG Agent System V2</h1>
               <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
-              <div class="v2-features">
-                <div class="feature-badge">
-                  <span class="badge-icon">🧠</span>
-                  <span>Dynamic Planning</span>
-                </div>
-                <div class="feature-badge">
-                  <span class="badge-icon">🔄</span>
-                  <span>Real-time Adaptation</span>
-                </div>
-                <div class="feature-badge">
-                  <span class="badge-icon">🎯</span>
-                  <span>Agent-as-Tool</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -70,14 +56,14 @@ template>
 
                 <!-- Subtasks (Agent Calls) -->
                 <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
-                  <!-- Status Ticker (Header) -->
+                  <!-- Status Ticker (同 V1) -->
                   <SubtaskStatusTicker
                     :subtasks="msg.subtasks"
                     :expanded="msg.showFullSubtasks"
                     @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
                   />
 
-                  <!-- Full Details View -->
+                  <!-- Full View -->
                   <transition
                     name="expand"
                     @enter="enter"
@@ -85,13 +71,19 @@ template>
                     @leave="leave"
                   >
                     <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
-                      <div class="subtasks-list">
-                        <SubtaskCard
-                          v-for="subtask in msg.subtasks"
-                          :key="subtask.order"
-                          :subtask="subtask"
-                          @update:expanded="subtask.expanded = $event"
-                        />
+                      <!-- 🎯 V2: 按轮次分组显示 -->
+                      <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum" class="round-group">
+                        <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
+                          第 {{ roundNum }} 轮推理
+                        </div>
+                        <div class="subtasks-list">
+                          <SubtaskCard
+                            v-for="subtask in roundGroup"
+                            :key="subtask.order"
+                            :subtask="subtask"
+                            @update:expanded="subtask.expanded = $event"
+                          />
+                        </div>
                       </div>
                     </div>
                   </transition>
@@ -231,6 +223,19 @@ const leave = (el) => {
   el.style.opacity = '0';
 };
 
+// 🎯 按轮次分组 subtasks
+const groupSubtasksByRound = (subtasks) => {
+  const groups = {};
+  for (const subtask of subtasks) {
+    const round = subtask.round || 1;  // 降级：没有 round 则默认为 1
+    if (!groups[round]) {
+      groups[round] = [];
+    }
+    groups[round].push(subtask);
+  }
+  return groups;
+};
+
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
@@ -252,14 +257,13 @@ const handleSend = async () => {
   isLoading.value = true;
 
   try {
-    // 🔑 关键差异：use_v2 参数指定使用 Master V2
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         task: content,
         session_id: null,
-        use_v2: true  // ✨ 使用 Master V2
+        use_v2: true  // 🎯 关键：指定使用 Master V2
       })
     });
 
@@ -281,20 +285,18 @@ const handleSend = async () => {
             const data = JSON.parse(line.substring(6));
             const currentMsg = messages.value[assistantMsgIndex];
 
-            if (data.type === 'chunk') {
-              const content = data.content;
-              if (content.length <= 10 && currentMsg.content.length > 0) {
-                currentMsg.content += content;
-              } else {
-                typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
-              }
-            } else if (data.type === 'subtask_start') {
-              // Master V2 发送的 Agent 调用开始事件
+            // 🎯 Master V2 使用 subtask_start 代表 Agent 调用
+            if (data.type === 'subtask_start') {
+              // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
+
               currentMsg.subtasks.push({
                 order: data.order,
+                task_id: data.task_id,  // V2 新增：精确追踪
+                round: data.round,  // 🎯 新增：第几轮推理
+                round_index: data.round_index,  // 🎯 新增：轮次内索引
                 agent_name: data.agent_name,
                 agent_display_name: data.agent_display_name,
                 description: data.description,
@@ -305,9 +307,14 @@ const handleSend = async () => {
                 expanded: true,
                 currentStep: null
               });
-            } else if (data.type === 'thought_structured') {
-              // Master V2 的思考过程（与 ReAct Agent 相同格式）
-              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
+            }
+            // 🎯 Master V2 的 thought 关联到 Agent 调用
+            else if (data.type === 'thought_structured') {
+              // 通过 task_id 或 subtask_order 定位 Agent
+              const subtask = data.task_id
+                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
+                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
+
               if (subtask) {
                 const newStep = {
                   round: data.round,
@@ -318,9 +325,10 @@ const handleSend = async () => {
                 subtask.react_steps.push(newStep);
                 subtask.currentStep = newStep;
               }
-            } else if (data.type === 'tool_start') {
-              // Agent 内部的工具调用
-              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
+            }
+            // 工具调用（如果 Master V2 内部有 Agent 调用工具）
+            else if (data.type === 'tool_start') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
               if (subtask && subtask.currentStep) {
                 const toolCall = {
                   tool_name: data.tool_name,
@@ -334,9 +342,9 @@ const handleSend = async () => {
                 subtask.currentStep.toolCalls.push(toolCall);
                 subtask.tool_calls.push(toolCall);
               }
-            } else if (data.type === 'tool_end') {
-              // Agent 内部的工具完成
-              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order);
+            }
+            else if (data.type === 'tool_end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
               if (subtask && subtask.currentStep) {
                 const updateTool = (list) => {
                   const idx = list.findIndex(t => t.tool_name === data.tool_name && t.status === 'running');
@@ -349,30 +357,51 @@ const handleSend = async () => {
                 updateTool(subtask.currentStep.toolCalls);
                 updateTool(subtask.tool_calls);
               }
-            } else if (data.type === 'subtask_end') {
-              // Master V2 的 Agent 调用结束
-              const subtask = currentMsg.subtasks.find(s => s.order === data.order);
+            }
+            // 🎯 Master V2 的 Agent 调用完成
+            else if (data.type === 'subtask_end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.order || s.task_id === data.task_id);
               if (subtask) {
                 subtask.result_summary = data.result_summary;
                 subtask.status = data.success === false ? 'error' : 'success';
                 subtask.expanded = false;
               }
-            } else if (data.type === 'chart_generated') {
+            }
+            // 最终答案（流式）
+            else if (data.type === 'chunk') {
+              const content = data.content;
+              if (content.length <= 10 && currentMsg.content.length > 0) {
+                currentMsg.content += content;
+              } else {
+                typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
+              }
+            }
+            // 最终答案（完整）
+            else if (data.type === 'final_answer') {
+              currentMsg.content = data.content;
+            }
+            // 图表生成
+            else if (data.type === 'chart_generated') {
               currentMsg.multimodalContents.push({
                 type: 'chart',
                 echartsConfig: data.echarts_config,
                 title: data.title || 'Data Visualization',
                 chartType: data.chart_type || 'bar'
               });
-            } else if (data.type === 'map_generated') {
+            }
+            // 地图生成
+            else if (data.type === 'map_generated') {
               currentMsg.multimodalContents.push({
                 type: 'map',
                 mapData: data.mapData,
                 title: data.title || 'Map Visualization'
               });
-            } else if (data.type === 'error') {
+            }
+            // 错误
+            else if (data.type === 'error') {
               currentMsg.status.push({ type: 'error', content: data.content });
             }
+
             scrollToBottom();
           } catch (e) {
             console.error('Error parsing SSE data:', e);
@@ -394,54 +423,4 @@ onMounted(() => {
 });
 </script>
 
-<style scoped src="../styles/chat-view.css">
-/* 继承 V1 的样式文件，保持风格一致 */
-</style>
-
-<style scoped>
-/* V2 特定样式 */
-.v2-features {
-  display: flex;
-  gap: var(--spacing-md);
-  margin-top: var(--spacing-xl);
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.feature-badge {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--glass-bg-light);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  transition: all var(--transition-normal);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.feature-badge:hover {
-  background: var(--color-bg-secondary);
-  border-color: var(--color-primary);
-  color: var(--color-text-primary);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.badge-icon {
-  font-size: 1.2rem;
-}
-
-/* User status badge for V2 */
-.user-status {
-  font-size: 0.75rem;
-  color: var(--color-primary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-</style>
+<style scoped src="../styles/chat-view.css"></style>
