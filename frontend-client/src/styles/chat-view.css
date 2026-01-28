@@ -11,7 +11,7 @@
 /* ===== Sidebar ===== */
 .sidebar {
   width: 260px;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-secondary);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
@@ -27,12 +27,12 @@
 .new-chat-btn {
   width: 100%;
   padding: 10px var(--spacing-md);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-primary);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-weight: 500;
-  font-size: 0.9rem;
+  font-size: var(--font-size-base); /* 0.9rem -> 1rem */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -60,7 +60,7 @@
 }
 
 .history-label {
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs); /* 0.7rem -> 0.75rem */
   font-weight: 600;
   text-transform: uppercase;
   color: var(--color-text-muted);
@@ -79,7 +79,7 @@
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
   transition: all var(--transition-fast);
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm); /* 0.85rem -> 0.875rem */
   border: 1px solid transparent;
   background: transparent;
 }
@@ -128,12 +128,12 @@
 
 .username {
   font-weight: 500;
-  font-size: 0.9rem;
+  font-size: var(--font-size-base); /* 0.9rem -> 1rem */
   color: var(--color-text-main);
 }
 
 .user-status {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs); /* 0.75rem */
   color: var(--color-text-muted);
 }
 
@@ -144,6 +144,7 @@
   flex-direction: column;
   position: relative;
   min-width: 0;
+  background-color: var(--color-bg-primary);
 }
 
 .chat-messages {
@@ -201,7 +202,7 @@
 
 /* ===== Messages ===== */
 .message-stream {
-  max-width: 800px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -210,27 +211,41 @@
 
 .message {
   display: flex;
+  flex-direction: column; /* 改为纵向布局，让 subtasks-container-full 和 message-content-wrapper 上下排列 */
   gap: var(--spacing-md);
   opacity: 0;
   animation: fadeIn 0.3s ease forwards;
   width: 100%;
 }
 
+/* Subtasks Container - Assistant 消息固定占满 85% */
+.message.assistant .subtasks-container-full {
+  width: 100%;
+  display: block;
+}
+
 .message.user {
-  justify-content: flex-end;
+  align-items: flex-end; /* 用户消息靠右 */
 }
 
 .message.assistant {
-  justify-content: flex-start;
+  align-items: flex-start; /* AI 消息靠左 */
 }
 
 @keyframes fadeIn {
   to { opacity: 1; }
 }
 
-.message-content-wrapper {
+/* Assistant 消息固定占满 85% */
+.message.assistant .message-content-wrapper {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* User 消息根据内容自适应，最大 85% */
+.message.user .message-content-wrapper {
   max-width: 85%;
-  min-width: 0;
+  width: auto;
 }
 
 .message-content {
@@ -246,8 +261,8 @@
   border-top-right-radius: 4px;
   color: var(--color-text-primary);
   line-height: 1.6;
-  font-size: 0.95rem;
-  border: 1px solid var(--color-border);
+  font-size: var(--font-size-base); /* 0.95rem -> 1rem */
+  /* border: 1px solid var(--color-border); */
 }
 
 /* ===== Final Answer ===== */
@@ -260,7 +275,7 @@
 
 .markdown-body {
   color: var(--color-text-primary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-base); /* 0.95rem -> 1rem */
   line-height: 1.7;
 }
 
@@ -278,19 +293,19 @@
 }
 
 .markdown-body :deep(h1) {
-  font-size: 1.5rem;
+  font-size: var(--font-size-2xl); /* 1.5rem -> 1.5rem */
   border-bottom: 1px solid var(--color-border);
   padding-bottom: 0.3em;
 }
 
 .markdown-body :deep(h2) {
-  font-size: 1.3rem;
+  font-size: var(--font-size-xl); /* 1.3rem -> 1.25rem */
   border-bottom: 1px solid var(--color-border);
   padding-bottom: 0.3em;
 }
 
 .markdown-body :deep(h3) {
-  font-size: 1.15rem;
+  font-size: var(--font-size-lg); /* 1.15rem -> 1.125rem */
 }
 
 /* 段落 */
@@ -460,11 +475,361 @@
   40% { transform: scale(1); }
 }
 
-/* ===== Subtasks ===== */
-.subtasks-container {
-    width: 100%;
-    /* margin-bottom: var(--spacing-md); */
+/* ===== Timeline Layout (展开状态的图标+卡片布局) ===== */
+.timeline-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
+
+.timeline-row {
+  display: flex;
+  gap: var(--spacing-md);
+  position: relative;
+}
+
+/* 图标列 */
+.timeline-icon-column {
+  flex-shrink: 0;
+  width: 50px;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.timeline-icon-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding-top: var(--spacing-sm);
+}
+
+/* 图标样式 */
+.timeline-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  position: relative;
+  z-index: 2;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-icon.master {
+  background: var(--color-bg-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.timeline-icon.agent {
+  background: var(--color-bg-elevated);
+}
+
+.timeline-icon.agent.running {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.timeline-icon.agent.success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.timeline-icon.agent.error {
+  border-color: var(--color-error);
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.timeline-icon.pending {
+  border-style: dashed;
+  opacity: 0.7;
+  animation: pulse-border 2s infinite;
+}
+
+.timeline-icon.final {
+  background: var(--color-success-bg);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.timeline-icon.small {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+}
+
+/* Round Badge */
+.round-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Spinner */
+.icon-spinner {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--color-primary);
+  animation: spin 1s linear infinite;
+}
+
+/* 连接线 */
+.timeline-line {
+  width: 2px;
+  background: var(--color-border);
+  flex: 1;
+  margin-top: 4px;
+  min-height: 20px;
+}
+
+.timeline-row:last-child .timeline-line {
+  display: none;
+}
+
+/* 卡片列 */
+.timeline-card-column {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: var(--spacing-sm);
+}
+
+.timeline-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  padding: var(--spacing-sm) 0;
+}
+
+.timeline-label.muted {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.timeline-label.success {
+  color: var(--color-success);
+}
+
+/* ===== Timeline Layout ===== */
+.timeline-container {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding-left: var(--spacing-sm);
+}
+
+/* 连接线（贯穿整个时间轴的背景线） */
+.timeline-container::before {
+  content: '';
+  position: absolute;
+  top: 20px; /* 从第一个节点中心开始 */
+  bottom: 20px; /* 到最后一个节点中心结束 */
+  left: 38px; /* 节点中心位置 (padding-left + node-width/2) -> 8px + 60px/2 = 38px? No.
+                 Let's calculate: node-column width is fixed.
+                 Node is 32px or 40px wide. Center is at ~20px. */
+  width: 2px;
+  background-color: var(--color-border);
+  z-index: 0;
+  /* 实际位置由下面的 .timeline-line 控制更精确，这里作为 fallback 或者总体背景 */
+  display: none; /* 暂时隐藏，使用 per-row line */
+}
+
+.timeline-row {
+  display: flex;
+  gap: var(--spacing-md);
+  position: relative;
+  /* min-height: 60px; */
+}
+
+.timeline-node-column {
+  flex-shrink: 0;
+  width: 40px; /* 节点区域宽度 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  /* 移除 padding-top: 12px; 改在 node-wrapper 处理，以便 sticky 生效 */
+}
+
+/* 新增：Sticky 包装器，用于包裹 timeline-node */
+.timeline-node-sticky {
+  position: sticky;
+  top: var(--spacing-lg); /* 距离视口顶部的距离 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px; /* 原来的 padding 移到这里 */
+  z-index: 5;
+}
+
+.timeline-content-column {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: var(--spacing-lg); /* 每行之间的间距 */
+}
+
+/* 节点样式 */
+.timeline-node {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  z-index: 2; /* 盖住线条 */
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  transition: all 0.2s;
+}
+
+.timeline-node.master {
+  background: var(--color-bg-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.timeline-node.agent {
+  background: var(--color-bg-elevated);
+}
+
+.timeline-node.agent.running {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.2);
+}
+
+.timeline-node.agent.success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.timeline-node.agent.error {
+  border-color: var(--color-error);
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.timeline-node.pending {
+  border-style: dashed;
+  border-color: var(--color-text-muted);
+  opacity: 0.7;
+  animation: pulse-border 2s infinite;
+}
+
+.timeline-node.final {
+  background: var(--color-success-bg);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.timeline-node.small {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+
+/* 连接线 (Per Row) */
+.timeline-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background-color: var(--color-border);
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.timeline-row:first-child .timeline-line {
+  top: 28px; /* 从第一个节点中心开始 */
+}
+
+.timeline-row:last-child .timeline-line {
+  bottom: auto;
+  height: 28px; /* 到最后一个节点中心结束 */
+}
+
+.timeline-line.dashed {
+  background: transparent;
+  border-left: 2px dashed var(--color-border);
+  width: 0;
+}
+
+/* 标签 */
+.timeline-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  padding-top: 6px; /* 对齐节点中心 */
+}
+
+.timeline-label.text-muted {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.timeline-label.success {
+  color: var(--color-success);
+}
+
+/* Round Badge */
+.round-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Spinner */
+.node-spinner {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--color-primary);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-border {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* 覆盖 SubtaskCard 样式以适应 Timeline */
+/* 恢复原样，只微调 margin */
+.timeline-content-column :deep(.subtask-card) {
+    margin-bottom: 0 !important;
+}
+
+/* 移除其他的 transparent 覆盖，让卡片恢复原貌 */
+/*
+.timeline-content-column :deep(.subtask-card:hover) {
+    border-left-color: var(--color-border-hover);
+}
+*/
+
+/* Subtasks Container - 已废弃，使用 subtasks-container-full 替代 */
 
 .subtasks-full-view {
     /* 与 Ticker 形成统一容器 */
@@ -476,10 +841,7 @@
     border-radius: 0 0 var(--radius-lg) var(--radius-lg); /* 下方圆角 */
     padding: var(--spacing-md);
     margin-top: 0;
-    box-shadow: var(--shadow-sm);
-    overflow: hidden; /* 必须为 hidden 才能让高度动画生效 */
-    /* 移除之前的 animation，改用 Vue transition 控制 */
-    /* animation: slideDown 0.3s ease; */
+    overflow: visible; /* 改为 visible，让卡片正常显示 */
     transition: height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
                 opacity 0.3s ease,
                 padding 0.3s ease; /* 确保 padding 也能平滑过渡 */
@@ -560,6 +922,7 @@
 }
 
 /* 覆盖 SubtaskCard 样式以适应列表视图 */
+/* 让卡片背景透明，避免嵌套卡片效果 */
 .subtasks-list :deep(.subtask-card) {
     background: transparent !important;
     border: none !important;
@@ -568,7 +931,6 @@
     border-radius: 0 !important;
     margin-bottom: 0 !important;
     animation: none !important;
-    /* border-bottom: 1px solid var(--color-border) !important; */
 }
 
 .subtasks-list :deep(.subtask-card:last-child) {
@@ -584,17 +946,12 @@
 .subtasks-list :deep(.subtask-details),
 .subtasks-list :deep(.subtask-preview) {
     background: transparent !important;
-    padding-left: var(--spacing-md) !important; /* 增加左侧缩进，体现层级 */
+    padding-left: var(--spacing-md) !important;
     padding-right: var(--spacing-xs) !important;
     padding-top: 0 !important;
     padding-bottom: var(--spacing-md) !important;
 }
 
-/* 隐藏外部折叠按钮，因为已经是列表形式 */
-/* .subtasks-list :deep(.collapse-trigger-external),
-.subtasks-list :deep(.expand-trigger-external) {
-    display: none !important;
-} */
 
 /* ===== Status Updates ===== */
 .status-updates {

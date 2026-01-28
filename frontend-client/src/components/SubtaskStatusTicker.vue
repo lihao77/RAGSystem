@@ -37,9 +37,9 @@
     </div>
 
     <!-- 进度条 -->
-    <div class="progress-bar-container" v-if="totalTasks > 0">
+    <!-- <div class="progress-bar-container" v-if="totalTasks > 0">
       <div class="progress-bar" :style="{ width: `${progressPercentage}%` }"></div>
-    </div>
+    </div> -->
   </div>
 </template>
 
@@ -119,7 +119,7 @@ const progressPercentage = computed(() => {
   border: 1px solid var(--color-border);
   border-radius: 24px; /* Use px value for interpolation */
   overflow: hidden;
-  margin: var(--spacing-sm) 0;
+  /* margin: var(--spacing-sm) 0; */
   box-shadow: var(--shadow-sm);
   /* 增加 transition-property 和 duration 以匹配展开动画 */
   transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1),
@@ -132,9 +132,9 @@ const progressPercentage = computed(() => {
 
 .subtask-status-ticker.is-expanded {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; /* 上方圆角，下方直角 */
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 极淡的分隔线，或者完全透明 */
-  margin-bottom: 0;
-  background: var(--glass-bg-light); /* 保持一致的背景 */
+  /* border-bottom: 1px solid rgba(255, 255, 255, 0.05); */
+  /* margin-bottom: 0; */
+  background: var(--color-bg-elevated); /* 保持一致的背景 */
   box-shadow: none; /* 移除阴影，让整体容器统一投影 */
 }
 
@@ -238,14 +238,14 @@ const progressPercentage = computed(() => {
   border-color: var(--color-border-hover);
 }
 
-.progress-bar-container {
+/* .progress-bar-container {
     height: 2px;
     background: var(--color-bg-tertiary);
     width: 100%;
     position: absolute;
     bottom: 0;
     left: 0;
-}
+} */
 
 .progress-bar {
     height: 100%;

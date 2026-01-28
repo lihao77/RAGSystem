@@ -46,7 +46,45 @@
 
         <!-- Message Stream -->
         <div v-else class="message-stream">
-          <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
+          <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]" :data-msg-index="index">
+            <!-- Subtasks Container - 占满整个 message 宽度 -->
+            <div v-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0" class="subtasks-container-full">
+              <!-- 常驻 Ticker (现在同时作为 Header) -->
+              <SubtaskStatusTicker
+                :subtasks="msg.subtasks"
+                :expanded="msg.showFullSubtasks"
+                @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
+              />
+
+              <!-- 完整详情模式 -->
+              <transition
+                name="expand"
+                @enter="enter"
+                @after-enter="afterEnter"
+                @leave="leave"
+              >
+                <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
+                  <div class="subtasks-list">
+                    <!-- 轮次循环 -->
+                    <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum" class="round-group">
+                       <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
+                           Round {{ roundNum }}
+                       </div>
+                       <!-- 每个 subtask 卡片 -->
+                       <SubtaskCard
+                          v-for="(subtask, index) in roundGroup"
+                          :key="subtask.order"
+                          :subtask="subtask"
+                          @update:expanded="expandSubtask(msg.subtasks, subtask.task_id)"
+                       />
+                    </div>
+                  </div>
+                  
+                </div>
+              </transition>
+
+            </div>
+
             <div class="message-content-wrapper">
               <div class="message-content">
                 <!-- Loading State -->
@@ -54,40 +92,6 @@
                   <div class="dot"></div><div class="dot"></div><div class="dot"></div>
                 </div>
 
-                <!-- Subtasks (Agent Calls) -->
-                <div v-if="msg.subtasks && msg.subtasks.length > 0" class="subtasks-container">
-                  <!-- Status Ticker (同 V1) -->
-                  <SubtaskStatusTicker
-                    :subtasks="msg.subtasks"
-                    :expanded="msg.showFullSubtasks"
-                    @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
-                  />
-
-                  <!-- Full View -->
-                  <transition
-                    name="expand"
-                    @enter="enter"
-                    @after-enter="afterEnter"
-                    @leave="leave"
-                  >
-                    <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
-                      <!-- 🎯 V2: 按轮次分组显示 -->
-                      <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum" class="round-group">
-                        <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
-                          第 {{ roundNum }} 轮推理
-                        </div>
-                        <div class="subtasks-list">
-                          <SubtaskCard
-                            v-for="subtask in roundGroup"
-                            :key="subtask.order"
-                            :subtask="subtask"
-                            @update:expanded="subtask.expanded = $event"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </transition>
-                </div>
 
                 <!-- Multimodal Content -->
                 <MultimodalContent
@@ -236,6 +240,18 @@ const groupSubtasksByRound = (subtasks) => {
   return groups;
 };
 
+// 🎯 V1 风格：手风琴逻辑（一次只展开一个）
+const expandSubtask = (subtasks, taskId) => {
+  subtasks.forEach(task => {
+    // 如果是当前点击的任务，则切换状态；其他的全部折叠
+    if (task.task_id === taskId) {
+      task.expanded = !task.expanded;
+    } else {
+      task.expanded = false;
+    }
+  });
+};
+
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
@@ -251,7 +267,8 @@ const handleSend = async () => {
     subtasks: [],
     showFullSubtasks: false,
     multimodalContents: [],
-    status: []
+    status: [],
+    finished: false
   }) - 1;
 
   isLoading.value = true;
@@ -274,7 +291,10 @@ const handleSend = async () => {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        messages.value[assistantMsgIndex].finished = true;
+        break;
+      }
 
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n\n');
@@ -370,15 +390,23 @@ const handleSend = async () => {
             // 最终答案（流式）
             else if (data.type === 'chunk') {
               const content = data.content;
-              if (content.length <= 10 && currentMsg.content.length > 0) {
-                currentMsg.content += content;
-              } else {
-                typewriter(currentMsg, 'content', content, 15, `msg-${assistantMsgIndex}-content`);
-              }
+              // 🎯 直接拼接 chunk，不使用打字机（让 markdown 正确渲染）
+              currentMsg.content += content;
+              scrollToBottom();
             }
-            // 最终答案（完整）
+            // 最终答案（完整 - 仅用于元数据和验证）
             else if (data.type === 'final_answer') {
-              currentMsg.content = data.content;
+              // 🎯 不覆盖内容，因为已经通过 chunk 流式接收了
+              // 只用于验证和获取元数据
+              if (!currentMsg.content || currentMsg.content.length === 0) {
+                // 降级：如果没有收到 chunk，使用完整内容
+                currentMsg.content = data.content;
+              }
+              // 可以在这里记录元数据
+              if (data.metadata) {
+                currentMsg.metadata = data.metadata;
+              }
+              currentMsg.finished = true;
             }
             // 图表生成
             else if (data.type === 'chart_generated') {
@@ -412,6 +440,7 @@ const handleSend = async () => {
   } catch (error) {
     console.error('Error sending message:', error);
     messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
+    messages.value[assistantMsgIndex].finished = true;
   } finally {
     isLoading.value = false;
     scrollToBottom();

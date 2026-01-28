@@ -138,45 +138,51 @@ const initChart = (container) => {
       textStyle: {
         color: isDark ? '#f4f4f5' : '#18181b'
       }
-    },
-    xAxis: {
-      axisLine: {
-        lineStyle: {
-          color: isDark ? '#52525b' : '#a1a1aa' // var(--color-text-muted)
-        }
-      },
-      axisLabel: {
-        color: isDark ? '#a1a1aa' : '#52525b'
-      },
-      splitLine: {
-        lineStyle: {
-          color: isDark ? '#3f3f46' : '#e4e4e7' // var(--color-bg-tertiary)
-        }
-      }
-    },
-    yAxis: {
-      axisLine: {
-        lineStyle: {
-          color: isDark ? '#52525b' : '#a1a1aa'
-        }
-      },
-      axisLabel: {
-        color: isDark ? '#a1a1aa' : '#52525b'
-      },
-      splitLine: {
-        lineStyle: {
-          color: isDark ? '#3f3f46' : '#e4e4e7'
-        }
-      }
     }
+  };
+
+  // 深度合并配置，确保坐标轴配置正确合并
+  const mergeAxisConfig = (userAxis, baseColors) => {
+    if (!userAxis) return undefined;
+
+    return {
+      ...userAxis,
+      axisLine: {
+        ...(userAxis.axisLine || {}),
+        lineStyle: {
+          color: baseColors.axisLine,
+          ...(userAxis.axisLine?.lineStyle || {})
+        }
+      },
+      axisLabel: {
+        color: baseColors.axisLabel,
+        ...(userAxis.axisLabel || {})
+      },
+      splitLine: {
+        ...(userAxis.splitLine || {}),
+        lineStyle: {
+          color: baseColors.splitLine,
+          ...(userAxis.splitLine?.lineStyle || {})
+        }
+      }
+    };
+  };
+
+  const axisColors = {
+    axisLine: isDark ? '#52525b' : '#a1a1aa',
+    axisLabel: isDark ? '#a1a1aa' : '#52525b',
+    splitLine: isDark ? '#3f3f46' : '#e4e4e7'
   };
 
   // 合并配置
   const finalOption = {
-    // ...baseOption,
+    ...baseOption,
     ...props.echartsConfig,
-    // 确保 backgroundColor 是透明的，除非 config 里明确覆盖
-    backgroundColor: props.echartsConfig.backgroundColor || 'transparent'
+    // 确保 backgroundColor 是透明的
+    backgroundColor: props.echartsConfig.backgroundColor || 'transparent',
+    // 智能合并坐标轴配置
+    xAxis: props.echartsConfig.xAxis ? mergeAxisConfig(props.echartsConfig.xAxis, axisColors) : undefined,
+    yAxis: props.echartsConfig.yAxis ? mergeAxisConfig(props.echartsConfig.yAxis, axisColors) : undefined
   };
 
   // 设置配置
@@ -271,6 +277,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--glass-shadow);
   transition: all var(--transition-normal);
+  container-type: inline-size; /* 启用容器查询 */
 }
 
 .chart-renderer:hover {
@@ -282,7 +289,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-md);
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
   transition: all var(--transition-fast);
@@ -337,10 +344,39 @@ onUnmounted(() => {
 
 .chart-container {
   width: 100%;
-  height: 400px;
-  padding: var(--spacing-lg);
+  /* 使用 aspect-ratio 维护 16:9 的黄金比例 */
+  aspect-ratio: 16 / 9;
+  min-height: 300px;
+  max-height: 600px;
+  padding: var(--spacing-md);
   transition: all var(--transition-normal);
   background: var(--color-bg-primary);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .chart-container {
+    /* 移动端使用 4:3 比例，更适合竖屏 */
+    aspect-ratio: 4 / 3;
+    min-height: 250px;
+    max-height: 400px;
+    padding: var(--spacing-sm);
+  }
+}
+
+@media (min-width: 1440px) {
+  .chart-container {
+    /* 大屏幕保持 16:9，但允许更高 */
+    max-height: 700px;
+  }
+}
+
+/* 如果容器在网格中宽度受限，优先保持比例 */
+@container (max-width: 500px) {
+  .chart-container {
+    aspect-ratio: 1 / 1;
+    min-height: 250px;
+  }
 }
 
 .chart-container.fullscreen {

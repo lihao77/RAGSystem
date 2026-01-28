@@ -1,5 +1,5 @@
 <template>
-  <div class="multimodal-container">
+  <div class="multimodal-container" :class="{ 'single-item': contents.length === 1, 'dual-items': contents.length === 2 }">
     <!-- 渲染不同类型的模态内容 -->
     <component
       :is="getRendererComponent(item.type)"
@@ -54,16 +54,48 @@ const getRendererProps = (item) => {
 
 <style scoped>
 .multimodal-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: var(--spacing-lg);
+  margin: var(--spacing-md) 0;
   background: transparent;
+  width: 100%;
+}
+
+/* 单个项目时占满宽度 - 使用类名而不是 :has() */
+.multimodal-container.single-item {
+  grid-template-columns: 1fr;
+}
+
+/* 两个项目时 1:1 分配 - 使用类名而不是 :has() */
+.multimodal-container.dual-items {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 /* 确保子组件符合整体风格 */
 .multimodal-container > * {
   animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 0; /* 防止内容溢出 */
+}
+
+/* 响应式：移动端强制单列 */
+@media (max-width: 768px) {
+  .multimodal-container {
+    grid-template-columns: 1fr !important;
+    gap: var(--spacing-md);
+  }
+}
+
+/* 响应式：平板端最多两列 */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .multimodal-container {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+
+  /* 三个及以上时强制两列 */
+  .multimodal-container:not(.single-item):not(.dual-items) {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @keyframes fadeInUp {

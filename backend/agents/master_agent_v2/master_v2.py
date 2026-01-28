@@ -383,10 +383,22 @@ class MasterAgentV2(BaseAgent):
 
                 # 检查是否有最终答案
                 if final_answer:
-                    self.logger.info(f"[MasterV2] 得到最终答案")
+                    self.logger.info(f"[MasterV2] 得到最终答案，准备流式发送")
+
+                    # 🎯 将完整答案拆分成 chunks 流式发送
+                    # 使用较小的 chunk_size 让流式效果更流畅
+                    chunk_size = 5  # 每次发送5个字符（更流畅的打字效果）
+                    for i in range(0, len(final_answer), chunk_size):
+                        chunk = final_answer[i:i + chunk_size]
+                        yield {
+                            "type": "chunk",
+                            "content": chunk
+                        }
+
+                    # 🎯 发送 final_answer 事件（标记结束，包含元数据）
                     yield {
                         "type": "final_answer",
-                        "content": final_answer,
+                        "content": final_answer,  # 完整内容（前端可以用于验证）
                         "metadata": {
                             'rounds': rounds,
                             'agent_calls': len(agent_calls_history),

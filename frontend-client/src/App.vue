@@ -144,6 +144,20 @@ onMounted(() => {
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Font Sizes */
+  --font-size-xs: 0.75rem;    /* 12px */
+  --font-size-sm: 0.875rem;   /* 14px */
+  --font-size-base: 1rem;     /* 16px - 基础字号 */
+  --font-size-md: 1.0625rem;  /* 17px */
+  --font-size-lg: 1.125rem;   /* 18px */
+  --font-size-xl: 1.25rem;    /* 20px */
+  --font-size-2xl: 1.5rem;    /* 24px */
+  --font-size-3xl: 1.875rem;  /* 30px */
+  --font-size-4xl: 2.25rem;   /* 36px */
+
+  /* Layout - Content Width */
+  --content-max-width: 800px; /* 对话内容区域的最大宽度 */
 }
 
 :root[data-theme="light"] {
@@ -207,8 +221,8 @@ html, body {
 body {
   font-family: var(--font-sans);
   color: var(--color-text-primary);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-base); /* 使用 16px 作为基础字号，从之前的 14px 增大 */
+  line-height: 1.6; /* 从 1.5 增加到 1.6，提升可读性 */
   letter-spacing: -0.01em;
 }
 
