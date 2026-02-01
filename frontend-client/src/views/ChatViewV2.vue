@@ -1,153 +1,325 @@
 <template>
   <div class="chat-view">
+    <!-- 遮罩层（移动端） -->
+    <div class="sidebar-backdrop" :class="{ 'active': mobileOpen }" @click="closeMobileSidebar"></div>
+
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside ref="sidebarRef" class="sidebar" :class="{
+      'collapsed': sidebarCollapsed,
+      'mobile-open': mobileOpen
+    }" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd">
+      <!-- 系统 Logo 和折叠按钮 -->
+      <div class="sidebar-top-bar">
+        <div class="sidebar-logo-wrapper" @click="toggleSidebar">
+          <!-- 系统 Logo -->
+          <IconLogo :size="32" class="sidebar-logo-icon" simple />
+
+          <!-- 展开图标（仅在折叠状态 hover 时显示） -->
+          <IconChevronRight :size="20" class="sidebar-expand-icon" />
+        </div>
+
+        <!-- 折叠按钮 -->
+        <button class="toggle-sidebar-btn" @click="toggleSidebar" :title="'Collapse sidebar'">
+          <IconChevronLeft :size="20" />
+        </button>
+      </div>
+
       <div class="sidebar-header">
-        <button class="new-chat-btn" @click="startNewChat">
-          <span class="icon">+</span>
-          <span>New Chat</span>
+        <button class="sidebar-btn" @click="startNewChat">
+          <IconNewConversation :size="22" class="icon" />
+          <span class="btn-text">新聊天</span>
         </button>
       </div>
 
       <div class="history-list">
         <div class="history-label">Recent</div>
-        <div
-          v-for="(item, index) in history"
-          :key="index"
-          class="history-item"
-        >
-          <span class="history-icon">💬</span>
+        <div v-for="(item, index) in history" :key="index" class="history-item">
+          <!-- 网页图标 -->
+          <IconDocument :size="18" class="history-icon" />
           <span class="history-title">{{ item.title || 'New Conversation' }}</span>
         </div>
       </div>
 
-      <div class="user-profile">
+      <a class="user-profile">
         <div class="avatar">U</div>
         <div class="user-info">
           <div class="username">User</div>
           <div class="user-status">Pro Plan · V2</div>
         </div>
-      </div>
+      </a>
     </aside>
 
     <!-- Main Chat Area -->
     <main class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
-      <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
-        <!-- Welcome Screen -->
-        <div v-if="messages.length === 0" class="welcome-screen">
-          <div class="welcome-content">
-            <div class="welcome-header">
-              <div class="logo-placeholder">🧠</div>
-              <h1>RAG Agent System V2</h1>
-              <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
-            </div>
-          </div>
+      <!-- 顶部控制栏 -->
+      <div class="top-controls-bar glass-card" ref="topControlsBarRef">
+        <!-- 左侧：汉堡菜单 + LLM 选择器 -->
+        <div class="left-controls glass-card">
+          <!-- 汉堡菜单按钮（移动端） -->
+          <button class="hamburger-menu-btn" @click="openMobileSidebar" :title="'Open menu'">
+            <IconMenu :size="20" />
+          </button>
+
+          <LLMSelector :model-value="selectedLLM" @update:model-value="emit('update:selectedLLM', $event)" />
         </div>
 
-        <!-- Message Stream -->
-        <div v-else class="message-stream">
-          <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]" :data-msg-index="index">
-            <!-- Subtasks Container - 占满整个 message 宽度 -->
-            <div v-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0" class="subtasks-container-full">
-              <!-- 常驻 Ticker (现在同时作为 Header) -->
-              <SubtaskStatusTicker
-                :subtasks="msg.subtasks"
-                :expanded="msg.showFullSubtasks"
-                @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks"
-              />
+        <!-- 右侧：Version + Theme -->
+        <div class="right-controls glass-card">
+          <button @click="emit('toggleVersion')" class="version-btn btn" :title="useV2 ? '切换到 V1' : '切换到 V2'">
+            <span class="version-label">{{ useV2 ? 'V2' : 'V1' }}</span>
+          </button>
 
-              <!-- 完整详情模式 -->
-              <transition
-                name="expand"
-                @enter="enter"
-                @after-enter="afterEnter"
-                @leave="leave"
-              >
-                <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
-                  <div class="subtasks-list">
-                    <!-- 轮次循环 -->
-                    <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum" class="round-group">
-                       <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
-                           Round {{ roundNum }}
-                       </div>
-                       <!-- 每个 subtask 卡片 -->
-                       <SubtaskCard
-                          v-for="(subtask, index) in roundGroup"
-                          :key="subtask.order"
-                          :subtask="subtask"
-                          @update:expanded="expandSubtask(msg.subtasks, subtask.task_id)"
-                       />
-                    </div>
-                  </div>
-                  
+          <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+            <!-- Sun icon for dark mode -->
+            <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <!-- Moon icon for light mode -->
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="chat-messages-wrapper">
+        <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
+          <!-- Welcome Screen -->
+          <div v-if="messages.length === 0" class="welcome-screen">
+            <div class="welcome-content">
+              <div class="welcome-header">
+                <div class="logo-placeholder">
+                  <!-- 系统 Logo -->
+                  <IconLogo :size="80" animated />
                 </div>
-              </transition>
-
+                <h1>RAG Agent System V2</h1>
+                <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
+              </div>
             </div>
-
-            <div class="message-content-wrapper">
-              <div class="message-content">
-                <!-- Loading State -->
-                <div v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0)" class="loading-indicator">
-                  <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-                </div>
+          </div>
 
 
-                <!-- Multimodal Content -->
-                <MultimodalContent
-                  v-if="msg.multimodalContents && msg.multimodalContents.length > 0"
-                  :contents="msg.multimodalContents"
-                />
+          <!-- Message Stream -->
+          <div v-else class="message-stream">
+            <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]" :data-msg-index="index">
+              <!-- Subtasks Container - 占满整个 message 宽度 -->
+              <div v-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0"
+                class="subtasks-container-full">
+                <!-- 常驻 Ticker (现在同时作为 Header) -->
+                <SubtaskStatusTicker :subtasks="msg.subtasks" :expanded="msg.showFullSubtasks"
+                  @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks" />
 
-                <!-- Final Answer -->
-                <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
-                  <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
-                </div>
+                <!-- 完整详情模式 -->
+                <transition name="expand">
+                  <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
+                    <div class="subtasks-list">
+                      <!-- 轮次循环 -->
+                      <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum"
+                        class="round-group">
+                        <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
+                          Round {{ roundNum }}
+                        </div>
+                        <!-- 每个 subtask 卡片 -->
+                        <SubtaskCard v-for="(subtask, index) in roundGroup" :key="subtask.order" :subtask="subtask"
+                          @update:expanded="expandSubtask(msg.subtasks, subtask.task_id)" />
+                      </div>
+                    </div>
 
-                <!-- User Message -->
-                <div v-if="msg.role === 'user' && msg.content" class="user-text">
-                  {{ msg.content }}
-                </div>
+                  </div>
+                </transition>
 
-                <!-- Status Updates -->
-                <div v-if="msg.status && msg.status.length > 0" class="status-updates">
-                  <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-tag" :class="status.type">
-                    <span v-if="status.type === 'error'" class="status-icon">⚠️</span>
-                    {{ status.content }}
+              </div>
+
+              <div class="message-content-wrapper">
+                <div class="message-content">
+                  <!-- Loading State -->
+                  <div v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0)"
+                    class="loading-indicator">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                  </div>
+
+
+                  <!-- Multimodal Content -->
+                  <MultimodalContent v-if="msg.multimodalContents && msg.multimodalContents.length > 0"
+                    :contents="msg.multimodalContents" />
+
+                  <!-- Final Answer -->
+                  <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
+                    <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                  </div>
+
+                  <!-- User Message -->
+                  <div v-if="msg.role === 'user' && msg.content" class="user-text">
+                    {{ msg.content }}
+                  </div>
+
+                  <!-- Status Updates -->
+                  <div v-if="msg.status && msg.status.length > 0" class="status-updates">
+                    <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-tag" :class="status.type">
+                      <span v-if="status.type === 'error'" class="status-icon">⚠️</span>
+                      {{ status.content }}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+        <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }">
+          <ChatInput v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
+        </div>
       </div>
 
-      <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }">
-        <ChatInput
-          v-model="inputMessage"
-          :isLoading="isLoading"
-          @send="handleSend"
-        />
-      </div>
+
+
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue';
+import { ref, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskCard from '../components/SubtaskCard.vue';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
+import LLMSelector from '../components/LLMSelector.vue';
+import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu } from '../components/icons';
+import { Icon } from 'leaflet';
+
+// Props
+const props = defineProps({
+  selectedLLM: {
+    type: String,
+    default: ''
+  },
+  useV2: {
+    type: Boolean,
+    default: false
+  },
+  isDark: {
+    type: Boolean,
+    default: true
+  }
+});
+
+// Emits
+const emit = defineEmits(['update:selectedLLM', 'toggleVersion', 'toggleTheme']);
 
 const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const messagesRef = ref(null);
+const topControlsBarRef = ref(null);
+const sidebarRef = ref(null);
 const history = ref([]);
 const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
+const sidebarCollapsed = ref(false);
+
+// 移动端状态
+const mobileOpen = ref(false);
+const isMobile = ref(false);
+
+// 触摸手势状态
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+const touchCurrentX = ref(0);
+const isDragging = ref(false);
+
+// 检测是否为移动端
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768;
+};
+
+// Sidebar 切换逻辑
+const toggleSidebar = () => {
+  if (isMobile.value) {
+    // 移动端：关闭 sidebar
+    closeMobileSidebar();
+  } else {
+    // 桌面端：折叠/展开
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+  }
+};
+
+// 打开移动端侧边栏
+const openMobileSidebar = () => {
+  mobileOpen.value = true;
+  // 禁止背景滚动
+  document.body.style.overflow = 'hidden';
+};
+
+// 关闭移动端侧边栏
+const closeMobileSidebar = () => {
+  mobileOpen.value = false;
+  // 恢复背景滚动
+  document.body.style.overflow = '';
+};
+
+// 触摸手势处理：touchstart
+const handleTouchStart = (e) => {
+  if (!mobileOpen.value) return;
+  touchStartX.value = e.touches[0].clientX;
+  touchStartY.value = e.touches[0].clientY;
+  isDragging.value = false;
+};
+
+// 触摸手势处理：touchmove
+const handleTouchMove = (e) => {
+  if (!mobileOpen.value) return;
+  touchCurrentX.value = e.touches[0].clientX;
+
+  const deltaX = touchCurrentX.value - touchStartX.value;
+  const deltaY = Math.abs(e.touches[0].clientY - touchStartY.value);
+
+  // 如果横向滑动距离大于纵向，判断为滑动关闭手势
+  if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > deltaY) {
+    isDragging.value = true;
+
+    // 向左滑动（关闭）
+    if (deltaX < 0 && sidebarRef.value) {
+      const translateX = Math.max(deltaX, -280);
+      sidebarRef.value.style.transform = `translateX(${translateX}px)`;
+      e.preventDefault(); // 阻止页面滚动
+    }
+  }
+};
+
+// 触摸手势处理：touchend
+const handleTouchEnd = (e) => {
+  if (!mobileOpen.value || !isDragging.value) {
+    if (sidebarRef.value) {
+      sidebarRef.value.style.transform = '';
+    }
+    return;
+  }
+
+  const deltaX = touchCurrentX.value - touchStartX.value;
+
+  // 滑动距离超过 100px 或速度足够快，则关闭
+  if (deltaX < -100 || (deltaX < -30 && Math.abs(deltaX) > 50)) {
+    closeMobileSidebar();
+  }
+
+  // 重置 transform
+  if (sidebarRef.value) {
+    sidebarRef.value.style.transform = '';
+  }
+
+  isDragging.value = false;
+};
 
 const startNewChat = () => {
   messages.value = [];
@@ -203,28 +375,15 @@ const scrollToBottom = async (force = false) => {
 
 const handleScroll = () => {
   isUserAtBottom.value = checkIfAtBottom();
-};
 
-// Expand Animation Hooks
-const enter = (el) => {
-  el.style.height = '0';
-  el.style.opacity = '0';
-  el.offsetHeight;
-  el.style.height = el.scrollHeight + 'px';
-  el.style.opacity = '1';
-};
-
-const afterEnter = (el) => {
-  el.style.height = 'auto';
-  el.style.opacity = '';
-};
-
-const leave = (el) => {
-  el.style.height = el.scrollHeight + 'px';
-  el.style.opacity = '1';
-  el.offsetHeight;
-  el.style.height = '0';
-  el.style.opacity = '0';
+  // 控制 top-controls-bar 的边框显示
+  if (messagesRef.value && topControlsBarRef.value) {
+    if (messagesRef.value.scrollTop > 0) {
+      topControlsBarRef.value.classList.add('scrolled');
+    } else {
+      topControlsBarRef.value.classList.remove('scrolled');
+    }
+  }
 };
 
 // 🎯 按轮次分组 subtasks
@@ -449,6 +608,20 @@ const handleSend = async () => {
 
 onMounted(() => {
   isUserAtBottom.value = true;
+
+  // 初始化移动端检测
+  checkMobile();
+
+  // 监听窗口大小变化
+  window.addEventListener('resize', checkMobile);
+});
+
+onUnmounted(() => {
+  // 清理事件监听器
+  window.removeEventListener('resize', checkMobile);
+
+  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
+  document.body.style.overflow = '';
 });
 </script>
 

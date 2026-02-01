@@ -142,8 +142,8 @@ const getRateClass = () => {
 
 .summary-badge {
   padding: 4px 12px;
-  background: var(--color-primary-subtle);
-  color: var(--color-primary-hover);
+  background: var(--color-interactive-subtle);
+  color: var(--color-interactive-hover);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 700;
@@ -152,15 +152,15 @@ const getRateClass = () => {
 }
 
 .summary-badge.success {
-  background: #d1fae5;
-  color: #059669;
-  border-color: #10b981;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-color: var(--color-success);
 }
 
 .summary-badge.failed {
-  background: #fee2e2;
-  color: #dc2626;
-  border-color: #ef4444;
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border-color: var(--color-error);
 }
 
 .summary-content {
@@ -190,18 +190,18 @@ const getRateClass = () => {
 }
 
 .metric-item.success {
-  border-color: #10b981;
-  background: #d1fae5;
+  border-color: var(--color-success);
+  background: var(--color-success-bg);
 }
 
 .metric-item.error {
-  border-color: #ef4444;
-  background: #fee2e2;
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
 }
 
 .metric-item.warning {
-  border-color: #f59e0b;
-  background: #fed7aa;
+  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
 }
 
 .metric-value {
@@ -244,8 +244,8 @@ const getRateClass = () => {
 }
 
 .performance-item.highlight {
-  background: var(--color-primary-subtle);
-  border-left: 3px solid var(--color-primary);
+  background: var(--color-interactive-subtle);
+  border-left: 3px solid var(--color-interactive);
   padding-left: var(--spacing-md);
 }
 
@@ -323,19 +323,19 @@ const getRateClass = () => {
 }
 
 .rate-fill.perfect {
-  background: #10b981;
+  background: var(--color-success);
 }
 
 .rate-fill.good {
-  background: #3b82f6;
+  background: var(--color-active);
 }
 
 .rate-fill.warning {
-  background: #f59e0b;
+  background: var(--color-warning);
 }
 
 .rate-fill.poor {
-  background: #ef4444;
+  background: var(--color-error);
 }
 
 /* 动画 */

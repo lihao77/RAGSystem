@@ -1,0 +1,295 @@
+/* ===== Ultra-Premium Minimalist Design System ===== */
+:root {
+    /* Interactive Accent Colors */
+    --color-interactive: #2d2d2d;
+    /* Primary interactive elements (buttons, icons) */
+    --color-interactive-hover: #414141;
+    /* Hover state */
+    --color-interactive-glow: rgba(71, 71, 71, 0.18);
+    --color-interactive-subtle: rgba(255, 255, 255, 0.06);
+    --color-interactive-rgb: 45, 45, 45;
+    /* RGB triplet for rgba() usage */
+
+    /* Brand Accent Colors - For decorative glows and highlights */
+    --color-brand-accent: #6366f1;
+    /* Brand indigo for decorative elements */
+    --color-brand-accent-rgb: 99, 102, 241;
+    /* RGB triplet for rgba() usage */
+    --color-brand-accent-light: #818cf8;
+    --color-brand-accent-light-rgb: 129, 140, 248;
+
+    /* Background Layers - Matte Deep Space */
+    --color-bg-app: #09090b;
+    /* Zinc 950 - 最深背景 */
+    --color-bg-primary: #181818;
+    /* Zinc 900 - 卡片背景 */
+    --color-bg-secondary: #212121;
+    /* Zinc 800 - 悬停/次级背景 */
+    --color-bg-tertiary: #303030;
+    /* Zinc 700 - 激活状态 */
+    --color-bg-elevated: #27272a;
+    /* 浮层 */
+
+    /* Text Colors - Pure & Crisp */
+    --color-text-primary: #ffffff;
+    /* Zinc 100 */
+    --color-text-secondary: #dddddd;
+    /* Zinc 400 */
+    --color-text-muted: #616161;
+    /* Zinc 600 */
+    --color-text-inverse: #09090b;
+
+    /* Message Backgrounds */
+    --color-bg-message-user: #27272a;
+    --color-bg-message-assistant: transparent;
+
+    /* Borders - Ultra Thin & Subtle */
+    --color-border: rgba(255, 255, 255, 0.06);
+    --color-border-hover: rgba(255, 255, 255, 0.12);
+    --color-border-focus: rgba(var(--color-brand-accent-light-rgb), 0.4);
+
+    /* Status Colors - Muted */
+    --color-success: #34d399;
+    --color-success-bg: rgba(52, 211, 153, 0.1);
+    --color-warning: #fbbf24;
+    --color-warning-bg: rgba(251, 191, 36, 0.1);
+    --color-error: #f87171;
+    --color-error-bg: rgba(248, 113, 113, 0.1);
+    --color-active: #60a5fa;
+    --color-active-bg: rgba(96, 165, 250, 0.1);
+
+    /* Minimal Glass - Only for overlays */
+    --glass-bg: rgba(20, 20, 20, 0.5);
+    --glass-bg-light: rgba(24, 24, 27, 0);
+    --color-glass-border: rgba(255, 255, 255, 0.125);
+    --glass-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2);
+    --glass-blur: 20px;
+
+    /* Refined Shadows */
+    --shadow-sm: 0 1px 2px rgba(255, 255, 255, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(255, 255, 255, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
+    --shadow-lg: 0 10px 15px -3px rgba(255, 255, 255, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+
+    /* 向四周发光的 */
+    --shadow-glow: 0 0 10px rgba(255, 255, 255, 0.2);
+    --shadow-glow-md: 0 0 20px rgba(255, 255, 255, 0.3);
+    --shadow-glow-lg: 0 0 30px rgba(255, 255, 255, 0.4);
+
+    /* Spacing - 4px Grid */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 64px;
+
+    /* Border Radius - Consistent */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 24px;
+    --radius-full: 9999px;
+
+    /* Transitions */
+    --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Typography */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    /* Font Sizes */
+    --font-size-xs: 0.75rem;
+    /* 12px */
+    --font-size-sm: 0.875rem;
+    /* 14px */
+    --font-size-base: 1rem;
+    /* 16px - 基础字号 */
+    --font-size-md: 1.0625rem;
+    /* 17px */
+    --font-size-lg: 1.125rem;
+    /* 18px */
+    --font-size-xl: 1.25rem;
+    /* 20px */
+    --font-size-2xl: 1.5rem;
+    /* 24px */
+    --font-size-3xl: 1.875rem;
+    /* 30px */
+    --font-size-4xl: 2.25rem;
+    /* 36px */
+
+    /* Layout - Content Width */
+    --content-max-width: 800px;
+    /* 对话内容区域的最大宽度 */
+}
+
+:root[data-theme="light"] {
+    /* Interactive Accent Colors */
+    --color-interactive: #e5e5e5;
+    --color-interactive-hover: #f9f9f9;
+    --color-interactive-glow: rgba(79, 70, 229, 0.15);
+    --color-interactive-subtle: rgba(100, 100, 100, 0.4);
+    --color-interactive-rgb: 229, 229, 229;
+    /* RGB triplet for rgba() usage */
+
+    /* Brand Accent Colors - For decorative glows and highlights */
+    --color-brand-accent: #4f46e5;
+    /* Brand indigo for light theme */
+    --color-brand-accent-rgb: 79, 70, 229;
+    --color-brand-accent-light: #6366f1;
+    --color-brand-accent-light-rgb: 99, 102, 241;
+
+    /* Background Layers - Light */
+    --color-bg-app: #ffffff;
+    /* Zinc 100 */
+    --color-bg-primary: #f7f7f7;
+    /* White */
+    --color-bg-secondary: #f2f2f2;
+    /* Zinc 100 */
+    --color-bg-tertiary: #d8d8db;
+    /* Zinc 200 */
+    --color-bg-elevated: #ffffff;
+
+    /* Text Colors */
+    --color-text-primary: #18181b;
+    /* Zinc 900 */
+    --color-text-secondary: #52525b;
+    /* Zinc 600 */
+    --color-text-muted: #a1a1aa;
+    /* Zinc 400 */
+    --color-text-inverse: #ffffff;
+
+    /* Message Backgrounds */
+    --color-bg-message-user: #e4e4e7;
+    --color-bg-message-assistant: transparent;
+
+    /* Borders */
+    --color-border: #e4e4e7;
+    /* Zinc 200 */
+    --color-border-hover: #d4d4d8;
+    /* Zinc 300 */
+    --color-border-focus: rgba(var(--color-brand-accent-rgb), 0.4);
+
+    /* Status Colors - Light Theme */
+    --color-success: #10b981;
+    --color-success-bg: rgba(16, 185, 129, 0.1);
+    --color-warning: #f59e0b;
+    --color-warning-bg: rgba(245, 158, 11, 0.1);
+    --color-error: #ef4444;
+    --color-error-bg: rgba(239, 68, 68, 0.1);
+    --color-active: #3b82f6;
+    --color-active-bg: rgba(59, 130, 246, 0.1);
+
+    /* Glass - Light */
+    --glass-bg: rgba(241, 241, 241, 0.5);
+    --glass-bg-light: rgba(160, 160, 160, 0);
+    --color-glass-border: rgba(209, 213, 219, 0.3);
+    --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+
+    /* Refined Shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(255, 255, 255, 0.15);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(255, 255, 255, 0.2);
+
+        /* 向四周发光的 */
+    --shadow-glow: 0 0 10px rgba(0, 0, 0, 0.2);
+    --shadow-glow-md: 0 0 20px rgba(0, 0, 0, 0.3);
+    --shadow-glow-lg: 0 0 30px rgba(0, 0, 0, 0.4);
+}
+
+/* ===== Global Reset ===== */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--color-bg-app);
+}
+
+body {
+    font-family: var(--font-sans);
+    color: var(--color-text-primary);
+    font-size: var(--font-size-base);
+    /* 使用 16px 作为基础字号，从之前的 14px 增大 */
+    line-height: 1.6;
+    /* 从 1.5 增加到 1.6，提升可读性 */
+    letter-spacing: -0.01em;
+    background-image: url('https://images.unsplash.com/photo-1519681393784-d120267933ba?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&ixlib=rb-1.2.1&auto=format&fit=crop&w=1124&q=100');
+}
+
+#app {
+    width: 100%;
+    height: 100%;
+}
+
+/* ===== Minimal Scrollbar ===== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+}
+
+/* ===== Selection Styling ===== */
+::selection {
+    background: var(--color-interactive-subtle);
+    color: var(--color-text-primary);
+}
+
+/* ===== Focus Outline ===== */
+:focus-visible {
+    outline: 2px solid var(--color-interactive);
+    outline-offset: 2px;
+}
+
+
+.flex-center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+
+/* ===== class ===== */
+.btn {
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-interactive);
+    color: var(--color-text-primary);
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.btn:hover {
+    background: var(--color-interactive-hover);
+    box-shadow: var(--shadow-glow);
+}
+
+.glass-card {
+    background: var(--glass-bg-light);
+    /* border: 1px solid var(--color-glass-border); */
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    --webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    transition: all var(--transition-normal);
+}

@@ -351,8 +351,8 @@ watch(() => props.mapData, () => {
 
 .map-type-badge {
   padding: 4px 12px;
-  background: rgba(129, 140, 248, 0.15);
-  color: var(--color-primary);
+  background: var(--color-interactive-subtle);
+  color: var(--color-interactive);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 700;

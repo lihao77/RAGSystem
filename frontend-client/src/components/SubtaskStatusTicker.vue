@@ -1,5 +1,5 @@
 <template>
-  <div class="subtask-status-ticker" :class="{ 'is-expanded': expanded }">
+  <div class="subtask-status-ticker glass-card" :class="{ 'is-expanded': expanded }">
     <div class="ticker-content">
       <!-- 动态滚动区域 -->
       <div class="ticker-scroll-area">
@@ -30,7 +30,7 @@
       </div>
 
       <!-- 切换详情按钮 -->
-      <button class="toggle-details-btn" @click="$emit('toggle-view')" :title="expanded ? '收起详情' : '显示详细执行过程'">
+      <button class="toggle-details-btn btn" @click="$emit('toggle-view')" :title="expanded ? '收起详情' : '显示详细执行过程'">
         <!-- <span class="icon">{{ expanded ? '🔼' : '👁️' }}</span> -->
         <span class="label">{{ expanded ? '收起' : '查看详情' }}</span>
       </button>
@@ -113,19 +113,16 @@ const progressPercentage = computed(() => {
 
 <style scoped>
 .subtask-status-ticker {
-  background: var(--glass-bg-light);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-border);
   border-radius: 24px; /* Use px value for interpolation */
   overflow: hidden;
   /* margin: var(--spacing-sm) 0; */
-  box-shadow: var(--shadow-sm);
+  /* box-shadow: var(--shadow-sm); */
   /* 增加 transition-property 和 duration 以匹配展开动画 */
   transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              background 0.3s ease,
-              border-color 0.3s ease,
-              margin 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+              background var(--transition-normal),
+              border-color var(--transition-normal),
+              box-shadow var(--transition-normal),
+              margin 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
   position: relative;
   z-index: 2; /* Ensure it stays on top */
 }
@@ -136,11 +133,9 @@ const progressPercentage = computed(() => {
   /* margin-bottom: 0; */
   background: var(--color-bg-elevated); /* 保持一致的背景 */
   box-shadow: none; /* 移除阴影，让整体容器统一投影 */
-}
-
-.subtask-status-ticker:hover {
-    border-color: var(--color-primary);
-    box-shadow: var(--shadow-md);
+  /* position: sticky;
+  top: calc(-1 * var(--radius-lg));
+  z-index: 3; */
 }
 
 .ticker-content {
@@ -171,11 +166,11 @@ const progressPercentage = computed(() => {
 .agent-badge {
   font-size: 0.75rem;
   padding: 2px 8px;
-  background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  background: var(--color-active-bg);
+  color: var(--color-active);
   border-radius: 4px;
   font-weight: 600;
-  border: 1px solid rgba(129, 140, 248, 0.2);
+  border: 1px solid rgba(var(--color-brand-accent-light-rgb), 0.2);
 }
 
 .agent-badge.success {
@@ -249,9 +244,9 @@ const progressPercentage = computed(() => {
 
 .progress-bar {
     height: 100%;
-    background: var(--color-primary);
+    background: var(--color-interactive);
     transition: width 0.5s ease;
-    box-shadow: 0 0 10px var(--color-primary);
+    box-shadow: 0 0 10px var(--color-interactive);
 }
 
 /* Transitions */

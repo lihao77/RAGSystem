@@ -341,7 +341,7 @@ const sliderStyle = computed(() => {
   justify-content: center;
   width: 40px; /* Increased from 24px */
   height: 40px; /* Increased from 24px */
-  color: var(--color-primary); /* Changed from muted to primary for visibility */
+  color: var(--color-interactive); /* Changed from muted to primary for visibility */
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   border-radius: 50%; /* Make it fully circular */
   /* background: var(--color-bg-primary);
@@ -351,8 +351,8 @@ const sliderStyle = computed(() => {
 }
 
 .trigger-content:hover {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  color: var(--color-interactive);
+  border-color: var(--color-interactive);
   transform: scale(1.15) translateY(-2px);
   /* box-shadow: 0 4px 12px rgba(129, 140, 248, 0.25); */
   /* background: var(--color-bg-elevated); */

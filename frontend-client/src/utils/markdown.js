@@ -35,33 +35,39 @@ const md = new MarkdownIt({
   }
 })
 
-// 🔧 异步加载插件（避免 ESM 导入问题）
-let pluginsLoaded = false
-
-async function loadPlugins() {
-  if (pluginsLoaded) return
-
+// 🔧 异步加载插件（避免 ESM 兼容性问题）
+const loadPlugins = async () => {
   try {
     // 动态导入 emoji 插件
     const emojiModule = await import('markdown-it-emoji')
     const emoji = emojiModule.default || emojiModule
-    md.use(emoji)
 
+    if (typeof emoji === 'function') {
+      md.use(emoji)
+      console.log('✓ markdown-it-emoji loaded')
+    }
+  } catch (err) {
+    console.warn('markdown-it-emoji not available:', err.message)
+  }
+
+  try {
     // 动态导入任务列表插件
     const taskListsModule = await import('markdown-it-task-lists')
     const taskLists = taskListsModule.default || taskListsModule
-    md.use(taskLists, { enabled: true })
 
-    pluginsLoaded = true
-    console.log('Markdown plugins loaded successfully')
+    if (typeof taskLists === 'function') {
+      md.use(taskLists, { enabled: true })
+      console.log('✓ markdown-it-task-lists loaded')
+    }
   } catch (err) {
-    console.warn('Failed to load markdown plugins:', err)
-    // 插件加载失败不影响基础功能
+    console.warn('markdown-it-task-lists not available:', err.message)
   }
 }
 
-// 立即开始加载插件（非阻塞）
-loadPlugins()
+// 开始加载插件（不阻塞初始化）
+loadPlugins().catch(err => {
+  console.warn('Plugin loading failed:', err)
+})
 
 /**
  * 渲染 Markdown 文本为 HTML

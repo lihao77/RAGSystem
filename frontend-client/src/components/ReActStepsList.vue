@@ -17,12 +17,7 @@
         <div class="timeline-line-progress"></div>
       </div>
 
-      <div
-        v-for="(step, index) in steps"
-        :key="index"
-        class="timeline-item"
-        :style="{ '--delay': `${index * 0.1}s` }"
-      >
+      <div v-for="(step, index) in steps" :key="index" class="timeline-item" :style="{ '--delay': `${index * 0.1}s` }">
         <!-- 步骤标记点 -->
         <div class="timeline-marker-wrapper">
           <div class="timeline-marker">
@@ -33,22 +28,16 @@
 
         <div class="timeline-content">
           <!-- 思考内容 -->
-          <div
-            class="step-thought"
-            :class="{ running: isStepRunning(step) }"
-          >
+          <div class="step-thought" :class="{ running: isStepRunning(step) }">
             <!-- <div class="thought-icon">💭</div> -->
             <div class="thought-text">{{ step.thought }}</div>
           </div>
 
           <!-- 工具调用列表 -->
           <div v-if="step.toolCalls && step.toolCalls.length > 0" class="step-tools">
-            <div
-              v-for="(tool, toolIndex) in step.toolCalls"
-              :key="toolIndex"
-              class="tool-item"
-              :class="tool.status"
-            >
+            <!-- <div v-for="(tool, toolIndex) in step.toolCalls" :key="toolIndex" class="tool-item" :class="tool.status" :class="{'expanded': tool.expanded"> -->
+            <div v-for="(tool, toolIndex) in step.toolCalls" :key="toolIndex" class="tool-item"
+              :class="[tool.status, { expanded: tool.expanded }]">
               <div class="tool-header" @click="tool.expanded = !tool.expanded">
                 <div class="tool-status-indicator">
                   <div class="status-dot"></div>
@@ -165,13 +154,13 @@ const isStepRunning = (step) => {
 }
 
 .step-badge {
-  background: var(--color-primary-subtle);
-  color: var(--color-primary-hover);
+  background: var(--color-interactive-subtle);
+  color: var(--color-interactive-hover);
   padding: 3px 10px;
   border-radius: var(--radius-full);
   font-size: 0.7rem;
   font-weight: 700;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--color-glass-border);
   letter-spacing: 0.03em;
 }
 
@@ -220,14 +209,14 @@ const isStepRunning = (step) => {
   padding: var(--spacing-lg);
   background: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
-  border-left: 3px solid var(--color-primary);
+  border-left: 3px solid var(--color-success);
   transition: all var(--transition-fast);
 }
 
 .step-thought.running {
   background: var(--color-bg-tertiary);
-  border-left-color: var(--color-primary-hover);
-  box-shadow: -2px 0 20px var(--color-primary-glow);
+  border-left-color: var(--color-warning);
+  box-shadow: -2px 0 20px var(--color-interactive-glow);
 }
 
 .thought-icon {
@@ -249,15 +238,15 @@ const isStepRunning = (step) => {
   flex-direction: column;
   gap: var(--spacing-sm);
   margin-left: var(--spacing-xl);
-  padding-left: var(--spacing-xl);
+  padding-left: var(--spacing-md);
   border-left: 2px solid var(--color-border);
 }
 
 .tool-item {
-  background: var(--color-bg-primary);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  overflow: hidden;
+  /* border: 1px solid var(--color-border); */
+  overflow: visible;
   transition: all var(--transition-fast);
 }
 
@@ -266,8 +255,8 @@ const isStepRunning = (step) => {
   box-shadow: 0 0 0 1px var(--color-warning);
 }
 
-.tool-item:hover {
-  background: var(--color-bg-secondary);
+.tool-item.expanded {
+  background: var(--color-bg-primary);
 }
 
 .tool-header {
@@ -307,13 +296,26 @@ const isStepRunning = (step) => {
 }
 
 /* Status Colors */
-.success .status-dot { background: var(--color-success); }
-.success .status-ring { border-color: var(--color-success); }
+.success .status-dot {
+  background: var(--color-success);
+}
 
-.error .status-dot { background: var(--color-error); }
-.error .status-ring { border-color: var(--color-error); }
+.success .status-ring {
+  border-color: var(--color-success);
+}
 
-.running .status-dot { background: var(--color-warning); }
+.error .status-dot {
+  background: var(--color-error);
+}
+
+.error .status-ring {
+  border-color: var(--color-error);
+}
+
+.running .status-dot {
+  background: var(--color-warning);
+}
+
 .running .status-ring {
   border-color: var(--color-warning);
   border-top-color: transparent;
@@ -322,11 +324,19 @@ const isStepRunning = (step) => {
 
 .tool-name {
   flex: 1;
+  min-width: 0;
+  /* 🔴 关键：覆盖默认的 min-width: auto */
   font-family: var(--font-mono);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
+  white-space: nowrap !important;
+  /* 禁止换行（必须） */
+  overflow: hidden !important;
+  /* 隐藏溢出（必须） */
+  text-overflow: ellipsis !important;
+  /* 显示省略号（必须） */
 }
 
 .tool-meta {
@@ -360,6 +370,7 @@ const isStepRunning = (step) => {
 .tool-details {
   border-top: 1px solid var(--color-border);
   background: var(--color-bg-app);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 .detail-block {
@@ -375,21 +386,17 @@ const isStepRunning = (step) => {
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-app);
   transition: background var(--transition-fast);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.detail-header:hover {
-  background: var(--color-bg-tertiary);
-}
-
 .code-tag {
   font-size: 0.65rem;
   padding: 2px 6px;
-  background: var(--color-primary-subtle);
-  color: var(--color-primary-hover);
+  background: var(--color-interactive-subtle);
+  color: var(--color-interactive-hover);
   border-radius: var(--radius-sm);
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -403,6 +410,7 @@ const isStepRunning = (step) => {
 .code-wrapper {
   padding: var(--spacing-md);
   background: var(--color-bg-app);
+  border-radius: var(--radius-lg);
 }
 
 .detail-code {
@@ -423,12 +431,21 @@ const isStepRunning = (step) => {
 
 /* Animations */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .slide-fade-enter-active,

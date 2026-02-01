@@ -86,7 +86,7 @@ const handleSend = () => {
 <style scoped>
 .chat-input-area {
   width: 100%;
-  max-width: 750px;
+  max-width: 800px;
   margin: 0 auto;
   position: relative;
 }
@@ -155,8 +155,8 @@ textarea::placeholder {
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: var(--color-interactive);
+  border-color: var(--color-interactive);
   color: white;
 }
 
@@ -178,7 +178,7 @@ textarea::placeholder {
   height: 16px;
   border: 2px solid var(--color-border);
   border-radius: 50%;
-  border-top-color: var(--color-primary);
+  border-top-color: var(--color-interactive);
   animation: spin 0.8s linear infinite;
 }
 
@@ -187,7 +187,7 @@ textarea::placeholder {
 }
 
 .disclaimer {
-  margin-top: 12px;
+  margin-top: var(--spacing-sm);
   text-align: center;
   font-size: 0.7rem;
   color: var(--color-text-muted);

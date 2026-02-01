@@ -227,7 +227,7 @@ const svgHeight = computed(() => {
 /* 边 */
 .edge-path {
   fill: none;
-  stroke: var(--color-primary);
+  stroke: var(--color-interactive);
   stroke-width: 2;
   opacity: 0.4;
 }
@@ -237,7 +237,7 @@ const svgHeight = computed(() => {
 }
 
 .edge-arrow {
-  fill: var(--color-primary);
+  fill: var(--color-interactive);
   opacity: 0.4;
 }
 
@@ -264,13 +264,13 @@ const svgHeight = computed(() => {
 
 .node-circle:hover {
   transform: scale(1.1);
-  border-color: var(--color-primary);
+  border-color: var(--color-interactive);
   z-index: 10;
 }
 
 .node-circle.master {
   background: var(--color-bg-primary);
-  border-color: var(--color-primary);
+  border-color: var(--color-interactive);
 }
 
 .node-circle.final {
@@ -280,7 +280,7 @@ const svgHeight = computed(() => {
 
 .node-circle.pending {
   border-style: dashed;
-  border-color: var(--color-primary);
+  border-color: var(--color-interactive);
   opacity: 0.7;
 }
 
@@ -302,7 +302,7 @@ const svgHeight = computed(() => {
   font-size: 9px;
   font-weight: 700;
   color: #fff;
-  background: var(--color-primary);
+  background: var(--color-interactive);
   padding: 1px 4px;
   border-radius: 8px;
   border: 1px solid var(--color-bg-primary);
@@ -317,7 +317,7 @@ const svgHeight = computed(() => {
   bottom: -2px;
   border-radius: 50%;
   border: 2px solid transparent;
-  border-top-color: var(--color-primary);
+  border-top-color: var(--color-interactive);
   animation: spin 1s linear infinite;
 }
 

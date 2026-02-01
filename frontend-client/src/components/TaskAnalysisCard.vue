@@ -77,13 +77,13 @@ const toggleExpanded = () => {
 
 .card-title {
   font-weight: 600;
-  color: var(--color-primary-hover);
+  color: var(--color-interactive-hover);
 }
 
 .task-badge {
   padding: 4px 12px;
-  background: var(--color-primary-subtle);
-  color: var(--color-primary-hover);
+  background: var(--color-interactive-subtle);
+  color: var(--color-interactive-hover);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 700;
