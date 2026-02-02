@@ -299,9 +299,65 @@ class ObservationFormatter:
         import json
         return json.dumps(data, ensure_ascii=False, indent=2)
 
+    def _estimate_size_fast(self, data: Any) -> int:
+        """
+        快速估算数据大小（避免完整序列化）
+
+        策略：
+        - 字符串：直接返回长度
+        - 列表：采样前 10 个元素，推算总大小
+        - 字典：采样前 10 个键值对，推算总大小
+
+        Args:
+            data: 要估算的数据
+
+        Returns:
+            估算的字符数
+        """
+        import json
+
+        if isinstance(data, str):
+            return len(data)
+
+        elif isinstance(data, list):
+            if len(data) == 0:
+                return 2  # "[]"
+
+            # 如果列表较小，直接序列化
+            if len(data) <= 10:
+                return len(json.dumps(data, ensure_ascii=False))
+
+            # 采样前 10 个元素
+            sample = data[:10]
+            sample_size = len(json.dumps(sample, ensure_ascii=False))
+
+            # 推算总大小（线性外推）
+            estimated_total = sample_size * (len(data) / len(sample))
+            return int(estimated_total)
+
+        elif isinstance(data, dict):
+            if len(data) == 0:
+                return 2  # "{}"
+
+            # 如果字典较小，直接序列化
+            if len(data) <= 10:
+                return len(json.dumps(data, ensure_ascii=False))
+
+            # 采样前 10 个键值对
+            sample = dict(list(data.items())[:10])
+            sample_size = len(json.dumps(sample, ensure_ascii=False))
+
+            # 推算总大小
+            estimated_total = sample_size * (len(data) / len(sample))
+            return int(estimated_total)
+
+        else:
+            # 其他类型（数字、布尔等）
+            return len(str(data))
+
     def _format_standard_response(self, result: Dict[str, Any], tool_name: str = None) -> str:
         """
-        格式化标准化工具响应
+        格式化标准化工具响应（优化版）
 
         标准格式：
         {
@@ -324,20 +380,25 @@ class ObservationFormatter:
         metadata = data.get('metadata', {})
         answer = data.get('answer')
 
-        # 转换为字符串以判断大小
-        content_str = json.dumps(pure_data, ensure_ascii=False) if isinstance(pure_data, (dict, list)) else str(pure_data)
+        # 🎯 优化：先快速估算大小，避免不必要的完整序列化
+        estimated_size = self._estimate_size_fast(pure_data)
 
-        # 【小数据】直接返回
-        if len(content_str) < self.LARGE_DATA_THRESHOLD:
+        self.logger.debug(f"数据大小估算: {estimated_size} 字符（阈值: {self.LARGE_DATA_THRESHOLD}）")
+
+        # 【小数据】直接返回（此时才进行完整序列化）
+        if estimated_size < self.LARGE_DATA_THRESHOLD:
+            # 仅在需要时才完整序列化
+            content_str = json.dumps(pure_data, ensure_ascii=False) if isinstance(pure_data, (dict, list)) else str(pure_data)
+
             if answer:
                 # 查询类工具：返回 answer + 数据详情
-                return f"✅ {answer}\n\n📊 数据详情:\n```json\n{json.dumps(pure_data, ensure_ascii=False, indent=2)[:500]}\n```"
+                return f"✅ {answer}\n\n📊 数据详情:\n```json\n{content_str[:500]}\n```"
             else:
                 # 普通工具：返回摘要 + 数据
                 prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
-                return f"{prefix}```json\n{json.dumps(pure_data, ensure_ascii=False, indent=2)}\n```"
+                return f"{prefix}```json\n{content_str}\n```"
 
-        # 【大数据】保存文件并返回引用
+        # 【大数据】保存文件并返回引用（跳过序列化）
         file_name = f"data_{uuid.uuid4().hex[:8]}.json"
         os.makedirs(self.data_save_dir, exist_ok=True)
         file_path = os.path.join(self.data_save_dir, file_name)

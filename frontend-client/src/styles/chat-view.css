@@ -21,7 +21,7 @@
   transition: width 0.3s ease;
 
   /* 展开状态：图标中心线位置 */
-  --icon-center-line: 22px;
+  --icon-center-line: 25px;
 }
 
 .sidebar.collapsed {

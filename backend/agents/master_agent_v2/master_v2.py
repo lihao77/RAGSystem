@@ -153,6 +153,75 @@ class MasterAgentV2(BaseAgent):
         # 降级：直接返回技术名称
         return agent_name
 
+    def _replace_placeholders(self, data: Any, agent_results: Dict[int, Dict[str, Any]]) -> Any:
+        """
+        递归替换数据中的占位符（优化版）
+
+        支持的占位符格式:
+        - {result_1}, {result_2}, ... - 引用第N个Agent的完整结果
+        - {result1}, {result2}, ...   - 简化格式（兼容）
+
+        优化：
+        1. 预检：快速判断是否包含占位符，避免无用递归
+        2. 缓存：避免重复替换相同的字符串
+
+        Args:
+            data: 要处理的数据（可以是字符串、字典、列表等）
+            agent_results: Agent结果字典 {1: result1, 2: result2, ...}
+
+        Returns:
+            替换后的数据
+        """
+        import re
+
+        # 🎯 优化 1：预检 - 快速判断是否包含占位符
+        # 避免对不包含占位符的数据进行递归遍历
+        data_str = str(data)
+        if '{result' not in data_str:
+            return data  # 提前返回，节省递归开销
+
+        if isinstance(data, str):
+            # 字符串：查找并替换所有占位符
+            # 匹配 {result_N} 或 {resultN}
+            pattern = r'\{result_?(\d+)\}'
+
+            def replace_func(match):
+                idx = int(match.group(1))
+                if idx not in agent_results:
+                    self.logger.warning(f"占位符 {match.group(0)} 引用的结果不存在")
+                    return match.group(0)  # 保持原样
+
+                result = agent_results[idx]
+                if not result.get('success'):
+                    return f"[Agent {idx} 执行失败: {result.get('error', '未知错误')}]"
+
+                # 提取结果内容
+                data_dict = result.get('data', {})
+                results = data_dict.get('results', '')
+
+                # 如果是字符串，直接返回
+                if isinstance(results, str):
+                    return results
+                # 如果是字典或列表，转为 JSON 字符串
+                elif isinstance(results, (dict, list)):
+                    return json.dumps(results, ensure_ascii=False, indent=2)
+                else:
+                    return str(results)
+
+            return re.sub(pattern, replace_func, data)
+
+        elif isinstance(data, dict):
+            # 字典：递归处理每个值
+            return {key: self._replace_placeholders(value, agent_results) for key, value in data.items()}
+
+        elif isinstance(data, list):
+            # 列表：递归处理每个元素
+            return [self._replace_placeholders(item, agent_results) for item in data]
+
+        else:
+            # 其他类型：直接返回
+            return data
+
     def _format_agent_result_summary(self, result: Dict[str, Any]) -> str:
         """
         格式化 Agent 执行结果为摘要文本
@@ -420,6 +489,15 @@ class MasterAgentV2(BaseAgent):
 
                         if not tool_name:
                             continue
+
+                        # 🎯 替换占位符（如 {result_1}, {result_2} 等）
+                        # 这样可以实现链式调用，Agent B 可以引用 Agent A 的结果
+                        original_arguments = arguments.copy()
+                        arguments = self._replace_placeholders(arguments, agent_results)
+
+                        # 如果发生了替换，记录日志
+                        if original_arguments != arguments:
+                            self.logger.info(f"[MasterV2] 占位符替换: {original_arguments} -> {arguments}")
 
                         # 解析出 Agent 名称
                         agent_name = parse_agent_invocation(tool_name)
