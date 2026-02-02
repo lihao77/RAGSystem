@@ -21,12 +21,11 @@
   transition: width 0.3s ease;
 
   /* 展开状态：图标中心线位置 */
-  --icon-center-line: 32px;
+  --icon-center-line: 22px;
 }
 
 .sidebar.collapsed {
-  width: calc(var(--spacing-2xl) + 1px);
-  /* 64px - 1px border = 65px */
+  width: calc(2 * var(--icon-center-line) + 1px);
 }
 
 .sidebar-top-bar {
@@ -356,7 +355,7 @@
   align-items: center;
   justify-content: space-between;
   pointer-events: none;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   position: relative;
   /* 允许点击穿透到下层 */
 }
@@ -366,8 +365,8 @@
   content: '';
   position: absolute;
   bottom: 0;
-  left: var(--spacing-md);
-  right: var(--spacing-md);
+  left: var(--top-bar-divider-left);
+  right: var(--top-bar-divider-right);
   height: 1px;
   background: var(--color-border);
   opacity: 0;
@@ -446,9 +445,9 @@
 
 .chat-messages {
   flex: 1;
-  padding: var(--spacing-xl);
+  padding: var(--chat-padding-y) var(--chat-padding-x);
   scroll-behavior: smooth;
-  padding-bottom: 200px;
+  padding-bottom: var(--chat-padding-bottom);
   margin-bottom: -32px;
 }
 
@@ -500,7 +499,7 @@
 }
 
 .welcome-screen h1 {
-  font-size: 2.5rem;
+  font-size: var(--welcome-title-size);
   color: var(--color-text-primary);
   margin-bottom: var(--spacing-sm);
   font-weight: 700;
@@ -509,7 +508,7 @@
 }
 
 .welcome-subtitle {
-  font-size: 1.1rem;
+  font-size: var(--welcome-subtitle-size);
   color: var(--color-text-secondary);
   font-weight: 400;
 }
@@ -520,7 +519,7 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xl);
+  gap: var(--chat-message-gap);
 }
 
 .message {
@@ -563,7 +562,7 @@
 
 /* User 消息根据内容自适应，最大 85% */
 .message.user .message-content-wrapper {
-  max-width: 85%;
+  max-width: var(--user-message-max-width);
   width: auto;
 }
 
@@ -1222,7 +1221,7 @@
   /* 移除顶部边框以衔接 Ticker */
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   /* 下方圆角 */
-  padding: var(--spacing-md);
+  padding: var(--subtasks-padding);
   margin-top: 0;
   /* 移除 transition，由 JS 钩子控制动画 */
 }
@@ -1303,7 +1302,7 @@
 }
 
 .round-header {
-  font-size: 13px;
+  font-size: var(--round-header-font-size);
   font-weight: 600;
   color: var(--color-text-secondary);
   margin-bottom: var(--spacing-sm);
@@ -1380,7 +1379,7 @@
   background: linear-gradient(to bottom, transparent 32px, var(--color-bg-secondary) 32px);
   border-top: none;
   backdrop-filter: none;
-  padding: 0px var(--spacing-md) var(--spacing-sm);
+  padding: 0px var(--input-area-padding-x);
   position: sticky;
   bottom: 0;
   left: 0;
@@ -1405,7 +1404,7 @@
   /* bottom: auto; */
   /* transform: translateY(-40px); */
   background: none;
-  padding: 0 var(--spacing-xl);
+  padding: 0 var(--input-centered-padding-x);
   pointer-events: none;
 }
 
@@ -1421,7 +1420,7 @@
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
-  display: none;
+  display: var(--hamburger-display);
   /* 默认隐藏 */
   align-items: center;
   justify-content: center;
@@ -1462,11 +1461,8 @@
 
 /* ===== 响应式布局 ===== */
 
-
-
 /* 平板（768px - 1024px） */
 @media (max-width: 1024px) and (min-width: 768px) {
-
   .top-controls-bar.scrolled::after {
     opacity: 1;
   }
@@ -1483,33 +1479,17 @@
   }
 
   .chat-messages {
-    padding: var(--spacing-lg);
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    padding-bottom: 180px;
     overflow: auto;
-    /* 或 scroll/y/x */
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
     /* IE 10+ */
   }
-
-  .input-area-wrapper {
-    padding: 0 var(--spacing-md) var(--spacing-sm);
-  }
-
-  .welcome-screen h1 {
-    font-size: 2rem;
-  }
-
-  .welcome-subtitle {
-    font-size: 1rem;
-  }
 }
 
 /* 移动端（<768px） */
 @media (max-width: 767px) {
-
   .top-controls-bar.scrolled::after {
     opacity: 1;
   }
@@ -1521,13 +1501,7 @@
     right: 0px;
   }
 
-  /* 汉堡菜单按钮显示 */
-  .hamburger-menu-btn {
-    display: flex;
-  }
-
   /* 顶部控制栏移动端调整 */
-
   .left-controls,
   .right-controls {
     gap: 4px;
@@ -1609,57 +1583,28 @@
   }
 
   :deep(.step-tools) {
-    margin-left: 0px !important;
-  }
-
-  /* 移动端输入框调整 */
-  .input-area-wrapper {
-    padding: 0px var(--spacing-md) var(--spacing-sm);
-  }
-
-  .input-area-wrapper.centered {
-    padding: 0 var(--spacing-sm);
+    margin-left: var(--step-tools-margin-left);
+    padding-left: var(--step-tools-padding-left);
   }
 
   /* 移动端消息布局调整 */
   .chat-messages {
-    padding: var(--spacing-md);
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    padding-bottom: 170px;
     overflow: auto;
-    /* 或 scroll/y/x */
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
     /* IE 10+ */
   }
 
-  .message-stream {
-    gap: var(--spacing-md);
-  }
-
   /* 移动端欢迎屏幕调整 */
   .welcome-screen {
     padding: var(--spacing-md);
-    /* padding-bottom: 100px; */
-  }
-
-  .welcome-screen h1 {
-    font-size: 1.75rem;
-  }
-
-  .welcome-subtitle {
-    font-size: 0.95rem;
   }
 
   .logo-placeholder svg {
-    width: 60px;
-    height: 60px;
-  }
-
-  /* 移动端用户消息最大宽度调整 */
-  .message.user .message-content-wrapper {
-    max-width: 95%;
+    width: var(--welcome-logo-size);
+    height: var(--welcome-logo-size);
   }
 
   /* 移动端字体调整 */
@@ -1683,61 +1628,30 @@
 
 /* 小屏手机（<480px） */
 @media (max-width: 480px) {
-
   .top-controls-bar.scrolled::after {
     opacity: 1;
-    left: var(--spacing-sm);
-    right: var(--spacing-sm);
+    left: var(--top-bar-divider-left);
+    right: var(--top-bar-divider-right);
   }
-
-  .top-controls-bar {
-    padding: var(--spacing-xs) var(--spacing-sm);
-  }
-
 
   .sidebar {
     width: 100vw;
     max-width: 100vw;
   }
 
-
-
   /* 小屏手机上保持按钮一致性 */
   .chat-messages {
-    padding: var(--spacing-sm);
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    padding-bottom: 160px;
     overflow: auto;
-    /* 或 scroll/y/x */
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
     /* IE 10+ */
   }
 
-  .input-area-wrapper {
-    padding: 0px var(--spacing-sm) var(--spacing-sm);
-  }
-
-  .welcome-screen h1 {
-    font-size: 1.5rem;
-  }
-
-  .welcome-subtitle {
-    font-size: 0.9rem;
-  }
-
-  .step-tools {
-    margin-left: 0;
-  }
-
-  /* 小屏手机上 subtasks 卡片调整 */
-  .subtasks-full-view {
-    padding: var(--spacing-sm);
-  }
-
-  .round-header {
-    font-size: 12px;
+  :deep(.step-tools) {
+    margin-left: var(--step-tools-margin-left);
+    padding-left: var(--step-tools-padding-left);
   }
 }
 

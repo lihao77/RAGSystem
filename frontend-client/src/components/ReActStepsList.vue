@@ -155,7 +155,7 @@ const isStepRunning = (step) => {
 
 .step-badge {
   background: var(--color-interactive-subtle);
-  color: var(--color-interactive-hover);
+  color: var(--color-text-secondary);
   padding: 3px 10px;
   border-radius: var(--radius-full);
   font-size: 0.7rem;

@@ -169,7 +169,8 @@
         </div>
       </div>
 
-      <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }">
+      <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
+      <div class="input-area-wrapper">
         <ChatInput v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
       </div>
     </main>

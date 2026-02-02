@@ -95,7 +95,7 @@ const handleSend = () => {
   /* background: var(--color-bg-secondary); */
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 20px;
+  border-radius: 31px;
   padding: 8px;
   transition: all var(--transition-normal);
   transform: translateY(0);
@@ -187,7 +187,7 @@ textarea::placeholder {
 }
 
 .disclaimer {
-  margin-top: var(--spacing-sm);
+  margin: var(--spacing-sm) 0;
   text-align: center;
   font-size: 0.7rem;
   color: var(--color-text-muted);
