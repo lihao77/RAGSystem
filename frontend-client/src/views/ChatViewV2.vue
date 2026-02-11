@@ -462,24 +462,28 @@ const handleSend = async () => {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
-            const data = JSON.parse(line.substring(6));
+            const event = JSON.parse(line.substring(6));
             const currentMsg = messages.value[assistantMsgIndex];
 
+            // ✨ 提取事件数据（完整Event对象格式）
+            const eventData = event.data || {};
+            const eventType = event.type;
+
             // 🎯 Master V2 使用 subtask_start 代表 Agent 调用
-            if (data.type === 'subtask_start') {
+            if (eventType === 'subtask.start') {
               // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
 
               currentMsg.subtasks.push({
-                order: data.order,
-                task_id: data.task_id,  // V2 新增：精确追踪
-                round: data.round,  // 🎯 新增：第几轮推理
-                round_index: data.round_index,  // 🎯 新增：轮次内索引
-                agent_name: data.agent_name,
-                agent_display_name: data.agent_display_name,
-                description: data.description,
+                order: eventData.order,
+                task_id: eventData.task_id,  // V2 新增：精确追踪
+                round: eventData.round,  // 🎯 新增：第几轮推理
+                round_index: eventData.round_index,  // 🎯 新增：轮次内索引
+                agent_name: event.agent_name,  // ✨ 从顶层获取
+                agent_display_name: eventData.agent_display_name || eventData.subtask_agent,
+                description: eventData.subtask_description,
                 react_steps: [],
                 tool_calls: [],
                 result_summary: '',
@@ -489,16 +493,19 @@ const handleSend = async () => {
               });
             }
             // 🎯 Master V2 的 thought 关联到 Agent 调用
-            else if (data.type === 'thought_structured') {
+            else if (eventType === 'agent.thought_structured') {
               // 通过 task_id 或 subtask_order 定位 Agent
-              const subtask = data.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
-                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
+              let subtask = eventData.task_id
+                ? currentMsg.subtasks.find(s => s.task_id === eventData.task_id)
+                : currentMsg.subtasks.find(s => s.order === eventData.subtask_order);
+              if (!subtask) {
+                subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
+              }
 
               if (subtask) {
                 const newStep = {
-                  round: data.round,
-                  thought: data.thought,
+                  round: eventData.round,
+                  thought: eventData.thought,
                   toolCalls: [],
                   expanded: true
                 };
@@ -507,15 +514,25 @@ const handleSend = async () => {
               }
             }
             // 工具调用（如果 Master V2 内部有 Agent 调用工具）
-            else if (data.type === 'tool_start') {
-              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
-              if (subtask && subtask.currentStep) {
+            else if (eventType === 'tool.start') {
+              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
+              if (subtask) {
+                if (!subtask.currentStep) {
+                  const newStep = {
+                    round: eventData.round,
+                    thought: '',
+                    toolCalls: [],
+                    expanded: true
+                  };
+                  subtask.react_steps.push(newStep);
+                  subtask.currentStep = newStep;
+                }
                 const toolCall = {
-                  tool_name: data.tool_name,
-                  arguments: data.arguments,
+                  tool_name: eventData.tool_name,
+                  arguments: eventData.arguments,
                   status: 'running',
-                  index: data.index,
-                  total: data.total,
+                  index: eventData.index,
+                  total: eventData.total,
                   showResult: false,
                   showArgs: false
                 };
@@ -523,15 +540,15 @@ const handleSend = async () => {
                 subtask.tool_calls.push(toolCall);
               }
             }
-            else if (data.type === 'tool_end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
+            else if (eventType === 'tool.end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
               if (subtask && subtask.currentStep) {
                 const updateTool = (list) => {
-                  const idx = list.findIndex(t => t.tool_name === data.tool_name && t.status === 'running');
+                  const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
                   if (idx >= 0) {
                     list[idx].status = 'success';
-                    list[idx].result = data.result;
-                    list[idx].elapsed_time = data.elapsed_time;
+                    list[idx].result = eventData.result;
+                    list[idx].elapsed_time = eventData.elapsed_time || eventData.execution_time;
                   }
                 };
                 updateTool(subtask.currentStep.toolCalls);
@@ -539,55 +556,55 @@ const handleSend = async () => {
               }
             }
             // 🎯 Master V2 的 Agent 调用完成
-            else if (data.type === 'subtask_end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === data.order || s.task_id === data.task_id);
+            else if (eventType === 'subtask.end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id);
               if (subtask) {
-                subtask.result_summary = data.result_summary;
-                subtask.status = data.success === false ? 'error' : 'success';
+                subtask.result_summary = eventData.subtask_result || eventData.result_summary;
+                subtask.status = eventData.success === false ? 'error' : 'success';
                 subtask.expanded = false;
               }
             }
             // 最终答案（流式）
-            else if (data.type === 'chunk') {
-              const content = data.content;
+            else if (eventType === 'output.chunk') {
+              const content = eventData.content;
               // 🎯 直接拼接 chunk，不使用打字机（让 markdown 正确渲染）
               currentMsg.content += content;
               scrollToBottom();
             }
             // 最终答案（完整 - 仅用于元数据和验证）
-            else if (data.type === 'final_answer') {
+            else if (eventType === 'output.final_answer') {
               // 🎯 不覆盖内容，因为已经通过 chunk 流式接收了
               // 只用于验证和获取元数据
               if (!currentMsg.content || currentMsg.content.length === 0) {
                 // 降级：如果没有收到 chunk，使用完整内容
-                currentMsg.content = data.content;
+                currentMsg.content = eventData.content;
               }
               // 可以在这里记录元数据
-              if (data.metadata) {
-                currentMsg.metadata = data.metadata;
+              if (eventData.metadata) {
+                currentMsg.metadata = eventData.metadata;
               }
               currentMsg.finished = true;
             }
             // 图表生成
-            else if (data.type === 'chart_generated') {
+            else if (eventType === 'visualization.chart') {
               currentMsg.multimodalContents.push({
                 type: 'chart',
-                echartsConfig: data.echarts_config,
-                title: data.title || 'Data Visualization',
-                chartType: data.chart_type || 'bar'
+                echartsConfig: eventData.echarts_config || eventData.config,
+                title: eventData.title || 'Data Visualization',
+                chartType: eventData.chart_type || 'bar'
               });
             }
             // 地图生成
-            else if (data.type === 'map_generated') {
+            else if (eventType === 'visualization.map') {
               currentMsg.multimodalContents.push({
                 type: 'map',
-                mapData: data.mapData,
-                title: data.title || 'Map Visualization'
+                mapData: eventData.mapData || eventData.data,
+                title: eventData.title || 'Map Visualization'
               });
             }
             // 错误
-            else if (data.type === 'error') {
-              currentMsg.status.push({ type: 'error', content: data.content });
+            else if (eventType === 'agent.error') {
+              currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
             }
 
             scrollToBottom();

@@ -14,6 +14,8 @@ from ..base import BaseAgent, AgentContext, AgentResponse
 from ..context_manager import ContextManager, ContextConfig, ObservationFormatter
 from .agent_function_definitions import get_agent_tools
 from .agent_executor import AgentExecutor, parse_agent_invocation
+from ..session_event_bus_manager import get_session_event_bus  # ✨ 新增
+from ..event_publisher import EventPublisher  # ✨ 新增
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +110,7 @@ class MasterAgentV2(BaseAgent):
         context_token_budget = int(model_max_tokens * 0.6)
         max_context_tokens = behavior_config.get('max_context_tokens', context_token_budget)
 
-        # 初始化上下文管理器
+        # 初始化上下文管理器 (使用 BaseAgent 继承的实例)
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 15),
             max_tokens=max_context_tokens,
@@ -366,25 +368,31 @@ class MasterAgentV2(BaseAgent):
 只返回 JSON，不要有其他内容。
 """
 
-    def stream_execute(self, task: str, context: AgentContext):
+    def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """
-        流式执行任务（生成器版本）
+        执行任务（通过事件总线发布事件，实现真正的解耦）
 
-        兼容接口名称（与 Master V1 保持一致）
-
-        Yields:
-            事件字典
-        """
-        return self.execute_stream(task, context)
-
-    def execute_stream(self, task: str, context: AgentContext):
-        """
-        流式执行任务（生成器版本）
-
-        Yields:
-            事件字典
+        不再使用 yield 返回事件，所有事件通过事件总线发布
         """
         start_time = time.time()
+
+        # ✨ 获取会话级事件总线并创建事件发布器
+        event_bus = get_session_event_bus(context.session_id)
+        publisher = EventPublisher(
+            agent_name=self.name,
+            session_id=context.session_id,
+            trace_id=context.metadata.get('trace_id'),
+            span_id=context.metadata.get('span_id'),
+            event_bus=event_bus
+        )
+
+        # ✨ 发布会话开始和Agent开始事件
+        publisher.session_start(metadata={"task": task})
+        publisher.agent_start(task, metadata={
+            "agent_name": self.name,
+            "display_name": "MasterAgent V2",
+            "max_rounds": self.max_rounds
+        })
 
         try:
             # 初始化对话历史
@@ -422,28 +430,47 @@ class MasterAgentV2(BaseAgent):
                 )
 
                 if response.error:
-                    yield {
-                        "type": "error",
-                        "content": f"LLM 调用失败: {response.error}"
-                    }
-                    return
+                    # ✨ 使用事件发布器发布错误
+                    publisher.agent_error(
+                        error=f"LLM 调用失败: {response.error}",
+                        error_type="LLMError"
+                    )
+                    return AgentResponse(
+                        success=False,
+                        error=f"LLM 调用失败: {response.error}",
+                        agent_name=self.name,
+                        execution_time=time.time() - start_time
+                    )
 
                 # 解析 JSON 响应
                 try:
                     output = json.loads(response.content)
                 except json.JSONDecodeError as e:
                     self.logger.error(f"JSON 解析失败: {e}")
-                    yield {
-                        "type": "error",
-                        "content": f"LLM 返回无效的 JSON: {str(e)}"
-                    }
-                    return
+                    # ✨ 使用事件发布器发布错误
+                    publisher.agent_error(
+                        error=f"LLM 返回无效的 JSON: {str(e)}",
+                        error_type="JSONDecodeError"
+                    )
+                    return AgentResponse(
+                        success=False,
+                        error=f"LLM 返回无效的 JSON: {str(e)}",
+                        agent_name=self.name,
+                        execution_time=time.time() - start_time
+                    )
 
                 thought = output.get('thought', '')
                 actions = output.get('actions', [])
                 final_answer = output.get('final_answer')
 
                 self.logger.info(f"[MasterV2] Thought: {thought[:100]}...")
+
+                # ✨ 发布结构化思考事件
+                publisher.thought_structured(
+                    thought=thought,
+                    actions=[a.get('tool') for a in actions] if actions else [],
+                    reasoning=f"第 {rounds} 轮推理"
+                )
 
                 # 🎯 如果有 Agent 调用，需要先发送 subtask_start，再发送 thought
                 # 但如果没有 Agent 调用，则不需要 subtask_start
@@ -457,29 +484,25 @@ class MasterAgentV2(BaseAgent):
 
                 # 检查是否有最终答案
                 if final_answer:
-                    self.logger.info(f"[MasterV2] 得到最终答案，准备流式发送")
+                    self.logger.info(f"[MasterV2] 得到最终答案")
 
-                    # 🎯 将完整答案拆分成 chunks 流式发送
-                    # 使用较小的 chunk_size 让流式效果更流畅
-                    chunk_size = 5  # 每次发送5个字符（更流畅的打字效果）
-                    for i in range(0, len(final_answer), chunk_size):
-                        chunk = final_answer[i:i + chunk_size]
-                        yield {
-                            "type": "chunk",
-                            "content": chunk
-                        }
+                    # ✨ 发布最终答案事件（通过事件总线流式输出）
+                    publisher.final_answer(final_answer)
 
-                    # 🎯 发送 final_answer 事件（标记结束，包含元数据）
-                    yield {
-                        "type": "final_answer",
-                        "content": final_answer,  # 完整内容（前端可以用于验证）
-                        "metadata": {
+                    # ✨ 发布Agent结束和会话结束事件
+                    publisher.agent_end(final_answer, execution_time=time.time() - start_time)
+                    publisher.session_end(summary=f"任务完成，共 {rounds} 轮推理，{len(agent_calls_history)} 次Agent调用")
+
+                    return AgentResponse(
+                        success=True,
+                        content=final_answer,
+                        agent_name=self.name,
+                        execution_time=time.time() - start_time,
+                        metadata={
                             'rounds': rounds,
-                            'agent_calls': len(agent_calls_history),
-                            'execution_time': time.time() - start_time
+                            'agent_calls': len(agent_calls_history)
                         }
-                    }
-                    return
+                    )
 
                 # 执行 Agent 调用
                 if actions and len(actions) > 0:
@@ -528,46 +551,36 @@ class MasterAgentV2(BaseAgent):
                         task_id = f"v2_agent_{rounds}_{idx}"  # 使用 round 和 idx
                         agent_display_name = self._get_agent_display_name(agent_name)
 
-                        yield {
-                            "type": "subtask_start",
-                            "task_id": task_id,  # V2 新增 task_id 用于精确追踪
-                            "order": current_order,  # 全局顺序（用于前端排序）
-                            "round": rounds,  # 🎯 新增：第几轮推理
-                            "round_index": idx,  # 🎯 新增：轮次内的索引
-                            "agent_name": agent_name,
-                            "agent_display_name": agent_display_name,
-                            "description": agent_task
-                        }
+                        # ✨ 发布子任务开始事件（包含任务追踪信息）
+                        publisher.subtask_start(
+                            subtask_agent=agent_name,
+                            subtask_description=agent_task,
+                            task_id=task_id,        # ✨ 任务唯一ID
+                            order=current_order,    # ✨ 全局调用顺序
+                            round=rounds            # ✨ 第几轮推理
+                        )
 
-                        # 执行 Agent（流式）
+                        # 🎯 派生子上下文 (Context Forking)
+                        # 为子 Agent 创建独立的执行环境，避免污染 Master 的上下文
+                        child_context = context.fork()
+                        self.logger.info(f"[MasterV2] 已派生子上下文 (Level {child_context.level})")
+
+                        # ✨ 将 task_id 传递到子 Agent 的 context（让子 Agent 能关联事件）
+                        if not hasattr(child_context, 'metadata'):
+                            child_context.metadata = {}
+                        child_context.metadata['parent_task_id'] = task_id
+                        child_context.metadata['task_order'] = current_order
+
+                        # 执行 Agent（不再流式yield，但仍需收集结果）
                         agent_start = time.time()
 
-                        # 🎯 使用流式执行，透传 Agent 内部的所有事件
-                        agent_result = None
-                        for event in self.agent_executor.execute_agent_stream(
+                        # 🎯 调用子Agent执行（子Agent会自己发布事件到事件总线）
+                        agent_result = self.agent_executor.execute_agent(
                             agent_name=agent_name,
                             task=agent_task,
-                            context=context,
+                            context=child_context,  # 使用子上下文
                             context_hint=context_hint
-                        ):
-                            # 判断是否是最终结果（标准化格式）
-                            if isinstance(event, dict) and 'success' in event and 'data' in event:
-                                # 这是最终结果，不透传
-                                agent_result = event
-                            # 🎯 过滤掉子 Agent 的 final_answer（避免前端误认为是整个流程结束）
-                            elif event.get('type') == 'final_answer':
-                                # 记录但不透传，Master V2 会在所有 Agent 执行完后发送真正的 final_answer
-                                pass
-                            else:
-                                # 透传子 Agent 的事件（thought, tool_start, tool_end 等）
-                                # 🎯 添加 task_id 和 subtask_order 关联到当前 Agent 调用
-                                if event.get('type') in ['thought_structured', 'tool_start', 'tool_end']:
-                                    # 如果事件已有 subtask_order，保留它（这是子 Agent 内部的顺序）
-                                    # 同时添加 task_id 用于前端精确定位到哪个 Agent 调用
-                                    if 'subtask_order' not in event:
-                                        event['subtask_order'] = current_order
-                                    event['task_id'] = task_id  # 关联到当前 Agent 调用
-                                yield event
+                        )
 
                         elapsed_time = time.time() - agent_start
 
@@ -577,18 +590,33 @@ class MasterAgentV2(BaseAgent):
                                 "success": False,
                                 "error": "Agent 未返回结果"
                             }
+                        
+                        # 🎯 合并子上下文 (Context Merging)
+                        # 将子 Agent 的关键结果合并回 Master 上下文
+                        try:
+                            response_obj = AgentResponse(
+                                success=agent_result.get('success', False),
+                                content=agent_result.get('data', {}).get('results', ''),
+                                metadata=agent_result.get('data', {}).get('metadata', {}),
+                                error=agent_result.get('error'),
+                                agent_name=agent_name
+                            )
+                            context.merge(child_context, response_obj)
+                            self.logger.info(f"[MasterV2] 子上下文已合并")
+                        except Exception as e:
+                            self.logger.warning(f"[MasterV2] 合并上下文失败: {e}")
 
                         result = agent_result
 
-                        # 🎯 使用前端已支持的 subtask_end 事件（而非 agent_call_end）
+                        # ✨ 发布子任务结束事件（包含任务追踪信息）
                         result_summary = self._format_agent_result_summary(result)
-                        yield {
-                            "type": "subtask_end",
-                            "task_id": task_id,
-                            "order": current_order,  # 🎯 使用全局计数器
-                            "result_summary": result_summary,
-                            "success": result.get('success', False)
-                        }
+                        publisher.subtask_end(
+                            subtask_agent=agent_name,
+                            subtask_result=result_summary,
+                            success=result.get('success', False),
+                            task_id=task_id,        # ✨ 任务唯一ID
+                            order=current_order     # ✨ 全局调用顺序
+                        )
 
                         # 记录调用历史
                         agent_calls_history.append({
@@ -627,48 +655,53 @@ class MasterAgentV2(BaseAgent):
 
             # 达到最大轮数
             self.logger.warning(f"[MasterV2] 达到最大轮数 {self.max_rounds}")
-            yield {
-                "type": "final_answer",
-                "content": "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。",
-                "metadata": {
+            final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
+
+            # ✨ 发布事件
+            publisher.final_answer(final_content)
+            publisher.agent_end(final_content, execution_time=time.time() - start_time)
+            publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
+
+            return AgentResponse(
+                success=True,
+                content=final_content,
+                agent_name=self.name,
+                execution_time=time.time() - start_time,
+                metadata={
                     'rounds': rounds,
                     'max_rounds_reached': True,
-                    'agent_calls': len(agent_calls_history),
-                    'execution_time': time.time() - start_time
+                    'agent_calls': len(agent_calls_history)
                 }
-            }
+            )
 
         except Exception as e:
             self.logger.error(f"执行任务失败: {e}", exc_info=True)
-            yield {
-                "type": "error",
-                "content": str(e)
-            }
+            # ✨ 发布错误事件
+            publisher.agent_error(error=str(e), error_type="ExecutionError")
+            return AgentResponse(
+                success=False,
+                error=str(e),
+                agent_name=self.name,
+                execution_time=time.time() - start_time
+            )
 
-    def execute(self, task: str, context: AgentContext) -> AgentResponse:
-        """执行任务（非流式版本，兼容旧接口）"""
-        # 收集流式输出
-        final_content = ""
-        metadata = {}
+    def stream_execute(self, task: str, context: AgentContext) -> AgentResponse:
+        """
+        流式执行任务（向后兼容方法）
 
-        for event in self.execute_stream(task, context):
-            if event['type'] == 'final_answer':
-                final_content = event['content']
-                metadata = event.get('metadata', {})
-                break
-            elif event['type'] == 'error':
-                return AgentResponse(
-                    success=False,
-                    error=event['content'],
-                    agent_name=self.name
-                )
+        注意：不再使用 yield 返回事件，所有事件通过事件总线发布
+        前端应使用 SSEAdapter 订阅事件总线
+        """
+        return self.execute(task, context)
 
-        return AgentResponse(
-            success=True,
-            content=final_content,
-            agent_name=self.name,
-            metadata=metadata
-        )
+    def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
+        """
+        流式执行任务（向后兼容方法）
+
+        注意：不再使用 yield 返回事件，所有事件通过事件总线发布
+        前端应使用 SSEAdapter 订阅事件总线
+        """
+        return self.execute(task, context)
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         """

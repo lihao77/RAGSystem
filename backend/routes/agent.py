@@ -8,12 +8,15 @@ Agent API 路由 - 智能体系统统一入口
 from flask import Blueprint, request, Response, stream_with_context
 import logging
 import json
+import asyncio
 from agents import (
     AgentContext,
     get_orchestrator,
     get_config_manager,
     load_agents_from_config
 )
+from agents.session_event_bus_manager import get_session_event_bus
+from agents.sse_adapter import SSEAdapter
 from llm_adapter import get_default_adapter
 from config import get_config
 from utils.response_helpers import success_response, error_response
@@ -340,7 +343,7 @@ def execute():
 @agent_bp.route('/stream', methods=['POST'])
 def stream_execute():
     """
-    流式执行智能体任务（Server-Sent Events）
+    流式执行智能体任务（Server-Sent Events）- 使用事件总线解耦
 
     Request:
         {
@@ -364,7 +367,12 @@ def stream_execute():
     if not task:
         return error_response(message='任务描述不能为空', status_code=400)
 
-    logger.info(f'流式执行任务: {task} (使用 V2: {use_v2})')
+    # 生成 session_id（如果未提供）
+    if not session_id:
+        import uuid
+        session_id = str(uuid.uuid4())
+
+    logger.info(f'流式执行任务: {task} (session_id: {session_id}, 使用 V2: {use_v2})')
 
     def generate():
         try:
@@ -372,11 +380,7 @@ def stream_execute():
             orchestrator = _get_orchestrator()
 
             # 创建上下文
-            if session_id:
-                context = AgentContext(session_id=session_id)
-            else:
-                import uuid
-                context = AgentContext(session_id=str(uuid.uuid4()))
+            context = AgentContext(session_id=session_id)
 
             # ✨ 根据 use_v2 参数选择 MasterAgent 版本
             if use_v2:
@@ -390,12 +394,50 @@ def stream_execute():
                     yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'}, ensure_ascii=False)}\n\n"
                     return
 
-            # 调用 MasterAgent 的 stream_execute
-            for event in master_agent.stream_execute(task, context):
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            # ✨ 获取会话级事件总线
+            event_bus = get_session_event_bus(session_id)
+
+            # ✨ 创建 SSEAdapter 订阅事件总线
+            adapter = SSEAdapter(
+                event_bus=event_bus,
+                session_id=session_id,
+                buffer_size=100,
+                heartbeat_interval=15.0
+            )
+
+            # ✨ 在后台执行 Agent（不再迭代生成器）
+            import threading
+            def execute_agent_task():
+                try:
+                    logger.info(f"后台执行 Agent 任务: {task}")
+                    master_agent.execute(task, context)
+                    logger.info(f"Agent 任务执行完成: {task}")
+                except Exception as e:
+                    logger.error(f"后台执行 Agent 失败: {e}", exc_info=True)
+                    # 发布错误事件
+                    from agents.event_publisher import EventPublisher
+                    publisher = EventPublisher(
+                        agent_name="system",
+                        session_id=session_id,
+                        event_bus=event_bus
+                    )
+                    publisher.agent_error(error=str(e), error_type="ExecutionError")
+
+            # 启动后台线程执行 Agent
+            thread = threading.Thread(target=execute_agent_task, daemon=True)
+            thread.start()
+
+            # ✨ 从事件总线流式输出（SSEAdapter 会自动格式化为 SSE）
+            adapter.start()
+            try:
+                # SSEAdapter.stream() 返回已格式化的 SSE 数据（"data: ...\n\n"）
+                for sse_data in adapter.stream_sync():
+                    yield sse_data
+            finally:
+                adapter.stop()
 
             # 结束事件
-            yield f"data: {json.dumps({'type': 'done', 'session_id': context.session_id}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"流式执行异常: {e}", exc_info=True)
@@ -403,6 +445,8 @@ def stream_execute():
 
     response = Response(stream_with_context(generate()), mimetype='text/event-stream')
     response.headers['Content-Type'] = 'text/event-stream; charset=utf-8'
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
     return response
 
 

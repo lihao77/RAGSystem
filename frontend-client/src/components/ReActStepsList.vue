@@ -396,7 +396,7 @@ const isStepRunning = (step) => {
   font-size: 0.65rem;
   padding: 2px 6px;
   background: var(--color-interactive-subtle);
-  color: var(--color-interactive-hover);
+  color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
   font-weight: 700;
   letter-spacing: 0.05em;

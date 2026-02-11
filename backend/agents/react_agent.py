@@ -18,6 +18,8 @@ import uuid
 from .base import BaseAgent, AgentContext, AgentResponse
 from tools.tool_executor import execute_tool
 from .context_manager import ContextManager, ContextConfig, ObservationFormatter
+from .session_event_bus_manager import get_session_event_bus
+from .event_publisher import EventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,8 @@ class ReActAgent(BaseAgent):
         system_config = None,
         available_tools: Optional[List[Dict[str, Any]]] = None,
         available_skills: Optional[List] = None,  # 新增：Skills 列表
-        event_callback = None  # 新增：事件回调函数
+        event_callback = None,  # 新增：事件回调函数（向后兼容）
+        event_bus = None  # 新增：会话级事件总线
     ):
         super().__init__(
             name=agent_name,
@@ -80,7 +83,9 @@ class ReActAgent(BaseAgent):
         self.display_name = display_name or agent_name
         self.available_tools = available_tools or []
         self.available_skills = available_skills or []  # 新增：保存 Skills
-        self.event_callback = event_callback  # 保存回调函数
+        self.event_callback = event_callback  # 保存回调函数（向后兼容）
+        self.event_bus = event_bus  # 保存事件总线实例
+        self._publisher = None  # EventPublisher 实例（延迟创建）
 
         # 从配置获取行为参数
         behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
@@ -121,12 +126,53 @@ class ReActAgent(BaseAgent):
         )
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
-        """发送事件到回调函数"""
+        """
+        发送事件到回调函数和事件总线
+
+        支持两种方式（向后兼容）：
+        1. 旧方式：通过 event_callback 回调函数
+        2. 新方式：通过 EventPublisher 发布到事件总线
+        """
+        # 旧方式：回调函数（向后兼容）
         if self.event_callback:
             try:
                 self.event_callback(event_type, data)
             except Exception as e:
                 self.logger.warning(f"事件回调失败: {e}")
+
+        # 新方式：事件总线
+        if self._publisher:
+            try:
+                # ✨ 从 context 获取 parent_task_id（如果是被 MasterAgent 调用）
+                task_id = getattr(self, '_current_task_id', None)
+
+                # 映射事件类型到 EventPublisher 方法
+                if event_type == 'thought_structured':
+                    self._publisher.thought_structured(
+                        thought=data.get('thought', ''),
+                        actions=data.get('actions', []),
+                        reasoning=f"第 {data.get('round', 0)} 轮推理"
+                    )
+                elif event_type == 'tool_start':
+                    self._publisher.tool_start(
+                        tool_name=data.get('tool_name'),
+                        arguments=data.get('arguments', {}),
+                        task_id=task_id  # ✨ 关联到父任务
+                    )
+                elif event_type == 'tool_end':
+                    self._publisher.tool_end(
+                        tool_name=data.get('tool_name'),
+                        result=data.get('result'),
+                        execution_time=data.get('elapsed_time'),
+                        task_id=task_id  # ✨ 关联到父任务
+                    )
+                elif event_type == 'tool_error':
+                    self._publisher.tool_error(
+                        tool_name=data.get('tool_name'),
+                        error=data.get('error')
+                    )
+            except Exception as e:
+                self.logger.warning(f"事件总线发布失败: {e}")
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -297,309 +343,50 @@ class ReActAgent(BaseAgent):
 
         return "\n".join(lines)
 
-    def execute_stream(self, task: str, context: AgentContext):
+    def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
         """
-        流式执行任务（生成器版本）
+        执行任务（向后兼容方法）
 
-        在每个关键事件点 yield 事件字典：
-        - thought_structured: 思考过程
-        - tool_start: 工具开始执行
-        - tool_end: 工具执行完成
-        - final_answer: 最终答案
-        - error: 错误信息
+        注意：不再使用 yield 返回事件，所有事件通过事件总线发布
+        前端应使用 SSEAdapter 订阅事件总线
         """
-        start_time = time.time()
-
-        try:
-            # 初始化对话历史
-            messages = [
-                {"role": "system", "content": self._build_system_prompt()},
-                {"role": "user", "content": task}
-            ]
-
-            rounds = 0
-            tool_calls_history = []
-
-            while rounds < self.max_rounds:
-                rounds += 1
-                self.logger.info(f"[ReAct] 第 {rounds} 轮推理")
-
-                #  应用上下文管理（防止超出限制）
-                managed_messages = self.context_manager.manage_messages(
-                    messages,
-                    system_prompt=self._build_system_prompt()
-                )
-                self.logger.info(f"[ReAct] {self.context_manager.format_context_summary(managed_messages)}")
-
-                # 获取 LLM 配置
-                llm_config = self.get_llm_config()
-
-                # 重试机制：最多尝试 3 次解析
-                max_parse_retries = 3
-                output = None
-
-                for retry_attempt in range(max_parse_retries):
-                    # 调用 LLM（使用 JSON mode）
-                    response = self.llm_adapter.chat_completion(
-                        messages=managed_messages,  #  使用管理后的消息
-                        provider=llm_config.get('provider'),
-                        model=llm_config.get('model_name'),
-                        temperature=llm_config.get('temperature', 0.3),
-                        max_tokens=llm_config.get('max_tokens'),
-                        response_format={"type": "json_object"}
-                    )
-
-                    if response.error:
-                        yield {
-                            "type": "error",
-                            "content": f"LLM 调用失败: {response.error}"
-                        }
-                        return
-
-                    # 解析 JSON 响应
-                    try:
-                        output = json.loads(response.content)
-                        # 解析成功，跳出重试循环
-                        if retry_attempt > 0:
-                            self.logger.info(f"第 {retry_attempt + 1} 次尝试成功解析 JSON")
-                        break
-                    except json.JSONDecodeError as e:
-                        # 尝试使用 strict=False 解析
-                        try:
-                            output = json.loads(response.content, strict=False)
-                            self.logger.info(f"使用 strict=False 成功解析 JSON (尝试 {retry_attempt + 1}/{max_parse_retries})")
-                            break
-                        except json.JSONDecodeError as e2:
-                            self.logger.warning(
-                                f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {str(e2)}"
-                            )
-
-                            if retry_attempt < max_parse_retries - 1:
-                                # 还有重试机会，向 LLM 反馈错误并要求重新生成
-                                self.logger.info("要求 LLM 重新生成有效的 JSON...")
-                                messages.append({
-                                    "role": "assistant",
-                                    "content": response.content[:200] + "..."  # 只添加部分内容
-                                })
-                                messages.append({
-                                    "role": "user",
-                                    "content": f"你的上一个响应包含 JSON 格式错误: {str(e2)}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
-                                })
-                            else:
-                                # 已达到最大重试次数
-                                self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {response.content[:500]}... (已截断)")
-                                yield {
-                                    "type": "error",
-                                    "content": f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {str(e2)}"
-                                }
-                                return
-
-                # 如果所有重试都失败
-                if output is None:
-                    yield {
-                        "type": "error",
-                        "content": "无法从 LLM 获取有效的 JSON 响应"
-                    }
-                    return
-
-                thought = output.get('thought', '')
-                actions = output.get('actions', [])
-                final_answer = output.get('final_answer')
-
-                self.logger.info(f"[ReAct] Thought: {thought[:100]}...")
-
-                # 实时 yield 思考过程
-                yield {
-                    "type": "thought_structured",
-                    "thought": thought,
-                    "round": rounds,
-                    "has_actions": len(actions) > 0,
-                    "has_answer": final_answer is not None
-                }
-
-                # 添加 assistant 消息
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-
-                # 检查是否有最终答案
-                if final_answer:
-                    self.logger.info(f"[ReAct] 得到最终答案")
-                    yield {
-                        "type": "final_answer",
-                        "content": final_answer,
-                        "metadata": {
-                            'rounds': rounds,
-                            'execution_time': time.time() - start_time
-                        }
-                    }
-                    return
-
-                # 检查是否需要执行工具（支持多个工具并行和链式调用）
-                if actions and len(actions) > 0:
-                    self.logger.info(f"[ReAct] 执行 {len(actions)} 个工具调用")
-
-                    # 收集所有工具的执行结果
-                    observations = []
-                    # 🔗 链式调用支持：存储每个工具的结果，供后续工具引用
-                    tool_results = {}
-
-                    for idx, action in enumerate(actions, 1):
-                        tool_name = action.get('tool')
-                        arguments = action.get('arguments', {})
-
-                        # 🔗 替换参数中的占位符
-                        arguments = self._resolve_tool_references(arguments, tool_results, idx)
-
-                        if not tool_name:
-                            continue
-
-                        # 🔒 安全检查：验证工具权限
-                        allowed_tool_names = [
-                            tool['function']['name']
-                            for tool in self.available_tools
-                        ]
-                        if tool_name not in allowed_tool_names:
-                            error_msg = f"权限拒绝：智能体 '{self.name}' 不允许使用工具 '{tool_name}'。允许的工具: {allowed_tool_names}"
-                            self.logger.warning(f"[ReAct] {error_msg}")
-
-                            # 返回权限错误
-                            result = {
-                                "success": False,
-                                "error": error_msg
-                            }
-
-                            # yield 工具错误事件
-                            yield {
-                                "type": "tool_error",
-                                "tool_name": tool_name,
-                                "error": error_msg,
-                                "index": idx,
-                                "total": len(actions)
-                            }
-
-                            # 添加到观察结果
-                            observations.append(f"**工具 {idx}: {tool_name}**\n错误: {error_msg}")
-                            continue
-
-                        self.logger.info(f"[ReAct] [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
-
-                        # 实时 yield 工具开始事件
-                        yield {
-                            "type": "tool_start",
-                            "tool_name": tool_name,
-                            "arguments": arguments,
-                            "index": idx,
-                            "total": len(actions)
-                        }
-
-                        # 执行工具
-                        tool_start = time.time()
-                        result = execute_tool(tool_name, arguments)
-                        elapsed_time = time.time() - tool_start
-
-                        # 实时 yield 工具结束事件
-                        yield {
-                            "type": "tool_end",
-                            "tool_name": tool_name,
-                            "result": result,
-                            "elapsed_time": elapsed_time,
-                            "index": idx,
-                            "total": len(actions)
-                        }
-
-                        # 关键：检查工具是否返回了图表配置或地图配置，如果是，额外发送相应事件
-                        # 让前端能直接捕获并渲染，不需要等最终答案
-                        # 适配新的标准化响应格式
-                        if isinstance(result, dict) and result.get('success'):
-                            data = result.get('data', {})
-                            results = data.get('results', {})
-
-                            # 检查是否有图表配置
-                            if isinstance(results, dict) and 'echarts_config' in results:
-                                echarts_config = results['echarts_config']
-                                chart_type = results.get('chart_type', 'bar')
-                                title = echarts_config.get('title', {}).get('text', '图表分析')
-
-                                yield {
-                                    "type": "chart_generated",
-                                    "echarts_config": echarts_config,
-                                    "chart_type": chart_type,
-                                    "title": title
-                                }
-
-                            # 检查是否有地图配置
-                            elif isinstance(results, dict) and 'map_type' in results:
-                                map_type = results.get('map_type')
-                                title = results.get('title', '地图可视化')
-
-                                yield {
-                                    "type": "map_generated",
-                                    "mapData": results,  # 包含 map_type, heat_data, markers, bounds等
-                                    "title": title
-                                }
-
-                        # 记录工具调用
-                        tool_calls_history.append({
-                            'tool_name': tool_name,
-                            'arguments': arguments,
-                            'result': result
-                        })
-
-                        # 🔗 存储工具结果供后续工具引用（按索引）
-                        tool_results[idx] = result
-
-                        # 格式化观察结果（使用新的格式化器）
-                        is_skills_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
-                        observation = self.observation_formatter.format(
-                            result,
-                            tool_name=tool_name,
-                            is_skills_tool=is_skills_tool
-                        )
-                        observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
-
-                    # 将所有结果作为 user 消息添加
-                    combined_observations = "\n\n".join(observations)
-                    messages.append({
-                        "role": "user",
-                        "content": f"工具执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
-                    })
-
-                    continue
-                else:
-                    # 没有工具调用但也没有最终答案
-                    self.logger.warning(f"[ReAct] LLM 既没有调用工具也没有给出最终答案")
-                    messages.append({
-                        "role": "user",
-                        "content": "请根据当前信息给出最终答案，或者说明需要使用哪个工具获取更多信息。"
-                    })
-                    continue
-
-            # 达到最大轮数
-            self.logger.warning(f"[ReAct] 达到最大轮数 {self.max_rounds}")
-            yield {
-                "type": "final_answer",
-                "content": "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。",
-                "metadata": {
-                    'rounds': rounds,
-                    'max_rounds_reached': True,
-                    'execution_time': time.time() - start_time
-                }
-            }
-
-        except Exception as e:
-            self.logger.error(f"执行任务失败: {e}", exc_info=True)
-            yield {
-                "type": "error",
-                "content": str(e)
-            }
+        return self.execute(task, context)
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """执行任务（非流式版本，兼容旧接口）"""
         start_time = time.time()
 
         try:
+            # ✨ 初始化事件总线和 EventPublisher
+            event_bus = self.event_bus
+            if not event_bus and hasattr(context, 'session_id') and context.session_id:
+                event_bus = get_session_event_bus(context.session_id)
+
+            current_session_id = getattr(context, 'session_id', None)
+            if (
+                self._publisher is None
+                or self._publisher.session_id != current_session_id
+                or self._publisher.event_bus is not event_bus
+            ):
+                if event_bus:
+                    self._publisher = EventPublisher(
+                        agent_name=self.name,
+                        session_id=current_session_id,
+                        trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
+                        span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
+                        event_bus=event_bus
+                    )
+
+            # ✨ 发布 agent_start 事件
+            if self._publisher:
+                self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
+
+            # ✨ 从 context 读取 parent_task_id（如果是被 MasterAgent 调用）
+            if hasattr(context, 'metadata') and 'parent_task_id' in context.metadata:
+                self._current_task_id = context.metadata['parent_task_id']
+            else:
+                self._current_task_id = None
+
             # 初始化对话历史
             messages = [
                 {"role": "system", "content": self._build_system_prompt()},
@@ -639,10 +426,14 @@ class ReActAgent(BaseAgent):
                     )
 
                     if response.error:
+                        error_msg = f"LLM 调用失败: {response.error}"
+                        # ✨ 发布错误事件
+                        if self._publisher:
+                            self._publisher.agent_error(error=error_msg, error_type="LLMError")
                         return AgentResponse(
                             success=False,
                             content="",
-                            error=f"LLM 调用失败: {response.error}",
+                            error=error_msg,
                             agent_name=self.name,
                             execution_time=time.time() - start_time
                         )
@@ -720,6 +511,13 @@ class ReActAgent(BaseAgent):
                 # 检查是否有最终答案
                 if final_answer:
                     self.logger.info(f"[ReAct] 得到最终答案")
+                    # ✨ 发布事件
+                    if self._publisher:
+                        self._publisher.final_answer(final_answer)
+                        self._publisher.agent_end(
+                            result=final_answer,
+                            execution_time=time.time() - start_time
+                        )
                     return AgentResponse(
                         success=True,
                         content=final_answer,
@@ -805,9 +603,17 @@ class ReActAgent(BaseAgent):
 
             # 达到最大轮数
             self.logger.warning(f"[ReAct] 达到最大轮数 {self.max_rounds}")
+            final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
+            # ✨ 发布事件
+            if self._publisher:
+                self._publisher.final_answer(final_content)
+                self._publisher.agent_end(
+                    result=final_content,
+                    execution_time=time.time() - start_time
+                )
             return AgentResponse(
                 success=True,
-                content="抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。",
+                content=final_content,
                 agent_name=self.name,
                 execution_time=time.time() - start_time,
                 tool_calls=tool_calls_history,
@@ -816,6 +622,9 @@ class ReActAgent(BaseAgent):
 
         except Exception as e:
             self.logger.error(f"执行任务失败: {e}", exc_info=True)
+            # ✨ 发布错误事件
+            if self._publisher:
+                self._publisher.agent_error(error=str(e), error_type="ExecutionError")
             return AgentResponse(
                 success=False,
                 content="",

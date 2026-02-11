@@ -4,10 +4,12 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
+import copy
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,10 @@ class AgentResponse:
     agent_name: str = ""                   # 执行的智能体名称
     execution_time: float = 0.0            # 执行时间（秒）
     tool_calls: List[Dict] = field(default_factory=list)  # 工具调用记录
+    
+    # 评估指标 (Context Self-Management)
+    metrics: Dict[str, Any] = field(default_factory=dict)  # 如 usefulness_score
+
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -51,27 +57,101 @@ class Message:
 
 class AgentContext:
     """
-    智能体上下文
+    智能体上下文 (Hierarchical & Scoped)
 
-    管理智能体执行过程中的状态、历史和共享数据
+    管理智能体执行过程中的状态、历史和共享数据。
+    支持分层结构 (Parent-Child) 和黑板机制 (Blackboard)。
     """
 
     def __init__(
         self,
         session_id: str,
         user_id: Optional[str] = None,
-        initial_data: Optional[Dict[str, Any]] = None
+        initial_data: Optional[Dict[str, Any]] = None,
+        parent: Optional['AgentContext'] = None
     ):
         self.session_id = session_id
         self.user_id = user_id
+        
+        # 核心上下文数据
         self.conversation_history: List[Message] = []
         self.intermediate_results: Dict[str, Any] = {}
-        self.shared_data: Dict[str, Any] = initial_data or {}
         self.metadata: Dict[str, Any] = {}
+        
+        # 共享内存 (Blackboard) - 如果有父节点，则共享父节点的黑板
+        if parent:
+            self.shared_data = parent.shared_data  # 引用共享
+            self.blackboard = parent.blackboard    # 引用共享
+            self.parent = parent
+            self.level = parent.level + 1
+        else:
+            self.shared_data: Dict[str, Any] = initial_data or {}
+            self.blackboard: Dict[str, Any] = {}   # 结构化黑板 {key: {'value': v, 'tags': [], 'timestamp': t}}
+            self.parent = None
+            self.level = 0
 
         # 执行跟踪
         self.agent_stack: List[str] = []  # 智能体调用栈
         self.created_at = datetime.now()
+
+    def fork(self) -> 'AgentContext':
+        """
+        派生子上下文 (Create Child Context)
+        
+        用于子智能体执行，拥有独立的 conversation_history，但共享 session_id 和 blackboard。
+        """
+        child = AgentContext(
+            session_id=self.session_id,
+            user_id=self.user_id,
+            parent=self
+        )
+        # 复制当前的 agent_stack
+        child.agent_stack = list(self.agent_stack)
+        return child
+
+    def merge(self, child_context: 'AgentContext', result: AgentResponse):
+        """
+        合并子上下文 (Merge Child Context)
+        
+        将子智能体的关键结果合并回当前上下文。
+        注意：默认不合并子智能体的详细对话历史，只保留结果。
+        """
+        # 1. 自动同步黑板数据 (因为是引用共享，其实已经同步了，这里做触发器处理)
+        pass 
+        
+        # 2. 记录子任务执行元数据
+        if result.success:
+            self.metadata[f"subtask_{child_context.current_agent()}_{uuid.uuid4().hex[:4]}"] = {
+                "agent": child_context.current_agent(),
+                "metrics": result.metrics,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    # --- Blackboard Methods ---
+
+    def publish(self, key: str, value: Any, tags: List[str] = None):
+        """发布信息到黑板"""
+        self.blackboard[key] = {
+            'value': value,
+            'tags': tags or [],
+            'publisher': self.current_agent(),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+    def get_blackboard(self, key: str, default: Any = None) -> Any:
+        """获取黑板信息"""
+        entry = self.blackboard.get(key)
+        return entry['value'] if entry else default
+
+    def search_blackboard(self, tag: str) -> List[Any]:
+        """按标签搜索黑板信息"""
+        results = []
+        for key, entry in self.blackboard.items():
+            if tag in entry.get('tags', []):
+                results.append(entry['value'])
+        return results
+
+    # --- Original Methods ---
 
     def add_message(self, role: str, content: str, metadata: Optional[Dict] = None):
         """添加消息到对话历史"""
@@ -145,14 +225,18 @@ class AgentContext:
         return {
             'session_id': self.session_id,
             'user_id': self.user_id,
+            'level': getattr(self, 'level', 0),
             'conversation_history': self.get_history(limit=0),
             'intermediate_results': self.intermediate_results,
             'shared_data': self.shared_data,
+            'blackboard': getattr(self, 'blackboard', {}),
             'metadata': self.metadata,
             'agent_stack': self.agent_stack,
             'created_at': self.created_at.isoformat()
         }
 
+
+from .context_manager import ContextManager, ContextConfig
 
 class BaseAgent(ABC):
     """
@@ -190,6 +274,10 @@ class BaseAgent(ABC):
         # 配置管理
         self.agent_config = agent_config  # 智能体独立配置
         self.system_config = system_config  # 系统全局配置
+
+        # 上下文管理器 (Unified Infrastructure)
+        # 每个 Agent 都可以使用这个管理器来管理自己的 Local Context
+        self.context_manager = ContextManager()
 
         # 工具列表（子类可以重写）
         self.tools: List[Dict[str, Any]] = []
