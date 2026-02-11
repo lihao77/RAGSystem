@@ -395,11 +395,12 @@ class MasterAgentV2(BaseAgent):
         })
 
         try:
-            # 初始化对话历史
-            messages = [
-                {"role": "system", "content": self._build_system_prompt()},
-                {"role": "user", "content": task}
-            ]
+            messages = [{"role": "system", "content": self._build_system_prompt()}]
+            history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
+            for msg in history_items:
+                if msg.get("role") in ["user", "assistant"]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": task})
 
             rounds = 0
             agent_calls_history = []

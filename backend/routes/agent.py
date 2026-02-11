@@ -15,8 +15,10 @@ from agents import (
     get_config_manager,
     load_agents_from_config
 )
+from agents.event_bus import EventType
 from agents.session_event_bus_manager import get_session_event_bus
 from agents.sse_adapter import SSEAdapter
+from conversation_store import ConversationStore
 from llm_adapter import get_default_adapter
 from config import get_config
 from utils.response_helpers import success_response, error_response
@@ -28,6 +30,22 @@ agent_bp = Blueprint('agent', __name__)
 
 # 全局 Orchestrator（延迟初始化）
 _orchestrator = None
+_conversation_store = None
+
+
+def _get_conversation_store() -> ConversationStore:
+    global _conversation_store
+    if _conversation_store is None:
+        _conversation_store = ConversationStore()
+    return _conversation_store
+
+
+def _load_history_into_context(context: AgentContext, session_id: str, limit: int = 20):
+    store = _get_conversation_store()
+    history_items = store.get_recent_messages(session_id=session_id, limit=limit)
+    for item in history_items:
+        if item.get("role") in ["user", "assistant"]:
+            context.add_message(role=item["role"], content=item["content"], metadata=item.get("metadata") or {})
 
 
 def _get_orchestrator():
@@ -291,6 +309,8 @@ def execute():
         data = request.get_json()
         task = data.get('task', '').strip()
         session_id = data.get('session_id')
+        user_id = data.get('user_id')
+        user_id = data.get('user_id')
         preferred_agent = data.get('agent')
 
         if not task:
@@ -302,15 +322,17 @@ def execute():
         orchestrator = _get_orchestrator()
 
         # 创建上下文
-        if session_id:
-            # 这里可以从会话管理器获取现有上下文
-            # 暂时每次创建新上下文
-            context = AgentContext(session_id=session_id)
-        else:
+        if not session_id:
             import uuid
-            context = AgentContext(session_id=str(uuid.uuid4()))
+            session_id = str(uuid.uuid4())
+        context = AgentContext(session_id=session_id, user_id=user_id)
+
+        store = _get_conversation_store()
+        store.create_session(session_id=session_id, user_id=user_id)
+        _load_history_into_context(context, session_id=session_id, limit=20)
 
         # 执行任务
+        store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": preferred_agent})
         response = orchestrator.execute(
             task=task,
             context=context,
@@ -318,6 +340,8 @@ def execute():
         )
 
         if response.success:
+            if response.content:
+                store.add_message(session_id=session_id, role="assistant", content=response.content, metadata={"agent": response.agent_name})
             return success_response(
                 data={
                     'answer': response.content,
@@ -325,7 +349,7 @@ def execute():
                     'execution_time': response.execution_time,
                     'tool_calls': response.tool_calls,
                     'metadata': response.metadata,
-                    'session_id': context.session_id
+                    'session_id': session_id
                 },
                 message='任务执行成功'
             )
@@ -362,6 +386,7 @@ def stream_execute():
     data = request.get_json()
     task = data.get('task', '').strip()
     session_id = data.get('session_id')
+    user_id = data.get('user_id')
     use_v2 = data.get('use_v2', False)  # ✨ 支持 V2 切换
 
     if not task:
@@ -376,11 +401,15 @@ def stream_execute():
 
     def generate():
         try:
+            store = _get_conversation_store()
+            store.create_session(session_id=session_id, user_id=user_id)
+
             # 获取 Orchestrator
             orchestrator = _get_orchestrator()
 
             # 创建上下文
-            context = AgentContext(session_id=session_id)
+            context = AgentContext(session_id=session_id, user_id=user_id)
+            _load_history_into_context(context, session_id=session_id, limit=20)
 
             # ✨ 根据 use_v2 参数选择 MasterAgent 版本
             if use_v2:
@@ -407,10 +436,39 @@ def stream_execute():
 
             # ✨ 在后台执行 Agent（不再迭代生成器）
             import threading
+            final_answer_saved = threading.Event()
+
+            def handle_final_answer(event):
+                content = event.data.get("content") if event and event.data else None
+                if content and not final_answer_saved.is_set():
+                    store.add_message(
+                        session_id=session_id,
+                        role="assistant",
+                        content=content,
+                        metadata={"agent": event.agent_name}
+                    )
+                    final_answer_saved.set()
+
+            subscription_id = event_bus.subscribe(
+                event_types=[EventType.FINAL_ANSWER],
+                handler=handle_final_answer,
+                filter_func=lambda e: e.session_id == session_id
+            )
+
+            store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": "master_agent_v2" if use_v2 else "master_agent"})
+
             def execute_agent_task():
                 try:
                     logger.info(f"后台执行 Agent 任务: {task}")
-                    master_agent.execute(task, context)
+                    response = master_agent.execute(task, context)
+                    if response and getattr(response, "content", None) and not final_answer_saved.is_set():
+                        store.add_message(
+                            session_id=session_id,
+                            role="assistant",
+                            content=response.content,
+                            metadata={"agent": getattr(response, "agent_name", None)}
+                        )
+                        final_answer_saved.set()
                     logger.info(f"Agent 任务执行完成: {task}")
                 except Exception as e:
                     logger.error(f"后台执行 Agent 失败: {e}", exc_info=True)
@@ -434,6 +492,7 @@ def stream_execute():
                 for sse_data in adapter.stream_sync():
                     yield sse_data
             finally:
+                event_bus.unsubscribe(subscription_id)
                 adapter.stop()
 
             # 结束事件
@@ -478,13 +537,17 @@ def execute_specific_agent(agent_name):
         orchestrator = _get_orchestrator()
 
         # 创建上下文
-        if session_id:
-            context = AgentContext(session_id=session_id)
-        else:
+        if not session_id:
             import uuid
-            context = AgentContext(session_id=str(uuid.uuid4()))
+            session_id = str(uuid.uuid4())
+        context = AgentContext(session_id=session_id, user_id=user_id)
+
+        store = _get_conversation_store()
+        store.create_session(session_id=session_id, user_id=user_id)
+        _load_history_into_context(context, session_id=session_id, limit=20)
 
         # 执行任务（指定智能体）
+        store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": agent_name})
         response = orchestrator.execute(
             task=task,
             context=context,
@@ -492,6 +555,8 @@ def execute_specific_agent(agent_name):
         )
 
         if response.success:
+            if response.content:
+                store.add_message(session_id=session_id, role="assistant", content=response.content, metadata={"agent": response.agent_name})
             return success_response(
                 data={
                     'answer': response.content,
@@ -499,7 +564,7 @@ def execute_specific_agent(agent_name):
                     'execution_time': response.execution_time,
                     'tool_calls': response.tool_calls,
                     'metadata': response.metadata,
-                    'session_id': context.session_id
+                    'session_id': session_id
                 },
                 message='任务执行成功'
             )
@@ -541,6 +606,7 @@ def collaborate():
         data = request.get_json()
         tasks = data.get('tasks', [])
         session_id = data.get('session_id')
+        user_id = data.get('user_id')
         mode = data.get('mode', 'sequential')
 
         if not tasks:
@@ -552,11 +618,19 @@ def collaborate():
         orchestrator = _get_orchestrator()
 
         # 创建上下文
-        if session_id:
-            context = AgentContext(session_id=session_id)
-        else:
+        if not session_id:
             import uuid
-            context = AgentContext(session_id=str(uuid.uuid4()))
+            session_id = str(uuid.uuid4())
+        context = AgentContext(session_id=session_id, user_id=user_id)
+
+        store = _get_conversation_store()
+        store.create_session(session_id=session_id, user_id=user_id)
+        _load_history_into_context(context, session_id=session_id, limit=20)
+
+        for t in tasks:
+            task_content = (t.get('task') or '').strip()
+            if task_content:
+                store.add_message(session_id=session_id, role="user", content=task_content, metadata={"agent": t.get("agent")})
 
         # 执行协作
         results = orchestrator.collaborate(
@@ -577,10 +651,14 @@ def collaborate():
             for r in results
         ]
 
+        for r in results:
+            if r and r.content:
+                store.add_message(session_id=session_id, role="assistant", content=r.content, metadata={"agent": r.agent_name})
+
         return success_response(
             data={
                 'results': results_data,
-                'session_id': context.session_id,
+                'session_id': session_id,
                 'total_tasks': len(tasks)
             },
             message='协作任务执行完成'
@@ -588,6 +666,75 @@ def collaborate():
 
     except Exception as e:
         logger.error(f'协作任务执行失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions', methods=['POST'])
+def create_session():
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id')
+        metadata = data.get('metadata') or {}
+        session_id = data.get('session_id')
+        if not session_id:
+            import uuid
+            session_id = str(uuid.uuid4())
+
+        store = _get_conversation_store()
+        store.create_session(session_id=session_id, user_id=user_id, metadata=metadata)
+
+        return success_response(
+            data={
+                'session_id': session_id,
+                'user_id': user_id,
+                'metadata': metadata
+            },
+            message='会话创建成功'
+        )
+    except Exception as e:
+        logger.error(f'创建会话失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions', methods=['GET'])
+def list_sessions():
+    try:
+        limit = int(request.args.get('limit', 20))
+        offset = int(request.args.get('offset', 0))
+        user_id = request.args.get('user_id')
+        if user_id is not None and str(user_id).strip() == "":
+            user_id = None
+        store = _get_conversation_store()
+        data = store.list_sessions(limit=limit, offset=offset, user_id=user_id)
+        return success_response(data=data, message='获取会话列表成功')
+    except Exception as e:
+        logger.error(f'获取会话列表失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions/<session_id>', methods=['GET'])
+def get_session(session_id):
+    try:
+        store = _get_conversation_store()
+        session = store.get_session(session_id=session_id)
+        if not session:
+            return error_response(message='会话不存在', status_code=404)
+        return success_response(data=session, message='获取会话成功')
+    except Exception as e:
+        logger.error(f'获取会话失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions/<session_id>/messages', methods=['GET'])
+def get_session_messages(session_id):
+    try:
+        limit = int(request.args.get('limit', 20))
+        offset = int(request.args.get('offset', 0))
+        store = _get_conversation_store()
+        data = store.list_messages(session_id=session_id, limit=limit, offset=offset)
+        return success_response(data=data, message='获取对话记录成功')
+    except Exception as e:
+        logger.error(f'获取对话记录失败: {e}', exc_info=True)
         return error_response(message=str(e), status_code=500)
 
 

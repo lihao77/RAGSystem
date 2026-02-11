@@ -569,10 +569,12 @@ class MasterAgent(BaseAgent):
     def _stream_general_chat(self, task: str, context: AgentContext) -> Generator[Dict[str, Any], None, None]:
         """流式通用对话（真流式）"""
         try:
-            messages = [
-                {"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"},
-                {"role": "user", "content": task}
-            ]
+            messages = [{"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"}]
+            history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
+            for msg in history_items:
+                if msg.get("role") in ["user", "assistant"]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": task})
 
             llm_config = self.get_llm_config()
 
@@ -717,10 +719,12 @@ class MasterAgent(BaseAgent):
         处理通用对话任务（不涉及具体智能体）
         """
         try:
-            messages = [
-                {"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"},
-                {"role": "user", "content": task}
-            ]
+            messages = [{"role": "system", "content": "你是一个智能且友好的 AI 助手。请直接回答用户的问题。"}]
+            history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
+            for msg in history_items:
+                if msg.get("role") in ["user", "assistant"]:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": task})
 
             llm_config = self.get_llm_config()
 

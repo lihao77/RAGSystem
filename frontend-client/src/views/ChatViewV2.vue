@@ -31,12 +31,33 @@
         </button>
       </div>
 
-      <div class="history-list">
+      <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
         <div class="history-label">Recent</div>
-        <div v-for="(item, index) in history" :key="index" class="history-item">
-          <!-- 网页图标 -->
-          <IconDocument :size="18" class="history-icon" />
-          <span class="history-title">{{ item.title || 'New Conversation' }}</span>
+        <div v-if="historyLoading" class="history-skeleton">
+          <div v-for="n in 6" :key="`history-skeleton-${n}`" class="history-item skeleton-item">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-line"></div>
+          </div>
+        </div>
+        <div v-else>
+          <div v-for="item in history" :key="item.session_id" class="history-item"
+            :class="{ active: item.session_id === currentSessionId }" @click="selectSession(item)">
+            <IconDocument :size="18" class="history-icon" />
+            <div class="history-main">
+              <div class="history-title-row">
+                <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
+                <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
+              </div>
+              <div class="history-meta">
+                <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
+          <div v-if="historyError" class="history-error">
+            <span>{{ historyError }}</span>
+            <button class="retry-btn" @click="retryLoadHistory">重试</button>
+          </div>
         </div>
       </div>
 
@@ -94,7 +115,10 @@
       <div class="chat-messages-wrapper">
         <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
           <!-- Welcome Screen -->
-          <div v-if="messages.length === 0" class="welcome-screen">
+          <div v-if="messagesLoading" class="messages-skeleton">
+            <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
+          </div>
+          <div v-else-if="messages.length === 0" class="welcome-screen">
             <div class="welcome-content">
               <div class="welcome-header">
                 <div class="logo-placeholder">
@@ -178,13 +202,17 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
-          <ChatInput v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
+          <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
         </div>
       </div>
 
 
 
     </main>
+    <div v-if="toast.visible" class="toast" :class="toast.type">
+      <span>{{ toast.message }}</span>
+      <button v-if="toast.action" class="toast-action" @click="toast.action">{{ toast.actionLabel }}</button>
+    </div>
   </div>
 </template>
 
@@ -224,10 +252,42 @@ const isLoading = ref(false);
 const messagesRef = ref(null);
 const topControlsBarRef = ref(null);
 const sidebarRef = ref(null);
+const historyListRef = ref(null);
 const history = ref([]);
 const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
 const sidebarCollapsed = ref(false);
+const historyLoading = ref(false);
+const historyLoadingMore = ref(false);
+const historyError = ref('');
+const historyOffset = ref(0);
+const historyHasMore = ref(true);
+const currentSessionId = ref(null);
+const messagesLoading = ref(false);
+const chatInputRef = ref(null);
+const toast = ref({
+  visible: false,
+  message: '',
+  type: 'error',
+  action: null,
+  actionLabel: ''
+});
+const currentStreamController = ref(null);
+const messageCache = ref(new Map());
+const maxCachedSessions = 10;
+const lastFailedSendContent = ref('');
+const handlePopState = () => {
+  const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
+  const sessionId = match ? decodeURIComponent(match[1]) : null;
+  if (sessionId && sessionId !== currentSessionId.value) {
+    currentSessionId.value = sessionId;
+    loadSessionMessages(sessionId);
+  }
+  if (!sessionId) {
+    currentSessionId.value = null;
+    messages.value = [];
+  }
+};
 
 // 移动端状态
 const mobileOpen = ref(false);
@@ -328,6 +388,9 @@ const startNewChat = () => {
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
+  currentSessionId.value = null;
+  window.history.pushState({}, '', '/');
+  focusInput();
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
@@ -412,14 +475,228 @@ const expandSubtask = (subtasks, taskId) => {
   });
 };
 
+const formatTitle = (item) => {
+  const content = (item.first_message || item.last_message || '').trim();
+  return content ? content.slice(0, 30) : '';
+};
+
+const formatTimeLabel = (timeStr) => {
+  if (!timeStr) return '';
+  const time = new Date(timeStr);
+  if (Number.isNaN(time.getTime())) return '';
+  const now = new Date();
+  const diffMs = now - time;
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return '刚刚';
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  const isYesterday = now.toDateString() !== time.toDateString()
+    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
+  if (isYesterday) return '昨天';
+  const yyyy = time.getFullYear();
+  const mm = String(time.getMonth() + 1).padStart(2, '0');
+  const dd = String(time.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const showToast = (message, action = null, actionLabel = '重试') => {
+  toast.value = {
+    visible: true,
+    message,
+    type: 'error',
+    action,
+    actionLabel
+  };
+  setTimeout(() => {
+    if (toast.value.visible && toast.value.message === message) {
+      toast.value.visible = false;
+    }
+  }, 3000);
+};
+
+const focusInput = async () => {
+  if (chatInputRef.value?.focus) {
+    await chatInputRef.value.focus();
+  }
+};
+
+const handleHistoryScroll = () => {
+  if (!historyListRef.value || historyLoadingMore.value || !historyHasMore.value) return;
+  const el = historyListRef.value;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+    loadRecentSessions(false);
+  }
+};
+
+const loadRecentSessions = async (reset = false) => {
+  if (historyLoading.value || historyLoadingMore.value) return;
+  if (!historyHasMore.value && !reset) return;
+  if (reset) {
+    historyOffset.value = 0;
+    historyHasMore.value = true;
+  }
+  if (reset) {
+    historyLoading.value = true;
+  } else {
+    historyLoadingMore.value = true;
+  }
+  historyError.value = '';
+  try {
+    const userId = (localStorage.getItem('userId') || '').trim();
+    const params = new URLSearchParams({
+      limit: String(20),
+      offset: String(historyOffset.value)
+    });
+    if (userId) {
+      params.set('user_id', userId);
+    }
+    const response = await fetch(`/api/agent/sessions?${params.toString()}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
+    const payload = result.data || {};
+    const items = payload.items || [];
+    if (reset) {
+      history.value = items;
+    } else {
+      history.value = history.value.concat(items);
+    }
+    historyOffset.value += items.length;
+    historyHasMore.value = payload.has_more ?? items.length >= 20;
+  } catch (error) {
+    historyError.value = '加载失败，请重试';
+    showToast('加载历史列表失败', retryLoadHistory);
+  } finally {
+    historyLoading.value = false;
+    historyLoadingMore.value = false;
+  }
+};
+
+const retryLoadHistory = () => {
+  loadRecentSessions(true);
+};
+
+const cacheMessages = (sessionId, list) => {
+  if (!sessionId) return;
+  if (messageCache.value.has(sessionId)) {
+    messageCache.value.delete(sessionId);
+  }
+  messageCache.value.set(sessionId, list.slice(-500));
+  if (messageCache.value.size > maxCachedSessions) {
+    const oldestKey = messageCache.value.keys().next().value;
+    messageCache.value.delete(oldestKey);
+  }
+};
+
+const loadSessionMessages = async (sessionId) => {
+  if (!sessionId) return;
+  if (currentStreamController.value) {
+    currentStreamController.value.abort();
+    currentStreamController.value = null;
+  }
+  messagesLoading.value = true;
+  historyError.value = '';
+  try {
+    const cached = messageCache.value.get(sessionId);
+    if (cached) {
+      messages.value = cached;
+      await nextTick();
+      await scrollToBottom(true);
+      focusInput();
+      messagesLoading.value = false;
+      return;
+    }
+    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
+    const items = result.data?.items || [];
+    const mapped = items.map(item => {
+      if (item.role === 'assistant') {
+        return {
+          role: 'assistant',
+          content: item.content || '',
+          subtasks: [],
+          showFullSubtasks: false,
+          multimodalContents: [],
+          status: [],
+          finished: true
+        };
+      }
+      return { role: 'user', content: item.content || '' };
+    });
+    messages.value = mapped;
+    cacheMessages(sessionId, mapped);
+    await nextTick();
+    await scrollToBottom(true);
+    focusInput();
+  } catch (error) {
+    showToast('加载会话失败', () => loadSessionMessages(sessionId));
+  } finally {
+    messagesLoading.value = false;
+  }
+};
+
+const selectSession = async (item) => {
+  if (!item?.session_id) return;
+  if (currentSessionId.value === item.session_id && messages.value.length > 0) return;
+  currentSessionId.value = item.session_id;
+  window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
+  item.unread_count = 0;
+  closeMobileSidebar();
+  await loadSessionMessages(item.session_id);
+};
+
+const updateRecentSession = (sessionId, content, timestamp) => {
+  if (!sessionId) return;
+  const time = timestamp || new Date().toISOString();
+  const idx = history.value.findIndex(h => h.session_id === sessionId);
+  if (idx >= 0) {
+    const item = history.value[idx];
+    item.last_message = content;
+    item.last_message_at = time;
+    if (!item.title) {
+      item.title = (item.title || content || '').toString().slice(0, 30);
+    }
+    history.value.splice(idx, 1);
+    history.value.unshift(item);
+  } else {
+    history.value.unshift({
+      session_id: sessionId,
+      title: content ? content.slice(0, 30) : '',
+      last_message: content,
+      last_message_at: time,
+      unread_count: 0
+    });
+  }
+};
+
+const ensureSession = async () => {
+  if (currentSessionId.value) return currentSessionId.value;
+  const userId = (localStorage.getItem('userId') || '').trim();
+  const body = userId ? { user_id: userId } : {};
+  const response = await fetch('/api/agent/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  const result = await response.json();
+  currentSessionId.value = result.data?.session_id || null;
+  if (currentSessionId.value) {
+    window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
+  }
+  return currentSessionId.value;
+};
+
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
 
+  const sessionId = await ensureSession();
+  lastFailedSendContent.value = content;
   messages.value.push({ role: 'user', content: content });
   inputMessage.value = '';
   isUserAtBottom.value = true;
   scrollToBottom(true);
+  updateRecentSession(sessionId, content, new Date().toISOString());
 
   const assistantMsgIndex = messages.value.push({
     role: 'assistant',
@@ -434,12 +711,15 @@ const handleSend = async () => {
   isLoading.value = true;
 
   try {
+    const controller = new AbortController();
+    currentStreamController.value = controller;
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         task: content,
-        session_id: null,
+        session_id: sessionId,
         use_v2: true  // 🎯 关键：指定使用 Master V2
       })
     });
@@ -453,6 +733,11 @@ const handleSend = async () => {
       const { done, value } = await reader.read();
       if (done) {
         messages.value[assistantMsgIndex].finished = true;
+        const assistantContent = messages.value[assistantMsgIndex].content;
+        if (assistantContent) {
+          updateRecentSession(sessionId, assistantContent, new Date().toISOString());
+        }
+        cacheMessages(sessionId, messages.value);
         break;
       }
 
@@ -584,6 +869,7 @@ const handleSend = async () => {
                 currentMsg.metadata = eventData.metadata;
               }
               currentMsg.finished = true;
+              updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
             }
             // 图表生成
             else if (eventType === 'visualization.chart') {
@@ -618,9 +904,17 @@ const handleSend = async () => {
     console.error('Error sending message:', error);
     messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
     messages.value[assistantMsgIndex].finished = true;
+    showToast('消息发送失败', async () => {
+      if (lastFailedSendContent.value) {
+        inputMessage.value = lastFailedSendContent.value;
+        await nextTick();
+        handleSend();
+      }
+    });
   } finally {
     isLoading.value = false;
     scrollToBottom();
+    currentStreamController.value = null;
   }
 };
 
@@ -632,12 +926,28 @@ onMounted(() => {
 
   // 监听窗口大小变化
   window.addEventListener('resize', checkMobile);
+  window.addEventListener('popstate', handlePopState);
+  loadRecentSessions(true);
+  const initialSessionId = (() => {
+    const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  })();
+  if (initialSessionId) {
+    currentSessionId.value = initialSessionId;
+    loadSessionMessages(initialSessionId);
+  }
 });
 
 onUnmounted(() => {
   // 清理事件监听器
   window.removeEventListener('resize', checkMobile);
+  window.removeEventListener('popstate', handlePopState);
+  if (currentStreamController.value) {
+    currentStreamController.value.abort();
+  }
 
+  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
+  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   document.body.style.overflow = '';
 });
