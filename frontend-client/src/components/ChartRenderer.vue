@@ -101,30 +101,19 @@ const fullscreenContainer = ref(null);
 const chartInstance = ref(null);
 const isFullscreen = ref(false);
 
-// 初始化图表
-const initChart = (container) => {
-  if (!container) return;
-
-  // 销毁旧实例
-  if (chartInstance.value) {
-    chartInstance.value.dispose();
-  }
-
-  // 检测当前主题
+// 🔧 提取配置合并逻辑为独立函数（避免重复）
+const buildFinalOption = (userConfig) => {
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-
-  // 创建新实例
-  chartInstance.value = echarts.init(container, isDark ? 'dark' : null);
 
   // 基础配置 - 适配模式
   const baseOption = {
     backgroundColor: 'transparent',
     textStyle: {
-      color: isDark ? '#a1a1aa' : '#52525b' // var(--color-text-secondary)
+      color: isDark ? '#a1a1aa' : '#52525b'
     },
     title: {
       textStyle: {
-        color: isDark ? '#f4f4f5' : '#18181b' // var(--color-text-primary)
+        color: isDark ? '#f4f4f5' : '#18181b'
       }
     },
     legend: {
@@ -133,15 +122,15 @@ const initChart = (container) => {
       }
     },
     tooltip: {
-      backgroundColor: isDark ? '#27272a' : '#ffffff', // var(--color-bg-secondary)
-      borderColor: isDark ? '#3f3f46' : '#e4e4e7',     // var(--color-border)
+      backgroundColor: isDark ? '#27272a' : '#ffffff',
+      borderColor: isDark ? '#3f3f46' : '#e4e4e7',
       textStyle: {
         color: isDark ? '#f4f4f5' : '#18181b'
       }
     }
   };
 
-  // 深度合并配置，确保坐标轴配置正确合并
+  // 深度合并坐标轴配置
   const mergeAxisConfig = (userAxis, baseColors) => {
     if (!userAxis) return undefined;
 
@@ -175,15 +164,32 @@ const initChart = (container) => {
   };
 
   // 合并配置
-  const finalOption = {
+  return {
     ...baseOption,
-    ...props.echartsConfig,
-    // 确保 backgroundColor 是透明的
-    backgroundColor: props.echartsConfig.backgroundColor || 'transparent',
-    // 智能合并坐标轴配置
-    xAxis: props.echartsConfig.xAxis ? mergeAxisConfig(props.echartsConfig.xAxis, axisColors) : undefined,
-    yAxis: props.echartsConfig.yAxis ? mergeAxisConfig(props.echartsConfig.yAxis, axisColors) : undefined
+    ...userConfig,
+    backgroundColor: userConfig.backgroundColor || 'transparent',
+    xAxis: userConfig.xAxis ? mergeAxisConfig(userConfig.xAxis, axisColors) : undefined,
+    yAxis: userConfig.yAxis ? mergeAxisConfig(userConfig.yAxis, axisColors) : undefined
   };
+};
+
+// 初始化图表
+const initChart = (container) => {
+  if (!container) return;
+
+  // 销毁旧实例
+  if (chartInstance.value) {
+    chartInstance.value.dispose();
+  }
+
+  // 检测当前主题
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+
+  // 创建新实例
+  chartInstance.value = echarts.init(container, isDark ? 'dark' : null);
+
+  // 构建最终配置（使用提取的公共函数）
+  const finalOption = buildFinalOption(props.echartsConfig);
 
   // 设置配置
   chartInstance.value.setOption(finalOption);
@@ -232,10 +238,11 @@ const downloadChart = () => {
   link.click();
 };
 
-// 监听配置变化
+// 监听配置变化（使用公共配置合并函数）
 watch(() => props.echartsConfig, (newConfig) => {
   if (chartInstance.value && newConfig) {
-    chartInstance.value.setOption(newConfig, true);
+    const finalOption = buildFinalOption(newConfig);
+    chartInstance.value.setOption(finalOption, true);
   }
 }, { deep: true });
 

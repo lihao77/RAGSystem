@@ -179,13 +179,13 @@
     /* Background Layers - Light */
     --color-bg-app: #ffffff;
     /* Zinc 100 */
-    --color-bg-primary: #f7f7f7;
+    --color-bg-primary: #ffffff;
     /* White */
-    --color-bg-secondary: #f2f2f2;
+    --color-bg-secondary: #f4f4f4;
     /* Zinc 100 */
-    --color-bg-tertiary: #d8d8db;
+    --color-bg-tertiary: #e6e6e6;
     /* Zinc 200 */
-    --color-bg-elevated: #ffffff;
+    --color-bg-elevated: #e2e2e2;
 
     /* Text Colors */
     --color-text-primary: #18181b;
@@ -218,7 +218,7 @@
     --color-active-bg: rgba(59, 130, 246, 0.1);
 
     /* Glass - Light */
-    --glass-bg: rgba(241, 241, 241, 0.5);
+    --glass-bg: rgba(255, 255, 255, 0.5);
     --glass-bg-light: rgba(160, 160, 160, 0);
     --color-glass-border: rgba(209, 213, 219, 0.3);
     --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);

@@ -112,7 +112,12 @@ class MasterAgentV2(BaseAgent):
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 15),
             max_tokens=max_context_tokens,
-            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window')
+            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window'),
+
+            # 🎯 智能压缩配置（新增）
+            preserve_tool_results=behavior_config.get('preserve_tool_results', True),
+            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
+            importance_threshold=behavior_config.get('importance_threshold', 0.5)
         )
         self.context_manager = ContextManager(context_config)
 

@@ -1046,6 +1046,8 @@ def generate_chart(data, chart_type=None, title="",
     import os
 
     try:
+        logger.info(f"生成图表: chart_type={chart_type}, x_field={x_field}, y_field={y_field}")
+
         # 1. 快速检查必填参数 (Fail Fast)
         missing_params = []
         if not x_field: missing_params.append("x_field")
@@ -1100,6 +1102,8 @@ def generate_chart(data, chart_type=None, title="",
         if df is None or df.empty:
             return error_response("数据为空")
 
+        logger.info(f"[generate_chart] 数据加载成功，形状: {df.shape}, 列: {df.columns.tolist()}")
+
         # 3. 验证字段存在性
         columns = df.columns.tolist()
         if x_field not in columns:
@@ -1110,8 +1114,10 @@ def generate_chart(data, chart_type=None, title="",
             return error_response(f"系列字段 '{series_field}' 在数据中不存在。可用字段: {columns}")
 
         # 4. 构建 ECharts Option
-        # 转换数据 (处理 NaN)
-        dataset_source = df.where(pd.notnull(df), None).to_dict(orient='records')
+        # 转换数据 (处理 NaN) - 使用 replace 替换 NaN 为 None
+        import numpy as np
+        import math
+        dataset_source = df.replace({np.nan: None}).to_dict(orient='records')
 
         # 智能生成标题
         final_title = title
@@ -1151,8 +1157,8 @@ def generate_chart(data, chart_type=None, title="",
                 # 重置索引，第一列是 X，后面是各系列
                 pivot_df = pivot_df.reset_index()
 
-                # 更新 dataset source
-                option['dataset']['source'] = pivot_df.where(pd.notnull(pivot_df), None).to_dict(orient='records')
+                # 更新 dataset source (清理 NaN)
+                option['dataset']['source'] = pivot_df.replace({np.nan: None}).to_dict(orient='records')
 
                 # 动态添加 series
                 series_names = [c for c in pivot_df.columns if c != x_field]
@@ -1176,6 +1182,8 @@ def generate_chart(data, chart_type=None, title="",
                 series_cfg['radius'] = '50%'
 
             option['series'].append(series_cfg)
+
+        logger.info(f"图表配置生成成功: {chart_type}, 数据点数: {len(dataset_source)}")
 
         # 使用标准化响应
         return success_response(

@@ -226,8 +226,14 @@ class AgentLoader:
                         'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
                         'max_rounds': 15,  # ReAct 循环的最大轮数
                         'max_history_turns': 15,
-                        'max_context_tokens': 2400,
-                        'compression_strategy': 'sliding_window',
+                        'max_context_tokens': 10000,  # 🎯 增大上下文预算（原 2400 → 10000）
+
+                        # 🎯 智能上下文管理配置
+                        'compression_strategy': 'smart',         # 启用智能压缩（原 'sliding_window'）
+                        'preserve_tool_results': True,           # 保留工具调用结果（Agent 调用结果）
+                        'preserve_recent_turns': 3,              # 保留最近 3 轮对话
+                        'importance_threshold': 0.5,             # 重要性阈值
+
                         'data_save_dir': './static/temp_data'
                     }
                 }
