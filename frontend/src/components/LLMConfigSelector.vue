@@ -139,7 +139,7 @@
 
     <el-alert
       v-else
-      title="未选择 LLM 提供商，请在 LLMAdapter 中配置"
+      title="未选择 LLM 提供商，请在 Model Adapter 中配置"
       type="warning"
       :closable="false"
       show-icon
@@ -201,7 +201,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { llmAdapterService } from '@/api'
+import { modelAdapterService } from '@/api'
 
 const props = defineProps({
   modelValue: {
@@ -241,7 +241,7 @@ const model = computed({
 // 方法
 const loadProviders = async () => {
   try {
-    const res = await llmAdapterService.getProviders()
+    const res = await modelAdapterService.getProviders()
     providers.value = res.providers || []
 
     // 如果有默认值，设置选中项
@@ -264,7 +264,8 @@ const getProviderTypeTag = (type) => {
   const tags = {
     openai: 'primary',
     deepseek: 'warning',
-    openrouter: 'success'
+    openrouter: 'success',
+    modelscope: 'danger'
   }
   return tags[type] || 'info'
 }
@@ -308,7 +309,7 @@ const runTest = async () => {
   testResult.value = null
 
   try {
-    const res = await llmAdapterService.testProvider({
+    const res = await modelAdapterService.testProvider({
       provider: selectedProvider.value,
       model: model.value.model_name,
       prompt: testPrompt.value
@@ -322,7 +323,7 @@ const runTest = async () => {
 }
 
 const useAdvancedConfig = () => {
-  window.open('/llm-adapter', '_blank')
+  window.open('/model-adapter', '_blank')
 }
 
 // 监听 modelValue 变化，同步 selectedProvider

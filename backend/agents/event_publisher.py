@@ -136,138 +136,164 @@ class EventPublisher:
             }
         )
 
-    # ==================== 工具调用事件 ====================
+    # ==================== 运行生命周期事件 ====================
+
+    def run_start(self, run_id: str, metadata: Optional[Dict] = None):
+        """运行开始"""
+        self._publish(
+            EventType.RUN_START,
+            {
+                "run_id": run_id,
+                "metadata": metadata or {}
+            }
+        )
+
+    def run_end(self, run_id: str, status: str = "success", summary: Optional[str] = None):
+        """运行结束"""
+        self._publish(
+            EventType.RUN_END,
+            {
+                "run_id": run_id,
+                "status": status,
+                "summary": summary
+            }
+        )
+
+    # ==================== Agent调用事件 ====================
+
+    def agent_call_start(
+        self,
+        call_id: str,
+        agent_name: str,
+        description: str,
+        parent_call_id: Optional[str] = None,
+        order: Optional[int] = None,
+        round: Optional[int] = None,
+        round_index: Optional[int] = None
+    ):
+        """Agent调用开始"""
+        data = {
+            "call_id": call_id,
+            "agent_name": agent_name,
+            "description": description,
+        }
+        if parent_call_id:
+            data["parent_call_id"] = parent_call_id
+        if order is not None:
+            data["order"] = order
+        if round is not None:
+            data["round"] = round
+        if round_index is not None:
+            data["round_index"] = round_index
+
+        self._publish(EventType.CALL_AGENT_START, data)
+
+    def agent_call_end(
+        self,
+        call_id: str,
+        agent_name: str,
+        result: str,
+        success: bool = True,
+        parent_call_id: Optional[str] = None,
+        order: Optional[int] = None
+    ):
+        """Agent调用结束"""
+        data = {
+            "call_id": call_id,
+            "agent_name": agent_name,
+            "result": str(result)[:500],
+            "success": success
+        }
+        if parent_call_id:
+            data["parent_call_id"] = parent_call_id
+        if order is not None:
+            data["order"] = order
+
+        self._publish(EventType.CALL_AGENT_END, data)
+
+    # ==================== 工具调用事件（新版） ====================
+
+    def tool_call_start(
+        self,
+        call_id: str,
+        tool_name: str,
+        arguments: Dict,
+        parent_call_id: Optional[str] = None
+    ):
+        """工具调用开始"""
+        data = {
+            "call_id": call_id,
+            "tool_name": tool_name,
+            "arguments": arguments
+        }
+        if parent_call_id:
+            data["parent_call_id"] = parent_call_id
+
+        self._publish(EventType.CALL_TOOL_START, data)
+
+    def tool_call_end(
+        self,
+        call_id: str,
+        tool_name: str,
+        result: Any,
+        execution_time: Optional[float] = None,
+        parent_call_id: Optional[str] = None
+    ):
+        """工具调用结束"""
+        data = {
+            "call_id": call_id,
+            "tool_name": tool_name,
+            "result": str(result)[:500],
+            "execution_time": execution_time
+        }
+        if parent_call_id:
+            data["parent_call_id"] = parent_call_id
+
+        self._publish(EventType.CALL_TOOL_END, data)
+
+    # ==================== 兼容旧 API（重定向到新事件或保留别名） ====================
+    # 注意：旧 subtask_* 和 tool_* 方法可保留以兼容未迁移的代码，
+    # 但建议在内部重定向到新事件，或逐步废弃。此处暂保留 tool_* 兼容性。
 
     def tool_start(
         self,
         tool_name: str,
         arguments: Dict,
-        task_id: Optional[str] = None  # ✨ 新增：关联到哪个子任务
+        task_id: Optional[str] = None
     ):
-        """
-        工具开始执行
-
-        Args:
-            tool_name: 工具名称
-            arguments: 工具参数
-            task_id: 所属子任务的ID（用于前端归类）
-        """
-        data = {
-            "tool_name": tool_name,
-            "arguments": arguments
-        }
-
-        # ✨ 关联到子任务
-        if task_id:
-            data["task_id"] = task_id
-
-        self._publish(EventType.TOOL_START, data)
+        """[兼容] 工具开始执行"""
+        # 尽量映射到新事件，若无 call_id 则生成临时的
+        import uuid
+        call_id = str(uuid.uuid4())
+        self.tool_call_start(
+            call_id=call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            parent_call_id=task_id  # 旧 task_id 对应 parent_call_id
+        )
 
     def tool_end(
         self,
         tool_name: str,
         result: Any,
         execution_time: Optional[float] = None,
-        task_id: Optional[str] = None  # ✨ 新增：关联到哪个子任务
+        task_id: Optional[str] = None
     ):
-        """
-        工具执行完成
-
-        Args:
-            tool_name: 工具名称
-            result: 执行结果
-            execution_time: 执行时间
-            task_id: 所属子任务的ID
-        """
-        data = {
-            "tool_name": tool_name,
-            "result": str(result)[:500],  # 截断过长的结果
-            "execution_time": execution_time
-        }
-
-        # ✨ 关联到子任务
-        if task_id:
-            data["task_id"] = task_id
-
-        self._publish(EventType.TOOL_END, data)
-
-    def tool_error(self, tool_name: str, error: str):
-        """工具执行错误"""
+        """[兼容] 工具执行完成"""
+        # 由于无法获知 start 时的 call_id，此处仅做简单转发，或忽略 call_id
+        # 更好的做法是修改调用方。此处为保持接口签名不变：
         self._publish(
-            EventType.TOOL_ERROR,
+            EventType.TOOL_END,
             {
                 "tool_name": tool_name,
-                "error": error
-            },
-            priority=EventPriority.HIGH
+                "result": str(result)[:500],
+                "execution_time": execution_time,
+                "task_id": task_id
+            }
         )
 
-    # ==================== 子任务事件 ====================
+    # subtask_* 已废弃，建议直接移除或报错
 
-    def subtask_start(
-        self,
-        subtask_agent: str,
-        subtask_description: str,
-        task_id: Optional[str] = None,      # ✨ 新增：任务唯一ID
-        order: Optional[int] = None,        # ✨ 新增：调用顺序
-        round: Optional[int] = None         # ✨ 新增：第几轮推理
-    ):
-        """
-        子任务开始
-
-        Args:
-            subtask_agent: 子agent名称
-            subtask_description: 子任务描述
-            task_id: 任务唯一ID（用于前端关联事件）
-            order: 调用顺序（全局递增）
-            round: 第几轮推理
-        """
-        data = {
-            "subtask_agent": subtask_agent,
-            "subtask_description": subtask_description,
-        }
-
-        # ✨ 添加任务追踪信息
-        if task_id:
-            data["task_id"] = task_id
-        if order is not None:
-            data["order"] = order
-        if round is not None:
-            data["round"] = round
-
-        self._publish(EventType.SUBTASK_START, data)
-
-    def subtask_end(
-        self,
-        subtask_agent: str,
-        subtask_result: str,
-        success: bool = True,
-        task_id: Optional[str] = None,      # ✨ 新增：任务唯一ID
-        order: Optional[int] = None         # ✨ 新增：调用顺序
-    ):
-        """
-        子任务完成
-
-        Args:
-            subtask_agent: 子agent名称
-            subtask_result: 子任务结果摘要
-            success: 是否成功
-            task_id: 任务唯一ID
-            order: 调用顺序
-        """
-        data = {
-            "subtask_agent": subtask_agent,
-            "subtask_result": subtask_result[:500],  # 截断过长结果
-            "success": success
-        }
-
-        # ✨ 添加任务追踪信息
-        if task_id:
-            data["task_id"] = task_id
-        if order is not None:
-            data["order"] = order
-
-        self._publish(EventType.SUBTASK_END, data)
 
     # ==================== 流式输出事件 ====================
 

@@ -92,24 +92,24 @@ const routes = [
     }
   },
   {
-    path: '/vector',
-    name: 'vector',
-    component: () => import('../views/VectorManagement.vue'),
+    path: '/vector-service',
+    name: 'vector-service',
+    component: () => import('../views/VectorServiceView.vue'),
     meta: {
-      title: '向量库管理',
+      title: '向量知识库',
       keepAlive: true,
-      cacheName: 'VectorManagement',
-      requiresConfig: { vector: true }  // 需要向量数据库配置
+      cacheName: 'VectorServiceView',
+      requiresConfig: { neo4j: true } // Embedding 配置现在在此页面，所以只需要 Neo4j
     }
   },
   {
-    path: '/llm-adapter',
-    name: 'llm-adapter',
-    component: () => import('../views/LLMAdapterView.vue'),
+    path: '/model-adapter',
+    name: 'model-adapter',
+    component: () => import('../views/ModelAdapterView.vue'),
     meta: {
-      title: 'LLM Adapter 配置',
+      title: 'Model Adapter 配置',
       keepAlive: true,
-      cacheName: 'LLMAdapterView'
+      cacheName: 'ModelAdapterView'
       // 设置页不需要配置检查
     }
   },

@@ -37,7 +37,7 @@ class SQLiteVectorStore(VectorStoreBase):
     ):
         """
         初始化 SQLite 向量存储
-
+        
         Args:
             db_path: 数据库文件路径
             vector_dimension: 向量维度（默认 768，适配 bge-small-zh-v1.5）
@@ -64,6 +64,10 @@ class SQLiteVectorStore(VectorStoreBase):
 
         # 加载 sqlite-vec 扩展
         self._load_vector_extension()
+        
+        # 初始化模型管理器
+        from .model_manager import EmbeddingModelManager
+        self.model_manager = EmbeddingModelManager(str(self.db_path))
 
         logger.info(f"✅ SQLite 向量存储已初始化: {self.db_path}")
         logger.info(f"   向量维度: {vector_dimension}, 距离度量: {distance_metric}")
@@ -355,15 +359,30 @@ class SQLiteVectorStore(VectorStoreBase):
             return
 
         self._ensure_collection_exists(collection)
+        
+        # 获取当前激活的模型
+        active_model = self.model_manager.get_active_model()
+        if active_model is None:
+            # 如果没有激活模型，尝试注册当前配置
+            logger.warning("没有激活的 Embedding 模型，尝试注册当前配置")
+            # 这里简化处理，直接报错或者依赖外部初始化
+            # 但为了健壮性，我们可以依赖 initialize() 调用时注册
+            # 如果还是没有，抛出异常
+            raise RuntimeError("没有激活的 embedding 模型，请先注册或激活模型")
+
+        # 检查维度匹配
+        if active_model.vector_dimension != self.vector_dimension:
+             # 这可能发生如果 config 改变了但 model_manager 还是旧的
+             logger.warning(f"激活模型维度 ({active_model.vector_dimension}) 与存储配置 ({self.vector_dimension}) 不匹配")
 
         with self._transaction():
             for doc in documents:
                 if doc.embedding is None:
                     raise ValueError(f"文档 {doc.id} 缺少 embedding")
 
-                if len(doc.embedding) != self.vector_dimension:
+                if len(doc.embedding) != active_model.vector_dimension:
                     raise ValueError(
-                        f"向量维度不匹配: 期望 {self.vector_dimension}, "
+                        f"向量维度不匹配: 期望 {active_model.vector_dimension}, "
                         f"实际 {len(doc.embedding)}"
                     )
 
@@ -376,52 +395,71 @@ class SQLiteVectorStore(VectorStoreBase):
                     (doc.id, collection, doc.content, json.dumps(doc.metadata, ensure_ascii=False))
                 )
 
-                # 删除旧向量（如果存在）
-                self.conn.execute(
-                    "DELETE FROM vectors WHERE doc_id = ? AND collection = ?",
-                    (doc.id, collection)
-                )
-
-                # 插入新向量
+                # 插入新向量到关联表
                 embedding_blob = self._serialize_vector(doc.embedding)
+                
+                # 删除旧的该模型下的向量（如果存在）
                 self.conn.execute(
-                    "INSERT INTO vectors (doc_id, collection, embedding) VALUES (?, ?, ?)",
-                    (doc.id, collection, embedding_blob)
+                    "DELETE FROM document_vectors WHERE doc_id = ? AND collection = ? AND model_id = ?",
+                    (doc.id, collection, active_model.id)
+                )
+                
+                self.conn.execute(
+                    """
+                    INSERT INTO document_vectors (doc_id, collection, model_id, embedding) 
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (doc.id, collection, active_model.id, embedding_blob)
                 )
 
-        logger.info(f"添加了 {len(documents)} 个文档到集合 '{collection}'")
+        logger.info(f"添加了 {len(documents)} 个文档到集合 '{collection}' (模型: {active_model.model_key})")
 
     def search(
         self,
         query_embedding: List[float],
         top_k: int = 10,
         collection: str = "default",
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        model_id: Optional[int] = None
     ) -> List[SearchResult]:
         """向量相似度检索"""
-        if len(query_embedding) != self.vector_dimension:
+        
+        # 确定使用的模型
+        if model_id is None:
+            active_model = self.model_manager.get_active_model()
+            if active_model is None:
+                raise RuntimeError("没有激活的 embedding 模型")
+            model_id = active_model.id
+            expected_dim = active_model.vector_dimension
+        else:
+            model = self.model_manager.get_model_by_id(model_id)
+            if model is None:
+                raise ValueError(f"指定模型不存在: {model_id}")
+            expected_dim = model.vector_dimension
+            
+        if len(query_embedding) != expected_dim:
             raise ValueError(
-                f"查询向量维度不匹配: 期望 {self.vector_dimension}, "
+                f"查询向量维度不匹配: 期望 {expected_dim}, "
                 f"实际 {len(query_embedding)}"
             )
 
         # 构建 SQL 查询
         query_blob = self._serialize_vector(query_embedding)
 
-        # 基础查询（使用 sqlite-vec 的相似度搜索）
-        # 注意：distance 是通过 vec_distance 函数计算的，不是列
+        # 使用 document_vectors 表进行查询
+        # 注意：distance 是通过 vec_distance 函数计算的
         sql = """
             SELECT
                 d.id,
                 d.content,
                 d.metadata,
-                vec_distance_{}(v.embedding, ?) as distance
-            FROM vectors v
-            JOIN documents d ON v.doc_id = d.id AND v.collection = d.collection
-            WHERE v.collection = ?
+                vec_distance_{}(dv.embedding, ?) as distance
+            FROM document_vectors dv
+            JOIN documents d ON dv.doc_id = d.id AND dv.collection = d.collection
+            WHERE dv.collection = ? AND dv.model_id = ?
         """.format(self.distance_metric)
 
-        params = [query_blob, collection]
+        params = [query_blob, collection, model_id]
 
         # 添加元数据过滤
         if filters:
@@ -429,7 +467,7 @@ class SQLiteVectorStore(VectorStoreBase):
                 sql += f" AND json_extract(d.metadata, '$.{key}') = ?"
                 params.append(value)
 
-        # 排序 + 限制（distance 已在 SELECT 中计算）
+        # 排序 + 限制
         sql += """
             ORDER BY distance ASC
             LIMIT ?
@@ -475,14 +513,18 @@ class SQLiteVectorStore(VectorStoreBase):
 
         if row is None:
             return None
-
-        # 获取向量
-        cursor = self.conn.execute(
-            "SELECT embedding FROM vectors WHERE doc_id = ? AND collection = ?",
-            (doc_id, collection)
-        )
-        vec_row = cursor.fetchone()
-        embedding = self._deserialize_vector(vec_row["embedding"]) if vec_row else None
+        
+        # 获取当前激活模型的向量
+        active_model = self.model_manager.get_active_model()
+        embedding = None
+        
+        if active_model:
+            cursor = self.conn.execute(
+                "SELECT embedding FROM document_vectors WHERE doc_id = ? AND collection = ? AND model_id = ?",
+                (doc_id, collection, active_model.id)
+            )
+            vec_row = cursor.fetchone()
+            embedding = self._deserialize_vector(vec_row["embedding"]) if vec_row else None
 
         return Document(
             id=row["id"],
@@ -501,8 +543,30 @@ class SQLiteVectorStore(VectorStoreBase):
             return 0
 
         with self._transaction():
-            # 删除文档（会级联删除向量）
+            # 删除文档（会级联删除向量，但为了保险手动删除）
             placeholders = ",".join("?" * len(doc_ids))
+            
+            # 删除对应的向量（从 document_vectors）
+            self.conn.execute(
+                f"""
+                DELETE FROM document_vectors
+                WHERE doc_id IN ({placeholders}) AND collection = ?
+                """,
+                (*doc_ids, collection)
+            )
+            
+            # 同时也尝试删除旧 vectors 表中的数据（如果存在）
+            try:
+                self.conn.execute(
+                    f"""
+                    DELETE FROM vectors
+                    WHERE doc_id IN ({placeholders}) AND collection = ?
+                    """,
+                    (*doc_ids, collection)
+                )
+            except sqlite3.OperationalError:
+                pass # 表可能不存在
+
             cursor = self.conn.execute(
                 f"""
                 DELETE FROM documents
@@ -512,18 +576,9 @@ class SQLiteVectorStore(VectorStoreBase):
             )
             deleted_count = cursor.rowcount
 
-            # 删除对应的向量
-            self.conn.execute(
-                f"""
-                DELETE FROM vectors
-                WHERE doc_id IN ({placeholders}) AND collection = ?
-                """,
-                (*doc_ids, collection)
-            )
-
         logger.info(f"从集合 '{collection}' 删除了 {deleted_count} 个文档")
         return deleted_count
-
+    
     def list_collections(self) -> List[str]:
         """列出所有集合"""
         cursor = self.conn.execute("SELECT name FROM collections ORDER BY name")
@@ -534,9 +589,19 @@ class SQLiteVectorStore(VectorStoreBase):
         with self._transaction():
             # 删除向量
             self.conn.execute(
-                "DELETE FROM vectors WHERE collection = ?",
+                "DELETE FROM document_vectors WHERE collection = ?",
                 (collection,)
             )
+            
+            # 删除旧向量表数据
+            try:
+                self.conn.execute(
+                    "DELETE FROM vectors WHERE collection = ?",
+                    (collection,)
+                )
+            except sqlite3.OperationalError:
+                pass
+
             # 删除文档
             self.conn.execute(
                 "DELETE FROM documents WHERE collection = ?",

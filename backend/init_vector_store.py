@@ -28,13 +28,10 @@ def is_vector_db_configured():
     try:
         config = get_config()
 
-        # 检查嵌入模式（新版仅支持 remote）
-        if config.embedding.mode == "remote":
-            # 远程模式需要配置 API 端点和密钥
-            return bool(config.embedding.remote.api_endpoint and config.embedding.remote.api_key)
-        else:
-            logger.warning(f"不支持的 embedding 模式: {config.embedding.mode}，仅支持 'remote' 模式")
-            return False
+        # 检查是否配置了 provider 和 model_name
+        # 由于我们依赖 Model Adapter，这里只需检查 provider 是否存在
+        # 具体的连接有效性在初始化时检查
+        return bool(config.embedding.provider and config.embedding.model_name)
 
     except Exception as e:
         logger.error(f"检查向量数据库配置失败: {e}")
@@ -74,8 +71,8 @@ def init_vector_store(force=False):
     if not is_vector_db_configured():
         logger.warning("=" * 60)
         logger.warning("向量数据库未配置，跳过初始化")
-        logger.warning("请在系统配置中设置 Embedding API")
-        logger.warning("配置项: embedding.remote.api_endpoint 和 api_key")
+        logger.warning("请在系统配置中设置 Embedding Provider")
+        logger.warning("配置项: embedding.provider 和 embedding.model_name")
         logger.warning("=" * 60)
         _vector_store_initialized = False
         return False
@@ -97,14 +94,36 @@ def init_vector_store(force=False):
         embedder = get_embedder()
         embedder.initialize(config)
 
-        # 测试嵌入并获取实际维度
-        test_text = "这是一个测试文本"
-        test_embedding = embedder.embed(test_text)[0]  # embed 返回列表
+        # 检查 Embedder 是否初始化成功
+        try:
+             # 测试嵌入并获取实际维度
+            test_text = "这是一个测试文本"
+            test_embedding = embedder.embed(test_text)
+            
+            # embed 方法现在返回列表，如果是单文本输入，可能返回 list[float]
+            # 需要确保我们获取的是向量维度，而不是列表长度
+            embedding_dim = 0
+            if isinstance(test_embedding, list):
+                # 检查是否是嵌套列表 (list[list[float]])
+                if len(test_embedding) > 0 and isinstance(test_embedding[0], list):
+                    embedding_dim = len(test_embedding[0])
+                # 检查是否是单向量 (list[float])
+                elif len(test_embedding) > 0 and isinstance(test_embedding[0], float):
+                    embedding_dim = len(test_embedding)
+                else:
+                    logger.warning(f"无法确定向量维度，返回类型: {type(test_embedding)}")
+            else:
+                 logger.warning(f"embed返回类型异常: {type(test_embedding)}")
 
-        logger.info(f"✓ 嵌入模型已加载 (模式: {config.embedding.mode})")
-        logger.info(f"✓ API 端点: {config.embedding.remote.api_endpoint}")
-        logger.info(f"✓ 模型: {config.embedding.remote.model_name}")
-        logger.info(f"✓ 向量维度: {len(test_embedding)}")
+            logger.info(f"✓ 嵌入模型已加载 (Provider: {config.embedding.provider})")
+            logger.info(f"✓ Provider: {config.embedding.provider}")
+            logger.info(f"✓ 模型: {config.embedding.model_name}")
+            logger.info(f"✓ 向量维度: {embedding_dim}")
+        except Exception as e:
+            logger.warning(f"⚠ 嵌入模型初始化失败: {e}")
+            logger.warning("向量数据库将跳过初始化")
+            _vector_store_initialized = False
+            return False
 
         # 2. 初始化向量数据库客户端（会自动从 Embedder 获取维度）
         logger.info("步骤 2/3: 初始化向量数据库客户端...")

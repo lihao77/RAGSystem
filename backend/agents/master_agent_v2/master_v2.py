@@ -70,7 +70,7 @@ class MasterAgentV2(BaseAgent):
     def __init__(
         self,
         orchestrator,
-        llm_adapter=None,
+        model_adapter=None,
         agent_config=None,
         system_config=None
     ):
@@ -79,7 +79,7 @@ class MasterAgentV2(BaseAgent):
 
         Args:
             orchestrator: AgentOrchestrator 实例（用于访问其他 Agent）
-            llm_adapter: LLM 适配器
+            model_adapter: Model 适配器
             agent_config: 智能体配置
             system_config: 系统配置
         """
@@ -91,7 +91,7 @@ class MasterAgentV2(BaseAgent):
                 'agent_coordination',
                 'adaptive_execution'
             ],
-            llm_adapter=llm_adapter,
+            model_adapter=model_adapter,
             agent_config=agent_config,
             system_config=system_config
         )
@@ -387,11 +387,20 @@ class MasterAgentV2(BaseAgent):
         )
 
         # ✨ 发布会话开始和Agent开始事件
-        publisher.session_start(metadata={"task": task})
+        # 1. 尝试从 context 中获取 run_id，如果没有则生成
+        # 注意：run_id 应该在路由层生成并传入 context，这里做兜底
+        import uuid
+        run_id = context.metadata.get('run_id') or str(uuid.uuid4())
+        
+        # 2. 发布运行开始事件 (Run)
+        publisher.run_start(run_id=run_id, metadata={"task": task})
+
+        # 3. 发布 Agent 开始事件
         publisher.agent_start(task, metadata={
             "agent_name": self.name,
             "display_name": "MasterAgent V2",
-            "max_rounds": self.max_rounds
+            "max_rounds": self.max_rounds,
+            "run_id": run_id
         })
 
         try:
@@ -421,7 +430,7 @@ class MasterAgentV2(BaseAgent):
                 llm_config = self.get_llm_config()
 
                 # 调用 LLM（使用 JSON mode）
-                response = self.llm_adapter.chat_completion(
+                response = self.model_adapter.chat_completion(
                     messages=managed_messages,
                     provider=llm_config.get('provider'),
                     model=llm_config.get('model_name'),
@@ -490,9 +499,9 @@ class MasterAgentV2(BaseAgent):
                     # ✨ 发布最终答案事件（通过事件总线流式输出）
                     publisher.final_answer(final_answer)
 
-                    # ✨ 发布Agent结束和会话结束事件
+                    # ✨ 发布Agent结束和运行结束事件
                     publisher.agent_end(final_answer, execution_time=time.time() - start_time)
-                    publisher.session_end(summary=f"任务完成，共 {rounds} 轮推理，{len(agent_calls_history)} 次Agent调用")
+                    publisher.run_end(run_id=run_id, status="success", summary=f"任务完成，共 {rounds} 轮推理，{len(agent_calls_history)} 次Agent调用")
 
                     return AgentResponse(
                         success=True,
@@ -547,18 +556,18 @@ class MasterAgentV2(BaseAgent):
                         self.logger.info(f"[MasterV2] [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
                         self.logger.info(f"[MasterV2] 任务: {agent_task[:100]}...")
 
-                        # 🎯 使用前端已支持的 subtask_start 事件（而非 agent_call_start）
-                        # 这样前端可以无缝展示 Agent 调用，就像 Master V1 的子任务一样
-                        task_id = f"v2_agent_{rounds}_{idx}"  # 使用 round 和 idx
+                        # 🎯 使用新版 call_id（原 task_id）
+                        call_id = f"call_{run_id}_{rounds}_{idx}"
                         agent_display_name = self._get_agent_display_name(agent_name)
 
-                        # ✨ 发布子任务开始事件（包含任务追踪信息）
-                        publisher.subtask_start(
-                            subtask_agent=agent_name,
-                            subtask_description=agent_task,
-                            task_id=task_id,        # ✨ 任务唯一ID
-                            order=current_order,    # ✨ 全局调用顺序
-                            round=rounds            # ✨ 第几轮推理
+                        # ✨ 发布 AgentCall 开始事件
+                        publisher.agent_call_start(
+                            call_id=call_id,
+                            agent_name=agent_name,
+                            description=agent_task,
+                            order=current_order,
+                            round=rounds,
+                            round_index=idx
                         )
 
                         # 🎯 派生子上下文 (Context Forking)
@@ -566,10 +575,11 @@ class MasterAgentV2(BaseAgent):
                         child_context = context.fork()
                         self.logger.info(f"[MasterV2] 已派生子上下文 (Level {child_context.level})")
 
-                        # ✨ 将 task_id 传递到子 Agent 的 context（让子 Agent 能关联事件）
+                        # ✨ 将 call_id 传递到子 Agent 的 context（作为 parent_call_id）
                         if not hasattr(child_context, 'metadata'):
                             child_context.metadata = {}
-                        child_context.metadata['parent_task_id'] = task_id
+                        child_context.metadata['parent_call_id'] = call_id  # 工具调用归因到此 call_id
+                        child_context.metadata['run_id'] = run_id
                         child_context.metadata['task_order'] = current_order
 
                         # 执行 Agent（不再流式yield，但仍需收集结果）
@@ -609,14 +619,14 @@ class MasterAgentV2(BaseAgent):
 
                         result = agent_result
 
-                        # ✨ 发布子任务结束事件（包含任务追踪信息）
-                        result_summary = self._format_agent_result_summary(result)
-                        publisher.subtask_end(
-                            subtask_agent=agent_name,
-                            subtask_result=result_summary,
+                        # ✨ 发布 AgentCall 结束事件
+                        # result_summary = self._format_agent_result_summary(result)
+                        publisher.agent_call_end(
+                            call_id=call_id,
+                            agent_name=agent_name,
+                            result=result.get('data', {}).get('results', ''),
                             success=result.get('success', False),
-                            task_id=task_id,        # ✨ 任务唯一ID
-                            order=current_order     # ✨ 全局调用顺序
+                            order=current_order
                         )
 
                         # 记录调用历史

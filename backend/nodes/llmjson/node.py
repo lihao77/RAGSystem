@@ -83,7 +83,7 @@ class LLMJsonNode(INode):
 
         # 从 Adapter 获取 Provider 配置
         try:
-            from llm_adapter.adapter import get_default_adapter
+            from model_adapter.adapter import get_default_adapter
             adapter = get_default_adapter()
 
             # 获取 Provider 实例和配置

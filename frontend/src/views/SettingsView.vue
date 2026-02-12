@@ -34,7 +34,13 @@
           </div>
           
           <div class="service-actions">
-            <el-button v-if="service.status === 'not_configured'"
+            <el-button v-if="service.name === '向量数据库'"
+                       size="small"
+                       type="primary"
+                       @click="goToVectorService">
+              前往配置
+            </el-button>
+            <el-button v-else-if="service.status === 'not_configured'"
                        size="small"
                        type="warning"
                        @click="scrollToConfig(service.name)">
@@ -58,7 +64,7 @@
 
     <!-- 配置状态概览卡片 -->
     <el-row :gutter="20" class="status-cards">
-      <el-col :span="6">
+      <el-col :span="8">
         <el-card class="status-card" shadow="hover">
           <div class="status-card-content">
             <el-icon class="status-icon" :class="{ 'status-success': configStatus.neo4j.valid }">
@@ -73,7 +79,7 @@
         </el-card>
       </el-col>
 
-      <el-col :span="6">
+      <el-col :span="8">
         <el-card class="status-card" shadow="hover">
           <div class="status-card-content">
             <el-icon class="status-icon" :class="{ 'status-success': configStatus.llm.valid }">
@@ -88,22 +94,7 @@
         </el-card>
       </el-col>
 
-      <el-col :span="6">
-        <el-card class="status-card" shadow="hover">
-          <div class="status-card-content">
-            <el-icon class="status-icon" :class="{ 'status-success': configStatus.embedding.valid }">
-              <component :is="embeddingStatusIcon" />
-            </el-icon>
-            <div class="status-info">
-              <h3>嵌入模型</h3>
-              <p>{{ config.embedding.mode === 'local' ? '本地模型' : 'API 模式' }}</p>
-              <el-tag :type="embeddingTag.type" size="small">{{ embeddingTag.text }}</el-tag>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-
-      <el-col :span="6">
+      <el-col :span="8">
         <el-card class="status-card" shadow="hover">
           <div class="status-card-content">
             <el-icon class="status-icon">
@@ -208,159 +199,7 @@
           LLM API 配置
         </el-divider>
 
-        <el-alert
-          title="推荐使用 LLMAdapter 统一管理 LLM 配置，支持多提供商和负载均衡"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 20px"
-        />
-
         <LLMConfigSelector v-model="llmConfig" />
-
-        <el-collapse v-model="advancedLlmConfig">
-          <el-collapse-item title="高级配置（旧版配置方式）" name="advanced">
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="API 端点" prop="llm.api_endpoint">
-                  <el-input v-model="config.llm.api_endpoint" placeholder="https://api.deepseek.com/v1">
-                    <template #prefix>
-                      <el-icon>
-                        <Position />
-                      </el-icon>
-                    </template>
-                  </el-input>
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="模型名称" prop="llm.model_name">
-                  <el-input v-model="config.llm.model_name" placeholder="deepseek-chat">
-                    <template #prefix>
-                      <el-icon>
-                        <Cpu />
-                      </el-icon>
-                    </template>
-                  </el-input>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-form-item label="API 密钥" prop="llm.api_key">
-              <el-input v-model="config.llm.api_key" type="password" placeholder="请输入 LLM API 密钥" show-password>
-                <template #prefix>
-                  <el-icon>
-                    <Key />
-                  </el-icon>
-                </template>
-              </el-input>
-            </el-form-item>
-
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="生成温度" prop="llm.temperature">
-                  <el-slider v-model="config.llm.temperature" :min="0" :max="2" :step="0.1" show-input />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="最大令牌数" prop="llm.max_tokens">
-                  <el-input-number v-model="config.llm.max_tokens" :min="100" :max="32000" :step="512"
-                    style="width: 100%" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </el-collapse-item>
-        </el-collapse>
-
-        <!-- 地理编码配置已移除 - 后续添加llmjson和json2graph时重新添加 -->
-
-        <!-- 嵌入模型配置 -->
-        <el-divider content-position="left">
-          <el-icon>
-            <DataAnalysis />
-          </el-icon>
-          嵌入模型配置
-        </el-divider>
-
-        <el-form-item label="嵌入模式">
-          <el-radio-group v-model="config.embedding.mode">
-            <el-radio label="local">本地模型</el-radio>
-            <el-radio label="remote">远程 API</el-radio>
-          </el-radio-group>
-        </el-form-item>
-
-        <!-- 本地模型配置 -->
-        <template v-if="config.embedding.mode === 'local'">
-          <el-row :gutter="20">
-            <el-col :span="16">
-              <el-form-item label="模型名称" prop="embedding.local.model_name">
-                <el-select v-model="config.embedding.local.model_name" placeholder="选择本地模型" style="width: 100%">
-                  <el-option label="BAAI/bge-large-zh-v1.5 (推荐)" value="BAAI/bge-large-zh-v1.5" />
-                  <el-option label="BAAI/bge-small-zh-v1.5 (轻量)" value="BAAI/bge-small-zh-v1.5" />
-                  <el-option label="paraphrase-multilingual-MiniLM-L12-v2 (多语言)" value="paraphrase-multilingual-MiniLM-L12-v2" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="设备" prop="embedding.local.device">
-                <el-select v-model="config.embedding.local.device" placeholder="选择设备" style="width: 100%">
-                  <el-option label="CPU" value="cpu" />
-                  <el-option label="CUDA (GPU)" value="cuda" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </template>
-
-        <!-- API 模型配置 -->
-        <template v-if="config.embedding.mode === 'remote'">
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="API 端点" prop="embedding.remote.api_endpoint">
-                <el-input v-model="config.embedding.remote.api_endpoint" placeholder="https://api.openai.com/v1">
-                  <template #prefix>
-                    <el-icon>
-                      <Link />
-                    </el-icon>
-                  </template>
-                </el-input>
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="模型名称" prop="embedding.remote.model_name">
-                <el-input v-model="config.embedding.remote.model_name" placeholder="text-embedding-3-small">
-                  <template #prefix>
-                    <el-icon>
-                      <Cpu />
-                    </el-icon>
-                  </template>
-                </el-input>
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item label="API 密钥" prop="embedding.remote.api_key">
-            <el-input v-model="config.embedding.remote.api_key" type="password" placeholder="请输入 Embedding API 密钥" show-password>
-              <template #prefix>
-                <el-icon>
-                  <Key />
-                </el-icon>
-              </template>
-            </el-input>
-          </el-form-item>
-
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <el-form-item label="超时时间(秒)" prop="embedding.remote.timeout">
-                <el-input-number v-model="config.embedding.remote.timeout" :min="5" :max="120" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="最大重试次数" prop="embedding.remote.max_retries">
-                <el-input-number v-model="config.embedding.remote.max_retries" :min="0" :max="10" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </template>
 
         <!-- 系统配置 -->
         <el-divider content-position="left">
@@ -369,6 +208,13 @@
           </el-icon>
           系统设置
         </el-divider>
+        
+        <el-alert
+          title="更多设置（如向量库、Embedding模型）请前往相应的管理页面"
+          type="info"
+          show-icon
+          :closable="false"
+        />
 
         <!-- 系统设置：max_content_length 配置已移除，后续需要时添加 -->
       </el-form>
@@ -382,18 +228,17 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  HomeFilled, Link, User, Lock, Position, Cpu, Key, Connection, Check,
+  HomeFilled, Link, User, Lock, Connection, Check,
   Refresh, Tools, Setting, ChatDotRound, CircleCheck,
-  CircleClose, DataAnalysis
+  CircleClose
 } from '@element-plus/icons-vue'
 import {
-  getConfig,
   getRawConfig,
   updateConfig,
   testNeo4jConnection,
-  testLLMConnection,
   reloadConfig,
   validateConfig,
   getServicesStatus,
@@ -403,6 +248,8 @@ import { resetConfigStatusCache } from '@/composables/useConfigCheck'
 import LLMConfigSelector from '@/components/LLMConfigSelector.vue'
 
 defineOptions({ name: 'SettingsView' })
+
+const router = useRouter()
 
 // 表单引用
 const configForm = ref(null)
@@ -417,9 +264,6 @@ const llmConfig = ref({
   retry_attempts: 3
 })
 
-// 高级 LLM 配置折叠面板
-const advancedLlmConfig = ref([])
-
 // 配置数据
 const config = reactive({
   neo4j: {
@@ -428,26 +272,11 @@ const config = reactive({
     password: ''
   },
   llm: {
-    api_endpoint: 'https://api.deepseek.com/v1',
-    api_key: '',
-    model_name: 'deepseek-chat',
+    // 兼容旧配置字段，但主要通过 Model Adapter 管理
+    provider: '',
+    model_name: '',
     temperature: 0.7,
     max_tokens: 4096
-  },
-  embedding: {
-    mode: 'local',
-    local: {
-      model_name: 'BAAI/bge-small-zh-v1.5',
-      device: 'cpu',
-      cache_dir: null
-    },
-    remote: {
-      api_endpoint: '',
-      api_key: '',
-      model_name: 'text-embedding-3-small',
-      timeout: 30,
-      max_retries: 3
-    }
   },
   system: {}
 })
@@ -461,9 +290,6 @@ const configStatus = reactive({
   llm: {
     valid: false,
     hasApiKey: false
-  },
-  embedding: {
-    valid: false
   }
 })
 
@@ -525,33 +351,13 @@ const llmStatusIcon = computed(() => {
 const llmKeyTag = computed(() => {
   if (llmConfig.value.provider) {
     return {
-      text: '使用 LLMAdapter',
+      text: '使用 Model Adapter',
       type: 'success'
     }
   }
   return {
-    text: configStatus.llm.hasApiKey ? '密钥已设置' : '密钥未设置',
-    type: configStatus.llm.hasApiKey ? 'success' : 'warning'
-  }
-})
-
-// 计算属性：嵌入模型状态图标
-const embeddingStatusIcon = computed(() => {
-  return configStatus.embedding.valid ? CircleCheck : CircleClose
-})
-
-// 计算属性：嵌入模型标签
-const embeddingTag = computed(() => {
-  if (config.embedding.mode === 'local') {
-    return {
-      text: config.embedding.local?.model_name ? '已配置' : '未配置',
-      type: config.embedding.local?.model_name ? 'success' : 'warning'
-    }
-  } else {
-    return {
-      text: config.embedding.remote?.api_key ? '密钥已设置' : '密钥未设置',
-      type: config.embedding.remote?.api_key ? 'success' : 'warning'
-    }
+    text: '未配置 Provider',
+    type: 'warning'
   }
 })
 
@@ -562,9 +368,6 @@ const configRules = {
   ],
   'neo4j.user': [
     { required: true, message: '请输入 Neo4j 用户名', trigger: 'blur' }
-  ],
-  'llm.api_endpoint': [
-    { type: 'url', message: '请输入有效的 URL', trigger: 'blur' }
   ]
 }
 
@@ -578,29 +381,6 @@ const loadConfig = async (showMessage = true) => {
       Object.assign(config.neo4j, res.data.neo4j || {})
       Object.assign(config.llm, res.data.llm || {})
       Object.assign(config.system, res.data.system || {})
-
-      // 处理 embedding 配置 - 确保嵌套结构
-      if (res.data.embedding) {
-        config.embedding.mode = res.data.embedding.mode || 'local'
-
-        // 确保 local 和 remote 对象存在
-        if (!config.embedding.local) {
-          config.embedding.local = {}
-        }
-        if (!config.embedding.remote) {
-          config.embedding.remote = {}
-        }
-
-        // 合并 local 配置
-        if (res.data.embedding.local) {
-          Object.assign(config.embedding.local, res.data.embedding.local)
-        }
-
-        // 合并 remote 配置
-        if (res.data.embedding.remote) {
-          Object.assign(config.embedding.remote, res.data.embedding.remote)
-        }
-      }
 
       // 同步 LLM 配置到 llmConfig（用于 LLMConfigSelector 组件）
       Object.assign(llmConfig.value, {
@@ -637,21 +417,13 @@ const updateStatus = () => {
   configStatus.neo4j.valid = !!(config.neo4j.uri && config.neo4j.user)
   configStatus.neo4j.hasPassword = !!config.neo4j.password
 
-  // LLM 状态 - 使用 LLMAdapter 或旧的配置方式
+  // LLM 状态 - 仅支持 Model Adapter
   if (llmConfig.value.provider) {
     configStatus.llm.valid = true
     configStatus.llm.hasApiKey = true
   } else {
-    // 旧的验证方式
-    configStatus.llm.valid = !!(config.llm.api_endpoint && config.llm.model_name)
-    configStatus.llm.hasApiKey = !!config.llm.api_key
-  }
-
-  // 嵌入模型状态
-  if (config.embedding.mode === 'local') {
-    configStatus.embedding.valid = !!config.embedding.local_model
-  } else {
-    configStatus.embedding.valid = !!(config.embedding.api_base && config.embedding.api_model && config.embedding.api_key)
+    configStatus.llm.valid = false
+    configStatus.llm.hasApiKey = false
   }
 }
 
@@ -683,7 +455,7 @@ const saveConfig = async () => {
       neo4j: { ...config.neo4j },
       llm: { ...config.llm },
       system: { ...config.system },
-      embedding: { ...config.embedding },
+      // 不再此处保存 embedding
       external_libs: {
         llmjson: {},
         json2graph: {}
@@ -750,11 +522,6 @@ const testNeo4j = async () => {
   }
 }
 
-// 测试 LLM 连接 - 已由 LLMConfigSelector 组件处理
-const testLLM = async () => {
-  // 此函数已废弃，测试功能在 LLMConfigSelector 组件中处理
-}
-
 // 刷新服务状态
 const refreshServiceStatus = async () => {
   loading.serviceStatus = true
@@ -805,6 +572,11 @@ const reinitServiceHandler = async (serviceName) => {
 const scrollToConfig = (serviceName) => {
   // 简单实现：提示用户
   ElMessage.info(`请在下方配置 ${serviceName}`)
+}
+
+// 跳转到向量服务页面
+const goToVectorService = () => {
+  router.push('/vector-service')
 }
 
 // 获取服务状态图标

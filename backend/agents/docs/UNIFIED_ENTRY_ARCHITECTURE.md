@@ -238,15 +238,15 @@ response = orchestrator.execute(
 # backend/routes/agent.py
 def _get_orchestrator():
     # 创建 Orchestrator
-    orchestrator = get_orchestrator(llm_adapter=adapter)
+    orchestrator = get_orchestrator(model_adapter=adapter)
 
     # 注册专业智能体
-    qa_agent = QAAgent(llm_adapter=adapter, config=config)
+    qa_agent = QAAgent(model_adapter=adapter, config=config)
     orchestrator.register_agent(qa_agent)
 
     # 注册 MasterAgent（必须在最后注册）
     master_agent = MasterAgent(
-        llm_adapter=adapter,
+        model_adapter=adapter,
         orchestrator=orchestrator,  # 传入 orchestrator 引用
         config=config
     )
@@ -300,13 +300,13 @@ if 'subtasks' in response.data:
 ```python
 # 1. 创建新智能体
 class ReportAgent(BaseAgent):
-    def __init__(self, llm_adapter, config):
+    def __init__(self, model_adapter, config):
         super().__init__(
             name='report_agent',
             description='生成分析报告的智能体',
             capabilities=['report_generation', 'data_summary']
         )
-        self.llm_adapter = llm_adapter
+        self.model_adapter = model_adapter
         self.config = config
 
     def execute(self, task, context):
@@ -315,7 +315,7 @@ class ReportAgent(BaseAgent):
 
 # 2. 在系统启动时注册
 orchestrator = _get_orchestrator()
-report_agent = ReportAgent(llm_adapter=adapter, config=config)
+report_agent = ReportAgent(model_adapter=adapter, config=config)
 orchestrator.register_agent(report_agent)  # 在 master_agent 之前注册
 
 # 3. MasterAgent 会自动发现并使用新智能体

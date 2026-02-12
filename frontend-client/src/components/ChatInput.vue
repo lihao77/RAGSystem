@@ -81,15 +81,6 @@ const handleSend = () => {
     textareaRef.value.style.height = 'auto';
   }
 };
-
-const focus = async () => {
-  await nextTick();
-  if (textareaRef.value) {
-    textareaRef.value.focus();
-  }
-};
-
-defineExpose({ focus });
 </script>
 
 <style scoped>

@@ -17,12 +17,16 @@ class Neo4jConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    """LLM 配置 - 支持 LLMAdapter"""
+    """LLM 配置 - 支持 ModelAdapter"""
     model_config = ConfigDict(extra='allow')
 
-    # LLMAdapter 配置（新版本）
-    provider: str = ""  # LLM 提供商名称（openai/deepseek/openrouter）
-    model_name: str = "deepseek-chat"  # 模型名称
+    # ModelAdapter 配置（新版本）
+    provider: str = ""  # AI 提供商名称（openai/deepseek/openrouter）
+    model_name: str = "deepseek-chat"  # 默认 Chat 模型
+    
+    # 统一模型映射 (Task -> Model ID)
+    model_map: Dict[str, str] = Field(default_factory=dict)
+    
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 30
@@ -40,35 +44,13 @@ class SystemConfig(BaseModel):
     max_content_length: int = 100 * 1024 * 1024  # 100MB (字节)
 
 
-class LocalEmbeddingConfig(BaseModel):
-    """本地 Embedding 模型配置"""
-    model_config = ConfigDict(extra='allow')
-
-    model_name: str = "BAAI/bge-small-zh-v1.5"
-    device: str = "cpu"
-    cache_dir: str | None = None
-
-
-class RemoteEmbeddingConfig(BaseModel):
-    """远程 Embedding API 配置"""
-    model_config = ConfigDict(extra='allow')
-
-    api_endpoint: str = ""
-    api_key: str = ""
-    model_name: str = "text-embedding-3-small"
-    timeout: int = 30
-    max_retries: int = 3
-    batch_size: int = 10  # 单次请求最多处理的文本数量（ModelScope 建议 10-20）
-
-
 class EmbeddingConfig(BaseModel):
-    """Embedding 配置"""
+    """Embedding 配置 - 仅支持 ModelAdapter"""
     model_config = ConfigDict(extra='allow')
 
-    mode: str = "local"  # "local" 或 "remote"
-    local: LocalEmbeddingConfig = Field(default_factory=LocalEmbeddingConfig)
-    remote: RemoteEmbeddingConfig = Field(default_factory=RemoteEmbeddingConfig)
-
+    provider: str = ""  # Embedding 提供商名称（留空表示未配置）
+    model_name: str = ""  # Embedding 模型名称
+    batch_size: int = 100 # 批处理大小
 
 class SQLiteVectorConfig(BaseModel):
     """SQLite + sqlite-vec 向量存储配置"""

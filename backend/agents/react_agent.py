@@ -63,7 +63,7 @@ class ReActAgent(BaseAgent):
         agent_name: str,
         display_name: str = None,
         description: str = None,
-        llm_adapter = None,
+        model_adapter = None,
         agent_config = None,
         system_config = None,
         available_tools: Optional[List[Dict[str, Any]]] = None,
@@ -75,7 +75,7 @@ class ReActAgent(BaseAgent):
             name=agent_name,
             description=description or display_name or agent_name,
             capabilities=['reasoning', 'tool_calling'],
-            llm_adapter=llm_adapter,
+            model_adapter=model_adapter,
             agent_config=agent_config,
             system_config=system_config
         )
@@ -143,8 +143,11 @@ class ReActAgent(BaseAgent):
         # 新方式：事件总线
         if self._publisher:
             try:
-                # ✨ 从 context 获取 parent_task_id（如果是被 MasterAgent 调用）
-                task_id = getattr(self, '_current_task_id', None)
+                # ✨ 从 context 获取 parent_call_id（如果是被 MasterAgent 调用）
+                call_id = getattr(self, '_current_call_id', None)
+                # 兼容旧 task_id
+                if not call_id:
+                    call_id = getattr(self, '_current_task_id', None)
 
                 # 映射事件类型到 EventPublisher 方法
                 if event_type == 'thought_structured':
@@ -154,17 +157,25 @@ class ReActAgent(BaseAgent):
                         reasoning=f"第 {data.get('round', 0)} 轮推理"
                     )
                 elif event_type == 'tool_start':
-                    self._publisher.tool_start(
+                    # 生成唯一的 tool call_id
+                    import uuid
+                    tool_call_id = f"tool_{uuid.uuid4()}"
+                    # 记录到 data 中供 tool_end 使用（虽然这里 data 是传入的副本，可能需要其他方式传递）
+                    # 更好的方式是在循环中生成并传递
+                    
+                    self._publisher.tool_call_start(
+                        call_id=data.get('tool_call_id') or tool_call_id, # 需要调用方传入
                         tool_name=data.get('tool_name'),
                         arguments=data.get('arguments', {}),
-                        task_id=task_id  # ✨ 关联到父任务
+                        parent_call_id=call_id  # ✨ 关联到父调用
                     )
                 elif event_type == 'tool_end':
-                    self._publisher.tool_end(
+                    self._publisher.tool_call_end(
+                        call_id=data.get('tool_call_id'), # 需要调用方传入
                         tool_name=data.get('tool_name'),
                         result=data.get('result'),
                         execution_time=data.get('elapsed_time'),
-                        task_id=task_id  # ✨ 关联到父任务
+                        parent_call_id=call_id  # ✨ 关联到父调用
                     )
                 elif event_type == 'tool_error':
                     self._publisher.tool_error(
@@ -381,11 +392,19 @@ class ReActAgent(BaseAgent):
             if self._publisher:
                 self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
 
-            # ✨ 从 context 读取 parent_task_id（如果是被 MasterAgent 调用）
-            if hasattr(context, 'metadata') and 'parent_task_id' in context.metadata:
-                self._current_task_id = context.metadata['parent_task_id']
+            # ✨ 从 context 读取 parent_call_id（如果是被 MasterAgent 调用）
+            if hasattr(context, 'metadata'):
+                if 'parent_call_id' in context.metadata:
+                    self._current_call_id = context.metadata['parent_call_id']
+                elif 'parent_task_id' in context.metadata:
+                    self._current_call_id = context.metadata['parent_task_id']
+                else:
+                    self._current_call_id = None
             else:
-                self._current_task_id = None
+                self._current_call_id = None
+            
+            # 兼容旧代码
+            self._current_task_id = self._current_call_id
 
             messages = [{"role": "system", "content": self._build_system_prompt()}]
             history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
@@ -417,7 +436,7 @@ class ReActAgent(BaseAgent):
 
                 for retry_attempt in range(max_parse_retries):
                     # 调用 LLM（使用 JSON mode）
-                    response = self.llm_adapter.chat_completion(
+                    response = self.model_adapter.chat_completion(
                         messages=managed_messages,  #  使用管理后的消息
                         provider=llm_config.get('provider'),
                         model=llm_config.get('model_name'),
@@ -547,8 +566,13 @@ class ReActAgent(BaseAgent):
 
                         self.logger.info(f"[ReAct] [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
 
+                        # 生成 tool_call_id
+                        import uuid
+                        tool_call_id = f"tool_{uuid.uuid4()}"
+
                         # 发送工具开始事件
                         self._emit_event('tool_start', {
+                            'tool_call_id': tool_call_id,  # 传入 ID
                             'tool_name': tool_name,
                             'arguments': arguments,
                             'index': idx,
@@ -562,6 +586,7 @@ class ReActAgent(BaseAgent):
 
                         # 发送工具结束事件
                         self._emit_event('tool_end', {
+                            'tool_call_id': tool_call_id,  # 传入 ID
                             'tool_name': tool_name,
                             'result': result,
                             'elapsed_time': elapsed_time,

@@ -26,17 +26,19 @@ class AgentOrchestrator:
 
     def __init__(
         self,
-        llm_adapter = None,
+        model_adapter = None,
         registry: Optional[AgentRegistry] = None
     ):
         """
         初始化编排器
 
         Args:
-            llm_adapter: LLM 适配器（用于降级路由）
+            model_adapter: Model 适配器（用于降级路由）
             registry: 智能体注册表（默认使用全局注册表）
         """
-        self.llm_adapter = llm_adapter
+        self.model_adapter = model_adapter
+        # 兼容旧属性名 (已废弃，建议使用 model_adapter)
+        self.llm_adapter = model_adapter
         self.registry = registry or get_registry()
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -77,11 +79,17 @@ class AgentOrchestrator:
                 return agent
             self.logger.warning(f"指定的智能体 '{preferred_agent}' 不可用")
 
-        # 2. 统一入口：优先使用 MasterAgent
-        master_agent = self.registry.get('master_agent')
+        # 2. 统一入口：优先使用 MasterAgent V2
+        master_agent = self.registry.get('master_agent_v2')
         if master_agent:
-            self.logger.info(f"使用 MasterAgent 作为统一入口")
+            self.logger.info(f"使用 MasterAgent V2 作为统一入口")
             return master_agent
+
+        # 兼容旧逻辑
+        master_agent_v1 = self.registry.get('master_agent')
+        if master_agent_v1:
+             self.logger.info(f"使用 MasterAgent V1 作为统一入口")
+             return master_agent_v1
 
         # 3. 降级方案：如果没有 MasterAgent，查找能处理任务的智能体
         self.logger.warning("MasterAgent 未注册，使用降级路由")
@@ -248,17 +256,17 @@ class AgentOrchestrator:
 _global_orchestrator: Optional[AgentOrchestrator] = None
 
 
-def get_orchestrator(llm_adapter = None) -> AgentOrchestrator:
+def get_orchestrator(model_adapter = None) -> AgentOrchestrator:
     """
     获取全局智能体编排器
 
     Args:
-        llm_adapter: LLM 适配器（仅在首次调用时设置）
+        model_adapter: Model 适配器（仅在首次调用时设置）
 
     Returns:
         AgentOrchestrator 单例
     """
     global _global_orchestrator
     if _global_orchestrator is None:
-        _global_orchestrator = AgentOrchestrator(llm_adapter=llm_adapter)
+        _global_orchestrator = AgentOrchestrator(model_adapter=model_adapter)
     return _global_orchestrator

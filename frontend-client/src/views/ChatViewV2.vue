@@ -31,33 +31,12 @@
         </button>
       </div>
 
-      <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
+      <div class="history-list">
         <div class="history-label">Recent</div>
-        <div v-if="historyLoading" class="history-skeleton">
-          <div v-for="n in 6" :key="`history-skeleton-${n}`" class="history-item skeleton-item">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-line"></div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-for="item in history" :key="item.session_id" class="history-item"
-            :class="{ active: item.session_id === currentSessionId }" @click="selectSession(item)">
-            <IconDocument :size="18" class="history-icon" />
-            <div class="history-main">
-              <div class="history-title-row">
-                <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
-                <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
-              </div>
-              <div class="history-meta">
-                <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
-          <div v-if="historyError" class="history-error">
-            <span>{{ historyError }}</span>
-            <button class="retry-btn" @click="retryLoadHistory">重试</button>
-          </div>
+        <div v-for="(item, index) in history" :key="index" class="history-item">
+          <!-- 网页图标 -->
+          <IconDocument :size="18" class="history-icon" />
+          <span class="history-title">{{ item.title || 'New Conversation' }}</span>
         </div>
       </div>
 
@@ -115,10 +94,7 @@
       <div class="chat-messages-wrapper">
         <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
           <!-- Welcome Screen -->
-          <div v-if="messagesLoading" class="messages-skeleton">
-            <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
-          </div>
-          <div v-else-if="messages.length === 0" class="welcome-screen">
+          <div v-if="messages.length === 0" class="welcome-screen">
             <div class="welcome-content">
               <div class="welcome-header">
                 <div class="logo-placeholder">
@@ -202,17 +178,13 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
-          <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
+          <ChatInput v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
         </div>
       </div>
 
 
 
     </main>
-    <div v-if="toast.visible" class="toast" :class="toast.type">
-      <span>{{ toast.message }}</span>
-      <button v-if="toast.action" class="toast-action" @click="toast.action">{{ toast.actionLabel }}</button>
-    </div>
   </div>
 </template>
 
@@ -252,42 +224,10 @@ const isLoading = ref(false);
 const messagesRef = ref(null);
 const topControlsBarRef = ref(null);
 const sidebarRef = ref(null);
-const historyListRef = ref(null);
 const history = ref([]);
 const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
 const sidebarCollapsed = ref(false);
-const historyLoading = ref(false);
-const historyLoadingMore = ref(false);
-const historyError = ref('');
-const historyOffset = ref(0);
-const historyHasMore = ref(true);
-const currentSessionId = ref(null);
-const messagesLoading = ref(false);
-const chatInputRef = ref(null);
-const toast = ref({
-  visible: false,
-  message: '',
-  type: 'error',
-  action: null,
-  actionLabel: ''
-});
-const currentStreamController = ref(null);
-const messageCache = ref(new Map());
-const maxCachedSessions = 10;
-const lastFailedSendContent = ref('');
-const handlePopState = () => {
-  const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
-  const sessionId = match ? decodeURIComponent(match[1]) : null;
-  if (sessionId && sessionId !== currentSessionId.value) {
-    currentSessionId.value = sessionId;
-    loadSessionMessages(sessionId);
-  }
-  if (!sessionId) {
-    currentSessionId.value = null;
-    messages.value = [];
-  }
-};
 
 // 移动端状态
 const mobileOpen = ref(false);
@@ -388,9 +328,6 @@ const startNewChat = () => {
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
-  currentSessionId.value = null;
-  window.history.pushState({}, '', '/');
-  focusInput();
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
@@ -475,228 +412,14 @@ const expandSubtask = (subtasks, taskId) => {
   });
 };
 
-const formatTitle = (item) => {
-  const content = (item.first_message || item.last_message || '').trim();
-  return content ? content.slice(0, 30) : '';
-};
-
-const formatTimeLabel = (timeStr) => {
-  if (!timeStr) return '';
-  const time = new Date(timeStr);
-  if (Number.isNaN(time.getTime())) return '';
-  const now = new Date();
-  const diffMs = now - time;
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return '刚刚';
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
-  const isYesterday = now.toDateString() !== time.toDateString()
-    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
-  if (isYesterday) return '昨天';
-  const yyyy = time.getFullYear();
-  const mm = String(time.getMonth() + 1).padStart(2, '0');
-  const dd = String(time.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-};
-
-const showToast = (message, action = null, actionLabel = '重试') => {
-  toast.value = {
-    visible: true,
-    message,
-    type: 'error',
-    action,
-    actionLabel
-  };
-  setTimeout(() => {
-    if (toast.value.visible && toast.value.message === message) {
-      toast.value.visible = false;
-    }
-  }, 3000);
-};
-
-const focusInput = async () => {
-  if (chatInputRef.value?.focus) {
-    await chatInputRef.value.focus();
-  }
-};
-
-const handleHistoryScroll = () => {
-  if (!historyListRef.value || historyLoadingMore.value || !historyHasMore.value) return;
-  const el = historyListRef.value;
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-    loadRecentSessions(false);
-  }
-};
-
-const loadRecentSessions = async (reset = false) => {
-  if (historyLoading.value || historyLoadingMore.value) return;
-  if (!historyHasMore.value && !reset) return;
-  if (reset) {
-    historyOffset.value = 0;
-    historyHasMore.value = true;
-  }
-  if (reset) {
-    historyLoading.value = true;
-  } else {
-    historyLoadingMore.value = true;
-  }
-  historyError.value = '';
-  try {
-    const userId = (localStorage.getItem('userId') || '').trim();
-    const params = new URLSearchParams({
-      limit: String(20),
-      offset: String(historyOffset.value)
-    });
-    if (userId) {
-      params.set('user_id', userId);
-    }
-    const response = await fetch(`/api/agent/sessions?${params.toString()}`);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
-    const payload = result.data || {};
-    const items = payload.items || [];
-    if (reset) {
-      history.value = items;
-    } else {
-      history.value = history.value.concat(items);
-    }
-    historyOffset.value += items.length;
-    historyHasMore.value = payload.has_more ?? items.length >= 20;
-  } catch (error) {
-    historyError.value = '加载失败，请重试';
-    showToast('加载历史列表失败', retryLoadHistory);
-  } finally {
-    historyLoading.value = false;
-    historyLoadingMore.value = false;
-  }
-};
-
-const retryLoadHistory = () => {
-  loadRecentSessions(true);
-};
-
-const cacheMessages = (sessionId, list) => {
-  if (!sessionId) return;
-  if (messageCache.value.has(sessionId)) {
-    messageCache.value.delete(sessionId);
-  }
-  messageCache.value.set(sessionId, list.slice(-500));
-  if (messageCache.value.size > maxCachedSessions) {
-    const oldestKey = messageCache.value.keys().next().value;
-    messageCache.value.delete(oldestKey);
-  }
-};
-
-const loadSessionMessages = async (sessionId) => {
-  if (!sessionId) return;
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-    currentStreamController.value = null;
-  }
-  messagesLoading.value = true;
-  historyError.value = '';
-  try {
-    const cached = messageCache.value.get(sessionId);
-    if (cached) {
-      messages.value = cached;
-      await nextTick();
-      await scrollToBottom(true);
-      focusInput();
-      messagesLoading.value = false;
-      return;
-    }
-    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
-    const items = result.data?.items || [];
-    const mapped = items.map(item => {
-      if (item.role === 'assistant') {
-        return {
-          role: 'assistant',
-          content: item.content || '',
-          subtasks: [],
-          showFullSubtasks: false,
-          multimodalContents: [],
-          status: [],
-          finished: true
-        };
-      }
-      return { role: 'user', content: item.content || '' };
-    });
-    messages.value = mapped;
-    cacheMessages(sessionId, mapped);
-    await nextTick();
-    await scrollToBottom(true);
-    focusInput();
-  } catch (error) {
-    showToast('加载会话失败', () => loadSessionMessages(sessionId));
-  } finally {
-    messagesLoading.value = false;
-  }
-};
-
-const selectSession = async (item) => {
-  if (!item?.session_id) return;
-  if (currentSessionId.value === item.session_id && messages.value.length > 0) return;
-  currentSessionId.value = item.session_id;
-  window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
-  item.unread_count = 0;
-  closeMobileSidebar();
-  await loadSessionMessages(item.session_id);
-};
-
-const updateRecentSession = (sessionId, content, timestamp) => {
-  if (!sessionId) return;
-  const time = timestamp || new Date().toISOString();
-  const idx = history.value.findIndex(h => h.session_id === sessionId);
-  if (idx >= 0) {
-    const item = history.value[idx];
-    item.last_message = content;
-    item.last_message_at = time;
-    if (!item.title) {
-      item.title = (item.title || content || '').toString().slice(0, 30);
-    }
-    history.value.splice(idx, 1);
-    history.value.unshift(item);
-  } else {
-    history.value.unshift({
-      session_id: sessionId,
-      title: content ? content.slice(0, 30) : '',
-      last_message: content,
-      last_message_at: time,
-      unread_count: 0
-    });
-  }
-};
-
-const ensureSession = async () => {
-  if (currentSessionId.value) return currentSessionId.value;
-  const userId = (localStorage.getItem('userId') || '').trim();
-  const body = userId ? { user_id: userId } : {};
-  const response = await fetch('/api/agent/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-  const result = await response.json();
-  currentSessionId.value = result.data?.session_id || null;
-  if (currentSessionId.value) {
-    window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
-  }
-  return currentSessionId.value;
-};
-
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
 
-  const sessionId = await ensureSession();
-  lastFailedSendContent.value = content;
   messages.value.push({ role: 'user', content: content });
   inputMessage.value = '';
   isUserAtBottom.value = true;
   scrollToBottom(true);
-  updateRecentSession(sessionId, content, new Date().toISOString());
 
   const assistantMsgIndex = messages.value.push({
     role: 'assistant',
@@ -711,15 +434,12 @@ const handleSend = async () => {
   isLoading.value = true;
 
   try {
-    const controller = new AbortController();
-    currentStreamController.value = controller;
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
       body: JSON.stringify({
         task: content,
-        session_id: sessionId,
+        session_id: null,
         use_v2: true  // 🎯 关键：指定使用 Master V2
       })
     });
@@ -733,11 +453,6 @@ const handleSend = async () => {
       const { done, value } = await reader.read();
       if (done) {
         messages.value[assistantMsgIndex].finished = true;
-        const assistantContent = messages.value[assistantMsgIndex].content;
-        if (assistantContent) {
-          updateRecentSession(sessionId, assistantContent, new Date().toISOString());
-        }
-        cacheMessages(sessionId, messages.value);
         break;
       }
 
@@ -747,28 +462,24 @@ const handleSend = async () => {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
-            const event = JSON.parse(line.substring(6));
+            const data = JSON.parse(line.substring(6));
             const currentMsg = messages.value[assistantMsgIndex];
 
-            // ✨ 提取事件数据（完整Event对象格式）
-            const eventData = event.data || {};
-            const eventType = event.type;
-
             // 🎯 Master V2 使用 subtask_start 代表 Agent 调用
-            if (eventType === 'subtask.start') {
+            if (data.type === 'subtask_start') {
               // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
 
               currentMsg.subtasks.push({
-                order: eventData.order,
-                task_id: eventData.task_id,  // V2 新增：精确追踪
-                round: eventData.round,  // 🎯 新增：第几轮推理
-                round_index: eventData.round_index,  // 🎯 新增：轮次内索引
-                agent_name: event.agent_name,  // ✨ 从顶层获取
-                agent_display_name: eventData.agent_display_name || eventData.subtask_agent,
-                description: eventData.subtask_description,
+                order: data.order,
+                task_id: data.task_id,  // V2 新增：精确追踪
+                round: data.round,  // 🎯 新增：第几轮推理
+                round_index: data.round_index,  // 🎯 新增：轮次内索引
+                agent_name: data.agent_name,
+                agent_display_name: data.agent_display_name,
+                description: data.description,
                 react_steps: [],
                 tool_calls: [],
                 result_summary: '',
@@ -778,19 +489,16 @@ const handleSend = async () => {
               });
             }
             // 🎯 Master V2 的 thought 关联到 Agent 调用
-            else if (eventType === 'agent.thought_structured') {
+            else if (data.type === 'thought_structured') {
               // 通过 task_id 或 subtask_order 定位 Agent
-              let subtask = eventData.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === eventData.task_id)
-                : currentMsg.subtasks.find(s => s.order === eventData.subtask_order);
-              if (!subtask) {
-                subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
-              }
+              const subtask = data.task_id
+                ? currentMsg.subtasks.find(s => s.task_id === data.task_id)
+                : currentMsg.subtasks.find(s => s.order === data.subtask_order);
 
               if (subtask) {
                 const newStep = {
-                  round: eventData.round,
-                  thought: eventData.thought,
+                  round: data.round,
+                  thought: data.thought,
                   toolCalls: [],
                   expanded: true
                 };
@@ -799,25 +507,15 @@ const handleSend = async () => {
               }
             }
             // 工具调用（如果 Master V2 内部有 Agent 调用工具）
-            else if (eventType === 'tool.start') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
-              if (subtask) {
-                if (!subtask.currentStep) {
-                  const newStep = {
-                    round: eventData.round,
-                    thought: '',
-                    toolCalls: [],
-                    expanded: true
-                  };
-                  subtask.react_steps.push(newStep);
-                  subtask.currentStep = newStep;
-                }
+            else if (data.type === 'tool_start') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
+              if (subtask && subtask.currentStep) {
                 const toolCall = {
-                  tool_name: eventData.tool_name,
-                  arguments: eventData.arguments,
+                  tool_name: data.tool_name,
+                  arguments: data.arguments,
                   status: 'running',
-                  index: eventData.index,
-                  total: eventData.total,
+                  index: data.index,
+                  total: data.total,
                   showResult: false,
                   showArgs: false
                 };
@@ -825,15 +523,15 @@ const handleSend = async () => {
                 subtask.tool_calls.push(toolCall);
               }
             }
-            else if (eventType === 'tool.end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
+            else if (data.type === 'tool_end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.subtask_order || s.task_id === data.task_id);
               if (subtask && subtask.currentStep) {
                 const updateTool = (list) => {
-                  const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
+                  const idx = list.findIndex(t => t.tool_name === data.tool_name && t.status === 'running');
                   if (idx >= 0) {
                     list[idx].status = 'success';
-                    list[idx].result = eventData.result;
-                    list[idx].elapsed_time = eventData.elapsed_time || eventData.execution_time;
+                    list[idx].result = data.result;
+                    list[idx].elapsed_time = data.elapsed_time;
                   }
                 };
                 updateTool(subtask.currentStep.toolCalls);
@@ -841,56 +539,55 @@ const handleSend = async () => {
               }
             }
             // 🎯 Master V2 的 Agent 调用完成
-            else if (eventType === 'subtask.end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id);
+            else if (data.type === 'subtask_end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === data.order || s.task_id === data.task_id);
               if (subtask) {
-                subtask.result_summary = eventData.subtask_result || eventData.result_summary;
-                subtask.status = eventData.success === false ? 'error' : 'success';
+                subtask.result_summary = data.result_summary;
+                subtask.status = data.success === false ? 'error' : 'success';
                 subtask.expanded = false;
               }
             }
             // 最终答案（流式）
-            else if (eventType === 'output.chunk') {
-              const content = eventData.content;
+            else if (data.type === 'chunk') {
+              const content = data.content;
               // 🎯 直接拼接 chunk，不使用打字机（让 markdown 正确渲染）
               currentMsg.content += content;
               scrollToBottom();
             }
             // 最终答案（完整 - 仅用于元数据和验证）
-            else if (eventType === 'output.final_answer') {
+            else if (data.type === 'final_answer') {
               // 🎯 不覆盖内容，因为已经通过 chunk 流式接收了
               // 只用于验证和获取元数据
               if (!currentMsg.content || currentMsg.content.length === 0) {
                 // 降级：如果没有收到 chunk，使用完整内容
-                currentMsg.content = eventData.content;
+                currentMsg.content = data.content;
               }
               // 可以在这里记录元数据
-              if (eventData.metadata) {
-                currentMsg.metadata = eventData.metadata;
+              if (data.metadata) {
+                currentMsg.metadata = data.metadata;
               }
               currentMsg.finished = true;
-              updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
             }
             // 图表生成
-            else if (eventType === 'visualization.chart') {
+            else if (data.type === 'chart_generated') {
               currentMsg.multimodalContents.push({
                 type: 'chart',
-                echartsConfig: eventData.echarts_config || eventData.config,
-                title: eventData.title || 'Data Visualization',
-                chartType: eventData.chart_type || 'bar'
+                echartsConfig: data.echarts_config,
+                title: data.title || 'Data Visualization',
+                chartType: data.chart_type || 'bar'
               });
             }
             // 地图生成
-            else if (eventType === 'visualization.map') {
+            else if (data.type === 'map_generated') {
               currentMsg.multimodalContents.push({
                 type: 'map',
-                mapData: eventData.mapData || eventData.data,
-                title: eventData.title || 'Map Visualization'
+                mapData: data.mapData,
+                title: data.title || 'Map Visualization'
               });
             }
             // 错误
-            else if (eventType === 'agent.error') {
-              currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
+            else if (data.type === 'error') {
+              currentMsg.status.push({ type: 'error', content: data.content });
             }
 
             scrollToBottom();
@@ -904,17 +601,9 @@ const handleSend = async () => {
     console.error('Error sending message:', error);
     messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
     messages.value[assistantMsgIndex].finished = true;
-    showToast('消息发送失败', async () => {
-      if (lastFailedSendContent.value) {
-        inputMessage.value = lastFailedSendContent.value;
-        await nextTick();
-        handleSend();
-      }
-    });
   } finally {
     isLoading.value = false;
     scrollToBottom();
-    currentStreamController.value = null;
   }
 };
 
@@ -926,28 +615,12 @@ onMounted(() => {
 
   // 监听窗口大小变化
   window.addEventListener('resize', checkMobile);
-  window.addEventListener('popstate', handlePopState);
-  loadRecentSessions(true);
-  const initialSessionId = (() => {
-    const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
-    return match ? decodeURIComponent(match[1]) : null;
-  })();
-  if (initialSessionId) {
-    currentSessionId.value = initialSessionId;
-    loadSessionMessages(initialSessionId);
-  }
 });
 
 onUnmounted(() => {
   // 清理事件监听器
   window.removeEventListener('resize', checkMobile);
-  window.removeEventListener('popstate', handlePopState);
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-  }
 
-  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
-  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   document.body.style.overflow = '';
 });

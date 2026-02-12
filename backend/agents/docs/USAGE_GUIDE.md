@@ -192,7 +192,7 @@ curl http://localhost:5000/api/agent/health
 
 ```python
 from agents import QAAgent, AgentContext
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 
 # 初始化
@@ -200,7 +200,7 @@ config = get_config()
 adapter = get_default_adapter()
 
 # 创建智能体
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 
 # 创建上下文
 context = AgentContext(session_id="user_123")
@@ -223,7 +223,7 @@ else:
 
 ```python
 from agents import get_orchestrator, QAAgent, AgentContext
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 
 # 初始化
@@ -231,10 +231,10 @@ config = get_config()
 adapter = get_default_adapter()
 
 # 创建 Orchestrator
-orchestrator = get_orchestrator(llm_adapter=adapter)
+orchestrator = get_orchestrator(model_adapter=adapter)
 
 # 注册智能体
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 orchestrator.register_agent(qa_agent)
 
 # 执行任务（自动路由）
@@ -252,8 +252,8 @@ print(f"答案: {response.content}")
 from agents import get_orchestrator, QAAgent, AgentContext
 
 # 初始化（同上）
-orchestrator = get_orchestrator(llm_adapter=adapter)
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+orchestrator = get_orchestrator(model_adapter=adapter)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 orchestrator.register_agent(qa_agent)
 
 # 创建持久化上下文
@@ -283,10 +283,10 @@ print(f"对话历史: {len(context.conversation_history)} 条")
 from agents import get_orchestrator, QAAgent, ChartAgent, AgentContext
 
 # 初始化
-orchestrator = get_orchestrator(llm_adapter=adapter)
+orchestrator = get_orchestrator(model_adapter=adapter)
 
 # 注册多个智能体
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 chart_agent = ChartAgent()  # ChartAgent 未来也需要适配 BaseAgent
 
 orchestrator.register_agent(qa_agent)
@@ -372,7 +372,7 @@ for i, result in enumerate(results):
 **1. 智能体初始化失败**
 ```
 错误: Orchestrator 初始化失败
-解决: 检查 LLMAdapter 配置和 Neo4j 连接
+解决: 检查 Model Adapter 配置和 Neo4j 连接
 ```
 
 **2. 工具调用失败**
@@ -404,10 +404,10 @@ python test_qa_agent.py
 3. **直接测试智能体**
 ```python
 from agents import QAAgent
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 
-agent = QAAgent(llm_adapter=get_default_adapter(), config=get_config())
+agent = QAAgent(model_adapter=get_default_adapter(), config=get_config())
 print(agent.get_info())
 ```
 

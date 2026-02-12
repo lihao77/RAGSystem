@@ -227,7 +227,7 @@ from agents import BaseAgent, AgentContext, AgentResponse, get_config_manager
 from config import get_config
 
 class MyAgent(BaseAgent):
-    def __init__(self, llm_adapter, system_config=None):
+    def __init__(self, model_adapter, system_config=None):
         # 加载智能体配置
         config_manager = get_config_manager()
         agent_config = config_manager.get_config('my_agent')
@@ -240,7 +240,7 @@ class MyAgent(BaseAgent):
         super().__init__(
             name='my_agent',
             description='我的智能体',
-            llm_adapter=llm_adapter,
+            model_adapter=model_adapter,
             agent_config=agent_config,      # 智能体独立配置
             system_config=system_config     # 系统配置（降级）
         )
@@ -250,7 +250,7 @@ class MyAgent(BaseAgent):
         llm_config = self.get_llm_config()
 
         # 调用 LLM
-        response = self.llm_adapter.chat_completion(
+        response = self.model_adapter.chat_completion(
             messages=[{"role": "user", "content": task}],
             provider=llm_config.get('provider'),
             model=llm_config.get('model_name'),
@@ -280,12 +280,12 @@ def _get_orchestrator():
     adapter = get_default_adapter()
     config_manager = get_config_manager()
 
-    orchestrator = get_orchestrator(llm_adapter=adapter)
+    orchestrator = get_orchestrator(model_adapter=adapter)
 
     # 创建 QAAgent 并加载配置
     qa_config = config_manager.get_config('qa_agent')
     qa_agent = QAAgent(
-        llm_adapter=adapter,
+        model_adapter=adapter,
         system_config=config,
         agent_config=qa_config  # 传入智能体配置
     )
@@ -294,7 +294,7 @@ def _get_orchestrator():
     # 创建 MasterAgent 并加载配置
     master_config = config_manager.get_config('master_agent')
     master_agent = MasterAgent(
-        llm_adapter=adapter,
+        model_adapter=adapter,
         orchestrator=orchestrator,
         system_config=config,
         agent_config=master_config  # 传入智能体配置
@@ -477,7 +477,7 @@ curl http://localhost:5000/api/agent-config/configs/qa_agent/validate
 # 确保在智能体初始化时传入 agent_config
 agent_config = get_config_manager().get_config('qa_agent')
 qa_agent = QAAgent(
-    llm_adapter=adapter,
+    model_adapter=adapter,
     agent_config=agent_config  # 必须传入
 )
 ```

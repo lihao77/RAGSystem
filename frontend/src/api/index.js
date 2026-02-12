@@ -35,5 +35,5 @@ export * as fileService from './fileService';
 // 导出向量库管理相关服务
 export * as vectorService from './vectorService';
 
-// 导出LLM Adapter相关服务
-export * as llmAdapterService from './llmAdapterService';
+// 导出 Model Adapter 相关服务
+export * as modelAdapterService from './modelAdapterService';

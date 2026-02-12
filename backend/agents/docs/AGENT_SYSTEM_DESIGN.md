@@ -39,7 +39,7 @@ class BaseAgent(ABC):
     capabilities: List[str]      # 能力列表
 
     # 依赖
-    llm_adapter: LLMAdapter      # LLM 适配器
+    model_adapter: ModelAdapter      # Model 适配器
     tools: List[Tool]            # 可用工具列表
 
     # 生命周期方法
@@ -320,7 +320,7 @@ system_prompt = """
 - VisualizationAgent: 知识图谱可视化
 """
 
-classification = llm_adapter.classify(task, system_prompt)
+classification = model_adapter.classify(task, system_prompt)
 selected_agent = classification['agent']
 ```
 
@@ -399,7 +399,7 @@ Final Response
 ```python
 async def execute(self, task: str, context: AgentContext) -> AgentResponse:
     # 异步调用 LLM
-    response = await self.llm_adapter.chat_completion_async(...)
+    response = await self.model_adapter.chat_completion_async(...)
     return response
 ```
 

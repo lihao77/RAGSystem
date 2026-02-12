@@ -29,7 +29,11 @@ logger = logging.getLogger(__name__)
 class EventType(str, Enum):
     """事件类型枚举"""
 
-    # Agent执行事件
+    # 运行生命周期
+    RUN_START = "run.start"
+    RUN_END = "run.end"
+
+    # Agent生命周期（通用）
     AGENT_START = "agent.start"
     AGENT_END = "agent.end"
     AGENT_ERROR = "agent.error"
@@ -38,14 +42,18 @@ class EventType(str, Enum):
     THOUGHT = "agent.thought"
     THOUGHT_STRUCTURED = "agent.thought_structured"
 
-    # 工具调用事件
+    # 调用生命周期（Agent）
+    CALL_AGENT_START = "call.agent.start"
+    CALL_AGENT_END = "call.agent.end"
+
+    # 调用生命周期（Tool）
+    CALL_TOOL_START = "call.tool.start"
+    CALL_TOOL_END = "call.tool.end"
+    
+    # 兼容旧 Tool 事件（可选，若不需要可移除）
     TOOL_START = "tool.start"
     TOOL_END = "tool.end"
     TOOL_ERROR = "tool.error"
-
-    # 子任务事件
-    SUBTASK_START = "subtask.start"
-    SUBTASK_END = "subtask.end"
 
     # 流式输出事件
     CHUNK = "output.chunk"

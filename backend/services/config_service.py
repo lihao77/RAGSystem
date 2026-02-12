@@ -83,19 +83,9 @@ class ConfigService:
                     'max_tokens': config.llm.max_tokens
                 },
                 'embedding': {
-                    'mode': config.embedding.mode,
-                    'local': {
-                        'model_name': config.embedding.local.model_name,
-                        'device': config.embedding.local.device,
-                        'cache_dir': config.embedding.local.cache_dir
-                    },
-                    'remote': {
-                        'api_endpoint': config.embedding.remote.api_endpoint,
-                        'api_key': '***' if hide_sensitive and config.embedding.remote.api_key else config.embedding.remote.api_key,
-                        'model_name': config.embedding.remote.model_name,
-                        'timeout': config.embedding.remote.timeout,
-                        'max_retries': config.embedding.remote.max_retries
-                    }
+                    'provider': config.embedding.provider,
+                    'model_name': config.embedding.model_name,
+                    'batch_size': config.embedding.batch_size
                 },
                 'system': {
                     'max_content_length': config.system.max_content_length
@@ -475,11 +465,24 @@ class ConfigService:
                     'title': '嵌入模型配置',
                     'fields': [
                         {
-                            'name': 'mode',
-                            'label': '运行模式',
-                            'type': 'select',
-                            'options': ['local', 'remote'],
-                            'default': 'local'
+                            'name': 'provider',
+                            'label': 'Provider',
+                            'type': 'string',
+                            'required': True,
+                            'default': 'modelscope'
+                        },
+                        {
+                            'name': 'model_name',
+                            'label': '模型名称',
+                            'type': 'string',
+                            'required': True,
+                            'default': 'text-embedding-3-small'
+                        },
+                        {
+                            'name': 'batch_size',
+                            'label': '批处理大小',
+                            'type': 'number',
+                            'default': 100
                         }
                     ]
                 },
@@ -553,10 +556,7 @@ class ConfigService:
             
             if vector_configured:
                 # 显示嵌入模式信息
-                if config.embedding.mode == 'local':
-                    vector_status['message'] = f'本地模型: {config.embedding.local.model_name}'
-                elif config.embedding.mode == 'remote':
-                    vector_status['message'] = f'远程API: {config.embedding.remote.api_endpoint}'
+                vector_status['message'] = f'Provider: {config.embedding.provider}, 模型: {config.embedding.model_name}'
             
             llm_configured = bool(config.llm.provider and config.llm.model_name)
             llm_status = {
@@ -578,15 +578,17 @@ class ConfigService:
     def reinit_service(self, service_name):
         """
         重新初始化指定服务
-        完全遵循原始 routes/config.py 的逻辑
         
         Args:
-            service_name: 服务名称 ('neo4j' 或 'vector')
+            service_name: 服务名称 ('neo4j', 'vector' 或 'llm')
             
         Returns:
             dict: 初始化结果 {'success': bool, 'message': str}
         """
         try:
+            # 首先重新加载配置
+            reload_config_func()
+            
             if service_name == 'neo4j':
                 from db import neo4j_conn, is_neo4j_configured
                 
@@ -642,6 +644,71 @@ class ConfigService:
                         'success': False,
                         'message': '向量数据库重新初始化失败'
                     }
+            elif service_name == 'llm':
+                # 重新加载 LLM 配置
+                try:
+                    config = get_config()
+                    if not config.llm.provider:
+                        return {
+                            'success': False,
+                            'message': 'LLM 未配置，请先配置 Model Adapter'
+                        }
+                    
+                    # 重新测试连接
+                    # 使用 Model Adapter 进行测试
+                    from model_adapter.adapter import get_default_adapter
+                    
+                    # 使用单例而不是创建新实例
+                    adapter = get_default_adapter()
+                    try:
+                        # 尝试生成一个简单的响应
+                        # 使用 chat_completion 而不是 chat
+                        messages = [{"role": "user", "content": "Hello"}]
+                        provider_name = config.llm.provider
+                        
+                        # 如果 config.llm.provider 是空的，直接报错
+                        if not provider_name:
+                             return {
+                                'success': False,
+                                'message': 'LLM Provider 未配置，请先配置 Model Adapter'
+                            }
+                            
+                        # 确保 Provider 已经加载
+                        try:
+                             adapter.get_provider(provider_name)
+                        except ValueError:
+                             # 如果 Provider 不存在，尝试重新加载配置
+                             adapter._load_saved_configs()
+                        
+                        adapter.chat_completion(
+                            messages=messages, 
+                            provider=provider_name,
+                            model=config.llm.model_name
+                        )
+                        return {
+                            'success': True,
+                            'message': 'LLM 配置重新加载并测试成功 (via Model Adapter)'
+                        }
+                    except Exception as e:
+                        # 如果 Model Adapter 测试失败，尝试旧的测试方法作为回退
+                         # 重新测试连接
+                        result = self.test_llm_connection()
+                        if result['success']:
+                             return {
+                                'success': True,
+                                'message': 'LLM 配置重新加载并测试成功 (Legacy Test)'
+                            }
+                        else:
+                            return {
+                                'success': False,
+                                'message': f"LLM 连接测试失败: {str(e)}"
+                            }
+                except Exception as e:
+                     return {
+                        'success': False,
+                        'message': f'LLM 重新加载失败: {str(e)}'
+                    }
+
             else:
                 return {
                     'success': False,

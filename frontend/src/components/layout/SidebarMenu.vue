@@ -97,17 +97,17 @@
           </el-icon>
           <template #title><span>文件管理</span></template>
         </el-menu-item>
-        <el-menu-item index="/vector">
+        <el-menu-item index="/vector-service">
           <el-icon>
-            <Box />
+            <DataLine />
           </el-icon>
-          <template #title><span>向量库管理</span></template>
+          <template #title><span>向量知识库</span></template>
         </el-menu-item>
-        <el-menu-item index="/llm-adapter">
+        <el-menu-item index="/model-adapter">
           <el-icon>
             <Grid />
           </el-icon>
-          <template #title><span>LLM Adapter 配置</span></template>
+          <template #title><span>Model Adapter 配置</span></template>
         </el-menu-item>
         <el-menu-item index="/agent-config">
           <el-icon>
@@ -147,7 +147,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   Grid, Folder, Box, Fold, Expand, DataAnalysis, Tools, Connection,
-  HomeFilled, Location, Search, ChatDotRound, Setting, Share, Avatar
+  HomeFilled, Location, Search, ChatDotRound, Setting, Share, Avatar, DataLine
 } from '@element-plus/icons-vue';
 
 // 接收 props

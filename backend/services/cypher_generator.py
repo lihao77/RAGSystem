@@ -8,7 +8,7 @@ Cypher 查询生成服务
 
 import logging
 from typing import Optional, List, Dict, Any
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -654,16 +654,16 @@ LIMIT 100
 8. ⚠️ **禁止在初次查询时同时使用多个严格限制条件**
 """
 
-    def __init__(self, llm_adapter=None, provider: str = None, model: str = None):
+    def __init__(self, model_adapter=None, provider: str = None, model: str = None):
         """
         初始化生成器
 
         Args:
-            llm_adapter: LLM适配器，不提供则使用默认
+            model_adapter: Model适配器，不提供则使用默认
             provider: LLM Provider 名称（如 'deepseek'）
             model: 模型名称（如 'deepseek-chat'）
         """
-        self.adapter = llm_adapter or get_default_adapter()
+        self.adapter = model_adapter or get_default_adapter()
 
         # 如果没有指定 provider 和 model，从配置读取
         if not provider or not model:
@@ -801,7 +801,7 @@ def generate_answer_from_query_results(
     query_results: list,
     cypher: str,
     conversation_history: list = None,
-    llm_adapter=None,
+    model_adapter=None,
     provider: str = None,
     model: str = None
 ) -> str:
@@ -813,7 +813,7 @@ def generate_answer_from_query_results(
         query_results: Cypher 查询结果（列表）
         cypher: 执行的 Cypher 查询
         conversation_history: 对话历史
-        llm_adapter: LLM 适配器
+        model_adapter: Model 适配器
         provider: Provider 名称
         model: 模型名称
 
@@ -821,7 +821,7 @@ def generate_answer_from_query_results(
         自然语言答案
     """
     try:
-        adapter = llm_adapter or get_default_adapter()
+        adapter = model_adapter or get_default_adapter()
 
         # 如果没有指定 provider 和 model，从配置读取
         if not provider or not model:
@@ -923,12 +923,12 @@ def generate_answer_from_query_results(
 _generator: Optional[CypherGenerator] = None
 
 
-def get_cypher_generator(llm_adapter=None, provider: str = None, model: str = None) -> CypherGenerator:
+def get_cypher_generator(model_adapter=None, provider: str = None, model: str = None) -> CypherGenerator:
     """
     获取全局 Cypher 生成器单例
 
     Args:
-        llm_adapter: LLM适配器（仅首次调用时设置）
+        model_adapter: Model适配器（仅首次调用时设置）
         provider: Provider名称（仅首次调用时设置）
         model: 模型名称（仅首次调用时设置）
 
@@ -937,5 +937,5 @@ def get_cypher_generator(llm_adapter=None, provider: str = None, model: str = No
     """
     global _generator
     if _generator is None:
-        _generator = CypherGenerator(llm_adapter=llm_adapter, provider=provider, model=model)
+        _generator = CypherGenerator(model_adapter=model_adapter, provider=provider, model=model)
     return _generator

@@ -63,7 +63,7 @@ MasterAgent 分析任务
 
 ```python
 from agents import MasterAgent, QAAgent, AgentOrchestrator, AgentContext
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 
 # 初始化
@@ -71,13 +71,13 @@ config = get_config()
 adapter = get_default_adapter()
 
 # 创建 Orchestrator 和智能体
-orchestrator = AgentOrchestrator(llm_adapter=adapter)
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+orchestrator = AgentOrchestrator(model_adapter=adapter)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 orchestrator.register_agent(qa_agent)
 
 # 创建 MasterAgent
 master_agent = MasterAgent(
-    llm_adapter=adapter,
+    model_adapter=adapter,
     orchestrator=orchestrator,
     config=config
 )
@@ -99,18 +99,18 @@ print(f"答案: {response.content}")
 
 ```python
 from agents import QAAgent, MasterAgent, get_orchestrator, AgentContext
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 
 # 初始化
 config = get_config()
 adapter = get_default_adapter()
-orchestrator = get_orchestrator(llm_adapter=adapter)
+orchestrator = get_orchestrator(model_adapter=adapter)
 
 # 注册所有智能体
-qa_agent = QAAgent(llm_adapter=adapter, config=config)
+qa_agent = QAAgent(model_adapter=adapter, config=config)
 master_agent = MasterAgent(
-    llm_adapter=adapter,
+    model_adapter=adapter,
     orchestrator=orchestrator,
     config=config
 )

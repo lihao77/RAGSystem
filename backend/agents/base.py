@@ -250,7 +250,7 @@ class BaseAgent(ABC):
         name: str,
         description: str,
         capabilities: Optional[List[str]] = None,
-        llm_adapter = None,
+        model_adapter = None,
         agent_config = None,
         system_config = None
     ):
@@ -261,14 +261,16 @@ class BaseAgent(ABC):
             name: 智能体名称（唯一标识）
             description: 智能体描述
             capabilities: 能力列表
-            llm_adapter: LLM 适配器实例
+            model_adapter: Model 适配器实例
             agent_config: 智能体独立配置（AgentConfig 实例）
             system_config: 系统全局配置（用于降级）
         """
         self.name = name
         self.description = description
         self.capabilities = capabilities or []
-        self.llm_adapter = llm_adapter
+        self.model_adapter = model_adapter
+        # 兼容旧属性名 (已废弃，建议使用 model_adapter)
+        self.llm_adapter = model_adapter
         self.logger = logging.getLogger(f"Agent.{name}")
 
         # 配置管理
@@ -368,24 +370,40 @@ class BaseAgent(ABC):
         Returns:
             LLM 配置字典，包含 provider, model_name, temperature 等
         """
+        config = {}
+        
+        # 1. 尝试从 AgentConfig 获取
         if self.agent_config and self.agent_config.llm:
-            # 使用智能体独立配置，并与系统配置合并
-            return self.agent_config.llm.merge_with_default(self.system_config)
+             # merge_with_default 应该处理好优先级
+             config = self.agent_config.llm.merge_with_default(self.system_config)
+             
+        # 2. 如果没有 AgentConfig，尝试从 system_config 获取
         elif self.system_config:
-            # 降级：使用系统配置
-            return {
-                'provider': getattr(self.system_config.llm, 'provider', None),
-                'model_name': getattr(self.system_config.llm, 'model_name', None),
-                'temperature': getattr(self.system_config.llm, 'temperature', 0.7),
-                'max_tokens': getattr(self.system_config.llm, 'max_tokens', 4096)
-            }
-        else:
-            # 最终降级：使用默认值
+            # 适配 backend/config/models.py 的 LLMConfig
+            llm_config = getattr(self.system_config, 'llm', None)
+            if llm_config:
+                config = {
+                    'provider': getattr(llm_config, 'provider', None),
+                    'model_name': getattr(llm_config, 'model_name', None),
+                    'temperature': getattr(llm_config, 'temperature', 0.7),
+                    'max_tokens': getattr(llm_config, 'max_tokens', 4096)
+                }
+
+        # 3. 默认值
+        if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
-            return {
+            config = {
                 'temperature': 0.7,
                 'max_tokens': 4096
             }
+            
+        # 确保 provider 存在 (用于 model_adapter)
+        if 'provider' not in config or not config['provider']:
+            # 如果没有指定 provider，尝试从 adapter 获取默认的
+            # 但这里我们只是返回配置，具体调用时 adapter 会处理
+            pass
+            
+        return config
 
     def get_custom_param(self, key: str, default: Any = None) -> Any:
         """

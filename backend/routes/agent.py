@@ -19,7 +19,7 @@ from agents.event_bus import EventType
 from agents.session_event_bus_manager import get_session_event_bus
 from agents.sse_adapter import SSEAdapter
 from conversation_store import ConversationStore
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from config import get_config
 from utils.response_helpers import success_response, error_response
 
@@ -58,11 +58,11 @@ def _get_orchestrator():
             adapter = get_default_adapter()
 
             # 创建 Orchestrator
-            _orchestrator = get_orchestrator(llm_adapter=adapter)
+            _orchestrator = get_orchestrator(model_adapter=adapter)
 
             # 🎉 使用动态加载机制加载所有智能体
             agents = load_agents_from_config(
-                llm_adapter=adapter,
+                model_adapter=adapter,
                 system_config=system_config,
                 orchestrator=_orchestrator
             )
@@ -112,7 +112,7 @@ def reload_agents():
         adapter = get_default_adapter()
 
         agents = load_agents_from_config(
-            llm_adapter=adapter,
+            model_adapter=adapter,
             system_config=system_config,
             orchestrator=_orchestrator
         )
@@ -218,7 +218,7 @@ def create_agent():
             from config import get_config as get_system_config
 
             loader = AgentLoader(
-                llm_adapter=get_default_adapter(),
+                model_adapter=get_default_adapter(),
                 system_config=get_system_config(),
                 orchestrator=orchestrator
             )
@@ -387,7 +387,7 @@ def stream_execute():
     task = data.get('task', '').strip()
     session_id = data.get('session_id')
     user_id = data.get('user_id')
-    use_v2 = data.get('use_v2', False)  # ✨ 支持 V2 切换
+    # use_v2 = data.get('use_v2', False)  # V1 已废弃
 
     if not task:
         return error_response(message='任务描述不能为空', status_code=400)
@@ -397,7 +397,7 @@ def stream_execute():
         import uuid
         session_id = str(uuid.uuid4())
 
-    logger.info(f'流式执行任务: {task} (session_id: {session_id}, 使用 V2: {use_v2})')
+    logger.info(f'流式执行任务: {task} (session_id: {session_id})')
 
     def generate():
         try:
@@ -411,17 +411,11 @@ def stream_execute():
             context = AgentContext(session_id=session_id, user_id=user_id)
             _load_history_into_context(context, session_id=session_id, limit=20)
 
-            # ✨ 根据 use_v2 参数选择 MasterAgent 版本
-            if use_v2:
-                master_agent = orchestrator.agents.get('master_agent_v2')
-                if not master_agent:
-                    yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent V2 未找到，请确认已正确加载'}, ensure_ascii=False)}\n\n"
-                    return
-            else:
-                master_agent = orchestrator.agents.get('master_agent')
-                if not master_agent:
-                    yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到'}, ensure_ascii=False)}\n\n"
-                    return
+            # 强制使用 MasterAgent V2
+            master_agent = orchestrator.agents.get('master_agent_v2')
+            if not master_agent:
+                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent V2 未找到，请确认已正确加载'}, ensure_ascii=False)}\n\n"
+                return
 
             # ✨ 获取会话级事件总线
             event_bus = get_session_event_bus(session_id)
@@ -455,7 +449,7 @@ def stream_execute():
                 filter_func=lambda e: e.session_id == session_id
             )
 
-            store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": "master_agent_v2" if use_v2 else "master_agent"})
+            store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": "master_agent_v2"})
 
             def execute_agent_task():
                 try:

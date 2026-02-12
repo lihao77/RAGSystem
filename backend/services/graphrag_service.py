@@ -5,7 +5,7 @@ GraphRAG服务 - 知识图谱问答核心业务逻辑
 
 import logging
 import json
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 from services.query_service import get_query_service
 from config import get_config
 
