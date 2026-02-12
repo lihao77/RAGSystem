@@ -439,6 +439,7 @@ import {
 import { getCollections, deleteCollection, searchVectors, indexFileUpload, indexDocument as apiIndexDocument } from '@/api/vectorService'
 import { getRawConfig, updateConfig, reloadConfig } from '@/api/config'
 import { modelAdapterService } from '@/api'
+import { listFiles } from '@/api/fileService'
 
 defineOptions({ name: 'VectorServiceView' })
 
@@ -505,7 +506,8 @@ const loadProviders = async () => {
   try {
     const res = await modelAdapterService.getProviders()
     if (res.success) {
-      availableProviders.value = res.data
+      // 包含embedding模型的 Provider 列表
+      availableProviders.value = res.providers.filter(p => p.models?.length > 0 || p.model_map?.embedding)
       
       // 如果已选择 provider，加载其模型
       if (config.embedding.provider) {

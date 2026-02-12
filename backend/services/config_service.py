@@ -102,25 +102,34 @@ class ConfigService:
             logger.error(f'获取配置失败: {e}')
             raise
     
-    def update_config(self, config_data):
+    def update_config(self, config_data: dict, merge: bool = True):
         """
         更新配置文件
         
         Args:
             config_data: 配置数据字典
+            merge: 是否与原配置合并（默认True），False则完全覆盖
             
         Returns:
             bool: 是否更新成功
         """
         try:
             config_file_path = Path(__file__).parent.parent / 'config' / 'yaml' / 'config.yaml'
-            
-            # 确保配置目录存在
             config_file_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # 写入配置文件
+            # 读取现有配置（如果存在且需要合并）
+            if merge and config_file_path.exists():
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    existing_config = yaml.safe_load(f) or {}
+                # 深度合并
+                merged_config = self._deep_merge(existing_config, config_data)
+            else:
+                merged_config = config_data
+            
+            # 写入
             with open(config_file_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False, indent=2)
+                yaml.dump(merged_config, f, allow_unicode=True, 
+                         default_flow_style=False, indent=2, sort_keys=False)
             
             logger.info('配置文件已更新')
             return True
@@ -128,6 +137,16 @@ class ConfigService:
         except Exception as e:
             logger.error(f'更新配置失败: {e}')
             raise
+        
+    def _deep_merge(self, base: dict, update: dict) -> dict:
+        """递归合并字典"""
+        result = base.copy()
+        for key, value in update.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
     
     def validate_config(self, config_data):
         """
