@@ -7,7 +7,7 @@
     </div>
 
     <el-tabs v-model="activeTab" class="vector-tabs">
-      <!-- 向量库管理 Tab -->
+      <!-- 向量库管理 Tab：按文件展示，列为各向量化器的索引状态 -->
       <el-tab-pane label="向量库管理" name="store">
         <template #label>
           <span class="custom-tab-label">
@@ -16,54 +16,57 @@
           </span>
         </template>
         
-        <!-- 集合列表 -->
         <el-card class="box-card" shadow="hover">
           <template #header>
             <div class="card-header">
-              <span>向量集合列表</span>
+              <span>文件与向量化器索引状态</span>
               <div class="header-actions">
                 <el-button type="primary" size="small" @click="showCreateDialog = true">
                   <el-icon><Plus /></el-icon> 索引新文档
                 </el-button>
-                <el-button size="small" @click="refreshCollections" :loading="loading.collections">
+                <el-button size="small" @click="refreshFileStatus" :loading="loading.collections">
                   <el-icon><Refresh /></el-icon> 刷新
                 </el-button>
               </div>
             </div>
           </template>
           
-          <el-table :data="collections" v-loading="loading.collections" style="width: 100%" empty-text="暂无向量集合">
-            <el-table-column prop="name" label="集合名称" width="200">
-               <template #default="{ row }">
-                 <el-tag>{{ row.name }}</el-tag>
-               </template>
-            </el-table-column>
-            <el-table-column prop="total_chunks" label="文档分块数" width="120" align="center" />
-            <el-table-column prop="embedding_dimension" label="向量维度" width="120" align="center" />
-            <el-table-column prop="model_name" label="模型信息" min-width="150" show-overflow-tooltip>
-                <template #default="{ row }">
-                    <span v-if="row.model_name">{{ row.model_name }}</span>
-                    <span v-else class="text-gray">N/A</span>
-                </template>
-            </el-table-column>
-            <el-table-column label="操作" align="right" width="250">
-              <template #default="scope">
-                <el-button size="small" @click="viewCollection(scope.row)">
-                  <el-icon><View /></el-icon> 详情
+          <el-table :data="fileList" v-loading="loading.collections" style="width: 100%" empty-text="暂无已索引文件，请先索引文档">
+            <el-table-column prop="file_name" label="文件名称" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="collection" label="集合" width="120" show-overflow-tooltip />
+            <el-table-column prop="chunk_count" label="文档分块数" width="110" align="center" />
+            <el-table-column
+              v-for="v in fileStatusVectorizers"
+              :key="v.vectorizer_key"
+              width="160"
+              align="center"
+            >
+              <template #header>
+                <span class="vectorizer-col-header">
+                  <span class="header-model" :title="v.model_name">{{ v.model_name }}</span>
+                  <el-tag size="small" type="info">{{ v.provider_key }}</el-tag>
+                  <el-tag size="small" type="warning">{{ v.dimension }}</el-tag>
+                </span>
+              </template>
+              <template #default="{ row }">
+                <el-tag v-if="row.vectorizer_status[v.vectorizer_key] === '已索引'" type="success" size="small">已索引</el-tag>
+                <el-button
+                  v-else
+                  size="small"
+                  type="primary"
+                  link
+                  :loading="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
+                  @click="indexFileWithVectorizer(row, v.vectorizer_key)"
+                >
+                  索引
                 </el-button>
-                <el-button size="small" @click="openSearchTest(scope.row.name)">
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" align="right" width="180" fixed="right">
+              <template #default="scope">
+                <el-button size="small" @click="openSearchTest(scope.row.collection)">
                   <el-icon><Search /></el-icon> 检索
                 </el-button>
-                <el-popconfirm 
-                  title="确定要删除该集合吗？此操作不可恢复。"
-                  @confirm="handleDeleteCollection(scope.row.name)"
-                >
-                  <template #reference>
-                    <el-button size="small" type="danger">
-                      <el-icon><Delete /></el-icon>
-                    </el-button>
-                  </template>
-                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -116,7 +119,75 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- Embedding 配置 Tab -->
+      <!-- 向量化器 Tab（插件式向量库管理） -->
+      <el-tab-pane label="向量化器" name="vectorizers">
+        <template #label>
+          <span class="custom-tab-label">
+            <el-icon><Key /></el-icon>
+            <span>向量化器</span>
+          </span>
+        </template>
+        <el-card class="box-card" shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>向量化器列表</span>
+              <div class="header-actions">
+                <el-button type="primary" size="small" @click="showAddVectorizerDialog = true">
+                  <el-icon><Plus /></el-icon> 新增向量化器
+                </el-button>
+                <el-button size="small" @click="refreshVectorizers" :loading="loading.vectorizers">
+                  <el-icon><Refresh /></el-icon> 刷新
+                </el-button>
+              </div>
+            </div>
+          </template>
+          <el-table :data="vectorizers" v-loading="loading.vectorizers" style="width: 100%" empty-text="暂无向量化器，请先新增">
+            <el-table-column prop="vectorizer_key" label="键" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="provider_key" label="Provider" width="120" />
+            <el-table-column prop="model_name" label="模型" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="vector_dimension" label="维度" width="80" align="center" />
+            <el-table-column prop="vector_count" label="文档数" width="90" align="center" />
+            <el-table-column label="激活" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.is_active" type="success" size="small">当前</el-tag>
+                <el-button v-else size="small" type="primary" link @click="handleActivateVectorizer(row.vectorizer_key)">激活</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" align="right" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-popconfirm title="确定删除该向量化器？将同时删除其向量数据。" @confirm="handleDeleteVectorizer(row.vectorizer_key)">
+                  <template #reference>
+                    <el-button size="small" type="danger" link>删除</el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <!-- 新增向量化器对话框 -->
+        <el-dialog v-model="showAddVectorizerDialog" title="新增向量化器" width="480px" @close="addVectorizerForm.provider_key = ''; addVectorizerForm.model_name = ''">
+          <el-form :model="addVectorizerForm" label-width="100px">
+            <el-form-item label="Provider">
+              <el-select v-model="addVectorizerForm.provider_key" placeholder="选择 Provider" style="width: 100%" filterable @change="onAddFormProviderChange">
+                <el-option v-for="p in availableProviders" :key="p.key" :label="p.name + ' (' + p.provider_type + ')'" :value="p.key" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="模型名称">
+              <el-select v-model="addVectorizerForm.model_name" placeholder="选择或输入模型" style="width: 100%" filterable allow-create>
+                <el-option v-if="addFormRecommendedModel" :label="addFormRecommendedModel + ' (推荐)'" :value="addFormRecommendedModel" />
+                <el-option v-for="m in addFormModelList" :key="m" :label="m" :value="m" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="showAddVectorizerDialog = false">取消</el-button>
+            <el-button type="primary" :loading="loading.addVectorizer" @click="submitAddVectorizer">确定</el-button>
+          </template>
+        </el-dialog>
+      </el-tab-pane>
+
+      <!-- Embedding 配置 Tab（只读展示，引导到向量化器） -->
       <el-tab-pane label="Embedding 配置" name="config">
         <template #label>
           <span class="custom-tab-label">
@@ -124,81 +195,27 @@
             <span>Embedding 配置</span>
           </span>
         </template>
-        
         <el-card class="box-card" shadow="never">
           <template #header>
             <div class="card-header">
               <span>嵌入模型配置</span>
-              <div class="header-actions">
-                <el-button type="primary" :loading="loading.saving" @click="saveConfig">
-                  <el-icon><Check /></el-icon> 保存配置
-                </el-button>
-              </div>
             </div>
           </template>
-
-          <el-form :model="config.embedding" label-width="120px" label-position="left">
-            <el-alert
-                v-if="!config.embedding.provider"
-                title="尚未配置 Embedding 服务，向量知识库功能不可用"
-                type="warning"
-                :closable="false"
-                show-icon
-                style="margin-bottom: 20px"
-            />
-            <el-alert
-                v-else
-                title="Embedding 服务已升级为使用 Model Adapter 统一管理"
-                type="success"
-                :closable="false"
-                show-icon
-                style="margin-bottom: 20px"
-            />
-
-            <el-form-item label="Provider">
-              <el-select v-model="embeddingProviderKey" placeholder="选择 Provider" style="width: 100%" @change="handleProviderChange" clearable>
-                <el-option
-                  v-for="provider in availableProviders"
-                  :key="provider.key ?? (provider.name + '_' + provider.provider_type)"
-                  :label="provider.name + ' (' + provider.provider_type + ')'"
-                  :value="provider.key ?? (provider.name + '_' + provider.provider_type)"
-                />
-              </el-select>
-              <div class="form-tip">
-                从 Model Adapter 中选择已配置的 Provider。如果没有，请先去 <router-link to="/model-adapter">Model Adapter</router-link> 配置。
-              </div>
-            </el-form-item>
-
-            <el-form-item label="模型名称">
-              <el-select 
-                v-model="config.embedding.model_name" 
-                placeholder="选择或输入模型名称" 
-                style="width: 100%" 
-                filterable 
-                allow-create
-                default-first-option
-              >
-                 <!-- 优先显示 Model Map 中的 embedding 模型 -->
-                 <el-option 
-                    v-if="currentProviderModels.embedding"
-                    :label="currentProviderModels.embedding + ' (推荐)'"
-                    :value="currentProviderModels.embedding"
-                 />
-                 <!-- 显示列表中的其他模型 -->
-                 <el-option
-                    v-for="model in currentProviderModels.list"
-                    :key="model"
-                    :label="model"
-                    :value="model"
-                 />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="批处理大小">
-               <el-input-number v-model="config.embedding.batch_size" :min="1" :max="500" :step="10" />
-               <div class="form-tip">单次请求处理的文本数量，建议值: 10-100</div>
-            </el-form-item>
-          </el-form>
+          <el-alert
+            title="向量化器已迁移到「向量库管理」"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px"
+          >
+            <template #default>
+              <p>请在 <strong>「向量化器」</strong> Tab 中管理多套向量化器、激活当前使用的模型，以及迁移、删除等操作。</p>
+              <p v-if="embeddingDisplay.active_vectorizer_key" style="margin-top: 8px;">
+                当前激活: <el-tag type="success">{{ embeddingDisplay.active_display || embeddingDisplay.active_vectorizer_key }}</el-tag>
+              </p>
+              <el-button type="primary" size="small" style="margin-top: 12px" @click="activeTab = 'vectorizers'">前往向量化器</el-button>
+            </template>
+          </el-alert>
         </el-card>
       </el-tab-pane>
 
@@ -437,7 +454,8 @@ import {
   Link, Key, Cpu, Check, Tools, Plus, View, Upload, UploadFilled 
 } from '@element-plus/icons-vue'
 import { getCollections, deleteCollection, searchVectors, indexFileUpload, indexDocument as apiIndexDocument } from '@/api/vectorService'
-import { getRawConfig, updateConfig } from '@/api/config'
+import { getConfig, getRawConfig, updateConfig } from '@/api/config'
+import * as vectorLibrary from '@/api/vectorLibrary'
 import { modelAdapterService } from '@/api'
 import { listFiles } from '@/api/fileService'
 
@@ -450,7 +468,9 @@ const loading = reactive({
   collections: false,
   search: false,
   saving: false,
-  similarity: false
+  similarity: false,
+  vectorizers: false,
+  addVectorizer: false
 })
 
 const indexing = ref(false)
@@ -484,7 +504,10 @@ const indexForm = ref({
   overlap: 50
 })
 
-// 向量库数据
+// 向量库数据：文件维度 + 各向量化器索引状态
+const fileList = ref([])
+const fileStatusVectorizers = ref([])
+const indexingFileKey = ref('') // 'file_id:vectorizer_key' 正在索引时不为空
 const collections = ref([])
 const currentCollection = ref(null)
 const searchQuery = ref('')
@@ -492,15 +515,23 @@ const searchTopK = ref(5)
 const searchResults = ref([])
 const searchPerformed = ref(false)
 
-// Embedding 配置数据
+// Embedding 配置数据（仅用于兼容旧接口返回；实际以向量化器为准）
 const config = reactive({
   embedding: {
     provider: '',
-    provider_type: '',  // 与 provider 一起保存，用于复合键
+    provider_type: '',
     model_name: '',
     batch_size: 100
   }
 })
+
+// 向量化器相关
+const vectorizers = ref([])
+const showAddVectorizerDialog = ref(false)
+const addVectorizerForm = reactive({ provider_key: '', model_name: '' })
+const addFormRecommendedModel = ref('')
+const addFormModelList = ref([])
+const embeddingDisplay = reactive({ source: 'vector_library', active_vectorizer_key: null, message: '', active_display: null })
 
 // 当前选中的 Provider 复合键（用于下拉框 v-model，便于唯一匹配）
 const embeddingProviderKey = computed({
@@ -608,30 +639,57 @@ const handleDocumentTypeChange = () => {
   autoSetCollectionName()
 }
 
-// 方法：加载集合
-const refreshCollections = async () => {
+// 方法：加载文件维度索引状态（向量库主表）
+// 使用指定向量化器对单文件建索引
+const indexFileWithVectorizer = async (row, vectorizerKey) => {
+  const key = row.file_id + ':' + vectorizerKey
+  indexingFileKey.value = key
+  try {
+    const res = await vectorLibrary.indexFileWithVectorizer({
+      collection: row.collection,
+      file_id: row.file_id,
+      vectorizer_key: vectorizerKey
+    })
+    if (res.success) {
+      ElMessage.success(`已用该向量化器索引 ${res.data?.indexed_count ?? 0} 个分块`)
+      await refreshFileStatus()
+    } else {
+      ElMessage.error(res.message || '索引失败')
+    }
+  } catch (e) {
+    ElMessage.error('索引失败: ' + (e.response?.data?.message || e.message || e))
+  } finally {
+    indexingFileKey.value = ''
+  }
+}
+
+const refreshFileStatus = async () => {
   loading.collections = true
   try {
-    const res = await getCollections()
-    if (res.success) {
-      collections.value = res.data
+    const res = await vectorLibrary.getFileStatus()
+    if (res.success && res.data) {
+      fileList.value = res.data.files || []
+      fileStatusVectorizers.value = res.data.vectorizers || []
     } else {
-      ElMessage.error(res.error || '获取集合列表失败')
+      fileList.value = []
+      fileStatusVectorizers.value = []
     }
   } catch (error) {
-    ElMessage.error('获取集合列表失败: ' + error.message)
+    ElMessage.error('获取文件状态失败: ' + (error.message || error))
+    fileList.value = []
+    fileStatusVectorizers.value = []
   } finally {
     loading.collections = false
   }
 }
 
-// 方法：删除集合
+// 方法：删除集合（保留供检索区等使用）
 const handleDeleteCollection = async (name) => {
   try {
     const res = await deleteCollection(name)
     if (res.success) {
       ElMessage.success('删除成功')
-      refreshCollections()
+      refreshFileStatus()
       if (currentCollection.value === name) {
         currentCollection.value = null
       }
@@ -777,7 +835,7 @@ const indexDocument = async () => {
       const data = response.data?.data || response.data
       ElMessage.success(`索引成功！生成 ${data.chunk_count} 个分块`)
       showCreateDialog.value = false
-      refreshCollections()
+      refreshFileStatus()
       resetIndexForm()
     }
   } catch (error) {
@@ -787,53 +845,28 @@ const indexDocument = async () => {
   }
 }
 
-// 方法：加载配置
+// 方法：加载配置（当前仅用于展示；向量化器以「向量化器」Tab 的 API 为准）
 const loadConfig = async () => {
   try {
-    const res = await getRawConfig()
-    if (res.success && res.data.embedding) {
-      const embeddingData = res.data.embedding
-      
-      // 加载配置
-      config.embedding.provider = embeddingData.provider || ''
-      config.embedding.provider_type = embeddingData.provider_type || ''
-      config.embedding.model_name = embeddingData.model_name || ''
-      config.embedding.batch_size = embeddingData.batch_size || 100
-      
-      // 加载 Provider 列表以匹配模型选项
-      await loadProviders()
+    const res = await getConfig()
+    if (res.success && res.data && res.data.embedding) {
+      const emb = res.data.embedding
+      if (emb.source === 'vector_library') {
+        embeddingDisplay.source = 'vector_library'
+        embeddingDisplay.active_vectorizer_key = emb.active_vectorizer_key || null
+        embeddingDisplay.message = emb.message || ''
+        embeddingDisplay.active_display = emb.active_display || null
+      }
     }
+    await loadProviders()
   } catch (error) {
     console.error('加载配置错误:', error)
-    ElMessage.error('加载配置失败')
   }
 }
 
-// 方法：保存配置
+// 方法：保存配置（向量化器已迁移，此处不再保存 embedding）
 const saveConfig = async () => {
-  loading.saving = true
-  try {
-    // 构造更新数据
-    const updateData = {
-      embedding: {
-        provider: config.embedding.provider,
-        provider_type: config.embedding.provider_type,
-        model_name: config.embedding.model_name,
-        batch_size: config.embedding.batch_size
-      }
-    }
-    
-    const res = await updateConfig(updateData)
-    if (res.success) {
-      ElMessage.success('配置已保存（后端已自动触发热重载）')
-    } else {
-      ElMessage.error(res.message || '保存失败')
-    }
-  } catch (error) {
-    ElMessage.error('保存失败: ' + error.message)
-  } finally {
-    loading.saving = false
-  }
+  ElMessage.info('向量化器请在「向量化器」Tab 中管理')
 }
 
 // 方法：计算相似度
@@ -868,9 +901,108 @@ const getScoreTagType = (score) => {
   return 'info'
 }
 
+// ---------- 向量化器 Tab 方法 ----------
+const refreshVectorizers = async () => {
+  loading.vectorizers = true
+  try {
+    const res = await vectorLibrary.listVectorizers()
+    if (res.success && res.data) {
+      vectorizers.value = Array.isArray(res.data) ? res.data : []
+    } else {
+      vectorizers.value = []
+    }
+  } catch (e) {
+    ElMessage.error('加载向量化器列表失败: ' + (e.message || e))
+    vectorizers.value = []
+  } finally {
+    loading.vectorizers = false
+  }
+}
+
+const handleActivateVectorizer = async (key) => {
+  try {
+    const res = await vectorLibrary.activateVectorizer(key)
+    if (res.success) {
+      ElMessage.success('已切换激活向量化器')
+      refreshVectorizers()
+      loadConfig()
+    } else {
+      ElMessage.error(res.message || '激活失败')
+    }
+  } catch (e) {
+    ElMessage.error('激活失败: ' + (e.response?.data?.message || e.message || e))
+  }
+}
+
+const handleDeleteVectorizer = async (key) => {
+  try {
+    const res = await vectorLibrary.deleteVectorizer(key)
+    if (res.success) {
+      ElMessage.success('已删除向量化器')
+      refreshVectorizers()
+      loadConfig()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message || e))
+  }
+}
+
+const onAddFormProviderChange = (providerKey) => {
+  const p = availableProviders.value.find((x) => x.key === providerKey)
+  if (p) {
+    const emb = p.model_map?.embedding
+    addFormRecommendedModel.value = Array.isArray(emb) ? (emb[0] || '') : (emb || '')
+    const allModels = new Set(p.models || [])
+    if (p.model_map) {
+      Object.values(p.model_map).forEach(m => {
+        if (Array.isArray(m)) m.forEach((x) => { if (x && String(x).trim()) allModels.add(String(x).trim()) })
+        else if (m && String(m).trim()) allModels.add(String(m).trim())
+      })
+    }
+    addFormModelList.value = Array.from(allModels)
+    if (!addVectorizerForm.model_name && addFormRecommendedModel.value) {
+      addVectorizerForm.model_name = addFormRecommendedModel.value
+    }
+  } else {
+    addFormRecommendedModel.value = ''
+    addFormModelList.value = []
+  }
+}
+
+const submitAddVectorizer = async () => {
+  if (!addVectorizerForm.provider_key || !addVectorizerForm.model_name) {
+    ElMessage.warning('请选择 Provider 和模型名称')
+    return
+  }
+  loading.addVectorizer = true
+  try {
+    const res = await vectorLibrary.addVectorizer({
+      provider_key: addVectorizerForm.provider_key,
+      model_name: addVectorizerForm.model_name.trim()
+    })
+    if (res.success) {
+      ElMessage.success('已添加向量化器')
+      showAddVectorizerDialog.value = false
+      addVectorizerForm.provider_key = ''
+      addVectorizerForm.model_name = ''
+      refreshVectorizers()
+      loadConfig()
+    } else {
+      ElMessage.error(res.message || '添加失败')
+    }
+  } catch (e) {
+    ElMessage.error('添加失败: ' + (e.response?.data?.message || e.message || e))
+  } finally {
+    loading.addVectorizer = false
+  }
+}
+
 onMounted(() => {
-  refreshCollections()
+  refreshFileStatus()
   loadConfig()
+  refreshVectorizers()
 })
 </script>
 
@@ -1039,5 +1171,22 @@ onMounted(() => {
 
 :deep(.index-tabs .el-tabs__content) {
   padding: 20px;
+}
+
+.vectorizer-col-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.vectorizer-col-header .header-model {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.vectorizer-col-header .el-tag {
+  margin: 0 2px;
 }
 </style>

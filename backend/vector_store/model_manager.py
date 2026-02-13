@@ -27,6 +27,7 @@ class EmbeddingModelInfo:
     api_endpoint: Optional[str]
     created_at: datetime
     last_used_at: datetime
+    vectorizer_key: Optional[str] = None  # 向量化器键，与 VectorizerConfigStore 对应
 
 
 class EmbeddingModelManager:
@@ -92,6 +93,11 @@ class EmbeddingModelManager:
         except sqlite3.OperationalError:
             pass  # 字段已存在
 
+        try:
+            self.conn.execute("ALTER TABLE embedding_models ADD COLUMN vectorizer_key TEXT")
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+
         self.conn.commit()
 
     def register_model(
@@ -101,41 +107,53 @@ class EmbeddingModelManager:
         vector_dimension: int,
         distance_metric: str = "cosine",
         api_endpoint: Optional[str] = None,
-        set_active: bool = False
+        set_active: bool = False,
+        vectorizer_key: Optional[str] = None
     ) -> int:
         """
-        注册一个新的 embedding 模型
+        注册一个新的 embedding 模型。
 
-        Returns:
-            模型 ID
+        vectorizer_key: 与 VectorizerConfigStore 中的键一致，用于可观测与 API 展示。
         """
         model_key = f"{provider}_{model_name}_{vector_dimension}"
 
-        # 检查是否已存在
-        cursor = self.conn.execute(
-            "SELECT id FROM embedding_models WHERE model_key = ?",
-            (model_key,)
-        )
-        existing = cursor.fetchone()
+        # 若存在 vectorizer_key 则优先按 vectorizer_key 查
+        if vectorizer_key:
+            cursor = self.conn.execute(
+                "SELECT id FROM embedding_models WHERE vectorizer_key = ?",
+                (vectorizer_key,)
+            )
+            existing = cursor.fetchone()
+        else:
+            existing = None
+        if not existing:
+            cursor = self.conn.execute(
+                "SELECT id FROM embedding_models WHERE model_key = ?",
+                (model_key,)
+            )
+            existing = cursor.fetchone()
 
         if existing:
             model_id = existing['id']
             logger.info(f"模型已存在: {model_key} (ID: {model_id})")
-
-            # 如果需要激活
+            if vectorizer_key:
+                self.conn.execute(
+                    "UPDATE embedding_models SET vectorizer_key = ? WHERE id = ?",
+                    (vectorizer_key, model_id)
+                )
+                self.conn.commit()
             if set_active:
                 self.set_active_model(model_id)
-
             return model_id
 
         # 插入新模型
         cursor = self.conn.execute(
             """
             INSERT INTO embedding_models
-                (model_key, provider, model_name, vector_dimension, distance_metric, api_endpoint, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (model_key, provider, model_name, vector_dimension, distance_metric, api_endpoint, is_active, vectorizer_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (model_key, provider, model_name, vector_dimension, distance_metric, api_endpoint, set_active)
+            (model_key, provider, model_name, vector_dimension, distance_metric, api_endpoint, set_active, vectorizer_key)
         )
 
         model_id = cursor.lastrowid
@@ -193,6 +211,15 @@ class EmbeddingModelManager:
         cursor = self.conn.execute(
             "SELECT * FROM embedding_models WHERE id = ?",
             (model_id,)
+        )
+        row = cursor.fetchone()
+        return self._row_to_model_info(row) if row else None
+
+    def get_model_by_vectorizer_key(self, vectorizer_key: str) -> Optional[EmbeddingModelInfo]:
+        """根据向量化器键获取模型（用于插件式向量库管理）"""
+        cursor = self.conn.execute(
+            "SELECT * FROM embedding_models WHERE vectorizer_key = ?",
+            (vectorizer_key,)
         )
         row = cursor.fetchone()
         return self._row_to_model_info(row) if row else None
@@ -306,8 +333,9 @@ class EmbeddingModelManager:
             distance_metric=row['distance_metric'],
             is_active=bool(row['is_active']),
             api_endpoint=row['api_endpoint'],
-            created_at=datetime.fromisoformat(row['created_at']) if isinstance(row['created_at'], str) else row['created_at'], # Handle different datetime formats if needed
-            last_used_at=datetime.fromisoformat(row['last_used_at']) if isinstance(row['last_used_at'], str) else row['last_used_at']
+            created_at=datetime.fromisoformat(row['created_at']) if isinstance(row['created_at'], str) else row['created_at'],
+            last_used_at=datetime.fromisoformat(row['last_used_at']) if isinstance(row['last_used_at'], str) else row['last_used_at'],
+            vectorizer_key=row['vectorizer_key'] if 'vectorizer_key' in row.keys() and row['vectorizer_key'] else None,
         )
 
     def close(self):

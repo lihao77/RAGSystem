@@ -105,7 +105,7 @@ class VectorStoreClient:
         智能获取向量维度
 
         优先级：
-        1. 从 Embedder 获取实际维度（如果已初始化）
+        1. 从 Embedder 获取实际维度（按当前激活向量化器初始化后再取）
         2. 使用配置文件中的维度（config_dimension=0 表示未配置，仅用 Embedder）
 
         Args:
@@ -117,6 +117,8 @@ class VectorStoreClient:
         try:
             from .embedder import get_embedder
             embedder = get_embedder()
+            # 先按当前激活向量化器初始化，避免存储用默认 768 而激活模型为 1536 等不一致
+            embedder.initialize()
 
             if embedder._embedder is not None:
                 actual_dimension = embedder.embedding_dim

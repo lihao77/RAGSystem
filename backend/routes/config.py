@@ -18,6 +18,28 @@ logger = logging.getLogger(__name__)
 config_bp = Blueprint('config', __name__)
 
 
+def _get_embedding_display_for_config():
+    """向量化器由向量库管理，此处仅返回只读展示/引导。"""
+    try:
+        from vector_store.vectorizer_config import get_vectorizer_config_store
+        store = get_vectorizer_config_store()
+        active = store.get_active_key()
+        cfg = store.get_vectorizer(active) if active else None
+        return {
+            'source': 'vector_library',
+            'active_vectorizer_key': active,
+            'message': '向量化器请在「向量库管理」中配置与激活',
+            'active_display': f"{cfg.get('provider_key', '')} / {cfg.get('model_name', '')}" if cfg else None
+        }
+    except Exception:
+        return {
+            'source': 'vector_library',
+            'active_vectorizer_key': None,
+            'message': '向量化器请在「向量库管理」中配置与激活',
+            'active_display': None
+        }
+
+
 @config_bp.route('/', methods=['GET'])
 def get_current_config():
     """获取当前配置"""
@@ -38,21 +60,7 @@ def get_current_config():
                 'temperature': config.llm.temperature,
                 'max_tokens': config.llm.max_tokens
             },
-            'embedding': {
-                'mode': config.embedding.mode,
-                'local': {
-                    'model_name': config.embedding.local.model_name,
-                    'device': config.embedding.local.device,
-                    'cache_dir': config.embedding.local.cache_dir
-                },
-                'remote': {
-                    'api_endpoint': config.embedding.remote.api_endpoint,
-                    'api_key': '***' if config.embedding.remote.api_key else '',
-                    'model_name': config.embedding.remote.model_name,
-                    'timeout': config.embedding.remote.timeout,
-                    'max_retries': config.embedding.remote.max_retries
-                }
-            },
+            'embedding': _get_embedding_display_for_config(),
             'system': {
                 'max_content_length': config.system.max_content_length
             },
@@ -137,18 +145,7 @@ def update_config():
 
         logger.info('配置文件已更新')
 
-        # 若本次更新包含 embedding 配置，自动触发热重载，使文本向量化器下次使用新配置
-        if data and isinstance(data, dict) and 'embedding' in data:
-            try:
-                from vector_store.embedder import reset_embedder
-                from vector_store.client import reset_vector_client
-                from init_vector_store import reset_vector_store_initialized
-                reset_embedder()
-                reset_vector_client()
-                reset_vector_store_initialized()
-                logger.info('已自动重置 Embedder 与向量存储（embedding 配置已变更）')
-            except Exception as e:
-                logger.warning(f'重置 Embedder/向量存储时告警: {e}')
+        # 向量化器已迁移到向量库管理，此处不再根据 config.embedding 重置；重载时统一重置
 
         return jsonify({
             'success': True,
@@ -598,11 +595,17 @@ def get_services_status():
         }
         
         if vector_configured:
-            # 显示嵌入模式信息
-            if config.embedding.mode == 'local':
-                vector_status['message'] = f'本地模型: {config.embedding.local.model_name}'
-            elif config.embedding.mode == 'remote':
-                vector_status['message'] = f'远程API: {config.embedding.remote.api_endpoint}'
+            try:
+                from vector_store.vectorizer_config import get_vectorizer_config_store
+                store = get_vectorizer_config_store()
+                active = store.get_active_key()
+                cfg = store.get_vectorizer(active) if active else None
+                if cfg:
+                    vector_status['message'] = f"向量库管理: {cfg.get('provider_key', '')} / {cfg.get('model_name', '')}"
+                else:
+                    vector_status['message'] = '已配置（向量库管理）'
+            except Exception:
+                vector_status['message'] = '已配置（向量库管理）'
         
         # LLM 状态
         llm_configured = bool(config.llm.api_endpoint and config.llm.api_key)

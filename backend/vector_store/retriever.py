@@ -54,8 +54,8 @@ class VectorRetriever:
             - similarity: 相似度分数 (0-1，越大越相似，可选)
         """
         try:
-            # 查询向量化
-            query_embedding = self.embedder.embed(query)[0]  # embed 返回列表，取第一个
+            # 查询向量化（传入列表以保证返回 list[list[float]]，再取第一个向量）
+            query_embedding = self.embedder.embed([query])[0]
 
             # 执行向量检索
             results = self.vector_client.search(

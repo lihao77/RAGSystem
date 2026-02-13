@@ -191,11 +191,7 @@ class TextEmbedder:
 
     def initialize(self, config=None, force=False):
         """
-        初始化 Embedder
-
-        Args:
-            config: AppConfig 配置对象
-            force: 为 True 时先重置再初始化（用于配置变更后）
+        初始化 Embedder（仅从向量库管理配置的「当前激活向量化器」读取，不读 config.embedding）。
         """
         if force:
             self.reset()
@@ -203,29 +199,38 @@ class TextEmbedder:
             logger.debug("Embedder 已初始化，跳过重复初始化")
             return
 
-        # 加载配置
-        if config is None:
-            from config import get_config
-            config = get_config()
+        from .vectorizer_config import get_vectorizer_config_store
 
-        provider_name = config.embedding.provider
-        if not provider_name:
-             logger.warning("未配置 Embedding Provider，Embedder 将不可用")
-             return
+        store = get_vectorizer_config_store()
+        active_key = store.get_active_key()
+        if not active_key:
+            logger.warning("未配置激活的向量化器，Embedder 将不可用。请在向量库管理中添加并激活向量化器。")
+            return
 
-        # 获取 provider_type（如果配置了）
-        provider_type = getattr(config.embedding, 'provider_type', None)
+        cfg = store.get_vectorizer(active_key)
+        if not cfg:
+            logger.warning("激活的向量化器配置不存在: %s", active_key)
+            return
+
+        provider_key = cfg.get("provider_key") or ""
+        model_name = cfg.get("model_name") or ""
+        if not provider_key or not model_name:
+            logger.warning("向量化器配置缺少 provider_key 或 model_name: %s", active_key)
+            return
+
+        # Model Adapter 的 provider 可能带 type：provider_key 存的是名称，provider_type 可选
+        provider_type = cfg.get("provider_type")
+        provider_name = provider_key
         try:
             self._embedder = RemoteEmbedder(
                 provider_name=provider_name,
-                model_name=config.embedding.model_name,
-                batch_size=config.embedding.batch_size,
+                model_name=model_name,
+                batch_size=cfg.get("batch_size", 100),
                 provider_type=provider_type
             )
-            provider_key = f"{provider_name}_{provider_type}" if provider_type else provider_name
-            logger.info(f"✅ Embedder 初始化完成 (Provider: {provider_key})")
+            logger.info("✅ Embedder 初始化完成 (向量化器: %s)", active_key)
         except ValueError as e:
-            logger.warning(f"Embedder 初始化失败: {e}")
+            logger.warning("Embedder 初始化失败: %s", e)
             self._embedder = None
 
     def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
@@ -242,7 +247,7 @@ class TextEmbedder:
             self.initialize()
             
         if self._embedder is None:
-            raise RuntimeError("Embedder 未初始化，请检查 Embedding 配置")
+            raise RuntimeError("Embedder 未初始化，请在向量库管理中配置并激活向量化器")
 
         return self._embedder.embed(texts)
 
@@ -253,7 +258,7 @@ class TextEmbedder:
             self.initialize()
             
         if self._embedder is None:
-            raise RuntimeError("Embedder 未初始化或初始化失败，请检查 Embedding 配置")
+            raise RuntimeError("Embedder 未初始化或初始化失败，请在向量库管理中配置并激活向量化器")
 
         return self._embedder.embedding_dim
 
@@ -284,3 +289,28 @@ def reset_embedder():
     """重置全局 Embedder 单例的内部实现，使配置重载后下次调用使用新配置。"""
     embedder = get_embedder()
     embedder.reset()
+
+
+def get_embedder_for_vectorizer(vectorizer_key: str) -> Optional[EmbedderBase]:
+    """
+    按向量化器键创建并返回一个 Embedder 实例（用于迁移等场景，不缓存）。
+    若该键不存在或创建失败则返回 None。
+    """
+    from .vectorizer_config import get_vectorizer_config_store
+    store = get_vectorizer_config_store()
+    cfg = store.get_vectorizer(vectorizer_key)
+    if not cfg:
+        return None
+    provider_key = cfg.get("provider_key") or ""
+    model_name = cfg.get("model_name") or ""
+    if not provider_key or not model_name:
+        return None
+    try:
+        return RemoteEmbedder(
+            provider_name=provider_key,
+            model_name=model_name,
+            batch_size=cfg.get("batch_size", 100),
+            provider_type=cfg.get("provider_type")
+        )
+    except ValueError:
+        return None

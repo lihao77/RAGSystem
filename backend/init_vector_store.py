@@ -26,21 +26,17 @@ def reset_vector_store_initialized():
 
 def is_vector_db_configured():
     """
-    检查向量数据库是否已配置
-
-    Returns:
-        bool: 是否已配置嵌入模型
+    检查向量数据库是否已配置（仅看向量库管理中的激活向量化器，不读 config.embedding）。
     """
     try:
-        config = get_config()
-
-        # 检查是否配置了 provider 和 model_name
-        # 由于我们依赖 Model Adapter，这里只需检查 provider 是否存在
-        # 具体的连接有效性在初始化时检查
-        return bool(config.embedding.provider and config.embedding.model_name)
-
+        from vector_store.vectorizer_config import get_vectorizer_config_store
+        store = get_vectorizer_config_store()
+        active = store.get_active_key()
+        if not active:
+            return False
+        return store.get_vectorizer(active) is not None
     except Exception as e:
-        logger.error(f"检查向量数据库配置失败: {e}")
+        logger.error("检查向量数据库配置失败: %s", e)
         return False
 
 
@@ -73,12 +69,11 @@ def init_vector_store(force=False):
         logger.debug("向量数据库已初始化，跳过重复初始化")
         return True
 
-    # 先检查是否已配置
+    # 先检查是否已配置（仅向量库管理中的激活向量化器）
     if not is_vector_db_configured():
         logger.warning("=" * 60)
         logger.warning("向量数据库未配置，跳过初始化")
-        logger.warning("请在系统配置中设置 Embedding Provider")
-        logger.warning("配置项: embedding.provider 和 embedding.model_name")
+        logger.warning("请在「向量库管理」中添加并激活一个向量化器")
         logger.warning("=" * 60)
         _vector_store_initialized = False
         return False
@@ -95,36 +90,36 @@ def init_vector_store(force=False):
 
         config = get_config()
 
-        # 1. 先初始化 Embedder（以便向量存储可以获取实际维度）
+        # 1. 先初始化 Embedder（从向量库管理「当前激活向量化器」）
         logger.info("步骤 1/3: 预加载嵌入模型...")
         embedder = get_embedder()
         embedder.initialize(config, force=force)
 
+        from vector_store.vectorizer_config import get_vectorizer_config_store
+        store = get_vectorizer_config_store()
+        active_key = store.get_active_key()
+        active_cfg = store.get_vectorizer(active_key) if active_key else None
+
         # 检查 Embedder 是否初始化成功
         try:
-             # 测试嵌入并获取实际维度
             test_text = "这是一个测试文本"
             test_embedding = embedder.embed(test_text)
-            
-            # embed 方法现在返回列表，如果是单文本输入，可能返回 list[float]
-            # 需要确保我们获取的是向量维度，而不是列表长度
+
             embedding_dim = 0
             if isinstance(test_embedding, list):
-                # 检查是否是嵌套列表 (list[list[float]])
                 if len(test_embedding) > 0 and isinstance(test_embedding[0], list):
                     embedding_dim = len(test_embedding[0])
-                # 检查是否是单向量 (list[float])
                 elif len(test_embedding) > 0 and isinstance(test_embedding[0], float):
                     embedding_dim = len(test_embedding)
                 else:
-                    logger.warning(f"无法确定向量维度，返回类型: {type(test_embedding)}")
+                    logger.warning("无法确定向量维度，返回类型: %s", type(test_embedding))
             else:
-                 logger.warning(f"embed返回类型异常: {type(test_embedding)}")
+                logger.warning("embed 返回类型异常: %s", type(test_embedding))
 
-            logger.info(f"✓ 嵌入模型已加载 (Provider: {config.embedding.provider})")
-            logger.info(f"✓ Provider: {config.embedding.provider}")
-            logger.info(f"✓ 模型: {config.embedding.model_name}")
-            logger.info(f"✓ 向量维度: {embedding_dim}")
+            logger.info("✓ 嵌入模型已加载 (向量化器: %s)", active_key or "(无)")
+            if active_cfg:
+                logger.info("✓ Provider: %s, 模型: %s", active_cfg.get("provider_key"), active_cfg.get("model_name"))
+            logger.info("✓ 向量维度: %s", embedding_dim)
         except Exception as e:
             logger.warning(f"⚠ 嵌入模型初始化失败: {e}")
             logger.warning("向量数据库将跳过初始化")
@@ -140,7 +135,23 @@ def init_vector_store(force=False):
         logger.info("步骤 2/3: 初始化向量数据库客户端...")
         client = get_vector_client()
         client.initialize(config, force=force)
-        logger.info(f"✓ 向量数据库客户端已就绪 (后端: {config.vector_store.backend})")
+        logger.info("✓ 向量数据库客户端已就绪 (后端: %s)", config.vector_store.backend)
+
+        # 2.5 在 DB 的 embedding_models 中注册/绑定当前激活的向量化器，供索引与检索使用
+        if active_key and active_cfg:
+            try:
+                store_obj = client.store
+                if hasattr(store_obj, "model_manager"):
+                    store_obj.model_manager.register_model(
+                        provider=active_cfg.get("provider_key", ""),
+                        model_name=active_cfg.get("model_name", ""),
+                        vector_dimension=embedder.embedding_dim,
+                        distance_metric=active_cfg.get("distance_metric", "cosine"),
+                        vectorizer_key=active_key,
+                        set_active=True,
+                    )
+            except Exception as reg_err:
+                logger.warning("注册激活向量化器到 model_manager 失败（索引/检索可能受影响）: %s", reg_err)
 
         # 3. 验证集合
         logger.info("步骤 3/3: 验证现有集合...")

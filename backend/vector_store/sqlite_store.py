@@ -128,13 +128,7 @@ class SQLiteVectorStore(VectorStoreBase):
             raise ImportError("sqlite-vec 扩展加载失败") from e
 
     def initialize(self) -> None:
-        """初始化数据库表结构"""
-        # 检查是否需要重建（维度不匹配）
-        if self._check_dimension_mismatch():
-            logger.warning("⚠️  检测到向量维度不匹配，将重建数据库表")
-            self._rebuild_database()
-            return
-
+        """初始化数据库表结构。不再按维度不匹配重建整库，多向量化器按 model_id 并存。"""
         # 创建集合表（类似 ChromaDB 的 collection 概念）
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS collections (

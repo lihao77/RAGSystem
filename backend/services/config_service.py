@@ -13,6 +13,28 @@ from db import test_connection
 logger = logging.getLogger(__name__)
 
 
+def _embedding_display_from_vector_library():
+    """向量化器由向量库管理，返回只读展示。"""
+    try:
+        from vector_store.vectorizer_config import get_vectorizer_config_store
+        store = get_vectorizer_config_store()
+        active = store.get_active_key()
+        cfg = store.get_vectorizer(active) if active else None
+        return {
+            'source': 'vector_library',
+            'active_vectorizer_key': active,
+            'message': '向量化器请在「向量库管理」中配置与激活',
+            'active_display': f"{cfg.get('provider_key', '')} / {cfg.get('model_name', '')}" if cfg else None
+        }
+    except Exception:
+        return {
+            'source': 'vector_library',
+            'active_vectorizer_key': None,
+            'message': '向量化器请在「向量库管理」中配置与激活',
+            'active_display': None
+        }
+
+
 class ConfigService:
     """配置服务类"""
     
@@ -82,11 +104,7 @@ class ConfigService:
                     'temperature': config.llm.temperature,
                     'max_tokens': config.llm.max_tokens
                 },
-                'embedding': {
-                    'provider': config.embedding.provider,
-                    'model_name': config.embedding.model_name,
-                    'batch_size': config.embedding.batch_size
-                },
+                'embedding': _embedding_display_from_vector_library(),
                 'system': {
                     'max_content_length': config.system.max_content_length
                 },
@@ -576,8 +594,17 @@ class ConfigService:
             }
             
             if vector_configured:
-                # 显示嵌入模式信息
-                vector_status['message'] = f'Provider: {config.embedding.provider}, 模型: {config.embedding.model_name}'
+                try:
+                    from vector_store.vectorizer_config import get_vectorizer_config_store
+                    store = get_vectorizer_config_store()
+                    active = store.get_active_key()
+                    cfg = store.get_vectorizer(active) if active else None
+                    vector_status['message'] = (
+                        f"向量库管理: {cfg.get('provider_key', '')} / {cfg.get('model_name', '')}"
+                        if cfg else '已配置（向量库管理）'
+                    )
+                except Exception:
+                    vector_status['message'] = '已配置（向量库管理）'
             
             llm_configured = bool(config.llm.provider and config.llm.model_name)
             llm_status = {

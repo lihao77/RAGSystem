@@ -35,6 +35,7 @@ from routes.model_adapter import model_adapter_bp
 from routes.agent import agent_bp
 from routes.agent_config import agent_config_bp
 from routes.embedding_models import embedding_models_bp
+from routes.vector_library import vector_library_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -85,6 +86,7 @@ app.register_blueprint(model_adapter_bp, url_prefix='/api/model-adapter')
 app.register_blueprint(agent_bp, url_prefix='/api/agent')
 app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
 app.register_blueprint(embedding_models_bp, url_prefix='/api/embedding-models')
+app.register_blueprint(vector_library_bp, url_prefix='/api/vector-library')
 
 # 静态文件服务
 @app.route('/uploads/<filename>')
