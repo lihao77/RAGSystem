@@ -200,6 +200,48 @@ def index_file_with_vectorizer():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@vector_library_bp.route("/delete-file", methods=["POST"])
+def delete_file():
+    """
+    删除单个文件：删除该文件在所有向量化器下的分块及向量，即从 documents 与 document_vectors 中移除。
+    body: collection, file_id（即 document_id）
+    """
+    try:
+        body = request.get_json() or {}
+        collection = (body.get("collection") or "").strip()
+        file_id = (body.get("file_id") or "").strip().strip('"')
+        if not collection or not file_id:
+            return jsonify({"success": False, "message": "缺少 collection 或 file_id"}), 400
+
+        mm = _get_model_manager()
+        conn = mm.conn
+        cursor = conn.execute(
+            "SELECT id FROM documents WHERE collection = ? AND TRIM(REPLACE(COALESCE(json_extract(metadata, '$.document_id'), ''), '\"', '')) = ?",
+            (collection, file_id),
+        )
+        chunk_ids = [row[0] for row in cursor.fetchall()]
+        if not chunk_ids:
+            return jsonify({"success": False, "message": "未找到该文件对应的分块"}), 404
+
+        placeholders = ",".join("?" * len(chunk_ids))
+        conn.execute(
+            f"DELETE FROM document_vectors WHERE doc_id IN ({placeholders}) AND collection = ?",
+            (*chunk_ids, collection),
+        )
+        conn.execute(
+            f"DELETE FROM documents WHERE id IN ({placeholders}) AND collection = ?",
+            (*chunk_ids, collection),
+        )
+        conn.commit()
+        return jsonify({
+            "success": True,
+            "data": {"deleted_chunks": len(chunk_ids), "collection": collection, "file_id": file_id},
+        })
+    except Exception as e:
+        logger.exception("删除文件失败")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @vector_library_bp.route("/vectorizers", methods=["GET"])
 def list_vectorizers():
     """列表：所有向量化器（含维度、文档数、是否激活）"""

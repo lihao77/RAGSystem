@@ -15,12 +15,38 @@
             <span>向量库管理</span>
           </span>
         </template>
+
+        <!-- 当前激活向量化器常驻展示 -->
+        <div class="active-vectorizer-bar">
+          <span class="bar-label">当前用于新索引的向量化器：</span>
+          <template v-if="embeddingDisplay.active_display || embeddingDisplay.active_vectorizer_key">
+            <el-tag type="success" size="large">{{ embeddingDisplay.active_display || embeddingDisplay.active_vectorizer_key }}</el-tag>
+          </template>
+          <template v-else>
+            <el-text type="warning">未设置</el-text>
+            <el-button type="primary" link size="small" @click="activeTab = 'vectorizers'">请前往「向量化器」添加并激活</el-button>
+          </template>
+        </div>
         
         <el-card class="box-card" shadow="hover">
           <template #header>
             <div class="card-header">
               <span>文件与向量化器索引状态</span>
               <div class="header-actions">
+                <el-select
+                  v-model="filterCollection"
+                  placeholder="全部集合"
+                  clearable
+                  size="small"
+                  style="width: 140px; margin-right: 8px"
+                >
+                  <el-option
+                    v-for="c in collectionOptions"
+                    :key="c"
+                    :label="c"
+                    :value="c"
+                  />
+                </el-select>
                 <el-button type="primary" size="small" @click="showCreateDialog = true">
                   <el-icon><Plus /></el-icon> 索引新文档
                 </el-button>
@@ -30,8 +56,36 @@
               </div>
             </div>
           </template>
+
+          <!-- 无向量化器时引导 -->
+          <el-alert
+            v-if="!loading.collections && fileStatusVectorizers.length === 0 && fileList.length > 0"
+            title="尚未配置向量化器"
+            type="warning"
+            description="请先在「向量化器」Tab 中添加并激活至少一个向量化器，才能为文件建立向量索引。"
+            show-icon
+            :closable="false"
+            style="margin-bottom: 16px"
+          >
+            <template #default>
+              <el-button type="primary" size="small" @click="activeTab = 'vectorizers'">前往向量化器</el-button>
+            </template>
+          </el-alert>
           
-          <el-table :data="fileList" v-loading="loading.collections" style="width: 100%" empty-text="暂无已索引文件，请先索引文档">
+          <el-table :data="filteredFileList" v-loading="loading.collections" style="width: 100%">
+            <template #empty>
+              <el-empty v-if="fileList.length === 0" description="暂无已索引文件">
+                <template #description>
+                  <p>请先索引文档，新索引将使用上方「当前用于新索引的向量化器」。</p>
+                </template>
+                <el-button type="primary" @click="showCreateDialog = true">
+                  <el-icon><Plus /></el-icon> 索引新文档
+                </el-button>
+              </el-empty>
+              <el-empty v-else description="当前集合下无文件">
+                <p class="empty-tip">尝试切换或清空上方的「集合」筛选</p>
+              </el-empty>
+            </template>
             <el-table-column prop="file_name" label="文件名称" min-width="180" show-overflow-tooltip />
             <el-table-column prop="collection" label="集合" width="120" show-overflow-tooltip />
             <el-table-column prop="chunk_count" label="文档分块数" width="110" align="center" />
@@ -62,11 +116,21 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column label="操作" align="right" width="180" fixed="right">
+            <el-table-column label="操作" align="right" width="220" fixed="right">
               <template #default="scope">
                 <el-button size="small" @click="openSearchTest(scope.row.collection)">
                   <el-icon><Search /></el-icon> 检索
                 </el-button>
+                <el-popconfirm
+                  title="确定删除该文件？将删除其在所有向量化器下的分块与向量，且不可恢复。"
+                  @confirm="handleDeleteFile(scope.row)"
+                >
+                  <template #reference>
+                    <el-button size="small" type="danger">
+                      <el-icon><Delete /></el-icon> 删除
+                    </el-button>
+                  </template>
+                </el-popconfirm>
               </template>
             </el-table-column>
           </el-table>
@@ -141,7 +205,17 @@
               </div>
             </div>
           </template>
-          <el-table :data="vectorizers" v-loading="loading.vectorizers" style="width: 100%" empty-text="暂无向量化器，请先新增">
+          <el-table :data="vectorizers" v-loading="loading.vectorizers" style="width: 100%">
+            <template #empty>
+              <el-empty description="暂无向量化器">
+                <template #description>
+                  <p>添加并激活一个向量化器后，即可在「向量库管理」中为文件建立向量索引。</p>
+                </template>
+                <el-button type="primary" @click="showAddVectorizerDialog = true">
+                  <el-icon><Plus /></el-icon> 新增向量化器
+                </el-button>
+              </el-empty>
+            </template>
             <el-table-column prop="vectorizer_key" label="键" min-width="180" show-overflow-tooltip />
             <el-table-column prop="provider_key" label="Provider" width="120" />
             <el-table-column prop="model_name" label="模型" min-width="140" show-overflow-tooltip />
@@ -508,6 +582,7 @@ const indexForm = ref({
 const fileList = ref([])
 const fileStatusVectorizers = ref([])
 const indexingFileKey = ref('') // 'file_id:vectorizer_key' 正在索引时不为空
+const filterCollection = ref('') // 按集合筛选
 const collections = ref([])
 const currentCollection = ref(null)
 const searchQuery = ref('')
@@ -532,6 +607,17 @@ const addVectorizerForm = reactive({ provider_key: '', model_name: '' })
 const addFormRecommendedModel = ref('')
 const addFormModelList = ref([])
 const embeddingDisplay = reactive({ source: 'vector_library', active_vectorizer_key: null, message: '', active_display: null })
+
+// 集合筛选选项（从文件列表去重）
+const collectionOptions = computed(() => {
+  const set = new Set(fileList.value.map((f) => f.collection).filter(Boolean))
+  return [...set].sort()
+})
+// 按集合筛选后的文件列表
+const filteredFileList = computed(() => {
+  if (!filterCollection.value) return fileList.value
+  return fileList.value.filter((f) => f.collection === filterCollection.value)
+})
 
 // 当前选中的 Provider 复合键（用于下拉框 v-model，便于唯一匹配）
 const embeddingProviderKey = computed({
@@ -640,6 +726,24 @@ const handleDocumentTypeChange = () => {
 }
 
 // 方法：加载文件维度索引状态（向量库主表）
+// 删除文件（所有向量化器下的分块与向量）
+const handleDeleteFile = async (row) => {
+  try {
+    const res = await vectorLibrary.deleteFile({
+      collection: row.collection,
+      file_id: row.file_id
+    })
+    if (res.success) {
+      ElMessage.success(`已删除，共 ${res.data?.deleted_chunks ?? 0} 个分块`)
+      await refreshFileStatus()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message || e))
+  }
+}
+
 // 使用指定向量化器对单文件建索引
 const indexFileWithVectorizer = async (row, vectorizerKey) => {
   const key = row.file_id + ':' + vectorizerKey
@@ -674,8 +778,10 @@ const refreshFileStatus = async () => {
       fileList.value = []
       fileStatusVectorizers.value = []
     }
+    await loadConfig()
   } catch (error) {
-    ElMessage.error('获取文件状态失败: ' + (error.message || error))
+    const msg = error.response?.data?.message || error.message || error
+    ElMessage.error('获取文件状态失败: ' + msg)
     fileList.value = []
     fileStatusVectorizers.value = []
   } finally {
@@ -694,10 +800,10 @@ const handleDeleteCollection = async (name) => {
         currentCollection.value = null
       }
     } else {
-      ElMessage.error(res.error || '删除失败')
+      ElMessage.error(res.message || res.error || '删除失败')
     }
   } catch (error) {
-    ElMessage.error('删除失败: ' + error.message)
+    ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message || error))
   }
 }
 
@@ -725,10 +831,10 @@ const handleSearch = async () => {
     if (res.success) {
       searchResults.value = res.data.results
     } else {
-      ElMessage.error(res.error || '检索失败')
+      ElMessage.error(res.message || res.error || '检索失败')
     }
   } catch (error) {
-    ElMessage.error('检索失败: ' + error.message)
+    ElMessage.error('检索失败: ' + (error.response?.data?.message || error.message || error))
   } finally {
     loading.search = false
   }
@@ -839,7 +945,7 @@ const indexDocument = async () => {
       resetIndexForm()
     }
   } catch (error) {
-    ElMessage.error('索引失败: ' + (error.response?.data?.error || error.message))
+    ElMessage.error('索引失败: ' + (error.response?.data?.message || error.response?.data?.error || error.message || error))
   } finally {
     indexing.value = false
   }
@@ -1027,6 +1133,25 @@ onMounted(() => {
   margin: 0;
   color: #909399;
   font-size: 14px;
+}
+
+.active-vectorizer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.active-vectorizer-bar .bar-label {
+  color: var(--el-text-color-regular);
+}
+.empty-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .vector-tabs {
