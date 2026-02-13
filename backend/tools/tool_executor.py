@@ -924,13 +924,14 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
     """
     查询应急预案文档
 
-    使用向量语义搜索从应急预案知识库中检索相关内容
+    使用向量语义搜索从应急预案知识库中检索相关内容。
+    兼容当前向量库架构（SQLite + sqlite-vec，按当前激活向量化器检索）。
 
     Args:
         query: 查询问题或关键词
         top_k: 返回结果数量，默认5
         min_similarity: 最小相似度阈值（0-1），默认0.3
-        document_filter: 文档来源过滤（可选）
+        document_filter: 文档来源过滤（可选，按 metadata.document_id 过滤）
 
     Returns:
         检索结果，包含文档片段、相似度、元数据
@@ -938,43 +939,41 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
     try:
         from vector_store import VectorRetriever, get_vector_client
 
-        # 智能选择集合：优先使用专用集合，如果为空则使用 documents
+        # 确保向量客户端已初始化（含当前激活向量化器）
         client = get_vector_client()
+        client.ensure_initialized()
+
+        # 智能选择集合：优先使用专用集合，若不存在或为空则使用 documents
         try:
-            # 检查 emergency_plans 集合是否存在且有文档
             collections = client.list_collections()
             if "emergency_plans" in collections:
                 count = client.count_documents("emergency_plans")
                 collection_name = "emergency_plans" if count > 0 else "documents"
             else:
                 collection_name = "documents"
-        except:
-            collection_name = "documents"  # 集合不存在或查询失败，使用默认集合
+        except Exception as coll_e:
+            logger.debug(f"选择集合时出错，使用默认: {coll_e}")
+            collection_name = "documents"
 
         logger.info(f"使用集合: {collection_name}")
 
-        # 初始化检索器
         retriever = VectorRetriever(collection_name=collection_name)
 
-        # 构建过滤条件
-        filters = {}
+        filters = None
         if document_filter:
-            filters["document_id"] = document_filter
+            filters = {"document_id": document_filter}
 
-        # 执行向量检索
         results = retriever.search(
             query=query,
-            top_k=top_k * 2,  # 多取一些，然后过滤
-            filters=filters if filters else None,
+            top_k=top_k * 2,
+            filters=filters,
             include_distances=True
         )
 
-        # 日志：显示检索到的相似度
         if results:
             similarities = [r.get('similarity', 0) for r in results[:5]]
             logger.info(f"检索到 {len(results)} 条结果，前5条相似度: {similarities}")
 
-        # 过滤低相似度结果
         filtered_results = [
             r for r in results
             if r.get('similarity', 0) >= min_similarity
@@ -982,36 +981,49 @@ def query_emergency_plan(query, top_k=5, min_similarity=0.3, document_filter=Non
 
         logger.info(f"相似度过滤后: {len(filtered_results)} 条结果（阈值={min_similarity}）")
 
-        # 格式化返回结果
+        meta_default = {}
         formatted_results = []
         for idx, result in enumerate(filtered_results):
+            m = result.get('metadata') or meta_default
             formatted_results.append({
                 "rank": idx + 1,
-                "content": result['text'],
+                "content": result.get('text', ''),
                 "similarity": round(result.get('similarity', 0), 4),
-                "source": result['metadata'].get('document_id', 'unknown'),
-                "chunk_index": result['metadata'].get('chunk_index', 0),
-                "metadata": result['metadata']
+                "source": m.get('document_id', 'unknown'),
+                "chunk_index": m.get('chunk_index', 0),
+                "metadata": m
             })
+
+        resp_meta = {
+            "query": query,
+            "total_searched": len(results),
+            "min_similarity": min_similarity,
+            "collection_name": collection_name
+        }
+        if not formatted_results and collection_name == "emergency_plans":
+            resp_meta["hint"] = "若最近更换过向量化器，请用当前向量化器在「向量知识库」中重新索引应急预案集合。"
 
         return success_response(
             results=formatted_results,
-            metadata={
-                "query": query,
-                "total_searched": len(results),
-                "min_similarity": min_similarity,
-                "collection_name": collection_name
-            },
+            metadata=resp_meta,
             summary=f"检索到 {len(formatted_results)} 条相关预案内容"
         )
 
+    except RuntimeError as e:
+        msg = str(e)
+        if "没有激活" in msg or "未初始化" in msg or "embedding" in msg.lower():
+            logger.error(f'应急预案检索失败（向量化器未就绪）: {e}')
+            return error_response(
+                "未配置或未激活向量化器。请在「向量知识库」→「向量化器」中添加并激活一个向量化器，然后重新索引应急预案文档。"
+            )
+        logger.error(f'应急预案检索失败: {e}')
+        return error_response(f"{msg} - 请检查向量库配置与索引。")
     except Exception as e:
         logger.error(f'应急预案检索失败: {e}')
         import traceback
         traceback.print_exc()
-
         return error_response(
-            f"{str(e)} - 向量检索功能可能尚未初始化，请先索引应急预案文档"
+            f"{str(e)} - 请确认已在「向量知识库」中索引应急预案文档，且当前已激活向量化器。"
         )
 
 

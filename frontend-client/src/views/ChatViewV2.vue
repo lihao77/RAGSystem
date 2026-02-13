@@ -130,7 +130,8 @@
 
           <!-- Message Stream -->
           <div v-else class="message-stream">
-            <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]" :data-msg-index="index">
+            <div v-for="(msg, index) in messages" :key="messageKey(msg, index)" :class="['message', msg.role]" :data-msg-index="index"
+              @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
               <!-- Subtasks Container - 占满整个 message 宽度 -->
               <div v-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0"
                 class="subtasks-container-full">
@@ -179,9 +180,16 @@
                     <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                   </div>
 
-                  <!-- User Message -->
-                  <div v-if="msg.role === 'user' && msg.content" class="user-text">
+                  <!-- User Message (可编辑时显示 textarea) -->
+                  <div v-if="msg.role === 'user' && editingMessageIndex !== index" class="user-text">
                     {{ msg.content }}
+                  </div>
+                  <div v-else-if="msg.role === 'user' && editingMessageIndex === index" class="user-edit-row">
+                    <textarea v-model="editingDraft" class="user-edit-input" rows="3" @keydown.ctrl.enter="confirmEditAndResend" @keydown.meta.enter="confirmEditAndResend" />
+                    <div class="user-edit-actions">
+                      <button type="button" class="btn-editor btn-save" @click="confirmEditAndResend">确定</button>
+                      <button type="button" class="btn-editor btn-cancel" @click="cancelEdit">取消</button>
+                    </div>
                   </div>
 
                   <!-- Status Updates -->
@@ -192,6 +200,17 @@
                     </div>
                   </div>
                 </div>
+              </div>
+              <!-- 消息操作：仅 user 可编辑、复制 -->
+              <div class="message-actions" :class="{ 'visible': messageActionsVisible === index }">
+                <template v-if="msg.role === 'user'">
+                  <button type="button" class="msg-action-btn" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg, index)">
+                    编辑
+                  </button>
+                  <button type="button" class="msg-action-btn" title="复制内容" @click="copyMessage(msg)">
+                    复制
+                  </button>
+                </template>
               </div>
             </div>
           </div>
@@ -268,6 +287,9 @@ const currentStreamController = ref(null);
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
+const messageActionsVisible = ref(null);
+const editingMessageIndex = ref(null);
+const editingDraft = ref('');
 const handlePopState = () => {
   const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
   const sessionId = match ? decodeURIComponent(match[1]) : null;
@@ -442,6 +464,79 @@ const handleScroll = () => {
   }
 };
 
+// 🎯 将持久化的 steps 还原为 subtasks（与 SSE 实时结构一致）
+function stepsToSubtasks(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return [];
+  const subtasks = [];
+  const getData = (s) => (s && s.payload && s.payload.data) ? s.payload.data : {};
+  const getAgentName = (s) => (s && s.payload && s.payload.agent_name) ? s.payload.agent_name : null;
+  for (const step of steps) {
+    const eventType = step.step_type || (step.payload && step.payload.type);
+    const eventData = getData(step);
+    const agentName = getAgentName(step);
+    const order = eventData.order;
+    const taskId = eventData.call_id || eventData.task_id;
+    const desc = eventData.description || eventData.subtask_description;
+    const agentDisplayName = eventData.agent_display_name || eventData.subtask_agent || agentName;
+    if (eventType === 'call.agent.start' || eventType === 'subtask.start') {
+      if (subtasks.length > 0) subtasks.forEach(st => st.expanded = false);
+      subtasks.push({
+        order: order,
+        task_id: taskId,
+        round: eventData.round,
+        round_index: eventData.round_index,
+        agent_name: agentName,
+        agent_display_name: agentDisplayName,
+        description: desc,
+        react_steps: [],
+        tool_calls: [],
+        result_summary: '',
+        status: 'running',
+        expanded: true,
+        currentStep: null
+      });
+    } else if (eventType === 'agent.thought_structured') {
+      let subtask = taskId ? subtasks.find(s => s.task_id === taskId) : subtasks.find(s => s.order === eventData.subtask_order);
+      if (!subtask) subtask = subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
+      if (subtask) {
+        const newStep = { round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true };
+        subtask.react_steps.push(newStep);
+        subtask.currentStep = newStep;
+      }
+    } else if (eventType === 'call.tool.start' || eventType === 'tool.start') {
+      const subtask = eventData.subtask_order != null ? subtasks.find(s => s.order === eventData.subtask_order) : subtasks.find(s => s.task_id === eventData.parent_call_id) || subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
+      if (subtask) {
+        if (!subtask.currentStep) {
+          const newStep = { round: eventData.round, thought: '', toolCalls: [], expanded: true };
+          subtask.react_steps.push(newStep);
+          subtask.currentStep = newStep;
+        }
+        const toolCall = { tool_name: eventData.tool_name, arguments: eventData.arguments, status: 'running', index: eventData.index, total: eventData.total, showResult: false, showArgs: false };
+        subtask.currentStep.toolCalls.push(toolCall);
+        subtask.tool_calls.push(toolCall);
+      }
+    } else if (eventType === 'call.tool.end' || eventType === 'tool.end') {
+      const subtask = eventData.subtask_order != null ? subtasks.find(s => s.order === eventData.subtask_order) : subtasks.find(s => s.task_id === eventData.parent_call_id) || subtasks[subtasks.length - 1];
+      if (subtask && subtask.currentStep) {
+        const updateTool = (list) => {
+          const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
+          if (idx >= 0) { list[idx].status = 'success'; list[idx].result = eventData.result; list[idx].elapsed_time = eventData.elapsed_time || eventData.execution_time; }
+        };
+        updateTool(subtask.currentStep.toolCalls);
+        updateTool(subtask.tool_calls);
+      }
+    } else if (eventType === 'call.agent.end' || eventType === 'subtask.end') {
+      const subtask = subtasks.find(s => s.order === (eventData.order ?? eventData.subtask_order) || s.task_id === taskId);
+      if (subtask) {
+        subtask.result_summary = eventData.result_summary ?? eventData.result ?? '';
+        subtask.status = eventData.success === false ? 'error' : 'success';
+        subtask.expanded = false;
+      }
+    }
+  }
+  return subtasks;
+}
+
 // 🎯 按轮次分组 subtasks
 const groupSubtasksByRound = (subtasks) => {
   const groups = {};
@@ -490,11 +585,18 @@ const formatTimeLabel = (timeStr) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const showToast = (message, action = null, actionLabel = '重试') => {
+const showToast = (message, actionOrType = null, actionLabel = '重试') => {
+  let type = 'error';
+  let action = null;
+  if (typeof actionOrType === 'string' && (actionOrType === 'success' || actionOrType === 'error')) {
+    type = actionOrType;
+  } else if (typeof actionOrType === 'function') {
+    action = actionOrType;
+  }
   toast.value = {
     visible: true,
     message,
-    type: 'error',
+    type,
     action,
     actionLabel
   };
@@ -578,6 +680,30 @@ const cacheMessages = (sessionId, list) => {
   }
 };
 
+/** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
+const mergeMessageIdsFromServer = async (sessionId) => {
+  if (!sessionId || messages.value.length === 0) return;
+  try {
+    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
+    if (!res.ok) return;
+    const result = await res.json();
+    const items = result.data?.items || [];
+    if (items.length !== messages.value.length) return;
+    for (let i = 0; i < items.length; i++) {
+      const m = messages.value[i];
+      const it = items[i];
+      if (!m || !it) continue;
+      if (m.role !== it.role) continue;
+      m.id = it.id;
+      m.seq = it.seq;
+      if (it.role === 'assistant' && (it.steps || it.metadata?.steps)?.length && !m.subtasks?.length) {
+        m.subtasks = stepsToSubtasks(it.steps || it.metadata.steps);
+      }
+    }
+    cacheMessages(sessionId, messages.value);
+  } catch (_) {}
+};
+
 const loadSessionMessages = async (sessionId) => {
   if (!sessionId) return;
   if (currentStreamController.value) {
@@ -602,17 +728,21 @@ const loadSessionMessages = async (sessionId) => {
     const items = result.data?.items || [];
     const mapped = items.map(item => {
       if (item.role === 'assistant') {
+        const steps = item.steps || item.metadata?.steps;
+        const subtasks = Array.isArray(steps) ? stepsToSubtasks(steps) : [];
         return {
           role: 'assistant',
+          id: item.id,
+          seq: item.seq,
           content: item.content || '',
-          subtasks: [],
+          subtasks,
           showFullSubtasks: false,
-          multimodalContents: [],
-          status: [],
+          multimodalContents: item.multimodalContents || [],
+          status: item.status || [],
           finished: true
         };
       }
-      return { role: 'user', content: item.content || '' };
+      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '' };
     });
     messages.value = mapped;
     cacheMessages(sessionId, mapped);
@@ -657,6 +787,80 @@ const updateRecentSession = (sessionId, content, timestamp) => {
       last_message_at: time,
       unread_count: 0
     });
+  }
+};
+
+const messageKey = (msg, index) => msg.id != null ? `msg-${msg.id}` : `idx-${index}`;
+
+const startEditMessage = (msg, index) => {
+  editingMessageIndex.value = index;
+  editingDraft.value = msg.content || '';
+};
+
+const cancelEdit = () => {
+  editingMessageIndex.value = null;
+  editingDraft.value = '';
+};
+
+/** 编辑后确定：乐观更新（先截断 UI），再请求回退，失败则恢复；成功则发送编辑内容让 agent 重新生成 */
+const confirmEditAndResend = async () => {
+  const idx = editingMessageIndex.value;
+  if (idx == null) return;
+  const msg = messages.value[idx];
+  if (!msg || msg.role !== 'user') {
+    cancelEdit();
+    return;
+  }
+  const content = (editingDraft.value || '').trim();
+  if (!content) {
+    showToast('内容不能为空');
+    return;
+  }
+  const sessionId = currentSessionId.value;
+  if (!sessionId) { cancelEdit(); return; }
+  const prevMessages = messages.value.slice();
+  messages.value = messages.value.slice(0, idx);
+  cacheMessages(sessionId, messages.value);
+  try {
+    let body;
+    if (idx === 0) {
+      body = { after_seq: -1 };
+    } else {
+      const prev = messages.value[idx - 1];
+      body = prev.id ? { after_message_id: prev.id } : (prev.seq != null ? { after_seq: prev.seq } : { after_seq: -1 });
+    }
+    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || '回退失败');
+    }
+    inputMessage.value = content;
+    cancelEdit();
+    await nextTick();
+    handleSend();
+  } catch (e) {
+    messages.value = prevMessages;
+    cacheMessages(sessionId, prevMessages);
+    cancelEdit();
+    showToast(e.message || '操作失败');
+  }
+};
+
+const copyMessage = async (msg) => {
+  const text = (msg.content || '').trim();
+  if (!text) {
+    showToast('无内容可复制');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('已复制到剪贴板', 'success');
+  } catch (e) {
+    showToast('复制失败');
   }
 };
 
@@ -736,6 +940,7 @@ const handleSend = async () => {
           updateRecentSession(sessionId, assistantContent, new Date().toISOString());
         }
         cacheMessages(sessionId, messages.value);
+        mergeMessageIdsFromServer(sessionId);
         break;
       }
 
@@ -752,8 +957,8 @@ const handleSend = async () => {
             const eventData = event.data || {};
             const eventType = event.type;
 
-            // 🎯 Master V2 使用 subtask_start 代表 Agent 调用
-            if (eventType === 'subtask.start') {
+            // 🎯 Master V2：支持 call.agent.start（后端）与 subtask.start（兼容）
+            if (eventType === 'subtask.start' || eventType === 'call.agent.start') {
               // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
@@ -761,12 +966,12 @@ const handleSend = async () => {
 
               currentMsg.subtasks.push({
                 order: eventData.order,
-                task_id: eventData.task_id,  // V2 新增：精确追踪
-                round: eventData.round,  // 🎯 新增：第几轮推理
-                round_index: eventData.round_index,  // 🎯 新增：轮次内索引
-                agent_name: event.agent_name,  // ✨ 从顶层获取
-                agent_display_name: eventData.agent_display_name || eventData.subtask_agent,
-                description: eventData.subtask_description,
+                task_id: eventData.task_id || eventData.call_id,
+                round: eventData.round,
+                round_index: eventData.round_index,
+                agent_name: event.agent_name,
+                agent_display_name: eventData.agent_display_name || eventData.subtask_agent || eventData.agent_name,
+                description: eventData.subtask_description || eventData.description,
                 react_steps: [],
                 tool_calls: [],
                 result_summary: '',
@@ -796,9 +1001,10 @@ const handleSend = async () => {
                 subtask.currentStep = newStep;
               }
             }
-            // 工具调用（如果 Master V2 内部有 Agent 调用工具）
-            else if (eventType === 'tool.start') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
+            // 工具调用（支持 call.tool.start / tool.start）
+            else if (eventType === 'tool.start' || eventType === 'call.tool.start') {
+              let subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id || s.task_id === eventData.parent_call_id);
+              if (!subtask) subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
               if (subtask) {
                 if (!subtask.currentStep) {
                   const newStep = {
@@ -823,8 +1029,9 @@ const handleSend = async () => {
                 subtask.tool_calls.push(toolCall);
               }
             }
-            else if (eventType === 'tool.end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id);
+            else if (eventType === 'tool.end' || eventType === 'call.tool.end') {
+              let subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id || s.task_id === eventData.parent_call_id);
+              if (!subtask) subtask = currentMsg.subtasks[currentMsg.subtasks.length - 1];
               if (subtask && subtask.currentStep) {
                 const updateTool = (list) => {
                   const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
@@ -838,11 +1045,11 @@ const handleSend = async () => {
                 updateTool(subtask.tool_calls);
               }
             }
-            // 🎯 Master V2 的 Agent 调用完成
-            else if (eventType === 'subtask.end') {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id);
+            // 🎯 Master V2 的 Agent 调用完成（支持 call.agent.end / subtask.end）
+            else if (eventType === 'subtask.end' || eventType === 'call.agent.end') {
+              const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id || s.task_id === eventData.call_id);
               if (subtask) {
-                subtask.result_summary = eventData.subtask_result || eventData.result_summary;
+                subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
                 subtask.status = eventData.success === false ? 'error' : 'success';
                 subtask.expanded = false;
               }

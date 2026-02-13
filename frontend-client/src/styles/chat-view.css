@@ -605,6 +605,160 @@
   /* border: 1px solid var(--color-border); */
 }
 
+/* 用户消息行内编辑 */
+.user-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-edit-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  line-height: 1.2;
+  resize: vertical;
+  min-height: 30px;
+}
+.user-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-editor {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+.btn-editor.btn-save {
+  background: var(--color-primary, #409eff);
+  color: #fff;
+  border-color: var(--color-primary, #409eff);
+}
+.btn-editor.btn-cancel:hover,
+.btn-editor.btn-save:hover {
+  opacity: 0.9;
+}
+
+/* 消息操作：回退 / 编辑 / 从这条重新发送 */
+.message {
+  position: relative;
+}
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.message-actions.visible {
+  opacity: 1;
+}
+.msg-action-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.msg-action-btn:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* Toast 提示框 - 与页面玻璃态 / 设计变量一致 */
+.toast {
+  position: fixed;
+  top: var(--spacing-lg);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-glass-border);
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  max-width: min(90vw, 420px);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  animation: toastIn var(--transition-normal) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.toast span {
+  color: inherit;
+  flex: 1;
+}
+
+/* 成功：左侧细条 + 柔和背景 */
+.toast.success {
+  background: var(--glass-bg);
+  border-left: 3px solid var(--color-success);
+  color: var(--color-text-primary);
+}
+
+.toast.success span {
+  color: var(--color-text-primary);
+}
+
+/* 错误：左侧细条，不改变整体背景 */
+.toast.error {
+  background: var(--glass-bg);
+  border-left: 3px solid var(--color-error);
+  color: var(--color-text-primary);
+}
+
+.toast.error span {
+  color: var(--color-text-primary);
+}
+
+/* 默认 / 信息：可选品牌色细条 */
+.toast:not(.success):not(.error) {
+  border-left: 3px solid var(--color-border-hover);
+}
+
+.toast-action {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.toast-action:hover {
+  background: var(--color-interactive-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
 /* ===== Final Answer ===== */
 .final-answer {
   background-color: transparent;

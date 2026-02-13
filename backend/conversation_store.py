@@ -100,6 +100,28 @@ class ConversationStore:
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)"
             )
 
+            # run_steps: 中间过程步骤，与 assistant 消息通过 message_id 关联
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_steps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    message_id TEXT,
+                    step_order INTEGER NOT NULL,
+                    step_type TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_run_steps_session_run ON run_steps(session_id, run_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_run_steps_message_id ON run_steps(message_id)"
+            )
+
             if self.enable_archive:
                 conn.execute(
                     """
@@ -204,6 +226,191 @@ class ConversationStore:
             "content": content,
             "metadata": metadata or {}
         }
+
+    def add_run_step(
+        self,
+        session_id: str,
+        run_id: str,
+        step_type: str,
+        payload: Dict[str, Any],
+        message_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """写入一条 run 步骤；message_id 可在 FINAL_ANSWER 后通过 update_run_steps_message_id 批量更新。"""
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        with self._get_connection() as conn:
+            next_order = conn.execute(
+                "SELECT COALESCE(MAX(step_order), 0) + 1 FROM run_steps WHERE session_id=? AND run_id=?",
+                (session_id, run_id)
+            ).fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, session_id, message_id, next_order, step_type, payload_json)
+            )
+        return {"run_id": run_id, "step_order": next_order, "step_type": step_type}
+
+    def update_run_steps_message_id(self, session_id: str, run_id: str, message_id: str) -> int:
+        """将某 run 下所有 step 的 message_id 更新为指定值。返回更新的行数。"""
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE run_steps SET message_id=? WHERE session_id=? AND run_id=?",
+                (message_id, session_id, run_id)
+            )
+            return cur.rowcount
+
+    def list_run_steps(
+        self,
+        run_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        """按 run_id 或 message_id 查询步骤；若传 session_id 则校验归属。"""
+        with self._get_connection() as conn:
+            if message_id:
+                if session_id:
+                    rows = conn.execute(
+                        """
+                        SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+                        FROM run_steps
+                        WHERE message_id=? AND session_id=?
+                        ORDER BY step_order ASC
+                        LIMIT ?
+                        """,
+                        (message_id, session_id, limit)
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+                        FROM run_steps
+                        WHERE message_id=?
+                        ORDER BY step_order ASC
+                        LIMIT ?
+                        """,
+                        (message_id, limit)
+                    ).fetchall()
+            elif run_id:
+                if session_id:
+                    rows = conn.execute(
+                        """
+                        SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+                        FROM run_steps
+                        WHERE run_id=? AND session_id=?
+                        ORDER BY step_order ASC
+                        LIMIT ?
+                        """,
+                        (run_id, session_id, limit)
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+                        FROM run_steps
+                        WHERE run_id=?
+                        ORDER BY step_order ASC
+                        LIMIT ?
+                        """,
+                        (run_id, limit)
+                    ).fetchall()
+            else:
+                return []
+            items = []
+            for row in rows:
+                items.append({
+                    "id": row["id"],
+                    "run_id": row["run_id"],
+                    "session_id": row["session_id"],
+                    "message_id": row["message_id"],
+                    "step_order": row["step_order"],
+                    "step_type": row["step_type"],
+                    "payload": json.loads(row["payload"] or "{}"),
+                    "created_at": row["created_at"]
+                })
+            return items
+
+    def delete_messages_after(
+        self,
+        session_id: str,
+        after_seq: Optional[int] = None,
+        after_message_id: Optional[str] = None
+    ) -> int:
+        """删除某条之后的所有消息（不含该条），并删除关联的 run_steps。返回删除的消息数。"""
+        with self._get_connection() as conn:
+            if after_message_id is not None:
+                row = conn.execute(
+                    "SELECT seq FROM messages WHERE session_id=? AND id=?",
+                    (session_id, after_message_id)
+                ).fetchone()
+                if not row:
+                    return 0
+                after_seq = row["seq"]
+            if after_seq is None:
+                return 0
+            rows = conn.execute(
+                "SELECT id FROM messages WHERE session_id=? AND seq > ?",
+                (session_id, after_seq)
+            ).fetchall()
+            message_ids = [r["id"] for r in rows]
+            if not message_ids:
+                return 0
+            placeholders = ",".join(["?"] * len(message_ids))
+            conn.execute(
+                f"DELETE FROM run_steps WHERE message_id IN ({placeholders})",
+                message_ids
+            )
+            conn.execute(
+                f"DELETE FROM messages WHERE session_id=? AND seq > ?",
+                (session_id, after_seq)
+            )
+            conn.execute(
+                "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
+                (session_id,)
+            )
+            return len(message_ids)
+
+    def update_message(
+        self,
+        message_id: str,
+        content: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        role_filter: Optional[str] = None
+    ) -> bool:
+        """更新消息的 content 和/或 metadata。若 session_id 指定则校验归属；若 role_filter 指定则仅允许该 role。返回是否更新了行。"""
+        updates = []
+        params = []
+        if content is not None:
+            updates.append("content = ?")
+            params.append(content)
+        if metadata is not None:
+            updates.append("metadata = ?")
+            params.append(json.dumps(metadata, ensure_ascii=False))
+        if not updates:
+            return False
+        with self._get_connection() as conn:
+            where = ["id=?"]
+            params_where = [message_id]
+            if session_id is not None:
+                where.append("session_id=?")
+                params_where.append(session_id)
+            if role_filter is not None:
+                where.append("role=?")
+                params_where.append(role_filter)
+            row = conn.execute(
+                f"SELECT seq FROM messages WHERE {' AND '.join(where)}",
+                params_where
+            ).fetchone()
+            if not row:
+                return False
+            params.extend(params_where)
+            cur = conn.execute(
+                f"UPDATE messages SET {', '.join(updates)} WHERE {' AND '.join(where)}",
+                params
+            )
+            return cur.rowcount > 0
 
     def list_messages(
         self,

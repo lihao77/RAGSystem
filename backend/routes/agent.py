@@ -9,6 +9,7 @@ from flask import Blueprint, request, Response, stream_with_context
 import logging
 import json
 import asyncio
+import uuid as uuid_module
 from agents import (
     AgentContext,
     get_orchestrator,
@@ -425,6 +426,10 @@ def stream_execute():
             context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
             _load_history_into_context(context, session_id=session_id, limit=20)
 
+            # 生成 run_id 并注入 context，用于中间过程落库与关联 assistant 消息
+            run_id = str(uuid_module.uuid4())
+            context.metadata['run_id'] = run_id
+
             # 强制使用 MasterAgent V2
             master_agent = orchestrator.agents.get('master_agent_v2')
             if not master_agent:
@@ -446,20 +451,68 @@ def stream_execute():
             import threading
             final_answer_saved = threading.Event()
 
-            def handle_final_answer(event):
-                content = event.data.get("content") if event and event.data else None
-                if content and not final_answer_saved.is_set():
-                    store.add_message(
+            # 需要落库的中间过程事件类型
+            step_event_types = [
+                EventType.RUN_START,
+                EventType.AGENT_START,
+                EventType.THOUGHT_STRUCTURED,
+                EventType.CALL_AGENT_START,
+                EventType.CALL_AGENT_END,
+                EventType.CALL_TOOL_START,
+                EventType.CALL_TOOL_END,
+                EventType.FINAL_ANSWER,
+                EventType.RUN_END,
+            ]
+
+            def make_payload_safe(data):
+                """确保 payload 可 JSON 序列化（避免 event.data 中含不可序列化对象）。"""
+                if data is None:
+                    return {}
+                if not isinstance(data, dict):
+                    return {"value": str(data)}
+                out = {}
+                for k, v in data.items():
+                    try:
+                        json.dumps(v, ensure_ascii=False)
+                        out[k] = v
+                    except (TypeError, ValueError):
+                        out[k] = str(v)
+                return out
+
+            def handle_step_and_final_answer(event):
+                payload = {
+                    "type": event.type.value,
+                    "data": make_payload_safe(event.data),
+                    "agent_name": event.agent_name,
+                }
+                try:
+                    store.add_run_step(
                         session_id=session_id,
-                        role="assistant",
-                        content=content,
-                        metadata={"agent": event.agent_name}
+                        run_id=run_id,
+                        step_type=event.type.value,
+                        payload=payload,
+                        message_id=None,
                     )
-                    final_answer_saved.set()
+                except Exception as e:
+                    logger.warning(f"写入 run_step 失败: {e}", exc_info=True)
+                if event.type == EventType.FINAL_ANSWER:
+                    content = (event.data or {}).get("content")
+                    if content is not None and not final_answer_saved.is_set():
+                        try:
+                            msg = store.add_message(
+                                session_id=session_id,
+                                role="assistant",
+                                content=content if isinstance(content, str) else str(content),
+                                metadata={"agent": event.agent_name, "run_id": run_id},
+                            )
+                            store.update_run_steps_message_id(session_id, run_id, msg["id"])
+                        except Exception as e:
+                            logger.warning(f"写入 assistant 消息或更新 run_steps message_id 失败: {e}", exc_info=True)
+                        final_answer_saved.set()
 
             subscription_id = event_bus.subscribe(
-                event_types=[EventType.FINAL_ANSWER],
-                handler=handle_final_answer,
+                event_types=step_event_types,
+                handler=handle_step_and_final_answer,
                 filter_func=lambda e: e.session_id == session_id
             )
 
@@ -470,12 +523,13 @@ def stream_execute():
                     logger.info(f"后台执行 Agent 任务: {task}")
                     response = master_agent.execute(task, context)
                     if response and getattr(response, "content", None) and not final_answer_saved.is_set():
-                        store.add_message(
+                        msg = store.add_message(
                             session_id=session_id,
                             role="assistant",
                             content=response.content,
-                            metadata={"agent": getattr(response, "agent_name", None)}
+                            metadata={"agent": getattr(response, "agent_name", None), "run_id": run_id},
                         )
+                        store.update_run_steps_message_id(session_id, run_id, msg["id"])
                         final_answer_saved.set()
                     logger.info(f"Agent 任务执行完成: {task}")
                 except Exception as e:
@@ -733,13 +787,79 @@ def get_session(session_id):
         return error_response(message=str(e), status_code=500)
 
 
+@agent_bp.route('/sessions/<session_id>/rollback', methods=['POST'])
+def rollback_session(session_id):
+    """
+    回退到某条消息：删除该条之后的所有消息及关联 run_steps。
+    Body: { "after_seq": 5 } 或 { "after_message_id": "uuid" }
+    """
+    try:
+        data = request.get_json() or {}
+        after_seq = data.get('after_seq')
+        after_message_id = data.get('after_message_id')
+        if after_seq is None and not after_message_id:
+            return error_response(message='请提供 after_seq 或 after_message_id', status_code=400)
+        if after_seq is not None and not isinstance(after_seq, int):
+            try:
+                after_seq = int(after_seq)
+            except (TypeError, ValueError):
+                return error_response(message='after_seq 须为整数', status_code=400)
+        store = _get_conversation_store()
+        deleted = store.delete_messages_after(
+            session_id=session_id,
+            after_seq=after_seq,
+            after_message_id=after_message_id,
+        )
+        return success_response(data={'deleted': deleted}, message='回退成功')
+    except Exception as e:
+        logger.error(f'回退失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions/<session_id>/messages/<message_id>', methods=['PATCH'])
+def update_session_message(session_id, message_id):
+    """
+    更新某条消息内容（主要用于编辑 user 消息）。
+    Body: { "content": "新内容" }
+    """
+    try:
+        data = request.get_json() or {}
+        content = data.get('content')
+        if content is None:
+            return error_response(message='请提供 content', status_code=400)
+        store = _get_conversation_store()
+        updated = store.update_message(
+            message_id=message_id,
+            content=content,
+            session_id=session_id,
+            role_filter='user',
+        )
+        if not updated:
+            return error_response(message='消息不存在或不可编辑', status_code=404)
+        return success_response(data={'message_id': message_id}, message='更新成功')
+    except Exception as e:
+        logger.error(f'更新消息失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
 @agent_bp.route('/sessions/<session_id>/messages', methods=['GET'])
 def get_session_messages(session_id):
     try:
         limit = int(request.args.get('limit', 20))
         offset = int(request.args.get('offset', 0))
+        expand = request.args.get('expand', 'steps').lower()
+        expand_steps = expand in ('1', 'true', 'steps', 'yes')
         store = _get_conversation_store()
         data = store.list_messages(session_id=session_id, limit=limit, offset=offset)
+        if expand_steps and data.get('items'):
+            for item in data['items']:
+                if item.get('role') == 'assistant' and (item.get('metadata') or {}).get('run_id'):
+                    steps = store.list_run_steps(
+                        message_id=item['id'],
+                        session_id=session_id,
+                        limit=500,
+                    )
+                    item['steps'] = steps
         return success_response(data=data, message='获取对话记录成功')
     except Exception as e:
         logger.error(f'获取对话记录失败: {e}', exc_info=True)
