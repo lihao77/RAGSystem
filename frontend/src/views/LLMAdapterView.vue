@@ -19,9 +19,9 @@
       </el-button>
     </div>
 
-    <!-- Provider 列表 -->
+    <!-- Provider 列表（使用复合键 provider.key 标识） -->
     <div class="provider-list">
-      <el-card v-for="provider in providers" :key="provider.name" class="provider-card">
+      <el-card v-for="provider in providers" :key="provider.key || provider.name" class="provider-card">
         <template #header>
           <div class="provider-header">
             <div class="provider-info">
@@ -31,13 +31,13 @@
               </el-tag>
             </div>
             <div class="provider-actions">
-              <el-button size="small" @click="testProvider(provider.name)">
+              <el-button size="small" @click="testProvider(provider.key || provider.name)">
                 测试
               </el-button>
               <el-button size="small" type="primary" @click="showEditProviderDialog(provider)">
                 编辑
               </el-button>
-              <el-button size="small" type="danger" @click="deleteProvider(provider.name)">
+              <el-button size="small" type="danger" @click="deleteProvider(provider.key || provider.name)">
                 删除
               </el-button>
             </div>
@@ -307,7 +307,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Connection } from '@element-plus/icons-vue'
-import { llmAdapterService } from '@/api'
+import { modelAdapterService } from '@/api'
 
 // 数据
 const providers = ref([])
@@ -371,7 +371,7 @@ const getDefaultEndpoint = () => {
 
 const loadProviders = async () => {
   try {
-    const res = await llmAdapterService.getProviders()
+    const res = await modelAdapterService.getProviders()
     providers.value = res.providers || []
   } catch (error) {
     ElMessage.error('加载 Provider 列表失败')
@@ -414,7 +414,7 @@ const showAddProviderDialog = () => {
 
 const showEditProviderDialog = (provider) => {
   dialogTitle.value = '编辑 Provider'
-  currentProvider.value = provider.name
+  currentProvider.value = provider.key || provider.name
 
   // 将模型数组转换为文本
   const modelsText = provider.models && provider.models.length > 0
@@ -467,7 +467,7 @@ const submitForm = async () => {
           name: formData.value.name,
           // 不包含 api_key 和 api_endpoint
         }
-        await llmAdapterService.updateProvider(currentProvider.value, submitData)
+        await modelAdapterService.updateProvider(currentProvider.value, submitData)
         ElMessage.success('更新成功')
       } else {
         // 添加模式：可以修改所有字段
@@ -478,7 +478,7 @@ const submitForm = async () => {
           api_key: formData.value.api_key,
           api_endpoint: formData.value.api_endpoint || ''
         }
-        await llmAdapterService.createProvider(submitData)
+        await modelAdapterService.createProvider(submitData)
         ElMessage.success('添加成功')
       }
 
@@ -496,7 +496,7 @@ const deleteProvider = async (name) => {
       type: 'warning'
     })
 
-    await llmAdapterService.deleteProvider(name)
+    await modelAdapterService.deleteProvider(name)
     ElMessage.success('删除成功')
     loadProviders()
   } catch (error) {
@@ -508,7 +508,7 @@ const deleteProvider = async (name) => {
 
 const setActiveProvider = async (name) => {
   try {
-    await llmAdapterService.setActiveProvider(name)
+    await modelAdapterService.setActiveProvider(name)
     ElMessage.success('设置成功')
     loadProviders()
   } catch (error) {
@@ -546,17 +546,15 @@ const runTest = async () => {
   testResult.value = null
 
   try {
+    const p = providers.value.find(x => (x.key || x.name) === currentProvider.value)
     const testParams = {
-      provider: currentProvider.value,
+      provider: p ? p.name : currentProvider.value,
+      provider_type: p?.provider_type,
       prompt: testPrompt.value
     }
+    if (testModel.value) testParams.model = testModel.value
 
-    // 如果有选择模型，则传入模型参数
-    if (testModel.value) {
-      testParams.model = testModel.value
-    }
-
-    const res = await llmAdapterService.testProvider(testParams)
+    const res = await modelAdapterService.testProvider(testParams)
     testResult.value = res.response
   } catch (error) {
     ElMessage.error('测试失败')

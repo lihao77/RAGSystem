@@ -2,6 +2,60 @@
 
 这是一个基于Flask框架重构的知识图谱后端项目，提供知识图谱的构建、查询、可视化和评估功能。
 
+## 快速开始
+
+### 首次部署最小配置
+
+**必需配置**（1 个文件）：
+
+1. **复制并编辑 Model Adapter 配置**
+```bash
+cd backend
+cp model_adapter/configs/providers.yaml.example model_adapter/configs/providers.yaml
+# 编辑 providers.yaml，填入真实 API 密钥（或使用 ${ENV_VAR} 环境变量）
+```
+
+**可选配置**：
+
+- `config/yaml/config.yaml`：Neo4j、向量库、系统默认 LLM/Embedding。不存在时使用 `config/models.py` 默认值。可复制 `config/yaml/config.yaml.example` 为 `config.yaml` 后修改。
+- `agents/configs/agent_configs.yaml`：智能体列表与行为。可复制 `agents/configs/agent_configs.yaml.example` 为 `agent_configs.yaml` 后修改。
+
+**启动**：
+```bash
+cd backend
+python app.py
+```
+服务默认运行在 `http://localhost:5000`。
+
+> 敏感配置文件（`providers.yaml`、`config.yaml`、`agent_configs.yaml`）已加入仓库 `.gitignore`，请勿提交真实密钥。
+
+### 详细文档
+
+- **[配置系统指南](../docs/configuration-guide.md)**：配置文件说明、首次部署、安全实践
+- **Backend 配置调查报告**：`../docs/BACKEND_CONFIG_SURVEY.md`（配置体系与加载方式）
+
+### 常见问题
+
+**启动报错：缺少 providers.yaml**
+
+```
+缺少必需配置: .../providers.yaml
+```
+
+解决：在 `backend` 目录下执行：
+```bash
+cp model_adapter/configs/providers.yaml.example model_adapter/configs/providers.yaml
+# 编辑 providers.yaml 填入真实 API 密钥
+```
+
+**如何检查配置是否正常？**
+```bash
+cd backend
+python -m config.health_check
+```
+
+更多问题见 [配置系统指南](../docs/configuration-guide.md)。
+
 ## 功能特性
 
 - **系统设置管理**: 配置Neo4j数据库、LLM服务和地理编码服务

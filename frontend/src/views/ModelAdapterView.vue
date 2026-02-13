@@ -39,9 +39,6 @@
               <el-tag :type="getProviderTypeTag(provider.provider_type)">
                 {{ provider.provider_type }}
               </el-tag>
-              <el-tag size="small" type="info" style="margin-left: 10px;">
-                {{ provider.key }}
-              </el-tag>
             </div>
             <div class="provider-actions">
               <el-button size="small" @click="testProvider(provider.key)">
@@ -654,15 +651,15 @@ const setActiveProvider = async (name) => {
   }
 }
 
-const testProvider = (name) => {
-  currentProvider.value = name
+const testProvider = (providerKey) => {
+  currentProvider.value = providerKey
   testModel.value = ''
   testResult.value = null
   testPrompt.value = '你好，请介绍一下自己'
   testTask.value = 'chat'
   testDialogVisible.value = true
   
-  const provider = providers.value.find(p => p.name === name)
+  const provider = providers.value.find(p => (p.key || p.name) === providerKey)
   const chatModels = getModelsList(provider?.model_map, 'chat')
   testModel.value = chatModels.length ? chatModels[0] : ''
 }
@@ -690,16 +687,14 @@ const runTest = async () => {
   testResult.value = null
 
   try {
+    const p = currentProviderObj.value
     const testParams = {
-      provider: currentProvider.value,
+      provider: p?.name ?? currentProvider.value,
+      provider_type: p?.provider_type,
       prompt: testPrompt.value,
-      task: testTask.value // 传递任务类型
+      task: testTask.value
     }
-
-    // 如果有选择模型，则传入模型参数
-    if (testModel.value) {
-      testParams.model = testModel.value
-    }
+    if (testModel.value) testParams.model = testModel.value
 
     const res = await modelAdapterService.testProvider(testParams)
     testResult.value = res.response

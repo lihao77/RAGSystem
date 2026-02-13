@@ -240,6 +240,36 @@ class ModelAdapter:
                 f"请指定 provider_type"
             )
 
+    def _resolve_provider_key(self, provider: str, provider_type: Optional[str] = None) -> str:
+        """
+        将 provider（name）或 provider+provider_type 解析为存储用的复合键。
+        调用方只需传 provider 与可选的 provider_type，无需自己拼接复合键。
+        """
+        if not provider:
+            if self.providers:
+                return list(self.providers.keys())[0]
+            raise ValueError("未指定 Provider 且无可用 Provider")
+        if provider_type:
+            key = self._make_provider_key(provider, provider_type)
+            if key in self.providers:
+                return key
+            raise ValueError(f"Provider 不存在: {key}")
+        if provider in self.providers:
+            return provider
+        clean = provider.lower().replace(" ", "_")
+        if clean in self.providers:
+            return clean
+        prefix = clean + "_"
+        matching = [k for k in self.providers if k.startswith(prefix)]
+        if len(matching) == 0:
+            raise ValueError(f"Provider 不存在: {provider}")
+        if len(matching) == 1:
+            return matching[0]
+        types = [k.split("_")[-1] for k in matching]
+        raise ValueError(
+            f"名称 '{provider}' 匹配多个 Provider ({', '.join(types)})，请指定 provider_type"
+        )
+
     def reload(self) -> bool:
         """
         热重载所有配置（原子性，失败自动回滚）
@@ -279,27 +309,19 @@ class ModelAdapter:
         max_tokens: Optional[int] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        provider_type: Optional[str] = None,
         **kwargs
     ) -> ModelResponse:
         """
-        发送对话补全请求
-
-        Args:
-            messages: 消息列表
-            provider: 使用的 Provider 名称（必需）
-            model: 使用的模型（可选，若不传则使用 Provider 默认 Chat 模型）
-            ...
+        发送对话补全请求。
+        provider 可为 name（如 test）或复合键（如 test_deepseek）；若同时传 provider_type 则按 name+type 解析。
         """
-        # 验证Provider是否存在
-        provider_name = provider.lower().replace(" ", "_")
-        if provider_name not in self.providers:
-            return ModelResponse(
-                error=f"Provider 不存在: {provider}",
-                provider=provider_name
-            )
-
         try:
-            provider_instance = self.providers[provider_name]
+            provider_key = self._resolve_provider_key(provider, provider_type)
+        except ValueError as e:
+            return ModelResponse(error=str(e), provider=provider)
+        try:
+            provider_instance = self.providers[provider_key]
 
             response = provider_instance.chat_completion(
                 messages=messages,
@@ -314,10 +336,10 @@ class ModelAdapter:
             return response
 
         except Exception as e:
-            logger.error(f"Provider {provider_name} 调用异常: {str(e)}")
+            logger.error(f"Provider {provider_key} 调用异常: {str(e)}")
             return ModelResponse(
                 error=f"Provider 调用失败: {str(e)}",
-                provider=provider_name
+                provider=provider_key
             )
 
     def chat_completion_stream(
@@ -327,20 +349,17 @@ class ModelAdapter:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        provider_type: Optional[str] = None,
         **kwargs
     ):
-        """流式对话补全请求"""
-        provider_name = provider.lower().replace(" ", "_")
-        if provider_name not in self.providers:
-            yield {
-                "content": "",
-                "error": f"Provider 不存在: {provider}",
-                "finish_reason": "error"
-            }
-            return
-
+        """流式对话补全请求。provider 可为 name；若传 provider_type 则按 name+type 解析为复合键。"""
         try:
-            provider_instance = self.providers[provider_name]
+            provider_key = self._resolve_provider_key(provider, provider_type)
+        except ValueError as e:
+            yield {"content": "", "error": str(e), "finish_reason": "error"}
+            return
+        try:
+            provider_instance = self.providers[provider_key]
 
             for chunk in provider_instance.chat_completion_stream(
                 messages=messages,
@@ -352,7 +371,7 @@ class ModelAdapter:
                 yield chunk
 
         except Exception as e:
-            logger.error(f"Provider {provider_name} 流式调用异常: {str(e)}")
+            logger.error(f"Provider {provider_key} 流式调用异常: {str(e)}")
             yield {
                 "content": "",
                 "error": f"Provider 调用失败: {str(e)}",
@@ -385,27 +404,18 @@ class ModelAdapter:
         provider: str,
         model: Optional[str] = None,
         dimensions: Optional[int] = None,
+        provider_type: Optional[str] = None,
         **kwargs
     ) -> EmbeddingResponse:
         """
-        生成向量 Embedding
-        
-        Args:
-            texts: 文本列表
-            provider: Provider 名称（必需）
-            model: 模型名称（可选，若不传则使用 Provider 默认 Embedding 模型）
-            dimensions: 向量维度
+        生成向量 Embedding。provider 可为 name；若传 provider_type 则按 name+type 解析为复合键。
         """
-        provider_name = provider.lower().replace(" ", "_")
-        if provider_name not in self.providers:
-            return EmbeddingResponse(
-                embeddings=[],
-                error=f"Provider 不存在: {provider}",
-                provider=provider_name
-            )
-            
         try:
-            provider_instance = self.providers[provider_name]
+            provider_key = self._resolve_provider_key(provider, provider_type)
+        except ValueError as e:
+            return EmbeddingResponse(embeddings=[], error=str(e), provider=provider)
+        try:
+            provider_instance = self.providers[provider_key]
             
             return provider_instance.embed(
                 texts=texts,
@@ -415,11 +425,11 @@ class ModelAdapter:
             )
             
         except Exception as e:
-            logger.error(f"Provider {provider_name} Embedding 调用异常: {str(e)}")
+            logger.error(f"Provider {provider_key} Embedding 调用异常: {str(e)}")
             return EmbeddingResponse(
                 embeddings=[],
                 error=f"Provider 调用失败: {str(e)}",
-                provider=provider_name
+                provider=provider_key
             )
 
 

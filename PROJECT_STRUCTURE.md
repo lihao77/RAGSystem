@@ -75,7 +75,6 @@ RAGSystem/
 ├── .gitignore                    # Git忽略文件
 ├── README.md                     # 项目README ⭐
 ├── PROJECT_STRUCTURE.md          # 本文件
-├── LLMJSON_V2_INTEGRATION.md     # LLMJson V2集成文档
 └── start_server.bat              # 一键启动脚本
 ```
 

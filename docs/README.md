@@ -1,8 +1,14 @@
 # RAGSystem 文档中心
 
-欢迎来到RAGSystem文档中心！这里包含了系统的所有文档。
+欢迎来到 RAGSystem 文档中心！这里包含系统的所有文档。
 
 ## 📚 文档导航
+
+### 配置与迁移
+- **[配置系统指南](configuration-guide.md)** - 后端配置、首次部署、健康检查
+- **[迁移指南](migration/README.md)** - 向量存储、LLMAdapter 等迁移文档
+  - [向量存储迁移](migration/VECTOR_STORE_MIGRATION.md) - ChromaDB → SQLite-vec
+  - [LLMAdapter 迁移](migration/LLMADAPTER_MIGRATION_GUIDE.md) - LLMService → LLMAdapter
 
 ### 节点系统
 - **[节点配置UI文档](node-config-ui/README.md)** - 节点配置界面升级完整文档
@@ -14,9 +20,6 @@
 ### 后端开发
 - **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的开发指南
 - **[UI元数据快速参考](../backend/nodes/UI_METADATA_REFERENCE.md)** - 快速参考卡片
-
-### 集成文档
-- **[LLMJson V2集成](../LLMJSON_V2_INTEGRATION.md)** - LLMJson V2节点集成说明
 
 ## 🎯 快速链接
 
@@ -37,14 +40,31 @@
 ```
 docs/
 ├── README.md                    # 本文件 - 文档中心导航
-└── node-config-ui/              # 节点配置UI文档
-    ├── README.md                # 节点配置UI文档导航
-    ├── QUICK_START_CONFIG_UI.md # 快速启动指南
-    ├── NODE_CONFIG_SUMMARY.md   # 升级总结
-    ├── NODE_CONFIG_UI_UPGRADE.md # 完整升级说明
-    ├── NODE_CONFIG_COMPARISON.md # 升级前后对比
-    ├── NODE_CONFIG_CHANGELOG.md  # 更新日志
-    └── NODE_CONFIG_CHECKLIST.md  # 检查清单
+├── DOCUMENTATION_MAP.md         # 文档地图
+├── configuration-guide.md       # 配置系统指南
+├── BACKEND_CONFIG_SURVEY.md    # 后端配置调查报告
+├── FILE_SYSTEM_INTEGRATION.md   # 文件系统集成
+├── migration/                  # 迁移指南
+│   ├── README.md
+│   ├── VECTOR_STORE_MIGRATION.md
+│   └── LLMADAPTER_MIGRATION_GUIDE.md
+└── node-config-ui/             # 节点配置UI文档
+    ├── README.md
+    ├── QUICK_START_CONFIG_UI.md
+    ├── NODE_CONFIG_SUMMARY.md
+    ├── NODE_CONFIG_UI_UPGRADE.md
+    ├── NODE_CONFIG_COMPARISON.md
+    ├── NODE_CONFIG_CHANGELOG.md
+    └── NODE_CONFIG_CHECKLIST.md
+
+backend/agents/docs/             # 智能体与事件总线文档
+├── event-bus/                   # 事件总线
+│   ├── README.md
+│   ├── EVENT_BUS_INTEGRATION_GUIDE.md
+│   └── SESSION_EVENT_BUS_GUIDE.md
+├── SMART_CONTEXT_MANAGEMENT.md
+├── MASTER_AGENT_CONTEXT_CONFIG.md
+└── ... (AGENT_*, UNIFIED_ENTRY 等)
 
 backend/nodes/
 ├── CONFIG_UI_GUIDE.md           # 详细使用指南

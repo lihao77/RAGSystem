@@ -1,10 +1,5 @@
 active_vectorizer_key: modelscope_modelscope_Qwen_Qwen3-Embedding-8B
 vectorizers:
-  test_openrouter_openai_text-embedding-3-small:
-    provider_key: test_openrouter
-    model_name: openai/text-embedding-3-small
-    distance_metric: cosine
-    created_at: '2026-02-13T07:14:19.948779Z'
   modelscope_modelscope_Qwen_Qwen3-Embedding-8B:
     provider_key: modelscope_modelscope
     model_name: Qwen/Qwen3-Embedding-8B

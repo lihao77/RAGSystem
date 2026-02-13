@@ -247,12 +247,13 @@ def test_provider():
     """
     try:
         data = request.get_json()
-        provider_key = data.get('provider')  # 现在可以是复合键或简单名称
+        provider = data.get('provider')  # name 或复合键
+        provider_type = data.get('provider_type')  # 与 provider 一起解析为复合键
         prompt = data.get('prompt')
-        model = data.get('model')  # 可选的模型参数
-        task = data.get('task', 'chat') # 任务类型
+        model = data.get('model')
+        task = data.get('task', 'chat')
 
-        if not provider_key:
+        if not provider:
             return jsonify({
                 'success': False,
                 'message': '请提供 Provider'
@@ -269,8 +270,9 @@ def test_provider():
             messages = [{"role": "user", "content": prompt}]
             response = adapter.chat_completion(
                 messages=messages,
-                provider=provider_key,  # 使用 provider_key
-                model=model,  # 传入模型参数
+                provider=provider,
+                model=model,
+                provider_type=provider_type,
                 temperature=0.7,
                 max_tokens=500
             )
@@ -294,8 +296,9 @@ def test_provider():
             # 测试 Embedding
             response = adapter.embed(
                 texts=[prompt],
-                provider=provider_key,  # 使用 provider_key
-                model=model
+                provider=provider,
+                model=model,
+                provider_type=provider_type
             )
             
             return jsonify({

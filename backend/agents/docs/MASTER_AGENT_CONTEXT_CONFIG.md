@@ -247,6 +247,6 @@ max_context_tokens=10000
 ---
 
 **相关文档：**
-- 完整文档：`backend/agents/SMART_CONTEXT_MANAGEMENT.md`
+- 完整文档：[SMART_CONTEXT_MANAGEMENT.md](SMART_CONTEXT_MANAGEMENT.md)（本目录）
 - 测试脚本：`backend/test_smart_context.py`
 - 实现代码：`backend/agents/context_manager.py`

@@ -6,7 +6,7 @@
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
 
@@ -14,11 +14,16 @@ class AgentLLMConfig(BaseModel):
     """
     智能体的 LLM 配置
 
-    可以为每个智能体指定不同的 LLM Provider 和模型
+    可以为每个智能体指定不同的 LLM Provider 和模型。
+    调用 ModelAdapter 时传 provider + provider_type + model_name，由后端解析为复合键。
     """
     provider: Optional[str] = Field(
         default=None,
-        description="LLM Provider 名称（如 'deepseek', 'openai'），None 表示使用系统默认"
+        description="Provider 名称（如 'test', 'openai'），None 表示使用系统默认"
+    )
+    provider_type: Optional[str] = Field(
+        default=None,
+        description="Provider 类型（如 'deepseek', 'openrouter'），与 provider 一起用于解析复合键"
     )
     model_name: Optional[str] = Field(
         default=None,
@@ -72,6 +77,7 @@ class AgentLLMConfig(BaseModel):
 
         # 使用智能体配置优先，否则使用系统默认
         result['provider'] = self.provider or getattr(default_config.llm, 'provider', None)
+        result['provider_type'] = self.provider_type or getattr(default_config.llm, 'provider_type', None)
         result['model_name'] = self.model_name or getattr(default_config.llm, 'model_name', None)
         result['temperature'] = self.temperature if self.temperature is not None else getattr(default_config.llm, 'temperature', 0.7)
         result['max_tokens'] = self.max_tokens or getattr(default_config.llm, 'max_tokens', 4096)
@@ -118,6 +124,39 @@ class AgentConfig(BaseModel):
 
     包含 LLM 配置、工具配置和其他智能体特定参数
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "agent_name": "custom_agent",
+                "display_name": "自定义智能体",
+                "description": "通过配置定义的智能体",
+                "enabled": True,
+                "llm": {
+                    "provider": "deepseek",
+                    "model_name": "deepseek-chat",
+                    "temperature": 0.3,
+                    "max_tokens": 4096
+                },
+                "tools": {
+                    "enabled_tools": ["query_kg", "semantic_search"]
+                },
+                "skills": {
+                    "enabled_skills": ["disaster-report-example"],
+                    "auto_inject": True
+                },
+                "custom_params": {
+                    "type": "react",
+                    "behavior": {
+                        "system_prompt": "你是一个专门做XX的智能体...",
+                        "max_rounds": 10,
+                        "auto_execute_tools": True,
+                        "task_patterns": ["查询.*", "分析.*"]
+                    }
+                }
+            }
+        }
+    )
+
     agent_name: str = Field(
         ...,
         description="智能体名称（唯一标识）"
@@ -157,38 +196,6 @@ class AgentConfig(BaseModel):
         default_factory=dict,
         description="智能体特定的自定义参数"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "agent_name": "custom_agent",
-                "display_name": "自定义智能体",
-                "description": "通过配置定义的智能体",
-                "enabled": True,
-                "llm": {
-                    "provider": "deepseek",
-                    "model_name": "deepseek-chat",
-                    "temperature": 0.3,
-                    "max_tokens": 4096
-                },
-                "tools": {
-                    "enabled_tools": ["query_kg", "semantic_search"]
-                },
-                "skills": {
-                    "enabled_skills": ["disaster-report-example"],
-                    "auto_inject": True
-                },
-                "custom_params": {
-                    "type": "react",
-                    "behavior": {
-                        "system_prompt": "你是一个专门做XX的智能体...",
-                        "max_rounds": 10,
-                        "auto_execute_tools": True,
-                        "task_patterns": ["查询.*", "分析.*"]
-                    }
-                }
-            }
-        }
 
 
 class AgentConfigPreset(str, Enum):

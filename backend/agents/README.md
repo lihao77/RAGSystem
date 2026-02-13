@@ -1174,4 +1174,9 @@ agents/
 
 ---
 
+## 延伸阅读
+
+- **事件总线**：`docs/event-bus/README.md` — 事件发布/订阅、SSE 流式输出、会话级事件总线
+- **智能上下文**：`docs/SMART_CONTEXT_MANAGEMENT.md`、`docs/MASTER_AGENT_CONTEXT_CONFIG.md` — 上下文压缩与 Master V2 配置
+
 如有问题或建议，请联系开发团队或提交 Issue。

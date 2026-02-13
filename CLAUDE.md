@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-RAGSystem 是一个基于知识图谱的智能问答系统，整合时序推理、空间分析和因果追踪功能。系统采用前后端分离架构，后端使用 Flask + Neo4j，前端使用 Vue 3 + Element Plus。
+RAGSystem 是一个基于知识图谱的智能问答系统，整合时序推理、空间分析和因果追踪功能。系统采用前后端分离架构：后端使用 Flask + Neo4j；前端为**双前端**——`frontend/` 负责后台管理（配置、工作流、向量库等），`frontend-client/` 负责多 Agent 对话与落地页，均使用 Vue 3 + Element Plus。
 
 ## 核心架构
 
@@ -16,7 +16,7 @@ Routes (API层) → Services (业务层) → 数据访问层 (Neo4j/SQLite-vec)
 ### 关键子系统
 1. **智能体系统** (`backend/agents/`) - 统一入口的多智能体架构，支持任务分解和协调
 2. **节点系统** (`backend/nodes/`) - 可配置的数据处理节点，支持热插拔
-3. **LLMAdapter** (`backend/llm_adapter/`) - 统一的 LLM 管理接口，支持多提供商
+3. **ModelAdapter** (`backend/model_adapter/`) - 统一的 AI 模型管理接口，支持多提供商（LLM + Embedding）
 4. **工作流系统** (`backend/workflows/`) - 节点编排和执行引擎
 5. **向量检索** (`backend/vector_store/`) - 基于 SQLite + sqlite-vec 的语义搜索
 
@@ -73,19 +73,12 @@ agents:
 
 #### 自研工具调用机制
 **不依赖特定 LLM 提供商的 Function Calling API**，支持任何大模型：
-- **工具定义**: `backend/tools/function_definitions.py` (11个专业工具)
-  1. `query_knowledge_graph_with_nl` - 自然语言查询（核心工具）
-  2. `search_knowledge_graph` - 结构化搜索
-  3. `get_entity_relations` - 关系探索
-  4. `execute_cypher_query` - 直接执行Cypher
-  5. `analyze_temporal_pattern` - 时序分析
-  6. `find_causal_chain` - 因果追踪
-  7. `compare_entities` - 实体对比
-  8. `aggregate_statistics` - 聚合统计
-  9. `get_spatial_neighbors` - 空间邻近查询
-  10. `get_graph_schema` - 图谱Schema
-  11. `query_emergency_plan` - 应急预案检索（向量RAG）
-  12. `generate_chart` - ECharts图表生成
+- **工具定义**: `backend/tools/function_definitions.py`（10+ 专业工具，含 Skills 注入的 `load_skill_resource`、`execute_skill_script`）
+  - 知识图谱：`query_knowledge_graph_with_nl`、`search_knowledge_graph`、`get_entity_relations`、`execute_cypher_query`、`get_graph_schema`
+  - 时序/因果/空间：`analyze_temporal_pattern`、`find_causal_chain`、`get_spatial_neighbors`
+  - 分析/展示：`compare_entities`、`aggregate_statistics`、`generate_chart`、`generate_map`
+  - 向量 RAG：`query_emergency_plan`
+  - 数据与几何：`process_data_file`、`get_entity_geometry`、`transform_data`
 
 - **工具执行器**: `backend/tools/tool_executor.py`
   - `execute_tool(tool_name, arguments)` 统一执行入口
@@ -94,11 +87,22 @@ agents:
 
 #### API 端点
 ```bash
-GET  /api/agent/agents           # 列出所有智能体
-POST /api/agent/execute          # 执行任务（自动路由到 MasterAgent）
-POST /api/agent/execute-stream   # 流式执行（SSE）
-GET  /api/agent/config           # 获取所有智能体配置
-PUT  /api/agent/config/:name     # 更新智能体配置
+# 智能体执行（backend/routes/agent.py，前缀 /api/agent）
+GET  /api/agent/agents              # 列出所有智能体
+POST /api/agent/execute             # 执行任务（自动路由到 MasterAgent）
+POST /api/agent/stream               # 流式执行（SSE）
+POST /api/agent/execute/<agent_name> # 指定智能体执行
+GET  /api/agent/sessions             # 会话列表
+POST /api/agent/sessions             # 创建会话
+
+# 智能体配置（backend/routes/agent_config.py，前缀 /api/agent-config）
+GET    /api/agent-config/configs           # 获取所有智能体配置
+GET    /api/agent-config/configs/<name>    # 获取单个配置
+PUT    /api/agent-config/configs/<name>   # 更新智能体配置
+PATCH  /api/agent-config/configs/<name>   # 部分更新
+DELETE /api/agent-config/configs/<name>   # 删除配置
+GET    /api/agent-config/tools             # 可用工具列表
+GET    /api/agent-config/skills            # 可用 Skills 列表
 ```
 
 ### Skills 系统（领域知识增强）
@@ -207,17 +211,13 @@ agents:
 
 #### 依赖隔离配置
 
+Skills 隔离由 `backend/agents/skills/skill_environment.py` 实现；隔离模式可通过「系统配置」或调用时传入。若在配置文件中声明，需在 `backend/config/yaml/config.yaml` 中增加 `skills` 段（当前 `backend/config/models.py` 的 `AppConfig` 未定义 `skills` 字段，但 `extra='allow'` 会保留 YAML 中的该段）：
+
 ```yaml
-# backend/config/yaml/config.yaml
+# backend/config/yaml/config.yaml（可选）
 skills:
-  # 隔离模式: venv (推荐) | docker (生产) | shared (开发)
-  isolation_mode: venv
-
-  # 自动安装依赖
-  auto_install_dependencies: true
-
-  # 虚拟环境目录名
-  venv_dir_name: .venv
+  isolation_mode: venv   # venv（推荐）| docker | shared
+  # 虚拟环境目录名由代码固定为 .venv（skill_dir / ".venv"）
 ```
 
 #### 核心组件
@@ -270,13 +270,14 @@ python test_skill_isolation.py
 
 ### 开发环境启动
 ```bash
-# 后端启动（在 backend/ 目录） conda activate ragsystem
+# 后端（在 backend/ 目录）
+conda activate ragsystem   # 或使用项目虚拟环境
 python app.py
-# 默认运行在 http://localhost:5000
+# 默认 http://localhost:5000
 
-# 前端启动（在 frontend/ 目录）
-npm run dev
-# 默认运行在 http://localhost:5173
+# 前端（双前端架构，需分别启动）
+cd frontend && npm run dev          # 后台管理端，默认 http://localhost:5173
+cd frontend-client && npm run dev  # 多 Agent 对话/落地页端，默认端口见其 package.json
 
 # Windows 一键启动
 start_server.bat
@@ -294,9 +295,11 @@ python -c "from nodes.llmjson_v2.node import LLMJsonV2Node; print(LLMJsonV2Node.
 
 ### 前端构建
 ```bash
-cd frontend
-npm run build      # 构建生产版本
-npm run preview    # 预览构建结果
+# 后台管理端
+cd frontend && npm run build && npm run preview
+
+# 多 Agent 端
+cd frontend-client && npm run build && npm run preview
 ```
 
 ### 数据库
@@ -311,39 +314,47 @@ npm run preview    # 预览构建结果
 ## 配置系统
 
 ### 配置优先级（从高到低）
-1. 环境变量（格式：`SECTION__KEY`，如 `NEO4J__PASSWORD`）
-2. `backend/config/yaml/config.yaml`（用户配置，不提交到 git）
-3. `backend/config/yaml/config.default.yaml`（默认配置）
+1. **环境变量**（在 `backend/config/base.py` 中显式读取）：`NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`LLM_API_ENDPOINT`、`LLM_API_KEY`、`LLM_MODEL_NAME`
+2. **用户配置**：`backend/config/yaml/config.yaml`（可选，不提交到 git；不存在时仅用 Pydantic 默认值）
+3. **默认 YAML**：`backend/config/yaml/config.default.yaml`（可选，当前仓库未提供；无则用空 dict）
+4. **Pydantic 默认值**：`backend/config/models.py` 中 `AppConfig` 及各子模型的 Field default
 
 ### 关键配置项
+
+配置结构由 `backend/config/models.py` 定义（`AppConfig`、`Neo4jConfig`、`LLMConfig`、`VectorStoreConfig` 等）。用户只需提供覆盖项，其余使用 Pydantic 默认值。示例见 `backend/config/yaml/config.yaml.example`。
+
 ```yaml
-# backend/config/yaml/config.yaml
+# backend/config/yaml/config.yaml（可选，仅写需覆盖项）
 neo4j:
   uri: bolt://localhost:7687
   user: neo4j
-  password: your_password
+  password: your_password   # 或使用环境变量占位符 "${NEO4J_PASSWORD}"
 
-# 向量存储配置（新版）
 vector_store:
-  backend: sqlite_vec              # sqlite_vec (推荐) 或 postgresql (未来)
+  backend: sqlite_vec
   sqlite_vec:
-    database_path: data/vector_store.db  # 数据库文件路径
-    vector_dimension: 768          # 向量维度（需与 Embedding 模型匹配）
-    distance_metric: cosine        # 距离度量: cosine, l2, ip
+    database_path: data/vector_store.db
+    vector_dimension: 0     # 0=自动与当前激活向量化器一致
+    distance_metric: cosine
 
 llm:
-  provider: deepseek               # 必须在 LLMAdapter 中配置对应 Provider
-  model_name: deepseek-chat        # 模型名称
+  provider: ""              # ModelAdapter 中的 Provider name
+  provider_type: ""         # 用于复合键 {name}_{provider_type}
+  model_name: ""
   temperature: 0.7
   max_tokens: 4096
 
-# Embedding 配置（使用远程 API）
 embedding:
-  mode: remote                     # 仅支持 remote 模式
-  remote:
-    api_endpoint: https://api.openai.com/v1  # 或 DeepSeek 等兼容 API
-    api_key: your_api_key
-    model_name: text-embedding-3-small
+  provider: ""
+  provider_type: ""
+  model_name: ""
+  batch_size: 100
+
+system:
+  max_content_length: 104857600
+
+# 注意：向量化器（Embedding 模型）已迁移到「向量库管理」，不再使用 config.embedding。
+# 请在「向量知识库」页的「向量化器」Tab 中添加并激活向量化器；配置存于 backend/vector_store/config/vectorizers.yaml。
 ```
 
 ## 开发指南
@@ -504,32 +515,53 @@ embedding:
 
 ### 添加新 API 路由
 1. 在 `backend/routes/` 创建蓝图文件
-2. 实现路由处理函数
+2. 实现路由处理函数（如需配置，从 `config import get_config`）
 3. 在 `backend/app.py` 中注册蓝图：
    ```python
    from routes.my_route import my_bp
    app.register_blueprint(my_bp, url_prefix='/api/my-route')
    ```
 
-### 使用 LLMAdapter
-LLMAdapter 是统一的 LLM 调用接口，已替代旧的 LLMService：
+### 使用 ModelAdapter
+ModelAdapter 是统一的 AI 模型调用接口，支持 LLM 和 Embedding（实现见 `backend/model_adapter/adapter.py`）：
 ```python
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 
 adapter = get_default_adapter()
-response = adapter.generate(
+
+# LLM 调用（provider 必填；model 可选，不传时用该 Provider 的默认模型）
+response = adapter.chat_completion(
     messages=[{"role": "user", "content": "Hello"}],
+    provider="test_deepseek",   # 复合键或 name，可选传 provider_type
+    model=None,                 # 可选
     temperature=0.7
+)
+
+# Embedding 调用
+response = adapter.embed(
+    texts=["文本内容"],
+    provider="test_openrouter",
+    model="openai/text-embedding-3-small"
 )
 ```
 
-配置 Provider 通过前端管理界面（`/llm-adapter`）或直接调用 API。
+**复合键机制：**
+- Provider 使用 `{name}_{provider_type}` 作为唯一标识（`_make_provider_key`）
+- 示例：`test_deepseek`、`test_openrouter`
+- 支持同名但不同类型的 Provider 共存
+
+**配置管理：**
+- 单一配置文件：`backend/model_adapter/configs/providers.yaml`（示例：`providers.yaml.example`）
+- 配置存储类：`backend/model_adapter/config_store.py` 的 `ModelAdapterConfigStore`
+- API 与前端：蓝图挂载在 `/api/model-adapter`；前端管理界面路由一般为 `/model-adapter`
+- 热重载：`adapter.reload()`（失败时自动回滚）
 
 ### 前端组件开发
-- 使用 Element Plus 组件库
-- API 调用封装在 `frontend/src/api/` 目录
-- 可复用组件放在 `frontend/src/components/`
-- 页面视图放在 `frontend/src/views/`
+- 双前端架构：两个独立前端，均使用 Vue 3 + Element Plus
+  - **frontend/**：后台管理端（配置、工作流、向量库、节点、系统设置等）
+  - **frontend-client/**：多 Agent 对话与落地页（聊天、执行计划、流式输出等）
+- API 分别封装在 `frontend/src/api/`、`frontend-client/src/api/`
+- 可复用组件与页面视图各自在对应目录的 `components/`、`views/`
 
 ### 节点配置 UI 元数据
 参考 `backend/nodes/UI_METADATA_REFERENCE.md` 获取完整的元数据选项。
@@ -571,29 +603,27 @@ response = adapter.generate(
 - ✅ **SQL 原生支持**: 强大的元数据过滤和查询
 - ✅ **体积减少 ~500MB**: 移除 PyTorch/sentence-transformers 依赖
 - ✅ **远程 Embedding**: 使用 OpenAI 兼容 API（DeepSeek/智谱/自建服务）
-- ✅ **智能维度推断**: 自动从 Embedding 模型获取向量维度，无需手动配置
-- ✅ **自动重建机制**: 检测维度不匹配时自动重建数据库
-- ✅ **数据迁移工具**: `utils/migrate_vector_dimension.py` 用于重新编码现有数据
+- ✅ **智能维度推断**: 自动从当前激活向量化器获取向量维度
 - 🔧 配置项: `vector_store.backend` (默认 `sqlite_vec`)
-- 📖 详见 `VECTOR_STORE_MIGRATION.md` 完整迁移指南
+- 📖 详见 `docs/migration/VECTOR_STORE_MIGRATION.md` 完整迁移指南
 
-**重要特性：维度自动匹配**
-- 系统会自动从 Embedder 获取实际向量维度
-- 如果配置的维度与 Embedder 不匹配，自动使用 Embedder 维度
-- 检测到现有数据库维度不匹配时，自动备份并重建
-- 使用迁移工具可保留数据并重新编码：
-  ```bash
-  cd backend
-  python -m utils.migrate_vector_dimension  # 迁移所有集合
-  python -m utils.migrate_vector_dimension --collection default  # 迁移指定集合
-  ```
+### 向量库版本化与插件式管理 (2026-02)
+- ✅ **向量化器独立配置**: 与主配置解耦，存于 `backend/vector_store/config/vectorizers.yaml`，键为 `provider_key_model_name`
+- ✅ **单一激活向量化器**: 索引与默认检索使用「当前激活」的向量化器；`get_embedder()` / 向量库初始化**仅**读向量库管理配置，**不再**读 `config.embedding`
+- ✅ **多向量化器并存**: 新增向量化器时只注册到 `embedding_models`，**不**删除或重建已有向量表
+- ✅ **可观测与迁移**: 可查看某向量化器下已向量化文档；支持将某集合迁移到指定向量化器（重新向量化并写入）
+- ✅ **删除仅限配置**: 仅在用户于「向量库管理」中删除某向量化器时，才删除其配置及 DB 中对应 `document_vectors` / `embedding_models`
+- 🔧 前端：向量知识库 → **向量化器** Tab：列表、新增、激活、查看文档、迁移、删除
+- 🔧 API：`/api/vector-library/vectorizers`（GET/POST）、`/api/vector-library/vectorizers/<key>/activate`、`/docs`、`/migrate`、DELETE
+- 📖 向量化器配置存储：`backend/vector_store/vectorizer_config.py`（VectorizerConfigStore）
 
-### LLMAdapter 迁移
-系统已从 LLMService 迁移到 LLMAdapter：
-- ❌ 不要使用 `get_llm_service()`，已移除
-- ✅ 使用 `get_default_adapter()`
-- 配置文件已迁移到 YAML 格式
-- 详见 `LLMADAPTER_MIGRATION_GUIDE.md`
+### ModelAdapter 架构（2026-02-13 更新）
+系统已完成 ModelAdapter 架构升级：
+- ✅ **单一配置文件**：从多文件改为 `providers.yaml`，减少 95% IO 操作
+- ✅ **复合键机制**：使用 `{name}_{provider_type}` 解决同名配置覆盖问题
+- ✅ **热重载支持**：`adapter.reload()` 方法，失败自动回滚
+- ✅ **代码简化**：ConfigStore 从 286 行减少到 130 行
+- ❌ **LLMAdapter 已废弃**：统一使用 ModelAdapter
 
 ### 节点配置 UI
 - 节点配置已升级为智能表单系统（2025-12-26）
@@ -614,9 +644,10 @@ response = adapter.generate(
 ## 故障排查
 
 ### 后端启动失败
-1. 检查 Neo4j 是否运行
-2. 检查 `backend/config/yaml/config.yaml` 配置
-3. 查看后端日志输出
+1. 启动前会执行 `backend/config/health_check.py` 中的健康检查（Neo4j、ModelAdapter、向量化器等），失败会直接退出并提示
+2. 检查 Neo4j 是否运行（默认 `bolt://localhost:7687`）
+3. 检查 `backend/config/yaml/config.yaml` 或环境变量（见「配置优先级」）
+4. 查看后端日志输出
 
 ### 前端显示异常
 1. 检查后端 API 是否正常响应
@@ -630,16 +661,17 @@ response = adapter.generate(
 4. 检查 `json_schema_extra` 格式
 
 ### 向量存储问题
-1. 检查 `backend/config/yaml/config.yaml` 中 `vector_store` 配置
-2. 确认 `embedding.mode` 设置为 `remote` 并配置了 API Key
+1. 检查 `backend/config/yaml/config.yaml` 中 `vector_store` 配置（数据库路径、距离度量等）
+2. **向量化器**：在「向量知识库」→「向量化器」Tab 中至少添加并激活一个向量化器（Provider + 模型来自 Model Adapter）
 3. 检查 SQLite 数据库文件权限（`backend/data/vector_store.db`）
-4. 查看后端日志中的向量存储初始化信息
+4. 查看后端日志中的向量存储初始化信息；若提示「未配置激活的向量化器」，请到前端向量化器管理添加并激活
 
 ### LLM 调用失败
-1. 检查 LLMAdapter Provider 配置
-2. 访问 `/llm-adapter` 管理界面测试连接
+1. 检查 ModelAdapter Provider 配置
+2. 访问 `/model-adapter` 管理界面测试连接
 3. 确认 API Key 正确且有效
 4. 检查网络连接
+5. 如果是同名 Provider，确认使用了正确的 `provider_type`
 
 ### Skill 依赖隔离问题
 1. **虚拟环境创建失败**
@@ -662,8 +694,8 @@ response = adapter.generate(
 
 ### 智能体系统
 - **统一入口架构**: `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
-- **智能体配置**: `backend/agents/configs/agent_configs.yaml` - 配置文件示例
-- **配置模型**: `backend/agents/agent_config.py` - AgentConfig 数据模型
+- **智能体配置**: `backend/agents/configs/agent_configs.yaml`（由 `AgentConfigManager` 读写，示例见 `agent_configs.yaml.example`）
+- **配置模型**: `backend/agents/agent_config.py` - AgentConfig、AgentLLMConfig、AgentToolConfig、AgentSkillConfig 等
 
 ### Skills 系统
 - **系统概述**: `backend/agents/skills/README.md` - Skills 系统整体介绍
@@ -681,14 +713,20 @@ response = adapter.generate(
 - **抽象基类**: `backend/vector_store/base.py` - VectorStoreBase 接口
 - **SQLite 实现**: `backend/vector_store/sqlite_store.py` - SQLite + sqlite-vec
 - **客户端**: `backend/vector_store/client.py` - 工厂模式客户端
-- **Embedder**: `backend/vector_store/embedder.py` - 远程 API 向量化
-- **迁移指南**: `VECTOR_STORE_MIGRATION.md` - 从 ChromaDB 迁移
+- **Embedder**: `backend/vector_store/embedder.py` - 按当前激活向量化器初始化（不读 config.embedding）
+- **向量化器配置**: `backend/vector_store/vectorizer_config.py` - VectorizerConfigStore，YAML 存于 `backend/vector_store/config/vectorizers.yaml`
+- **向量库管理 API**: `backend/routes/vector_library.py`（前缀 `/api/vector-library`）- 向量化器列表/新增/激活、按向量化器查文档/迁移/删除等
+- **迁移指南**: `docs/migration/VECTOR_STORE_MIGRATION.md` - 从 ChromaDB 迁移
+
+### 配置与迁移
+- **配置系统指南**: `docs/configuration-guide.md` - 首次部署、健康检查、常见问题
+- **迁移指南**: `docs/migration/README.md` - 向量存储、LLMAdapter 等迁移文档
 
 ### 其他文档
 - **快速参考**: `QUICK_REFERENCE.md` - 常用信息速查
 - **项目结构**: `PROJECT_STRUCTURE.md` - 详细目录结构
 - **节点系统**: `docs/node-config-ui/README.md` - 节点配置文档
-- **LLMAdapter**: `LLMADAPTER_MIGRATION_GUIDE.md` - LLM 适配器指南
+- **ModelAdapter**: `backend/model_adapter/README.md` - AI 模型适配器指南
 - **配置 UI 指南**: `backend/nodes/CONFIG_UI_GUIDE.md` - 开发节点配置
 - **UI 元数据参考**: `backend/nodes/UI_METADATA_REFERENCE.md` - 完整元数据选项
 

@@ -434,6 +434,7 @@ class MasterAgentV2(BaseAgent):
                     messages=managed_messages,
                     provider=llm_config.get('provider'),
                     model=llm_config.get('model_name'),
+                    provider_type=llm_config.get('provider_type'),
                     temperature=llm_config.get('temperature', 0.3),
                     max_tokens=llm_config.get('max_tokens'),
                     response_format={"type": "json_object"}

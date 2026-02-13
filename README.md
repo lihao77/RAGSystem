@@ -162,8 +162,8 @@ RAGSystem/
 - **[项目结构](PROJECT_STRUCTURE.md)** - 详细的项目结构说明
 - **[节点配置UI文档](docs/node-config-ui/README.md)** - 节点系统配置界面升级文档
 - **[快速启动指南](docs/node-config-ui/QUICK_START_CONFIG_UI.md)** - 5分钟快速上手节点配置
-- **[LLMJson V2集成文档](LLMJSON_V2_INTEGRATION.md)** - LLMJson V2节点集成说明
-- **[LLMAdapter 迁移指南](LLMADAPTER_MIGRATION_GUIDE.md)** - LLMAdapter 统一 LLM 管理接口文档
+- **[向量存储迁移指南](docs/migration/VECTOR_STORE_MIGRATION.md)** - 从 ChromaDB 迁移到 SQLite-vec
+- **[LLMAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)** - LLMAdapter 统一 LLM 管理接口文档
 
 ## 🎯 最新更新
 
@@ -175,7 +175,7 @@ RAGSystem/
 - ✅ LLMService 移除 - 全面使用 LLMAdapter，代码更简洁
 - ✅ 配置升级 - 迁移到 YAML 格式，支持环境变量覆盖
 
-查看详情：[LLMAdapter 迁移指南](LLMADAPTER_MIGRATION_GUIDE.md)
+查看详情：[LLMAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)
 
 ### 节点配置UI升级 (2025-12-26)
 - ✅ 智能表单生成 - 根据配置类型自动选择UI控件

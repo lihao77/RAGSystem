@@ -10,9 +10,9 @@
       >
         <el-option
           v-for="provider in providers"
-          :key="provider.name"
-          :label="provider.name"
-          :value="provider.name"
+          :key="provider.key || provider.name"
+          :label="provider.name + (provider.provider_type ? ' (' + provider.provider_type + ')' : '')"
+          :value="provider.key || provider.name"
         >
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span>{{ provider.name }}</span>
@@ -26,7 +26,7 @@
 
     <template v-if="selectedProvider">
       <el-form-item label="模型" :label-width="labelWidth">
-        <template v-if="currentProvider.models && currentProvider.models.length > 0">
+        <template v-if="chatModelOptions.length > 0">
           <el-select
             v-model="model.model_name"
             placeholder="选择或输入模型名称"
@@ -36,7 +36,7 @@
             default-first-option
           >
             <el-option
-              v-for="modelName in currentProvider.models"
+              v-for="modelName in chatModelOptions"
               :key="modelName"
               :label="modelName"
               :value="modelName"
@@ -208,6 +208,7 @@ const props = defineProps({
     type: Object,
     default: () => ({
       provider: '',
+      provider_type: '',
       model_name: '',
       temperature: 0.7,
       max_tokens: 4096,
@@ -228,9 +229,20 @@ const testPrompt = ref('你好，请介绍一下自己')
 const testResult = ref(null)
 const labelWidth = '100px'
 
-// 计算属性
+// 计算属性（按复合键 provider_key 查找）
 const currentProvider = computed(() => {
-  return providers.value.find(p => p.name === selectedProvider.value) || {}
+  return providers.value.find(p => (p.key || p.name) === selectedProvider.value) || {}
+})
+
+// Chat 任务可用模型列表（来自 model_map.chat 或 models）
+const chatModelOptions = computed(() => {
+  const p = currentProvider.value
+  if (!p) return []
+  const fromMap = p.model_map?.chat
+  if (fromMap != null) {
+    return Array.isArray(fromMap) ? fromMap.filter(Boolean) : [String(fromMap)]
+  }
+  return p.models && p.models.length > 0 ? p.models : []
 })
 
 const model = computed({
@@ -244,16 +256,17 @@ const loadProviders = async () => {
     const res = await modelAdapterService.getProviders()
     providers.value = res.providers || []
 
-    // 如果有默认值，设置选中项
-    if (props.modelValue.provider && providers.value.find(p => p.name === props.modelValue.provider)) {
-      selectedProvider.value = props.modelValue.provider
+    // 如果有默认值，按 name+provider_type 或 key 匹配
+    const match = props.modelValue.provider && providers.value.find(p =>
+      (p.name === props.modelValue.provider && (!props.modelValue.provider_type || p.provider_type === props.modelValue.provider_type)) ||
+      (p.key || p.name) === props.modelValue.provider
+    )
+    if (match) {
+      selectedProvider.value = match.key || match.name
     } else if (providers.value.length > 0) {
-      // 尝试选择第一个激活的 provider
-      const activeProviders = providers.value.filter(p => p.is_active)
-      if (activeProviders.length > 0) {
-        selectedProvider.value = activeProviders[0].name
-        handleProviderChange(activeProviders[0].name)
-      }
+      const first = providers.value[0]
+      selectedProvider.value = first.key || first.name
+      handleProviderChange(first.key || first.name)
     }
   } catch (error) {
     ElMessage.error('加载 Provider 列表失败')
@@ -270,15 +283,18 @@ const getProviderTypeTag = (type) => {
   return tags[type] || 'info'
 }
 
-const handleProviderChange = (providerName) => {
-  const provider = providers.value.find(p => p.name === providerName)
+const handleProviderChange = (optionValue) => {
+  const provider = providers.value.find(p => (p.key || p.name) === optionValue)
   if (provider) {
-    // 如果有预定义的模型列表，使用第一个作为默认值
-    const defaultModel = provider.models && provider.models.length > 0 ? provider.models[0] : ''
+    const chatModels = provider.model_map?.chat
+      ? (Array.isArray(provider.model_map.chat) ? provider.model_map.chat : [provider.model_map.chat])
+      : (provider.models || [])
+    const defaultModel = chatModels.length > 0 ? chatModels[0] : (provider.models && provider.models[0]) || ''
 
     model.value = {
       ...model.value,
-      provider: providerName,
+      provider: provider.name,
+      provider_type: provider.provider_type || undefined,
       model_name: defaultModel,
       temperature: provider.temperature || 0.7,
       max_tokens: provider.max_tokens || 4096,
@@ -310,9 +326,11 @@ const runTest = async () => {
 
   try {
     const res = await modelAdapterService.testProvider({
-      provider: selectedProvider.value,
+      provider: model.value.provider,
+      provider_type: model.value.provider_type,
       model: model.value.model_name,
-      prompt: testPrompt.value
+      prompt: testPrompt.value,
+      task: 'chat'
     })
     testResult.value = res.response
   } catch (error) {
@@ -326,11 +344,14 @@ const useAdvancedConfig = () => {
   window.open('/model-adapter', '_blank')
 }
 
-// 监听 modelValue 变化，同步 selectedProvider
-watch(() => props.modelValue.provider, (newProvider) => {
-  if (newProvider && providers.value.find(p => p.name === newProvider)) {
-    selectedProvider.value = newProvider
-  }
+// 监听 modelValue 变化，同步 selectedProvider（按 name+provider_type 或 key 匹配）
+watch(() => [props.modelValue.provider, props.modelValue.provider_type], ([newProvider, newType]) => {
+  if (!newProvider) return
+  const match = providers.value.find(p =>
+    (p.name === newProvider && (!newType || p.provider_type === newType)) ||
+    (p.key || p.name) === newProvider
+  )
+  if (match) selectedProvider.value = match.key || match.name
 })
 
 // 生命周期

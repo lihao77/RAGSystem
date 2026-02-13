@@ -3,6 +3,8 @@
 知识图谱系统Flask后端
 """
 
+import sys
+
 # 必须在导入 chromadb 之前设置环境变量
 import os
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'  # 禁用 ChromaDB 遥测
@@ -16,6 +18,12 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 # 导入配置系统
 from config import get_config
+from config.health_check import run_health_check
+
+# 启动前配置健康检查（缺失必需配置时直接退出）
+if not run_health_check():
+    print("\n请修复上述配置错误后重新启动。")
+    sys.exit(1)
 
 # 导入蓝图
 from routes.home import home_bp

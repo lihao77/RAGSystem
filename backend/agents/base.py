@@ -384,6 +384,7 @@ class BaseAgent(ABC):
             if llm_config:
                 config = {
                     'provider': getattr(llm_config, 'provider', None),
+                    'provider_type': getattr(llm_config, 'provider_type', None),
                     'model_name': getattr(llm_config, 'model_name', None),
                     'temperature': getattr(llm_config, 'temperature', 0.7),
                     'max_tokens': getattr(llm_config, 'max_tokens', 4096)

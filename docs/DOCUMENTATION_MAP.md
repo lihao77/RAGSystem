@@ -7,20 +7,34 @@ RAGSystem/
 │
 ├── README.md ⭐                          # 项目主页
 ├── PROJECT_STRUCTURE.md ⭐              # 项目结构说明
-├── LLMJSON_V2_INTEGRATION.md           # LLMJson V2集成
+├── QUICK_REFERENCE.md                   # 快速参考
+├── CLAUDE.md                            # AI 协作说明
 │
 ├── docs/                                # 文档中心
 │   ├── README.md ⭐                     # 文档导航
 │   ├── DOCUMENTATION_MAP.md            # 本文件 - 文档地图
-│   │
+│   ├── configuration-guide.md          # 配置系统指南
+│   ├── migration/                      # 迁移指南
+│   │   ├── README.md
+│   │   ├── VECTOR_STORE_MIGRATION.md
+│   │   └── LLMADAPTER_MIGRATION_GUIDE.md
 │   └── node-config-ui/                 # 节点配置UI文档
-│       ├── README.md ⭐                 # 节点配置UI文档导航
-│       ├── QUICK_START_CONFIG_UI.md ⭐ # 快速启动（5分钟）
-│       ├── NODE_CONFIG_SUMMARY.md      # 升级总结
-│       ├── NODE_CONFIG_UI_UPGRADE.md   # 完整升级说明
-│       ├── NODE_CONFIG_COMPARISON.md   # 升级前后对比
-│       ├── NODE_CONFIG_CHANGELOG.md    # 更新日志
-│       └── NODE_CONFIG_CHECKLIST.md    # 检查清单
+│       ├── README.md ⭐
+│       ├── QUICK_START_CONFIG_UI.md ⭐
+│       ├── NODE_CONFIG_SUMMARY.md
+│       ├── NODE_CONFIG_UI_UPGRADE.md
+│       ├── NODE_CONFIG_COMPARISON.md
+│       ├── NODE_CONFIG_CHANGELOG.md
+│       └── NODE_CONFIG_CHECKLIST.md
+│
+├── backend/agents/docs/                 # 智能体文档
+│   ├── event-bus/                       # 事件总线
+│   │   ├── README.md
+│   │   ├── EVENT_BUS_INTEGRATION_GUIDE.md
+│   │   └── SESSION_EVENT_BUS_GUIDE.md
+│   ├── SMART_CONTEXT_MANAGEMENT.md
+│   ├── MASTER_AGENT_CONTEXT_CONFIG.md
+│   └── ... (AGENT_*, UNIFIED_ENTRY 等)
 │
 └── backend/nodes/                       # 节点系统代码
     ├── CONFIG_UI_GUIDE.md ⭐            # 配置UI使用指南
@@ -76,20 +90,26 @@ RAGSystem/
 | 项目结构 | [PROJECT_STRUCTURE](../PROJECT_STRUCTURE.md) | 根目录 |
 | 文档导航 | [docs/README](README.md) | docs/ |
 
+### 配置与迁移
+| 主题 | 文档 | 位置 |
+|------|------|------|
+| 配置系统指南 | [configuration-guide](configuration-guide.md) | docs/ |
+| 迁移指南索引 | [migration/README](migration/README.md) | docs/migration/ |
+| 向量存储迁移 | [VECTOR_STORE_MIGRATION](migration/VECTOR_STORE_MIGRATION.md) | docs/migration/ |
+| LLMAdapter 迁移 | [LLMADAPTER_MIGRATION_GUIDE](migration/LLMADAPTER_MIGRATION_GUIDE.md) | docs/migration/ |
+
 ### 更新信息
 | 主题 | 文档 | 位置 |
 |------|------|------|
 | 升级总结 | [SUMMARY](node-config-ui/NODE_CONFIG_SUMMARY.md) | docs/node-config-ui/ |
 | 更新日志 | [CHANGELOG](node-config-ui/NODE_CONFIG_CHANGELOG.md) | docs/node-config-ui/ |
 | 升级对比 | [COMPARISON](node-config-ui/NODE_CONFIG_COMPARISON.md) | docs/node-config-ui/ |
-| 复杂数组修复 | [BUGFIX_SUMMARY](node-config-ui/BUGFIX_SUMMARY.md) | docs/node-config-ui/ |
 
 ### 技术细节
 | 主题 | 文档 | 位置 |
 |------|------|------|
 | 完整升级说明 | [UPGRADE](node-config-ui/NODE_CONFIG_UI_UPGRADE.md) | docs/node-config-ui/ |
 | 检查清单 | [CHECKLIST](node-config-ui/NODE_CONFIG_CHECKLIST.md) | docs/node-config-ui/ |
-| 集成文档 | [LLMJSON_V2_INTEGRATION](../LLMJSON_V2_INTEGRATION.md) | 根目录 |
 
 ## 📖 推荐阅读顺序
 
@@ -139,12 +159,13 @@ RAGSystem/
                          │
         ┌────────────────┼────────────────┐
         │                │                │
-PROJECT_STRUCTURE    docs/README    LLMJSON_V2
-        │            (文档中心)      INTEGRATION
+PROJECT_STRUCTURE    docs/README    其他文档
+        │            (文档中心)
         │                │
         │         ┌──────┴──────┐
         │         │             │
-        │   node-config-ui/  其他文档
+        │   node-config-ui/     │
+        │         │             │
         │         │
         │    ┌────┴────┐
         │    │         │
@@ -176,18 +197,18 @@ PROJECT_STRUCTURE    docs/README    LLMJSON_V2
 - **导航文档**: 3个 (README, docs/README, node-config-ui/README)
 - **快速启动**: 1个 (QUICK_START_CONFIG_UI)
 - **开发指南**: 2个 (CONFIG_UI_GUIDE, UI_METADATA_REFERENCE)
-- **项目信息**: 2个 (PROJECT_STRUCTURE, LLMJSON_V2_INTEGRATION)
+- **项目信息**: 1个 (PROJECT_STRUCTURE)
 - **更新信息**: 3个 (SUMMARY, CHANGELOG, COMPARISON)
 - **技术文档**: 2个 (UPGRADE, CHECKLIST)
 
 ### 按位置
-- **根目录**: 3个
+- **根目录**: 2个
 - **docs/**: 2个
-- **docs/node-config-ui/**: 7个
+- **docs/node-config-ui/**: 5个
 - **backend/nodes/**: 2个
 
 ### 总计
-- **文档文件**: 14个
+- **文档文件**: 11个
 - **总字数**: 约25000字
 - **覆盖率**: 100%
 

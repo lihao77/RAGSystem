@@ -1,8 +1,8 @@
 /**
- * LLM Adapter API 调用模块
+ * Model Adapter API 调用模块（兼容旧 llm adapter 调用）
  */
 
-const API_BASE = '/api/llm-adapter';
+const API_BASE = '/api/model-adapter';
 
 /**
  * 获取所有已配置的 LLM Providers
@@ -31,7 +31,21 @@ export async function getProviders() {
 }
 
 /**
- * 获取所有可用的 LLM 模型列表（provider/model 格式）
+ * 从 provider 配置中取出 chat 模型列表（model_map.chat 或 models 或 model）
+ */
+function getChatModels(provider) {
+  const fromMap = provider.model_map?.chat;
+  if (fromMap != null) {
+    if (Array.isArray(fromMap)) return fromMap.filter(Boolean);
+    return [String(fromMap)];
+  }
+  if (provider.models && provider.models.length > 0) return provider.models;
+  if (provider.model) return [provider.model];
+  return [];
+}
+
+/**
+ * 获取所有可用的 LLM 模型列表（使用复合键 provider_key，value 为 provider_key/model）
  * @returns {Promise<Array<{label: string, value: string, provider: string, model: string}>>}
  */
 export async function getAvailableModels() {
@@ -40,26 +54,31 @@ export async function getAvailableModels() {
     const models = [];
 
     providers.forEach(provider => {
-      const providerName = provider.name;
-      const providerModels = provider.models || [];
+      const name = provider.name || provider.key || '';
+      const ptype = provider.provider_type || '';
+      const displayName = name + (ptype ? ` (${ptype})` : '');
+      const chatModels = getChatModels(provider);
 
-      // 如果有 models 列表，为每个 model 生成一个选项
-      if (providerModels.length > 0) {
-        providerModels.forEach(model => {
-          models.push({
-            label: `${providerName}/${model}`,
-            value: `${providerName}/${model}`,
-            provider: providerName,
-            model: model
-          });
-        });
-      } else if (provider.model) {
-        // 降级：如果没有 models 列表但有单个 model，使用它
+      chatModels.forEach(modelName => {
+        const value = `${name}|${ptype}|${modelName}`;
         models.push({
-          label: `${providerName}/${provider.model}`,
-          value: `${providerName}/${provider.model}`,
-          provider: providerName,
-          model: provider.model
+          label: `${displayName} / ${modelName}`,
+          value,
+          provider: name,
+          provider_type: ptype,
+          model: modelName
+        });
+      });
+
+      if (chatModels.length === 0 && (provider.models?.length || provider.model)) {
+        const fallback = provider.models?.[0] || provider.model;
+        const value = `${name}|${ptype}|${fallback}`;
+        models.push({
+          label: `${displayName} / ${fallback}`,
+          value,
+          provider: name,
+          provider_type: ptype,
+          model: fallback
         });
       }
     });
@@ -88,7 +107,9 @@ export async function testProvider(provider, model, prompt = 'Hello') {
       body: JSON.stringify({
         provider,
         model,
-        prompt
+        prompt,
+        // 显式指定任务类型，兼容 ModelAdapter 的多任务测试接口
+        task: 'chat'
       })
     });
 

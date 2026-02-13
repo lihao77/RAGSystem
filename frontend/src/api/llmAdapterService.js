@@ -1,6 +1,6 @@
 /**
- * LLM Adapter API 服务
- * 提供与LLM Adapter配置管理相关的API接口
+ * LLM/Model Adapter API 服务（已迁移至 Model Adapter）
+ * 使用 /api/model-adapter，Provider 标识为复合键 provider_key（如 test_deepseek）
  */
 
 import { get, post, put, del } from './http.js';
@@ -9,7 +9,7 @@ import { get, post, put, del } from './http.js';
  * 获取所有 Provider 列表
  */
 export async function getProviders() {
-  return await get('/api/llm-adapter/providers');
+  return await get('/api/model-adapter/providers');
 }
 
 /**
@@ -17,24 +17,24 @@ export async function getProviders() {
  * @param {Object} data Provider配置数据
  */
 export async function createProvider(data) {
-  return await post('/api/llm-adapter/providers', data);
+  return await post('/api/model-adapter/providers', data);
 }
 
 /**
  * 更新 Provider
- * @param {string} name Provider名称
+ * @param {string} providerKey 复合键（如 test_deepseek）
  * @param {Object} data Provider配置数据
  */
-export async function updateProvider(name, data) {
-  return await put(`/api/llm-adapter/providers/${name}`, data);
+export async function updateProvider(providerKey, data) {
+  return await put(`/api/model-adapter/providers/${encodeURIComponent(providerKey)}`, data);
 }
 
 /**
  * 删除 Provider
- * @param {string} name Provider名称
+ * @param {string} providerKey 复合键（如 test_deepseek）
  */
-export async function deleteProvider(name) {
-  return await del(`/api/llm-adapter/providers/${name}`);
+export async function deleteProvider(providerKey) {
+  return await del(`/api/model-adapter/providers/${encodeURIComponent(providerKey)}`);
 }
 
 /**
@@ -42,7 +42,7 @@ export async function deleteProvider(name) {
  * @param {string} name Provider名称
  */
 export async function setActiveProvider(name) {
-  return await post('/api/llm-adapter/active-provider', { provider: name });
+  return await post('/api/model-adapter/active-provider', { provider: name });
 }
 
 /**
@@ -50,7 +50,7 @@ export async function setActiveProvider(name) {
  * @param {Array<string>} providerNames Provider名称列表
  */
 export async function setActiveProviders(providerNames) {
-  return await post('/api/llm-adapter/active-providers', {
+  return await post('/api/model-adapter/active-providers', {
     providers: providerNames
   });
 }
@@ -60,7 +60,7 @@ export async function setActiveProviders(providerNames) {
  * @param {Object} data 测试数据 { provider, prompt }
  */
 export async function testProvider(data) {
-  return await post('/api/llm-adapter/test', data);
+  return await post('/api/model-adapter/test', data);
 }
 
 /**
@@ -68,7 +68,7 @@ export async function testProvider(data) {
  * @param {string} strategy 策略名称（round_robin, random）
  */
 export async function setLoadBalancer(strategy) {
-  return await post('/api/llm-adapter/load-balancer', { strategy });
+  return await post('/api/model-adapter/load-balancer', { strategy });
 }
 
 export default {

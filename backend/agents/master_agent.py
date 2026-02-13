@@ -581,6 +581,7 @@ class MasterAgent(BaseAgent):
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
+                provider_type=llm_config.get('provider_type'),
                 temperature=0.7,
                 max_tokens=llm_config.get('max_tokens', 1000)
             ):
@@ -646,6 +647,7 @@ class MasterAgent(BaseAgent):
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
+                provider_type=llm_config.get('provider_type'),
                 temperature=analysis_temperature,
                 max_tokens=llm_config.get('max_tokens', 1000),
                 timeout=llm_config.get('timeout'),
@@ -728,6 +730,7 @@ class MasterAgent(BaseAgent):
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
+                provider_type=llm_config.get('provider_type'),
                 temperature=0.7,
                 max_tokens=llm_config.get('max_tokens', 1000)
             )
@@ -920,6 +923,7 @@ class MasterAgent(BaseAgent):
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
+                provider_type=llm_config.get('provider_type'),
                 temperature=synthesis_temperature,
                 max_tokens=llm_config.get('max_tokens', 2000),
                 timeout=llm_config.get('timeout'),
@@ -985,6 +989,7 @@ class MasterAgent(BaseAgent):
                 messages=messages,
                 provider=llm_config.get('provider'),
                 model=llm_config.get('model_name'),
+                provider_type=llm_config.get('provider_type'),
                 temperature=synthesis_temperature,
                 max_tokens=llm_config.get('max_tokens', 2000)
             ):

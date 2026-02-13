@@ -22,16 +22,16 @@ class ConfigManager:
         self.load()
 
     def load(self):
-        """加载配置（按优先级：环境变量 > YAML文件 > 默认值）"""
-        # 1. 从默认配置开始
+        """加载配置（按优先级：环境变量 > config.yaml > Pydantic 默认值）"""
+        # 1. 从默认 YAML 开始（可选，无则用空 dict，最终由 Pydantic 补全默认值）
         config_dict = self._load_yaml(self._default_config_path) or {}
 
-        # 2. 合并用户配置（如果存在）
+        # 2. 合并用户 config.yaml（如果存在）
         if self._user_config_path.exists():
             user_config = self._load_yaml(self._user_config_path) or {}
             config_dict = self._deep_merge(config_dict, user_config)
 
-        # 3. 应用环境变量覆盖
+        # 3. 环境变量覆盖
         env_overrides = self._get_env_overrides()
         if env_overrides:
             config_dict = self._deep_merge(config_dict, env_overrides)
