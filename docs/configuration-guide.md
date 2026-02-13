@@ -8,7 +8,7 @@
 
 | 文件 | 用途 | 必需性 | 示例文件 |
 |------|------|--------|----------|
-| `backend/model_adapter/configs/providers.yaml` | LLM/Embedding API 密钥 | ✅ 必需 | `providers.yaml.example` |
+| `backend/model_adapter/configs/providers.yaml` | LLM/Embedding API 密钥 | 可选（缺时仅警告，可从前端添加后自动创建） | `providers.yaml.example` |
 | `backend/config/yaml/config.yaml` | 数据库连接、系统默认值 | 可选 | `config.yaml.example` |
 | `backend/agents/configs/agent_configs.yaml` | 智能体配置 | 可选 | `agent_configs.yaml.example` |
 
@@ -20,6 +20,106 @@
 | `backend/file_index/files.yaml` | 已上传文件索引 | 运行时数据 |
 | `backend/workflow_configs/user/*.yaml` | 用户工作流 | 用户保存时创建 |
 | `backend/node_configs/instances/*.yaml` | 工作流节点实例 | 工作流执行时创建 |
+
+---
+
+## 📐 配置结构总览
+
+所有配置的**数据来源**与**结构**关系如下（路径均相对于 `backend/`）：
+
+```
+配置层级与默认值来源
+────────────────────────────────────────────────────────────────────
+1. providers.yaml（可选，缺时仅警告，可从前端添加 Provider 后自动创建）
+   路径: model_adapter/configs/providers.yaml
+   默认: 无；缺失时健康检查仅警告并允许启动，用户可在「模型适配器」中添加并保存以创建该文件
+   结构: 顶层键 = 复合键 {name}_{provider_type}
+         ├── name, provider_type, api_key, api_endpoint
+         ├── model_map: { chat?, embedding?, reasoning? }
+         └── models: []
+
+2. config.yaml（可选，系统配置）
+   路径: config/yaml/config.yaml
+   默认: config/models.py 中各 Pydantic 模型默认值（无 config.default.yaml）
+   结构: 合并进 AppConfig
+         ├── neo4j: { uri, user, password }
+         ├── vector_store: { backend, sqlite_vec: { database_path, vector_dimension, distance_metric } }
+         ├── llm: { provider, provider_type, model_name, ... }
+         ├── embedding: { provider, provider_type, model_name, batch_size }
+         ├── system: { max_content_length }
+         └── external_libs: { llmjson, json2graph }
+
+3. agent_configs.yaml（可选，智能体配置）
+   路径: agents/configs/agent_configs.yaml
+   默认: 文件不存在时 AgentConfigManager 会 _create_default_configs() 并写回空 agents
+   结构: agents: { <agent_name>: AgentConfig }
+         └── 每项: agent_name, display_name, llm{ provider, provider_type, model_name, ... }
+                   tools.enabled_tools, skills.enabled_skills, custom_params
+
+4. vectorizers.yaml（可选，向量化器）
+   路径: vector_store/config/vectorizers.yaml
+   默认: 文件不存在时 VectorizerConfigStore 返回 active_vectorizer_key=None, vectorizers={}
+   结构: active_vectorizer_key: str?
+         vectorizers: { <key>: { provider_key, model_name, distance_metric, created_at } }
+```
+
+**配置优先级**（同一项多处存在时）：环境变量 > 用户配置文件（YAML）> 代码默认值（models.py / 各 Store 内置默认）。
+
+---
+
+## 🔄 新用户首次启动逻辑
+
+新用户在本机第一次执行 `python app.py`（在 `backend` 目录下）时，实际执行顺序如下。
+
+### 步骤 1：健康检查（在创建 Flask 应用之前）
+
+1. **check_gitignore**  
+   检查仓库根目录 `.gitignore` 是否包含敏感配置路径；未包含则仅**警告**，不阻止启动。
+
+2. **check_required_configs**  
+   - 若 **不存在** `model_adapter/configs/providers.yaml`：  
+     - 仅向 **warnings** 追加提示（建议复制示例或启动后在前端「模型适配器」添加 Provider），**不**加入 errors。  
+     - 健康检查仍返回 `True`，**允许启动**；用户可在前端添加首个 Provider，保存时后端会自动创建该文件。
+   - 若 **存在** `providers.yaml`：继续做格式与一致性校验。
+
+3. **check_config_validity**（仅当 errors 为空时执行）  
+   - 使用 `config.schemas.ProvidersConfig.load(providers.yaml)` 做格式与 api_key 校验（占位符、环境变量等）。  
+   - 再加载 `vector_store/config/vectorizers.yaml`（不存在则当作空配置）、以及通过 `AgentConfigManager` 间接用到的 agents 配置，做**跨配置一致性**校验（如智能体引用的 provider 是否存在）。  
+   - 校验失败会加入 errors（阻止启动）；仅不一致或建议则加入 warnings（**不阻止启动**）。
+
+4. **汇总结果**  
+   - 若有 **errors**：打印错误，`run_health_check()` 返回 `False` → 进程退出。  
+   - 仅有 **warnings**：打印建议，返回 `True` → 继续启动。  
+   - 无 errors 无 warnings：打印“配置检查通过”，返回 `True` → 继续启动。
+
+### 步骤 2：通过健康检查后的加载顺序
+
+1. **config 系统配置**  
+   `get_config()` → `ConfigManager.load()`：  
+   - 若存在 `config/yaml/config.default.yaml` 则加载（当前项目已无此文件）；  
+   - 若存在 `config/yaml/config.yaml` 则深度合并；  
+   - 再合并环境变量（如 NEO4J_*、LLM_* 等）；  
+   - 最后用 `AppConfig(**config_dict)` 得到系统配置。  
+   **新用户未创建 config.yaml 时**：仅用环境变量 + `config/models.py` 中 Pydantic 默认值。
+
+2. **创建 Flask 应用**  
+   使用上一步的 `config` 设置 `MAX_CONTENT_LENGTH`、上传目录等。
+
+3. **各模块按需读自己的配置**  
+   - **ModelAdapter**：使用 `ModelAdapterConfigStore` 读 `model_adapter/configs/providers.yaml`；文件存在则返回 `{ 复合键: config_dict }`，不存在则返回 `{}`（健康检查已保证首次启动时该文件存在）。  
+   - **AgentConfigManager**：读 `agents/configs/agent_configs.yaml`；**若文件不存在**则调用 `_create_default_configs()`，向磁盘写入一个空的 `agents: {}` 结构（及 metadata），之后内存中为空的智能体列表。  
+   - **VectorizerConfigStore**：读 `vector_store/config/vectorizers.yaml`；**若文件不存在**则内存中为 `active_vectorizer_key=None, vectorizers={}`，不写文件；文件会在用户在前端“向量库管理”中添加并激活向量化器时由逻辑创建/更新。
+
+### 步骤 3：新用户最小可用路径总结
+
+| 步骤 | 新用户操作 | 结果 |
+|------|------------|------|
+| 1 | 直接运行 `python app.py` | 无 providers.yaml 时仅打印警告，进程仍启动；可进入前端 |
+| 2 | 在前端「模型适配器」中添加 Provider 并保存 | 后端自动创建 `providers.yaml`，此后对话/向量等能力可用 |
+| 或 | 先复制 `providers.yaml.example` → `providers.yaml` 并填入 api_key 再启动 | 无警告，启动即具备 LLM/Embedding 能力 |
+| 3 | （可选）复制 `config.yaml.example` / `agent_configs.yaml.example` 并修改 | 自定义系统配置或智能体；否则使用默认或自动生成空 agents |
+
+因此：**新用户可以不准备任何配置文件直接 `python app.py`**。无 `providers.yaml` 时会有警告，但可启动；在前端「模型适配器」添加并保存首个 Provider 后会自动创建 `providers.yaml`。若希望首次启动即具备对话能力，可先复制 `providers.yaml.example` 并填入密钥。
 
 ---
 

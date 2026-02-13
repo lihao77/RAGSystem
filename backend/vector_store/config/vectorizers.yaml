@@ -1,7 +1,12 @@
-active_vectorizer_key: modelscope_modelscope_Qwen_Qwen3-Embedding-8B
+active_vectorizer_key: modelscope_modelscope_Qwen_Qwen3-Embedding-0.6B
 vectorizers:
   modelscope_modelscope_Qwen_Qwen3-Embedding-8B:
     provider_key: modelscope_modelscope
     model_name: Qwen/Qwen3-Embedding-8B
     distance_metric: cosine
     created_at: '2026-02-13T07:15:03.106903Z'
+  modelscope_modelscope_Qwen_Qwen3-Embedding-0.6B:
+    provider_key: modelscope_modelscope
+    model_name: Qwen/Qwen3-Embedding-0.6B
+    distance_metric: cosine
+    created_at: '2026-02-13T17:42:27.500537Z'

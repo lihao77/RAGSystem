@@ -41,18 +41,21 @@ class ConfigHealthCheck:
                 self.warnings.append(f"建议将敏感文件加入 .gitignore: {rel}")
 
     def check_required_configs(self) -> None:
-        """检查必需配置文件是否存在"""
+        """检查配置文件；providers.yaml 缺失时仅警告，允许启动后在前端添加 Provider 并自动创建"""
         providers_path = _path("model_adapter", "configs", "providers.yaml")
         if not providers_path.exists():
             example = _path("model_adapter", "configs", "providers.yaml.example")
-            self.errors.append(
-                f"缺少必需配置: {providers_path.name}\n"
-                f"  请运行: cp {example} {providers_path}\n"
-                f"  然后编辑该文件填入真实 API 密钥"
+            self.warnings.append(
+                f"未找到 {providers_path.name}，对话/向量等能力将不可用。\n"
+                f"  方式一：复制示例后编辑 — cp {example} {providers_path}\n"
+                f"  方式二：启动后在前端「模型适配器」中添加 Provider，将自动创建该文件"
             )
 
     def check_config_validity(self) -> None:
-        """检查配置文件格式及跨配置一致性"""
+        """检查配置文件格式及跨配置一致性（仅当 providers.yaml 存在时）"""
+        providers_path = _path("model_adapter", "configs", "providers.yaml")
+        if not providers_path.exists():
+            return
         try:
             from config.schemas import ConfigValidator
         except Exception as e:
@@ -61,7 +64,7 @@ class ConfigHealthCheck:
         try:
             validator = ConfigValidator()
             validator.load_all(
-                providers_path=_path("model_adapter", "configs", "providers.yaml"),
+                providers_path=providers_path,
                 vectorizers_path=_path("vector_store", "config", "vectorizers.yaml"),
             )
             self.warnings.extend(validator.validate())

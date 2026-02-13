@@ -121,7 +121,8 @@ def update_config(agent_name):
             "description": "...",
             "enabled": true,
             "llm": {
-                "provider": "deepseek",
+                "provider": "test",
+                "provider_type": "deepseek",
                 "model_name": "deepseek-chat",
                 "temperature": 0.3,
                 "max_tokens": 4096

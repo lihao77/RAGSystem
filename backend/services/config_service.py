@@ -98,6 +98,8 @@ class ConfigService:
                     'password': '***' if hide_sensitive and config.neo4j.password else config.neo4j.password
                 },
                 'llm': {
+                    'provider': config.llm.provider,
+                    'provider_type': config.llm.provider_type,
                     'api_endpoint': config.llm.api_endpoint,
                     'api_key': '***' if hide_sensitive and config.llm.api_key else config.llm.api_key,
                     'model_name': config.llm.model_name,

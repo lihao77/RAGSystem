@@ -176,6 +176,11 @@ class ConfigValidator:
                 if not llm:
                     continue
                 p, pt = getattr(llm, "provider", None), getattr(llm, "provider_type", None)
+                if p is not None and pt is None:
+                    warnings.append(
+                        f"智能体 '{agent_name}' 已设置 llm.provider 但未设置 llm.provider_type，请补全 provider_type 以便正确解析复合键"
+                    )
+                    continue
                 if p is None or pt is None:
                     continue
                 composite = f"{p}_{pt}"
@@ -193,8 +198,21 @@ class ConfigValidator:
                 llm = getattr(agent_cfg, "llm", None)
                 if llm and getattr(llm, "provider", None) and getattr(llm, "provider_type", None):
                     used.add(f"{llm.provider}_{llm.provider_type}")
+        # 系统配置（config.yaml）中的 llm / embedding 也算作已使用
+        try:
+            from config import get_config
+            cfg = get_config()
+            if cfg.llm and getattr(cfg.llm, "provider", None) and getattr(cfg.llm, "provider_type", None):
+                used.add(f"{cfg.llm.provider}_{cfg.llm.provider_type}")
+            if cfg.embedding and getattr(cfg.embedding, "provider", None) and getattr(cfg.embedding, "provider_type", None):
+                used.add(f"{cfg.embedding.provider}_{cfg.embedding.provider_type}")
+        except Exception:
+            pass
         unused = provider_keys - used
         if unused:
-            warnings.append(f"以下 providers 已配置但未被使用: {', '.join(sorted(unused))}")
+            warnings.append(
+                f"以下 providers 已配置但未被任何「智能体」或「向量化器」引用: {', '.join(sorted(unused))}。"
+                f"若不需要可忽略；若要用到，请在智能体配置中指定 llm.provider/provider_type，或在向量库中添加对应向量化器。"
+            )
 
         return warnings
