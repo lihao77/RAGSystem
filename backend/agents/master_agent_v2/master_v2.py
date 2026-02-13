@@ -10,7 +10,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional, Generator
 
-from ..base import BaseAgent, AgentContext, AgentResponse
+from ..base import BaseAgent, AgentContext, AgentResponse, parse_llm_json
 from ..context_manager import ContextManager, ContextConfig, ObservationFormatter
 from .agent_function_definitions import get_agent_tools
 from .agent_executor import AgentExecutor, parse_agent_invocation
@@ -417,17 +417,18 @@ class MasterAgentV2(BaseAgent):
 
             while rounds < self.max_rounds:
                 rounds += 1
-                self.logger.info(f"[MasterV2] 第 {rounds} 轮推理")
+                # 获取 LLM 配置（含请求级 context.llm_override），用于调用与日志前缀
+                llm_config = self.get_llm_config(context)
+                log_prefix = self._log_prefix(llm_config, "MasterV2")
+
+                self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
 
                 # 应用上下文管理
                 managed_messages = self.context_manager.manage_messages(
                     messages,
                     system_prompt=self._build_system_prompt()
                 )
-                self.logger.info(f"[MasterV2] {self.context_manager.format_context_summary(managed_messages)}")
-
-                # 获取 LLM 配置
-                llm_config = self.get_llm_config()
+                self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
 
                 # 调用 LLM（使用 JSON mode）
                 response = self.model_adapter.chat_completion(
@@ -453,28 +454,38 @@ class MasterAgentV2(BaseAgent):
                         execution_time=time.time() - start_time
                     )
 
-                # 解析 JSON 响应
-                try:
-                    output = json.loads(response.content)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"JSON 解析失败: {e}")
-                    # ✨ 使用事件发布器发布错误
-                    publisher.agent_error(
-                        error=f"LLM 返回无效的 JSON: {str(e)}",
-                        error_type="JSONDecodeError"
+                # 解析 JSON 响应（使用 base 提供的 parse_llm_json，支持代码块、前后缀等）
+                content = (response.content or "").strip()
+                output, parse_err = parse_llm_json(content)
+                if output is None:
+                    raw_preview = content[:500]
+                    self.logger.warning(
+                        f"{log_prefix} JSON 解析失败: {parse_err}，原始响应预览: {raw_preview!r}"
                     )
-                    return AgentResponse(
-                        success=False,
-                        error=f"LLM 返回无效的 JSON: {str(e)}",
-                        agent_name=self.name,
-                        execution_time=time.time() - start_time
-                    )
+                    if content:
+                        output = {
+                            "thought": "模型返回了非 JSON 格式，已作为直接回复处理。",
+                            "actions": [],
+                            "final_answer": content
+                        }
+                        self.logger.info(f"{log_prefix} 已降级为纯文本回复 (长度 {len(content)} 字符)")
+                    else:
+                        publisher.agent_error(
+                            error=f"LLM 返回无效的 JSON 或空响应: {parse_err}",
+                            error_type="JSONDecodeError"
+                        )
+                        return AgentResponse(
+                            success=False,
+                            error=f"LLM 返回无效的 JSON 或空响应: {parse_err}",
+                            agent_name=self.name,
+                            execution_time=time.time() - start_time
+                        )
 
                 thought = output.get('thought', '')
                 actions = output.get('actions', [])
                 final_answer = output.get('final_answer')
 
-                self.logger.info(f"[MasterV2] Thought: {thought[:100]}...")
+                self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # ✨ 发布结构化思考事件
                 publisher.thought_structured(
@@ -495,7 +506,7 @@ class MasterAgentV2(BaseAgent):
 
                 # 检查是否有最终答案
                 if final_answer:
-                    self.logger.info(f"[MasterV2] 得到最终答案")
+                    self.logger.info(f"{log_prefix} 得到最终答案")
 
                     # ✨ 发布最终答案事件（通过事件总线流式输出）
                     publisher.final_answer(final_answer)
@@ -517,7 +528,7 @@ class MasterAgentV2(BaseAgent):
 
                 # 执行 Agent 调用
                 if actions and len(actions) > 0:
-                    self.logger.info(f"[MasterV2] 执行 {len(actions)} 个 Agent 调用")
+                    self.logger.info(f"{log_prefix} 执行 {len(actions)} 个 Agent 调用")
 
                     observations = []
                     agent_results = {}
@@ -536,13 +547,13 @@ class MasterAgentV2(BaseAgent):
 
                         # 如果发生了替换，记录日志
                         if original_arguments != arguments:
-                            self.logger.info(f"[MasterV2] 占位符替换: {original_arguments} -> {arguments}")
+                            self.logger.info(f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}")
 
                         # 解析出 Agent 名称
                         agent_name = parse_agent_invocation(tool_name)
                         if not agent_name:
                             error_msg = f"无效的 Agent 工具名称: {tool_name}"
-                            self.logger.warning(f"[MasterV2] {error_msg}")
+                            self.logger.warning(f"{log_prefix} {error_msg}")
                             observations.append(f"**Agent 调用 {idx}**: 失败\n错误: {error_msg}")
                             continue
 
@@ -554,8 +565,8 @@ class MasterAgentV2(BaseAgent):
                         agent_task = arguments.get('task', '')
                         context_hint = arguments.get('context_hint')
 
-                        self.logger.info(f"[MasterV2] [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
-                        self.logger.info(f"[MasterV2] 任务: {agent_task[:100]}...")
+                        self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
+                        self.logger.info(f"{log_prefix} 任务: {agent_task[:100]}...")
 
                         # 🎯 使用新版 call_id（原 task_id）
                         call_id = f"call_{run_id}_{rounds}_{idx}"
@@ -574,7 +585,7 @@ class MasterAgentV2(BaseAgent):
                         # 🎯 派生子上下文 (Context Forking)
                         # 为子 Agent 创建独立的执行环境，避免污染 Master 的上下文
                         child_context = context.fork()
-                        self.logger.info(f"[MasterV2] 已派生子上下文 (Level {child_context.level})")
+                        self.logger.info(f"{log_prefix} 已派生子上下文 (Level {child_context.level})")
 
                         # ✨ 将 call_id 传递到子 Agent 的 context（作为 parent_call_id）
                         if not hasattr(child_context, 'metadata'):
@@ -614,9 +625,9 @@ class MasterAgentV2(BaseAgent):
                                 agent_name=agent_name
                             )
                             context.merge(child_context, response_obj)
-                            self.logger.info(f"[MasterV2] 子上下文已合并")
+                            self.logger.info(f"{log_prefix} 子上下文已合并")
                         except Exception as e:
-                            self.logger.warning(f"[MasterV2] 合并上下文失败: {e}")
+                            self.logger.warning(f"{log_prefix} 合并上下文失败: {e}")
 
                         result = agent_result
 
@@ -658,15 +669,15 @@ class MasterAgentV2(BaseAgent):
                     continue
                 else:
                     # 没有 Agent 调用但也没有最终答案
-                    self.logger.warning(f"[MasterV2] 既没有调用 Agent 也没有给出最终答案")
+                    self.logger.warning(f"{log_prefix} 既没有调用 Agent 也没有给出最终答案")
                     messages.append({
                         "role": "user",
                         "content": "请根据当前信息给出最终答案，或者说明需要调用哪个 Agent 获取更多信息。"
                     })
                     continue
 
-            # 达到最大轮数
-            self.logger.warning(f"[MasterV2] 达到最大轮数 {self.max_rounds}")
+            # 达到最大轮数（循环外无 log_prefix，用 display 名）
+            self.logger.warning(f"{self._log_prefix(None, 'MasterV2')} 达到最大轮数 {self.max_rounds}")
             final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
 
             # ✨ 发布事件

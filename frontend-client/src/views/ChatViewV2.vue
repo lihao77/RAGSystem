@@ -65,7 +65,7 @@
         <div class="avatar">U</div>
         <div class="user-info">
           <div class="username">User</div>
-          <div class="user-status">Pro Plan · V2</div>
+          <div class="user-status">Pro Plan</div>
         </div>
       </a>
     </aside>
@@ -84,12 +84,8 @@
           <LLMSelector :model-value="selectedLLM" @update:model-value="emit('update:selectedLLM', $event)" />
         </div>
 
-        <!-- 右侧：Version + Theme -->
+        <!-- 右侧：主题切换 -->
         <div class="right-controls glass-card">
-          <button @click="emit('toggleVersion')" class="version-btn btn" :title="useV2 ? '切换到 V1' : '切换到 V2'">
-            <span class="version-label">{{ useV2 ? 'V2' : 'V1' }}</span>
-          </button>
-
           <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
             <!-- Sun icon for dark mode -->
             <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -125,7 +121,7 @@
                   <!-- 系统 Logo -->
                   <IconLogo :size="80" animated />
                 </div>
-                <h1>RAG Agent System V2</h1>
+                <h1>RAG Agent System</h1>
                 <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
               </div>
             </div>
@@ -233,10 +229,6 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  useV2: {
-    type: Boolean,
-    default: false
-  },
   isDark: {
     type: Boolean,
     default: true
@@ -244,7 +236,7 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['update:selectedLLM', 'toggleVersion', 'toggleTheme']);
+const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -713,15 +705,21 @@ const handleSend = async () => {
   try {
     const controller = new AbortController();
     currentStreamController.value = controller;
+    const body = {
+      task: content,
+      session_id: sessionId,
+      use_v2: true
+    };
+    // 前端 llm-select-trigger 选择：临时指定默认主智能体及未配置 LLM 的智能体使用的模型（格式 provider|provider_type|model_name）
+    const selectedLlm = props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+    if (selectedLlm) {
+      body.selected_llm = selectedLlm;
+    }
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
-      body: JSON.stringify({
-        task: content,
-        session_id: sessionId,
-        use_v2: true  // 🎯 关键：指定使用 Master V2
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);

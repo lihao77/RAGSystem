@@ -15,7 +15,7 @@ import os
 import time
 from typing import Optional, Dict, Any, List
 import uuid
-from .base import BaseAgent, AgentContext, AgentResponse
+from .base import BaseAgent, AgentContext, AgentResponse, parse_llm_json
 from tools.tool_executor import execute_tool
 from .context_manager import ContextManager, ContextConfig, ObservationFormatter
 from .session_event_bus_manager import get_session_event_bus
@@ -418,17 +418,18 @@ class ReActAgent(BaseAgent):
 
             while rounds < self.max_rounds:
                 rounds += 1
-                self.logger.info(f"[ReAct] 第 {rounds} 轮推理")
+                # 获取 LLM 配置（含请求级 context.llm_override），用于调用与日志前缀
+                llm_config = self.get_llm_config(context)
+                log_prefix = self._log_prefix(llm_config, "ReAct")
+
+                self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
 
                 #  应用上下文管理（防止超出限制）
                 managed_messages = self.context_manager.manage_messages(
                     messages,
                     system_prompt=self._build_system_prompt()
                 )
-                self.logger.info(f"[ReAct] {self.context_manager.format_context_summary(managed_messages)}")
-
-                # 获取 LLM 配置
-                llm_config = self.get_llm_config()
+                self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
 
                 # 重试机制：最多尝试 3 次解析
                 max_parse_retries = 3
@@ -459,45 +460,34 @@ class ReActAgent(BaseAgent):
                             execution_time=time.time() - start_time
                         )
 
-                    # 解析 JSON 响应
-                    try:
-                        output = json.loads(response.content)
-                        # 解析成功，跳出重试循环
+                    # 解析 JSON 响应（使用 base 提供的 parse_llm_json，支持代码块、前后缀等）
+                    output, parse_err = parse_llm_json(response.content or "")
+                    if output is not None:
                         if retry_attempt > 0:
                             self.logger.info(f"第 {retry_attempt + 1} 次尝试成功解析 JSON")
                         break
-                    except json.JSONDecodeError as e:
-                        # 尝试使用 strict=False 解析
-                        try:
-                            output = json.loads(response.content, strict=False)
-                            self.logger.info(f"使用 strict=False 成功解析 JSON (尝试 {retry_attempt + 1}/{max_parse_retries})")
-                            break
-                        except json.JSONDecodeError as e2:
-                            self.logger.warning(
-                                f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {str(e2)}"
-                            )
-
-                            if retry_attempt < max_parse_retries - 1:
-                                # 还有重试机会，向 LLM 反馈错误并要求重新生成
-                                self.logger.info("要求 LLM 重新生成有效的 JSON...")
-                                messages.append({
-                                    "role": "assistant",
-                                    "content": response.content[:200] + "..."  # 只添加部分内容
-                                })
-                                messages.append({
-                                    "role": "user",
-                                    "content": f"你的上一个响应包含 JSON 格式错误: {str(e2)}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
-                                })
-                            else:
-                                # 已达到最大重试次数
-                                self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {response.content[:500]}... (已截断)")
-                                return AgentResponse(
-                                    success=False,
-                                    content="",
-                                    error=f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {str(e2)}",
-                                    agent_name=self.name,
-                                    execution_time=time.time() - start_time
-                                )
+                    self.logger.warning(
+                        f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {parse_err}"
+                    )
+                    if retry_attempt < max_parse_retries - 1:
+                        self.logger.info("要求 LLM 重新生成有效的 JSON...")
+                        messages.append({
+                            "role": "assistant",
+                            "content": (response.content or "")[:200] + "..."
+                        })
+                        messages.append({
+                            "role": "user",
+                            "content": f"你的上一个响应包含 JSON 格式错误: {parse_err}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
+                        })
+                    else:
+                        self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {(response.content or '')[:500]}... (已截断)")
+                        return AgentResponse(
+                            success=False,
+                            content="",
+                            error=f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {parse_err}",
+                            agent_name=self.name,
+                            execution_time=time.time() - start_time
+                        )
 
                 # 如果所有重试都失败
                 if output is None:
@@ -513,7 +503,7 @@ class ReActAgent(BaseAgent):
                 actions = output.get('actions', [])
                 final_answer = output.get('final_answer')
 
-                self.logger.info(f"[ReAct] Thought: {thought[:100]}...")
+                self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # 发送结构化的思考过程事件
                 self._emit_event('thought_structured', {
@@ -531,7 +521,7 @@ class ReActAgent(BaseAgent):
 
                 # 检查是否有最终答案
                 if final_answer:
-                    self.logger.info(f"[ReAct] 得到最终答案")
+                    self.logger.info(f"{log_prefix} 得到最终答案")
                     # ✨ 发布事件
                     if self._publisher:
                         self._publisher.final_answer(final_answer)
@@ -553,7 +543,7 @@ class ReActAgent(BaseAgent):
 
                 # 检查是否需要执行工具（支持多个工具并行）
                 if actions and len(actions) > 0:
-                    self.logger.info(f"[ReAct] 执行 {len(actions)} 个工具调用")
+                    self.logger.info(f"{log_prefix} 执行 {len(actions)} 个工具调用")
 
                     # 收集所有工具的执行结果
                     observations = []
@@ -565,7 +555,7 @@ class ReActAgent(BaseAgent):
                         if not tool_name:
                             continue
 
-                        self.logger.info(f"[ReAct] [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
+                        self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
 
                         # 生成 tool_call_id
                         import uuid
@@ -621,7 +611,7 @@ class ReActAgent(BaseAgent):
                     continue
                 else:
                     # 没有工具调用但也没有最终答案，可能是 LLM 困惑了
-                    self.logger.warning(f"[ReAct] LLM 既没有调用工具也没有给出最终答案")
+                    self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案")
                     messages.append({
                         "role": "user",
                         "content": "请根据当前信息给出最终答案，或者说明需要使用哪个工具获取更多信息。"
@@ -629,7 +619,7 @@ class ReActAgent(BaseAgent):
                     continue
 
             # 达到最大轮数
-            self.logger.warning(f"[ReAct] 达到最大轮数 {self.max_rounds}")
+            self.logger.warning(f"{self._log_prefix(None, 'ReAct')} 达到最大轮数 {self.max_rounds}")
             final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
             # ✨ 发布事件
             if self._publisher:

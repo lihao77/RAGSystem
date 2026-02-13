@@ -4,14 +4,91 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 import copy
+import json
 import uuid
 
 logger = logging.getLogger(__name__)
+
+
+def parse_llm_json(content: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    从 LLM 返回文本中解析 JSON，支持多种常见变形。
+
+    - 裸 JSON
+    - Markdown 代码块包裹：```json ... ``` 或 ``` ... ```
+    - 前后多余说明文字（提取首尾匹配的 {...}）
+    - 控制字符 / 不严格转义（strict=False）
+    - BOM 与首尾空白
+
+    Returns:
+        (parsed_dict, None) 成功；(None, error_message) 失败。
+    """
+    if not content or not isinstance(content, str):
+        return None, "空或非字符串响应"
+    raw = content.strip()
+    if not raw:
+        return None, "空响应"
+    raw = raw.lstrip("\ufeff")  # BOM
+    last_error: Optional[str] = None
+
+    def try_parse(s: str, strict: bool = True) -> Optional[Dict[str, Any]]:
+        nonlocal last_error
+        try:
+            return json.loads(s, strict=strict)
+        except json.JSONDecodeError as e:
+            last_error = str(e)
+            return None
+
+    # 1. 直接解析
+    out = try_parse(raw)
+    if out is not None:
+        return out, None
+
+    # 2. 剥掉 Markdown 代码块
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+        if stripped:
+            out = try_parse(stripped)
+            if out is not None:
+                return out, None
+            out = try_parse(stripped, strict=False)
+            if out is not None:
+                return out, None
+
+    # 3. 提取首尾大括号之间的片段（应对前后有说明文字）
+    first = raw.find("{")
+    last = raw.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        segment = raw[first : last + 1]
+        out = try_parse(segment)
+        if out is not None:
+            return out, None
+        out = try_parse(segment, strict=False)
+        if out is not None:
+            return out, None
+
+    # 4. 整段 strict=False（允许控制字符等）
+    out = try_parse(raw, strict=False)
+    if out is not None:
+        return out, None
+
+    # 5. 剥掉代码块后再 strict=False
+    if raw.startswith("```") and stripped:
+        out = try_parse(stripped, strict=False)
+        if out is not None:
+            return out, None
+
+    return None, last_error or "JSON 解析失败"
 
 
 @dataclass
@@ -68,10 +145,13 @@ class AgentContext:
         session_id: str,
         user_id: Optional[str] = None,
         initial_data: Optional[Dict[str, Any]] = None,
-        parent: Optional['AgentContext'] = None
+        parent: Optional['AgentContext'] = None,
+        llm_override: Optional[Dict[str, Any]] = None
     ):
         self.session_id = session_id
         self.user_id = user_id
+        # 请求级 LLM 覆盖：前端通过 llm-select-trigger 选择的模型，用于临时作为默认/未配置智能体的 provider+model
+        self.llm_override = llm_override
         
         # 核心上下文数据
         self.conversation_history: List[Message] = []
@@ -84,6 +164,8 @@ class AgentContext:
             self.blackboard = parent.blackboard    # 引用共享
             self.parent = parent
             self.level = parent.level + 1
+            if llm_override is None and getattr(parent, 'llm_override', None):
+                self.llm_override = parent.llm_override
         else:
             self.shared_data: Dict[str, Any] = initial_data or {}
             self.blackboard: Dict[str, Any] = {}   # 结构化黑板 {key: {'value': v, 'tags': [], 'timestamp': t}}
@@ -103,7 +185,8 @@ class AgentContext:
         child = AgentContext(
             session_id=self.session_id,
             user_id=self.user_id,
-            parent=self
+            parent=self,
+            llm_override=getattr(self, 'llm_override', None)
         )
         # 复制当前的 agent_stack
         child.agent_stack = list(self.agent_stack)
@@ -363,9 +446,19 @@ class BaseAgent(ABC):
 
         return info
 
-    def get_llm_config(self) -> Dict[str, Any]:
+    def _log_prefix(self, llm_config: Optional[Dict[str, Any]] = None, display_name: Optional[str] = None) -> str:
+        """返回带模型名的日志前缀，如 [MasterV2 minimax]、[ReAct deepseek-chat]。"""
+        name = display_name if display_name is not None else self.name
+        if llm_config and (llm_config.get('model_name') or llm_config.get('provider')):
+            extra = llm_config.get('model_name') or llm_config.get('provider')
+            return f"[{name} {extra}]"
+        return f"[{name}]"
+
+    def get_llm_config(self, context: Optional['AgentContext'] = None) -> Dict[str, Any]:
         """
-        获取 LLM 配置（优先使用智能体配置，否则使用系统配置）
+        获取 LLM 配置（优先使用智能体配置，否则使用系统配置）。
+        若传入 context 且 context.llm_override 存在：用前端选择**覆盖来自系统配置**的 provider/model；
+        **不覆盖** agent_configs.yaml 里该智能体已显式配置的 provider/provider_type/model_name。
 
         Returns:
             LLM 配置字典，包含 provider, model_name, temperature 等
@@ -397,12 +490,15 @@ class BaseAgent(ABC):
                 'temperature': 0.7,
                 'max_tokens': 4096
             }
-            
-        # 确保 provider 存在 (用于 model_adapter)
-        if 'provider' not in config or not config['provider']:
-            # 如果没有指定 provider，尝试从 adapter 获取默认的
-            # 但这里我们只是返回配置，具体调用时 adapter 会处理
-            pass
+
+        # 4. 请求级覆盖：前端 llm 选择覆盖「来自系统配置」的项，不覆盖 agent_configs.yaml 里该智能体已配置的项
+        override = getattr(context, 'llm_override', None) if context else None
+        if override:
+            agent_llm = self.agent_config.llm if (self.agent_config and self.agent_config.llm) else None
+            for key in ('provider', 'provider_type', 'model_name'):
+                from_agent = agent_llm is not None and getattr(agent_llm, key, None) is not None
+                if not from_agent and override.get(key):
+                    config[key] = override[key]
             
         return config
 

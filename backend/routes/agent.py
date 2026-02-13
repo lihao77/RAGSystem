@@ -373,8 +373,9 @@ def stream_execute():
         {
             "task": "任务描述",
             "session_id": "会话ID（可选）",
-            "use_v2": false  // 是否使用 MasterAgent V2（可选，默认 false）
+            "selected_llm": "provider|provider_type|model_name（可选，前端 llm-select-trigger 选择，用于临时覆盖默认/未配置 LLM 的智能体）"
         }
+        注：仅使用 MasterAgent V2，V1 已废弃。
 
     Response:
         text/event-stream
@@ -387,7 +388,20 @@ def stream_execute():
     task = data.get('task', '').strip()
     session_id = data.get('session_id')
     user_id = data.get('user_id')
-    # use_v2 = data.get('use_v2', False)  # V1 已废弃
+    # 前端 llm-select-trigger 选择：格式 "provider|provider_type|model_name"，用于临时覆盖默认/未配置 LLM 的智能体
+    selected_llm = (data.get('selected_llm') or data.get('selectedLLM') or '').strip()  # 兼容前端可能的 camelCase
+    llm_override = None
+    if selected_llm:
+        parts = selected_llm.split('|')
+        if len(parts) >= 3:
+            llm_override = {'provider': parts[0], 'provider_type': parts[1], 'model_name': parts[2]}
+        elif len(parts) == 2:
+            llm_override = {'provider': parts[0], 'provider_type': '', 'model_name': parts[1]}
+        elif len(parts) == 1 and parts[0]:
+            llm_override = {'provider': parts[0], 'provider_type': None, 'model_name': None}
+        logger.info(f'流式请求使用前端选择 LLM: selected_llm={selected_llm!r} -> llm_override={llm_override}')
+    else:
+        logger.info('流式请求未携带 selected_llm，将使用系统/智能体默认 LLM')
 
     if not task:
         return error_response(message='任务描述不能为空', status_code=400)
@@ -407,8 +421,8 @@ def stream_execute():
             # 获取 Orchestrator
             orchestrator = _get_orchestrator()
 
-            # 创建上下文
-            context = AgentContext(session_id=session_id, user_id=user_id)
+            # 创建上下文（含前端选择的 LLM 覆盖）
+            context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
             _load_history_into_context(context, session_id=session_id, limit=20)
 
             # 强制使用 MasterAgent V2
