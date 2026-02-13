@@ -212,7 +212,6 @@
 .history-list {
   flex: 1;
   overflow-y: auto;
-  padding-right: var(--spacing-xs);
   opacity: 1;
   max-height: 100%;
   transition: opacity 0.3s ease, max-height 0.3s ease;
@@ -239,7 +238,8 @@
 
 .history-item {
   /* 历史记录图标 18px，中心在 9px，左边距 = 24 - 9 = 15px */
-  padding: 8px var(--spacing-md) 8px calc(var(--icon-center-line) - 9px);
+  padding: 8px var(--spacing-sm);
+  margin: 0 var(--spacing-sm);
   margin-bottom: 2px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -273,10 +273,31 @@
   transition: all var(--transition-fast);
 }
 
+.history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+}
+
 .history-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.history-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .user-profile {
