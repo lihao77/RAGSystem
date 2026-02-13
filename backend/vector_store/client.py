@@ -35,13 +35,26 @@ class VectorStoreClient:
         self._initialized = True
         logger.info("向量存储客户端已创建（延迟初始化）")
 
-    def initialize(self, config=None):
+    def reset(self):
+        """重置已创建的存储实例，使下次 initialize 时按当前配置重新初始化（用于配置热重载）。"""
+        if self._store is not None:
+            try:
+                self._store.close()
+            except Exception:
+                pass
+        self._store = None
+        logger.debug("向量存储客户端已重置，下次使用将按当前配置重新初始化")
+
+    def initialize(self, config=None, force=False):
         """
         初始化向量存储
 
         Args:
             config: AppConfig 配置对象
+            force: 为 True 时先重置再初始化（用于配置变更后）
         """
+        if force:
+            self.reset()
         if self._store is not None:
             logger.debug("向量存储已初始化，跳过重复初始化")
             return
@@ -93,37 +106,43 @@ class VectorStoreClient:
 
         优先级：
         1. 从 Embedder 获取实际维度（如果已初始化）
-        2. 使用配置文件中的维度
-        3. 从现有数据库推断维度
+        2. 使用配置文件中的维度（config_dimension=0 表示未配置，仅用 Embedder）
 
         Args:
-            config_dimension: 配置文件中的维度
+            config_dimension: 配置文件中的维度，0 表示未配置、自动与当前模型一致
 
         Returns:
             实际使用的向量维度
         """
         try:
-            # 尝试从 Embedder 获取实际维度
             from .embedder import get_embedder
             embedder = get_embedder()
 
-            # 检查 Embedder 是否已初始化
             if embedder._embedder is not None:
                 actual_dimension = embedder.embedding_dim
 
+                # 未配置维度(0)：静默使用 Embedder 维度，不告警
+                if config_dimension == 0:
+                    logger.info(f"使用 Embedder 向量维度: {actual_dimension}")
+                    return actual_dimension
+
+                # 已配置但与 Embedder 不一致：告警并采用 Embedder
                 if actual_dimension != config_dimension:
                     logger.warning(
                         f"⚠️  配置的向量维度 ({config_dimension}) 与 Embedder 实际维度 ({actual_dimension}) 不匹配\n"
                         f"   将自动使用 Embedder 的实际维度: {actual_dimension}"
                     )
                     return actual_dimension
-                else:
-                    logger.info(f"✓ 向量维度匹配: {actual_dimension}")
-                    return actual_dimension
+
+                logger.info(f"✓ 向量维度匹配: {actual_dimension}")
+                return actual_dimension
         except Exception as e:
             logger.debug(f"无法从 Embedder 获取维度，使用配置值: {e}")
 
-        # 返回配置值
+        # 无 Embedder 时：配置为 0 则退回到通用默认 768，否则用配置值
+        if config_dimension == 0:
+            logger.info("未配置向量维度且 Embedder 未就绪，使用默认维度: 768")
+            return 768
         logger.info(f"使用配置的向量维度: {config_dimension}")
         return config_dimension
 
@@ -187,6 +206,12 @@ class VectorStoreClient:
 
 # 全局单例
 _vector_client: Optional[VectorStoreClient] = None
+
+
+def reset_vector_client():
+    """重置全局向量存储客户端，使配置重载后下次使用按新配置初始化。"""
+    client = get_vector_client()
+    client.reset()
 
 
 def get_vector_client() -> VectorStoreClient:

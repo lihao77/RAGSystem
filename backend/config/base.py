@@ -45,7 +45,6 @@ class ConfigManager:
     def reload(self):
         """热重载配置"""
         self.load()
-        print("配置已重新加载")
 
     def get_config(self) -> AppConfig:
         """获取当前配置"""

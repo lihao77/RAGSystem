@@ -3,7 +3,7 @@
 配置管理路由 - 提供配置读取、更新、验证和测试功能
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 import logging
 import json
 import yaml
@@ -136,6 +136,19 @@ def update_config():
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False, indent=2)
 
         logger.info('配置文件已更新')
+
+        # 若本次更新包含 embedding 配置，自动触发热重载，使文本向量化器下次使用新配置
+        if data and isinstance(data, dict) and 'embedding' in data:
+            try:
+                from vector_store.embedder import reset_embedder
+                from vector_store.client import reset_vector_client
+                from init_vector_store import reset_vector_store_initialized
+                reset_embedder()
+                reset_vector_client()
+                reset_vector_store_initialized()
+                logger.info('已自动重置 Embedder 与向量存储（embedding 配置已变更）')
+            except Exception as e:
+                logger.warning(f'重置 Embedder/向量存储时告警: {e}')
 
         return jsonify({
             'success': True,
@@ -358,16 +371,57 @@ def test_llm_connection():
 
 @config_bp.route('/reload', methods=['POST'])
 def reload_config_api():
-    """热重载配置"""
+    """热重载配置：重新加载 config.yaml，并重置所有依赖配置的单例/连接，使后续请求使用新配置。"""
     try:
         config = reload_config()
+
+        # 1. 向量：Embedder、向量存储客户端及初始化标记
+        try:
+            from vector_store.embedder import reset_embedder
+            from vector_store.client import reset_vector_client
+            from init_vector_store import reset_vector_store_initialized
+            reset_embedder()
+            reset_vector_client()
+            reset_vector_store_initialized()
+            logger.info("已重置 Embedder 与向量存储客户端")
+        except Exception as e:
+            logger.warning(f"重置向量相关单例时告警: {e}")
+
+        # 2. Neo4j：使用新配置重连
+        try:
+            from db import is_neo4j_configured, neo4j_conn
+            if is_neo4j_configured():
+                neo4j_conn.reconnect()
+                logger.info("已按新配置重新连接 Neo4j")
+        except Exception as e:
+            logger.warning(f"Neo4j 重连时告警: {e}")
+
+        # 3. Flask 应用配置：更新 MAX_CONTENT_LENGTH 等
+        try:
+            if hasattr(config, 'system') and config.system:
+                current_app.config['MAX_CONTENT_LENGTH'] = getattr(
+                    config.system, 'max_content_length', 104857600
+                )
+            logger.info("已更新 Flask 应用配置")
+        except Exception as e:
+            logger.warning(f"更新 Flask 应用配置时告警: {e}")
+
+        # 4. 业务单例：Cypher 生成器、GraphRAG 服务（内部缓存了 config）
+        try:
+            from services.cypher_generator import reset_cypher_generator
+            from services.graphrag_service import reset_graphrag_service
+            reset_cypher_generator()
+            reset_graphrag_service()
+            logger.info("已重置 Cypher 生成器与 GraphRAG 服务单例")
+        except Exception as e:
+            logger.warning(f"重置业务单例时告警: {e}")
 
         return jsonify({
             'success': True,
             'message': '配置已重新加载',
             'data': {
                 'neo4j_uri': config.neo4j.uri,
-                'llm_model': config.llm.model_name
+                'llm_model': getattr(config.llm, 'model_name', None)
             }
         })
 

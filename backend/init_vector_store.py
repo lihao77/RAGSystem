@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 _vector_store_initialized = False
 
 
+def reset_vector_store_initialized():
+    """重置向量库初始化标记（配置热重载时调用，使状态与已重置的 embedder/client 一致）。"""
+    global _vector_store_initialized
+    _vector_store_initialized = False
+
+
 def is_vector_db_configured():
     """
     检查向量数据库是否已配置
@@ -92,7 +98,7 @@ def init_vector_store(force=False):
         # 1. 先初始化 Embedder（以便向量存储可以获取实际维度）
         logger.info("步骤 1/3: 预加载嵌入模型...")
         embedder = get_embedder()
-        embedder.initialize(config)
+        embedder.initialize(config, force=force)
 
         # 检查 Embedder 是否初始化成功
         try:
@@ -122,13 +128,18 @@ def init_vector_store(force=False):
         except Exception as e:
             logger.warning(f"⚠ 嵌入模型初始化失败: {e}")
             logger.warning("向量数据库将跳过初始化")
+            # 失败则不配置文本向量化器：重置 embedder，避免后续使用无效的 _embedder
+            try:
+                embedder.reset()
+            except Exception as reset_err:
+                logger.debug(f"重置 Embedder 时: {reset_err}")
             _vector_store_initialized = False
             return False
 
         # 2. 初始化向量数据库客户端（会自动从 Embedder 获取维度）
         logger.info("步骤 2/3: 初始化向量数据库客户端...")
         client = get_vector_client()
-        client.initialize(config)
+        client.initialize(config, force=force)
         logger.info(f"✓ 向量数据库客户端已就绪 (后端: {config.vector_store.backend})")
 
         # 3. 验证集合

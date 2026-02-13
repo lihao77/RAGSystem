@@ -483,3 +483,9 @@ def get_graphrag_service():
     if _graphrag_service is None:
         _graphrag_service = GraphRAGService()
     return _graphrag_service
+
+
+def reset_graphrag_service():
+    """重置 GraphRAG 服务单例，配置热重载后下次调用将使用新配置。"""
+    global _graphrag_service
+    _graphrag_service = None

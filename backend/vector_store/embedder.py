@@ -52,7 +52,8 @@ class RemoteEmbedder(EmbedderBase):
         self,
         provider_name: str,
         model_name: str = "text-embedding-3-small",
-        batch_size: int = 100
+        batch_size: int = 100,
+        provider_type: Optional[str] = None
     ):
         """
         初始化远程 Embedder
@@ -60,6 +61,8 @@ class RemoteEmbedder(EmbedderBase):
         Args:
             provider_name: Model Adapter Provider 名称
             model_name: 模型名称
+            batch_size: 批处理大小
+            provider_type: Provider 类型
         """
         self.model_name = model_name
         self.batch_size = batch_size
@@ -70,20 +73,31 @@ class RemoteEmbedder(EmbedderBase):
         
         # 确保 Provider 已加载
         try:
-            self.provider = self.adapter.get_provider(provider_name)
-        except ValueError:
+            self.provider = self.adapter.get_provider(provider_name, provider_type)
+        except ValueError as e:
             # 尝试重新加载配置
             self.adapter._load_saved_configs()
             try:
-                self.provider = self.adapter.get_provider(provider_name)
+                self.provider = self.adapter.get_provider(provider_name, provider_type)
             except ValueError:
-                 raise ValueError(f"未找到 Provider: {provider_name}，请先在 Model Adapter 中配置")
+                # 提供更详细的错误信息
+                if provider_type:
+                    raise ValueError(
+                        f"未找到 Provider: {provider_name}_{provider_type}，"
+                        f"请先在 Model Adapter 中配置"
+                    )
+                else:
+                    raise ValueError(
+                        f"未找到 Provider: {provider_name}。{str(e)}\n"
+                        f"提示：如果有多个同名 Provider，请在配置中添加 provider_type"
+                    )
 
         # 缓存向量维度
         self._embedding_dim: Optional[int] = None
 
+        provider_key = f"{provider_name}_{provider_type}" if provider_type else provider_name
         logger.info(f"✅ 远程 Embedder 已初始化 (via Model Adapter)")
-        logger.info(f"   Provider: {provider_name}")
+        logger.info(f"   Provider: {provider_key}")
         logger.info(f"   模型: {model_name}")
 
     def embed(self, texts: Union[str, List[str]]) -> List[List[float]]:
@@ -111,6 +125,10 @@ class RemoteEmbedder(EmbedderBase):
                 model=self.model_name
             )
             
+            # 检查 response 是否为 None（理论上不应该，但为了安全）
+            if response is None:
+                raise RuntimeError("Embedding 调用失败: Provider 返回 None")
+            
             if response.error:
                  raise RuntimeError(f"Embedding 调用失败: {response.error}")
                  
@@ -136,14 +154,10 @@ class RemoteEmbedder(EmbedderBase):
                     raise RuntimeError("无法获取向量维度")
             except Exception as e:
                 logger.error(f"获取向量维度失败: {e}")
-                # 默认值回退
-                if "small" in self.model_name:
-                    return 1536
-                elif "large" in self.model_name:
-                    return 3072
-                elif "bge" in self.model_name:
-                     return 1024 # bge-large
-                return 768 # 通用默认值
+                # 不返回虚假维度，让调用方知道 Embedder 未就绪
+                raise RuntimeError(
+                    f"无法获取向量维度（Embedding 接口调用失败）。请检查 Provider/API 配置。原因: {e}"
+                ) from e
 
         return self._embedding_dim
 
@@ -170,13 +184,21 @@ class TextEmbedder:
         self._initialized = True
         logger.info("TextEmbedder 已创建（延迟初始化）")
 
-    def initialize(self, config=None):
+    def reset(self):
+        """重置内部 Embedder，使下次 initialize/embed 时按当前配置重新初始化（用于配置热重载）。"""
+        self._embedder = None
+        logger.debug("Embedder 已重置，下次使用将按当前配置重新初始化")
+
+    def initialize(self, config=None, force=False):
         """
         初始化 Embedder
 
         Args:
             config: AppConfig 配置对象
+            force: 为 True 时先重置再初始化（用于配置变更后）
         """
+        if force:
+            self.reset()
         if self._embedder is not None:
             logger.debug("Embedder 已初始化，跳过重复初始化")
             return
@@ -191,13 +213,17 @@ class TextEmbedder:
              logger.warning("未配置 Embedding Provider，Embedder 将不可用")
              return
 
+        # 获取 provider_type（如果配置了）
+        provider_type = getattr(config.embedding, 'provider_type', None)
         try:
             self._embedder = RemoteEmbedder(
                 provider_name=provider_name,
                 model_name=config.embedding.model_name,
-                batch_size=config.embedding.batch_size
+                batch_size=config.embedding.batch_size,
+                provider_type=provider_type
             )
-            logger.info(f"✅ Embedder 初始化完成 (Provider: {provider_name})")
+            provider_key = f"{provider_name}_{provider_type}" if provider_type else provider_name
+            logger.info(f"✅ Embedder 初始化完成 (Provider: {provider_key})")
         except ValueError as e:
             logger.warning(f"Embedder 初始化失败: {e}")
             self._embedder = None
@@ -227,9 +253,7 @@ class TextEmbedder:
             self.initialize()
             
         if self._embedder is None:
-             # 如果未初始化，返回一个默认值或抛出异常
-             # 为了避免启动崩溃，返回默认值 768
-             return 768
+            raise RuntimeError("Embedder 未初始化或初始化失败，请检查 Embedding 配置")
 
         return self._embedder.embedding_dim
 
@@ -254,3 +278,9 @@ def get_embedder() -> TextEmbedder:
     if _text_embedder is None:
         _text_embedder = TextEmbedder()
     return _text_embedder
+
+
+def reset_embedder():
+    """重置全局 Embedder 单例的内部实现，使配置重载后下次调用使用新配置。"""
+    embedder = get_embedder()
+    embedder.reset()

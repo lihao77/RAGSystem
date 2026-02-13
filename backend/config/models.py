@@ -22,6 +22,7 @@ class LLMConfig(BaseModel):
 
     # ModelAdapter 配置（新版本）
     provider: str = ""  # AI 提供商名称（openai/deepseek/openrouter）
+    provider_type: str = ""  # Provider 类型（用于精确查找，避免同名冲突）
     model_name: str = "deepseek-chat"  # 默认 Chat 模型
     
     # 统一模型映射 (Task -> Model ID)
@@ -49,6 +50,7 @@ class EmbeddingConfig(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     provider: str = ""  # Embedding 提供商名称（留空表示未配置）
+    provider_type: str = ""  # Provider 类型（用于精确查找，避免同名冲突）
     model_name: str = ""  # Embedding 模型名称
     batch_size: int = 100 # 批处理大小
 
@@ -57,7 +59,7 @@ class SQLiteVectorConfig(BaseModel):
     model_config = ConfigDict(extra='allow')
 
     database_path: str = "data/vector_store.db"  # 数据库文件路径
-    vector_dimension: int = 768  # 向量维度（需与 Embedding 模型匹配）
+    vector_dimension: int = 0  # 0=自动与当前 Embedding 模型一致
     distance_metric: str = "cosine"  # 距离度量: cosine, l2, ip
 
 
@@ -70,7 +72,7 @@ class PostgreSQLVectorConfig(BaseModel):
     database: str = "ragsystem"
     user: str = "postgres"
     password: str = ""
-    vector_dimension: int = 768
+    vector_dimension: int = 0  # 0=自动与当前 Embedding 模型一致
 
 
 class VectorStoreConfig(BaseModel):

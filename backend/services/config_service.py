@@ -104,7 +104,7 @@ class ConfigService:
     
     def update_config(self, config_data: dict, merge: bool = True):
         """
-        更新配置文件
+        更新配置文件，并重新加载配置
         
         Args:
             config_data: 配置数据字典
@@ -132,6 +132,8 @@ class ConfigService:
                          default_flow_style=False, indent=2, sort_keys=False)
             
             logger.info('配置文件已更新')
+            reload_config_func()
+            logger.info('配置已重新加载')
             return True
             
         except Exception as e:

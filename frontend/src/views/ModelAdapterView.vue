@@ -18,10 +18,20 @@
         <el-icon><Connection /></el-icon> 测试所有
       </el-button>
     </div>
+    
+    <!-- 提示信息 -->
+    <el-alert 
+      type="info" 
+      :closable="false" 
+      style="margin: 10px 0;">
+      <template #title>
+        <span>💡 提示：可以创建同名但不同类型的 Provider，例如 <code>test_deepseek</code> 和 <code>test_openrouter</code></span>
+      </template>
+    </el-alert>
 
     <!-- Provider 列表 -->
     <div class="provider-list">
-      <el-card v-for="provider in providers" :key="provider.name" class="provider-card">
+      <el-card v-for="provider in providers" :key="provider.key" class="provider-card">
         <template #header>
           <div class="provider-header">
             <div class="provider-info">
@@ -29,15 +39,18 @@
               <el-tag :type="getProviderTypeTag(provider.provider_type)">
                 {{ provider.provider_type }}
               </el-tag>
+              <el-tag size="small" type="info" style="margin-left: 10px;">
+                {{ provider.key }}
+              </el-tag>
             </div>
             <div class="provider-actions">
-              <el-button size="small" @click="testProvider(provider.name)">
+              <el-button size="small" @click="testProvider(provider.key)">
                 测试
               </el-button>
               <el-button size="small" type="primary" @click="showEditProviderDialog(provider)">
                 编辑
               </el-button>
-              <el-button size="small" type="danger" @click="deleteProvider(provider.name)">
+              <el-button size="small" type="danger" @click="deleteProvider(provider.key)">
                 删除
               </el-button>
             </div>
@@ -52,7 +65,10 @@
                  <div v-for="(model, task) in provider.model_map" :key="task" class="model-map-item">
                    <el-tag size="small" type="info">{{ task }}</el-tag>
                    <span class="arrow">→</span>
-                   <el-tag size="small" effect="plain">{{ model }}</el-tag>
+                   <template v-if="Array.isArray(model)">
+                     <el-tag v-for="(m, i) in model" :key="i" size="small" effect="plain">{{ m }}</el-tag>
+                   </template>
+                   <el-tag v-else size="small" effect="plain">{{ model }}</el-tag>
                  </div>
                </template>
                <span v-else class="value" style="color: #909399">
@@ -156,16 +172,49 @@
           </el-form-item>
         </template>
 
-        <!-- 模型映射配置 -->
+        <!-- 模型映射配置：每项为模型列表，第一个为默认使用 -->
         <el-divider>模型映射配置</el-divider>
         <el-form-item label="Chat 模型">
-           <el-input v-model="formData.model_map.chat" placeholder="例如: gpt-4, deepseek-chat" />
+          <el-select
+            v-model="formData.model_map.chat"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入后回车添加，或粘贴逗号分隔的多个模型"
+            style="width: 100%"
+            @paste="(e) => pasteModels(e, 'chat')"
+          >
+            <el-option v-for="m in (formData.model_map.chat || [])" :key="m" :label="m" :value="m" />
+          </el-select>
         </el-form-item>
         <el-form-item label="Embedding 模型">
-           <el-input v-model="formData.model_map.embedding" placeholder="例如: text-embedding-3-small" />
+          <el-select
+            v-model="formData.model_map.embedding"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入后回车添加，或粘贴逗号分隔的多个模型"
+            style="width: 100%"
+            @paste="(e) => pasteModels(e, 'embedding')"
+          >
+            <el-option v-for="m in (formData.model_map.embedding || [])" :key="m" :label="m" :value="m" />
+          </el-select>
         </el-form-item>
         <el-form-item label="Reasoning 模型">
-           <el-input v-model="formData.model_map.reasoning" placeholder="例如: deepseek-reasoner" />
+          <el-select
+            v-model="formData.model_map.reasoning"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            placeholder="输入后回车添加，或粘贴逗号分隔的多个模型"
+            style="width: 100%"
+            @paste="(e) => pasteModels(e, 'reasoning')"
+          >
+            <el-option v-for="m in (formData.model_map.reasoning || [])" :key="m" :label="m" :value="m" />
+          </el-select>
         </el-form-item>
         <el-divider></el-divider>
 
@@ -232,7 +281,7 @@
           </el-form-item>
 
           <el-form-item label="选择模型" v-if="currentProvider" required>
-            <template v-if="currentProviderObj?.model_map && Object.values(currentProviderObj.model_map).some(m => m)">
+            <template v-if="currentProviderObj?.model_map && getTestModelOptions(currentProviderObj).length > 0">
               <el-select
                 v-model="testModel"
                 placeholder="选择或输入模型名称"
@@ -241,38 +290,27 @@
                 allow-create
                 default-first-option
               >
-                <!-- 优先显示 Model Map 中的模型 -->
                 <el-option-group label="配置模型">
-                   <el-option
-                      v-if="currentProviderObj.model_map && currentProviderObj.model_map.chat"
-                      :label="currentProviderObj.model_map.chat + ' (Chat)'"
-                      :value="currentProviderObj.model_map.chat"
-                   />
-                   <el-option
-                      v-if="currentProviderObj.model_map && currentProviderObj.model_map.embedding"
-                      :label="currentProviderObj.model_map.embedding + ' (Embedding)'"
-                      :value="currentProviderObj.model_map.embedding"
-                   />
-                   <el-option
-                      v-if="currentProviderObj.model_map && currentProviderObj.model_map.reasoning"
-                      :label="currentProviderObj.model_map.reasoning + ' (Reasoning)'"
-                      :value="currentProviderObj.model_map.reasoning"
-                   />
+                  <el-option
+                    v-for="m in getTestModelOptions(currentProviderObj)"
+                    :key="m.value"
+                    :label="m.label"
+                    :value="m.value"
+                  />
                 </el-option-group>
               </el-select>
               <div style="font-size: 12px; color: #999; margin-top: 5px;">
                 可以从列表选择，也可以输入不在列表中的模型名称
               </div>
               
-              <!-- 警告提示 -->
               <div 
-                v-if="testTask === 'embedding' && !testModel && (!currentProviderObj.model_map || !currentProviderObj.model_map.embedding)"
+                v-if="testTask === 'embedding' && !testModel && !getModelsList(currentProviderObj?.model_map, 'embedding').length"
                 style="color: #e6a23c; font-size: 12px; margin-top: 5px;"
               >
                 <el-icon><Warning /></el-icon> 未配置默认 Embedding 模型，请手动输入或选择
               </div>
               <div 
-                v-if="testTask === 'embedding' && testModel && currentProviderObj.model_map && testModel === currentProviderObj.model_map.chat"
+                v-if="testTask === 'embedding' && testModel && getModelsList(currentProviderObj?.model_map, 'chat').includes(testModel)"
                 style="color: #f56c6c; font-size: 12px; margin-top: 5px;"
               >
                 <el-icon><Warning /></el-icon> 警告：您选择了 Chat 模型用于向量化任务，可能导致调用失败
@@ -370,10 +408,13 @@ const testTask = ref('chat') // chat | embedding
 const formRef = ref(null)
 const currentProvider = ref(null)
 
-// 计算当前 Provider 对象
+// 计算当前 Provider 对象（使用 key 或 name 查找）
 const currentProviderObj = computed(() => {
   if (!currentProvider.value) return null
-  return providers.value.find(p => p.name === currentProvider.value)
+  return providers.value.find(p => 
+    (p.key && p.key === currentProvider.value) || 
+    p.name === currentProvider.value
+  )
 })
 
 // 表单数据
@@ -383,7 +424,7 @@ const formData = ref({
   api_key: '',
   api_endpoint: '',
   models: [],
-  model_map: { chat: '', embedding: '', reasoning: '' }, // 新增
+  model_map: { chat: [], embedding: [], reasoning: [] },
   temperature: 0.7,
   max_tokens: 4096,
   timeout: 30,
@@ -438,6 +479,57 @@ const getProviderTypeTag = (type) => {
   return tags[type] || 'info'
 }
 
+// 将 model_map 值规范为数组（兼容后端返回字符串或数组）
+const normalizeModelMap = (modelMap) => {
+  if (!modelMap || typeof modelMap !== 'object') return { chat: [], embedding: [], reasoning: [] }
+  const toList = (v) => {
+    if (v == null || v === '') return []
+    if (Array.isArray(v)) return v.filter(Boolean).map((s) => String(s).trim())
+    return [String(v).trim()]
+  }
+  return {
+    chat: toList(modelMap.chat),
+    embedding: toList(modelMap.embedding),
+    reasoning: toList(modelMap.reasoning)
+  }
+}
+
+// 粘贴时按逗号拆分并加入当前项列表
+const pasteModels = (e, key) => {
+  const text = (e.clipboardData || window.clipboardData)?.getData('text') || ''
+  if (!text || !text.includes(',')) return
+  e.preventDefault()
+  const list = formData.value.model_map[key] || []
+  const added = text.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+  const set = new Set([...list, ...added])
+  formData.value.model_map[key] = [...set]
+}
+
+// 从 model_map 取某任务的模型列表（兼容字符串/数组）
+const getModelsList = (modelMap, task) => {
+  if (!modelMap || !task) return []
+  const v = modelMap[task]
+  if (v == null || v === '') return []
+  return Array.isArray(v) ? v.filter(Boolean) : [String(v)]
+}
+
+// 测试对话框中的模型下拉选项（按任务分组展示）
+const getTestModelOptions = (provider) => {
+  if (!provider?.model_map) return []
+  const opts = []
+  const tasks = [
+    { key: 'chat', label: 'Chat' },
+    { key: 'embedding', label: 'Embedding' },
+    { key: 'reasoning', label: 'Reasoning' }
+  ]
+  tasks.forEach(({ key, label }) => {
+    getModelsList(provider.model_map, key).forEach((m) => {
+      opts.push({ value: m, label: `${m} (${label})` })
+    })
+  })
+  return opts
+}
+
 // 处理模型列表
 const getModelList = (models) => {
   if (!models || models.length === 0) return []
@@ -452,7 +544,7 @@ const showAddProviderDialog = () => {
     name: '',
     api_key: '',
     api_endpoint: '',
-    model_map: { chat: '', embedding: '', reasoning: '' },
+    model_map: { chat: [], embedding: [], reasoning: [] },
     temperature: 0.7,
     max_tokens: 4096,
     timeout: 30,
@@ -464,14 +556,14 @@ const showAddProviderDialog = () => {
 
 const showEditProviderDialog = (provider) => {
   dialogTitle.value = '编辑 Provider'
-  currentProvider.value = provider.name
+  // 优先使用 key，fallback 到 name（向后兼容）
+  currentProvider.value = provider.key || provider.name
 
-  // 编辑时只加载可编辑的字段
   formData.value = {
     provider_type: provider.provider_type,
     name: provider.name,
-    api_endpoint: provider.api_endpoint || '', // 仅用于显示，不会提交
-    model_map: { ...provider.model_map } || { chat: '', embedding: '', reasoning: '' },
+    api_endpoint: provider.api_endpoint || '',
+    model_map: normalizeModelMap(provider.model_map),
     temperature: provider.temperature || 0.7,
     max_tokens: provider.max_tokens || 4096,
     timeout: provider.timeout || 30,
@@ -487,14 +579,15 @@ const submitForm = async () => {
   await formRef.value.validate(async (valid) => {
     if (!valid) return
 
-    // 处理模型列表文本转换为数组
-    
-    // 合并并去重
-    const allModels = []
+    // model_map 已为列表，提交前过滤空字符串
+    const modelMap = {}
+    for (const [k, v] of Object.entries(formData.value.model_map || {})) {
+      modelMap[k] = Array.isArray(v) ? v.filter((s) => s && String(s).trim()) : (v ? [String(v).trim()] : [])
+    }
 
     const baseData = {
-      models: allModels,
-      model_map: formData.value.model_map,
+      models: [...new Set(Object.values(modelMap).flat())],
+      model_map: modelMap,
       temperature: formData.value.temperature,
       max_tokens: formData.value.max_tokens,
       timeout: formData.value.timeout,
@@ -511,6 +604,7 @@ const submitForm = async () => {
           name: formData.value.name,
           // 不包含 api_key 和 api_endpoint
         }
+        // 使用 provider_key 调用更新 API
         await modelAdapterService.updateProvider(currentProvider.value, submitData)
         ElMessage.success('更新成功')
       } else {
@@ -534,13 +628,13 @@ const submitForm = async () => {
   })
 }
 
-const deleteProvider = async (name) => {
+const deleteProvider = async (providerKey) => {
   try {
-    await ElMessageBox.confirm('确定要删除该 Provider 吗？', '确认删除', {
+    await ElMessageBox.confirm(`确定要删除 ${providerKey} 吗？`, '确认删除', {
       type: 'warning'
     })
 
-    await modelAdapterService.deleteProvider(name)
+    await modelAdapterService.deleteProvider(providerKey)
     ElMessage.success('删除成功')
     loadProviders()
   } catch (error) {
@@ -568,11 +662,9 @@ const testProvider = (name) => {
   testTask.value = 'chat'
   testDialogVisible.value = true
   
-  // 自动填充模型
   const provider = providers.value.find(p => p.name === name)
-  if (provider && provider.model_map && provider.model_map.chat) {
-      testModel.value = provider.model_map.chat
-  }
+  const chatModels = getModelsList(provider?.model_map, 'chat')
+  testModel.value = chatModels.length ? chatModels[0] : ''
 }
 
 const testAllProviders = () => {

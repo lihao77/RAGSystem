@@ -161,7 +161,20 @@ class OpenAIProvider(AIProvider):
                 timeout=self.timeout
             )
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as je:
+                # 响应体不是 JSON（常见为 HTML 错误页或空 body）
+                body_preview = (response.text or "")[:300].strip() or "(空)"
+                logger.error(
+                    f"Embedding API 返回非 JSON 响应: status={response.status_code}, "
+                    f"body 前 300 字符: {body_preview!r}"
+                )
+                return EmbeddingResponse(
+                    embeddings=[],
+                    error=f"API 返回非 JSON (status={response.status_code})，请检查端点与密钥。原始错误: {je}",
+                    provider=self.name
+                )
             
             # OpenAI format: {"data": [{"embedding": [...], "index": 0}, ...], "usage": ...}
             embeddings = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
@@ -617,67 +630,69 @@ class OpenRouterProvider(AIProvider):
     def embed(
         self,
         texts: List[str],
-        model: Optional[str] = None,
+        model: Optional[str],
         dimensions: Optional[int] = None,
         **kwargs
     ) -> EmbeddingResponse:
-        """OpenRouter 目前主要聚合 LLM，对 Embedding 支持可能有限，尝试调用但不做保证"""
-        # OpenRouter 的 embedding 接口可能与 OpenAI 兼容，或者需要特定路由
-        # 这里尝试调用，如果失败则返回错误
+        """生成向量 Embedding"""
+        model = model or self.get_model_for_task('embedding') or "text-embedding-3-small"
         
-        # OpenRouter 文档显示主要支持 Chat，Embedding 支持需查阅最新文档
-        # 假设其兼容 OpenAI 格式转发
-        
-        model = model or self.get_model_for_task('embedding')
-        
-        if not model:
-             return EmbeddingResponse(
-                embeddings=[],
-                error="OpenRouter 需要指定 Embedding 模型",
-                provider=self.name
-            )
-            
-        return super().embed(texts, model, dimensions, **kwargs) # 这会调用基类的... wait, 基类是抽象的
-        # 这里需要实现
-        
-        # 实际上 OpenRouter 官方 API 可能没有 /embeddings 端点（它主要做 LLM 路由）
-        # 我们可以抛出不支持，或者如果用户非要用，尝试转发
-        
-        logger.warning("OpenRouter Embedding 支持是实验性的")
-        
-        # 复用 OpenAI 风格调用逻辑
         payload = {
             "input": texts,
             "model": model,
             **kwargs
         }
         
+        if dimensions:
+            payload["dimensions"] = dimensions
+            
         start_time = self._before_request()
         
         try:
+            # OpenRouter 的 embedding 端点与 OpenAI 兼容，路径为 /embeddings
             response = requests.post(
-                f"{self.api_endpoint}/embeddings", # 假设有这个端点
+                f"{self.api_endpoint.rstrip('/')}/embeddings",
                 headers=self.headers,
                 json=payload,
                 timeout=self.timeout
             )
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as je:
+                body_preview = (response.text or "")[:300].strip() or "(空)"
+                logger.error(
+                    f"OpenRouter Embedding 返回非 JSON: status={response.status_code}, body: {body_preview!r}"
+                )
+                return EmbeddingResponse(
+                    embeddings=[],
+                    error=f"OpenRouter 返回非 JSON (status={response.status_code})，可能不支持 /embeddings 或密钥有误。原始: {je}",
+                    provider=self.name
+                )
             
+            # OpenAI format: {"data": [{"embedding": [...], "index": 0}, ...], "usage": ...}
             embeddings = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
+            
+            usage = {
+                "prompt_tokens": data.get("usage", {}).get("prompt_tokens", 0),
+                "total_tokens": data.get("usage", {}).get("total_tokens", 0)
+            }
+            
+            latency = self._after_request(start_time)
             
             return EmbeddingResponse(
                 embeddings=embeddings,
                 model=model,
+                usage=usage,
                 provider=self.name,
-                latency=self._after_request(start_time)
+                latency=latency
             )
             
         except Exception as e:
             logger.error(f"OpenRouter Embedding 调用失败: {str(e)}")
             return EmbeddingResponse(
                 embeddings=[],
-                error=f"OpenRouter Embedding 调用失败: {str(e)}",
+                error=str(e),
                 provider=self.name
             )
 

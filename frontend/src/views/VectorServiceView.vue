@@ -156,12 +156,12 @@
             />
 
             <el-form-item label="Provider">
-              <el-select v-model="config.embedding.provider" placeholder="选择 Provider" style="width: 100%" @change="handleProviderChange" clearable>
+              <el-select v-model="embeddingProviderKey" placeholder="选择 Provider" style="width: 100%" @change="handleProviderChange" clearable>
                 <el-option
                   v-for="provider in availableProviders"
-                  :key="provider.name"
+                  :key="provider.key ?? (provider.name + '_' + provider.provider_type)"
                   :label="provider.name + ' (' + provider.provider_type + ')'"
-                  :value="provider.name"
+                  :value="provider.key ?? (provider.name + '_' + provider.provider_type)"
                 />
               </el-select>
               <div class="form-tip">
@@ -430,14 +430,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   DataLine, Setting, Refresh, Search, Delete, 
   Link, Key, Cpu, Check, Tools, Plus, View, Upload, UploadFilled 
 } from '@element-plus/icons-vue'
 import { getCollections, deleteCollection, searchVectors, indexFileUpload, indexDocument as apiIndexDocument } from '@/api/vectorService'
-import { getRawConfig, updateConfig, reloadConfig } from '@/api/config'
+import { getRawConfig, updateConfig } from '@/api/config'
 import { modelAdapterService } from '@/api'
 import { listFiles } from '@/api/fileService'
 
@@ -496,8 +496,31 @@ const searchPerformed = ref(false)
 const config = reactive({
   embedding: {
     provider: '',
+    provider_type: '',  // 与 provider 一起保存，用于复合键
     model_name: '',
     batch_size: 100
+  }
+})
+
+// 当前选中的 Provider 复合键（用于下拉框 v-model，便于唯一匹配）
+const embeddingProviderKey = computed({
+  get() {
+    const p = config.embedding.provider
+    const t = config.embedding.provider_type
+    if (t) return `${p}_${t}`
+    return p || ''
+  },
+  set(key) {
+    if (!key) {
+      config.embedding.provider = ''
+      config.embedding.provider_type = ''
+      return
+    }
+    const provider = availableProviders.value.find((x) => x.key === key)
+    if (provider) {
+      config.embedding.provider = provider.name
+      config.embedding.provider_type = provider.provider_type
+    }
   }
 })
 
@@ -507,11 +530,18 @@ const loadProviders = async () => {
     const res = await modelAdapterService.getProviders()
     if (res.success) {
       // 包含embedding模型的 Provider 列表
-      availableProviders.value = res.providers.filter(p => p.models?.length > 0 || p.model_map?.embedding)
+      availableProviders.value = res.providers.filter(p => {
+        const emb = p.model_map?.embedding
+        const hasEmbedding = emb != null && (Array.isArray(emb) ? emb.length > 0 : String(emb).trim())
+        return (p.models?.length > 0) || hasEmbedding
+      })
       
-      // 如果已选择 provider，加载其模型
-      if (config.embedding.provider) {
-        handleProviderChange(config.embedding.provider)
+      // 如果已选择 provider，加载其模型（传复合键）
+      const key = config.embedding.provider_type
+        ? `${config.embedding.provider}_${config.embedding.provider_type}`
+        : config.embedding.provider
+      if (key) {
+        handleProviderChange(key)
       }
     }
   } catch (error) {
@@ -519,21 +549,29 @@ const loadProviders = async () => {
   }
 }
 
-// 处理 Provider 变更
-const handleProviderChange = (providerName) => {
-  const provider = availableProviders.value.find(p => p.name === providerName)
+// 处理 Provider 变更（传入复合键 provider.key 或旧版仅 name）
+const handleProviderChange = (keyOrName) => {
+  const provider = availableProviders.value.find(
+    (p) => (p.key && p.key === keyOrName) || p.name === keyOrName
+  )
   if (provider) {
+    config.embedding.provider = provider.name
+    config.embedding.provider_type = provider.provider_type || ''
     // 重置模型列表
     // 从 model_map 和 models (兼容旧版) 中收集所有模型
     const allModels = new Set(provider.models || [])
     if (provider.model_map) {
       Object.values(provider.model_map).forEach(m => {
-        if (m && m.trim()) allModels.add(m.trim())
+        if (Array.isArray(m)) {
+          m.forEach((x) => { if (x && String(x).trim()) allModels.add(String(x).trim()) })
+        } else if (m && String(m).trim()) {
+          allModels.add(String(m).trim())
+        }
       })
     }
-    
     currentProviderModels.list = Array.from(allModels)
-    currentProviderModels.embedding = provider.model_map?.embedding || ''
+    const emb = provider.model_map?.embedding
+    currentProviderModels.embedding = Array.isArray(emb) ? (emb[0] || '') : (emb || '')
     
     // 如果当前没有选择模型，且有推荐的 embedding 模型，自动选择
     if (!config.embedding.model_name && currentProviderModels.embedding) {
@@ -758,6 +796,7 @@ const loadConfig = async () => {
       
       // 加载配置
       config.embedding.provider = embeddingData.provider || ''
+      config.embedding.provider_type = embeddingData.provider_type || ''
       config.embedding.model_name = embeddingData.model_name || ''
       config.embedding.batch_size = embeddingData.batch_size || 100
       
@@ -778,6 +817,7 @@ const saveConfig = async () => {
     const updateData = {
       embedding: {
         provider: config.embedding.provider,
+        provider_type: config.embedding.provider_type,
         model_name: config.embedding.model_name,
         batch_size: config.embedding.batch_size
       }
@@ -785,8 +825,7 @@ const saveConfig = async () => {
     
     const res = await updateConfig(updateData)
     if (res.success) {
-      ElMessage.success('配置已保存')
-      await reloadConfig() // 热重载
+      ElMessage.success('配置已保存（后端已自动触发热重载）')
     } else {
       ElMessage.error(res.message || '保存失败')
     }

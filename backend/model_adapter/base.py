@@ -84,8 +84,13 @@ class AIProvider(ABC):
         self.supports_function_calling = kwargs.get("supports_function_calling", False)
 
     def get_model_for_task(self, task: str) -> Optional[str]:
-        """根据任务类型获取模型 ID"""
-        return self.model_map.get(task) or self.model
+        """根据任务类型获取模型 ID。model_map 值可为字符串或列表，列表时取第一项为默认。"""
+        val = self.model_map.get(task) or self.model
+        if not val:
+            return self.model
+        if isinstance(val, list):
+            return val[0].strip() if val else self.model
+        return str(val).strip() if str(val).strip() else self.model
 
     @abstractmethod
     def chat_completion(

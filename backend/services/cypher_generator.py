@@ -939,3 +939,9 @@ def get_cypher_generator(model_adapter=None, provider: str = None, model: str = 
     if _generator is None:
         _generator = CypherGenerator(model_adapter=model_adapter, provider=provider, model=model)
     return _generator
+
+
+def reset_cypher_generator():
+    """重置 Cypher 生成器单例，配置热重载后下次调用将使用新配置。"""
+    global _generator
+    _generator = None

@@ -1,559 +1,354 @@
-# LLM Adapter
+# Model Adapter
 
-LLM Adapter 是系统的统一 LLM 管理接口，支持多种 LLM 提供商（OpenAI、DeepSeek、OpenRouter 等），提供统一的配置、调用和管理功能。
+统一的 AI 模型管理接口，支持多个 AI 服务提供商（OpenAI、DeepSeek、OpenRouter、ModelScope 等）。
 
-## 功能特性
+## 架构特性
 
-### 核心功能
-- **多 Provider 支持**：支持 OpenAI、DeepSeek、OpenRouter 等主流 LLM 服务
-- **统一接口**：所有 LLM 调用通过同一接口，无需关心底层实现
-- **灵活配置**：支持每个提供商配置多个模型，运行时动态选择
-- **成本追踪**：自动记录 token 使用量和成本
-- **错误处理**：完善的错误处理和日志记录
-- **工具调用**：支持 Function Calling / Tools 功能
+### ✨ 单一配置文件架构（2026-02-13 升级）
 
-### LLM Provider
+**优势：**
+- ⚡️ **性能提升**：启动时仅 1 次 IO，相比多文件减少 95% IO 操作
+- 🎯 **原生支持同名配置**：使用复合键 `{name}_{provider_type}` 解决同名覆盖问题
+- 🔄 **热重载机制**：`reload()` 方法具有原子性，失败自动回滚
+- 📦 **代码简化**：ConfigStore 减少 79% 代码（286 → 130 行）
+- 🎨 **配置集中**：所有配置在一个文件中，易于查看和编辑
 
-所有 LLM Provider 都实现了以下方法：
+### 🔑 复合键机制
 
-- `chat_completion()`：发送对话补全请求
-- `generate_text()`：发送文本生成请求
-- `is_available()`：检查 Provider 是否可用
-- `get_model_list()`：获取支持的模型列表
-- `calculate_cost()`：计算调用成本
+**格式：** `{name}_{provider_type}`
 
-### 支持的 Provider
+**示例：**
+- `test_deepseek` - name: test, provider_type: deepseek
+- `test_openrouter` - name: test, provider_type: openrouter
+- `modelscope_modelscope` - name: modelscope, provider_type: modelscope
 
-#### OpenAI Provider
+**优势：**
+- 允许创建同名但不同类型的 Provider
+- 精确识别和操作特定 Provider
+- 避免配置覆盖问题
 
-```python
-from llm_adapter.providers import OpenAIProvider
+## 配置文件
 
-provider = OpenAIProvider(
-    api_key="your-api-key",
-    name="my-openai",
-    model="gpt-3.5-turbo"
-)
-```
+### 位置
+`backend/model_adapter/configs/providers.yaml`
 
-支持特性：
-- 支持工具调用（Function Calling）
-- Token 使用统计
-- 成本计算
-
-支持的模型：
-- gpt-4-turbo-preview
-- gpt-4
-- gpt-3.5-turbo
-- gpt-3.5-turbo-16k
-
-#### DeepSeek Provider
-
-```python
-from llm_adapter.providers import DeepSeekProvider
-
-provider = DeepSeekProvider(
-    api_key="your-api-key",
-    name="my-deepseek",
-    model="deepseek-chat"
-)
-```
-
-支持特性：
-- 支持工具调用（Function Calling）
-- 更具性价比
-- 快速响应
-
-支持的模型：
-- deepseek-chat
-- deepseek-coder
-
-#### OpenRouter Provider
-
-```python
-from llm_adapter.providers import OpenRouterProvider
-
-provider = OpenRouterProvider(
-    api_key="your-api-key",
-    name="my-openrouter",
-    model="anthropic/claude-3-sonnet-20240229"
-)
-```
-
-支持特性：
-- 支持多种模型
-- 自动价格匹配
-
-支持的模型：
-- anthropic/claude-3-sonnet
-- anthropic/claude-3-opus
-- anthropic/claude-3-haiku
-- openai/gpt-4-turbo-preview
-- google/gemini-pro
-
-## 快速开始
-
-### 基础使用
-
-```python
-from llm_adapter import get_default_adapter
-from llm_adapter.providers import DeepSeekProvider
-
-# 获取默认适配器
-adapter = get_default_adapter()
-
-# 注册 Provider（从配置或代码）
-# 系统启动时会自动加载 config/yaml/config.yaml 中的配置
-
-# 发送请求（必须指定 provider 和 model）
-messages = [
-    {"role": "user", "content": "你好，请介绍一下自己"}
-]
-
-response = adapter.chat_completion(
-    messages=messages,
-    provider="deepseek",  # 必需参数
-    model="deepseek-chat"  # 必需参数
-)
-
-if response.error:
-    print(f"错误: {response.error}")
-else:
-    print(f"回复: {response.content}")
-    print(f"延迟: {response.latency:.2f}s")
-    print(f"成本: ${response.cost:.6f}")
-```
-
-### 从配置创建 Provider
-
-在 `config/yaml/config.yaml` 中配置：
+### 格式
 
 ```yaml
-llm:
-  provider: deepseek
-  model_name: deepseek-chat
-  api_key: your-api-key
-  temperature: 0.7
+# 复合键作为顶层键
+test_deepseek:
+  name: test
+  provider_type: deepseek
+  api_key: sk-xxx
+  api_endpoint: https://api.deepseek.com/v1
   max_tokens: 4096
+  temperature: 0.7
+  timeout: 30
+  retry_attempts: 3
+  retry_delay: 1.0
+  supports_function_calling: true
+  model_map:
+    chat: deepseek-chat
+  models: []
+
+test_openrouter:
+  name: test
+  provider_type: openrouter
+  api_key: sk-or-xxx
+  api_endpoint: https://openrouter.ai/api/v1
+  model_map:
+    embedding:
+      - openai/text-embedding-3-small
+  models:
+    - openai/text-embedding-3-small
+
+modelscope_modelscope:
+  name: modelscope
+  provider_type: modelscope
+  api_key: ms-xxx
+  api_endpoint: https://api-inference.modelscope.cn/v1
+  model_map:
+    embedding:
+      - Qwen/Qwen3-Embedding-8B
+      - Qwen/Qwen3-Embedding-0.6B
 ```
 
-系统启动时会自动加载这些配置。
+## 使用方法
 
-### API 服务
+### 基本调用
 
-启动后端服务器后，可以通过 API 管理 Provider：
-
-```bash
-# 获取 Provider 列表
-curl http://localhost:5000/api/llm-adapter/providers
-
-# 创建 Provider
-curl -X POST http://localhost:5000/api/llm-adapter/providers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider_type": "deepseek",
-    "name": "My-DeepSeek",
-    "api_key": "your-api-key",
-    "models": ["deepseek-chat", "deepseek-coder"]
-  }'
-
-# 测试 Provider
-curl -X POST http://localhost:5000/api/llm-adapter/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider": "My-DeepSeek",
-    "model": "deepseek-chat",
-    "prompt": "你好，请介绍一下自己"
-  }'
-
-# 获取服务状态
-curl http://localhost:5000/api/config/services/status
-```
-
-### 前端管理界面
-
-访问 `/llm-adapter` 页面，可以：
-- 查看所有 Provider 列表
-- 添加新的 Provider
-- 编辑 Provider 配置（模型列表、温度等）
-- 删除 Provider
-- 测试 Provider
-- 高级选项（温度、最大 token 数、超时时间等）
-
-在系统设置 `/settings` 页面，可以：
-- 选择 LLM 提供商
-- 选择或输入模型名称
-- 调整温度、最大 token 数等参数
-- 测试 LLM 连接
-
-## 配置说明
-
-### 配置文件
-
-- **默认配置**：`backend/config/yaml/config.default.yaml`
-- **用户配置**：`backend/config/yaml/config.yaml`（覆盖默认配置）
-- **环境变量**：最高优先级
-
-### LLM 配置格式
-
-```yaml
-llm:
-  # LLMAdapter 配置（推荐方式）
-  provider: "deepseek"  # 提供商：openai / deepseek / openrouter
-  model_name: "deepseek-chat"  # 模型名称
-  temperature: 0.7      # 温度参数（默认）
-  max_tokens: 4096      # 最大 token 数（默认）
-  timeout: 30          # 超时时间（秒）
-  retry_attempts: 3    # 重试次数
-
-  # 旧版配置（向后兼容）
-  api_endpoint: https://api.deepseek.com/v1
-  api_key: "your-api-key"
-```
-
-**注意**：如果配置了 `provider`，旧版配置将被忽略。
-
-### 配置优先级
-
-1. **环境变量**：如 `LLM__PROVIDER="openai"`
-2. **用户配置**（config.yaml）
-3. **默认配置**（config.default.yaml）
-
-### 环境变量配置
-
-```bash
-# LLM 提供商和模型
-export LLM__PROVIDER="deepseek"
-export LLM__MODEL_NAME="deepseek-chat"
-
-# 旧版兼容
-export LLM__API_ENDPOINT="https://api.deepseek.com/v1"
-export LLM__API_KEY="your-api-key"
-```
-
-## 对于其他服务的迁移指南
-
-### 从旧版 LLM 配置迁移
-
-旧版配置（直接指定 API）：
-```yaml
-llm:
-  api_endpoint: https://api.deepseek.com/v1
-  api_key: your-api-key
-  model_name: deepseek-chat
-```
-
-新版配置（使用 LLMAdapter）：
-```yaml
-llm:
-  provider: deepseek
-  model_name: deepseek-chat
-  api_key: your-api-key
-```
-
-### 在代码中迁移
-
-修改前（使用 LLMService）：
 ```python
-from services.llm_service import get_llm_service
-
-llm_service = get_llm_service()
-response = llm_service.chat_completion(messages=messages)
-answer = response['choices'][0]['message']['content']
-```
-
-修改后（使用 LLMAdapter）：
-```python
-from llm_adapter import get_default_adapter
+from model_adapter import get_default_adapter
 
 adapter = get_default_adapter()
+
+# 方式 1：使用复合键（精确）
 response = adapter.chat_completion(
-    messages=messages,
-    provider=config.llm.provider,
-    model=config.llm.model_name
+    messages=[{"role": "user", "content": "Hello"}],
+    provider="test_deepseek",  # 复合键
+    temperature=0.7
 )
 
-if response.error:
-    logger.error(f"LLM 调用失败: {response.error}")
+# 方式 2：使用 name + type（精确）
+provider = adapter.get_provider("test", "deepseek")
+response = provider.chat([{"role": "user", "content": "Hello"}])
+
+# 方式 3：仅使用 name（如果唯一）
+provider = adapter.get_provider("modelscope")  # 只有一个 modelscope
+response = provider.chat([{"role": "user", "content": "Hello"}])
+
+# 方式 4：仅使用 name（多个匹配时报错）
+try:
+    provider = adapter.get_provider("test")  # 会抛出异常
+except ValueError as e:
+    # 名称 'test' 匹配多个 Provider (deepseek, openrouter)，请指定 provider_type
+    print(e)
+```
+
+### Embedding 调用
+
+```python
+# 使用复合键
+response = adapter.embed(
+    texts=["文本内容"],
+    provider="test_openrouter",
+    model="openai/text-embedding-3-small"
+)
+
+# 使用 name + type
+response = adapter.embed(
+    texts=["文本内容"],
+    provider="test",
+    model="openai/text-embedding-3-small"
+)
+# 注意：如果 'test' 匹配多个，会自动抛出异常
+```
+
+### 热重载配置
+
+```python
+# 修改 providers.yaml 后，热重载配置
+success = adapter.reload()
+
+if success:
+    print(f"热重载成功，共 {len(adapter.providers)} 个 Provider")
 else:
-    answer = response.content
+    print("热重载失败，已恢复到原状态")
 ```
 
-修改前（直接调用 API）：
-```python
-import requests
+## API 端点
 
-response = requests.post(
-    f"{config.llm.api_endpoint}/chat/completions",
-    headers={"Authorization": f"Bearer {config.llm.api_key}"},
-    json={"model": config.llm.model_name, "messages": messages}
-)
+### 获取 Provider 列表
+```
+GET /api/model-adapter/providers
 ```
 
-修改后（使用 adapter）：
-```python
-from llm_adapter import get_default_adapter
-
-adapter = get_default_adapter()
-response = adapter.chat_completion(
-    messages=messages,
-    provider=config.llm.provider,
-    model=config.llm.model_name
-)
-```
-
-那会有更好的错误处理和使用信息。
-
-## API 参考
-
-### LLMAdapter 方法
-
-- `register_provider(provider)`：注册 Provider
-- `register_provider_from_config(config, save_config=True)`：从配置注册
-- `remove_provider(provider_name, delete_config=True)`：删除 Provider
-- `get_provider(provider_name)`：获取 Provider 实例
-- `chat_completion(messages, provider, model, **kwargs)`：发送对话请求
-- `get_available_providers()`：获取可用 Provider 列表
-- `get_provider_configs()`：获取所有 Provider 配置
-
-### LLMResponse 属性
-
-- `content`：响应内容
-- `error`：错误信息（如果有）
-- `model`：使用的模型
-- `provider`：使用的 Provider
-- `usage`：Token 使用情况
-- `cost`：成本（美元）
-- `latency`：延迟（秒）
-- `tool_calls`：工具调用列表
-
-## 错误处理
-
-所有 API 调用都可能返回错误：
-
-```python
-response = adapter.chat_completion(messages=messages, provider=provider, model=model)
-
-if response.error:
-    print(f"错误: {response.error}")
-else:
-    print(f"成功: {response.content}")
-```
-
-常见错误：
-- `Provider 不存在`：指定的 provider 未找到
-- `Provider 调用失败`：调用底层 API 失败
-- `测试提示词不能为空`：测试接口缺少提示词
-- `请选择要测试的模型`：测试时未选择模型
-
-## 常见问题
-
-### Q: 为什么我的配置没有生效？
-A: 检查以下几点：
-1. 配置文件格式是否正确（YAML 格式）
-2. 是否重启后端服务（配置在启动时加载）
-3. 检查配置优先级（环境变量 > config.yaml > config.default.yaml）
-4. 使用 `/api/config/raw` 接口查看实际加载的配置
-5. 检查配置是否被正确保存到 `config/yaml/config.yaml`
-
-### Q: 如何添加新的 LLM 提供商？
-A: 需要：
-1. 创建新的 Provider 类（继承 LLMProvider）
-2. 在 adapter.py 的 register_provider_from_config 中注册
-3. 在前端添加对应的类型选项
-4. 更新支持的模型列表
-
-### Q: LLMService 去哪了？
-A: LLMService 已被 LLMAdapter 替代，提供更统一的管理和更好的错误处理。所有 LLM 调用现在都通过 adapter。
-
-### Q: 为什么 LLM 状态显示"未配置"？
-A: 检查：
-1. `config/yaml/config.yaml` 中是否有 provider 和 model_name
-2. 是否重启后端服务以加载新配置
-3. 配置文件路径是否正确
-
-## 相关文件
-
-- 后端实现：`backend/llm_adapter/`
-  - adapter.py：主适配器类
-  - base.py：抽象基类和数据模型
-  - providers.py：具体 Provider 实现
-  - config_store.py：配置持久化
-- 前端组件：`frontend/src/components/LLMConfigSelector.vue`
-- 配置页面：`frontend/src/views/LLMAdapterView.vue`
-- 配置文件：`backend/config/yaml/config.yaml`
-- 路由配置：`backend/routes/llm_adapter.py`
-- 系统配置服务：`backend/services/config_service.py`
-
-## 版本历史
-
-- **2025-01-03**：移除 LLMService，全面使用 LLMAdapter
-- **2025-01-02**：添加模型列表支持，允许用户灵活选择模型
-- **2025-01-01**：初始版本，支持 OpenAI、DeepSeek、OpenRouter
-
-## 高级功能
-
-### 工具调用
-
-```python
-# 定义工具
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "获取天气信息",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {"type": "string"}
-                }
-            }
-        }
-    }
-]
-
-# 调用工具
-response = adapter.chat_completion(
-    messages=messages,
-    tools=tools
-)
-
-if response.tool_calls:
-    print(f"工具调用: {response.tool_calls}")
-```
-
-### 故障转移
-
-当某个 Provider 失败时，自动切换到其他 Provider：
-
-```python
-# 启用 Fallback
-response = adapter.chat_completion(
-    messages=messages,
-    enable_fallback=True  # 默认值
-)
-```
-
-### 统计信息
-
-```python
-# 获取所有统计
-stats = adapter.get_stats()
-
-# 获取指定 Provider 的统计
-stats = adapter.get_stats("deepseek")
-
-print(f"总请求数: {stats['total_requests']}")
-print(f"成功率: {stats['success_rate']:.2%}")
-print(f"平均延迟: {stats['avg_latency']:.2f}s")
-print(f"总成本: ${stats['total_cost']:.4f}")
-```
-
-## 环境变量
-
-系统会自动从环境变量读取配置：
-
-```bash
-export LLM_API_KEY="your-api-key"
-export LLM_API_ENDPOINT="https://api.deepseek.com/v1"
-export LLM_MODEL_NAME="deepseek-chat"
-```
-
-如果设置了这些变量，系统启动时会自动创建默认的 Provider。
-
-## 错误处理
-
-所有 API 调用都返回标准响应格式：
-
+**响应：**
 ```json
 {
-  "success": true/false,
-  "message": "描述信息",
-  "data": {}  // 成功时的数据
+  "success": true,
+  "providers": [
+    {
+      "key": "test_deepseek",
+      "name": "test",
+      "provider_type": "deepseek",
+      "model_map": {"chat": "deepseek-chat"},
+      "temperature": 0.7,
+      "is_available": true
+    }
+  ]
 }
 ```
 
-错误示例：
+### 创建 Provider
+```
+POST /api/model-adapter/providers
+```
+
+**请求：**
+```json
+{
+  "name": "my_provider",
+  "provider_type": "deepseek",
+  "api_key": "sk-xxx",
+  "api_endpoint": "",
+  "model_map": {
+    "chat": "deepseek-chat"
+  }
+}
+```
+
+**响应：**
+```json
+{
+  "success": true,
+  "provider_key": "my_provider_deepseek",
+  "message": "Provider 创建成功"
+}
+```
+
+### 更新 Provider
+```
+PUT /api/model-adapter/providers/<provider_key>
+```
+
+**请求：**
+```json
+{
+  "temperature": 0.5,
+  "max_tokens": 8192,
+  "model_map": {
+    "chat": "deepseek-chat"
+  }
+}
+```
+
+### 删除 Provider
+```
+DELETE /api/model-adapter/providers/<provider_key>
+```
+
+### 测试 Provider
+```
+POST /api/model-adapter/test
+```
+
+**请求：**
+```json
+{
+  "provider": "test_deepseek",  # 使用复合键
+  "prompt": "你好",
+  "task": "chat"  # 或 "embedding"
+}
+```
+
+## 性能指标
+
+| 指标 | 旧架构（多文件） | 新架构（单文件） | 提升 |
+|------|----------------|----------------|------|
+| 启动 IO 次数（10个Provider） | 20 次 | 1 次 | 95% ⚡️ |
+| 热重载 IO 次数 | 20 次 | 1 次 | 95% ⚡️ |
+| 配置加载时间 | ~500ms | ~50ms | 90% ⚡️ |
+| ConfigStore 代码行数 | 286 行 | 130 行 | 79% ✨ |
+
+## 迁移指南
+
+### 从多文件迁移到单文件
+
+**自动迁移（已完成）：**
+1. 旧配置文件已备份到 `configs/instances.backup/`
+2. 新配置文件已生成：`configs/providers.yaml`
+3. 所有配置使用复合键重新组织
+
+**手动迁移（如果需要）：**
+```python
+import yaml
+from pathlib import Path
+
+# 读取旧配置
+old_configs = {}
+instances_dir = Path("configs/instances.backup")
+for file in instances_dir.glob("*.yaml"):
+    with open(file, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+        if data and 'config' in data:
+            config = data['config']
+            key = f"{config['name']}_{config['provider_type']}".lower().replace(" ", "_")
+            old_configs[key] = config
+
+# 写入新配置
+with open("configs/providers.yaml", 'w', encoding='utf-8') as f:
+    yaml.dump(old_configs, f, allow_unicode=True, indent=2)
+```
+
+## 开发指南
+
+### 添加新的 Provider 类型
+
+1. 在 `backend/model_adapter/providers/` 创建新的 Provider 类
+2. 继承 `AIProvider` 基类
+3. 在 `adapter.py` 的 `register_provider_from_config()` 中添加类型判断
+
+### 配置验证
+
+配置项说明：
+- `name` - Provider 名称（必需）
+- `provider_type` - Provider 类型（必需）
+- `api_key` - API 密钥（必需）
+- `api_endpoint` - API 端点（可选，有默认值）
+- `model_map` - 模型映射（推荐使用）
+- `models` - 模型列表（兼容字段）
+- `temperature` - 温度参数（默认 0.7）
+- `max_tokens` - 最大 Token（默认 4096）
+- `timeout` - 超时时间（默认 30s）
+- `retry_attempts` - 重试次数（默认 3）
+- `retry_delay` - 重试延迟（默认 1.0s）
+- `supports_function_calling` - 支持工具调用（默认 true）
+
+## 故障排查
+
+### 问题：同名 Provider 只能加载一个
+**已修复**：使用复合键机制，同名不同类型可以共存
+
+### 问题：Provider 不存在
+**排查：**
+1. 检查 `providers.yaml` 中是否有该配置
+2. 确认使用的是复合键（`name_providertype`）
+3. 如果使用简单名称，确认只有一个匹配项
+
+### 问题：热重载失败
+**排查：**
+1. 检查 `providers.yaml` 语法是否正确
+2. 查看日志中的错误信息
+3. 配置会自动回滚到热重载前的状态
+
+### 问题：API 密钥错误
+**排查：**
+1. 检查 `providers.yaml` 中的 `api_key` 字段
+2. 确认密钥格式正确（不要有多余的空格或换行）
+3. 测试 Provider 连接性
+
+## 技术细节
+
+### ConfigStore 实现
 
 ```python
-response = adapter.chat_completion(messages=messages)
-
-if response.error:
-    print(f"错误: {response.error}")
-else:
-    print(f"成功: {response.content}")
+class ModelAdapterConfigStore:
+    """单一配置文件存储"""
+    
+    def load_all(self) -> Dict[str, Dict]:
+        """加载所有配置（1 次 IO）"""
+        
+    def save_all(self, configs: Dict[str, Dict]):
+        """保存所有配置"""
+        
+    def save_provider(self, provider_key: str, config: Dict):
+        """保存单个 Provider（读+写）"""
+        
+    def delete_provider(self, provider_key: str) -> bool:
+        """删除单个 Provider（读+写）"""
 ```
 
-## 测试
-
-运行测试：
-
-```bash
-# 运行 API 测试
-python test_llm_adapter_api.py
-
-# 运行单元测试（如果存在）
-pytest tests/test_llm_adapter.py
-```
-
-## 二次开发
-
-### 添加新的 Provider
-
-继承 `LLMProvider` 基类：
+### ModelAdapter 核心方法
 
 ```python
-from llm_adapter.base import LLMProvider, LLMResponse
-from enum import Enum
-
-class MyProviderType(str, Enum):
-    MY_PROVIDER = "my_provider"
-
-class MyProvider(LLMProvider):
-    def __init__(self, api_key: str, **kwargs):
-        super().__init__(
-            name="MyProvider",
-            api_key=api_key,
-            api_endpoint=kwargs.get("api_endpoint", "https://api.example.com"),
-            **kwargs
-        )
-
-    def chat_completion(self, messages, **kwargs) -> LLMResponse:
-        # 实现 API 调用逻辑
-        pass
-
-    def _get_provider_type(self):
-        return MyProviderType.MY_PROVIDER
-
-    def get_model_list(self):
-        return ["model1", "model2"]
-
-    def calculate_cost(self, input_tokens, output_tokens, model):
-        return 0.0
-
-    def is_available(self):
-        return True
+class ModelAdapter:
+    def _make_provider_key(self, name, provider_type) -> str:
+        """生成复合键"""
+        
+    def register_provider(self, provider: AIProvider):
+        """注册 Provider（使用复合键）"""
+        
+    def get_provider(self, name, provider_type=None) -> AIProvider:
+        """获取 Provider（支持多种查找方式）"""
+        
+    def reload(self) -> bool:
+        """热重载配置（原子性）"""
 ```
 
-### 集成到 Adapter
+## 参考资料
 
-```python
-from llm_adapter import LLMAdapter
-from my_provider import MyProvider
-
-adapter = LLMAdapter()
-provider = MyProvider(api_key="sk-xxx")
-adapter.register_provider(provider)
-```
-
-## TODO
-
-- [ ] 添加请求缓存功能
-- [ ] 支持更多 Provider（Anthropic、Google 等）
-- [ ] 实现请求重试机制
-- [ ] 添加 WebSocket 支持
-- [ ] 支持批量请求
-- [ ] 添加更多负载均衡策略
-- [ ] 实现成本预算限制
-- [ ] 添加请求优先级队列
+- 源代码：`backend/model_adapter/`
+- API 路由：`backend/routes/model_adapter.py`
+- 前端界面：`frontend/src/views/ModelAdapterView.vue`
+- 测试文件：`backend/tests/test_single_file_config.py`

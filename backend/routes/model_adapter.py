@@ -91,24 +91,26 @@ def create_provider():
                     'message': f'缺少必需字段: {field}'
                 }), 400
 
-        # 自动同步逻辑：将 model_map 中的所有模型添加到 models 列表
         config = data.copy()
-        # 即使前端没有传 models，我们也从 model_map 生成默认列表
+        # model_map 值可为字符串或列表，统一展开到 models 集合（供兼容使用）
         if 'model_map' in config and config['model_map']:
             current_models = set(config.get('models', []))
             for task, model in config['model_map'].items():
-                if model and model.strip():
-                    current_models.add(model.strip())
-            # config['models'] = list(current_models) # 移除对 models 字段的强制填充
-            # 仅保留 model_map 作为核心配置，models 字段仅作向后兼容保留，不再主动维护
+                if isinstance(model, list):
+                    for m in model:
+                        if m and str(m).strip():
+                            current_models.add(str(m).strip())
+                elif model and str(model).strip():
+                    current_models.add(str(model).strip())
+            config['models'] = list(current_models)
 
-        # 注册 Provider
-        config_id = adapter.register_provider_from_config(config)
+        # 注册 Provider（返回 provider_key）
+        provider_key = adapter.register_provider_from_config(config)
 
         return jsonify({
             'success': True,
             'message': 'Provider 创建成功',
-            'config_id': config_id
+            'provider_key': provider_key
         })
     except Exception as e:
         logger.error(f"创建 Provider 失败: {str(e)}")
@@ -118,13 +120,13 @@ def create_provider():
         }), 500
 
 
-@model_adapter_bp.route('/providers/<provider_name>', methods=['PUT'])
-def update_provider(provider_name):
+@model_adapter_bp.route('/providers/<provider_key>', methods=['PUT'])
+def update_provider(provider_key):
     """
     更新 Provider
 
     Args:
-        provider_name: Provider 名称
+        provider_key: Provider 复合键（如 test_deepseek）
 
     Request Body:
         - models: 支持模型列表（可选）
@@ -133,6 +135,7 @@ def update_provider(provider_name):
         - timeout: 超时时间（可选）
         - retry_attempts: 重试次数（可选）
         - supports_function_calling: 支持工具调用（可选）
+        - model_map: 模型映射（可选）
 
     Returns:
         JSON: 更新结果
@@ -146,68 +149,51 @@ def update_provider(provider_name):
                 'message': '请求数据不能为空'
             }), 400
 
-        # 获取旧的配置
-        config_id = adapter.config_ids.get(provider_name)
-        if not config_id:
+        # 获取现有配置
+        existing_config = adapter.config_store.get_provider(provider_key)
+        if not existing_config:
             return jsonify({
                 'success': False,
-                'message': f'Provider 不存在: {provider_name}'
+                'message': f'Provider 不存在: {provider_key}'
             }), 404
 
-        # 加载现有配置
-        config_data = adapter.config_store.load_config(config_id)
-        if not config_data or 'config' not in config_data:
-            return jsonify({
-                'success': False,
-                'message': f'无法加载 Provider 配置: {provider_name}'
-            }), 500
-
         # 合并配置（保留原有值，用新值覆盖）
-        config = config_data['config'].copy()
+        config = existing_config.copy()
 
         # 只更新允许修改的字段
         allowed_fields = [
             'models', 'temperature', 'max_tokens', 'timeout',
-            'retry_attempts', 'supports_function_calling', 'model_map'
+            'retry_attempts', 'retry_delay', 'supports_function_calling', 
+            'model_map', 'api_endpoint'
         ]
 
         for field in allowed_fields:
             if field in data:
                 config[field] = data[field]
         
-        # 自动同步逻辑：将 model_map 中的所有模型添加到 models 列表
-        # 如果前端没有传 models，则完全依赖 model_map
+        # model_map 值可为字符串或列表，统一展开到 models
         if 'model_map' in config and config['model_map']:
             current_models = set(config.get('models', []))
             for task, model in config['model_map'].items():
-                if model and model.strip():
-                    current_models.add(model.strip())
-            # config['models'] = list(current_models) # 移除对 models 字段的强制填充
-            # 仅保留 model_map 作为核心配置，models 字段仅作向后兼容保留，不再主动维护
-        
-        # 即使 models 为空，也是合法的（表示未配置支持模型列表）
+                if isinstance(model, list):
+                    for m in model:
+                        if m and str(m).strip():
+                            current_models.add(str(m).strip())
+                elif model and str(model).strip():
+                    current_models.add(str(model).strip())
+            config['models'] = list(current_models)
 
-        # 确保 config 包含所有必需字段
-        if 'provider_type' not in config:
-            config['provider_type'] = config_data['config'].get('provider_type', '')
-        if 'name' not in config:
-            config['name'] = config_data['config'].get('name', '')
-        if 'api_key' not in config:
-            config['api_key'] = config_data['config'].get('api_key', '')
-        if 'api_endpoint' not in config:
-            config['api_endpoint'] = config_data['config'].get('api_endpoint', '')
-
-        # 删除旧的 provider
-        if provider_name in adapter.providers:
-            adapter.remove_provider(provider_name, delete_config=False)
+        # 删除旧的 provider（从内存中）
+        if provider_key in adapter.providers:
+            adapter.remove_provider(provider_key, delete_config=False)
 
         # 重新注册（使用更新后的配置）
-        new_config_id = adapter.register_provider_from_config(config, config_id=config_id)
+        provider_key = adapter.register_provider_from_config(config, save_config=True)
 
         return jsonify({
             'success': True,
             'message': 'Provider 更新成功',
-            'config_id': new_config_id
+            'provider_key': provider_key
         })
     except Exception as e:
         logger.error(f"更新 Provider 失败: {str(e)}")
@@ -217,19 +203,19 @@ def update_provider(provider_name):
         }), 500
 
 
-@model_adapter_bp.route('/providers/<provider_name>', methods=['DELETE'])
-def delete_provider(provider_name):
+@model_adapter_bp.route('/providers/<provider_key>', methods=['DELETE'])
+def delete_provider(provider_key):
     """
     删除 Provider
 
     Args:
-        provider_name: Provider 名称
+        provider_key: Provider 复合键（如 test_deepseek）
 
     Returns:
         JSON: 删除结果
     """
     try:
-        adapter.remove_provider(provider_name)
+        adapter.remove_provider(provider_key, delete_config=True)
 
         return jsonify({
             'success': True,
@@ -261,15 +247,15 @@ def test_provider():
     """
     try:
         data = request.get_json()
-        provider_name = data.get('provider')
+        provider_key = data.get('provider')  # 现在可以是复合键或简单名称
         prompt = data.get('prompt')
         model = data.get('model')  # 可选的模型参数
         task = data.get('task', 'chat') # 任务类型
 
-        if not provider_name:
+        if not provider_key:
             return jsonify({
                 'success': False,
-                'message': '请提供 Provider 名称'
+                'message': '请提供 Provider'
             }), 400
 
         if not prompt:
@@ -283,7 +269,7 @@ def test_provider():
             messages = [{"role": "user", "content": prompt}]
             response = adapter.chat_completion(
                 messages=messages,
-                provider=provider_name,
+                provider=provider_key,  # 使用 provider_key
                 model=model,  # 传入模型参数
                 temperature=0.7,
                 max_tokens=500
@@ -308,7 +294,7 @@ def test_provider():
             # 测试 Embedding
             response = adapter.embed(
                 texts=[prompt],
-                provider=provider_name,
+                provider=provider_key,  # 使用 provider_key
                 model=model
             )
             
