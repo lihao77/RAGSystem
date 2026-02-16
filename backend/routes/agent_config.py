@@ -50,8 +50,7 @@ def list_configs():
         {
             "success": true,
             "data": {
-                "qa_agent": {...},
-                "master_agent": {...}
+                "qa_agent": {...}
             }
         }
     """

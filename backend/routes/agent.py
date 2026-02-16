@@ -255,7 +255,7 @@ def delete_agent(agent_name):
             return error_response(message='智能体名称不能为空', status_code=400)
 
         # 禁止删除系统智能体
-        if agent_name in ['master_agent']:
+        if agent_name == 'master_agent_v2':
             return error_response(message='系统核心智能体禁止删除', status_code=403)
 
         config_manager = get_config_manager()
@@ -376,7 +376,6 @@ def stream_execute():
             "session_id": "会话ID（可选）",
             "selected_llm": "provider|provider_type|model_name（可选，前端 llm-select-trigger 选择，用于临时覆盖默认/未配置 LLM 的智能体）"
         }
-        注：仅使用 MasterAgent V2，V1 已废弃。
 
     Response:
         text/event-stream
@@ -430,10 +429,10 @@ def stream_execute():
             run_id = str(uuid_module.uuid4())
             context.metadata['run_id'] = run_id
 
-            # 强制使用 MasterAgent V2
+            # 统一入口：MasterAgent V2
             master_agent = orchestrator.agents.get('master_agent_v2')
             if not master_agent:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent V2 未找到，请确认已正确加载'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'content': 'MasterAgent 未找到，请确认已正确加载'}, ensure_ascii=False)}\n\n"
                 return
 
             # ✨ 获取会话级事件总线

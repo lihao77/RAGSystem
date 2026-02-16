@@ -143,7 +143,7 @@ class ReActAgent(BaseAgent):
         # 新方式：事件总线
         if self._publisher:
             try:
-                # ✨ 从 context 获取 parent_call_id（如果是被 MasterAgent 调用）
+                # ✨ 从 context 获取 parent_call_id（如果是被 MasterAgent V2 调用）
                 call_id = getattr(self, '_current_call_id', None)
                 # 兼容旧 task_id
                 if not call_id:
@@ -392,7 +392,7 @@ class ReActAgent(BaseAgent):
             if self._publisher:
                 self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
 
-            # ✨ 从 context 读取 parent_call_id（如果是被 MasterAgent 调用）
+            # ✨ 从 context 读取 parent_call_id（如果是被 MasterAgent V2 调用）
             if hasattr(context, 'metadata'):
                 if 'parent_call_id' in context.metadata:
                     self._current_call_id = context.metadata['parent_call_id']
@@ -654,7 +654,7 @@ class ReActAgent(BaseAgent):
         """
         判断是否能处理该任务
 
-        ReAct Agent 始终返回 True，让 MasterAgent 通过 LLM 智能分析来决定路由
+        ReAct Agent 始终返回 True，让 MasterAgent V2 通过 LLM 智能分析来决定路由
         """
         return True
 

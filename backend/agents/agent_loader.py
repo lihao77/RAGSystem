@@ -46,7 +46,7 @@ class AgentLoader:
         Args:
             model_adapter: Model 适配器
             system_config: 系统配置
-            orchestrator: 编排器（可选，MasterAgent 需要）
+            orchestrator: 编排器（MasterAgent V2 需要）
         """
         self.model_adapter = model_adapter
         self.system_config = system_config
@@ -110,8 +110,8 @@ class AgentLoader:
 
         # 1. 加载用户配置的智能体
         for agent_name, agent_config in all_configs.items():
-            # 跳过 MasterAgent（由系统单独加载）
-            if agent_name in ['master_agent', 'master_agent_v2']:
+            # 跳过 MasterAgent V2（由系统单独加载）
+            if agent_name == 'master_agent_v2':
                 logger.info(f"跳过 {agent_name}（系统智能体，不从配置加载）")
                 continue
 
@@ -119,13 +119,7 @@ class AgentLoader:
             if agent is not None:
                 agents[agent_name] = agent
 
-        # 2. 强制加载 MasterAgent V1（系统级智能体）- 已弃用
-        # master_agent = self._load_system_master_agent()
-        # if master_agent is not None:
-        #     agents['master_agent'] = master_agent
-        #     logger.info(f"✅ 已加载系统智能体: master_agent V1（不可配置）")
-
-        # 3. 强制加载 MasterAgent V2（系统级智能体）
+        # 2. 强制加载 MasterAgent V2（系统级智能体）
         master_agent_v2 = self._load_system_master_agent_v2()
         if master_agent_v2 is not None:
             agents['master_agent_v2'] = master_agent_v2
@@ -133,15 +127,6 @@ class AgentLoader:
 
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
-
-    def _load_system_master_agent(self) -> Optional[BaseAgent]:
-        """
-        [已弃用] 加载系统级 MasterAgent
-        
-        V1 版本 MasterAgent 已被 MasterAgent V2 取代。
-        此方法保留为空实现以防止调用错误，或者可以直接删除。
-        """
-        return None
 
     def _load_system_master_agent_v2(self) -> Optional[BaseAgent]:
         """
@@ -228,11 +213,7 @@ class AgentLoader:
             if agent_type:
                 return agent_type
 
-        # 2. 根据名称推断（向后兼容）
-        if agent_name == 'master_agent':
-            return 'master'
-
-        # 3. 默认使用 react 类型
+        # 2. 默认使用 react 类型
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
         return 'react'
 
@@ -261,12 +242,6 @@ class AgentLoader:
         }
 
         # 根据不同类型添加特殊参数
-        # if agent_class == MasterAgent:
-        #     # MasterAgent 需要 orchestrator
-        #     if self.orchestrator is None:
-        #         raise ValueError(f"{agent_class.__name__} 需要 orchestrator 参数")
-        #     common_kwargs['orchestrator'] = self.orchestrator
-
         if agent_class == ReActAgent:
             # ReActAgent 需要额外参数
             from tools.function_definitions import get_tool_definitions

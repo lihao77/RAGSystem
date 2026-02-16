@@ -45,13 +45,13 @@ API Layer (routes/agent.py)
     ↓
 AgentOrchestrator (orchestrator.py)
     ↓
-MasterAgent (master_agent.py) - 统一入口
+MasterAgent V2 (master_agent_v2/) - 统一入口
     ↓
 任务分析 & 分解
     ↓
     ├─→ 简单任务 → 委托给单个 Agent
     ├─→ 复杂任务 → 多 Agent 协作
-    └─→ 通用对话 → MasterAgent 自己处理
+    └─→ 通用对话 → MasterAgent V2 自己处理
     ↓
 Specialized Agents (qa_agent, emergency_plan_agent, etc.)
     ↓
@@ -68,7 +68,7 @@ Specialized Agents (qa_agent, emergency_plan_agent, etc.)
    - 会话管理
    - 结果封装
 
-2. **编排层** (`orchestrator.py` + `master_agent.py`)
+2. **编排层** (`orchestrator.py` + `master_agent_v2/`)
    - 任务路由
    - 智能体选择
    - 多智能体协调
@@ -84,12 +84,12 @@ Specialized Agents (qa_agent, emergency_plan_agent, etc.)
 
 ## 核心组件
 
-### 1. MasterAgent (统一入口)
+### 1. MasterAgent V2 (统一入口)
 
 **职责**：
 - 作为所有用户请求的唯一入口
 - 分析任务复杂度
-- 自动任务分解
+- 自动任务分解与编排（将 Agent 当作工具，ReAct 模式）
 - 智能体协调
 - 结果整合
 
@@ -121,7 +121,7 @@ def _analyze_task(task, context) -> Dict:
 3. **无需特定 Agent** → 自己处理通用对话
 
 **配置位置**：
-- 硬编码在 `agent_loader.py` 的 `_load_system_master_agent()` 方法中
+- 硬编码在 `agent_loader.py` 的 `_load_system_master_agent_v2()` 方法中
 - 不可由用户配置（系统核心组件）
 
 ### 2. AgentOrchestrator (编排器)
@@ -251,16 +251,16 @@ def stream_execute():
     # 3. 创建上下文
     context = AgentContext(session_id=session_id or uuid.uuid4())
 
-    # 4. 获取 MasterAgent 并执行
-    master_agent = orchestrator.agents.get('master_agent')
+    # 4. 获取 MasterAgent V2 并执行
+    master_agent = orchestrator.agents.get('master_agent_v2')
     for event in master_agent.stream_execute(task, context):
         yield f"data: {json.dumps(event)}\n\n"
 ```
 
-#### 3. MasterAgent 分析任务
+#### 3. MasterAgent V2 分析任务
 
 ```python
-# master_agent.py
+# master_agent_v2/master_v2.py
 def stream_execute(task, context):
     # 1. 分析任务
     analysis = self._analyze_task(task, context)
@@ -286,7 +286,7 @@ def stream_execute(task, context):
 #### 4. 委托给专业 Agent
 
 ```python
-# master_agent.py
+# master_agent_v2/master_v2.py
 def _stream_delegate_to_single_agent(task, context, analysis):
     # 1. 提取智能体名称
     preferred_agent = analysis['subtasks'][0]['agent']  # "qa_agent"
@@ -1140,7 +1140,7 @@ agents/
 │   └── agent_configs.yaml       # Agent 配置文件
 ├── __init__.py                  # 导出接口
 ├── base.py                      # BaseAgent 基类
-├── master_agent.py              # MasterAgent 实现
+├── master_agent_v2/             # MasterAgent V2 统一入口
 ├── generic_agent.py             # (已废弃) GenericAgent 实现
 ├── react_agent.py               # ReActAgent 实现
 ├── orchestrator.py              # 编排器
@@ -1154,7 +1154,7 @@ agents/
 | 术语 | 说明 |
 |------|------|
 | Agent | 智能体，能够执行特定任务的自主实体 |
-| MasterAgent | 主协调智能体，系统统一入口 |
+| MasterAgent V2 | 主协调智能体，系统统一入口（master_agent_v2） |
 | Orchestrator | 编排器，负责 Agent 路由和协调 |
 | Function Calling | OpenAI 的工具调用机制 |
 | ReAct | Reasoning + Acting，推理与行动结合的模式 |

@@ -79,20 +79,14 @@ class AgentOrchestrator:
                 return agent
             self.logger.warning(f"指定的智能体 '{preferred_agent}' 不可用")
 
-        # 2. 统一入口：优先使用 MasterAgent V2
+        # 2. 统一入口：使用 MasterAgent V2
         master_agent = self.registry.get('master_agent_v2')
         if master_agent:
             self.logger.info(f"使用 MasterAgent V2 作为统一入口")
             return master_agent
 
-        # 兼容旧逻辑
-        master_agent_v1 = self.registry.get('master_agent')
-        if master_agent_v1:
-             self.logger.info(f"使用 MasterAgent V1 作为统一入口")
-             return master_agent_v1
-
-        # 3. 降级方案：如果没有 MasterAgent，查找能处理任务的智能体
-        self.logger.warning("MasterAgent 未注册，使用降级路由")
+        # 3. 降级方案：如果 MasterAgent V2 未注册，查找能处理任务的智能体
+        self.logger.warning("MasterAgent V2 未注册，使用降级路由")
         capable_agents = self.registry.find_capable_agents(task, context)
         if capable_agents:
             agent = capable_agents[0]
