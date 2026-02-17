@@ -45,7 +45,7 @@ API Layer (routes/agent.py)
     ↓
 AgentOrchestrator (orchestrator.py)
     ↓
-MasterAgent V2 (master_agent_v2/) - 统一入口
+MasterAgent V2 (implementations/master/) - 统一入口
     ↓
 任务分析 & 分解
     ↓
@@ -68,13 +68,13 @@ Specialized Agents (qa_agent, emergency_plan_agent, etc.)
    - 会话管理
    - 结果封装
 
-2. **编排层** (`orchestrator.py` + `master_agent_v2/`)
+2. **编排层** (`core/orchestrator.py` + `implementations/master/`)
    - 任务路由
    - 智能体选择
    - 多智能体协调
    - 结果整合
 
-3. **执行层** (`react_agent.py`, etc.)
+3. **执行层** (`implementations/react/`, etc.)
    - 具体任务执行
    - 工具调用
    - 多轮对话
@@ -365,7 +365,7 @@ def execute(task, context):
 
 **5b. (已废弃) Generic Agent 执行流程**
 
-GenericAgent 已从系统中移除。请使用 ReActAgent。
+请统一使用 ReActAgent（type: react）。
 
 #### 6. 工具执行
 
@@ -1132,22 +1132,23 @@ DELETE /api/agent/agents/delete/<name> # 删除智能体
 GET  /api/agent/health               # 健康检查
 ```
 
-### B. 配置文件位置
+### B. 目录结构（2026-02 重组）
 
 ```
 agents/
 ├── configs/
 │   └── agent_configs.yaml       # Agent 配置文件
-├── __init__.py                  # 导出接口
-├── base.py                      # BaseAgent 基类
-├── master_agent_v2/             # MasterAgent V2 统一入口
-├── generic_agent.py             # (已废弃) GenericAgent 实现
-├── react_agent.py               # ReActAgent 实现
-├── orchestrator.py              # 编排器
-├── agent_loader.py              # 动态加载器
-├── config_manager.py            # 配置管理器
-└── README.md                    # 本文档
+├── core/                        # 核心：BaseAgent, AgentContext, Registry, Orchestrator
+├── implementations/             # 实现：react/ (ReActAgent), master/ (MasterAgentV2)
+├── config/                      # 配置：models, manager, loader
+├── context/                     # 上下文管理：ContextManager
+├── events/                      # 事件：EventBus, EventPublisher, SSEAdapter
+├── skills/                      # Skills 系统
+├── docs/                        # 文档（含 architecture/, guides/, advanced/）
+└── __init__.py                  # 统一导出，保持向后兼容
 ```
+
+**导入迁移**：推荐使用包根导入，例如 `from agents import get_orchestrator, AgentContext`；事件与配置可使用 `from agents.events import get_session_event_bus`、`from agents.config import get_config_manager`。详见 `docs/README.md`。
 
 ### C. 术语表
 
@@ -1166,6 +1167,10 @@ agents/
 
 ## 更新日志
 
+- **2026-02**: 目录架构重组
+  - 新增 `core/`、`implementations/`、`config/`、`context/`、`events/` 分层
+  - 文档按 architecture / guides / advanced 归类，见 `docs/README.md`
+  - 过时引用已清理（QAAgent → ReActAgent）
 - **2026-01-06**: 初始版本
   - 完整的 Agent 系统文档
   - ReAct Agent 实现

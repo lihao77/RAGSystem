@@ -120,3 +120,5 @@ temp*/
 backend/model_adapter/configs/providers.yaml
 backend/agents/configs/agent_configs.yaml
 backend/config/yaml/config.yaml
+
+.cursor/

@@ -36,9 +36,7 @@
 ### 推荐：会话级事件总线
 
 ```python
-from agents.session_event_bus_manager import get_session_event_bus
-from agents.event_publisher import EventPublisher
-from agents.event_bus import EventType
+from agents.events import get_session_event_bus, EventPublisher, EventType
 
 event_bus = get_session_event_bus(session_id="abc123")
 

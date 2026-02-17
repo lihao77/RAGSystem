@@ -150,7 +150,7 @@ class ConfigValidator:
         self.providers = ProvidersConfig.load(providers_path)
         self.vectorizers = VectorizersConfig.load(vectorizers_path)
         try:
-            from agents.config_manager import AgentConfigManager
+            from agents.config import AgentConfigManager
             mgr = AgentConfigManager()
             self.agents = getattr(mgr, "_configs", {}) or {}
         except Exception:

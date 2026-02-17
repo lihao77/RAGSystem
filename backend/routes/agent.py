@@ -16,9 +16,7 @@ from agents import (
     get_config_manager,
     load_agents_from_config
 )
-from agents.event_bus import EventType
-from agents.session_event_bus_manager import get_session_event_bus
-from agents.sse_adapter import SSEAdapter
+from agents.events import EventType, get_session_event_bus, SSEAdapter
 from conversation_store import ConversationStore
 from model_adapter import get_default_adapter
 from config import get_config
@@ -199,7 +197,7 @@ def create_agent():
         if config_manager.get_config(agent_name):
             return error_response(message=f'智能体 {agent_name} 已存在', status_code=400)
 
-        from agents.agent_config import AgentConfig
+        from agents.config import AgentConfig
 
         # 创建配置对象
         try:
@@ -215,7 +213,7 @@ def create_agent():
 
         # 动态加载新智能体
         try:
-            from agents.agent_loader import AgentLoader
+            from agents.config import AgentLoader
             from config import get_config as get_system_config
 
             loader = AgentLoader(
@@ -449,6 +447,8 @@ def stream_execute():
             # ✨ 在后台执行 Agent（不再迭代生成器）
             import threading
             final_answer_saved = threading.Event()
+            # 保存 FINAL_ANSWER 时写入的 message_id，供 RUN_END 时再次更新 run_steps，使 AGENT_END/RUN_END 等后续步骤也关联到该消息
+            message_id_for_run = [None]
 
             # 需要落库的中间过程事件类型
             step_event_types = [
@@ -504,10 +504,17 @@ def stream_execute():
                                 content=content if isinstance(content, str) else str(content),
                                 metadata={"agent": event.agent_name, "run_id": run_id},
                             )
+                            message_id_for_run[0] = msg["id"]
                             store.update_run_steps_message_id(session_id, run_id, msg["id"])
                         except Exception as e:
                             logger.warning(f"写入 assistant 消息或更新 run_steps message_id 失败: {e}", exc_info=True)
                         final_answer_saved.set()
+                if event.type == EventType.RUN_END and message_id_for_run[0]:
+                    # FINAL_ANSWER 之后还会写入 AGENT_END、RUN_END，需再次绑定 message_id，否则按 message_id 查 steps 会漏掉
+                    try:
+                        store.update_run_steps_message_id(session_id, run_id, message_id_for_run[0])
+                    except Exception as e:
+                        logger.warning(f"RUN_END 时更新 run_steps message_id 失败: {e}", exc_info=True)
 
             subscription_id = event_bus.subscribe(
                 event_types=step_event_types,
@@ -534,7 +541,7 @@ def stream_execute():
                 except Exception as e:
                     logger.error(f"后台执行 Agent 失败: {e}", exc_info=True)
                     # 发布错误事件
-                    from agents.event_publisher import EventPublisher
+                    from agents.events import EventPublisher
                     publisher = EventPublisher(
                         agent_name="system",
                         session_id=session_id,
@@ -853,8 +860,10 @@ def get_session_messages(session_id):
         if expand_steps and data.get('items'):
             for item in data['items']:
                 if item.get('role') == 'assistant' and (item.get('metadata') or {}).get('run_id'):
+                    # 按 run_id 查该 run 的全部 steps，避免 FINAL_ANSWER 之后写入的 AGENT_END/RUN_END 因 message_id 未及时更新而被漏掉
+                    run_id = (item.get('metadata') or {}).get('run_id')
                     steps = store.list_run_steps(
-                        message_id=item['id'],
+                        run_id=run_id,
                         session_id=session_id,
                         limit=500,
                     )

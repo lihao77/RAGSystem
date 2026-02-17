@@ -37,8 +37,7 @@ event_bus = get_session_event_bus(session_id="abc123")
 ### 1. 基础使用
 
 ```python
-from agents.session_event_bus_manager import get_session_event_bus
-from agents.event_publisher import EventPublisher
+from agents.events import get_session_event_bus, EventPublisher
 
 # 在 Agent 执行时
 def execute(self, task: str, context: AgentContext):
@@ -64,8 +63,7 @@ def execute(self, task: str, context: AgentContext):
 
 ```python
 # routes/agent.py
-from agents.session_event_bus_manager import get_session_event_bus, cleanup_session
-from agents.sse_adapter import SSEAdapter
+from agents.events import get_session_event_bus, cleanup_session, SSEAdapter
 
 @agent_bp.route('/stream', methods=['POST'])
 async def stream_execute():
@@ -108,7 +106,7 @@ async def stream_execute():
 ### 3. 会话生命周期管理
 
 ```python
-from agents.session_event_bus_manager import (
+from agents.events import (
     get_session_event_bus,
     cleanup_session,
     touch_session
@@ -133,7 +131,7 @@ cleanup_session(session_id="abc123")
 ### 管理器配置
 
 ```python
-from agents.session_event_bus_manager import SessionEventBusManager
+from agents.events import SessionEventBusManager
 
 # 自定义配置
 manager = SessionEventBusManager(
@@ -149,7 +147,7 @@ event_bus = manager.get_or_create(session_id="abc123")
 ### 全局管理器配置
 
 ```python
-from agents.session_event_bus_manager import get_session_manager
+from agents.events import get_session_manager
 
 # 配置全局管理器（首次调用时生效）
 manager = get_session_manager(
@@ -166,7 +164,7 @@ manager = get_session_manager(
 ### 1. 会话统计
 
 ```python
-from agents.session_event_bus_manager import get_session_manager
+from agents.events import get_session_manager
 
 manager = get_session_manager()
 
@@ -234,8 +232,7 @@ history = event_bus.get_event_history(session_id=session_id, limit=100)
 ```python
 # backend/agents/master_agent_v2/master_v2.py
 
-from agents.session_event_bus_manager import get_session_event_bus
-from agents.event_publisher import EventPublisher
+from agents.events import get_session_event_bus, EventPublisher
 
 class MasterAgentV2(BaseAgent):
     def execute_stream(self, task: str, context: AgentContext):
@@ -269,7 +266,7 @@ class MasterAgentV2(BaseAgent):
 ```python
 # routes/agent.py
 
-from agents.session_event_bus_manager import cleanup_session
+from agents.events import cleanup_session
 
 @agent_bp.route('/stream', methods=['POST'])
 async def stream_execute():
@@ -294,7 +291,7 @@ async def stream_execute():
 ```python
 # 如果会话可能持续很久（超过 TTL）
 
-from agents.session_event_bus_manager import touch_session
+from agents.events import touch_session
 
 async def long_running_task(session_id):
     while not done:
@@ -344,7 +341,7 @@ manager = SessionEventBusManager(enable_persistence=False)
 ### 1. 监控活跃会话数
 
 ```python
-from agents.session_event_bus_manager import get_session_manager
+from agents.events import get_session_manager
 
 @app.route('/api/admin/sessions/stats')
 def sessions_stats():

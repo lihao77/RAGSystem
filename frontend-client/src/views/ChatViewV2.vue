@@ -142,6 +142,14 @@
                 <!-- 完整详情模式 -->
                 <transition name="expand">
                   <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
+                    <!-- Master 推理（仅当存在 master_steps 时显示，避免算到子 Agent 卡片） -->
+                    <div v-if="msg.master_steps && msg.master_steps.length > 0" class="master-steps-section">
+                      <div class="master-steps-label">
+                        <span class="pulse-icon">🧠</span>
+                        <span>Master 推理</span>
+                      </div>
+                      <ReActStepsList :steps="msg.master_steps" />
+                    </div>
                     <div class="subtasks-list">
                       <!-- 轮次循环 -->
                       <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum"
@@ -236,6 +244,7 @@ import { ref, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskCard from '../components/SubtaskCard.vue';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
+import ReActStepsList from '../components/ReActStepsList.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import LLMSelector from '../components/LLMSelector.vue';
@@ -464,10 +473,11 @@ const handleScroll = () => {
   }
 };
 
-// 🎯 将持久化的 steps 还原为 subtasks（与 SSE 实时结构一致）
+// 🎯 将持久化的 steps 还原为 subtasks 与 master_steps（与 SSE 实时结构一致）
 function stepsToSubtasks(steps) {
-  if (!Array.isArray(steps) || steps.length === 0) return [];
+  if (!Array.isArray(steps) || steps.length === 0) return { subtasks: [], master_steps: [] };
   const subtasks = [];
+  let master_steps = [];
   const getData = (s) => (s && s.payload && s.payload.data) ? s.payload.data : {};
   const getAgentName = (s) => (s && s.payload && s.payload.agent_name) ? s.payload.agent_name : null;
   for (const step of steps) {
@@ -496,12 +506,17 @@ function stepsToSubtasks(steps) {
         currentStep: null
       });
     } else if (eventType === 'agent.thought_structured') {
-      let subtask = taskId ? subtasks.find(s => s.task_id === taskId) : subtasks.find(s => s.order === eventData.subtask_order);
-      if (!subtask) subtask = subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
-      if (subtask) {
-        const newStep = { round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true };
-        subtask.react_steps.push(newStep);
-        subtask.currentStep = newStep;
+      const isMasterThought = agentName === 'master_agent_v2';
+      if (isMasterThought) {
+        master_steps.push({ round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true });
+      } else {
+        let subtask = taskId ? subtasks.find(s => s.task_id === taskId) : subtasks.find(s => s.order === eventData.subtask_order);
+        if (!subtask) subtask = subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
+        if (subtask) {
+          const newStep = { round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true };
+          subtask.react_steps.push(newStep);
+          subtask.currentStep = newStep;
+        }
       }
     } else if (eventType === 'call.tool.start' || eventType === 'tool.start') {
       const subtask = eventData.subtask_order != null ? subtasks.find(s => s.order === eventData.subtask_order) : subtasks.find(s => s.task_id === eventData.parent_call_id) || subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
@@ -534,7 +549,7 @@ function stepsToSubtasks(steps) {
       }
     }
   }
-  return subtasks;
+  return { subtasks, master_steps };
 }
 
 // 🎯 按轮次分组 subtasks
@@ -697,7 +712,9 @@ const mergeMessageIdsFromServer = async (sessionId) => {
       m.id = it.id;
       m.seq = it.seq;
       if (it.role === 'assistant' && (it.steps || it.metadata?.steps)?.length && !m.subtasks?.length) {
-        m.subtasks = stepsToSubtasks(it.steps || it.metadata.steps);
+        const parsed = stepsToSubtasks(it.steps || it.metadata.steps);
+        m.subtasks = parsed.subtasks;
+        if (parsed.master_steps?.length) m.master_steps = parsed.master_steps;
       }
     }
     cacheMessages(sessionId, messages.value);
@@ -729,13 +746,15 @@ const loadSessionMessages = async (sessionId) => {
     const mapped = items.map(item => {
       if (item.role === 'assistant') {
         const steps = item.steps || item.metadata?.steps;
-        const subtasks = Array.isArray(steps) ? stepsToSubtasks(steps) : [];
+        const parsed = Array.isArray(steps) ? stepsToSubtasks(steps) : { subtasks: [], master_steps: [] };
+        const subtasks = parsed.subtasks || [];
         return {
           role: 'assistant',
           id: item.id,
           seq: item.seq,
           content: item.content || '',
           subtasks,
+          master_steps: parsed.master_steps || [],
           showFullSubtasks: false,
           multimodalContents: item.multimodalContents || [],
           status: item.status || [],
@@ -980,25 +999,38 @@ const handleSend = async () => {
                 currentStep: null
               });
             }
-            // 🎯 Master V2 的 thought 关联到 Agent 调用
+            // 🎯 Master V2 的 thought：区分 Master 与子 Agent，避免算到子任务卡片上
             else if (eventType === 'agent.thought_structured') {
-              // 通过 task_id 或 subtask_order 定位 Agent
-              let subtask = eventData.task_id
-                ? currentMsg.subtasks.find(s => s.task_id === eventData.task_id)
-                : currentMsg.subtasks.find(s => s.order === eventData.subtask_order);
-              if (!subtask) {
-                subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
-              }
+              const agentName = event.agent_name || eventData.agent_name;
+              const isMasterThought = agentName === 'master_agent_v2';
 
-              if (subtask) {
-                const newStep = {
+              if (isMasterThought) {
+                // Master 的思考归到消息级的 master_steps，不归到任何 subtask
+                if (!currentMsg.master_steps) currentMsg.master_steps = [];
+                currentMsg.master_steps.push({
                   round: eventData.round,
-                  thought: eventData.thought,
+                  thought: eventData.thought || '',
                   toolCalls: [],
                   expanded: true
-                };
-                subtask.react_steps.push(newStep);
-                subtask.currentStep = newStep;
+                });
+              } else {
+                // 子 Agent 的思考归到对应 subtask
+                let subtask = eventData.task_id
+                  ? currentMsg.subtasks.find(s => s.task_id === eventData.task_id)
+                  : currentMsg.subtasks.find(s => s.order === eventData.subtask_order);
+                if (!subtask) {
+                  subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
+                }
+                if (subtask) {
+                  const newStep = {
+                    round: eventData.round,
+                    thought: eventData.thought || '',
+                    toolCalls: [],
+                    expanded: true
+                  };
+                  subtask.react_steps.push(newStep);
+                  subtask.currentStep = newStep;
+                }
               }
             }
             // 工具调用（支持 call.tool.start / tool.start）
@@ -1045,7 +1077,12 @@ const handleSend = async () => {
                 updateTool(subtask.tool_calls);
               }
             }
-            // 🎯 Master V2 的 Agent 调用完成（支持 call.agent.end / subtask.end）
+            // 🎯 三种「结束」事件职责区分：
+            // - call.agent.end：子 Agent/子任务结束，只更新对应 subtask 的 result_summary、status
+            // - output.final_answer：最终答案内容 + 标记本条消息完成（finished）
+            // - agent.end：主 Agent 整体结束，仅作兜底（若尚未 finished 则标记完成），不重复处理内容
+
+            // 子任务/子 Agent 调用结束：只更新对应卡片
             else if (eventType === 'subtask.end' || eventType === 'call.agent.end') {
               const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id || s.task_id === eventData.call_id);
               if (subtask) {
@@ -1054,27 +1091,33 @@ const handleSend = async () => {
                 subtask.expanded = false;
               }
             }
-            // 最终答案（流式）
+            // 最终答案（完整）：内容 + 元数据 + 标记消息完成
+            // （流式内容已由 output.chunk 拼接，此处仅兜底与标记）
             else if (eventType === 'output.chunk') {
               const content = eventData.content;
               // 🎯 直接拼接 chunk，不使用打字机（让 markdown 正确渲染）
               currentMsg.content += content;
               scrollToBottom();
             }
-            // 最终答案（完整 - 仅用于元数据和验证）
+            // 最终答案（完整）：内容兜底 + 元数据 + 标记消息完成（主完成信号）
             else if (eventType === 'output.final_answer') {
-              // 🎯 不覆盖内容，因为已经通过 chunk 流式接收了
-              // 只用于验证和获取元数据
               if (!currentMsg.content || currentMsg.content.length === 0) {
-                // 降级：如果没有收到 chunk，使用完整内容
-                currentMsg.content = eventData.content;
+                currentMsg.content = eventData.content || '';
               }
-              // 可以在这里记录元数据
               if (eventData.metadata) {
                 currentMsg.metadata = eventData.metadata;
               }
               currentMsg.finished = true;
               updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+            }
+            // 主 Agent 结束：仅兜底标记完成（若未在 output.final_answer 中标记）
+            else if (eventType === 'agent.end') {
+              if (!currentMsg.finished) {
+                currentMsg.finished = true;
+                if (currentMsg.content) {
+                  updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+                }
+              }
             }
             // 图表生成
             else if (eventType === 'visualization.chart') {

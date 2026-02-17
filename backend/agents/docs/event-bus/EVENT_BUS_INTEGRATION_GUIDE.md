@@ -10,7 +10,7 @@
 
 ```python
 # 在Agent中发布事件
-from agents.event_publisher import EventPublisher
+from agents.events import EventPublisher
 
 class MyAgent(BaseAgent):
     def execute(self, task: str, context: AgentContext):
@@ -39,8 +39,7 @@ class MyAgent(BaseAgent):
 
 ```python
 # routes/agent.py
-from agents.event_bus import get_event_bus
-from agents.sse_adapter import SSEAdapter
+from agents.events import get_event_bus, SSEAdapter
 from flask import Response, stream_with_context
 
 @agent_bp.route('/stream', methods=['POST'])
@@ -90,7 +89,7 @@ def stream_execute():
 ```python
 # backend/agents/master_agent_v2/master_v2.py
 
-from agents.event_publisher import EventPublisher
+from agents.events import EventPublisher
 
 class MasterAgentV2(BaseAgent):
     def __init__(

@@ -2,42 +2,48 @@
 """
 Agent 模块 - 智能体系统
 
-包含：
-- 基础设施：BaseAgent, AgentContext, AgentResponse
-- 注册表：AgentRegistry
-- 编排器：AgentOrchestrator
-- 配置系统：AgentConfig, AgentConfigManager
-- 具体智能体：GenericAgent, ReActAgent（统一入口为 MasterAgent V2，由 agent_loader 加载）
+重组后的模块结构：
+- core: 核心基础设施（BaseAgent, AgentContext, Registry, Orchestrator）
+- implementations: 智能体实现（ReActAgent, MasterAgentV2）
+- config: 配置系统（AgentConfig, AgentConfigManager, AgentLoader）
+- context: 上下文管理（ContextManager）
+- events: 事件系统（EventBus, EventPublisher, SSEAdapter）
+- skills: Skills 系统
 """
 
-# 基础设施
-from .base import (
+# 核心基础设施（立即导入，无重依赖）
+from .core import (
     BaseAgent,
     AgentContext,
     AgentResponse,
     Message,
-    AgentExecutionError
+    AgentExecutionError,
+    AgentRegistry,
+    get_registry,
+    register_agent,
+    AgentOrchestrator,
+    get_orchestrator,
 )
 
-# 注册表和编排器
-from .registry import AgentRegistry, get_registry, register_agent
-from .orchestrator import AgentOrchestrator, get_orchestrator
+# 配置与实现按需导入，避免在仅使用 core 时拉取 tools/db 等
+_CONFIG_ATTRS = {
+    'AgentConfig', 'AgentLLMConfig', 'AgentToolConfig', 'AgentConfigPreset',
+    'apply_preset', 'AgentConfigManager', 'get_config_manager',
+    'AgentLoader', 'load_agents_from_config', 'register_agent_type',
+    'AgentSkillConfig', 'PRESET_CONFIGS',
+}
+_IMPL_ATTRS = {'ReActAgent'}
 
-# 配置系统
-from .agent_config import (
-    AgentConfig,
-    AgentLLMConfig,
-    AgentToolConfig,
-    AgentConfigPreset,
-    apply_preset
-)
-from .config_manager import AgentConfigManager, get_config_manager
 
-# 具体智能体
-from .react_agent import ReActAgent
+def __getattr__(name):
+    if name in _CONFIG_ATTRS:
+        from . import config
+        return getattr(config, name)
+    if name in _IMPL_ATTRS:
+        from .implementations.react import ReActAgent
+        return ReActAgent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# 动态加载
-from .agent_loader import AgentLoader, load_agents_from_config, register_agent_type
 
 __all__ = [
     # 基础设施
@@ -46,14 +52,11 @@ __all__ = [
     'AgentResponse',
     'Message',
     'AgentExecutionError',
-
-    # 注册表和编排器
     'AgentRegistry',
     'get_registry',
     'register_agent',
     'AgentOrchestrator',
     'get_orchestrator',
-
     # 配置系统
     'AgentConfig',
     'AgentLLMConfig',
@@ -62,12 +65,9 @@ __all__ = [
     'apply_preset',
     'AgentConfigManager',
     'get_config_manager',
-
-    # 具体智能体
-    'ReActAgent',
-
-    # 动态加载
     'AgentLoader',
     'load_agents_from_config',
     'register_agent_type',
+    # 智能体实现
+    'ReActAgent',
 ]

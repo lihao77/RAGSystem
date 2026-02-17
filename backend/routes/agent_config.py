@@ -7,8 +7,7 @@
 
 from flask import Blueprint, request
 import logging
-from agents.config_manager import get_config_manager
-from agents.agent_config import AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset
+from agents.config import get_config_manager, AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset
 from utils.response_helpers import success_response, error_response
 
 logger = logging.getLogger(__name__)
@@ -214,7 +213,7 @@ def patch_config(agent_name):
         skills = None
         if 'skills' in data:
             # 合并现有配置
-            from agents.agent_config import AgentSkillConfig
+            from agents.config import AgentSkillConfig
             skills_data = config.skills.model_dump()
             skills_data.update(data['skills'])
             skills = AgentSkillConfig(**skills_data)
@@ -466,7 +465,7 @@ def list_presets():
         }
     """
     try:
-        from agents.agent_config import PRESET_CONFIGS
+        from agents.config import PRESET_CONFIGS
 
         return success_response(
             data=PRESET_CONFIGS,
