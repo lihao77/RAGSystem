@@ -828,6 +828,24 @@ def get_session(session_id):
         return error_response(message=str(e), status_code=500)
 
 
+@agent_bp.route('/sessions/<session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """删除会话及其所有消息"""
+    try:
+        store = _get_conversation_store()
+        session = store.get_session(session_id=session_id)
+        if not session:
+            return error_response(message='会话不存在', status_code=404)
+
+        # 删除会话（会级联删除所有消息和 run_steps）
+        store.delete_session(session_id=session_id)
+
+        return success_response(message='会话删除成功')
+    except Exception as e:
+        logger.error(f'删除会话失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
 @agent_bp.route('/sessions/<session_id>/rollback', methods=['POST'])
 def rollback_session(session_id):
     """

@@ -12,3 +12,4 @@ export { default as IconDocument } from './IconDocument.vue';
 export { default as IconPlus } from './IconPlus.vue';
 export { default as IconNewConversation } from './IconNewConversation.vue';
 export { default as IconMenu } from './IconMenu.vue';
+export { default as IconTrash } from './IconTrash.vue';

@@ -52,6 +52,9 @@
                 <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
               </div>
             </div>
+            <button class="history-delete-btn" @click.stop="confirmDeleteSession(item)" title="删除会话">
+              <IconTrash :size="16" />
+            </button>
           </div>
           <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
           <div v-if="historyError" class="history-error">
@@ -247,6 +250,17 @@
       <span>{{ toast.message }}</span>
       <button v-if="toast.action" class="toast-action" @click="toast.action">{{ toast.actionLabel }}</button>
     </div>
+
+    <!-- 确认对话框 -->
+    <ConfirmDialog
+      ref="confirmDialogRef"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :cancel-text="confirmDialog.cancelText"
+      @confirm="confirmDialog.onConfirm"
+      @cancel="confirmDialog.onCancel"
+    />
   </div>
 </template>
 
@@ -259,7 +273,8 @@ import ReActStepsList from '../components/ReActStepsList.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import LLMSelector from '../components/LLMSelector.vue';
-import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu } from '../components/icons';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
+import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
 
 // Props
@@ -296,12 +311,21 @@ const historyHasMore = ref(true);
 const currentSessionId = ref(null);
 const messagesLoading = ref(false);
 const chatInputRef = ref(null);
+const confirmDialogRef = ref(null);
 const toast = ref({
   visible: false,
   message: '',
   type: 'error',
   action: null,
   actionLabel: ''
+});
+const confirmDialog = ref({
+  title: '确认操作',
+  message: '',
+  confirmText: '确定',
+  cancelText: '取消',
+  onConfirm: () => {},
+  onCancel: () => {}
 });
 const currentStreamController = ref(null);
 const messageCache = ref(new Map());
@@ -957,6 +981,53 @@ const copyMessage = async (msg) => {
     showToast('已复制到剪贴板', 'success');
   } catch (e) {
     showToast('复制失败');
+  }
+};
+
+const confirmDeleteSession = async (item) => {
+  confirmDialog.value = {
+    title: '删除会话',
+    message: `确定要删除会话"${item.title || formatTitle(item) || 'New Conversation'}"吗？此操作不可恢复。`,
+    confirmText: '删除',
+    cancelText: '取消',
+    onConfirm: () => {
+      deleteSession(item.session_id);
+    },
+    onCancel: () => {}
+  };
+  confirmDialogRef.value?.show();
+};
+
+const deleteSession = async (sessionId) => {
+  try {
+    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || '删除失败');
+    }
+
+    // 从历史列表中移除
+    const index = history.value.findIndex(h => h.session_id === sessionId);
+    if (index >= 0) {
+      history.value.splice(index, 1);
+    }
+
+    // 如果删除的是当前会话，清空消息并跳转到首页
+    if (currentSessionId.value === sessionId) {
+      startNewChat();
+    }
+
+    // 从缓存中移除
+    if (messageCache.value.has(sessionId)) {
+      messageCache.value.delete(sessionId);
+    }
+
+    showToast('会话已删除', 'success');
+  } catch (error) {
+    showToast(error.message || '删除会话失败');
   }
 };
 

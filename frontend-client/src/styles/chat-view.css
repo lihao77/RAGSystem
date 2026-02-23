@@ -252,6 +252,7 @@
   /* 0.85rem -> 0.875rem */
   border: 1px solid transparent;
   background: transparent;
+  position: relative;
 }
 
 .history-item:hover {
@@ -298,6 +299,29 @@
   margin-left: auto;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+
+.history-delete-btn {
+  display: none;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.history-delete-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-error);
+}
+
+.history-item:hover .history-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .user-profile {
@@ -1769,6 +1793,13 @@
   .sidebar.mobile-open .user-info {
     opacity: 1;
     max-width: 200px;
+  }
+
+  /* 移动端：删除按钮始终显示（触摸设备无 hover） */
+  .history-delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   /* 主聊天区域占满全屏 */

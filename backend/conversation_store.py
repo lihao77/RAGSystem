@@ -203,6 +203,41 @@ class ConversationStore:
                 "updated_at": row["updated_at"]
             }
 
+    def delete_session(self, session_id: str) -> bool:
+        """
+        删除会话及其所有关联数据（消息、run_steps）
+
+        由于设置了 FOREIGN KEY ON DELETE CASCADE，删除 session 会自动级联删除：
+        - messages 表中的所有消息
+        - run_steps 表中的所有步骤（如果有外键关联）
+
+        Returns:
+            bool: 是否成功删除（True 表示删除了会话，False 表示会话不存在）
+        """
+        lock = self._get_session_lock(session_id)
+        with lock:
+            with self._get_connection() as conn:
+                # 先删除 run_steps（如果没有外键级联）
+                conn.execute(
+                    "DELETE FROM run_steps WHERE session_id=?",
+                    (session_id,)
+                )
+
+                # 删除会话（会自动级联删除 messages）
+                cursor = conn.execute(
+                    "DELETE FROM sessions WHERE session_id=?",
+                    (session_id,)
+                )
+
+                deleted = cursor.rowcount > 0
+
+                # 清理 session 锁
+                with self._global_lock:
+                    if session_id in self._session_locks:
+                        del self._session_locks[session_id]
+
+                return deleted
+
     def add_message(
         self,
         session_id: str,
