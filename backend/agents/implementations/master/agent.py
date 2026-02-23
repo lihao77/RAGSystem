@@ -97,6 +97,7 @@ class MasterAgentV2(BaseAgent):
 
         self.orchestrator = orchestrator
         self.agent_executor = AgentExecutor(orchestrator)
+        self._publisher = None  # EventPublisher 实例（延迟创建）
 
         # 从配置获取行为参数
         behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
@@ -377,7 +378,7 @@ class MasterAgentV2(BaseAgent):
 
         # ✨ 获取会话级事件总线并创建事件发布器
         event_bus = get_session_event_bus(context.session_id)
-        publisher = EventPublisher(
+        self._publisher = EventPublisher(
             agent_name=self.name,
             session_id=context.session_id,
             trace_id=context.metadata.get('trace_id'),
@@ -390,12 +391,12 @@ class MasterAgentV2(BaseAgent):
         # 注意：run_id 应该在路由层生成并传入 context，这里做兜底
         import uuid
         run_id = context.metadata.get('run_id') or str(uuid.uuid4())
-        
+
         # 2. 发布运行开始事件 (Run)
-        publisher.run_start(run_id=run_id, metadata={"task": task})
+        self._publisher.run_start(run_id=run_id, metadata={"task": task})
 
         # 3. 发布 Agent 开始事件
-        publisher.agent_start(task, metadata={
+        self._publisher.agent_start(task, metadata={
             "agent_name": self.name,
             "display_name": "MasterAgent V2",
             "max_rounds": self.max_rounds,
@@ -448,7 +449,7 @@ class MasterAgentV2(BaseAgent):
 
                 if response.error:
                     # ✨ 使用事件发布器发布错误
-                    publisher.agent_error(
+                    self._publisher.agent_error(
                         error=f"LLM 调用失败: {response.error}",
                         error_type="LLMError"
                     )
@@ -475,7 +476,7 @@ class MasterAgentV2(BaseAgent):
                         }
                         self.logger.info(f"{log_prefix} 已降级为纯文本回复 (长度 {len(content)} 字符)")
                     else:
-                        publisher.agent_error(
+                        self._publisher.agent_error(
                             error=f"LLM 返回无效的 JSON 或空响应: {parse_err}",
                             error_type="JSONDecodeError"
                         )
@@ -493,7 +494,7 @@ class MasterAgentV2(BaseAgent):
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # ✨ 发布结构化思考事件
-                publisher.thought_structured(
+                self._publisher.thought_structured(
                     thought=thought,
                     actions=[a.get('tool') for a in actions] if actions else [],
                     reasoning=f"第 {rounds} 轮推理"
@@ -514,11 +515,11 @@ class MasterAgentV2(BaseAgent):
                     self.logger.info(f"{log_prefix} 得到最终答案")
 
                     # ✨ 发布最终答案事件（通过事件总线流式输出）
-                    publisher.final_answer(final_answer)
+                    self._publisher.final_answer(final_answer)
 
                     # ✨ 发布Agent结束和运行结束事件
-                    publisher.agent_end(final_answer, execution_time=time.time() - start_time)
-                    publisher.run_end(run_id=run_id, status="success", summary=f"任务完成，共 {rounds} 轮推理，{len(agent_calls_history)} 次Agent调用")
+                    self._publisher.agent_end(final_answer, execution_time=time.time() - start_time)
+                    self._publisher.run_end(run_id=run_id, status="success", summary=f"任务完成，共 {rounds} 轮推理，{len(agent_calls_history)} 次Agent调用")
 
                     return AgentResponse(
                         success=True,
@@ -578,7 +579,7 @@ class MasterAgentV2(BaseAgent):
                         agent_display_name = self._get_agent_display_name(agent_name)
 
                         # ✨ 发布 AgentCall 开始事件
-                        publisher.agent_call_start(
+                        self._publisher.agent_call_start(
                             call_id=call_id,
                             agent_name=agent_name,
                             description=agent_task,
@@ -638,7 +639,7 @@ class MasterAgentV2(BaseAgent):
 
                         # ✨ 发布 AgentCall 结束事件
                         # result_summary = self._format_agent_result_summary(result)
-                        publisher.agent_call_end(
+                        self._publisher.agent_call_end(
                             call_id=call_id,
                             agent_name=agent_name,
                             result=result.get('data', {}).get('results', ''),
@@ -686,9 +687,9 @@ class MasterAgentV2(BaseAgent):
             final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
 
             # ✨ 发布事件
-            publisher.final_answer(final_content)
-            publisher.agent_end(final_content, execution_time=time.time() - start_time)
-            publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
+            self._publisher.final_answer(final_content)
+            self._publisher.agent_end(final_content, execution_time=time.time() - start_time)
+            self._publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
 
             return AgentResponse(
                 success=True,
@@ -705,7 +706,7 @@ class MasterAgentV2(BaseAgent):
         except Exception as e:
             self.logger.error(f"执行任务失败: {e}", exc_info=True)
             # ✨ 发布错误事件
-            publisher.agent_error(error=str(e), error_type="ExecutionError")
+            self._publisher.agent_error(error=str(e), error_type="ExecutionError")
             return AgentResponse(
                 success=False,
                 error=str(e),
