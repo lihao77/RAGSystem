@@ -403,11 +403,17 @@ class MasterAgentV2(BaseAgent):
         })
 
         try:
+            # ✨ 使用 BaseAgent 的公共压缩方法（持久化由 routes 的事件订阅完成）
+            resolved = self.compress_context_if_needed(
+                context=context,
+                publisher=self._publisher
+            )
+
+            # 构建 LLM 请求消息
             messages = [{"role": "system", "content": self._build_system_prompt()}]
-            history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
-            for msg in history_items:
-                if msg.get("role") in ["user", "assistant"]:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
+            for m in resolved:
+                if m.get("role") in ("user", "assistant", "system"):
+                    messages.append({"role": m["role"], "content": m["content"]})
             messages.append({"role": "user", "content": task})
 
             rounds = 0

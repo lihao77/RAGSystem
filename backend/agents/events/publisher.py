@@ -373,6 +373,18 @@ class EventPublisher:
             }
         )
 
+    # ==================== 上下文压缩事件 ====================
+
+    def compression_summary(self, content: str):
+        """上下文压缩摘要"""
+        self._publish(
+            EventType.COMPRESSION_SUMMARY,
+            {
+                "content": content,
+                "session_id": self.session_id
+            }
+        )
+
     # ==================== 会话事件 ====================
 
     def session_start(self, metadata: Optional[Dict] = None):

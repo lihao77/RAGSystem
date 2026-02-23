@@ -130,10 +130,18 @@
 
           <!-- Message Stream -->
           <div v-else class="message-stream">
-            <div v-for="(msg, index) in messages" :key="messageKey(msg, index)" :class="['message', msg.role]" :data-msg-index="index"
+            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg, index)" :class="['message', msg.role]" :data-msg-index="index"
               @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
+              <!-- 持久化压缩：历史摘要占位，详情默认折叠 -->
+              <div v-if="msg.role === 'system' && msg.metadata && msg.metadata.compression" class="message-content-wrapper compression-summary">
+                <div class="compression-summary-label" @click="expandedSummarySeq = (expandedSummarySeq === msg.seq ? null : msg.seq)">
+                  <span class="compression-summary-title">历史摘要</span>
+                  <span class="compression-summary-toggle">{{ expandedSummarySeq === msg.seq ? '收起' : '展开' }}</span>
+                </div>
+                <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
+              </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
-              <div v-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0"
+              <div v-else-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0"
                 class="subtasks-container-full">
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
                 <SubtaskStatusTicker :subtasks="msg.subtasks" :expanded="msg.showFullSubtasks"
@@ -168,7 +176,7 @@
 
               </div>
 
-              <div class="message-content-wrapper">
+              <div v-if="!(msg.role === 'system' && msg.metadata && msg.metadata.compression)" class="message-content-wrapper">
                 <div class="message-content">
                   <!-- Loading State -->
                   <div v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0)"
@@ -189,10 +197,10 @@
                   </div>
 
                   <!-- User Message (可编辑时显示 textarea) -->
-                  <div v-if="msg.role === 'user' && editingMessageIndex !== index" class="user-text">
+                  <div v-if="msg.role === 'user' && editingMessage !== msg" class="user-text">
                     {{ msg.content }}
                   </div>
-                  <div v-else-if="msg.role === 'user' && editingMessageIndex === index" class="user-edit-row">
+                  <div v-else-if="msg.role === 'user' && editingMessage === msg" class="user-edit-row">
                     <textarea v-model="editingDraft" class="user-edit-input" rows="3" @keydown.ctrl.enter="confirmEditAndResend" @keydown.meta.enter="confirmEditAndResend" />
                     <div class="user-edit-actions">
                       <button type="button" class="btn-editor btn-save" @click="confirmEditAndResend">确定</button>
@@ -209,10 +217,13 @@
                   </div>
                 </div>
               </div>
-              <!-- 消息操作：仅 user 可编辑、复制 -->
+              <!-- 消息操作：仅 user 可编辑、复制、从此处重试 -->
               <div class="message-actions" :class="{ 'visible': messageActionsVisible === index }">
                 <template v-if="msg.role === 'user'">
-                  <button type="button" class="msg-action-btn" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg, index)">
+                  <button v-if="msg.seq != null" type="button" class="msg-action-btn" title="删除此条之后的对话并用原问题重新执行（流式输出）" @click="rollbackAndRetry(msg)">
+                    从此处重试
+                  </button>
+                  <button type="button" class="msg-action-btn" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
                     编辑
                   </button>
                   <button type="button" class="msg-action-btn" title="复制内容" @click="copyMessage(msg)">
@@ -240,7 +251,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskCard from '../components/SubtaskCard.vue';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
@@ -299,6 +310,8 @@ const lastFailedSendContent = ref('');
 const messageActionsVisible = ref(null);
 const editingMessageIndex = ref(null);
 const editingDraft = ref('');
+/** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
+const expandedSummarySeq = ref(null);
 const handlePopState = () => {
   const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
   const sessionId = match ? decodeURIComponent(match[1]) : null;
@@ -761,9 +774,19 @@ const loadSessionMessages = async (sessionId) => {
           finished: true
         };
       }
-      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '' };
+      if (item.role === 'system') {
+        return {
+          role: 'system',
+          id: item.id,
+          seq: item.seq,
+          content: item.content || '',
+          metadata: item.metadata || {}
+        };
+      }
+      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {} };
     });
     messages.value = mapped;
+    expandedSummarySeq.value = null;
     cacheMessages(sessionId, mapped);
     await nextTick();
     await scrollToBottom(true);
@@ -811,8 +834,26 @@ const updateRecentSession = (sessionId, content, timestamp) => {
 
 const messageKey = (msg, index) => msg.id != null ? `msg-${msg.id}` : `idx-${index}`;
 
+/** 用于展示的消息列表：按 seq 升序，若有 compression 则隐藏 seq < 最后一条摘要.seq 的消息 */
+const visibleMessages = computed(() => {
+  const list = messages.value;
+  if (!list.length) return [];
+  const withSeq = list.filter(m => m.seq != null);
+  const summaryMsg = withSeq.filter(m => (m.metadata && m.metadata.compression) === true).sort((a, b) => (b.seq - a.seq))[0];
+  const summarySeq = summaryMsg ? summaryMsg.seq : null;
+  if (summarySeq == null) return list;
+  return list.filter(m => m.seq == null || m.seq >= summarySeq);
+});
+
+const editingMessage = computed(() => {
+  const i = editingMessageIndex.value;
+  if (i == null || i < 0) return null;
+  return messages.value[i] || null;
+});
+
 const startEditMessage = (msg, index) => {
-  editingMessageIndex.value = index;
+  const idx = messages.value.findIndex(m => m === msg);
+  editingMessageIndex.value = idx >= 0 ? idx : index;
   editingDraft.value = msg.content || '';
 };
 
@@ -821,7 +862,7 @@ const cancelEdit = () => {
   editingDraft.value = '';
 };
 
-/** 编辑后确定：乐观更新（先截断 UI），再请求回退，失败则恢复；成功则发送编辑内容让 agent 重新生成 */
+/** 编辑后确定：先回退到该条之前，再以编辑后的内容流式发送（保持原有流式体验） */
 const confirmEditAndResend = async () => {
   const idx = editingMessageIndex.value;
   if (idx == null) return;
@@ -866,6 +907,42 @@ const confirmEditAndResend = async () => {
     cacheMessages(sessionId, prevMessages);
     cancelEdit();
     showToast(e.message || '操作失败');
+  }
+};
+
+/** 从此处重试：仅回退到该条之后，再用原问题流式发送（与正常发送一致，有流式输出） */
+const rollbackAndRetry = async (msg) => {
+  const sessionId = currentSessionId.value;
+  if (!sessionId) {
+    showToast('当前无会话');
+    return;
+  }
+  if (msg.role !== 'user' || msg.seq == null) {
+    showToast('仅支持从用户消息重试，且需已加载序号');
+    return;
+  }
+  const idx = messages.value.findIndex(m => m === msg || (m.role === 'user' && m.seq === msg.seq));
+  if (idx < 0) return;
+  const prevMessages = messages.value.slice();
+  try {
+    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ after_seq: msg.seq })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || '回退失败');
+    }
+    messages.value = messages.value.slice(0, idx + 1);
+    cacheMessages(sessionId, messages.value);
+    inputMessage.value = (msg.content || '').trim();
+    await nextTick();
+    handleSend();
+  } catch (e) {
+    messages.value = prevMessages;
+    cacheMessages(sessionId, prevMessages);
+    showToast(e.message || '回退失败');
   }
 };
 
@@ -1202,3 +1279,25 @@ onUnmounted(() => {
 </script>
 
 <style scoped src="../styles/chat-view.css"></style>
+<style scoped>
+.compression-summary { margin: 0.5rem 0; }
+.compression-summary-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.compression-summary-title { font-weight: 500; }
+.compression-summary-toggle { color: var(--el-color-primary); font-size: 0.85rem; }
+.compression-summary-detail {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+</style>

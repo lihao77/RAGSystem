@@ -16,6 +16,8 @@ from agents import (
     get_config_manager,
     load_agents_from_config
 )
+from agents.context.manager import ContextManager
+from agents.core.models import Message
 from agents.events import EventType, get_session_event_bus, SSEAdapter
 from conversation_store import ConversationStore
 from model_adapter import get_default_adapter
@@ -39,12 +41,23 @@ def _get_conversation_store() -> ConversationStore:
     return _conversation_store
 
 
-def _load_history_into_context(context: AgentContext, session_id: str, limit: int = 20):
+def _load_history_into_context(context: AgentContext, session_id: str, limit: int = 50):
+    """
+    加载完整原始上下文（含 seq）到 context。
+
+    压缩判断与持久化由 Agent 内部统一处理，Route 只负责：
+    1. 加载原始消息
+    2. 订阅 COMPRESSION_SUMMARY 事件并写 DB
+    """
     store = _get_conversation_store()
-    history_items = store.get_recent_messages(session_id=session_id, limit=limit)
-    for item in history_items:
-        if item.get("role") in ["user", "assistant"]:
-            context.add_message(role=item["role"], content=item["content"], metadata=item.get("metadata") or {})
+    raw = store.get_recent_messages(session_id=session_id, limit=limit)
+
+    for item in raw:
+        if item.get("role") in ["user", "assistant", "system"]:
+            meta = dict(item.get("metadata") or {})
+            if item.get("seq") is not None:
+                meta["seq"] = item["seq"]
+            context.add_message(role=item["role"], content=item["content"], metadata=meta)
 
 
 def _get_orchestrator():
@@ -309,7 +322,6 @@ def execute():
         task = data.get('task', '').strip()
         session_id = data.get('session_id')
         user_id = data.get('user_id')
-        user_id = data.get('user_id')
         preferred_agent = data.get('agent')
 
         if not task:
@@ -328,7 +340,7 @@ def execute():
 
         store = _get_conversation_store()
         store.create_session(session_id=session_id, user_id=user_id)
-        _load_history_into_context(context, session_id=session_id, limit=20)
+        _load_history_into_context(context, session_id=session_id, limit=50)
 
         # 执行任务
         store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": preferred_agent})
@@ -421,7 +433,7 @@ def stream_execute():
 
             # 创建上下文（含前端选择的 LLM 覆盖）
             context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
-            _load_history_into_context(context, session_id=session_id, limit=20)
+            _load_history_into_context(context, session_id=session_id, limit=50)
 
             # 生成 run_id 并注入 context，用于中间过程落库与关联 assistant 消息
             run_id = str(uuid_module.uuid4())
@@ -442,6 +454,27 @@ def stream_execute():
                 session_id=session_id,
                 buffer_size=100,
                 heartbeat_interval=15.0
+            )
+
+            # ✨ 订阅 COMPRESSION_SUMMARY 事件并写 DB
+            def handle_compression_summary(event):
+                """处理上下文压缩摘要事件"""
+                try:
+                    content = (event.data or {}).get("content")
+                    event_session_id = (event.data or {}).get("session_id") or event.session_id
+                    if content and event_session_id:
+                        store.insert_compression_message(
+                            session_id=event_session_id,
+                            summary_content=content
+                        )
+                        logger.info(f"已保存压缩摘要到 DB: session_id={event_session_id}")
+                except Exception as e:
+                    logger.warning(f"保存压缩摘要失败: {e}", exc_info=True)
+
+            compression_subscription_id = event_bus.subscribe(
+                event_types=[EventType.COMPRESSION_SUMMARY],
+                handler=handle_compression_summary,
+                filter_func=lambda e: e.session_id == session_id
             )
 
             # ✨ 在后台执行 Agent（不再迭代生成器）
@@ -561,6 +594,7 @@ def stream_execute():
                     yield sse_data
             finally:
                 event_bus.unsubscribe(subscription_id)
+                event_bus.unsubscribe(compression_subscription_id)  # 取消压缩事件订阅
                 adapter.stop()
 
             # 结束事件
@@ -595,6 +629,7 @@ def execute_specific_agent(agent_name):
         data = request.get_json()
         task = data.get('task', '').strip()
         session_id = data.get('session_id')
+        user_id = data.get('user_id')
 
         if not task:
             return error_response(message='任务描述不能为空', status_code=400)
@@ -612,7 +647,7 @@ def execute_specific_agent(agent_name):
 
         store = _get_conversation_store()
         store.create_session(session_id=session_id, user_id=user_id)
-        _load_history_into_context(context, session_id=session_id, limit=20)
+        _load_history_into_context(context, session_id=session_id, limit=50)
 
         # 执行任务（指定智能体）
         store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": agent_name})
@@ -693,7 +728,7 @@ def collaborate():
 
         store = _get_conversation_store()
         store.create_session(session_id=session_id, user_id=user_id)
-        _load_history_into_context(context, session_id=session_id, limit=20)
+        _load_history_into_context(context, session_id=session_id, limit=50)
 
         for t in tasks:
             task_content = (t.get('task') or '').strip()
@@ -819,6 +854,83 @@ def rollback_session(session_id):
         return success_response(data={'deleted': deleted}, message='回退成功')
     except Exception as e:
         logger.error(f'回退失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions/<session_id>/rollback-and-retry', methods=['POST'])
+def rollback_and_retry(session_id):
+    """
+    回退到某条消息并自动重试：删除该条之后的消息，使用原问题或修改后的问题重新执行。
+
+    Body: {
+        "after_seq": 5,                      # 回退到第 5 条（该条保留，之后删除）
+        "modify_user_message": "新问题",      # 可选：修改用户问题后重试
+        "user_id": "xxx"                     # 可选：用户 ID
+    }
+    要求 after_seq 对应的消息必须是 user 角色。
+    """
+    try:
+        data = request.get_json() or {}
+        after_seq = data.get('after_seq')
+        if after_seq is None:
+            return error_response(message='请提供 after_seq', status_code=400)
+        try:
+            after_seq = int(after_seq)
+        except (TypeError, ValueError):
+            return error_response(message='after_seq 须为整数', status_code=400)
+
+        store = _get_conversation_store()
+        original_message = store.get_message_by_seq(session_id=session_id, seq=after_seq)
+        if not original_message:
+            return error_response(message=f'未找到会话 {session_id} 中序号为 {after_seq} 的消息', status_code=404)
+        if original_message.get('role') != 'user':
+            return error_response(message='指定位置必须是用户消息（user），才能从此处重试', status_code=400)
+
+        deleted = store.delete_messages_after(session_id=session_id, after_seq=after_seq)
+        task = data.get('modify_user_message')
+        if task is not None:
+            task = (task or '').strip()
+        if not task:
+            task = (original_message.get('content') or '').strip()
+        if not task:
+            return error_response(message='无法获取要重试的任务内容', status_code=400)
+
+        if data.get('modify_user_message') is not None:
+            store.update_message(
+                message_id=original_message['id'],
+                content=task,
+                session_id=session_id,
+                role_filter='user'
+            )
+
+        user_id = data.get('user_id')
+        orchestrator = _get_orchestrator()
+        context = AgentContext(session_id=session_id, user_id=user_id)
+        _load_history_into_context(context, session_id=session_id, limit=50)
+
+        response = orchestrator.execute(task=task, context=context)
+
+        if response.success and response.content:
+            store.add_message(
+                session_id=session_id,
+                role='assistant',
+                content=response.content,
+                metadata={'agent': response.agent_name}
+            )
+
+        return success_response(
+            data={
+                'deleted': deleted,
+                'answer': response.content if response.success else None,
+                'agent_name': response.agent_name if response.success else None,
+                'execution_time': getattr(response, 'execution_time', None),
+                'success': response.success,
+                'error': response.error if not response.success else None
+            },
+            message='重试成功' if response.success else '重试执行完成但未得到成功结果'
+        )
+    except Exception as e:
+        logger.error(f'回退并重试失败: {e}', exc_info=True)
         return error_response(message=str(e), status_code=500)
 
 

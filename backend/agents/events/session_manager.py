@@ -43,7 +43,8 @@ class SessionEventBusManager:
         self,
         session_ttl: int = 3600,  # 会话过期时间（秒），默认1小时
         cleanup_interval: int = 300,  # 清理间隔（秒），默认5分钟
-        enable_persistence: bool = True  # 是否启用事件持久化
+        enable_persistence: bool = True,  # 是否启用事件持久化
+        max_history: int = 1000  # ✨ EventBus 最大历史事件数
     ):
         """
         初始化会话事件总线管理器
@@ -52,10 +53,12 @@ class SessionEventBusManager:
             session_ttl: 会话过期时间（秒），超过此时间未活动的会话会被清理
             cleanup_interval: 自动清理间隔（秒）
             enable_persistence: 是否为所有会话启用事件持久化
+            max_history: 每个 EventBus 的最大历史事件数（防止内存泄漏）
         """
         self.session_ttl = session_ttl
         self.cleanup_interval = cleanup_interval
         self.enable_persistence = enable_persistence
+        self.max_history = max_history  # ✨ 保存 max_history
 
         # 会话事件总线字典: {session_id: EventBus}
         self._session_buses: Dict[str, EventBus] = {}
@@ -76,7 +79,7 @@ class SessionEventBusManager:
 
         logger.info(
             f"SessionEventBusManager 初始化 "
-            f"(TTL: {session_ttl}s, 清理间隔: {cleanup_interval}s)"
+            f"(TTL: {session_ttl}s, 清理间隔: {cleanup_interval}s, 最大历史: {max_history})"
         )
 
     def get_or_create(self, session_id: str) -> EventBus:
@@ -98,8 +101,11 @@ class SessionEventBusManager:
                 logger.debug(f"复用现有事件总线: {session_id}")
                 return self._session_buses[session_id]
 
-            # 创建新的事件总线
-            event_bus = EventBus(enable_persistence=self.enable_persistence)
+            # 创建新的事件总线（✨ 传入 max_history）
+            event_bus = EventBus(
+                enable_persistence=self.enable_persistence,
+                max_history=self.max_history
+            )
             self._session_buses[session_id] = event_bus
 
             logger.info(f"✨ 创建会话事件总线: {session_id}")
@@ -257,7 +263,8 @@ _global_session_manager: Optional[SessionEventBusManager] = None
 def get_session_manager(
     session_ttl: int = 3600,
     cleanup_interval: int = 300,
-    enable_persistence: bool = True
+    enable_persistence: bool = True,
+    max_history: int = 1000  # ✨ 添加 max_history 参数
 ) -> SessionEventBusManager:
     """
     获取全局会话事件总线管理器（单例）
@@ -266,6 +273,7 @@ def get_session_manager(
         session_ttl: 会话过期时间（秒）
         cleanup_interval: 清理间隔（秒）
         enable_persistence: 是否启用事件持久化
+        max_history: 每个 EventBus 的最大历史事件数
 
     Returns:
         SessionEventBusManager实例
@@ -275,7 +283,8 @@ def get_session_manager(
         _global_session_manager = SessionEventBusManager(
             session_ttl=session_ttl,
             cleanup_interval=cleanup_interval,
-            enable_persistence=enable_persistence
+            enable_persistence=enable_persistence,
+            max_history=max_history  # ✨ 传递 max_history
         )
     return _global_session_manager
 

@@ -405,11 +405,17 @@ class ReActAgent(BaseAgent):
             # 兼容旧代码
             self._current_task_id = self._current_call_id
 
+            # ✨ 使用 BaseAgent 的公共压缩方法
+            resolved = self.compress_context_if_needed(
+                context=context,
+                publisher=self._publisher
+            )
+
+            # 构建 LLM 请求消息
             messages = [{"role": "system", "content": self._build_system_prompt()}]
-            history_items = context.get_history(limit=self.context_manager.config.max_history_turns * 2)
-            for msg in history_items:
-                if msg.get("role") in ["user", "assistant"]:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
+            for m in resolved:
+                if m.get("role") in ("user", "assistant", "system"):
+                    messages.append({"role": m["role"], "content": m["content"]})
             messages.append({"role": "user", "content": task})
 
             rounds = 0
@@ -430,35 +436,35 @@ class ReActAgent(BaseAgent):
                 )
                 self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
 
+                # 调用 LLM
+                response = self.model_adapter.chat_completion(
+                    messages=managed_messages,
+                    provider=llm_config.get('provider'),
+                    model=llm_config.get('model_name'),
+                    provider_type=llm_config.get('provider_type'),
+                    temperature=llm_config.get('temperature', 0.3),
+                    max_tokens=llm_config.get('max_tokens'),
+                    response_format={"type": "json_object"}
+                )
+
+                # 检查错误
+                if response.error:
+                    error_msg = f"LLM 调用失败: {response.error}"
+                    if self._publisher:
+                        self._publisher.agent_error(error=error_msg, error_type="LLMError")
+                    return AgentResponse(
+                        success=False,
+                        content="",
+                        error=error_msg,
+                        agent_name=self.name,
+                        execution_time=time.time() - start_time
+                    )
+
                 # 重试机制：最多尝试 3 次解析
                 max_parse_retries = 3
                 output = None
 
                 for retry_attempt in range(max_parse_retries):
-                    # 调用 LLM（使用 JSON mode）
-                    response = self.model_adapter.chat_completion(
-                        messages=managed_messages,  #  使用管理后的消息
-                        provider=llm_config.get('provider'),
-                        model=llm_config.get('model_name'),
-                        provider_type=llm_config.get('provider_type'),
-                        temperature=llm_config.get('temperature', 0.3),
-                        max_tokens=llm_config.get('max_tokens'),
-                        response_format={"type": "json_object"}
-                    )
-
-                    if response.error:
-                        error_msg = f"LLM 调用失败: {response.error}"
-                        # ✨ 发布错误事件
-                        if self._publisher:
-                            self._publisher.agent_error(error=error_msg, error_type="LLMError")
-                        return AgentResponse(
-                            success=False,
-                            content="",
-                            error=error_msg,
-                            agent_name=self.name,
-                            execution_time=time.time() - start_time
-                        )
-
                     # 解析 JSON 响应（使用 base 提供的 parse_llm_json，支持代码块、前后缀等）
                     output, parse_err = parse_llm_json(response.content or "")
                     if output is not None:

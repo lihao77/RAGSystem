@@ -93,6 +93,26 @@ class AIProvider(ABC):
         return str(val).strip() if str(val).strip() else self.model
 
     @abstractmethod
+    def _do_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        **kwargs
+    ) -> ModelResponse:
+        """
+        实际的对话补全请求（子类实现，不包含重试逻辑）
+
+        Args:
+            messages: 消息列表
+            model: 指定模型（若未指定则使用配置的 chat 模型）
+            ...
+        """
+        pass
+
     def chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -104,14 +124,83 @@ class AIProvider(ABC):
         **kwargs
     ) -> ModelResponse:
         """
-        发送对话补全请求
-        
+        发送对话补全请求（带统一重试机制）
+
         Args:
             messages: 消息列表
             model: 指定模型（若未指定则使用配置的 chat 模型）
-            ...
+            temperature: 温度参数
+            max_tokens: 最大 token 数
+            tools: 工具列表
+            tool_choice: 工具选择策略
+            **kwargs: 其他参数
+
+        Returns:
+            ModelResponse: 响应对象
         """
-        pass
+        import time
+        import logging
+
+        logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        last_error = None
+
+        for attempt in range(self.retry_attempts):
+            try:
+                # 调用子类实现的实际请求方法
+                response = self._do_chat_completion(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs
+                )
+
+                # 如果没有错误，直接返回
+                if not response.error:
+                    if attempt > 0:
+                        logger.info(f"[{self.name}] LLM 调用成功（第 {attempt + 1} 次尝试）")
+                    return response
+
+                # 有错误，记录并准备重试
+                last_error = response.error
+                logger.warning(
+                    f"[{self.name}] LLM 调用失败（尝试 {attempt + 1}/{self.retry_attempts}）: {last_error}"
+                )
+
+                # 如果是最后一次尝试，返回错误响应
+                if attempt == self.retry_attempts - 1:
+                    return response
+
+                # 指数退避
+                wait_time = self.retry_delay * (2 ** attempt)  # 1s, 2s, 4s
+                logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
+                time.sleep(wait_time)
+
+            except Exception as e:
+                last_error = str(e)
+                logger.error(
+                    f"[{self.name}] LLM 调用异常（尝试 {attempt + 1}/{self.retry_attempts}）: {last_error}"
+                )
+
+                # 如果是最后一次尝试，返回错误响应
+                if attempt == self.retry_attempts - 1:
+                    return ModelResponse(
+                        error=f"LLM 调用异常: {last_error}",
+                        provider=self.name
+                    )
+
+                # 指数退避
+                wait_time = self.retry_delay * (2 ** attempt)
+                logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
+                time.sleep(wait_time)
+
+        # 理论上不会到这里
+        return ModelResponse(
+            error=f"LLM 调用失败: {last_error}",
+            provider=self.name
+        )
 
     def chat_completion_stream(
         self,

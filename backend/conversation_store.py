@@ -36,7 +36,9 @@ class ConversationStore:
         self.session_ttl_days = session_ttl_days
         self.enable_archive = enable_archive
 
-        self._lock = threading.RLock()
+        # ✨ 改进：使用 session 级别的锁，避免全局锁成为瓶颈
+        self._session_locks: Dict[str, threading.RLock] = {}
+        self._global_lock = threading.RLock()  # 仅用于管理 session_locks
         self._stop_event = threading.Event()
         self._init_database()
         self._cleanup_thread = None
@@ -59,6 +61,19 @@ class ConversationStore:
             raise
         finally:
             conn.close()
+
+    def _get_session_lock(self, session_id: str) -> threading.RLock:
+        """
+        获取指定 session 的锁（session 级别隔离）
+
+        优势：
+        - 不同 session 的操作可以并发执行
+        - 同一 session 的操作串行执行，保证一致性
+        """
+        with self._global_lock:
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = threading.RLock()
+            return self._session_locks[session_id]
 
     def _init_database(self):
         with self._get_connection() as conn:
@@ -196,28 +211,35 @@ class ConversationStore:
         metadata: Optional[Dict[str, Any]] = None,
         message_id: Optional[str] = None
     ) -> Dict[str, Any]:
+        """
+        添加消息到会话
+
+        使用 session 级别的锁，确保同一 session 的消息顺序一致
+        """
         message_id = message_id or str(uuid.uuid4())
         metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
 
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO sessions (session_id)
-                VALUES (?)
-                """,
-                (session_id,)
-            )
-            conn.execute(
-                """
-                INSERT INTO messages (id, session_id, role, content, metadata)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (message_id, session_id, role, content, metadata_json)
-            )
-            conn.execute(
-                "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
-                (session_id,)
-            )
+        # ✨ 使用 session 级别的锁
+        with self._get_session_lock(session_id):
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO sessions (session_id)
+                    VALUES (?)
+                    """,
+                    (session_id,)
+                )
+                conn.execute(
+                    """
+                    INSERT INTO messages (id, session_id, role, content, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (message_id, session_id, role, content, metadata_json)
+                )
+                conn.execute(
+                    "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
+                    (session_id,)
+                )
 
         return {
             "id": message_id,
@@ -227,6 +249,22 @@ class ConversationStore:
             "metadata": metadata or {}
         }
 
+    def insert_compression_message(self, session_id: str, summary_content: str) -> Dict[str, Any]:
+        """
+        插入一条持久化摘要消息（智能压缩）。
+
+        摘要语义：该条之前的所有内容；metadata 仅存 compression=true，不存 replaces_seqs。
+
+        注意：使用 session 锁确保与其他消息写入的原子性
+        """
+        # add_message 内部已经使用了 session 锁，这里会自动串行化
+        return self.add_message(
+            session_id=session_id,
+            role="system",
+            content=summary_content,
+            metadata={"compression": True}
+        )
+
     def add_run_step(
         self,
         session_id: str,
@@ -235,30 +273,43 @@ class ConversationStore:
         payload: Dict[str, Any],
         message_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """写入一条 run 步骤；message_id 可在 FINAL_ANSWER 后通过 update_run_steps_message_id 批量更新。"""
+        """
+        写入一条 run 步骤；message_id 可在 FINAL_ANSWER 后通过 update_run_steps_message_id 批量更新。
+
+        使用 session 锁确保 step_order 的连续性
+        """
         payload_json = json.dumps(payload, ensure_ascii=False)
-        with self._get_connection() as conn:
-            next_order = conn.execute(
-                "SELECT COALESCE(MAX(step_order), 0) + 1 FROM run_steps WHERE session_id=? AND run_id=?",
-                (session_id, run_id)
-            ).fetchone()[0]
-            conn.execute(
-                """
-                INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (run_id, session_id, message_id, next_order, step_type, payload_json)
-            )
+
+        # ✨ 使用 session 级别的锁
+        with self._get_session_lock(session_id):
+            with self._get_connection() as conn:
+                next_order = conn.execute(
+                    "SELECT COALESCE(MAX(step_order), 0) + 1 FROM run_steps WHERE session_id=? AND run_id=?",
+                    (session_id, run_id)
+                ).fetchone()[0]
+                conn.execute(
+                    """
+                    INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (run_id, session_id, message_id, next_order, step_type, payload_json)
+                )
         return {"run_id": run_id, "step_order": next_order, "step_type": step_type}
 
     def update_run_steps_message_id(self, session_id: str, run_id: str, message_id: str) -> int:
-        """将某 run 下所有 step 的 message_id 更新为指定值。返回更新的行数。"""
-        with self._get_connection() as conn:
-            cur = conn.execute(
-                "UPDATE run_steps SET message_id=? WHERE session_id=? AND run_id=?",
-                (message_id, session_id, run_id)
-            )
-            return cur.rowcount
+        """
+        将某 run 下所有 step 的 message_id 更新为指定值。返回更新的行数。
+
+        使用 session 锁确保更新的原子性
+        """
+        # ✨ 使用 session 级别的锁
+        with self._get_session_lock(session_id):
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE run_steps SET message_id=? WHERE session_id=? AND run_id=?",
+                    (message_id, session_id, run_id)
+                )
+                return cur.rowcount
 
     def list_run_steps(
         self,
@@ -537,6 +588,28 @@ class ConversationStore:
                 "has_more": (offset + limit) < total
             }
 
+    def get_message_by_seq(self, session_id: str, seq: int) -> Optional[Dict[str, Any]]:
+        """按会话和序号获取单条消息。"""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT seq, id, role, content, metadata, created_at
+                FROM messages
+                WHERE session_id=? AND seq=?
+                """,
+                (session_id, seq)
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "seq": row["seq"],
+                "id": row["id"],
+                "role": row["role"],
+                "content": row["content"],
+                "metadata": json.loads(row["metadata"] or "{}"),
+                "created_at": row["created_at"]
+            }
+
     def get_recent_messages(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             rows = conn.execute(
@@ -609,9 +682,82 @@ class ConversationStore:
             return len(session_ids)
 
     def _cleanup_loop(self):
+        """后台清理线程：清理过期 session、session 锁和临时数据文件"""
         while not self._stop_event.is_set():
             self.cleanup_expired_sessions()
+            self._cleanup_session_locks()  # ✨ 清理不再使用的 session 锁
+            self._cleanup_temp_data_files()  # ✨ 清理过期的临时数据文件
             self._stop_event.wait(self.cleanup_interval_seconds)
+
+    def _cleanup_session_locks(self):
+        """
+        清理不再使用的 session 锁（内存优化）
+
+        策略：删除已过期 session 对应的锁
+        """
+        try:
+            # 获取所有活跃的 session_id
+            with self._get_connection() as conn:
+                active_sessions = set(
+                    row[0] for row in conn.execute(
+                        "SELECT session_id FROM sessions WHERE updated_at > datetime('now', '-30 days')"
+                    ).fetchall()
+                )
+
+            # 清理不在活跃列表中的锁
+            with self._global_lock:
+                expired_sessions = set(self._session_locks.keys()) - active_sessions
+                for session_id in expired_sessions:
+                    del self._session_locks[session_id]
+
+                if expired_sessions:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"清理了 {len(expired_sessions)} 个过期 session 锁")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"清理 session 锁失败: {e}")
+
+    def _cleanup_temp_data_files(self):
+        """
+        清理过期的临时数据文件（内存优化）
+
+        策略：删除 static/temp_data/ 目录下超过 1 天的 JSON 文件
+        这些文件由 ObservationFormatter 生成，用于存储大数据工具结果
+        """
+        import logging
+        import os
+        import time
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            # 临时数据目录（与 ObservationFormatter 保持一致）
+            temp_data_dir = Path(__file__).parent / "static" / "temp_data"
+
+            if not temp_data_dir.exists():
+                return
+
+            # 1 天前的时间戳
+            cutoff_time = time.time() - (24 * 60 * 60)
+            deleted_count = 0
+
+            # 遍历目录中的所有 JSON 文件
+            for file_path in temp_data_dir.glob("data_*.json"):
+                try:
+                    # 检查文件修改时间
+                    if file_path.stat().st_mtime < cutoff_time:
+                        file_path.unlink()
+                        deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"删除临时文件失败 {file_path}: {e}")
+
+            if deleted_count > 0:
+                logger.info(f"清理了 {deleted_count} 个过期临时数据文件")
+
+        except Exception as e:
+            logger.warning(f"清理临时数据文件失败: {e}")
 
     def close(self):
         self._stop_event.set()

@@ -14,6 +14,7 @@ import asyncio
 import logging
 import time
 import uuid
+import threading  # ✨ 添加 threading 导入
 from typing import Dict, List, Callable, Any, Optional, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -69,6 +70,9 @@ class EventType(str, Enum):
     USER_APPROVAL_DENIED = "user.approval_denied"
     USER_INTERRUPT = "user.interrupt"
     USER_FEEDBACK = "user.feedback"
+
+    # 上下文压缩事件
+    COMPRESSION_SUMMARY = "context.compression_summary"
 
     # 系统事件
     SESSION_START = "session.start"
@@ -152,16 +156,18 @@ class EventBus:
     5. 支持用户许可等待机制
     """
 
-    def __init__(self, enable_persistence: bool = False):
+    def __init__(self, enable_persistence: bool = False, max_history: int = 1000):
         """
         初始化事件总线
 
         Args:
             enable_persistence: 是否启用事件持久化（用于审计）
+            max_history: 最大事件历史数量（防止内存泄漏）
         """
         self._subscriptions: Dict[EventType, List[Subscription]] = defaultdict(list)
         self._event_history: List[Event] = []  # 事件历史（内存中）
         self._enable_persistence = enable_persistence
+        self._max_history = max_history  # ✨ 限制历史大小
 
         # 用户许可等待队列
         self._pending_approvals: Dict[str, asyncio.Future] = {}
@@ -173,7 +179,10 @@ class EventBus:
             "failed_events": 0
         }
 
-        logger.info(f"EventBus 初始化完成 (持久化: {enable_persistence})")
+        # ✨ 添加锁保护订阅操作
+        self._lock = threading.RLock()
+
+        logger.info(f"EventBus 初始化完成 (持久化: {enable_persistence}, 最大历史: {max_history})")
 
     def subscribe(
         self,
@@ -206,21 +215,25 @@ class EventBus:
             priority=priority
         )
 
-        for event_type in event_types:
-            self._subscriptions[event_type].append(subscription)
-            # 按优先级排序（优先级高的先执行）
-            self._subscriptions[event_type].sort(key=lambda s: s.priority, reverse=True)
+        # ✨ 使用锁保护订阅操作
+        with self._lock:
+            for event_type in event_types:
+                self._subscriptions[event_type].append(subscription)
+                # 按优先级排序（优先级高的先执行）
+                self._subscriptions[event_type].sort(key=lambda s: s.priority, reverse=True)
 
         logger.info(f"新订阅: {subscription_id} → {[t.value for t in event_types]}")
         return subscription_id
 
     def unsubscribe(self, subscription_id: str):
         """取消订阅"""
-        for event_type in list(self._subscriptions.keys()):
-            self._subscriptions[event_type] = [
-                s for s in self._subscriptions[event_type]
-                if s.subscription_id != subscription_id
-            ]
+        # ✨ 使用锁保护取消订阅操作
+        with self._lock:
+            for event_type in list(self._subscriptions.keys()):
+                self._subscriptions[event_type] = [
+                    s for s in self._subscriptions[event_type]
+                    if s.subscription_id != subscription_id
+                ]
         logger.info(f"取消订阅: {subscription_id}")
 
     def publish(self, event: Event):
@@ -243,16 +256,20 @@ class EventBus:
         self._stats["total_events"] += 1
         self._stats["events_by_type"][event.type] += 1
 
-        # 持久化
+        # ✨ 持久化（限制历史大小）
         if self._enable_persistence:
             self._event_history.append(event)
+            # 限制历史大小，防止内存泄漏
+            if len(self._event_history) > self._max_history:
+                self._event_history = self._event_history[-self._max_history:]
 
-        # 获取订阅者
-        subscriptions = self._subscriptions.get(event.type, [])
+        # ✨ 获取订阅者（在锁内复制列表）
+        with self._lock:
+            subscriptions = list(self._subscriptions.get(event.type, []))
 
         logger.debug(f"发布事件: {event.type.value} (订阅者: {len(subscriptions)})")
 
-        # 分发事件
+        # 分发事件（在锁外执行，避免死锁）
         for subscription in subscriptions:
             try:
                 # 应用过滤器
@@ -278,16 +295,20 @@ class EventBus:
         self._stats["total_events"] += 1
         self._stats["events_by_type"][event.type] += 1
 
-        # 持久化
+        # ✨ 持久化（限制历史大小）
         if self._enable_persistence:
             self._event_history.append(event)
+            # 限制历史大小，防止内存泄漏
+            if len(self._event_history) > self._max_history:
+                self._event_history = self._event_history[-self._max_history:]
 
-        # 获取订阅者
-        subscriptions = self._subscriptions.get(event.type, [])
+        # ✨ 获取订阅者（在锁内复制列表）
+        with self._lock:
+            subscriptions = list(self._subscriptions.get(event.type, []))
 
         logger.debug(f"发布事件: {event.type.value} (订阅者: {len(subscriptions)})")
 
-        # 分发事件
+        # 分发事件（在锁外执行，避免死锁）
         tasks = []
         for subscription in subscriptions:
             try:

@@ -9,8 +9,9 @@
 4. 消息压缩策略
 """
 
+import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,14 @@ class ContextConfig:
     preserve_tool_results: bool = True  # 是否保留工具调用结果
     preserve_recent_turns: int = 3  # 始终保留最近 N 轮对话
     importance_threshold: float = 0.5  # 重要性阈值（0-1）
+
+    # 摘要策略配置（compression_strategy=summarize 时使用）
+    summarize_use_llm: bool = True  # 是否使用 LLM 生成摘要
+    summarize_max_tokens: int = 200  # 摘要最大 token 数
+
+    # 持久化智能压缩触发（加载/执行中接近上限时）
+    compression_trigger_ratio: float = 0.85  # 达到 max_tokens 的该比例时触发
+    compress_oldest_n: int = 4  # 首次压缩时取最早 N 条做摘要
 
 
 class ContextManager:
@@ -108,6 +117,94 @@ class ContextManager:
         )
 
         return result
+
+    @staticmethod
+    def resolve_compression_view(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        解析持久化压缩视图：若存在 compression 消息，用最后一条摘要顶替其前全部消息。
+
+        改进：
+        1. 支持 seq=None 的 in-memory 摘要（同请求内生成的摘要优先）
+        2. 当 summary_seq is None 时，按列表位置输出后续消息
+        3. ✨ 缓存 JSON 解析结果，避免重复解析 metadata（性能优化）
+
+        输入：来自 store 的原始列表，按 seq 有序，每项含 seq, role, content, metadata。
+        返回：给 LLM/填 context 用的消息列表（摘要顶替「该摘要之前的所有内容」）。
+        """
+        if not messages:
+            return []
+
+        compression_msg = None
+        compression_idx = -1
+
+        # ✨ 性能优化：预解析所有 metadata，避免重复 json.loads()
+        parsed_metadata = []
+        for m in messages:
+            meta = m.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta) if meta else {}
+                except Exception:
+                    meta = {}
+            parsed_metadata.append(meta)
+
+        # 查找最后一条有效的压缩摘要
+        for idx, (m, meta) in enumerate(zip(messages, parsed_metadata)):
+            if meta.get("compression"):
+                # 选取有效摘要的逻辑：
+                # 1. 若当前没有摘要，选当前
+                # 2. 若当前 m.get("seq") is None（in-memory 摘要），选当前（覆盖已有）
+                # 3. 若已有 compression_msg.get("seq") is None 而当前有 seq，保留已有（in-memory 优先）
+                # 4. 否则两者都有 seq 时，取 m["seq"] > compression_msg["seq"] 时选当前
+                if compression_msg is None:
+                    compression_msg = m
+                    compression_idx = idx
+                elif m.get("seq") is None:
+                    # in-memory 摘要优先
+                    compression_msg = m
+                    compression_idx = idx
+                elif compression_msg.get("seq") is None and m.get("seq") is not None:
+                    # 保留已有 in-memory 摘要
+                    pass
+                elif m.get("seq") is not None and compression_msg.get("seq") is not None and m["seq"] > compression_msg["seq"]:
+                    compression_msg = m
+                    compression_idx = idx
+
+        if compression_msg is None:
+            return list(messages)
+
+        summary_seq = compression_msg.get("seq")
+        out = []
+
+        # 添加摘要消息
+        out.append({
+            "role": "system",
+            "content": compression_msg.get("content", ""),
+            "metadata": {"compression": True}
+        })
+
+        # 输出「摘要之后的消息」
+        if summary_seq is not None:
+            # 有 seq：按 seq > summary_seq 过滤
+            for m, meta in zip(messages, parsed_metadata):
+                if m.get("seq") is not None and m["seq"] > summary_seq:
+                    out.append({
+                        "role": m.get("role", "user"),
+                        "content": m.get("content", ""),
+                        "metadata": meta  # ✨ 使用缓存的解析结果
+                    })
+        else:
+            # seq is None（in-memory 摘要）：按列表位置，输出所有出现在该摘要之后的消息
+            for idx in range(compression_idx + 1, len(messages)):
+                m = messages[idx]
+                meta = parsed_metadata[idx]
+                out.append({
+                    "role": m.get("role", "user"),
+                    "content": m.get("content", ""),
+                    "metadata": meta  # ✨ 使用缓存的解析结果
+                })
+
+        return out
 
     def _apply_sliding_window(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -245,6 +342,14 @@ class ContextManager:
         # 内容评分（0 - 0.5）
         content_score = 0.0
 
+        # 用户消息更重要（需保留用于上下文）
+        if role == 'user':
+            content_score += 0.3
+
+        # 包含最终答案的消息最重要
+        if 'final_answer' in content or '"final_answer"' in content:
+            content_score += 0.4
+
         # 包含工具调用结果的标志（高重要性）
         tool_markers = ['✅', '📊', '📁', 'Agent 执行结果', 'tool_name', '数据已存储']
         if any(marker in content for marker in tool_markers):
@@ -255,13 +360,13 @@ class ContextManager:
         if any(marker in content for marker in error_markers):
             content_score += 0.3
 
-        # 包含思考过程（中等重要性）
+        # 包含思考过程（中等重要性，略降以避免过多 thought 占用）
         thought_markers = ['思考', 'thought', '分析', '决策']
         if any(marker in content for marker in thought_markers):
-            content_score += 0.2
+            content_score += 0.1
 
         # 系统提示（低重要性）
-        if '[系统提示' in content or '[智能压缩' in content:
+        if '[系统提示' in content or '[智能压缩' in content or '[历史摘要]' in content:
             content_score -= 0.2
 
         # 长度权重（0 - 0.2）
@@ -409,6 +514,22 @@ class ContextManager:
                 total_tokens += int(char_count * 1.2)
 
         return total_tokens
+
+    def _generate_summary(
+        self,
+        messages: List[Dict[str, Any]],
+        llm_callback: Optional[Callable[[List[Dict[str, Any]]], str]] = None
+    ) -> str:
+        """
+        对一段消息生成摘要，供持久化压缩使用。
+        若传入 llm_callback(messages) -> str，则调用 LLM 生成摘要；否则返回规则兜底摘要。
+        """
+        if llm_callback is not None:
+            try:
+                return llm_callback(messages) or ""
+            except Exception as e:
+                self.logger.warning("LLM 摘要失败，使用兜底摘要: %s", e)
+        return "[历史摘要]\n（共 {} 条消息已压缩）".format(len(messages))
 
     def extract_recent_turns(
         self,

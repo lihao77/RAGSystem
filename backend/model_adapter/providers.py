@@ -33,7 +33,7 @@ class OpenAIProvider(AIProvider):
             "Content-Type": "application/json"
         }
 
-    def chat_completion(
+    def _do_chat_completion(
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
@@ -43,7 +43,7 @@ class OpenAIProvider(AIProvider):
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs
     ) -> ModelResponse:
-        """发送对话补全请求"""
+        """发送对话补全请求（实际实现，不含重试）"""
         # 使用传入的模型，或者从 model_map['chat'] 获取，或者使用默认 model
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
@@ -269,7 +269,7 @@ class DeepSeekProvider(AIProvider):
             "Accept": "application/json"
         }
 
-    def chat_completion(
+    def _do_chat_completion(
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
@@ -279,7 +279,7 @@ class DeepSeekProvider(AIProvider):
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs
     ) -> ModelResponse:
-        """发送对话补全请求（带重试机制）"""
+        """发送对话补全请求（实际实现，不含重试）"""
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
@@ -298,68 +298,55 @@ class DeepSeekProvider(AIProvider):
                 payload["tool_choice"] = tool_choice
 
         start_time = self._before_request()
-        response_data = None
-        last_error = None
 
-        # 重试循环
-        for attempt in range(self.retry_attempts):
-            try:
-                logger.info(f"DeepSeek API 调用 (尝试 {attempt + 1}/{self.retry_attempts})")
+        try:
+            response = requests.post(
+                f"{self.api_endpoint}/chat/completions",
+                headers=self.headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            response_data = response.json()
 
-                response = requests.post(
-                    f"{self.api_endpoint}/chat/completions",
-                    headers=self.headers,
-                    json=payload,
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-                response_data = response.json()
+            self._validate_response(response_data)
 
-                self._validate_response(response_data)
+            choice = response_data["choices"][0]
+            usage_data = response_data.get("usage", {})
 
-                choice = response_data["choices"][0]
-                usage_data = response_data.get("usage", {})
+            usage = {
+                "prompt_tokens": usage_data.get("prompt_tokens", 0),
+                "completion_tokens": usage_data.get("completion_tokens", 0),
+                "total_tokens": usage_data.get("total_tokens", 0)
+            }
 
-                usage = {
-                    "prompt_tokens": usage_data.get("prompt_tokens", 0),
-                    "completion_tokens": usage_data.get("completion_tokens", 0),
-                    "total_tokens": usage_data.get("total_tokens", 0)
-                }
+            latency = self._after_request(start_time)
 
-                latency = self._after_request(start_time)
+            cost = self.calculate_cost(
+                usage["prompt_tokens"],
+                usage["completion_tokens"],
+                model
+            )
 
-                cost = self.calculate_cost(
-                    usage["prompt_tokens"],
-                    usage["completion_tokens"],
-                    model
-                )
+            return ModelResponse(
+                content=choice["message"].get("content"),
+                finish_reason=choice.get("finish_reason"),
+                usage=usage,
+                model=model,
+                provider=self.name,
+                cost=cost,
+                latency=latency,
+                tool_calls=choice["message"].get("tool_calls")
+            )
 
-                return ModelResponse(
-                    content=choice["message"].get("content"),
-                    finish_reason=choice.get("finish_reason"),
-                    usage=usage,
-                    model=model,
-                    provider=self.name,
-                    cost=cost,
-                    latency=latency,
-                    tool_calls=choice["message"].get("tool_calls")
-                )
-
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(f"DeepSeek API 调用失败 (尝试 {attempt + 1}/{self.retry_attempts}): {last_error}")
-                
-                if attempt < self.retry_attempts - 1:
-                    import time
-                    time.sleep(self.retry_delay)
-                    continue
-
-        return ModelResponse(
-            error=last_error,
-            model=model,
-            provider=self.name,
-            latency=self._after_request(start_time) if response_data else 0
-        )
+        except Exception as e:
+            logger.error(f"DeepSeek API 调用失败: {str(e)}")
+            return ModelResponse(
+                error=str(e),
+                model=model,
+                provider=self.name,
+                latency=self._after_request(start_time)
+            )
 
     def generate_text(
         self,
@@ -529,7 +516,7 @@ class OpenRouterProvider(AIProvider):
             "Content-Type": "application/json"
         }
 
-    def chat_completion(
+    def _do_chat_completion(
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
@@ -539,7 +526,7 @@ class OpenRouterProvider(AIProvider):
         tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs
     ) -> ModelResponse:
-        """发送对话补全请求"""
+        """发送对话补全请求（实际实现，不含重试）"""
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
