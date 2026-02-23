@@ -231,6 +231,40 @@ def delete_provider(provider_key):
 
 
 
+@model_adapter_bp.route('/providers/<provider_key>/check', methods=['GET'])
+def check_provider_availability(provider_key):
+    """
+    检查 Provider 可用性（按需调用）
+
+    Args:
+        provider_key: Provider 复合键（如 test_deepseek）
+
+    Returns:
+        JSON: 可用性检查结果
+    """
+    try:
+        provider = adapter.providers.get(provider_key)
+        if not provider:
+            return jsonify({
+                'success': False,
+                'message': f'Provider 不存在: {provider_key}'
+            }), 404
+
+        is_available = provider.is_available()
+
+        return jsonify({
+            'success': True,
+            'provider_key': provider_key,
+            'is_available': is_available
+        })
+    except Exception as e:
+        logger.error(f"检查 Provider 可用性失败: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'检查失败: {str(e)}'
+        }), 500
+
+
 @model_adapter_bp.route('/test', methods=['POST'])
 def test_provider():
     """

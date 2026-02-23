@@ -484,13 +484,44 @@ class ModelAdapter:
         return config
 
     def get_provider_configs(self) -> List[Dict[str, Any]]:
-        """获取所有 Provider 的配置"""
+        """获取所有 Provider 的配置（优化版：一次性读取所有配置）"""
+        # 一次性读取所有配置文件（避免多次 I/O）
+        all_configs = self.config_store.load_all()
+
         configs = []
         for provider_key in self.get_available_providers():
             try:
-                config = self.get_provider_config(provider_key)
-                # 添加 key 字段方便前端识别
+                # 从已加载的配置中获取
+                config = all_configs.get(provider_key)
+                if not config:
+                    # 如果配置文件中没有，从 Provider 实例构建
+                    provider = self.providers.get(provider_key)
+                    if not provider:
+                        continue
+
+                    config = {
+                        "name": provider.name,
+                        "provider_type": provider.provider_type.value,
+                        "model": provider.model,
+                        "models": provider.models,
+                        "temperature": provider.temperature,
+                        "max_tokens": provider.max_tokens,
+                        "timeout": provider.timeout,
+                        "retry_attempts": provider.retry_attempts,
+                        "supports_function_calling": provider.supports_function_calling,
+                    }
+
+                # 添加 key 字段
                 config["key"] = provider_key
+
+                # 添加运行时状态（跳过可用性检查以提升性能）
+                # 可用性检查可能涉及网络请求，改为按需检查
+                provider = self.providers.get(provider_key)
+                if provider:
+                    config["is_loaded"] = True
+                else:
+                    config["is_loaded"] = False
+
                 configs.append(config)
             except Exception as e:
                 logger.error(f"[ModelAdapter] 获取配置失败: {provider_key}, {e}")
