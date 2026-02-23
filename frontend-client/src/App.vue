@@ -6,6 +6,7 @@
       :is-dark="isDark"
       @update:selectedLLM="selectedLLM = $event"
       @toggle-theme="toggleTheme"
+      @navigate="handleNavigate"
     />
   </div>
 </template>
@@ -38,6 +39,13 @@ const currentView = computed(() => {
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   updateTheme();
+};
+
+const handleNavigate = (path) => {
+  if (path && path !== currentRoute.value) {
+    currentRoute.value = path;
+    window.history.pushState({}, '', path);
+  }
 };
 
 const updateTheme = () => {

@@ -72,6 +72,8 @@ class AgentMetrics(BaseModel):
         return {
             "agent_name": self.agent_name,
             "total_calls": self.total_calls,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
             "success_rate": round(self.success_rate, 4),
             "avg_duration_ms": round(self.avg_duration_ms, 2),
             "avg_tokens": round(self.avg_tokens, 2),

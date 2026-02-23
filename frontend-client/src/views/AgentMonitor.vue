@@ -129,7 +129,7 @@
               </div>
               <div class="metric-row">
                 <span class="metric-label">成功/失败:</span>
-                <span class="metric-value">{{ agent.success_count }} / {{ agent.failure_count }}</span>
+                <span class="metric-value">{{ agent.success_count ?? 0 }} / {{ agent.failure_count ?? 0 }}</span>
               </div>
               <div v-if="agent.avg_tokens > 0" class="metric-row">
                 <span class="metric-label">平均Token:</span>
@@ -179,6 +179,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { getMetrics, resetMetrics } from '../api/monitoring';
+
+const emit = defineEmits(['navigate']);
 
 const loading = ref(false);
 const error = ref('');
@@ -267,8 +269,7 @@ const getToolPercentage = (count, toolUsage) => {
 };
 
 const navigateToChat = () => {
-  window.history.pushState({}, '', '/');
-  window.location.href = '/';
+  emit('navigate', '/');
 };
 
 onMounted(() => {
@@ -278,7 +279,8 @@ onMounted(() => {
 
 <style scoped>
 .agent-monitor {
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
   background: var(--color-bg-primary);
   padding: var(--spacing-xl);
 }
@@ -453,7 +455,7 @@ onMounted(() => {
 .metric-label {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
-  margin-bottom: 4px;
+  /* margin-bottom: 4px; */
 }
 
 .metric-value {
@@ -486,6 +488,8 @@ onMounted(() => {
 }
 
 .agent-card {
+  container-type: inline-size;
+  container-name: agent-card;
   padding: var(--spacing-lg);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -531,15 +535,38 @@ onMounted(() => {
 .agent-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--spacing-sm);
+  gap: 0;
   margin-bottom: var(--spacing-md);
 }
 
+/* 用左右内边距替代 gap，使竖线隔断居中于两列之间 */
 .metric-row {
   display: flex;
   justify-content: space-between;
-  padding: var(--spacing-xs) 0;
+  padding: var(--spacing-sm);
   font-size: 0.875rem;
+  align-items: center;
+}
+
+.metric-row:not(:last-child) {
+  border-right: 1px solid var(--color-border);
+}
+
+/* 每行最后一列不显示隔断：按列数用容器查询去掉右侧线 */
+@container agent-card (max-width: 399px) {
+  .metric-row { border-right: none; }
+}
+@container agent-card (min-width: 400px) and (max-width: 599px) {
+  .metric-row:nth-child(2n) { border-right: none; }
+}
+@container agent-card (min-width: 600px) and (max-width: 799px) {
+  .metric-row:nth-child(3n) { border-right: none; }
+}
+@container agent-card (min-width: 800px) and (max-width: 999px) {
+  .metric-row:nth-child(4n) { border-right: none; }
+}
+@container agent-card (min-width: 1000px) {
+  .metric-row:nth-child(5n) { border-right: none; }
 }
 
 .metric-row .metric-label {

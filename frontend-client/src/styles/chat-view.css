@@ -173,6 +173,10 @@
   color: var(--color-text-primary);
 }
 
+.sidebar-btn-monitor {
+  margin-top: var(--spacing-xs);
+}
+
 .sidebar-btn-secondary {
   margin-top: var(--spacing-xs);
   opacity: 0.8;

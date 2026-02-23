@@ -29,6 +29,12 @@
           <IconNewConversation :size="22" class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-monitor" @click="goToMonitor" title="智能体性能监控">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+          <span class="btn-text">监控面板</span>
+        </button>
       </div>
 
       <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
@@ -290,7 +296,7 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
+const emit = defineEmits(['update:selectedLLM', 'toggleTheme', 'navigate']);
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -451,6 +457,10 @@ const startNewChat = () => {
   currentSessionId.value = null;
   window.history.pushState({}, '', '/');
   focusInput();
+};
+
+const goToMonitor = () => {
+  emit('navigate', '/monitor');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {

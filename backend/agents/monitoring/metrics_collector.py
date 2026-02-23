@@ -2,9 +2,15 @@
 性能指标收集器
 
 订阅事件总线，自动收集智能体性能指标。
+支持持久化到 JSON 文件，重启后自动加载。
+进程退出时自动做一次最终保存，避免节流导致未写盘的数据丢失。
 """
 
+import atexit
+import json
+import logging
 import time
+from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
 from collections import defaultdict
@@ -12,27 +18,90 @@ from collections import defaultdict
 from ..events.bus import EventBus, EventType
 from .models import AgentMetrics, ToolMetrics, ErrorMetrics, SystemMetrics
 
+logger = logging.getLogger(__name__)
+
+# 默认持久化路径：backend/data/agent_metrics.json
+_DEFAULT_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DEFAULT_STORAGE_PATH = _DEFAULT_STORAGE_DIR / "agent_metrics.json"
+
 
 class MetricsCollector:
     """
     性能指标收集器
 
     订阅事件总线的关键事件，自动收集和聚合性能指标。
+    指标会持久化到 JSON 文件，后端重启后自动加载。
     """
 
-    def __init__(self, event_bus: Optional[EventBus] = None):
+    def __init__(
+        self,
+        event_bus: Optional[EventBus] = None,
+        storage_path: Optional[Path] = None,
+        persist_interval_seconds: float = 10.0,
+    ):
         """
         初始化指标收集器
 
         Args:
             event_bus: 事件总线实例（可选，用于自动订阅）
+            storage_path: 持久化文件路径（可选，默认 backend/data/agent_metrics.json）
+            persist_interval_seconds: 写盘间隔秒数，避免过于频繁 IO
         """
         self.metrics: Dict[str, AgentMetrics] = {}
-        self._active_runs: Dict[str, dict] = {}  # 跟踪进行中的运行
-        self._active_tools: Dict[str, dict] = {}  # 跟踪进行中的工具调用
+        self._active_runs: Dict[str, dict] = {}
+        self._active_tools: Dict[str, dict] = {}
+        self._storage_path = Path(storage_path) if storage_path else _DEFAULT_STORAGE_PATH
+        self._persist_interval = persist_interval_seconds
+        self._last_persist_time = 0.0
+
+        self._load()
+
+        # 进程退出时强制写盘一次，避免节流或未触发的更新丢失
+        atexit.register(self._persist_on_exit)
 
         if event_bus:
             self.subscribe_to_events(event_bus)
+
+    def _persist_on_exit(self) -> None:
+        """atexit 回调：退出时强制保存当前指标"""
+        try:
+            self._persist(force=True)
+            logger.debug("进程退出前已保存指标到 %s", self._storage_path)
+        except Exception as e:
+            logger.warning("退出时保存指标失败: %s", e)
+
+    def _load(self) -> None:
+        """从磁盘加载已持久化的指标（存在且可读时）"""
+        if not self._storage_path.exists():
+            return
+        try:
+            with open(self._storage_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return
+            for name, raw in data.items():
+                try:
+                    self.metrics[name] = AgentMetrics.model_validate(raw)
+                except Exception as e:
+                    logger.warning("加载智能体指标 %s 失败: %s", name, e)
+        except Exception as e:
+            logger.warning("加载指标文件失败: %s", e)
+
+    def _persist(self, force: bool = False) -> None:
+        """将当前指标写入磁盘（带节流，force=True 时立即写入）"""
+        if not force and (time.time() - self._last_persist_time) < self._persist_interval:
+            return
+        try:
+            self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                name: m.model_dump(mode="json")
+                for name, m in self.metrics.items()
+            }
+            with open(self._storage_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._last_persist_time = time.time()
+        except Exception as e:
+            logger.warning("持久化指标文件失败: %s", e)
 
     def subscribe_to_events(self, event_bus: EventBus):
         """订阅事件总线"""
@@ -60,19 +129,26 @@ class MetricsCollector:
         """处理 CALL_AGENT_END 事件"""
         event_data = event.data if hasattr(event, 'data') else event
         call_id = event_data.get("call_id")
-        if call_id not in self._active_runs:
+        # 优先从 run_info 取 agent_name 和时长；若未收到对应 START（如 master 的 START 与 END 跨线程/顺序），用 END 的 payload 兜底
+        agent_name = None
+        duration_ms = 0
+        if call_id and call_id in self._active_runs:
+            run_info = self._active_runs.pop(call_id)
+            agent_name = run_info.get("agent_name")
+            duration_ms = int((time.time() - run_info["start_time"]) * 1000)
+        if agent_name is None:
+            agent_name = event_data.get("agent_name")
+        if not agent_name:
             return
+        # 后端发送的是布尔 success，不是 status 字符串
+        success = event_data.get("success", True)
+        if isinstance(success, str):
+            success = (success == "success" or success.lower() == "true")
 
-        run_info = self._active_runs.pop(call_id)
-        agent_name = run_info["agent_name"]
-        duration_ms = int((time.time() - run_info["start_time"]) * 1000)
-        status = event_data.get("status", "success")
-
-        # 更新智能体指标
         self._update_agent_metrics(
             agent_name=agent_name,
             duration_ms=duration_ms,
-            success=(status == "success"),
+            success=success,
             tokens=event_data.get("token_usage", 0)
         )
 
@@ -177,6 +253,9 @@ class MetricsCollector:
             metrics.first_call = now
         metrics.last_call = now
 
+        # 每次 agent 结束都强制写盘，避免同一次运行里后结束的 agent（如 master）因节流未写入
+        self._persist(force=True)
+
     def _update_tool_metrics(
         self,
         agent_name: str,
@@ -221,6 +300,8 @@ class MetricsCollector:
 
         tool_metrics.last_called = datetime.now()
 
+        self._persist()
+
     def _update_error_metrics(
         self,
         agent_name: str,
@@ -253,6 +334,8 @@ class MetricsCollector:
         error_metric.count += 1
         error_metric.last_occurred = datetime.now()
         error_metric.sample_message = error_message[:200]  # 保存前200字符
+
+        self._persist()
 
     def get_agent_metrics(self, agent_name: str) -> Optional[AgentMetrics]:
         """获取指定智能体的指标"""
@@ -292,3 +375,5 @@ class MetricsCollector:
             self.metrics.clear()
             self._active_runs.clear()
             self._active_tools.clear()
+
+        self._persist(force=True)
