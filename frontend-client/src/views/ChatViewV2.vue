@@ -510,6 +510,25 @@ const handleScroll = () => {
   }
 };
 
+// 🎯 统一的 Agent 信息解析：从事件 / 持久化 payload 中取「被调用 Agent」与展示名
+const getCalledAgentAndDisplayName = (eventOrStep) => {
+  // eventOrStep 可能是 SSE 里的 event，也可能是持久化的 step
+  const payload = eventOrStep && eventOrStep.payload ? eventOrStep.payload : null;
+  const eventData = payload ? (payload.data || {}) : (eventOrStep.data || {});
+  const publisherAgent = payload ? payload.agent_name : eventOrStep.agent_name;
+
+  // 被调用的 Agent：优先用 data.agent_name，其次退回事件的 agent_name
+  const calledAgent = eventData.agent_name != null ? eventData.agent_name : publisherAgent;
+
+  // 展示名：优先用 agent_display_name / subtask_agent，其次退回被调用 Agent 名
+  const displayName =
+    eventData.agent_display_name ||
+    eventData.subtask_agent ||
+    calledAgent;
+
+  return { calledAgent, displayName };
+};
+
 // 🎯 将持久化的 steps 还原为 subtasks 与 master_steps（与 SSE 实时结构一致）
 function stepsToSubtasks(steps) {
   if (!Array.isArray(steps) || steps.length === 0) return { subtasks: [], master_steps: [] };
@@ -524,16 +543,18 @@ function stepsToSubtasks(steps) {
     const order = eventData.order;
     const taskId = eventData.call_id || eventData.task_id;
     const desc = eventData.description || eventData.subtask_description;
-    const agentDisplayName = eventData.agent_display_name || eventData.subtask_agent || agentName;
     if (eventType === 'call.agent.start' || eventType === 'subtask.start') {
+      // 用统一的解析函数，保证与 SSE 一致
+      const { calledAgent, displayName } = getCalledAgentAndDisplayName(step);
+      if (calledAgent === 'master_agent_v2') continue;
       if (subtasks.length > 0) subtasks.forEach(st => st.expanded = false);
       subtasks.push({
         order: order,
         task_id: taskId,
         round: eventData.round,
         round_index: eventData.round_index,
-        agent_name: agentName,
-        agent_display_name: agentDisplayName,
+        agent_name: calledAgent,
+        agent_display_name: displayName,
         description: desc,
         react_steps: [],
         tool_calls: [],
@@ -1124,8 +1145,9 @@ const handleSend = async () => {
             const eventData = event.data || {};
             const eventType = event.type;
 
-            // 🎯 Master V2：支持 call.agent.start（后端）与 subtask.start（兼容）
-            if (eventType === 'subtask.start' || eventType === 'call.agent.start') {
+            // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
+            const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);
+            if ((eventType === 'subtask.start' || eventType === 'call.agent.start') && calledAgentForStart !== 'master_agent_v2') {
               // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
@@ -1136,8 +1158,8 @@ const handleSend = async () => {
                 task_id: eventData.task_id || eventData.call_id,
                 round: eventData.round,
                 round_index: eventData.round_index,
-                agent_name: event.agent_name,
-                agent_display_name: eventData.agent_display_name || eventData.subtask_agent || eventData.agent_name,
+                agent_name: calledAgentForStart,
+                agent_display_name: displayNameForStart,
                 description: eventData.subtask_description || eventData.description,
                 react_steps: [],
                 tool_calls: [],
@@ -1230,13 +1252,16 @@ const handleSend = async () => {
             // - output.final_answer：最终答案内容 + 标记本条消息完成（finished）
             // - agent.end：主 Agent 整体结束，仅作兜底（若尚未 finished 则标记完成），不重复处理内容
 
-            // 子任务/子 Agent 调用结束：只更新对应卡片
+            // 子任务/子 Agent 调用结束：只更新对应卡片（用 data.agent_name 判断，Master 自身的 end 跳过）
             else if (eventType === 'subtask.end' || eventType === 'call.agent.end') {
+              const calledAgentForEnd = eventData.agent_name ?? event.agent_name;
+              if (calledAgentForEnd === 'master_agent_v2') { /* master 自身结束不更新 subtask */ } else {
               const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id || s.task_id === eventData.call_id);
               if (subtask) {
                 subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
                 subtask.status = eventData.success === false ? 'error' : 'success';
                 subtask.expanded = false;
+              }
               }
             }
             // 最终答案（完整）：内容 + 元数据 + 标记消息完成

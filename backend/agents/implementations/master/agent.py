@@ -392,15 +392,26 @@ class MasterAgentV2(BaseAgent):
         import uuid
         run_id = context.metadata.get('run_id') or str(uuid.uuid4())
 
+        # 生成 MasterAgent 自己的 call_id
+        master_call_id = f"call_{uuid.uuid4()}"
+
         # 2. 发布运行开始事件 (Run)
         self._publisher.run_start(run_id=run_id, metadata={"task": task})
 
-        # 3. 发布 Agent 开始事件
+        # 3. 发布 MasterAgent 自己的 CALL_AGENT_START 事件
+        self._publisher.agent_call_start(
+            call_id=master_call_id,
+            agent_name=self.name,
+            description=task
+        )
+
+        # 4. 发布 Agent 开始事件（保留原有的 agent_start）
         self._publisher.agent_start(task, metadata={
             "agent_name": self.name,
             "display_name": "MasterAgent V2",
             "max_rounds": self.max_rounds,
-            "run_id": run_id
+            "run_id": run_id,
+            "call_id": master_call_id
         })
 
         try:
@@ -516,6 +527,14 @@ class MasterAgentV2(BaseAgent):
 
                     # ✨ 发布最终答案事件（通过事件总线流式输出）
                     self._publisher.final_answer(final_answer)
+
+                    # ✨ 发布 MasterAgent 自己的 CALL_AGENT_END 事件
+                    self._publisher.agent_call_end(
+                        call_id=master_call_id,
+                        agent_name=self.name,
+                        result=final_answer,
+                        success=True
+                    )
 
                     # ✨ 发布Agent结束和运行结束事件
                     self._publisher.agent_end(final_answer, execution_time=time.time() - start_time)
@@ -688,6 +707,15 @@ class MasterAgentV2(BaseAgent):
 
             # ✨ 发布事件
             self._publisher.final_answer(final_content)
+
+            # ✨ 发布 MasterAgent 自己的 CALL_AGENT_END 事件
+            self._publisher.agent_call_end(
+                call_id=master_call_id,
+                agent_name=self.name,
+                result=final_content,
+                success=False  # 达到最大轮数视为失败
+            )
+
             self._publisher.agent_end(final_content, execution_time=time.time() - start_time)
             self._publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
 
@@ -705,6 +733,15 @@ class MasterAgentV2(BaseAgent):
 
         except Exception as e:
             self.logger.error(f"执行任务失败: {e}", exc_info=True)
+
+            # ✨ 发布 MasterAgent 自己的 CALL_AGENT_END 事件（失败）
+            self._publisher.agent_call_end(
+                call_id=master_call_id,
+                agent_name=self.name,
+                result=str(e),
+                success=False
+            )
+
             # ✨ 发布错误事件
             self._publisher.agent_error(error=str(e), error_type="ExecutionError")
             return AgentResponse(

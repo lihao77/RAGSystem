@@ -84,6 +84,24 @@ def _get_orchestrator():
                 _orchestrator.register_agent(agent)
                 logger.info(f"已注册智能体: {agent_name}")
 
+            # 初始化性能指标收集器
+            try:
+                from agents.monitoring import MetricsCollector
+                from agents.events import get_session_manager
+
+                metrics_collector = MetricsCollector()
+
+                # 获取全局会话事件总线管理器
+                session_manager = get_session_manager()
+
+                # 将 metrics_collector 附加到 orchestrator 以便后续访问
+                _orchestrator._metrics_collector = metrics_collector
+                _orchestrator._session_manager = session_manager
+
+                logger.info("✓ 性能指标收集器已初始化")
+            except Exception as e:
+                logger.warning(f"性能指标收集器初始化失败（不影响核心功能）: {e}")
+
             # 验证注册结果
             registered_agents = _orchestrator.list_agents()
             logger.info(f"Orchestrator 初始化成功，已加载 {len(agents)} 个智能体，已注册 {len(registered_agents)} 个智能体")
@@ -448,6 +466,12 @@ def stream_execute():
             # ✨ 获取会话级事件总线
             event_bus = get_session_event_bus(session_id)
 
+            # ✨ 让 MetricsCollector 订阅此会话的事件总线
+            metrics_collector = getattr(orchestrator, '_metrics_collector', None)
+            if metrics_collector:
+                metrics_collector.subscribe_to_events(event_bus)
+                logger.info(f"✓ MetricsCollector 已订阅会话 {session_id} 的事件总线")
+
             # ✨ 创建 SSEAdapter 订阅事件总线
             adapter = SSEAdapter(
                 event_bus=event_bus,
@@ -511,12 +535,30 @@ def stream_execute():
                         out[k] = str(v)
                 return out
 
-            def handle_step_and_final_answer(event):
+            def event_to_payload(event):
+                """与 SSE 发送的事件结构一致；call.agent.start/end 的 agent_name 存被调用 Agent，与 stream 语义对齐。"""
                 payload = {
                     "type": event.type.value,
-                    "data": make_payload_safe(event.data),
+                    "event_id": getattr(event, "event_id", None),
+                    "timestamp": getattr(event, "timestamp", None),
+                    "priority": getattr(getattr(event, "priority", None), "value", None),
+                    "session_id": getattr(event, "session_id", None),
+                    "trace_id": getattr(event, "trace_id", None),
+                    "span_id": getattr(event, "span_id", None),
                     "agent_name": event.agent_name,
+                    "data": make_payload_safe(event.data),
+                    "requires_user_action": getattr(event, "requires_user_action", False),
+                    "user_action_timeout": getattr(event, "user_action_timeout", None),
                 }
+                # call.agent.start / call.agent.end：持久化 top-level agent_name 存「被调用 Agent」，与前端从 stream 使用的 data.agent_name 语义一致
+                if event.type in (EventType.CALL_AGENT_START, EventType.CALL_AGENT_END):
+                    called = (event.data or {}).get("agent_name")
+                    if called is not None:
+                        payload["agent_name"] = called
+                return payload
+
+            def handle_step_and_final_answer(event):
+                payload = event_to_payload(event)
                 try:
                     store.add_run_step(
                         session_id=session_id,
@@ -846,6 +888,157 @@ def delete_session(session_id):
         return error_response(message=str(e), status_code=500)
 
 
+@agent_bp.route('/sessions/<session_id>/recover', methods=['POST'])
+def recover_session(session_id):
+    """
+    从检查点恢复会话执行
+
+    Body:
+        {
+            "checkpoint_id": "xxx",  // 可选，不指定则使用最新检查点
+            "agent_name": "qa_agent"  // 可选，指定智能体
+        }
+
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "checkpoint_id": "xxx",
+                "round": 3,
+                "answer": "...",
+                "success": true
+            }
+        }
+    """
+    try:
+        from agents.recovery import CheckpointManager
+
+        data = request.get_json() or {}
+        checkpoint_id = data.get('checkpoint_id')
+        agent_name = data.get('agent_name')
+
+        # 初始化检查点管理器
+        checkpoint_manager = CheckpointManager()
+
+        # 加载检查点
+        if checkpoint_id:
+            checkpoint = checkpoint_manager.load_checkpoint(checkpoint_id)
+        else:
+            checkpoint = checkpoint_manager.get_latest_checkpoint(
+                session_id=session_id,
+                agent_name=agent_name
+            )
+
+        if not checkpoint:
+            return error_response(
+                message='未找到可用的检查点',
+                status_code=404
+            )
+
+        logger.info(f"从检查点恢复: {checkpoint['checkpoint_id']}, 轮次: {checkpoint['round']}")
+
+        # 重建上下文
+        orchestrator = _get_orchestrator()
+        context = AgentContext(
+            session_id=session_id,
+            user_id=data.get('user_id')
+        )
+
+        # 恢复消息历史
+        for msg in checkpoint['messages']:
+            context.add_message(
+                role=msg['role'],
+                content=msg['content'],
+                metadata=msg.get('metadata', {})
+            )
+
+        # 获取最后一条用户消息作为任务
+        user_messages = [m for m in checkpoint['messages'] if m['role'] == 'user']
+        if not user_messages:
+            return error_response(
+                message='检查点中没有用户消息',
+                status_code=400
+            )
+
+        task = user_messages[-1]['content']
+
+        # 继续执行
+        response = orchestrator.execute(
+            task=task,
+            context=context,
+            agent_name=checkpoint['agent_name']
+        )
+
+        # 保存结果
+        store = _get_conversation_store()
+        if response.success and response.content:
+            store.add_message(
+                session_id=session_id,
+                role='assistant',
+                content=response.content,
+                metadata={
+                    'agent': response.agent_name,
+                    'recovered_from': checkpoint['checkpoint_id']
+                }
+            )
+
+        return success_response(
+            data={
+                'checkpoint_id': checkpoint['checkpoint_id'],
+                'round': checkpoint['round'],
+                'answer': response.content if response.success else None,
+                'success': response.success,
+                'error': response.error if not response.success else None,
+                'agent_name': response.agent_name
+            },
+            message='从检查点恢复成功' if response.success else '恢复执行完成但未成功'
+        )
+
+    except Exception as e:
+        logger.error(f'从检查点恢复失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/sessions/<session_id>/checkpoints', methods=['GET'])
+def list_session_checkpoints(session_id):
+    """
+    列出会话的检查点
+
+    Query Parameters:
+        agent_name: 智能体名称（可选）
+        limit: 返回数量限制（默认 10）
+
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "checkpoints": [...]
+            }
+        }
+    """
+    try:
+        from agents.recovery import CheckpointManager
+
+        agent_name = request.args.get('agent_name')
+        limit = int(request.args.get('limit', 10))
+
+        checkpoint_manager = CheckpointManager()
+        checkpoints = checkpoint_manager.list_checkpoints(
+            session_id=session_id,
+            agent_name=agent_name,
+            limit=limit
+        )
+
+        return success_response(
+            data={'checkpoints': checkpoints},
+            message='获取检查点列表成功'
+        )
+
+    except Exception as e:
+        logger.error(f'获取检查点列表失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
 @agent_bp.route('/sessions/<session_id>/rollback', methods=['POST'])
 def rollback_session(session_id):
     """
@@ -1001,6 +1194,106 @@ def get_session_messages(session_id):
         return success_response(data=data, message='获取对话记录成功')
     except Exception as e:
         logger.error(f'获取对话记录失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/metrics', methods=['GET'])
+def get_metrics():
+    """
+    获取智能体性能指标
+
+    Query Parameters:
+        agent_name: 指定智能体名称（可选），不指定则返回所有智能体指标
+
+    Returns:
+        {
+            "success": true,
+            "data": {
+                "total_agents": 3,
+                "total_calls": 156,
+                "avg_duration_ms": 2340.5,
+                "overall_success_rate": 0.94,
+                "agents": {
+                    "qa_agent": {
+                        "total_calls": 89,
+                        "success_rate": 0.95,
+                        "avg_duration_ms": 2100.3,
+                        "tool_usage": {...},
+                        "error_distribution": {...}
+                    }
+                }
+            }
+        }
+    """
+    try:
+        from agents.monitoring import MetricsCollector
+
+        # 获取全局 metrics_collector（从 app.py 初始化）
+        metrics_collector = getattr(_get_orchestrator(), '_metrics_collector', None)
+        if not metrics_collector:
+            return error_response(
+                message='指标收集器未初始化',
+                status_code=503
+            )
+
+        agent_name = request.args.get('agent_name')
+
+        if agent_name:
+            # 返回单个智能体指标
+            metrics = metrics_collector.get_agent_metrics(agent_name)
+            if not metrics:
+                return error_response(
+                    message=f'未找到智能体 {agent_name} 的指标',
+                    status_code=404
+                )
+            return success_response(
+                data=metrics.to_dict(),
+                message='获取智能体指标成功'
+            )
+        else:
+            # 返回系统级指标
+            system_metrics = metrics_collector.get_all_metrics()
+            return success_response(
+                data=system_metrics.to_dict(),
+                message='获取系统指标成功'
+            )
+
+    except Exception as e:
+        logger.error(f'获取指标失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
+@agent_bp.route('/metrics/reset', methods=['POST'])
+def reset_metrics():
+    """
+    重置性能指标
+
+    Body:
+        {
+            "agent_name": "qa_agent"  // 可选，不指定则重置所有
+        }
+    """
+    try:
+        from agents.monitoring import MetricsCollector
+
+        metrics_collector = getattr(_get_orchestrator(), '_metrics_collector', None)
+        if not metrics_collector:
+            return error_response(
+                message='指标收集器未初始化',
+                status_code=503
+            )
+
+        data = request.get_json() or {}
+        agent_name = data.get('agent_name')
+
+        metrics_collector.reset_metrics(agent_name)
+
+        return success_response(
+            message=f'已重置{"智能体 " + agent_name if agent_name else "所有"}指标'
+        )
+
+    except Exception as e:
+        logger.error(f'重置指标失败: {e}', exc_info=True)
         return error_response(message=str(e), status_code=500)
 
 

@@ -1,17 +1,39 @@
 <template>
   <div id="app">
-    <ChatViewV2 :selected-llm="selectedLLM" :is-dark="isDark"
-      @update:selectedLLM="selectedLLM = $event" @toggle-theme="toggleTheme" />
+    <component
+      :is="currentView"
+      :selected-llm="selectedLLM"
+      :is-dark="isDark"
+      @update:selectedLLM="selectedLLM = $event"
+      @toggle-theme="toggleTheme"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import ChatViewV2 from './views/ChatViewV2.vue';
+import AgentMonitor from './views/AgentMonitor.vue';
 import 'highlight.js/styles/github-dark.css';
 
 const isDark = ref(true);
 const selectedLLM = ref('');
+const currentRoute = ref(window.location.pathname);
+
+// 简单路由映射
+const routes = {
+  '/': ChatViewV2,
+  '/monitor': AgentMonitor,
+  '/agent-monitor': AgentMonitor
+};
+
+const currentView = computed(() => {
+  // 支持 /chat/:sessionId 路由
+  if (currentRoute.value.startsWith('/chat/')) {
+    return ChatViewV2;
+  }
+  return routes[currentRoute.value] || ChatViewV2;
+});
 
 const toggleTheme = () => {
   isDark.value = !isDark.value;
@@ -28,6 +50,11 @@ const updateTheme = () => {
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
 };
 
+// 监听浏览器前进后退
+const handlePopState = () => {
+  currentRoute.value = window.location.pathname;
+};
+
 onMounted(() => {
   const savedTheme = localStorage.getItem('theme');
   if (savedTheme) {
@@ -41,6 +68,8 @@ onMounted(() => {
   if (savedLLM) {
     selectedLLM.value = savedLLM;
   }
+
+  window.addEventListener('popstate', handlePopState);
 });
 </script>
 

@@ -22,18 +22,60 @@ logger = logging.getLogger(__name__)
 
 # ==================== 工具执行函数 ====================
 
-def execute_tool(tool_name, arguments):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None):
     """
     执行指定的工具
 
     Args:
         tool_name: 工具名称
         arguments: 工具参数（字典）
+        agent_config: 智能体配置（可选，用于权限检查）
+        event_bus: 事件总线（可选，用于用户审批）
+        user_role: 用户角色（可选，用于权限检查）
 
     Returns:
         工具执行结果
     """
     try:
+        # 1. 权限检查
+        from tools.permissions import check_tool_permission, get_tool_permission
+
+        allowed, error_msg = check_tool_permission(
+            tool_name=tool_name,
+            agent_config=agent_config,
+            user_role=user_role
+        )
+
+        if not allowed:
+            logger.warning(f"工具权限检查失败: {error_msg}")
+            return error_response(error_msg)
+
+        # 2. 检查是否需要用户审批
+        permission = get_tool_permission(tool_name)
+        if permission and permission.requires_approval:
+            logger.info(f"工具 {tool_name} 需要用户审批")
+
+            # 如果提供了事件总线，请求用户审批
+            if event_bus:
+                try:
+                    from agents.events import EventType
+                    # 发布审批请求事件
+                    event_bus.publish(
+                        EventType.USER_APPROVAL_REQUIRED,
+                        {
+                            "tool_name": tool_name,
+                            "arguments": arguments,
+                            "risk_level": permission.risk_level.value,
+                            "description": permission.description
+                        }
+                    )
+                    # 注意：实际审批逻辑需要在前端实现，这里只是发布事件
+                    # 在生产环境中，应该等待审批结果后再继续执行
+                    logger.info(f"已发布工具 {tool_name} 的审批请求事件")
+                except Exception as e:
+                    logger.error(f"发布审批请求事件失败: {e}")
+
+        # 3. 执行工具
         if tool_name == "search_knowledge_graph":
             return search_knowledge_graph(**arguments)
         elif tool_name == "query_knowledge_graph_with_nl":

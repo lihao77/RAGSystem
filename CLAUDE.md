@@ -35,6 +35,78 @@ Routes (API层) → Services (业务层) → 数据访问层 (Neo4j/SQLite-vec)
 - `MasterAgent` - 主协调智能体，系统统一入口 (`backend/agents/master_agent.py`)
 - `AgentLoader` - 动态加载器，从配置文件加载智能体 (`backend/agents/agent_loader.py`)
 
+#### 可观测性系统（新增 2026-02-23）
+
+**结构化日志** (`backend/agents/logging/`)
+- JSON 格式日志输出
+- 上下文绑定（agent_name, session_id, trace_id）
+- 性能指标记录（duration_ms, token_usage）
+- 使用示例：
+  ```python
+  from agents.logging import get_logger
+  logger = get_logger("qa_agent", session_id="abc-123")
+  logger.info("tool_call", tool_name="query_kg", duration_ms=1234)
+  ```
+
+**性能指标收集** (`backend/agents/monitoring/`)
+- 自动订阅事件总线，收集智能体执行指标
+- 工具调用统计、错误分布分析
+- API: `GET /api/agent/metrics`
+
+**监控 API**
+- `GET /api/agent/metrics` - 获取系统性能指标
+- `GET /api/agent/metrics?agent_name=<name>` - 获取单个智能体指标
+- `POST /api/agent/metrics/reset` - 重置性能指标
+
+#### 错误处理与重试（新增 2026-02-23）
+
+**错误分类器** (`backend/agents/errors/`)
+- 区分可重试错误（网络、超时）和不可重试错误（参数、权限）
+- 自动识别错误类型并提供推荐重试配置
+- 使用示例：
+  ```python
+  from agents.errors import ErrorClassifier
+  if ErrorClassifier.is_retryable(exception):
+      # 重试逻辑
+  ```
+
+**重试装饰器** (`backend/utils/retry_decorator.py`)
+- 自动重试失败操作，支持指数退避
+- 使用示例：
+  ```python
+  @retry_on_failure(max_retries=3, backoff_factor=2.0)
+  def execute_tool(tool_name, arguments):
+      pass
+  ```
+
+**检查点恢复** (`backend/agents/recovery/`)
+- 在关键节点保存执行状态
+- 支持从失败点恢复执行
+- API: `POST /api/agent/sessions/<session_id>/recover`
+
+#### 工具权限控制（新增 2026-02-23）
+
+**工具风险等级** (`backend/tools/permissions.py`)
+- LOW: 只读操作（如 query_knowledge_graph_with_nl）
+- MEDIUM: 可能耗时操作（如 find_causal_chain）
+- HIGH: 写操作/执行命令（如 execute_cypher_query，需用户审批）
+
+**权限验证**
+- 在工具执行前自动检查权限
+- 检查工具是否在智能体配置中启用
+- 高风险工具需要用户审批（通过 USER_APPROVAL_REQUIRED 事件）
+
+**配置示例**：
+```yaml
+agents:
+  qa_agent:
+    tools:
+      enabled_tools:
+        - query_knowledge_graph_with_nl  # 低风险，自动允许
+        - search_knowledge_graph          # 低风险，自动允许
+        # execute_cypher_query 未启用（高风险）
+```
+
 #### 智能体配置化系统
 **所有智能体通过 YAML 配置文件定义**，无需编写代码：
 - 配置文件: `backend/agents/configs/agent_configs.yaml`
@@ -94,6 +166,15 @@ POST /api/agent/stream               # 流式执行（SSE）
 POST /api/agent/execute/<agent_name> # 指定智能体执行
 GET  /api/agent/sessions             # 会话列表
 POST /api/agent/sessions             # 创建会话
+
+# 性能监控（新增）
+GET  /api/agent/metrics              # 获取系统性能指标
+GET  /api/agent/metrics?agent_name=<name>  # 获取单个智能体指标
+POST /api/agent/metrics/reset        # 重置性能指标
+
+# 检查点恢复（新增）
+POST /api/agent/sessions/<session_id>/recover      # 从检查点恢复执行
+GET  /api/agent/sessions/<session_id>/checkpoints  # 列出会话检查点
 
 # 智能体配置（backend/routes/agent_config.py，前缀 /api/agent-config）
 GET    /api/agent-config/configs           # 获取所有智能体配置
@@ -559,9 +640,26 @@ response = adapter.embed(
 ### 前端组件开发
 - 双前端架构：两个独立前端，均使用 Vue 3 + Element Plus
   - **frontend/**：后台管理端（配置、工作流、向量库、节点、系统设置等）
-  - **frontend-client/**：多 Agent 对话与落地页（聊天、执行计划、流式输出等）
+  - **frontend-client/**：多 Agent 对话与落地页（聊天、执行计划、流式输出、性能监控等）
 - API 分别封装在 `frontend/src/api/`、`frontend-client/src/api/`
 - 可复用组件与页面视图各自在对应目录的 `components/`、`views/`
+
+#### 前端新功能（2026-02-23）
+
+**用户审批对话框** (`frontend-client/src/components/ApprovalDialog.vue`)
+- 监听 SSE 流中的 `USER_APPROVAL_REQUIRED` 事件
+- 显示智能体请求执行高风险工具的审批对话框
+- 支持批准/拒绝操作，60秒倒计时自动拒绝
+- 调用 `/api/agent/approvals/<id>/respond` API 响应审批
+
+**性能监控面板** (`frontend-client/src/views/AgentMonitor.vue`)
+- 访问路径: `/monitor` 或 `/agent-monitor`
+- 显示系统级指标（智能体总数、总调用次数、平均耗时、成功率）
+- 显示智能体详情（工具使用统计、错误分布、性能指标）
+- 支持智能体筛选、刷新和重置功能
+- 使用 `/api/agent/metrics` API 获取数据
+
+**使���指南**: 详见 `FRONTEND_USAGE_GUIDE.md`
 
 ### 节点配置 UI 元数据
 参考 `backend/nodes/UI_METADATA_REFERENCE.md` 获取完整的元数据选项。
@@ -696,6 +794,10 @@ response = adapter.embed(
 - **统一入口架构**: `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
 - **智能体配置**: `backend/agents/configs/agent_configs.yaml`（由 `AgentConfigManager` 读写，示例见 `agent_configs.yaml.example`）
 - **配置模型**: `backend/agents/agent_config.py` - AgentConfig、AgentLLMConfig、AgentToolConfig、AgentSkillConfig 等
+- **系统升级总结**: `backend/agents/docs/AGENT_SYSTEM_UPGRADE_SUMMARY.md` - 可观测性、错误处理、权限控制升级说明（2026-02-23）
+- **可观测性指南**: `backend/agents/docs/guides/OBSERVABILITY.md` - 结构化日志、性能指标、监控 API
+- **错误处理指南**: `backend/agents/docs/guides/ERROR_HANDLING.md` - 重试机制、错误分类、检查点恢复
+- **权限控制指南**: `backend/agents/docs/guides/PERMISSIONS.md` - 工具风险等级、权限验证、用户审批
 
 ### Skills 系统
 - **系统概述**: `backend/agents/skills/README.md` - Skills 系统整体介绍
@@ -707,7 +809,8 @@ response = adapter.embed(
 
 ### 工具系统
 - **工具定义**: `backend/tools/function_definitions.py` - 所有工具的定义
-- **工具执行**: `backend/tools/tool_executor.py` - 工具执行逻辑
+- **工具执行**: `backend/tools/tool_executor.py` - 工具执行逻辑（含权限检查）
+- **工具权限**: `backend/tools/permissions.py` - 工具风险等级和权限配置
 
 ### 向量存储系统（新版）
 - **抽象基类**: `backend/vector_store/base.py` - VectorStoreBase 接口
