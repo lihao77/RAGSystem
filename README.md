@@ -1,6 +1,6 @@
 # RAGSystem - 时空知识图谱问答系统
 
-基于知识图谱的智能问答系统，整合时序推理、空间分析和因果追踪功能。
+基于知识图谱的智能问答系统，整合时序推理、空间分析和因果追踪功能，后端基于 Flask + Neo4j，前端采用「后台管理端 + 多 Agent 客户端」双前端架构。
 
 ## 快速启动
 
@@ -23,7 +23,7 @@
 
 3. **配置文件**
 
-   **LLM 配置（推荐使用 LLMAdapter）**
+   **LLM 配置（推荐使用 ModelAdapter）**
 
    编辑配置文件 `backend/config/yaml/config.yaml`：
 
@@ -34,20 +34,18 @@
      password: your_password
 
    llm:
-     provider: deepseek           # LLM 提供商
-     model_name: deepseek-chat    # 模型名称
-     api_key: your_api_key        # API 密钥
+     provider: your_provider_key   # ModelAdapter 中配置的 Provider 复合键，如 test_deepseek
+     model_name: deepseek-chat     # 模型名称
+     api_key: your_api_key         # API 密钥（也可通过环境变量配置）
      temperature: 0.7
      max_tokens: 4096
-
-   embedding:
-     mode: local                  # 或 remote
-     local:
-       model_name: BAAI/bge-small-zh-v1.5
-     remote:
-       api_endpoint: https://api-inference.modelscope.cn/v1
-       api_key: your_emb_key
    ```
+
+   **向量化器与向量库**
+
+   - 向量存储基于 **SQLite + sqlite-vec**，不再使用 ChromaDB
+   - 向量化器（Embedding 模型）通过「向量知识库 → 向量化器」页面或 `backend/vector_store/config/vectorizers.yaml` 管理  
+   - 不再使用 `config.embedding` 段配置向量化器，详细说明见 [向量存储迁移指南](docs/migration/VECTOR_STORE_MIGRATION.md)
 
    前端配置：
    ```bash
@@ -57,7 +55,7 @@
 
 ### 启动服务
 
-**方式一：分别启动**
+**方式一：分别启动（推荐开发时使用）**
 
 启动后端：
 ```bash
@@ -66,7 +64,7 @@ python app.py
 # 后端运行在 http://localhost:5000
 ```
 
-启动前端：
+启动前端（后台管理端）：
 ```bash
 cd frontend
 npm run dev
@@ -92,63 +90,54 @@ start_server.bat
 - **实时验证** - 配置时立即验证，减少错误
 - **详细文档** - 查看 [节点配置UI文档](docs/node-config-ui/README.md)
 
-### 2. LLMAdapter - 统一LLM管理接口
-- **多提供商支持** - 支持 OpenAI、DeepSeek、OpenRouter 等主流 LLM 服务
-- **灵活配置** - 可为每个提供商配置多个模型，运行时动态选择
-- **统一接口** - 所有 LLM 调用通过同一接口，无需关心底层实现
-- **成本追踪** - 自动记录 token 使用量和调用成本
-- **工具调用** - 支持 Function Calling 功能
-- **管理界面** - 提供图形化管理界面（访问 `/llm-adapter`）
-
-配置示例：
-```yaml
-# 编辑 backend/config/yaml/config.yaml
-llm:
-  provider: deepseek           # LLM 提供商
-  model_name: deepseek-chat    # 模型名称
-  api_key: your_api_key
-  temperature: 0.7
-  max_tokens: 4096
-```
+### 2. ModelAdapter - 统一模型管理接口
+- **多提供商支持** - 通过 Provider 复合键支持 DeepSeek、OpenRouter 等 OpenAI 兼容服务
+- **统一接口** - 统一封装 LLM 与 Embedding 调用逻辑
+- **灵活配置** - 单一配置文件 `backend/model_adapter/configs/providers.yaml` 管理所有 Provider
+- **成本与统计** - 记录 token 使用量与延迟指标
+- **工具调用 / JSON 模式** - 适配 ReActAgent 等高级调用模式
+- **管理界面** - 提供图形化管理界面（访问 `/model-adapter`）
 
 ### 3. 知识图谱
 - **时空知识图谱** - 支持时序和空间信息
 - **Neo4j存储** - 高性能图数据库
 - **可视化展示** - 直观的图谱可视化
 
-### 4. 智能问答
-- **RAG增强** - 结合检索和生成
-- **多模型支持** - 支持多种LLM模型（通过 LLMAdapter）
-- **上下文理解** - 智能理解用户意图
+### 4. 智能问答与多智能体系统
+- **RAG 增强** - 结合向量检索和知识图谱查询
+- **多智能体协作** - 通过 MasterAgent 统一入口和 ReActAgent 推理执行复杂任务
+- **多模型支持** - 通过 ModelAdapter 使用不同厂商的模型
+- **上下文理解** - 基于会话上下文与 Skills 系统进行任务分解与知识注入
 
-## 目录结构
+## 目录结构（简要）
 
 ```
 RAGSystem/
-├── backend/           # 后端服务
-│   ├── app.py        # Flask入口
-│   ├── config.json   # 配置文件
-│   ├── nodes/        # 节点系统
-│   │   ├── llmjson_v2/    # LLMJson V2节点
-│   │   ├── llmjson/       # LLMJson节点
-│   │   ├── json2graph/    # Json2Graph节点
-│   │   └── vector_indexer/ # 向量索引节点
-│   └── requirements.txt
-├── frontend/          # 前端应用
+├── backend/                      # 后端服务
+│   ├── app.py                    # Flask 入口
+│   ├── config/                   # 配置系统（YAML + Pydantic）
+│   ├── agents/                   # 多智能体系统（MasterAgent、ReActAgent 等）
+│   ├── model_adapter/            # ModelAdapter 统一模型适配层
+│   ├── vector_store/             # 向量存储（SQLite + sqlite-vec）
+│   ├── nodes/                    # 节点系统
+│   ├── routes/                   # API 路由
+│   ├── services/                 # 业务服务
+│   ├── tools/                    # 工具定义与执行
+│   └── requirements.txt          # Python 依赖
+│
+├── frontend/                     # 后台管理前端（Vue 3 + Element Plus）
 │   ├── src/
-│   │   ├── views/
-│   │   │   └── NodesView.vue  # 节点配置界面
-│   │   ├── components/
-│   │   │   └── workflow/
-│   │   │       └── NodeConfigEditor.vue  # 配置编辑器
-│   │   └── config.js # 配置文件
 │   └── package.json
-├── docs/              # 文档
-│   └── node-config-ui/  # 节点配置UI文档
-│       ├── README.md    # 文档导航
-│       ├── QUICK_START_CONFIG_UI.md  # 快速启动
-│       └── ...
-└── start_server.bat  # 一键启动脚本
+│
+├── frontend-client/              # 多 Agent 对话与监控前端
+│   ├── src/
+│   └── package.json
+│
+├── docs/                         # 文档中心
+│   ├── README.md
+│   ├── DOCUMENTATION_MAP.md
+│   └── node-config-ui/
+└── start_server.bat             # Windows 一键启动脚本
 ```
 
 ## 安全说明

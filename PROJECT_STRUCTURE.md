@@ -126,10 +126,10 @@ RAGSystem/
 ## 🔑 关键技术
 
 ### 后端
-- **Flask** - Web框架
-- **Pydantic** - 数据验证和配置管理
+- **Flask** - Web 框架
+- **Pydantic** - 配置与数据验证
 - **Neo4j** - 图数据库
-- **ChromaDB** - 向量数据库
+- **SQLite + sqlite-vec** - 向量数据库（已完成从 ChromaDB 迁移，详情见 `docs/migration/VECTOR_STORE_MIGRATION.md`）
 
 ### 前端
 - **Vue 3** - 前端框架

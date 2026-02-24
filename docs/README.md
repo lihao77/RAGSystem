@@ -6,9 +6,9 @@
 
 ### 配置与迁移
 - **[配置系统指南](configuration-guide.md)** - 后端配置、首次部署、健康检查
-- **[迁移指南](migration/README.md)** - 向量存储、LLMAdapter 等迁移文档
+- **[迁移指南](migration/README.md)** - 向量存储、LLMAdapter/ModelAdapter 等迁移文档
   - [向量存储迁移](migration/VECTOR_STORE_MIGRATION.md) - ChromaDB → SQLite-vec
-  - [LLMAdapter 迁移](migration/LLMADAPTER_MIGRATION_GUIDE.md) - LLMService → LLMAdapter
+  - [LLMAdapter 迁移](migration/LLMADAPTER_MIGRATION_GUIDE.md) - LLMService → LLMAdapter（历史文档，现已由 ModelAdapter 统一）
 
 ### 节点系统
 - **[节点配置UI文档](node-config-ui/README.md)** - 节点配置界面升级完整文档
@@ -18,8 +18,18 @@
   - [更新日志](node-config-ui/NODE_CONFIG_CHANGELOG.md) - 查看所有更新
 
 ### 后端开发
-- **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的开发指南
-- **[UI元数据快速参考](../backend/nodes/UI_METADATA_REFERENCE.md)** - 快速参考卡片
+- **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的节点开发指南
+- **[UI元数据快速参考](../backend/nodes/UI_METADATA_REFERENCE.md)** - 节点配置元数据速查
+
+### 智能体系统 & Skills
+- **[Agent 系统总览](../backend/agents/docs/AGENT_SYSTEM_DESIGN.md)** - MasterAgent + ReActAgent 架构说明
+- **[统一入口架构](../backend/agents/docs/architecture/UNIFIED_ENTRY.md)** - MasterAgent 统一入口设计
+- **[Agent 配置指南](../backend/agents/docs/AGENT_CONFIG_GUIDE.md)** - `agent_configs.yaml` 配置说明
+- **[权限控制指南](../backend/agents/docs/guides/PERMISSIONS.md)** - 工具风险等级与用户审批
+- **[错误处理指南](../backend/agents/docs/guides/ERROR_HANDLING.md)** - 重试、错误分类与恢复
+- **[可观测性指南](../backend/agents/docs/guides/OBSERVABILITY.md)** - 指标收集与监控 API
+- **[Skills 系统概览](../backend/agents/skills/README.md)** - Skills 架构与使用方式
+- **[Skills 依赖隔离指南](../backend/agents/skills/SKILL_DEPENDENCY_ISOLATION.md)** - 每个 Skill 独立虚拟环境
 
 ## 🎯 快速链接
 
@@ -58,17 +68,35 @@ docs/
     └── NODE_CONFIG_CHECKLIST.md
 
 backend/agents/docs/             # 智能体与事件总线文档
-├── event-bus/                   # 事件总线
+├── architecture/
+│   ├── SYSTEM_DESIGN.md
+│   ├── UNIFIED_ENTRY.md
+│   └── MULTI_AGENT_SUMMARY.md
+├── guides/
+│   ├── CONFIGURATION.md
+│   ├── MASTER_AGENT_USAGE.md
+│   ├── USAGE_GUIDE.md
+│   ├── PERMISSIONS.md
+│   ├── ERROR_HANDLING.md
+│   └── OBSERVABILITY.md
+├── advanced/
+│   ├── CONTEXT_MANAGEMENT.md
+│   └── MASTER_CONTEXT_CONFIG.md
+├── event-bus/
 │   ├── README.md
 │   ├── EVENT_BUS_INTEGRATION_GUIDE.md
 │   └── SESSION_EVENT_BUS_GUIDE.md
-├── SMART_CONTEXT_MANAGEMENT.md
-├── MASTER_AGENT_CONTEXT_CONFIG.md
-└── ... (AGENT_*, UNIFIED_ENTRY 等)
+└── ... (AGENT_* 升级总结等)
+
+backend/agents/skills/           # Skills 系统文档
+├── README.md
+├── USAGE_EXAMPLES.md
+├── SKILL_DEPENDENCY_ISOLATION.md
+└── SKILLS_PERMISSION_CONTROL.md
 
 backend/nodes/
-├── CONFIG_UI_GUIDE.md           # 详细使用指南
-└── UI_METADATA_REFERENCE.md     # 快速参考卡片
+├── CONFIG_UI_GUIDE.md           # 节点配置 UI 使用指南
+└── UI_METADATA_REFERENCE.md     # UI 元数据参考
 ```
 
 ## 🔍 按主题查找

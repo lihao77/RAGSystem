@@ -28,13 +28,34 @@ RAGSystem/
 │       └── NODE_CONFIG_CHECKLIST.md
 │
 ├── backend/agents/docs/                 # 智能体文档
+│   ├── architecture/                    # 架构设计
+│   │   ├── SYSTEM_DESIGN.md
+│   │   ├── UNIFIED_ENTRY.md
+│   │   └── MULTI_AGENT_SUMMARY.md
+│   ├── guides/                          # 使用与配置指南
+│   │   ├── CONFIGURATION.md
+│   │   ├── MASTER_AGENT_USAGE.md
+│   │   └── USAGE_GUIDE.md
+│   ├── advanced/                        # 高级主题
+│   │   ├── CONTEXT_MANAGEMENT.md
+│   │   └── MASTER_CONTEXT_CONFIG.md
 │   ├── event-bus/                       # 事件总线
 │   │   ├── README.md
 │   │   ├── EVENT_BUS_INTEGRATION_GUIDE.md
 │   │   └── SESSION_EVENT_BUS_GUIDE.md
-│   ├── SMART_CONTEXT_MANAGEMENT.md
-│   ├── MASTER_AGENT_CONTEXT_CONFIG.md
-│   └── ... (AGENT_*, UNIFIED_ENTRY 等)
+│   └── ... (AGENT_*, 升级总结等)
+│
+├── backend/agents/skills/               # Skills 系统文档
+│   ├── README.md
+│   ├── USAGE_EXAMPLES.md
+│   ├── SKILL_DEPENDENCY_ISOLATION.md
+│   └── SKILLS_PERMISSION_CONTROL.md
+│
+├── backend/model_adapter/               # ModelAdapter 文档
+│   └── README.md
+│
+├── backend/vector_store/                # 向量存储文档
+│   └── （配合 docs/migration/VECTOR_STORE_MIGRATION.md 使用）
 │
 └── backend/nodes/                       # 节点系统代码
     ├── CONFIG_UI_GUIDE.md ⭐            # 配置UI使用指南
@@ -82,6 +103,25 @@ RAGSystem/
 | 快速启动 | [QUICK_START](node-config-ui/QUICK_START_CONFIG_UI.md) | docs/node-config-ui/ |
 | 开发指南 | [CONFIG_UI_GUIDE](../backend/nodes/CONFIG_UI_GUIDE.md) | backend/nodes/ |
 | 快速参考 | [UI_METADATA_REFERENCE](../backend/nodes/UI_METADATA_REFERENCE.md) | backend/nodes/ |
+
+### 智能体系统 & Skills
+| 主题 | 文档 | 位置 |
+|------|------|------|
+| Agent 系统总览 | [AGENT_SYSTEM_DESIGN](../backend/agents/docs/AGENT_SYSTEM_DESIGN.md) | backend/agents/docs/ |
+| 统一入口架构 | [UNIFIED_ENTRY](../backend/agents/docs/architecture/UNIFIED_ENTRY.md) | backend/agents/docs/architecture/ |
+| Agent 配置与管理 | [AGENT_CONFIG_GUIDE](../backend/agents/docs/AGENT_CONFIG_GUIDE.md) | backend/agents/docs/ |
+| 权限控制 | [PERMISSIONS](../backend/agents/docs/guides/PERMISSIONS.md) | backend/agents/docs/guides/ |
+| 错误处理 | [ERROR_HANDLING](../backend/agents/docs/guides/ERROR_HANDLING.md) | backend/agents/docs/guides/ |
+| 可观测性 | [OBSERVABILITY](../backend/agents/docs/guides/OBSERVABILITY.md) | backend/agents/docs/guides/ |
+| Skills 总览 | [Skills README](../backend/agents/skills/README.md) | backend/agents/skills/ |
+| Skills 依赖隔离 | [SKILL_DEPENDENCY_ISOLATION](../backend/agents/skills/SKILL_DEPENDENCY_ISOLATION.md) | backend/agents/skills/ |
+
+### 模型与向量存储
+| 主题 | 文档 | 位置 |
+|------|------|------|
+| ModelAdapter 使用指南 | [ModelAdapter README](../backend/model_adapter/README.md) | backend/model_adapter/ |
+| 向量存储迁移 | [VECTOR_STORE_MIGRATION](migration/VECTOR_STORE_MIGRATION.md) | docs/migration/ |
+| 向量化器配置 | `backend/vector_store/vectorizer_config.py` | backend/vector_store/ |
 
 ### 项目信息
 | 主题 | 文档 | 位置 |

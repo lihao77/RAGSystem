@@ -276,7 +276,6 @@ console.log('SSE Event:', eventType, eventData);
 
 - [后端权限控制指南](backend/agents/docs/guides/PERMISSIONS.md)
 - [后端可观测性指南](backend/agents/docs/guides/OBSERVABILITY.md)
-- [前端实施报告](FRONTEND_IMPLEMENTATION_REPORT.md)
 - [系统升级总结](backend/agents/docs/AGENT_SYSTEM_UPGRADE_SUMMARY.md)
 
 ---

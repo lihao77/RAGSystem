@@ -222,11 +222,11 @@ python scripts/init_emergency_plans.py
 python -m scripts.init_emergency_plans
 ```
 
-初始化过程：
+初始化过程（当前版本基于 SQLite-vec 向量库）：
 1. 读取 `广西应急预案.md`
 2. 文本分块（chunk_size=500, overlap=50）
-3. 生成向量嵌入（384维）
-4. 存储到ChromaDB
+3. 通过向量化器生成向量嵌入（维度由向量化器自动决定）
+4. 写入 SQLite + sqlite-vec 向量库（详见 `docs/migration/VECTOR_STORE_MIGRATION.md`）
 5. 自动验证检索功能
 
 ## 性能指标
@@ -237,9 +237,9 @@ python -m scripts.init_emergency_plans
 
 ## 更新日志
 
-### v2.0 (2025-01-18)
+### v2.0 (2025-01-18, 旧版说明)
 - ✅ 新增 `query_emergency_plan` 向量检索工具
-- ✅ 集成ChromaDB向量数据库
+- ✅ （历史）集成 ChromaDB 向量数据库 —— 现已迁移到 SQLite + sqlite-vec
 - ✅ 支持图谱+向量混合检索
 - ✅ 添加应急预案初始化脚本
 
@@ -252,5 +252,5 @@ python -m scripts.init_emergency_plans
 
 - [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
 - [Neo4j Cypher文档](https://neo4j.com/docs/cypher-manual/)
-- [ChromaDB文档](https://docs.trychroma.com/)
+- [SQLite + sqlite-vec 项目页面](https://github.com/asg017/sqlite-vec)
 - [sentence-transformers文档](https://www.sbert.net/)

@@ -1,8 +1,13 @@
-# LLM Adapter
+# LLM Adapter（已废弃组件）
 
-LLM Adapter 是系统的统一 LLM 管理接口，支持多种 LLM 提供商（OpenAI、DeepSeek、OpenRouter 等），提供统一的配置、调用和管理功能。
+> ⚠️ **重要说明：自 2026-02 起，LLMAdapter 已被新的 `ModelAdapter` 完全替代。**  
+> - 新代码与前端管理界面请参考：`backend/model_adapter/README.md`  
+> - API 前缀从 `/api/llm-adapter/...` 迁移为 `/api/model-adapter/...`  
+> - 新的 Provider 配置集中存放在 `backend/model_adapter/configs/providers.yaml`
+>
+> 本文件保留作为「历史设计与迁移参考」，不再代表当前推荐实现方式。
 
-## 功能特性
+## 功能特性（历史实现）
 
 ### 核心功能
 - **多 Provider 支持**：支持 OpenAI、DeepSeek、OpenRouter 等主流 LLM 服务
