@@ -265,4 +265,66 @@ const progressPercentage = computed(() => {
   opacity: 0;
   transform: translateY(-20px);
 }
+
+/* 移动端优化 */
+@media (max-width: 767px) {
+  .ticker-content {
+    padding: 6px 12px;
+    height: 44px;
+  }
+
+  .agent-badge {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+  }
+
+  .action-text {
+    font-size: 0.85rem;
+  }
+
+  .tool-name {
+    font-size: 0.8rem;
+  }
+
+  .toggle-details-btn {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    margin-left: 8px;
+  }
+
+  .label {
+    display: inline;
+  }
+}
+
+@media (max-width: 480px) {
+  .ticker-content {
+    padding: 6px 10px;
+    height: 40px;
+  }
+
+  .agent-badge {
+    font-size: 0.65rem;
+    padding: 2px 5px;
+  }
+
+  .action-text {
+    font-size: 0.8rem;
+  }
+
+  .tool-name {
+    font-size: 0.75rem;
+  }
+
+  .toggle-details-btn {
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    margin-left: 6px;
+  }
+
+  /* 小屏手机上可能需要隐藏部分文字 */
+  .ticker-item {
+    gap: 6px;
+  }
+}
 </style>

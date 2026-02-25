@@ -348,49 +348,63 @@ body {
 /* 移动端（<768px） */
 @media (max-width: 767px) {
     :root {
-        --chat-padding-x: var(--spacing-md);
-        --chat-padding-y: var(--spacing-md);
-        --chat-padding-bottom: 170px;
-        --chat-message-gap: var(--spacing-md);
-
-        --input-area-padding-x: var(--spacing-md);
-        --input-centered-padding-x: var(--spacing-sm);
-
-        --welcome-title-size: 1.75rem;
-        --welcome-subtitle-size: 0.95rem;
-        --welcome-logo-size: 60px;
-
-        --hamburger-display: flex;
-
-        --step-tools-margin-left: var(--spacing-sm);
-        --step-tools-padding-left: var(--spacing-sm);
-
-        --user-message-max-width: 95%;
-    }
-}
-
-/* 小屏手机（<480px） */
-@media (max-width: 480px) {
-    :root {
         --chat-padding-x: var(--spacing-sm);
         --chat-padding-y: var(--spacing-sm);
-        --chat-padding-bottom: 160px;
+        --chat-padding-bottom: 150px;
+        --chat-message-gap: var(--spacing-sm);
 
         --input-area-padding-x: var(--spacing-sm);
         --input-centered-padding-x: var(--spacing-sm);
 
         --welcome-title-size: 1.5rem;
         --welcome-subtitle-size: 0.9rem;
+        --welcome-logo-size: 56px;
 
-        --top-bar-padding-y: var(--spacing-xs);
-        --top-bar-padding-x: var(--spacing-sm);
-        --top-bar-divider-left: var(--spacing-sm);
-        --top-bar-divider-right: var(--spacing-sm);
+        --hamburger-display: flex;
 
         --step-tools-margin-left: var(--spacing-xs);
         --step-tools-padding-left: var(--spacing-xs);
 
         --subtasks-padding: var(--spacing-sm);
         --round-header-font-size: 12px;
+
+        --user-message-max-width: 95%;
+
+        /* 移动端字体微调 */
+        --font-size-base: 0.9375rem; /* 15px */
+        --font-size-sm: 0.8125rem; /* 13px */
+        --font-size-xs: 0.6875rem; /* 11px */
+    }
+}
+
+/* 小屏手机（<480px） */
+@media (max-width: 480px) {
+    :root {
+        /* --chat-padding-x: var(--spacing-xs);
+        --chat-padding-y: var(--spacing-xs); */
+        --chat-padding-bottom: 140px;
+
+        --input-area-padding-x: var(--spacing-xs);
+        --input-centered-padding-x: var(--spacing-xs);
+
+        --welcome-title-size: 1.25rem;
+        --welcome-subtitle-size: 0.85rem;
+        --welcome-logo-size: 48px;
+
+        --top-bar-padding-y: var(--spacing-xs);
+        --top-bar-padding-x: var(--spacing-xs);
+        --top-bar-divider-left: var(--spacing-xs);
+        --top-bar-divider-right: var(--spacing-xs);
+
+        --step-tools-margin-left: var(--spacing-xs);
+        --step-tools-padding-left: var(--spacing-xs);
+
+        --subtasks-padding: var(--spacing-xs);
+        --round-header-font-size: 11px;
+
+        /* 小屏手机字体进一步缩小 */
+        --font-size-base: 0.875rem; /* 14px */
+        --font-size-sm: 0.75rem; /* 12px */
+        --font-size-xs: 0.625rem; /* 10px */
     }
 }

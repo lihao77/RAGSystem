@@ -440,12 +440,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--color-text-primary);
   flex-shrink: 0;
 }
 
 .metric-icon.success {
   background: var(--color-success);
+  color: white;
 }
 
 .metric-content {
@@ -533,40 +534,46 @@ onMounted(() => {
 }
 
 .agent-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0;
+  display: flex;
+  flex-wrap: wrap;
   margin-bottom: var(--spacing-md);
 }
 
-/* 用左右内边距替代 gap，使竖线隔断居中于两列之间 */
 .metric-row {
   display: flex;
   justify-content: space-between;
-  padding: var(--spacing-sm);
-  font-size: 0.875rem;
   align-items: center;
-}
-
-.metric-row:not(:last-child) {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.875rem;
+  box-sizing: border-box;
   border-right: 1px solid var(--color-border);
+  width: 100%; /* 默认手机端一列 */
 }
 
-/* 每行最后一列不显示隔断：按列数用容器查询去掉右侧线 */
-@container agent-card (max-width: 399px) {
-  .metric-row { border-right: none; }
+/* 大屏：三列 */
+@media (min-width: 1024px) {
+  .metric-row {
+    width: 25%;
+  }
+  .metric-row:nth-child(4n) {
+    border-right: none;
+  }
 }
-@container agent-card (min-width: 400px) and (max-width: 599px) {
-  .metric-row:nth-child(2n) { border-right: none; }
+
+/* 平板及以上：两列 */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .metric-row {
+    width: 50%;
+  }
+  .metric-row:nth-child(2n) {
+    border-right: none;
+  }
 }
-@container agent-card (min-width: 600px) and (max-width: 799px) {
-  .metric-row:nth-child(3n) { border-right: none; }
-}
-@container agent-card (min-width: 800px) and (max-width: 999px) {
-  .metric-row:nth-child(4n) { border-right: none; }
-}
-@container agent-card (min-width: 1000px) {
-  .metric-row:nth-child(5n) { border-right: none; }
+
+@media (max-width: 767px) {
+  .metric-row {
+    border-right: none;
+  }
 }
 
 .metric-row .metric-label {

@@ -435,4 +435,68 @@ const sliderStyle = computed(() => {
     transform: translateY(0);
   }
 }
+
+/* 移动端优化 */
+@media (max-width: 767px) {
+  .subtask-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
+  }
+
+  .subtask-number {
+    font-size: 0.85rem;
+  }
+
+  .subtask-agent {
+    padding: 3px 8px;
+    font-size: 0.7rem;
+  }
+
+  .subtask-status {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+  }
+
+  .icon {
+    font-size: 9px;
+  }
+
+  .subtask-details,
+  .subtask-preview {
+    padding: var(--spacing-md);
+  }
+
+  .subtask-description-full,
+  .subtask-description {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .section-header {
+    font-size: 0.85rem;
+    margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+  }
+
+  .result-content-full {
+    font-size: 0.8rem;
+    padding: var(--spacing-md);
+    max-height: 300px;
+  }
+
+  .subtask-summary {
+    font-size: 0.8rem;
+    padding-left: var(--spacing-md);
+  }
+
+  .trigger-content {
+    width: 36px;
+    height: 36px;
+  }
+
+  .icon-up,
+  .icon-down {
+    width: 28px;
+    height: 28px;
+  }
+}
 </style>

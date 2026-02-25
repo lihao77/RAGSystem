@@ -606,7 +606,7 @@ class MasterAgentV2(BaseAgent):
                         call_id = f"call_{run_id}_{rounds}_{idx}"
                         agent_display_name = self._get_agent_display_name(agent_name)
 
-                        # ✨ 发布 AgentCall 开始事件
+                        # ✨ 发布 AgentCall 开始事件（不设置 parent_call_id，通过 round 关联）
                         self._publisher.agent_call_start(
                             call_id=call_id,
                             agent_name=agent_name,

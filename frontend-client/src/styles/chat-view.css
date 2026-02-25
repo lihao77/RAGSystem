@@ -141,7 +141,7 @@
   /* width: 20px;
   height: 20px; */
   flex-shrink: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   transition: all var(--transition-fast);
 }
 
@@ -1848,13 +1848,41 @@
 
   /* 移动端字体调整 */
   .markdown-body {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .markdown-body :deep(h1) {
+    font-size: 1.5rem;
+  }
+
+  .markdown-body :deep(h2) {
+    font-size: 1.3rem;
+  }
+
+  .markdown-body :deep(h3) {
+    font-size: 1.1rem;
+  }
+
+  .markdown-body :deep(p) {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .markdown-body :deep(code) {
+    font-size: 0.85rem;
+    padding: 2px 4px;
   }
 
   /* 移动端代码块滚动优化 */
   .markdown-body :deep(pre) {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    font-size: 0.8rem;
+    padding: var(--spacing-sm);
+  }
+
+  .markdown-body :deep(pre code) {
+    font-size: 0.8rem;
   }
 
   /* 移动端表格优化 */
@@ -1862,6 +1890,50 @@
     display: block;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    font-size: 0.85rem;
+  }
+
+  /* 聊天内容和子任务区域在手机上进一步压缩留白 */
+  .message-stream {
+    gap: var(--spacing-sm);
+  }
+
+  .message {
+    gap: var(--spacing-xs);
+  }
+
+  .message-content {
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .subtasks-full-view {
+    padding: var(--spacing-sm);
+  }
+
+  .master-steps-section {
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+  }
+
+  .master-steps-label {
+    font-size: 0.8rem;
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .round-group {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .round-header {
+    margin-bottom: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  /* 状态标签移动端优化 */
+  .status-tag {
+    font-size: 0.7rem;
+    padding: 2px 6px;
   }
 }
 
@@ -1891,6 +1963,49 @@
   :deep(.step-tools) {
     margin-left: var(--step-tools-margin-left);
     padding-left: var(--step-tools-padding-left);
+  }
+
+  /* 小屏手机字体进一步缩小 */
+  .markdown-body {
+    font-size: 0.85rem;
+  }
+
+  .markdown-body :deep(h1) {
+    font-size: 1.3rem;
+  }
+
+  .markdown-body :deep(h2) {
+    font-size: 1.15rem;
+  }
+
+  .markdown-body :deep(h3) {
+    font-size: 1rem;
+  }
+
+  .markdown-body :deep(pre) {
+    font-size: 0.75rem;
+    padding: var(--spacing-xs);
+  }
+
+  .markdown-body :deep(pre code) {
+    font-size: 0.75rem;
+  }
+
+  .markdown-body :deep(table) {
+    font-size: 0.8rem;
+  }
+
+  .message-content {
+    font-size: 0.85rem;
+  }
+
+  .master-steps-label {
+    font-size: 0.75rem;
+  }
+
+  .status-tag {
+    font-size: 0.65rem;
+    padding: 1px 5px;
   }
 }
 
