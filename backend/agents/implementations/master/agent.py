@@ -106,9 +106,17 @@ class MasterAgentV2(BaseAgent):
 
         # 获取模型的上下文限制
         llm_config = self.get_llm_config()
-        model_max_tokens = llm_config.get('max_tokens', 4096)
-        context_token_budget = int(model_max_tokens * 0.6)
-        max_context_tokens = behavior_config.get('max_context_tokens', context_token_budget)
+        from agents.context.budget import compute_context_budget, DEFAULT_MAX_COMPLETION_TOKENS, MASTER_FALLBACK_MULTIPLIER
+        # 兼容新旧字段名：优先使用 max_completion_tokens，回退到 max_tokens
+        model_max_tokens = llm_config.get('max_completion_tokens') or llm_config.get('max_tokens', DEFAULT_MAX_COMPLETION_TOKENS)
+        model_context_window = llm_config.get('max_context_tokens')
+
+        max_context_tokens = compute_context_budget(
+            model_context_window=model_context_window,
+            max_completion_tokens=model_max_tokens,
+            explicit_budget=behavior_config.get('max_context_tokens'),
+            fallback_multiplier=MASTER_FALLBACK_MULTIPLIER,
+        )
 
         # 初始化上下文管理器 (使用 BaseAgent 继承的实例)
         context_config = ContextConfig(
@@ -119,7 +127,8 @@ class MasterAgentV2(BaseAgent):
             # 🎯 智能压缩配置（新增）
             preserve_tool_results=behavior_config.get('preserve_tool_results', True),
             preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
-            importance_threshold=behavior_config.get('importance_threshold', 0.5)
+            importance_threshold=behavior_config.get('importance_threshold', 0.5),
+            model_name=llm_config.get('model_name'),
         )
         self.context_manager = ContextManager(context_config)
 

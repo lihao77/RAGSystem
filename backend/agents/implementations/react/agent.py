@@ -94,30 +94,25 @@ class ReActAgent(BaseAgent):
         # 获取模型配置
         llm_config = self.get_llm_config()
 
-        # 1. 获取输出 token 限制（单次生成）
-        model_max_completion_tokens = llm_config.get('max_tokens', 4096)
-
-        # 2. 获取上下文窗口大小（模型支持的最大输入+输出）
+        # 计算上下文预算
+        from agents.context.budget import compute_context_budget, DEFAULT_MAX_COMPLETION_TOKENS, REACT_FALLBACK_MULTIPLIER
+        # 兼容新旧字段名：优先使用 max_completion_tokens，回退到 max_tokens
+        model_max_completion_tokens = llm_config.get('max_completion_tokens') or llm_config.get('max_tokens', DEFAULT_MAX_COMPLETION_TOKENS)
         model_context_window = llm_config.get('max_context_tokens')
 
-        # 3. 计算上下文预算（用于对话历史管理）
-        if model_context_window:
-            # 如果配置了上下文窗口，预留 system prompt + 输出空间
-            # 预算 = 上下文窗口 - system prompt 估算(2000) - 输出空间 - 安全边界(10%)
-            context_token_budget = int(model_context_window * 0.9) - 2000 - model_max_completion_tokens
-            context_token_budget = max(context_token_budget, 4000)  # 最小保证 4K
-        else:
-            # 兜底：使用输出 token 的 3 倍作为上下文预算（保守估计）
-            context_token_budget = model_max_completion_tokens * 3
-
-        # 4. 用户可以在 behavior_config 中显式覆盖
-        max_context_tokens = behavior_config.get('max_context_tokens', context_token_budget)
+        max_context_tokens = compute_context_budget(
+            model_context_window=model_context_window,
+            max_completion_tokens=model_max_completion_tokens,
+            explicit_budget=behavior_config.get('max_context_tokens'),
+            fallback_multiplier=REACT_FALLBACK_MULTIPLIER,
+        )
 
         # 初始化上下文管理器
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 10),
             max_tokens=max_context_tokens,
-            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window')
+            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window'),
+            model_name=llm_config.get('model_name'),
         )
         self.context_manager = ContextManager(context_config)
 

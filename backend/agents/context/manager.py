@@ -34,6 +34,9 @@ class ContextConfig:
     summarize_use_llm: bool = True  # 是否使用 LLM 生成摘要
     summarize_max_tokens: int = 200  # 摘要最大 token 数
 
+    # tiktoken 精确计数
+    model_name: Optional[str] = None  # 用于 tiktoken 选择 encoding
+
     # 持久化智能压缩触发（加载/执行中接近上限时）
     compression_trigger_ratio: float = 0.85  # 达到 max_tokens 的该比例时触发
     compress_oldest_n: int = 4  # 首次压缩时取最早 N 条做摘要
@@ -55,6 +58,8 @@ class ContextManager:
         """
         self.config = config or ContextConfig()
         self.logger = logging.getLogger(f"{__name__}.ContextManager")
+        from .token_counter import TokenCounter
+        self._token_counter = TokenCounter(model_name=self.config.model_name)
 
     def manage_messages(
         self,
@@ -480,40 +485,11 @@ class ContextManager:
 
     def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """
-        估算消息列表的 token 数量
+        计算消息列表的 token 数量。
 
-        使用简单的启发式估算：
-        - 中文: 1 字符 ≈ 1.5 token
-        - 英文: 1 单词 ≈ 1.3 token
-        - JSON: 按字符数 / 3
-
-        Args:
-            messages: 消息列表
-
-        Returns:
-            估算的 token 数
+        优先使用 tiktoken 精确计数，不可用时降级到启发式估算。
         """
-        total_tokens = 0
-
-        for msg in messages:
-            content = msg.get('content', '')
-
-            if not content:
-                continue
-
-            # 简单估算：每个字符约 1.2 个 token（中英文混合）
-            # 这是一个保守估计，实际可以使用 tiktoken 库精确计算
-            char_count = len(content)
-
-            # 检查是否包含大量 JSON（工具调用结果）
-            if content.strip().startswith('{') or content.strip().startswith('['):
-                # JSON 内容，token 数较少
-                total_tokens += char_count // 3
-            else:
-                # 普通文本
-                total_tokens += int(char_count * 1.2)
-
-        return total_tokens
+        return self._token_counter.count_messages(messages)
 
     def _generate_summary(
         self,

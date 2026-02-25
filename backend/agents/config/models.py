@@ -92,8 +92,18 @@ class AgentLLMConfig(BaseModel):
         result['model_name'] = self.model_name or getattr(default_config.llm, 'model_name', None)
         result['temperature'] = self.temperature if self.temperature is not None else getattr(default_config.llm, 'temperature', 0.7)
 
-        # 输出 token 限制：优先使用 max_completion_tokens，兼容旧的 max_tokens
+        # 输出 token 限制：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
         completion_tokens = self.max_completion_tokens or self.max_tokens
+        if not completion_tokens and model_adapter and result['provider'] and result['provider_type']:
+            # 尝试从 ModelAdapter 获取 Provider 配置
+            try:
+                provider_key = f"{result['provider']}_{result['provider_type']}"
+                provider = model_adapter.providers.get(provider_key)
+                if provider and hasattr(provider, 'max_completion_tokens'):
+                    completion_tokens = provider.max_completion_tokens
+            except Exception:
+                pass  # 静默失败，使用默认值
+
         result['max_tokens'] = completion_tokens or getattr(default_config.llm, 'max_tokens', 4096)
 
         # 上下文窗口：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认

@@ -58,6 +58,50 @@ Routes (API层) → Services (业务层) → 数据访问层 (Neo4j/SQLite-vec)
 - `GET /api/agent/metrics?agent_name=<name>` - 获取单个智能体指标
 - `POST /api/agent/metrics/reset` - 重置性能指标
 
+#### 上下文管理优化（新增 2026-02-25）
+
+**tiktoken 精确计数** (`backend/agents/context/token_counter.py`)
+- 使用 tiktoken 库精确计算 token 数（替代启发式估算）
+- 支持主流模型（GPT-4, DeepSeek, Claude, Qwen, GLM 等）
+- 自动降级：tiktoken 不可用时回退到启发式估算
+- 使用示例：
+  ```python
+  from agents.context import TokenCounter
+  counter = TokenCounter(model_name="deepseek-chat")
+  token_count = counter.count_messages(messages)
+  ```
+
+**统一预算管理** (`backend/agents/context/budget.py`)
+- 具名常量替代魔法数字（SYSTEM_PROMPT_RESERVE, CONTEXT_WINDOW_SAFETY_FACTOR 等）
+- 统一的上下文预算计算函数 `compute_context_budget()`
+- 支持三级优先级：显式预算 > 精确计算 > 兜底估算
+- 配置优先级详见 `backend/agents/context/CONFIGURATION_PRIORITY.md`
+
+**配置优先级**：
+- **max_completion_tokens**（输出限制）：Agent 配置 > Provider 配置 > 系统默认（4096）
+- **max_context_tokens**（上下文窗口）：Agent 配置 > Provider 配置 > 系统默认
+- **上下文预算**：显式预算 > 自动计算 > 兜底估算
+
+**配置示例**：
+```yaml
+agents:
+  qa_agent:
+    llm:
+      provider: test
+      provider_type: deepseek
+      max_completion_tokens: 4096      # 单次输出限制
+      max_context_tokens: 128000       # 模型上下文窗口（128K）
+    custom_params:
+      behavior:
+        # max_context_tokens: 50000    # 可选：显式预算（覆盖自动计算）
+```
+
+**自动计算公式**：
+```
+上下文预算 = int(max_context_tokens × 0.9) - 2000 - max_completion_tokens
+示例：int(128000 × 0.9) - 2000 - 4096 = 109104 tokens
+```
+
 #### 错误处理与重试（新增 2026-02-23）
 
 **错误分类器** (`backend/agents/errors/`)
@@ -131,7 +175,8 @@ agents:
       provider: deepseek
       model_name: deepseek-chat
       temperature: 0.2
-      max_tokens: 4096
+      max_completion_tokens: 4096      # 单次输出的最大 token 数
+      max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
     tools:
       enabled_tools:
         - query_knowledge_graph_with_nl
@@ -141,6 +186,7 @@ agents:
       behavior:
         system_prompt: "你是一个知识图谱问答助手..."
         max_rounds: 10
+        # max_context_tokens: 50000    # 可选：显式指定上下文预算（覆盖自动计算）
 ```
 
 #### 自研工具调用机制
@@ -423,7 +469,9 @@ llm:
   provider_type: ""         # 用于复合键 {name}_{provider_type}
   model_name: ""
   temperature: 0.7
-  max_tokens: 4096
+  max_tokens: 4096          # 向后兼容（推荐使用 max_completion_tokens）
+  max_completion_tokens: 4096  # 单次输出的最大 token 数
+  max_context_tokens: 128000   # 模型支持的最大上下文窗口
 
 embedding:
   provider: ""
@@ -480,16 +528,11 @@ system:
 - `behavior.max_context_tokens`：可选，显式指定对话历史的上下文预算
   - 不配置时自动计算：`(max_context_tokens * 0.9) - 2000 - max_completion_tokens`
   - 预留空间给 system prompt、输出和安全边界
-           - query_knowledge_graph_with_nl
-           - find_causal_chain
-       custom_params:
-         type: react
-         behavior:
-           system_prompt: "你是一个专门做XX的智能体..."
-           max_rounds: 10
-   ```
-3. 重启后端，智能体自动加载
-4. 或通过前端 `/agent-config` 界面在线配置
+
+**配置优先级**（详见 `backend/agents/context/CONFIGURATION_PRIORITY.md`）：
+- `max_completion_tokens`: Agent 配置 > Provider 配置 > 系统默认（4096）
+- `max_context_tokens`: Agent 配置 > Provider 配置 > 系统默认
+- 上下文预算: 显式预算 > 自动计算 > 兜底估算
 
 ### 创建新 Skill
 
@@ -816,11 +859,16 @@ response = adapter.embed(
 ### 智能体系统
 - **统一入口架构**: `backend/agents/docs/UNIFIED_ENTRY_ARCHITECTURE.md` - 架构设计详解
 - **智能体配置**: `backend/agents/configs/agent_configs.yaml`（由 `AgentConfigManager` 读写，示例见 `agent_configs.yaml.example`）
-- **配置模型**: `backend/agents/agent_config.py` - AgentConfig、AgentLLMConfig、AgentToolConfig、AgentSkillConfig 等
+- **配置模型**: `backend/agents/config/models.py` - AgentConfig、AgentLLMConfig、AgentToolConfig、AgentSkillConfig 等
 - **系统升级总结**: `backend/agents/docs/AGENT_SYSTEM_UPGRADE_SUMMARY.md` - 可观测性、错误处理、权限控制升级说明（2026-02-23）
 - **可观测性指南**: `backend/agents/docs/guides/OBSERVABILITY.md` - 结构化日志、性能指标、监控 API
 - **错误处理指南**: `backend/agents/docs/guides/ERROR_HANDLING.md` - 重试机制、错误分类、检查点恢复
 - **权限控制指南**: `backend/agents/docs/guides/PERMISSIONS.md` - 工具风险等级、权限验证、用户审批
+- **上下文管理**: `backend/agents/context/` - 上下文管理器、Token 计数器、预算管理
+  - `manager.py` - ContextManager 主实现
+  - `token_counter.py` - tiktoken 精确计数（2026-02-25）
+  - `budget.py` - 统一预算管理（2026-02-25）
+  - `CONFIGURATION_PRIORITY.md` - 配置优先级完整说明（2026-02-25）
 
 ### Skills 系统
 - **系统概述**: `backend/agents/skills/README.md` - Skills 系统整体介绍
@@ -863,6 +911,7 @@ response = adapter.embed(
 - Pydantic 2.12.5 - 数据验证
 - Neo4j 6.0.3 - 图数据库驱动
 - SQLite + sqlite-vec - 向量数据库（零依赖）
+- tiktoken 0.12.0 - 精确 token 计数
 - requests - HTTP 客户端（用于远程 Embedding API）
 
 ### 前端
