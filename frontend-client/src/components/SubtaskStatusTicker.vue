@@ -1,6 +1,6 @@
 <template>
   <div class="subtask-status-ticker glass-card" :class="{ 'is-expanded': expanded }">
-    <div class="ticker-content">
+    <div class="ticker-content" >
       <!-- 动态滚动区域 -->
       <div class="ticker-scroll-area">
         <transition-group name="ticker-item">
@@ -144,6 +144,13 @@ const progressPercentage = computed(() => {
   justify-content: space-between;
   padding: 8px 16px;
   height: 48px;
+  transition: padding 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 折叠状态：左右 padding 置为 0 */
+.subtask-status-ticker:not(.is-expanded) .ticker-content {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .ticker-scroll-area {

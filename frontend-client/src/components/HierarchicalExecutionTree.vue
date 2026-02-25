@@ -168,7 +168,7 @@ const executionTree = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--spacing-xl);
+  margin-bottom: var(--spacing-md);
   padding: 0 var(--spacing-xs);
 }
 

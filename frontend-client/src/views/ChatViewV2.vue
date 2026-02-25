@@ -157,75 +157,14 @@
                   @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks" />
 
                 <!-- 视图切换按钮 -->
-                <div v-if="msg.showFullSubtasks" class="view-toggle-bar">
-                  <button
-                    class="view-toggle-btn"
-                    :class="{ active: !useHierarchicalView }"
-                    @click="useHierarchicalView = false"
-                    title="传统视图"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="8" y1="6" x2="21" y2="6"></line>
-                      <line x1="8" y1="12" x2="21" y2="12"></line>
-                      <line x1="8" y1="18" x2="21" y2="18"></line>
-                      <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                      <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                      <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                    </svg>
-                    <span>传统视图</span>
-                  </button>
-                  <button
-                    class="view-toggle-btn"
-                    :class="{ active: useHierarchicalView }"
-                    @click="useHierarchicalView = true"
-                    title="层次视图"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="5 9 2 12 5 15"></polyline>
-                      <polyline points="9 5 12 2 15 5"></polyline>
-                      <polyline points="15 19 12 22 9 19"></polyline>
-                      <polyline points="19 9 22 12 19 15"></polyline>
-                      <line x1="2" y1="12" x2="22" y2="12"></line>
-                      <line x1="12" y1="2" x2="12" y2="22"></line>
-                    </svg>
-                    <span>层次视图</span>
-                  </button>
-                </div>
-
                 <!-- 完整详情模式 -->
                 <transition name="expand">
                   <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
                     <!-- 层次化视图 -->
                     <HierarchicalExecutionTree
-                      v-if="useHierarchicalView"
                       :master-steps="msg.master_steps || []"
                       :subtasks="msg.subtasks || []"
                     />
-
-                    <!-- 传统视图 -->
-                    <template v-else>
-                      <!-- Master 推理（仅当存在 master_steps 时显示，避免算到子 Agent 卡片） -->
-                      <div v-if="msg.master_steps && msg.master_steps.length > 0" class="master-steps-section">
-                        <div class="master-steps-label">
-                          <span class="pulse-icon">🧠</span>
-                          <span>Master 推理</span>
-                        </div>
-                        <ReActStepsList :steps="msg.master_steps" />
-                      </div>
-                      <div class="subtasks-list">
-                        <!-- 轮次循环 -->
-                        <div v-for="(roundGroup, roundNum) in groupSubtasksByRound(msg.subtasks)" :key="roundNum"
-                          class="round-group">
-                          <div v-if="Object.keys(groupSubtasksByRound(msg.subtasks)).length > 1" class="round-header">
-                            Round {{ roundNum }}
-                          </div>
-                          <!-- 每个 subtask 卡片 -->
-                          <SubtaskCard v-for="(subtask, index) in roundGroup" :key="subtask.order" :subtask="subtask"
-                            @update:expanded="expandSubtask(msg.subtasks, subtask.task_id)" />
-                        </div>
-                      </div>
-                    </template>
-
                   </div>
                 </transition>
 
@@ -319,9 +258,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
-import SubtaskCard from '../components/SubtaskCard.vue';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
-import ReActStepsList from '../components/ReActStepsList.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
@@ -389,8 +326,6 @@ const editingMessageIndex = ref(null);
 const editingDraft = ref('');
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const expandedSummarySeq = ref(null);
-/** 是否使用层次化视图（默认 false，使用传统视图） */
-const useHierarchicalView = ref(false);
 const handlePopState = () => {
   const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
   const sessionId = match ? decodeURIComponent(match[1]) : null;
@@ -669,31 +604,6 @@ function stepsToSubtasks(steps) {
   }
   return { subtasks, master_steps };
 }
-
-// 🎯 按轮次分组 subtasks
-const groupSubtasksByRound = (subtasks) => {
-  const groups = {};
-  for (const subtask of subtasks) {
-    const round = subtask.round || 1;  // 降级：没有 round 则默认为 1
-    if (!groups[round]) {
-      groups[round] = [];
-    }
-    groups[round].push(subtask);
-  }
-  return groups;
-};
-
-// 🎯 V1 风格：手风琴逻辑（一次只展开一个）
-const expandSubtask = (subtasks, taskId) => {
-  subtasks.forEach(task => {
-    // 如果是当前点击的任务，则切换状态；其他的全部折叠
-    if (task.task_id === taskId) {
-      task.expanded = !task.expanded;
-    } else {
-      task.expanded = false;
-    }
-  });
-};
 
 const formatTitle = (item) => {
   const content = (item.first_message || item.last_message || '').trim();
@@ -1456,50 +1366,5 @@ onUnmounted(() => {
   background: var(--el-fill-color-lighter);
   border-radius: 8px;
   font-size: 0.9rem;
-}
-
-/* 视图切换按钮 */
-.view-toggle-bar {
-  display: flex;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--color-bg-elevated);
-  border-bottom: 1px solid var(--color-border);
-  justify-content: center;
-}
-
-.view-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.view-toggle-btn:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-}
-
-.view-toggle-btn.active {
-  background: var(--color-interactive);
-  border-color: var(--color-interactive);
-  color: white;
-  box-shadow: 0 2px 8px rgba(129, 140, 248, 0.3);
-}
-
-.view-toggle-btn svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
 }
 </style>

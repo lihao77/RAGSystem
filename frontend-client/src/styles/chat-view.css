@@ -1908,7 +1908,7 @@
   }
 
   .subtasks-full-view {
-    padding: var(--spacing-sm);
+    padding: var(--spacing-md);
   }
 
   .master-steps-section {
@@ -1958,6 +1958,10 @@
     /* Firefox */
     -ms-overflow-style: none;
     /* IE 10+ */
+  }
+
+  .subtasks-full-view {
+    padding: var(--spacing-sm);
   }
 
   :deep(.step-tools) {

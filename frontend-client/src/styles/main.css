@@ -348,12 +348,12 @@ body {
 /* 移动端（<768px） */
 @media (max-width: 767px) {
     :root {
-        --chat-padding-x: var(--spacing-sm);
-        --chat-padding-y: var(--spacing-sm);
+        --chat-padding-x: var(--spacing-md);
+        --chat-padding-y: var(--spacing-md);
         --chat-padding-bottom: 150px;
         --chat-message-gap: var(--spacing-sm);
 
-        --input-area-padding-x: var(--spacing-sm);
+        --input-area-padding-x: var(--spacing-md);
         --input-centered-padding-x: var(--spacing-sm);
 
         --welcome-title-size: 1.5rem;
@@ -365,7 +365,7 @@ body {
         --step-tools-margin-left: var(--spacing-xs);
         --step-tools-padding-left: var(--spacing-xs);
 
-        --subtasks-padding: var(--spacing-sm);
+        --subtasks-padding: var(--spacing-md);
         --round-header-font-size: 12px;
 
         --user-message-max-width: 95%;
@@ -384,7 +384,7 @@ body {
         --chat-padding-y: var(--spacing-xs); */
         --chat-padding-bottom: 140px;
 
-        --input-area-padding-x: var(--spacing-xs);
+        --input-area-padding-x: var(--spacing-md);
         --input-centered-padding-x: var(--spacing-xs);
 
         --welcome-title-size: 1.25rem;
@@ -399,7 +399,7 @@ body {
         --step-tools-margin-left: var(--spacing-xs);
         --step-tools-padding-left: var(--spacing-xs);
 
-        --subtasks-padding: var(--spacing-xs);
+        --subtasks-padding: var(--spacing-sm);
         --round-header-font-size: 11px;
 
         /* 小屏手机字体进一步缩小 */
