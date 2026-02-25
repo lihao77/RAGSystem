@@ -38,7 +38,17 @@ class AgentLLMConfig(BaseModel):
     max_tokens: Optional[int] = Field(
         default=None,
         ge=1,
-        description="最大生成 token 数，None 表示使用系统默认"
+        description="（已废弃，请使用 max_completion_tokens）最大生成 token 数，None 表示使用系统默认"
+    )
+    max_completion_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="单次输出的最大 token 数（如 4096），None 表示使用系统默认。优先级高于 max_tokens"
+    )
+    max_context_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="模型支持的最大上下文窗口（如 128000），None 表示自动推断或使用系统默认"
     )
     top_p: Optional[float] = Field(
         default=None,
@@ -63,12 +73,13 @@ class AgentLLMConfig(BaseModel):
         """转换为字典，过滤 None 值"""
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
-    def merge_with_default(self, default_config) -> Dict[str, Any]:
+    def merge_with_default(self, default_config, model_adapter=None) -> Dict[str, Any]:
         """
-        与默认配置合并
+        与默认配置合并，支持从 ModelAdapter 获取 Provider 元数据
 
         Args:
             default_config: 系统默认配置对象
+            model_adapter: ModelAdapter 实例（可选，用于获取 Provider 配置）
 
         Returns:
             合并后的配置字典
@@ -80,7 +91,25 @@ class AgentLLMConfig(BaseModel):
         result['provider_type'] = self.provider_type or getattr(default_config.llm, 'provider_type', None)
         result['model_name'] = self.model_name or getattr(default_config.llm, 'model_name', None)
         result['temperature'] = self.temperature if self.temperature is not None else getattr(default_config.llm, 'temperature', 0.7)
-        result['max_tokens'] = self.max_tokens or getattr(default_config.llm, 'max_tokens', 4096)
+
+        # 输出 token 限制：优先使用 max_completion_tokens，兼容旧的 max_tokens
+        completion_tokens = self.max_completion_tokens or self.max_tokens
+        result['max_tokens'] = completion_tokens or getattr(default_config.llm, 'max_tokens', 4096)
+
+        # 上下文窗口：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
+        context_tokens = self.max_context_tokens
+        if not context_tokens and model_adapter and result['provider'] and result['provider_type']:
+            # 尝试从 ModelAdapter 获取 Provider 配置
+            try:
+                provider_key = f"{result['provider']}_{result['provider_type']}"
+                provider = model_adapter.providers.get(provider_key)
+                if provider and hasattr(provider, 'max_context_tokens'):
+                    context_tokens = provider.max_context_tokens
+            except Exception:
+                pass  # 静默失败，使用默认值
+
+        result['max_context_tokens'] = context_tokens or getattr(default_config.llm, 'max_context_tokens', None)
+
         result['timeout'] = self.timeout or getattr(default_config.llm, 'timeout', 30)
         result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_config.llm, 'retry_attempts', 3)
 
@@ -135,7 +164,8 @@ class AgentConfig(BaseModel):
                     "provider": "deepseek",
                     "model_name": "deepseek-chat",
                     "temperature": 0.3,
-                    "max_tokens": 4096
+                    "max_completion_tokens": 4096,
+                    "max_context_tokens": 128000
                 },
                 "tools": {
                     "enabled_tools": ["query_kg", "semantic_search"]
@@ -216,31 +246,31 @@ PRESET_CONFIGS = {
     AgentConfigPreset.FAST: {
         "llm": {
             "temperature": 0.1,
-            "max_tokens": 2048
+            "max_completion_tokens": 2048
         }
     },
     AgentConfigPreset.BALANCED: {
         "llm": {
             "temperature": 0.5,
-            "max_tokens": 4096
+            "max_completion_tokens": 4096
         }
     },
     AgentConfigPreset.ACCURATE: {
         "llm": {
             "temperature": 0.1,
-            "max_tokens": 8192
+            "max_completion_tokens": 8192
         }
     },
     AgentConfigPreset.CREATIVE: {
         "llm": {
             "temperature": 0.9,
-            "max_tokens": 4096
+            "max_completion_tokens": 4096
         }
     },
     AgentConfigPreset.CHEAP: {
         "llm": {
             "temperature": 0.5,
-            "max_tokens": 2048
+            "max_completion_tokens": 2048
         }
     }
 }

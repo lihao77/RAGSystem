@@ -78,8 +78,12 @@
             <span class="value">{{ provider.temperature }}</span>
           </div>
           <div class="detail-row">
-            <span class="label">最大Token:</span>
-            <span class="value">{{ provider.max_tokens }}</span>
+            <span class="label">输出Token限制:</span>
+            <span class="value">{{ provider.max_completion_tokens || provider.max_tokens || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">上下文窗口:</span>
+            <span class="value">{{ provider.max_context_tokens ? provider.max_context_tokens.toLocaleString() : '未配置' }}</span>
           </div>
           <div class="detail-row">
             <span class="label">超时:</span>
@@ -223,8 +227,25 @@
               <el-slider v-model="formData.temperature" :min="0" :max="2" :step="0.1" />
             </el-form-item>
 
-            <el-form-item label="最大Token">
-              <el-input-number v-model="formData.max_tokens" :min="1" :max="32000" />
+            <el-form-item label="输出Token限制">
+              <el-input-number v-model="formData.max_completion_tokens" :min="1" :max="32000" />
+              <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                单次生成的最大token数（如4096）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="上下文窗口">
+              <el-input-number v-model="formData.max_context_tokens" :min="1000" :max="1000000" :step="1000" />
+              <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                模型支持的最大上下文（如128000），留空则由Agent自动推断
+              </div>
+            </el-form-item>
+
+            <el-form-item label="最大Token(旧)">
+              <el-input-number v-model="formData.max_tokens" :min="1" :max="32000" disabled />
+              <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                已废弃，自动同步为输出Token限制
+              </div>
             </el-form-item>
 
             <el-form-item label="超时时间(秒)">
@@ -423,7 +444,9 @@ const formData = ref({
   models: [],
   model_map: { chat: [], embedding: [], reasoning: [] },
   temperature: 0.7,
-  max_tokens: 4096,
+  max_tokens: 4096,  // 向后兼容
+  max_completion_tokens: 4096,  // 单次输出限制
+  max_context_tokens: null,  // 模型上下文窗口
   timeout: 30,
   retry_attempts: 3,
   supports_function_calling: true
@@ -544,6 +567,8 @@ const showAddProviderDialog = () => {
     model_map: { chat: [], embedding: [], reasoning: [] },
     temperature: 0.7,
     max_tokens: 4096,
+    max_completion_tokens: 4096,
+    max_context_tokens: null,
     timeout: 30,
     retry_attempts: 3,
     supports_function_calling: true
@@ -562,7 +587,9 @@ const showEditProviderDialog = (provider) => {
     api_endpoint: provider.api_endpoint || '',
     model_map: normalizeModelMap(provider.model_map),
     temperature: provider.temperature || 0.7,
-    max_tokens: provider.max_tokens || 4096,
+    max_tokens: provider.max_tokens || provider.max_completion_tokens || 4096,
+    max_completion_tokens: provider.max_completion_tokens || provider.max_tokens || 4096,
+    max_context_tokens: provider.max_context_tokens || null,
     timeout: provider.timeout || 30,
     retry_attempts: provider.retry_attempts || 3,
     supports_function_calling: provider.supports_function_calling !== false
@@ -586,7 +613,9 @@ const submitForm = async () => {
       models: [...new Set(Object.values(modelMap).flat())],
       model_map: modelMap,
       temperature: formData.value.temperature,
-      max_tokens: formData.value.max_tokens,
+      max_tokens: formData.value.max_completion_tokens || formData.value.max_tokens || 4096,  // 兼容
+      max_completion_tokens: formData.value.max_completion_tokens || formData.value.max_tokens || 4096,
+      max_context_tokens: formData.value.max_context_tokens || null,
       timeout: formData.value.timeout,
       retry_attempts: formData.value.retry_attempts,
       supports_function_calling: formData.value.supports_function_calling
@@ -714,6 +743,13 @@ watch(testTask, (newTask) => {
             testModel.value = currentProviderObj.value.model_map.embedding || ''
         }
     }
+})
+
+// 监听 max_completion_tokens 变化，自动同步到 max_tokens（向后兼容）
+watch(() => formData.value.max_completion_tokens, (newValue) => {
+  if (newValue) {
+    formData.value.max_tokens = newValue
+  }
 })
 
 // 生命周期

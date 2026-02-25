@@ -13,7 +13,8 @@ agents:
       provider_type: deepseek
       model_name: deepseek-chat
       temperature: 0.3
-      max_tokens: 4096
+      max_completion_tokens: 4096      # 单次输出的最大 token 数
+      max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
       timeout: 30
       retry_attempts: 3
     tools:
@@ -28,3 +29,5 @@ agents:
         system_prompt: "你是问答助手"
         max_rounds: 10
         auto_execute_tools: true
+        # max_context_tokens: 80000      # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
+        # compression_strategy: smart    # 可选：上下文压缩策略（sliding_window/smart/summarize）

@@ -131,7 +131,9 @@ def update_provider(provider_key):
     Request Body:
         - models: 支持模型列表（可选）
         - temperature: 温度（可选）
-        - max_tokens: 最大Token（可选）
+        - max_tokens: 最大Token（已废弃，可选）
+        - max_completion_tokens: 单次输出Token限制（可选）
+        - max_context_tokens: 模型上下文窗口（可选）
         - timeout: 超时时间（可选）
         - retry_attempts: 重试次数（可选）
         - supports_function_calling: 支持工具调用（可选）
@@ -162,8 +164,8 @@ def update_provider(provider_key):
 
         # 只更新允许修改的字段
         allowed_fields = [
-            'models', 'temperature', 'max_tokens', 'timeout',
-            'retry_attempts', 'retry_delay', 'supports_function_calling', 
+            'models', 'temperature', 'max_tokens', 'max_completion_tokens', 'max_context_tokens',
+            'timeout', 'retry_attempts', 'retry_delay', 'supports_function_calling',
             'model_map', 'api_endpoint'
         ]
 

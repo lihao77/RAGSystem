@@ -153,10 +153,14 @@ class BaseAgent(ABC):
         return f"[{name}]"
 
     def get_llm_config(self, context: Optional[AgentContext] = None) -> Dict[str, Any]:
-        """获取 LLM 配置（优先智能体配置，支持请求级覆盖）"""
+        """获取 LLM 配置（优先智能体配置，支持请求级覆盖，支持从 ModelAdapter 继承）"""
         config = {}
         if self.agent_config and self.agent_config.llm:
-            config = self.agent_config.llm.merge_with_default(self.system_config)
+            # 传递 model_adapter 以支持从 Provider 配置继承 max_context_tokens
+            config = self.agent_config.llm.merge_with_default(
+                self.system_config,
+                model_adapter=self.model_adapter
+            )
         elif self.system_config:
             llm_config = getattr(self.system_config, 'llm', None)
             if llm_config:
@@ -165,7 +169,8 @@ class BaseAgent(ABC):
                     'provider_type': getattr(llm_config, 'provider_type', None),
                     'model_name': getattr(llm_config, 'model_name', None),
                     'temperature': getattr(llm_config, 'temperature', 0.7),
-                    'max_tokens': getattr(llm_config, 'max_tokens', 4096)
+                    'max_tokens': getattr(llm_config, 'max_tokens', 4096),
+                    'max_context_tokens': getattr(llm_config, 'max_context_tokens', None)
                 }
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")

@@ -81,14 +81,51 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="最大Token" :label-width="labelWidth">
+          <el-form-item label="输出Token限制" :label-width="labelWidth">
+            <el-input-number
+              v-model="model.max_completion_tokens"
+              :min="100"
+              :max="32000"
+              :step="512"
+              style="width: 100%"
+              placeholder="单次输出最大token数"
+            />
+            <div style="font-size: 12px; color: #999; margin-top: 2px;">
+              单次生成的最大token数
+            </div>
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-form-item label="上下文窗口" :label-width="labelWidth">
+            <el-input-number
+              v-model="model.max_context_tokens"
+              :min="1000"
+              :max="1000000"
+              :step="1000"
+              style="width: 100%"
+              placeholder="模型上下文窗口大小"
+            />
+            <div style="font-size: 12px; color: #999; margin-top: 2px;">
+              模型支持的最大上下文（如128000）
+            </div>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="最大Token(旧)" :label-width="labelWidth">
             <el-input-number
               v-model="model.max_tokens"
               :min="100"
               :max="32000"
               :step="512"
               style="width: 100%"
+              disabled
             />
+            <div style="font-size: 12px; color: #999; margin-top: 2px;">
+              已废弃，使用输出Token限制
+            </div>
           </el-form-item>
         </el-col>
       </el-row>
@@ -211,7 +248,9 @@ const props = defineProps({
       provider_type: '',
       model_name: '',
       temperature: 0.7,
-      max_tokens: 4096,
+      max_tokens: 4096,  // 向后兼容
+      max_completion_tokens: null,  // 单次输出限制
+      max_context_tokens: null,  // 模型上下文窗口
       timeout: 30,
       retry_attempts: 3
     })
@@ -297,7 +336,9 @@ const handleProviderChange = (optionValue) => {
       provider_type: provider.provider_type || undefined,
       model_name: defaultModel,
       temperature: provider.temperature || 0.7,
-      max_tokens: provider.max_tokens || 4096,
+      max_tokens: provider.max_tokens || provider.max_completion_tokens || 4096,  // 兼容
+      max_completion_tokens: provider.max_completion_tokens || provider.max_tokens || 4096,
+      max_context_tokens: provider.max_context_tokens || null,
       timeout: provider.timeout || 30,
       retry_attempts: provider.retry_attempts || 3
     }

@@ -71,13 +71,18 @@ class AIProvider(ABC):
         # 模型配置
         self.model = kwargs.get("model", "")
         self.model_map = kwargs.get("model_map", {}) or {}
-        
+
         # 兼容性处理：如果只提供了 model，默认作为 chat 模型
         if self.model and 'chat' not in self.model_map:
             self.model_map['chat'] = self.model
-            
+
         self.temperature = kwargs.get("temperature", 0.7)
-        self.max_tokens = kwargs.get("max_tokens", 4096)
+
+        # Token 配置（业界标准语义）
+        self.max_tokens = kwargs.get("max_tokens", 4096)  # 向后兼容
+        self.max_completion_tokens = kwargs.get("max_completion_tokens") or self.max_tokens  # 单次输出限制
+        self.max_context_tokens = kwargs.get("max_context_tokens")  # 模型上下文窗口
+
         self.timeout = kwargs.get("timeout", 30)
         self.retry_attempts = kwargs.get("retry_attempts", 3)
         self.retry_delay = kwargs.get("retry_delay", 1.0)

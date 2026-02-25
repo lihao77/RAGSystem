@@ -91,18 +91,29 @@ class ReActAgent(BaseAgent):
         self.max_rounds = behavior_config.get('max_rounds', 10)
         self.base_prompt = behavior_config.get('system_prompt', '')
 
-        #  获取模型的上下文限制
+        # 获取模型配置
         llm_config = self.get_llm_config()
-        model_max_tokens = llm_config.get('max_tokens', 4096)
 
-        # 为上下文管理预留空间（模型 max_tokens 的 60%）
-        # 留出 40% 给 system prompt、输出和其他开销
-        context_token_budget = int(model_max_tokens * 0.6)
+        # 1. 获取输出 token 限制（单次生成）
+        model_max_completion_tokens = llm_config.get('max_tokens', 4096)
 
-        # 用户可以在 behavior_config 中覆盖这个值
+        # 2. 获取上下文窗口大小（模型支持的最大输入+输出）
+        model_context_window = llm_config.get('max_context_tokens')
+
+        # 3. 计算上下文预算（用于对话历史管理）
+        if model_context_window:
+            # 如果配置了上下文窗口，预留 system prompt + 输出空间
+            # 预算 = 上下文窗口 - system prompt 估算(2000) - 输出空间 - 安全边界(10%)
+            context_token_budget = int(model_context_window * 0.9) - 2000 - model_max_completion_tokens
+            context_token_budget = max(context_token_budget, 4000)  # 最小保证 4K
+        else:
+            # 兜底：使用输出 token 的 3 倍作为上下文预算（保守估计）
+            context_token_budget = model_max_completion_tokens * 3
+
+        # 4. 用户可以在 behavior_config 中显式覆盖
         max_context_tokens = behavior_config.get('max_context_tokens', context_token_budget)
 
-        #  初始化上下文管理器
+        # 初始化上下文管理器
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 10),
             max_tokens=max_context_tokens,
@@ -110,7 +121,7 @@ class ReActAgent(BaseAgent):
         )
         self.context_manager = ContextManager(context_config)
 
-        #  初始化观察结果格式化器
+        # 初始化观察结果格式化器
         self.observation_formatter = ObservationFormatter(
             data_save_dir=behavior_config.get('data_save_dir', './static/temp_data')
         )
@@ -119,7 +130,8 @@ class ReActAgent(BaseAgent):
             f"ReActAgent '{self.name}' 初始化完成，"
             f"可用工具: {len(self.available_tools)}，"
             f"可用 Skills: {len(self.available_skills)}，"
-            f"模型 max_tokens: {model_max_tokens}, "
+            f"模型输出限制: {model_max_completion_tokens} tokens, "
+            f"上下文窗口: {model_context_window or '未配置'}, "
             f"上下文预算: {max_context_tokens} tokens, "
             f"压缩策略: {context_config.compression_strategy}"
         )

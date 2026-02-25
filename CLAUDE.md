@@ -455,8 +455,31 @@ system:
        llm:
          provider: deepseek
          temperature: 0.3
+         max_completion_tokens: 4096    # 单次输出的最大 token 数
+         max_context_tokens: 128000     # 模型支持的最大上下文窗口（如 DeepSeek 128K）
        tools:
          enabled_tools:
+           - query_knowledge_graph_with_nl
+           - find_causal_chain
+       custom_params:
+         type: react
+         behavior:
+           system_prompt: "你是一个专门做XX的智能体..."
+           max_rounds: 10
+           # max_context_tokens: 80000  # 可选：显式指定对话历史预算（覆盖自动计算）
+   ```
+3. 重启后端，智能体自动加载
+4. 或通过前端 `/agent-config` 界面在线配置
+
+**LLM 配置说明**：
+- `max_completion_tokens`：单次生成的最大 token 数（输出长度限制）
+- `max_context_tokens`：模型支持的最大上下文窗口（输入+输出总长度）
+  - 如 GPT-4 Turbo: 128000
+  - 如 DeepSeek V3: 128000
+  - 如 Claude 3.5 Sonnet: 200000
+- `behavior.max_context_tokens`：可选，显式指定对话历史的上下文预算
+  - 不配置时自动计算：`(max_context_tokens * 0.9) - 2000 - max_completion_tokens`
+  - 预留空间给 system prompt、输出和安全边界
            - query_knowledge_graph_with_nl
            - find_causal_chain
        custom_params:

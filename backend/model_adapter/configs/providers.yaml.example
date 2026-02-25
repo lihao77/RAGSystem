@@ -9,7 +9,8 @@ my_deepseek:
   provider_type: deepseek
   api_key: "${DEEPSEEK_API_KEY}"
   api_endpoint: ""
-  max_tokens: 4096
+  max_completion_tokens: 4096      # 单次输出的最大 token 数
+  max_context_tokens: 128000       # 模型支持的最大上下文窗口（DeepSeek V3: 128K）
   temperature: 0.7
   timeout: 30
   retry_attempts: 3
@@ -24,7 +25,8 @@ my_openrouter:
   provider_type: openrouter
   api_key: "${OPENROUTER_API_KEY}"
   api_endpoint: ""
-  max_tokens: 4096
+  max_completion_tokens: 4096
+  max_context_tokens: 128000       # 根据实际使用的模型配置（如 GPT-4 Turbo: 128K）
   temperature: 0.7
   timeout: 30
   retry_attempts: 3
