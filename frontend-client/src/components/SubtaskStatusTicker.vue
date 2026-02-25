@@ -32,7 +32,7 @@
       <!-- 切换详情按钮 -->
       <button class="toggle-details-btn btn" @click="$emit('toggle-view')" :title="expanded ? '收起详情' : '显示详细执行过程'">
         <!-- <span class="icon">{{ expanded ? '🔼' : '👁️' }}</span> -->
-        <span class="label">{{ expanded ? '收起' : '查看详情' }}</span>
+        <span class="label">{{ expanded ? '收起' : '展开' }}</span>
       </button>
     </div>
 
@@ -113,7 +113,6 @@ const progressPercentage = computed(() => {
 
 <style scoped>
 .subtask-status-ticker {
-  border-radius: 24px; /* Use px value for interpolation */
   overflow: hidden;
   /* margin: var(--spacing-sm) 0; */
   /* box-shadow: var(--shadow-sm); */
@@ -150,7 +149,6 @@ const progressPercentage = computed(() => {
 /* 折叠状态：左右 padding 置为 0 */
 .subtask-status-ticker:not(.is-expanded) .ticker-content {
   padding-left: 0;
-  padding-right: 0;
 }
 
 .ticker-scroll-area {

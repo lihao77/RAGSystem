@@ -866,6 +866,41 @@ const editingMessage = computed(() => {
   return messages.value[i] || null;
 });
 
+const copyToClipboard = async (text) => {
+  if (!text) return false;
+  // 优先使用 Clipboard API（仅在安全上下文可用）
+  try {
+    if (typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === 'function' &&
+        typeof window !== 'undefined' &&
+        window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) {
+    // 忽略错误，继续走后备方案
+  }
+
+  // 回退到隐藏 textarea + execCommand（兼容部分手机浏览器）
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand && document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return !!ok;
+  } catch (e) {
+    return false;
+  }
+};
+
 const startEditMessage = (msg, index) => {
   const idx = messages.value.findIndex(m => m === msg);
   editingMessageIndex.value = idx >= 0 ? idx : index;
@@ -967,10 +1002,10 @@ const copyMessage = async (msg) => {
     showToast('无内容可复制');
     return;
   }
-  try {
-    await navigator.clipboard.writeText(text);
+  const ok = await copyToClipboard(text);
+  if (ok) {
     showToast('已复制到剪贴板', 'success');
-  } catch (e) {
+  } else {
     showToast('复制失败');
   }
 };

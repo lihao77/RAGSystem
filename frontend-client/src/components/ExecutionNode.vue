@@ -14,7 +14,18 @@
     <!-- 智能体调用节点 -->
     <div v-else-if="node.type === 'agent_call'" class="node-agent-call" :class="node.status">
       <div class="agent-call-header" @click="toggleExpanded">
-        <span class="expand-icon" :class="{ expanded: localExpanded }">▶</span>
+        <span class="expand-icon" :class="{ expanded: localExpanded }">
+          <svg class="expand-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline
+              points="8 5 16 12 8 19"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
         <span class="agent-badge" :class="getAgentClass(node.agent_name)">
           {{ node.agent_display_name || node.agent_name }}
         </span>
@@ -342,17 +353,26 @@ const sliderStyle = computed(() => {
 } 
 
 .expand-icon {
-  font-size: 10px;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--color-text-muted);
-  display: inline-block;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform;
-  margin-left: -4px;
+  margin-left: -7px;
   overflow: visible;
 }
 
 .expand-icon.expanded {
   transform: rotate(90deg);
+}
+
+.expand-icon-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .order-badge {
@@ -564,8 +584,17 @@ const sliderStyle = computed(() => {
     height: 28px;
   }
   .expand-icon {
-    margin-left: -2.5px;
-    font-size: 8px;
+    margin-left: -6px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .expand-icon {
+    margin-left: -5px;
+    width: 12px;
+    height: 12px;
   }
 }
 

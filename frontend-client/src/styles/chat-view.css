@@ -616,6 +616,8 @@
 .message.assistant .message-content-wrapper {
   width: 100%;
   max-width: 100%;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;  /* 提前告知浏览器优化 */
 }
 
 /* User 消息根据内容自适应，最大 85% */
@@ -1433,32 +1435,35 @@
   /* 移除顶部边框以衔接 Ticker */
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   /* 下方圆角 */
-  padding: var(--subtasks-padding);
+  padding: 0 var(--subtasks-padding);
   margin-top: 0;
   /* 移除 transition，由 JS 钩子控制动画 */
+  overflow-x: hidden;
 }
 
 /* 动画类名对应 Vue transition name="expand" */
 .expand-enter-active,
 .expand-leave-active {
   overflow: hidden;
-  /* 添加过渡效果，使动画更流畅 */
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 使用较大上限以保留展开/收起动画，不限制内容高度 */
+  max-height: 3000px;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .expand-enter-from,
 .expand-leave-to {
-  /* 这里不仅要控制高度，还要控制 padding，否则 padding 会导致跳动 */
   padding-top: 0;
   padding-bottom: 0;
   opacity: 0;
-  /* 添加向上平移效果，让容器从 ticker 下方"拖出" */
-  transform: translateY(-10px);
+  transform: translateY(-6px);
+  max-height: 0 !important;
 }
 
 .expand-enter-to,
 .expand-leave-from {
-  /* 展开后的状态：完全可见，无偏移 */
   opacity: 1;
   transform: translateY(0);
 }
@@ -1908,7 +1913,7 @@
   }
 
   .subtasks-full-view {
-    padding: var(--spacing-md);
+    padding: 0 var(--spacing-md);
   }
 
   .master-steps-section {
@@ -1961,7 +1966,7 @@
   }
 
   .subtasks-full-view {
-    padding: var(--spacing-sm);
+    padding: 0 var(--spacing-sm);
   }
 
   :deep(.step-tools) {
