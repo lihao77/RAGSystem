@@ -487,6 +487,12 @@ class MasterAgentV2(BaseAgent):
                         error=f"LLM 调用失败: {response.error}",
                         error_type="LLMError"
                     )
+                    # ✨ 发布运行结束事件，确保 SSE 流正确终止
+                    self._publisher.run_end(
+                        run_id=run_id,
+                        status="error",
+                        summary=f"LLM 调用失败: {response.error}"
+                    )
                     return AgentResponse(
                         success=False,
                         error=f"LLM 调用失败: {response.error}",
@@ -770,6 +776,12 @@ class MasterAgentV2(BaseAgent):
 
             # ✨ 发布错误事件
             self._publisher.agent_error(error=str(e), error_type="ExecutionError")
+            # ✨ 发布运行结束事件，确保 SSE 流正确终止
+            self._publisher.run_end(
+                run_id=run_id,
+                status="error",
+                summary=f"执行失败: {e}"
+            )
             return AgentResponse(
                 success=False,
                 error=str(e),
