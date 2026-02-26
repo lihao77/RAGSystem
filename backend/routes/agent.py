@@ -468,8 +468,9 @@ def stream_execute():
 
             # ✨ 让 MetricsCollector 订阅此会话的事件总线
             metrics_collector = getattr(orchestrator, '_metrics_collector', None)
+            metrics_subscription_id = None
             if metrics_collector:
-                metrics_collector.subscribe_to_events(event_bus)
+                metrics_subscription_id = metrics_collector.subscribe_to_events(event_bus)
                 logger.info(f"✓ MetricsCollector 已订阅会话 {session_id} 的事件总线")
 
             # ✨ 创建 SSEAdapter 订阅事件总线
@@ -637,6 +638,8 @@ def stream_execute():
             finally:
                 event_bus.unsubscribe(subscription_id)
                 event_bus.unsubscribe(compression_subscription_id)
+                if metrics_subscription_id:
+                    event_bus.unsubscribe(metrics_subscription_id)
 
             # 结束事件
             yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"

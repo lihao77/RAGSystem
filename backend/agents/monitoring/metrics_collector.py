@@ -103,16 +103,31 @@ class MetricsCollector:
         except Exception as e:
             logger.warning("持久化指标文件失败: %s", e)
 
-    def subscribe_to_events(self, event_bus: EventBus):
-        """订阅事件总线"""
-        # 订阅智能体调用事件（包含 agent_name）
-        event_bus.subscribe([EventType.CALL_AGENT_START], self._on_agent_call_start)
-        event_bus.subscribe([EventType.CALL_AGENT_END], self._on_agent_call_end)
-        # 订阅工具调用事件
-        event_bus.subscribe([EventType.CALL_TOOL_START], self._on_tool_start)
-        event_bus.subscribe([EventType.CALL_TOOL_END], self._on_tool_end)
-        # 订阅错误事件
-        event_bus.subscribe([EventType.ERROR], self._on_error)
+    def subscribe_to_events(self, event_bus: EventBus) -> str:
+        """订阅事件总线，返回 subscription_id 以便后续取消"""
+        return event_bus.subscribe(
+            event_types=[
+                EventType.CALL_AGENT_START,
+                EventType.CALL_AGENT_END,
+                EventType.CALL_TOOL_START,
+                EventType.CALL_TOOL_END,
+                EventType.AGENT_ERROR,
+            ],
+            handler=self._dispatch_event,
+        )
+
+    def _dispatch_event(self, event):
+        """根据事件类型分发到对应处理方法"""
+        handlers = {
+            EventType.CALL_AGENT_START: self._on_agent_call_start,
+            EventType.CALL_AGENT_END: self._on_agent_call_end,
+            EventType.CALL_TOOL_START: self._on_tool_start,
+            EventType.CALL_TOOL_END: self._on_tool_end,
+            EventType.AGENT_ERROR: self._on_error,
+        }
+        handler = handlers.get(event.type)
+        if handler:
+            handler(event)
 
     def _on_agent_call_start(self, event):
         """处理 CALL_AGENT_START 事件"""
@@ -211,7 +226,7 @@ class MetricsCollector:
         event_data = event.data if hasattr(event, 'data') else event
         agent_name = event_data.get("agent_name")
         error_type = event_data.get("error_type", "UnknownError")
-        error_message = event_data.get("error_message", "")
+        error_message = event_data.get("error") or event_data.get("error_message", "")
 
         if agent_name:
             self._update_error_metrics(

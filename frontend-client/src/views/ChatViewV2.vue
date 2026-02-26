@@ -173,7 +173,8 @@
               <div v-if="!(msg.role === 'system' && msg.metadata && msg.metadata.compression)" class="message-content-wrapper">
                 <div class="message-content">
                   <!-- Loading State -->
-                  <div v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0)"
+                  <div
+                    v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0) && !msg.finished"
                     class="loading-indicator">
                     <div class="dot"></div>
                     <div class="dot"></div>
