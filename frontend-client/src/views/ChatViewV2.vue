@@ -523,34 +523,42 @@ const getCalledAgentAndDisplayName = (eventOrStep) => {
   return { calledAgent, displayName };
 };
 
-// 🎯 将持久化的 steps 还原为 subtasks 与 master_steps（与 SSE 实时结构一致）
+// 🎯 将持久化的 steps 还原为 subtasks 与 master_steps（基于 call_id 和 parent_call_id 构建调用树）
 function stepsToSubtasks(steps) {
   if (!Array.isArray(steps) || steps.length === 0) return { subtasks: [], master_steps: [] };
-  const subtasks = [];
-  let master_steps = [];
+
+  const callNodes = new Map();
+  const toolCalls = new Map();
+  const master_steps = [];
+
   const getData = (s) => (s && s.payload && s.payload.data) ? s.payload.data : {};
   const getAgentName = (s) => (s && s.payload && s.payload.agent_name) ? s.payload.agent_name : null;
+
+  // 第一遍：收集所有节点
   for (const step of steps) {
     const eventType = step.step_type || (step.payload && step.payload.type);
     const eventData = getData(step);
     const agentName = getAgentName(step);
-    const order = eventData.order;
-    const taskId = eventData.call_id || eventData.task_id;
-    const desc = eventData.description || eventData.subtask_description;
+    const callId = step.payload?.call_id;
+    const parentCallId = step.payload?.parent_call_id;
+
+    // Agent 调用开始
     if (eventType === 'call.agent.start' || eventType === 'subtask.start') {
-      // 用统一的解析函数，保证与 SSE 一致
       const { calledAgent, displayName } = getCalledAgentAndDisplayName(step);
+
+      // 跳过 MasterAgent（它不显示在 subtasks 中）
       if (calledAgent === 'master_agent_v2') continue;
-      if (subtasks.length > 0) subtasks.forEach(st => st.expanded = false);
-      subtasks.push({
-        order: order,
-        task_id: taskId,
-        parent_call_id: eventData.parent_call_id, // 🎯 添加 parent_call_id
+
+      callNodes.set(callId, {
+        call_id: callId,
+        parent_call_id: parentCallId,
+        order: eventData.order,
+        task_id: callId,
         round: eventData.round,
         round_index: eventData.round_index,
         agent_name: calledAgent,
         agent_display_name: displayName,
-        description: desc,
+        description: eventData.description || eventData.subtask_description,
         react_steps: [],
         tool_calls: [],
         result_summary: '',
@@ -558,52 +566,86 @@ function stepsToSubtasks(steps) {
         expanded: true,
         currentStep: null
       });
-    } else if (eventType === 'agent.thought_structured') {
-      const isMasterThought = agentName === 'master_agent_v2';
+    }
+
+    // Agent 调用结束
+    else if (eventType === 'call.agent.end' || eventType === 'subtask.end') {
+      const node = callNodes.get(callId);
+      if (node) {
+        node.status = eventData.success === false ? 'error' : 'success';
+        node.result_summary = eventData.result_summary || eventData.result || '';
+        node.expanded = false;
+      }
+    }
+
+    // 思考过程
+    else if (eventType === 'agent.thought_structured') {
+      const agentCallId = step.payload?.call_id;
+      const isMasterThought = (step.payload?.agent_name || eventData.agent_name) === 'master_agent_v2';
       if (isMasterThought) {
         master_steps.push({ round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true });
-      } else {
-        let subtask = taskId ? subtasks.find(s => s.task_id === taskId) : subtasks.find(s => s.order === eventData.subtask_order);
-        if (!subtask) subtask = subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
-        if (subtask) {
-          const newStep = { round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true };
-          subtask.react_steps.push(newStep);
-          subtask.currentStep = newStep;
-        }
+        continue;
       }
-    } else if (eventType === 'call.tool.start' || eventType === 'tool.start') {
-      const subtask = eventData.subtask_order != null ? subtasks.find(s => s.order === eventData.subtask_order) : subtasks.find(s => s.task_id === eventData.parent_call_id) || subtasks.find(s => s.status === 'running') || subtasks[subtasks.length - 1];
-      if (subtask) {
-        if (!subtask.currentStep) {
-          const newStep = { round: eventData.round, thought: '', toolCalls: [], expanded: true };
-          subtask.react_steps.push(newStep);
-          subtask.currentStep = newStep;
-        }
-        const toolCall = { tool_name: eventData.tool_name, arguments: eventData.arguments, status: 'running', index: eventData.index, total: eventData.total, showResult: false, showArgs: false };
-        subtask.currentStep.toolCalls.push(toolCall);
-        subtask.tool_calls.push(toolCall);
-      }
-    } else if (eventType === 'call.tool.end' || eventType === 'tool.end') {
-      const subtask = eventData.subtask_order != null ? subtasks.find(s => s.order === eventData.subtask_order) : subtasks.find(s => s.task_id === eventData.parent_call_id) || subtasks[subtasks.length - 1];
-      if (subtask && subtask.currentStep) {
-        const updateTool = (list) => {
-          const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
-          if (idx >= 0) { list[idx].status = 'success'; list[idx].result = eventData.result; list[idx].elapsed_time = eventData.elapsed_time || eventData.execution_time; }
+      const node = callNodes.get(agentCallId);
+      if (node) {
+        const newStep = {
+          round: eventData.round,
+          thought: eventData.thought || '',
+          toolCalls: [],
+          expanded: true
         };
-        updateTool(subtask.currentStep.toolCalls);
-        updateTool(subtask.tool_calls);
+        node.react_steps.push(newStep);
+        node.currentStep = newStep;
       }
-    } else if (eventType === 'call.agent.end' || eventType === 'subtask.end') {
-      const subtask = subtasks.find(s => s.order === (eventData.order ?? eventData.subtask_order) || s.task_id === taskId);
-      if (subtask) {
-        subtask.result_summary = eventData.result_summary ?? eventData.result ?? '';
-        subtask.status = eventData.success === false ? 'error' : 'success';
-        subtask.expanded = false;
+    }
+
+    // 工具调用开始
+    else if (eventType === 'call.tool.start' || eventType === 'tool.start') {
+      const parentNode = callNodes.get(parentCallId);
+      const toolCall = {
+        call_id: callId,
+        parent_call_id: parentCallId,
+        tool_name: eventData.tool_name,
+        arguments: eventData.arguments,
+        status: 'running',
+        showResult: false,
+        showArgs: false
+      };
+      toolCalls.set(callId, toolCall);
+      if (parentNode) {
+        parentNode.tool_calls.push(toolCall);
+        if (parentNode.currentStep) {
+          parentNode.currentStep.toolCalls.push(toolCall);
+        } else if (parentNode.react_steps.length > 0) {
+          parentNode.react_steps[parentNode.react_steps.length - 1].toolCalls.push(toolCall);
+        }
+      }
+    }
+
+    // 工具调用结束
+    else if (eventType === 'call.tool.end' || eventType === 'tool.end') {
+      const toolCall = toolCalls.get(callId);
+      if (toolCall) {
+        toolCall.status = 'success';
+        toolCall.result = eventData.result;
+        toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
       }
     }
   }
+
+  const subtasks = Array.from(callNodes.values());
   return { subtasks, master_steps };
 }
+
+const isMasterEvent = (event) => {
+  const agentName = event.agent_name || event.data?.agent_name;
+  return !agentName || agentName === 'master_agent_v2';
+};
+
+const findSubtaskByCallId = (subtasks, callId) => {
+  if (!callId || !Array.isArray(subtasks)) return null;
+  return subtasks.find(s => s.task_id === callId) || null;
+};
 
 const formatTitle = (item) => {
   const content = (item.first_message || item.last_message || '').trim();
@@ -1091,9 +1133,11 @@ const handleSend = async () => {
     role: 'assistant',
     content: '',
     subtasks: [],
+    master_steps: [],
     showFullSubtasks: false,
     multimodalContents: [],
     status: [],
+    toolCallRegistry: new Map(),
     finished: false
   }) - 1;
 
@@ -1123,12 +1167,15 @@ const handleSend = async () => {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let sseBuffer = '';  // 缓冲跨 chunk 的不完整 SSE 事件
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
-        messages.value[assistantMsgIndex].finished = true;
-        const assistantContent = messages.value[assistantMsgIndex].content;
+        const currentMsg = messages.value[assistantMsgIndex];
+        currentMsg.finished = true;
+        if (currentMsg.toolCallRegistry) currentMsg.toolCallRegistry.clear();
+        const assistantContent = currentMsg.content;
         if (assistantContent) {
           updateRecentSession(sessionId, assistantContent, new Date().toISOString());
         }
@@ -1137,10 +1184,12 @@ const handleSend = async () => {
         break;
       }
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n\n');
+      sseBuffer += decoder.decode(value, { stream: true });
+      const parts = sseBuffer.split('\n\n');
+      // 最后一段可能不完整，保留到下次
+      sseBuffer = parts.pop() || '';
 
-      for (const line of lines) {
+      for (const line of parts) {
         if (line.startsWith('data: ')) {
           try {
             const event = JSON.parse(line.substring(6));
@@ -1160,8 +1209,8 @@ const handleSend = async () => {
 
               currentMsg.subtasks.push({
                 order: eventData.order,
-                task_id: eventData.task_id || eventData.call_id,
-                parent_call_id: eventData.parent_call_id, // 🎯 添加 parent_call_id
+                task_id: event.call_id,
+                parent_call_id: event.parent_call_id,
                 round: eventData.round,
                 round_index: eventData.round_index,
                 agent_name: calledAgentForStart,
@@ -1175,13 +1224,9 @@ const handleSend = async () => {
                 currentStep: null
               });
             }
-            // 🎯 Master V2 的 thought：区分 Master 与子 Agent，避免算到子任务卡片上
+            // 🎯 Master V2 的 thought：区分 Master 与子 Agent
             else if (eventType === 'agent.thought_structured') {
-              const agentName = event.agent_name || eventData.agent_name;
-              const isMasterThought = agentName === 'master_agent_v2';
-
-              if (isMasterThought) {
-                // Master 的思考归到消息级的 master_steps，不归到任何 subtask
+              if (isMasterEvent(event)) {
                 if (!currentMsg.master_steps) currentMsg.master_steps = [];
                 currentMsg.master_steps.push({
                   round: eventData.round,
@@ -1190,13 +1235,7 @@ const handleSend = async () => {
                   expanded: true
                 });
               } else {
-                // 子 Agent 的思考归到对应 subtask
-                let subtask = eventData.task_id
-                  ? currentMsg.subtasks.find(s => s.task_id === eventData.task_id)
-                  : currentMsg.subtasks.find(s => s.order === eventData.subtask_order);
-                if (!subtask) {
-                  subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
-                }
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
                   const newStep = {
                     round: eventData.round,
@@ -1211,8 +1250,7 @@ const handleSend = async () => {
             }
             // 工具调用（支持 call.tool.start / tool.start）
             else if (eventType === 'tool.start' || eventType === 'call.tool.start') {
-              let subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id || s.task_id === eventData.parent_call_id);
-              if (!subtask) subtask = currentMsg.subtasks.find(s => s.status === 'running') || currentMsg.subtasks[currentMsg.subtasks.length - 1];
+              const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
               if (subtask) {
                 if (!subtask.currentStep) {
                   const newStep = {
@@ -1235,22 +1273,31 @@ const handleSend = async () => {
                 };
                 subtask.currentStep.toolCalls.push(toolCall);
                 subtask.tool_calls.push(toolCall);
+                // 注册到 registry，供 tool.end 精确匹配
+                if (event.call_id && currentMsg.toolCallRegistry) {
+                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, subtask });
+                }
               }
             }
             else if (eventType === 'tool.end' || eventType === 'call.tool.end') {
-              let subtask = currentMsg.subtasks.find(s => s.order === eventData.subtask_order || s.task_id === eventData.task_id || s.task_id === eventData.parent_call_id);
-              if (!subtask) subtask = currentMsg.subtasks[currentMsg.subtasks.length - 1];
-              if (subtask && subtask.currentStep) {
-                const updateTool = (list) => {
-                  const idx = list.findIndex(t => t.tool_name === eventData.tool_name && t.status === 'running');
-                  if (idx >= 0) {
-                    list[idx].status = 'success';
-                    list[idx].result = eventData.result;
-                    list[idx].elapsed_time = eventData.elapsed_time || eventData.execution_time;
+              // 优先通过 registry 精确匹配
+              const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
+              if (registered) {
+                registered.toolCall.status = 'success';
+                registered.toolCall.result = eventData.result;
+                registered.toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
+                currentMsg.toolCallRegistry.delete(event.call_id);
+              } else {
+                // fallback: 通过 parent_call_id 找 subtask
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
+                if (subtask) {
+                  const tc = subtask.tool_calls.find(t => t.tool_name === eventData.tool_name && t.status === 'running');
+                  if (tc) {
+                    tc.status = 'success';
+                    tc.result = eventData.result;
+                    tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                   }
-                };
-                updateTool(subtask.currentStep.toolCalls);
-                updateTool(subtask.tool_calls);
+                }
               }
             }
             // 🎯 三种「结束」事件职责区分：
@@ -1260,34 +1307,46 @@ const handleSend = async () => {
 
             // 子任务/子 Agent 调用结束：只更新对应卡片（用 data.agent_name 判断，Master 自身的 end 跳过）
             else if (eventType === 'subtask.end' || eventType === 'call.agent.end') {
-              const calledAgentForEnd = eventData.agent_name ?? event.agent_name;
-              if (calledAgentForEnd === 'master_agent_v2') { /* master 自身结束不更新 subtask */ } else {
-              const subtask = currentMsg.subtasks.find(s => s.order === eventData.order || s.task_id === eventData.task_id || s.task_id === eventData.call_id);
-              if (subtask) {
-                subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
-                subtask.status = eventData.success === false ? 'error' : 'success';
-                subtask.expanded = false;
-              }
+              // call.agent.end 由 MasterAgent publisher 发布，event.agent_name 是 master
+              // 需要用 eventData.agent_name 判断被调用的子 agent
+              const calledAgent = eventData.agent_name;
+              if (calledAgent && calledAgent !== 'master_agent_v2') {
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask) {
+                  subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
+                  subtask.status = eventData.success === false ? 'error' : 'success';
+                  subtask.expanded = false;
+                }
               }
             }
             // 最终答案（完整）：内容 + 元数据 + 标记消息完成
             // （流式内容已由 output.chunk 拼接，此处仅兜底与标记）
             else if (eventType === 'output.chunk') {
-              const content = eventData.content;
-              // 🎯 直接拼接 chunk，不使用打字机（让 markdown 正确渲染）
-              currentMsg.content += content;
-              scrollToBottom();
+              if (isMasterEvent(event)) {
+                currentMsg.content += eventData.content;
+                scrollToBottom();
+              } else {
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
+              }
             }
-            // 最终答案（完整）：内容兜底 + 元数据 + 标记消息完成（主完成信号）
+            // 最终答案：Master→content+finished，子Agent→subtask.result_summary
             else if (eventType === 'output.final_answer') {
-              if (!currentMsg.content || currentMsg.content.length === 0) {
-                currentMsg.content = eventData.content || '';
+              if (isMasterEvent(event)) {
+                // final_answer 是权威内容，覆盖可能不完整的 chunk 拼接
+                if (eventData.content) {
+                  currentMsg.content = eventData.content;
+                }
+                if (eventData.metadata) {
+                  currentMsg.metadata = eventData.metadata;
+                }
+                currentMsg.finished = true;
+                updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+              } else {
+                // 子 agent 的 final_answer：兜底写入 subtask（不 break）
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask && !subtask.result_summary) subtask.result_summary = eventData.content || '';
               }
-              if (eventData.metadata) {
-                currentMsg.metadata = eventData.metadata;
-              }
-              currentMsg.finished = true;
-              updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
             }
             // 主 Agent 结束：仅兜底标记完成（若未在 output.final_answer 中标记）
             else if (eventType === 'agent.end') {

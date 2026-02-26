@@ -58,11 +58,11 @@ class SSEAdapter:
         self.enable_final_answer_streaming = enable_final_answer_streaming
         self.chunk_size = chunk_size
 
-        # 事件队列（异步）
-        self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=buffer_size)
+        # 事件队列（异步）- 无界队列，避免事件丢失
+        self._event_queue: asyncio.Queue = asyncio.Queue()
 
-        # 事件队列（同步）- 用于非async环境
-        self._sync_event_queue: Queue = Queue(maxsize=buffer_size)
+        # 事件队列（同步）- 无界队列，避免事件丢失
+        self._sync_event_queue: Queue = Queue()
 
         # 订阅ID
         self._subscription_id: Optional[str] = None
@@ -120,17 +120,17 @@ class SSEAdapter:
             event: 事件对象
         """
         try:
-            # 放入异步队列（尝试，如果满了就跳过）
+            # 放入异步队列
             try:
                 self._event_queue.put_nowait(event)
-            except:
-                pass  # 异步队列可能未在async上下文中使用
+            except Exception:
+                logger.warning(f"[SSEAdapter] 异步队列放入失败: {event.type.value}")
 
             # 放入同步队列（用于非async环境）
             try:
                 self._sync_event_queue.put_nowait(event)
-            except:
-                logger.warning(f"[SSEAdapter] 同步事件队列已满，丢弃事件: {event.type.value}")
+            except Exception:
+                logger.warning(f"[SSEAdapter] 同步事件队列放入失败: {event.type.value}")
 
         except Exception as e:
             logger.error(f"[SSEAdapter] 处理事件失败: {e}")
@@ -280,9 +280,6 @@ class SSEAdapter:
 
                     last_heartbeat = time.time()
 
-                    # 标记任务完成
-                    self._sync_event_queue.task_done()
-
                     # ✨ 检测结束事件，自动停止流
                     # 优先级 1: Run 结束 (Master V2)
                     if event.type == EventType.RUN_END:
@@ -378,6 +375,8 @@ class SSEAdapter:
 
             # Agent 信息
             "agent_name": event.agent_name,
+            "call_id": event.call_id,
+            "parent_call_id": event.parent_call_id,
 
             # 事件数据（完整保留）
             "data": event.data or {},

@@ -387,22 +387,26 @@ class MasterAgentV2(BaseAgent):
 
         # ✨ 获取会话级事件总线并创建事件发布器
         event_bus = get_session_event_bus(context.session_id)
+
+        import uuid
+        # 生成 MasterAgent 自己的 call_id（唯一，贯穿整个执行）
+        master_call_id = f"call_{uuid.uuid4()}"
+        run_id = context.metadata.get('run_id') or str(uuid.uuid4())
+
+        # 从 context 获取 parent_call_id（如果 MasterAgent 被其他智能体调用）
+        parent_call_id = None
+        if hasattr(context, 'metadata'):
+            parent_call_id = context.metadata.get('parent_call_id')
+
         self._publisher = EventPublisher(
             agent_name=self.name,
             session_id=context.session_id,
             trace_id=context.metadata.get('trace_id'),
             span_id=context.metadata.get('span_id'),
+            call_id=master_call_id,
+            parent_call_id=parent_call_id,
             event_bus=event_bus
         )
-
-        # ✨ 发布会话开始和Agent开始事件
-        # 1. 尝试从 context 中获取 run_id，如果没有则生成
-        # 注意：run_id 应该在路由层生成并传入 context，这里做兜底
-        import uuid
-        run_id = context.metadata.get('run_id') or str(uuid.uuid4())
-
-        # 生成 MasterAgent 自己的 call_id
-        master_call_id = f"call_{uuid.uuid4()}"
 
         # 2. 发布运行开始事件 (Run)
         self._publisher.run_start(run_id=run_id, metadata={"task": task})
@@ -606,11 +610,12 @@ class MasterAgentV2(BaseAgent):
                         call_id = f"call_{run_id}_{rounds}_{idx}"
                         agent_display_name = self._get_agent_display_name(agent_name)
 
-                        # ✨ 发布 AgentCall 开始事件（不设置 parent_call_id，通过 round 关联）
+                        # ✨ 发布 AgentCall 开始事件（parent_call_id 指向 MasterAgent 的 call_id）
                         self._publisher.agent_call_start(
                             call_id=call_id,
                             agent_name=agent_name,
                             description=agent_task,
+                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
                             order=current_order,
                             round=rounds,
                             round_index=idx
@@ -621,10 +626,11 @@ class MasterAgentV2(BaseAgent):
                         child_context = context.fork()
                         self.logger.info(f"{log_prefix} 已派生子上下文 (Level {child_context.level})")
 
-                        # ✨ 将 call_id 传递到子 Agent 的 context（作为 parent_call_id）
+                        # ✨ 将 call_id 传递到子 Agent 的 context
                         if not hasattr(child_context, 'metadata'):
                             child_context.metadata = {}
-                        child_context.metadata['parent_call_id'] = call_id  # 工具调用归因到此 call_id
+                        child_context.metadata['call_id'] = call_id  # 子 Agent 应使用此 call_id（与 call.agent.start 一致）
+                        child_context.metadata['parent_call_id'] = master_call_id  # 父调用指向 Master
                         child_context.metadata['run_id'] = run_id
                         child_context.metadata['task_order'] = current_order
 
@@ -672,6 +678,7 @@ class MasterAgentV2(BaseAgent):
                             agent_name=agent_name,
                             result=result.get('data', {}).get('results', ''),
                             success=result.get('success', False),
+                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
                             order=current_order
                         )
 

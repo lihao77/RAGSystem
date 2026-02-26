@@ -546,6 +546,8 @@ def stream_execute():
                     "trace_id": getattr(event, "trace_id", None),
                     "span_id": getattr(event, "span_id", None),
                     "agent_name": event.agent_name,
+                    "call_id": getattr(event, "call_id", None),
+                    "parent_call_id": getattr(event, "parent_call_id", None),
                     "data": make_payload_safe(event.data),
                     "requires_user_action": getattr(event, "requires_user_action", False),
                     "user_action_timeout": getattr(event, "user_action_timeout", None),
@@ -628,16 +630,13 @@ def stream_execute():
             thread = threading.Thread(target=execute_agent_task, daemon=True)
             thread.start()
 
-            # ✨ 从事件总线流式输出（SSEAdapter 会自动格式化为 SSE）
-            adapter.start()
+            # ✨ 从事件总线流式输出（SSEAdapter 内部管理 start/stop 生命周期）
             try:
-                # SSEAdapter.stream() 返回已格式化的 SSE 数据（"data: ...\n\n"）
                 for sse_data in adapter.stream_sync():
                     yield sse_data
             finally:
                 event_bus.unsubscribe(subscription_id)
-                event_bus.unsubscribe(compression_subscription_id)  # 取消压缩事件订阅
-                adapter.stop()
+                event_bus.unsubscribe(compression_subscription_id)
 
             # 结束事件
             yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"

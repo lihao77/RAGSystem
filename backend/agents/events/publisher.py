@@ -31,6 +31,8 @@ class EventPublisher:
         session_id: Optional[str] = None,
         trace_id: Optional[str] = None,
         span_id: Optional[str] = None,
+        call_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
         event_bus: Optional[EventBus] = None
     ):
         """
@@ -41,12 +43,16 @@ class EventPublisher:
             session_id: 会话ID
             trace_id: 追踪ID
             span_id: 当前Span ID
+            call_id: 当前调用节点ID（用于构建调用树）
+            parent_call_id: 父调用节点ID（用于构建调用树）
             event_bus: 事件总线实例（None则使用全局）
         """
         self.agent_name = agent_name
         self.session_id = session_id
         self.trace_id = trace_id
         self.span_id = span_id
+        self.call_id = call_id
+        self.parent_call_id = parent_call_id
         self.event_bus = event_bus or get_current_event_bus()
 
     def _publish(
@@ -55,7 +61,9 @@ class EventPublisher:
         data: Dict[str, Any],
         priority: EventPriority = EventPriority.NORMAL,
         requires_user_action: bool = False,
-        user_action_timeout: Optional[float] = None
+        user_action_timeout: Optional[float] = None,
+        override_call_id: Optional[str] = None,        # ✨ 允许覆盖 call_id
+        override_parent_call_id: Optional[str] = None  # ✨ 允许覆盖 parent_call_id
     ):
         """内部发布方法"""
         event = Event(
@@ -66,6 +74,8 @@ class EventPublisher:
             trace_id=self.trace_id,
             span_id=self.span_id,
             agent_name=self.agent_name,
+            call_id=override_call_id if override_call_id is not None else self.call_id,
+            parent_call_id=override_parent_call_id if override_parent_call_id is not None else self.parent_call_id,
             requires_user_action=requires_user_action,
             user_action_timeout=user_action_timeout
         )
@@ -173,12 +183,9 @@ class EventPublisher:
     ):
         """Agent调用开始"""
         data = {
-            "call_id": call_id,
             "agent_name": agent_name,
             "description": description,
         }
-        if parent_call_id:
-            data["parent_call_id"] = parent_call_id
         if order is not None:
             data["order"] = order
         if round is not None:
@@ -186,7 +193,12 @@ class EventPublisher:
         if round_index is not None:
             data["round_index"] = round_index
 
-        self._publish(EventType.CALL_AGENT_START, data)
+        self._publish(
+            EventType.CALL_AGENT_START,
+            data,
+            override_call_id=call_id,
+            override_parent_call_id=parent_call_id
+        )
 
     def agent_call_end(
         self,
@@ -199,17 +211,19 @@ class EventPublisher:
     ):
         """Agent调用结束"""
         data = {
-            "call_id": call_id,
             "agent_name": agent_name,
             "result": str(result)[:500],
             "success": success
         }
-        if parent_call_id:
-            data["parent_call_id"] = parent_call_id
         if order is not None:
             data["order"] = order
 
-        self._publish(EventType.CALL_AGENT_END, data)
+        self._publish(
+            EventType.CALL_AGENT_END,
+            data,
+            override_call_id=call_id,
+            override_parent_call_id=parent_call_id
+        )
 
     # ==================== 工具调用事件（新版） ====================
 
@@ -221,15 +235,15 @@ class EventPublisher:
         parent_call_id: Optional[str] = None
     ):
         """工具调用开始"""
-        data = {
-            "call_id": call_id,
-            "tool_name": tool_name,
-            "arguments": arguments
-        }
-        if parent_call_id:
-            data["parent_call_id"] = parent_call_id
-
-        self._publish(EventType.CALL_TOOL_START, data)
+        self._publish(
+            EventType.CALL_TOOL_START,
+            {
+                "tool_name": tool_name,
+                "arguments": arguments
+            },
+            override_call_id=call_id,
+            override_parent_call_id=parent_call_id
+        )
 
     def tool_call_end(
         self,
@@ -240,16 +254,16 @@ class EventPublisher:
         parent_call_id: Optional[str] = None
     ):
         """工具调用结束"""
-        data = {
-            "call_id": call_id,
-            "tool_name": tool_name,
-            "result": str(result)[:500],
-            "execution_time": execution_time
-        }
-        if parent_call_id:
-            data["parent_call_id"] = parent_call_id
-
-        self._publish(EventType.CALL_TOOL_END, data)
+        self._publish(
+            EventType.CALL_TOOL_END,
+            {
+                "tool_name": tool_name,
+                "result": str(result)[:500],
+                "execution_time": execution_time
+            },
+            override_call_id=call_id,
+            override_parent_call_id=parent_call_id
+        )
 
     # ==================== 兼容旧 API（重定向到新事件或保留别名） ====================
     # 注意：旧 subtask_* 和 tool_* 方法可保留以兼容未迁移的代码，
@@ -427,6 +441,8 @@ class EventPublisherContext:
         session_id: Optional[str] = None,
         trace_id: Optional[str] = None,
         span_id: Optional[str] = None,
+        call_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
         event_bus: Optional[EventBus] = None
     ):
         self.publisher = EventPublisher(
@@ -434,6 +450,8 @@ class EventPublisherContext:
             session_id=session_id,
             trace_id=trace_id,
             span_id=span_id,
+            call_id=call_id,
+            parent_call_id=parent_call_id,
             event_bus=event_bus
         )
 

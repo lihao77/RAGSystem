@@ -753,27 +753,27 @@ const sliderStyle = computed(() => {
   opacity: 0.5;
 }
 
-.success .status-dot {
+.node-tool-call.success .status-dot {
   background: var(--color-success);
 }
 
-.success .status-ring {
+.node-tool-call.success .status-ring {
   border-color: var(--color-success);
 }
 
-.error .status-dot {
+.node-tool-call.error .status-dot {
   background: var(--color-error);
 }
 
-.error .status-ring {
+.node-tool-call.error .status-ring {
   border-color: var(--color-error);
 }
 
-.running .status-dot {
+.node-tool-call.running .status-dot {
   background: var(--color-warning);
 }
 
-.running .status-ring {
+.node-tool-call.running .status-ring {
   border-color: var(--color-warning);
   border-top-color: transparent;
   animation: spin 1s linear infinite;

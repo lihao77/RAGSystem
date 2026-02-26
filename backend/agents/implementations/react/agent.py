@@ -149,11 +149,11 @@ class ReActAgent(BaseAgent):
         # 新方式：事件总线
         if self._publisher:
             try:
-                # ✨ 从 context 获取 parent_call_id（如果是被 MasterAgent V2 调用）
-                call_id = getattr(self, '_current_call_id', None)
+                # ✨ 获取当前 ReActAgent 的 call_id（作为工具调用的 parent_call_id）
+                agent_call_id = getattr(self, '_current_call_id', None)
                 # 兼容旧 task_id
-                if not call_id:
-                    call_id = getattr(self, '_current_task_id', None)
+                if not agent_call_id:
+                    agent_call_id = getattr(self, '_current_task_id', None)
 
                 # 映射事件类型到 EventPublisher 方法
                 if event_type == 'thought_structured':
@@ -165,23 +165,21 @@ class ReActAgent(BaseAgent):
                 elif event_type == 'tool_start':
                     # 生成唯一的 tool call_id
                     import uuid
-                    tool_call_id = f"tool_{uuid.uuid4()}"
-                    # 记录到 data 中供 tool_end 使用（虽然这里 data 是传入的副本，可能需要其他方式传递）
-                    # 更好的方式是在循环中生成并传递
-                    
+                    tool_call_id = data.get('tool_call_id') or f"tool_{uuid.uuid4()}"
+
                     self._publisher.tool_call_start(
-                        call_id=data.get('tool_call_id') or tool_call_id, # 需要调用方传入
+                        call_id=tool_call_id,
                         tool_name=data.get('tool_name'),
                         arguments=data.get('arguments', {}),
-                        parent_call_id=call_id  # ✨ 关联到父调用
+                        parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
                     )
                 elif event_type == 'tool_end':
                     self._publisher.tool_call_end(
-                        call_id=data.get('tool_call_id'), # 需要调用方传入
+                        call_id=data.get('tool_call_id'),
                         tool_name=data.get('tool_name'),
                         result=data.get('result'),
                         execution_time=data.get('elapsed_time'),
-                        parent_call_id=call_id  # ✨ 关联到父调用
+                        parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
                     )
                 elif event_type == 'tool_error':
                     self._publisher.tool_error(
@@ -380,6 +378,18 @@ class ReActAgent(BaseAgent):
                 event_bus = get_session_event_bus(context.session_id)
 
             current_session_id = getattr(context, 'session_id', None)
+
+            # ✨ 从 context 读取 call_id 和 parent_call_id（如果是被 MasterAgent V2 调用）
+            import uuid
+            parent_call_id = None
+            current_call_id = None
+            if hasattr(context, 'metadata'):
+                current_call_id = context.metadata.get('call_id')  # MasterAgent 传来的 call_id（与 call.agent.start 一致）
+                parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
+
+            if not current_call_id:
+                current_call_id = f"call_{uuid.uuid4()}"
+
             if (
                 self._publisher is None
                 or self._publisher.session_id != current_session_id
@@ -391,24 +401,23 @@ class ReActAgent(BaseAgent):
                         session_id=current_session_id,
                         trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
                         span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
+                        call_id=current_call_id,
+                        parent_call_id=parent_call_id,
                         event_bus=event_bus
                     )
+            elif self._publisher:
+                # publisher 被复用时，必须更新 call_id 和 parent_call_id（每次调用不同）
+                self._publisher.call_id = current_call_id
+                self._publisher.parent_call_id = parent_call_id
 
             # ✨ 发布 agent_start 事件
             if self._publisher:
                 self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
 
-            # ✨ 从 context 读取 parent_call_id（如果是被 MasterAgent V2 调用）
-            if hasattr(context, 'metadata'):
-                if 'parent_call_id' in context.metadata:
-                    self._current_call_id = context.metadata['parent_call_id']
-                elif 'parent_task_id' in context.metadata:
-                    self._current_call_id = context.metadata['parent_task_id']
-                else:
-                    self._current_call_id = None
-            else:
-                self._current_call_id = None
-            
+            # 保存 call_id 供后续使用
+            self._current_call_id = current_call_id
+            self._parent_call_id = parent_call_id
+
             # 兼容旧代码
             self._current_task_id = self._current_call_id
 

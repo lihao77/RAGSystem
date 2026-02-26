@@ -107,6 +107,10 @@ class Event:
     span_id: Optional[str] = None
     agent_name: Optional[str] = None
 
+    # 调用链信息（用于构建调用树）
+    call_id: Optional[str] = None          # 当前调用节点的ID
+    parent_call_id: Optional[str] = None   # 父调用节点的ID
+
     # 用户交互
     requires_user_action: bool = False
     user_action_timeout: Optional[float] = None
@@ -123,6 +127,8 @@ class Event:
             "trace_id": self.trace_id,
             "span_id": self.span_id,
             "agent_name": self.agent_name,
+            "call_id": self.call_id,
+            "parent_call_id": self.parent_call_id,
             "requires_user_action": self.requires_user_action,
             "user_action_timeout": self.user_action_timeout
         }
