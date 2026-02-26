@@ -165,7 +165,7 @@ class AgentLoader:
                         'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
                         'max_rounds': 15,  # ReAct 循环的最大轮数
                         'max_history_turns': 15,
-                        'max_context_tokens': 10000,  # 🎯 增大上下文预算（原 2400 → 10000）
+                        # 'max_context_tokens': 10000,  # 如需显式限制可取消注释
 
                         # 🎯 智能上下文管理配置
                         'compression_strategy': 'smart',         # 启用智能压缩（原 'sliding_window'）

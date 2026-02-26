@@ -114,6 +114,7 @@ const executionTree = computed(() => {
         round: subtask.round,
         round_index: subtask.round_index,
         expanded: subtask.expanded || false,
+        ctx: subtask.ctx || null,
         children: []
       };
 

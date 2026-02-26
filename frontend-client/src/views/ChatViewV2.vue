@@ -230,6 +230,24 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
+          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar">
+            <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+              <circle cx="11" cy="11" r="9" fill="none" stroke="#dcdfe6" stroke-width="2.5" />
+              <circle
+                cx="11"
+                cy="11"
+                r="9"
+                fill="none"
+                :stroke="contextUsageClass === 'danger' ? '#ff4d4f' : contextUsageClass === 'warning' ? '#faad14' : '#52c41a'"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                stroke-dashoffset="0"
+                :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+              />
+            </svg>
+            <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+          </div>
           <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
         </div>
       </div>
@@ -318,6 +336,7 @@ const confirmDialog = ref({
   onCancel: () => {}
 });
 const currentStreamController = ref(null);
+const contextUsage = ref({ used: 0, max: 0 });
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
@@ -908,6 +927,18 @@ const editingMessage = computed(() => {
   return messages.value[i] || null;
 });
 
+const contextUsagePct = computed(() => {
+  if (!contextUsage.value?.max) return 0;
+  return Math.min(100, Math.round(contextUsage.value.used / contextUsage.value.max * 100));
+});
+
+const contextUsageClass = computed(() => {
+  const pct = contextUsagePct.value;
+  if (pct >= 90) return 'danger';
+  if (pct >= 70) return 'warning';
+  return '';
+});
+
 const copyToClipboard = async (text) => {
   if (!text) return false;
   // 优先使用 Clipboard API（仅在安全上下文可用）
@@ -1142,6 +1173,7 @@ const handleSend = async () => {
   }) - 1;
 
   isLoading.value = true;
+  contextUsage.value = { used: 0, max: 0 };
 
   try {
     const controller = new AbortController();
@@ -1378,6 +1410,18 @@ const handleSend = async () => {
             else if (eventType === 'agent.error') {
               currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
             }
+            // 上下文用量
+            else if (eventType === 'context.usage') {
+              const agentName = event.agent_name;
+              const ctx = { used: eventData.used_tokens, max: eventData.max_tokens };
+              if (!agentName || agentName === 'master_agent_v2') {
+                contextUsage.value = ctx;
+              } else {
+                // 写入对应 subtask
+                const subtask = currentMsg.subtasks.find(s => s.agent_name === agentName && s.status === 'running');
+                if (subtask) subtask.ctx = ctx;
+              }
+            }
 
             scrollToBottom();
           } catch (e) {
@@ -1460,5 +1504,18 @@ onUnmounted(() => {
   background: var(--el-fill-color-lighter);
   border-radius: 8px;
   font-size: 0.9rem;
+}
+.context-usage-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* max-width: 800px; */
+  margin: 0 auto 6px;
+  padding: 0 8px;
+}
+.context-usage-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 </style>

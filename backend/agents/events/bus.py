@@ -74,6 +74,9 @@ class EventType(str, Enum):
     # 上下文压缩事件
     COMPRESSION_SUMMARY = "context.compression_summary"
 
+    # 上下文用量事件
+    CONTEXT_USAGE = "context.usage"
+
     # 系统事件
     SESSION_START = "session.start"
     SESSION_END = "session.end"

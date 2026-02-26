@@ -1624,8 +1624,8 @@
   width: 100%;
   z-index: 10;
   transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  display: flex;
-  justify-content: center;
+  /* display: flex;
+  justify-content: center; */
   pointer-events: none;
   /* Allow clicks to pass through the gradient area */
 }

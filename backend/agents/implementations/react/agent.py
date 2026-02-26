@@ -452,6 +452,16 @@ class ReActAgent(BaseAgent):
                 )
                 self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
 
+                # 发送上下文用量事件
+                if self._publisher:
+                    from agents.events.bus import EventType
+                    current_tokens = self.context_manager._estimate_tokens(managed_messages)
+                    self._publisher._publish(EventType.CONTEXT_USAGE, {
+                        'used_tokens': current_tokens,
+                        'max_tokens': self.context_manager.config.max_tokens,
+                        'round': rounds
+                    })
+
                 # 调用 LLM
                 response = self.model_adapter.chat_completion(
                     messages=managed_messages,

@@ -35,6 +35,24 @@
         <span class="status-badge" :class="node.status">
           {{ getStatusText(node.status) }}
         </span>
+        <!-- 上下文用量圆形进度 -->
+        <span v-if="node.ctx && node.ctx.max > 0" class="ctx-ring" :title="`上下文: ${node.ctx.used.toLocaleString()} / ${node.ctx.max.toLocaleString()} tokens`">
+          <svg width="20" height="20" viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="8" fill="none" stroke="#e0e0e0" stroke-width="2.5" />
+            <circle
+              cx="10"
+              cy="10"
+              r="8"
+              fill="none"
+              :stroke="ctxColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              :stroke-dasharray="`${ctxPct * 0.5027} 50.27`"
+              stroke-dashoffset="0"
+              :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+            />
+          </svg>
+        </span>
       </div>
 
       <!-- 使用滑动动画的内容区域 -->
@@ -189,6 +207,19 @@ const getAgentClass = (agentName) => {
   if (agentName.includes('analysis')) return 'analysis';
   return 'default';
 };
+
+const ctxPct = computed(() => {
+  const ctx = props.node.ctx;
+  if (!ctx || !ctx.max) return 0;
+  return Math.min(100, Math.round(ctx.used / ctx.max * 100));
+});
+
+const ctxColor = computed(() => {
+  const p = ctxPct.value;
+  if (p >= 90) return '#ff4d4f';
+  if (p >= 70) return '#faad14';
+  return '#52c41a';
+});
 
 const getStepLabel = (node) => {
   if (node.round !== undefined && node.round_index !== undefined) {
@@ -408,6 +439,17 @@ const sliderStyle = computed(() => {
   background: var(--color-error-bg);
   color: var(--color-error);
   border-color: var(--color-error);
+}
+
+.ctx-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+}
+
+.ctx-ring svg {
+  display: block;
 }
 
 /* 滑动动画容器 */
