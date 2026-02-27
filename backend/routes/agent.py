@@ -1352,6 +1352,77 @@ def reset_metrics():
         return error_response(message=str(e), status_code=500)
 
 
+@agent_bp.route('/context-snapshot', methods=['GET'])
+def get_context_snapshot():
+    """获取 MasterAgent V2 的上下文快照，用于调试和可视化"""
+    try:
+        session_id = request.args.get('session_id')
+        orchestrator = _get_orchestrator()
+        master = orchestrator.agents.get('master_agent_v2')
+        if not master:
+            return error_response(message='MasterAgentV2 未加载', status_code=503)
+
+        # system prompt & agent tools
+        system_prompt = master._build_system_prompt()
+        agent_tools = [
+            {'name': t['function']['name'], 'description': t['function']['description']}
+            for t in master._get_available_agent_tools()
+        ]
+
+        # token counter
+        from agents.context.token_counter import TokenCounter
+        llm_cfg = master.get_llm_config()
+        counter = TokenCounter(model_name=llm_cfg.get('model_name'))
+        sp_tokens = counter.count_text(system_prompt)
+
+        # conversation history
+        history = []
+        history_tokens = 0
+        if session_id:
+            store = _get_conversation_store()
+            raw = store.get_recent_messages(session_id=session_id, limit=50)
+            for msg in raw:
+                if msg.get('role') in ('user', 'assistant', 'system'):
+                    content = msg.get('content', '')
+                    t = counter.count_text(content)
+                    history_tokens += t
+                    history.append({
+                        'role': msg['role'],
+                        'content': content[:200] + ('...' if len(content) > 200 else ''),
+                        'tokens': t,
+                        'seq': msg.get('seq'),
+                    })
+
+        max_tokens = master.context_manager.config.max_tokens
+        total = sp_tokens + history_tokens
+
+        # config info
+        cfg = master.context_manager.config
+        config_info = {
+            'max_rounds': master.max_rounds,
+            'compression_strategy': cfg.compression_strategy,
+            'model': llm_cfg.get('model_name', ''),
+            'max_history_turns': cfg.max_history_turns,
+        }
+
+        return success_response(data={
+            'system_prompt': system_prompt,
+            'available_agent_tools': agent_tools,
+            'conversation_history': history,
+            'token_stats': {
+                'system_prompt_tokens': sp_tokens,
+                'history_tokens': history_tokens,
+                'total_tokens': total,
+                'max_tokens': max_tokens,
+            },
+            'config': config_info,
+        }, message='获取上下文快照成功')
+
+    except Exception as e:
+        logger.error(f'获取上下文快照失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+
 @agent_bp.route('/health', methods=['GET'])
 def health():
     """健康检查"""

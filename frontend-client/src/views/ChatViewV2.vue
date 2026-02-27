@@ -231,7 +231,7 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
-          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar">
+          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar" @click="ctxDrawerVisible = true" style="cursor:pointer" title="点击查看上下文详情">
             <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
               <circle cx="11" cy="11" r="9" fill="none" stroke="#dcdfe6" stroke-width="2.5" />
               <circle
@@ -261,6 +261,13 @@
       <button v-if="toast.action" class="toast-action" @click="toast.action">{{ toast.actionLabel }}</button>
     </div>
 
+    <!-- 上下文快照抽屉 -->
+    <ContextSnapshotDrawer
+      :visible="ctxDrawerVisible"
+      :session-id="currentSessionId"
+      @close="ctxDrawerVisible = false"
+    />
+
     <!-- 确认对话框 -->
     <ConfirmDialog
       ref="confirmDialogRef"
@@ -283,6 +290,7 @@ import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
+import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
 
@@ -338,6 +346,7 @@ const confirmDialog = ref({
 });
 const currentStreamController = ref(null);
 const contextUsage = ref({ used: 0, max: 0 });
+const ctxDrawerVisible = ref(false);
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
@@ -1544,9 +1553,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* max-width: 800px; */
+  max-width: 800px;
   margin: 0 auto 6px;
   padding: 0 8px;
+  width: 100%;
 }
 .context-usage-label {
   font-size: 0.7rem;
