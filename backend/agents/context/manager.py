@@ -11,7 +11,7 @@
 
 import json
 import logging
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -20,108 +20,33 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ContextConfig:
     """上下文管理配置"""
-    max_history_turns: int = 10  # 最大保留轮数
-    max_tokens: int = 8000  # 最大 token 数（估算）
-    keep_system_prompt: bool = True  # 是否始终保留 system prompt
-    compression_strategy: str = "sliding_window"  # 压缩策略: sliding_window, smart, summarize
-
-    # 智能压缩策略配置
-    preserve_tool_results: bool = True  # 是否保留工具调用结果
-    preserve_recent_turns: int = 3  # 始终保留最近 N 轮对话
-    importance_threshold: float = 0.5  # 重要性阈值（0-1）
-
-    # 摘要策略配置（compression_strategy=summarize 时使用）
-    summarize_use_llm: bool = True  # 是否使用 LLM 生成摘要
-    summarize_max_tokens: int = 200  # 摘要最大 token 数
-
-    # tiktoken 精确计数
+    # 预算
+    max_tokens: int = 8000          # 由 budget.py 计算传入
+    max_history_turns: int = 10     # 安全边界（消息数兜底）
     model_name: Optional[str] = None  # 用于 tiktoken 选择 encoding
 
-    # 持久化智能压缩触发（加载/执行中接近上限时）
-    compression_trigger_ratio: float = 0.85  # 达到 max_tokens 的该比例时触发
-    compress_oldest_n: int = 4  # 首次压缩时取最早 N 条做摘要
+    # 压缩触发
+    compression_trigger_ratio: float = 0.85  # history tokens 达该比例时触发 LLM 压缩
+
+    # LLM 摘要
+    summarize_max_tokens: int = 300          # 摘要 token 上限
+
+    # 降级
+    preserve_recent_turns: int = 3           # 滑动窗口降级时强制保留的最近 N 轮
 
 
 class ContextManager:
     """
-    上下文管理器
+    上下文管理器（精简版）
 
-    负责管理智能体的对话历史，防止超出模型上下文限制
+    保留静态工具方法和辅助方法，压缩逻辑已移入 ContextPipeline。
     """
 
     def __init__(self, config: Optional[ContextConfig] = None):
-        """
-        初始化上下文管理器
-
-        Args:
-            config: 上下文配置
-        """
         self.config = config or ContextConfig()
         self.logger = logging.getLogger(f"{__name__}.ContextManager")
         from .token_counter import TokenCounter
         self._token_counter = TokenCounter(model_name=self.config.model_name)
-
-    def manage_messages(
-        self,
-        messages: List[Dict[str, Any]],
-        system_prompt: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        管理消息列表，确保不超出上下文限制
-
-        Args:
-            messages: 原始消息列表
-            system_prompt: 系统提示词（可选，如果提供则始终保留）
-
-        Returns:
-            压缩后的消息列表
-        """
-        if len(messages) == 0:
-            return messages
-
-        # 1. 分离系统消息和对话消息
-        system_messages = []
-        conversation_messages = []
-
-        for msg in messages:
-            if msg.get('role') == 'system':
-                system_messages.append(msg)
-            else:
-                conversation_messages.append(msg)
-
-        # 2. 估算当前 token 数
-        estimated_tokens = self._estimate_tokens(messages)
-
-        # 3. 如果超出限制，应用压缩策略
-        if estimated_tokens > self.config.max_tokens or len(conversation_messages) > self.config.max_history_turns * 2:
-            self.logger.info(
-                f"上下文过长（估算 {estimated_tokens} tokens，{len(conversation_messages)} 条消息），"
-                f"应用 {self.config.compression_strategy} 压缩策略"
-            )
-
-            if self.config.compression_strategy == "sliding_window":
-                conversation_messages = self._apply_sliding_window(conversation_messages)
-            elif self.config.compression_strategy == "smart":
-                conversation_messages = self._apply_smart_compression(conversation_messages)
-            elif self.config.compression_strategy == "summarize":
-                conversation_messages = self._apply_summarize(conversation_messages)
-
-        # 4. 重新组合消息
-        result = []
-
-        # 保留系统消息
-        if self.config.keep_system_prompt and system_messages:
-            result.extend(system_messages)
-
-        # 添加对话消息
-        result.extend(conversation_messages)
-
-        self.logger.info(
-            f"上下文管理完成: {len(messages)} -> {len(result)} 条消息, "
-            f"估算 {self._estimate_tokens(result)} tokens"
-        )
-
-        return result
 
     @staticmethod
     def resolve_compression_view(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -179,6 +104,11 @@ class ContextManager:
             return list(messages)
 
         summary_seq = compression_msg.get("seq")
+        compression_meta = parsed_metadata[compression_idx]
+        # replaces_up_to_seq：摘要所覆盖的最后一条原始消息的 seq。
+        # 有此字段时，只隐藏 seq ≤ replaces_up_to_seq 的消息，从而保留
+        # segment 之后、摘要之前的 remaining 消息（避免跨会话丢失）。
+        replaces_up_to_seq = compression_meta.get("replaces_up_to_seq")
         out = []
 
         # 添加摘要消息
@@ -190,13 +120,16 @@ class ContextManager:
 
         # 输出「摘要之后的消息」
         if summary_seq is not None:
-            # 有 seq：按 seq > summary_seq 过滤
+            # 有 seq：优先用 replaces_up_to_seq 决定边界，回退到 summary_seq
+            cutoff = replaces_up_to_seq if replaces_up_to_seq is not None else summary_seq
             for m, meta in zip(messages, parsed_metadata):
-                if m.get("seq") is not None and m["seq"] > summary_seq:
+                if meta.get("compression"):
+                    continue  # 跳过所有压缩摘要消息本身
+                if m.get("seq") is not None and m["seq"] > cutoff:
                     out.append({
                         "role": m.get("role", "user"),
                         "content": m.get("content", ""),
-                        "metadata": meta  # ✨ 使用缓存的解析结果
+                        "metadata": meta
                     })
         else:
             # seq is None（in-memory 摘要）：按列表位置，输出所有出现在该摘要之后的消息
@@ -206,282 +139,10 @@ class ContextManager:
                 out.append({
                     "role": m.get("role", "user"),
                     "content": m.get("content", ""),
-                    "metadata": meta  # ✨ 使用缓存的解析结果
+                    "metadata": meta
                 })
 
         return out
-
-    def _apply_sliding_window(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        应用滑动窗口策略：保留最近 N 轮对话
-
-        1 轮 = 1 个 user 消息 + 1 个 assistant 消息
-        """
-        max_messages = self.config.max_history_turns * 2
-
-        if len(messages) <= max_messages:
-            return messages
-
-        # 保留最近的 N 轮
-        kept_messages = messages[-max_messages:]
-
-        # 添加省略提示
-        ellipsis_message = {
-            "role": "user",
-            "content": f"[系统提示：为节省上下文，已省略前 {len(messages) - max_messages} 条历史消息]"
-        }
-
-        return [ellipsis_message] + kept_messages
-
-    def _apply_summarize(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        应用摘要策略：将旧消息摘要，保留最近对话
-
-        TODO: 需要 LLM 支持，暂时回退到滑动窗口
-        """
-        self.logger.warning("摘要策略暂未实现，回退到滑动窗口策略")
-        return self._apply_sliding_window(messages)
-
-    def _apply_smart_compression(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        智能压缩策略：基于重要性保留消息
-
-        策略：
-        1. 始终保留最近 N 轮对话（保持对话连贯性）
-        2. 保留包含工具调用结果的消息（重要数据）
-        3. 保留高重要性评分的消息
-        4. 丢弃低重要性的纯文本对话
-
-        Args:
-            messages: 完整消息列表
-
-        Returns:
-            压缩后的消息列表
-        """
-        if len(messages) == 0:
-            return messages
-
-        # 1. 计算每条消息的重要性评分
-        scored_messages = []
-        for idx, msg in enumerate(messages):
-            importance = self._calculate_message_importance(msg, idx, len(messages))
-            scored_messages.append({
-                'message': msg,
-                'importance': importance,
-                'index': idx
-            })
-
-        # 2. 强制保留最近 N 轮对话
-        recent_count = self.config.preserve_recent_turns * 2
-        must_keep_indices = set(range(max(0, len(messages) - recent_count), len(messages)))
-
-        # 3. 提取包含工具结果的消息索引
-        tool_result_indices = self._extract_tool_result_indices(messages)
-
-        # 4. 按重要性排序，选择要保留的消息
-        kept_items = []
-        for item in scored_messages:
-            idx = item['index']
-
-            # 必须保留：最近对话或工具结果
-            if idx in must_keep_indices:
-                kept_items.append(item)
-            elif self.config.preserve_tool_results and idx in tool_result_indices:
-                kept_items.append(item)
-            # 可选保留：高重要性消息
-            elif item['importance'] >= self.config.importance_threshold:
-                kept_items.append(item)
-
-        # 5. 按原始顺序排序
-        kept_items.sort(key=lambda x: x['index'])
-
-        # 6. 检查 token 是否仍然超标
-        kept_messages = [item['message'] for item in kept_items]
-        estimated_tokens = self._estimate_tokens(kept_messages)
-
-        # 如果仍然超标，进一步压缩：对工具结果进行摘要
-        if estimated_tokens > self.config.max_tokens:
-            self.logger.info(f"智能压缩后仍超标（{estimated_tokens} tokens），对工具结果进行摘要")
-            kept_messages = self._summarize_tool_results(kept_messages, tool_result_indices)
-
-        # 7. 添加省略提示
-        omitted_count = len(messages) - len(kept_messages)
-        if omitted_count > 0:
-            ellipsis_message = {
-                "role": "user",
-                "content": f"[智能压缩：已省略 {omitted_count} 条低重要性消息，保留了工具调用结果和关键对话]"
-            }
-            kept_messages.insert(0, ellipsis_message)
-
-        self.logger.info(
-            f"智能压缩完成: {len(messages)} -> {len(kept_messages)} 条消息 "
-            f"(保留率: {len(kept_messages)/len(messages)*100:.1f}%)"
-        )
-
-        return kept_messages
-
-    def _calculate_message_importance(self, message: Dict[str, Any], index: int, total: int) -> float:
-        """
-        计算消息的重要性评分（0-1）
-
-        评分标准：
-        - 位置权重：越靠后越重要（最近对话更重要）
-        - 内容权重：包含特定标志的消息更重要
-        - 长度权重：内容较长的消息可能更重要
-
-        Args:
-            message: 消息对象
-            index: 消息在列表中的索引
-            total: 消息总数
-
-        Returns:
-            重要性评分（0-1）
-        """
-        content = message.get('content', '')
-        role = message.get('role', '')
-
-        # 基础评分：位置权重（0.2 - 0.5）
-        # 最近的消息基础分更高
-        position_score = 0.2 + (index / total) * 0.3
-
-        # 内容评分（0 - 0.5）
-        content_score = 0.0
-
-        # 用户消息更重要（需保留用于上下文）
-        if role == 'user':
-            content_score += 0.3
-
-        # 包含最终答案的消息最重要
-        if 'final_answer' in content or '"final_answer"' in content:
-            content_score += 0.4
-
-        # 包含工具调用结果的标志（高重要性）
-        tool_markers = ['✅', '📊', '📁', 'Agent 执行结果', 'tool_name', '数据已存储']
-        if any(marker in content for marker in tool_markers):
-            content_score += 0.4
-
-        # 包含错误或警告（高重要性）
-        error_markers = ['❌', '错误', 'Error', 'error', '失败']
-        if any(marker in content for marker in error_markers):
-            content_score += 0.3
-
-        # 包含思考过程（中等重要性，略降以避免过多 thought 占用）
-        thought_markers = ['思考', 'thought', '分析', '决策']
-        if any(marker in content for marker in thought_markers):
-            content_score += 0.1
-
-        # 系统提示（低重要性）
-        if '[系统提示' in content or '[智能压缩' in content or '[历史摘要]' in content:
-            content_score -= 0.2
-
-        # 长度权重（0 - 0.2）
-        # 内容较长可能包含更多信息
-        length_score = min(len(content) / 1000, 1.0) * 0.2
-
-        # 总分 = 位置 + 内容 + 长度
-        total_score = position_score + content_score + length_score
-
-        # 限制在 0-1 范围内
-        return max(0.0, min(1.0, total_score))
-
-    def _extract_tool_result_indices(self, messages: List[Dict[str, Any]]) -> set:
-        """
-        提取包含工具调用结果的消息索引
-
-        Args:
-            messages: 消息列表
-
-        Returns:
-            包含工具结果的消息索引集合
-        """
-        tool_result_indices = set()
-
-        # 标志：表示消息包含工具调用结果
-        tool_markers = [
-            '✅', '📊', '📁', '❌',  # Emoji 标志
-            'Agent 执行结果', 'Agent', 'tool_name',  # 文本标志
-            '数据已存储', '数据详情',  # ObservationFormatter 输出标志
-            '```json',  # JSON 数据块
-        ]
-
-        for idx, msg in enumerate(messages):
-            content = msg.get('content', '')
-
-            # 检查是否包含工具结果标志
-            if any(marker in content for marker in tool_markers):
-                tool_result_indices.add(idx)
-
-            # 检查是否是 assistant 消息且内容较长（可能是 ReAct 轮次结果）
-            if msg.get('role') == 'assistant' and len(content) > 500:
-                tool_result_indices.add(idx)
-
-        return tool_result_indices
-
-    def _summarize_tool_results(
-        self,
-        messages: List[Dict[str, Any]],
-        tool_result_indices: set
-    ) -> List[Dict[str, Any]]:
-        """
-        对工具调用结果进行摘要（进一步压缩）
-
-        策略：
-        1. 保留工具结果的元数据和摘要
-        2. 截断详细的 JSON 数据
-        3. 保留文件引用路径
-
-        Args:
-            messages: 消息列表
-            tool_result_indices: 工具结果消息索引
-
-        Returns:
-            摘要后的消息列表
-        """
-        import re
-
-        summarized = []
-
-        for idx, msg in enumerate(messages):
-            if idx not in tool_result_indices:
-                # 非工具结果消息：直接保留
-                summarized.append(msg)
-                continue
-
-            # 工具结果消息：进行摘要
-            content = msg.get('content', '')
-
-            # 1. 保留文件引用（重要）
-            file_refs = re.findall(r'数据已存储:\s*([^\n]+)', content)
-
-            # 2. 提取摘要信息
-            summary_parts = []
-
-            # 提取 ✅ 行（执行成功提示）
-            success_lines = [line for line in content.split('\n') if line.strip().startswith('✅')]
-            summary_parts.extend(success_lines[:2])  # 最多保留 2 行
-
-            # 提取 📊 行（元数据）
-            meta_lines = [line for line in content.split('\n') if '📊' in line or '📁' in line]
-            summary_parts.extend(meta_lines)
-
-            # 3. 构建压缩后的内容
-            compressed_content = '\n'.join(summary_parts)
-
-            # 添加文件引用
-            if file_refs:
-                compressed_content += f"\n📁 数据文件: {file_refs[0]}"
-
-            # 添加省略提示
-            if len(compressed_content) < len(content) * 0.5:
-                compressed_content += "\n💡 [详细数据已省略，可通过文件路径访问]"
-
-            # 创建压缩后的消息
-            summarized.append({
-                'role': msg.get('role'),
-                'content': compressed_content or content[:200] + "..."  # 降级：至少保留前 200 字符
-            })
-
-        return summarized
 
     def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """
@@ -490,22 +151,6 @@ class ContextManager:
         优先使用 tiktoken 精确计数，不可用时降级到启发式估算。
         """
         return self._token_counter.count_messages(messages)
-
-    def _generate_summary(
-        self,
-        messages: List[Dict[str, Any]],
-        llm_callback: Optional[Callable[[List[Dict[str, Any]]], str]] = None
-    ) -> str:
-        """
-        对一段消息生成摘要，供持久化压缩使用。
-        若传入 llm_callback(messages) -> str，则调用 LLM 生成摘要；否则返回规则兜底摘要。
-        """
-        if llm_callback is not None:
-            try:
-                return llm_callback(messages) or ""
-            except Exception as e:
-                self.logger.warning("LLM 摘要失败，使用兜底摘要: %s", e)
-        return "[历史摘要]\n（共 {} 条消息已压缩）".format(len(messages))
 
     def extract_recent_turns(
         self,

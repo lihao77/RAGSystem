@@ -166,13 +166,6 @@ class AgentLoader:
                         'max_rounds': 15,  # ReAct 循环的最大轮数
                         'max_history_turns': 15,
                         # 'max_context_tokens': 10000,  # 如需显式限制可取消注释
-
-                        # 🎯 智能上下文管理配置
-                        'compression_strategy': 'smart',         # 启用智能压缩（原 'sliding_window'）
-                        'preserve_tool_results': True,           # 保留工具调用结果（Agent 调用结果）
-                        'preserve_recent_turns': 3,              # 保留最近 3 轮对话
-                        'importance_threshold': 0.5,             # 重要性阈值
-
                         'data_save_dir': './static/temp_data'
                     }
                 }

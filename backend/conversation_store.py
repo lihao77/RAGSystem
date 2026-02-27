@@ -284,20 +284,27 @@ class ConversationStore:
             "metadata": metadata or {}
         }
 
-    def insert_compression_message(self, session_id: str, summary_content: str) -> Dict[str, Any]:
+    def insert_compression_message(
+        self,
+        session_id: str,
+        summary_content: str,
+        replaces_up_to_seq: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         插入一条持久化摘要消息（智能压缩）。
 
-        摘要语义：该条之前的所有内容；metadata 仅存 compression=true，不存 replaces_seqs。
-
-        注意：使用 session 锁确保与其他消息写入的原子性
+        replaces_up_to_seq：被压缩的最后一条原始消息的 seq。
+        resolve_compression_view 凭此字段判断"摘要之后的消息"，
+        从而正确保留 segment 之后、摘要之前的 remaining 消息。
         """
-        # add_message 内部已经使用了 session 锁，这里会自动串行化
+        meta: Dict[str, Any] = {"compression": True}
+        if replaces_up_to_seq is not None:
+            meta["replaces_up_to_seq"] = replaces_up_to_seq
         return self.add_message(
             session_id=session_id,
             role="system",
             content=summary_content,
-            metadata={"compression": True}
+            metadata=meta,
         )
 
     def add_run_step(

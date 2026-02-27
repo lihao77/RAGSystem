@@ -398,13 +398,14 @@ class EventPublisher:
 
     # ==================== 上下文压缩事件 ====================
 
-    def compression_summary(self, content: str):
+    def compression_summary(self, content: str, replaces_up_to_seq: int | None = None):
         """上下文压缩摘要"""
         self._publish(
             EventType.COMPRESSION_SUMMARY,
             {
                 "content": content,
-                "session_id": self.session_id
+                "session_id": self.session_id,
+                "replaces_up_to_seq": replaces_up_to_seq,
             }
         )
 

@@ -11,7 +11,7 @@ import time
 from typing import Dict, List, Any, Optional, Generator
 
 from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
-from agents.context import ContextManager, ContextConfig, ObservationFormatter
+from agents.context import ContextConfig, ObservationFormatter, ContextPipeline
 from .function_definitions import get_agent_tools
 from .executor import AgentExecutor, parse_agent_invocation
 from agents.events import get_session_event_bus, EventPublisher
@@ -118,19 +118,18 @@ class MasterAgentV2(BaseAgent):
             fallback_multiplier=MASTER_FALLBACK_MULTIPLIER,
         )
 
-        # 初始化上下文管理器 (使用 BaseAgent 继承的实例)
+        # 初始化上下文管理器 (使用 ContextPipeline 统一入口)
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 15),
             max_tokens=max_context_tokens,
-            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window'),
-
-            # 🎯 智能压缩配置（新增）
-            preserve_tool_results=behavior_config.get('preserve_tool_results', True),
-            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
-            importance_threshold=behavior_config.get('importance_threshold', 0.5),
             model_name=llm_config.get('model_name'),
         )
-        self.context_manager = ContextManager(context_config)
+        self.context_pipeline = ContextPipeline(
+            config=context_config,
+            model_adapter=self.model_adapter,
+            get_llm_config_fn=lambda: self.get_llm_config(),
+            logger=self.logger,
+        )
 
         # 初始化观察结果格式化器
         self.observation_formatter = ObservationFormatter(
@@ -428,18 +427,8 @@ class MasterAgentV2(BaseAgent):
         })
 
         try:
-            # ✨ 使用 BaseAgent 的公共压缩方法（持久化由 routes 的事件订阅完成）
-            resolved = self.compress_context_if_needed(
-                context=context,
-                publisher=self._publisher
-            )
-
-            # 构建 LLM 请求消息
-            messages = [{"role": "system", "content": self._build_system_prompt()}]
-            for m in resolved:
-                if m.get("role") in ("user", "assistant", "system"):
-                    messages.append({"role": m["role"], "content": m["content"]})
-            messages.append({"role": "user", "content": task})
+            # 构建当次执行的消息列表（从 task 开始）
+            current_session = [{"role": "user", "content": task}]
 
             rounds = 0
             agent_calls_history = []
@@ -457,19 +446,21 @@ class MasterAgentV2(BaseAgent):
                 self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
 
                 # 应用上下文管理
-                managed_messages = self.context_manager.manage_messages(
-                    messages,
-                    system_prompt=self._build_system_prompt()
+                managed_messages = self.context_pipeline.prepare_messages(
+                    system_prompt=self._build_system_prompt(),
+                    context=context,
+                    current_session=current_session,
+                    publisher=self._publisher,
                 )
-                self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
+                self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
 
                 # 发送上下文用量事件
                 if self._publisher:
                     from agents.events.bus import EventType
-                    current_tokens = self.context_manager._estimate_tokens(managed_messages)
+                    current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
                     self._publisher._publish(EventType.CONTEXT_USAGE, {
                         'used_tokens': current_tokens,
-                        'max_tokens': self.context_manager.config.max_tokens,
+                        'max_tokens': self.context_pipeline.config.max_tokens,
                         'round': rounds
                     })
 
@@ -552,7 +543,7 @@ class MasterAgentV2(BaseAgent):
                 # 为了简化，我们在执行 Agent 调用的循环中发送 thought_structured
 
                 # 添加 assistant 消息
-                messages.append({
+                current_session.append({
                     "role": "assistant",
                     "content": response.content
                 })
@@ -739,14 +730,14 @@ class MasterAgentV2(BaseAgent):
 
                     # 将所有结果作为 user 消息添加
                     combined_observations = "\n\n".join(observations)
-                    messages.append({
+                    current_session.append({
                         "role": "user",
                         "content": f"Agent 执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
                     })
 
                     # 🔄 持久化中间 observation 消息
                     self._publisher.react_intermediate(
-                        role="user", content=messages[-1]["content"],
+                        role="user", content=current_session[-1]["content"],
                         round=rounds, msg_type="observation"
                     )
 
@@ -754,14 +745,14 @@ class MasterAgentV2(BaseAgent):
                 else:
                     # 没有 Agent 调用但也没有最终答案
                     self.logger.warning(f"{log_prefix} 既没有调用 Agent 也没有给出最终答案")
-                    messages.append({
+                    current_session.append({
                         "role": "user",
                         "content": "请根据当前信息给出最终答案，或者说明需要调用哪个 Agent 获取更多信息。"
                     })
 
                     # 🔄 持久化兜底 observation 消息
                     self._publisher.react_intermediate(
-                        role="user", content=messages[-1]["content"],
+                        role="user", content=current_session[-1]["content"],
                         round=rounds, msg_type="observation"
                     )
 

@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List
 import uuid
 from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
 from tools.tool_executor import execute_tool
-from agents.context import ContextManager, ContextConfig, ObservationFormatter
+from agents.context import ContextConfig, ObservationFormatter, ContextPipeline
 from agents.events import get_session_event_bus, EventPublisher
 
 logger = logging.getLogger(__name__)
@@ -111,10 +111,14 @@ class ReActAgent(BaseAgent):
         context_config = ContextConfig(
             max_history_turns=behavior_config.get('max_history_turns', 10),
             max_tokens=max_context_tokens,
-            compression_strategy=behavior_config.get('compression_strategy', 'sliding_window'),
             model_name=llm_config.get('model_name'),
         )
-        self.context_manager = ContextManager(context_config)
+        self.context_pipeline = ContextPipeline(
+            config=context_config,
+            model_adapter=self.model_adapter,
+            get_llm_config_fn=lambda: self.get_llm_config(),
+            logger=self.logger,
+        )
 
         # 初始化观察结果格式化器
         self.observation_formatter = ObservationFormatter(
@@ -127,8 +131,7 @@ class ReActAgent(BaseAgent):
             f"可用 Skills: {len(self.available_skills)}，"
             f"模型输出限制: {model_max_completion_tokens} tokens, "
             f"上下文窗口: {model_context_window or '未配置'}, "
-            f"上下文预算: {max_context_tokens} tokens, "
-            f"压缩策略: {context_config.compression_strategy}"
+            f"上下文预算: {max_context_tokens} tokens"
         )
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
@@ -421,18 +424,8 @@ class ReActAgent(BaseAgent):
             # 兼容旧代码
             self._current_task_id = self._current_call_id
 
-            # ✨ 使用 BaseAgent 的公共压缩方法
-            resolved = self.compress_context_if_needed(
-                context=context,
-                publisher=self._publisher
-            )
-
-            # 构建 LLM 请求消息
-            messages = [{"role": "system", "content": self._build_system_prompt()}]
-            for m in resolved:
-                if m.get("role") in ("user", "assistant", "system"):
-                    messages.append({"role": m["role"], "content": m["content"]})
-            messages.append({"role": "user", "content": task})
+            # 构建当次执行的消息列表（从 task 开始）
+            current_session = [{"role": "user", "content": task}]
 
             rounds = 0
             tool_calls_history = []
@@ -448,20 +441,22 @@ class ReActAgent(BaseAgent):
 
                 self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
 
-                #  应用上下文管理（防止超出限制）
-                managed_messages = self.context_manager.manage_messages(
-                    messages,
-                    system_prompt=self._build_system_prompt()
+                #  应用上下文管理（压缩 + 预算控制）
+                managed_messages = self.context_pipeline.prepare_messages(
+                    system_prompt=self._build_system_prompt(),
+                    context=context,
+                    current_session=current_session,
+                    publisher=self._publisher,
                 )
-                self.logger.info(f"{log_prefix} {self.context_manager.format_context_summary(managed_messages)}")
+                self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
 
                 # 发送上下文用量事件
                 if self._publisher:
                     from agents.events.bus import EventType
-                    current_tokens = self.context_manager._estimate_tokens(managed_messages)
+                    current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
                     self._publisher._publish(EventType.CONTEXT_USAGE, {
                         'used_tokens': current_tokens,
-                        'max_tokens': self.context_manager.config.max_tokens,
+                        'max_tokens': self.context_pipeline.config.max_tokens,
                         'round': rounds
                     })
 
@@ -509,11 +504,11 @@ class ReActAgent(BaseAgent):
                     )
                     if retry_attempt < max_parse_retries - 1:
                         self.logger.info("要求 LLM 重新生成有效的 JSON...")
-                        messages.append({
+                        current_session.append({
                             "role": "assistant",
                             "content": (response.content or "")[:200] + "..."
                         })
-                        messages.append({
+                        current_session.append({
                             "role": "user",
                             "content": f"你的上一个响应包含 JSON 格式错误: {parse_err}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
                         })
@@ -552,7 +547,7 @@ class ReActAgent(BaseAgent):
                 })
 
                 # 添加 assistant 消息
-                messages.append({
+                current_session.append({
                     "role": "assistant",
                     "content": response.content
                 })
@@ -575,7 +570,7 @@ class ReActAgent(BaseAgent):
                         tool_calls=tool_calls_history,
                         metadata={
                             'rounds': rounds,
-                            'reasoning_steps': [msg for msg in messages if msg['role'] == 'assistant']
+                            'reasoning_steps': [msg for msg in current_session if msg['role'] == 'assistant']
                         }
                     )
 
@@ -644,7 +639,7 @@ class ReActAgent(BaseAgent):
 
                     # 将所有结果作为 user 消息添加
                     combined_observations = "\n\n".join(observations)
-                    messages.append({
+                    current_session.append({
                         "role": "user",
                         "content": f"工具执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
                     })
@@ -653,7 +648,7 @@ class ReActAgent(BaseAgent):
                 else:
                     # 没有工具调用但也没有最终答案，可能是 LLM 困惑了
                     self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案")
-                    messages.append({
+                    current_session.append({
                         "role": "user",
                         "content": "请根据当前信息给出最终答案，或者说明需要使用哪个工具获取更多信息。"
                     })

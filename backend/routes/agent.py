@@ -501,14 +501,17 @@ def stream_execute():
             def handle_compression_summary(event):
                 """处理上下文压缩摘要事件"""
                 try:
-                    content = (event.data or {}).get("content")
-                    event_session_id = (event.data or {}).get("session_id") or event.session_id
+                    data = event.data or {}
+                    content = data.get("content")
+                    event_session_id = data.get("session_id") or event.session_id
+                    replaces_up_to_seq = data.get("replaces_up_to_seq")
                     if content and event_session_id:
                         store.insert_compression_message(
                             session_id=event_session_id,
-                            summary_content=content
+                            summary_content=content,
+                            replaces_up_to_seq=replaces_up_to_seq,
                         )
-                        logger.info(f"已保存压缩摘要到 DB: session_id={event_session_id}")
+                        logger.info(f"已保存压缩摘要到 DB: session_id={event_session_id}, replaces_up_to_seq={replaces_up_to_seq}")
                 except Exception as e:
                     logger.warning(f"保存压缩摘要失败: {e}", exc_info=True)
 
@@ -1434,14 +1437,18 @@ def get_context_snapshot():
                         'round': meta.get('round'),
                     })
 
-        max_tokens = master.context_manager.config.max_tokens
+        max_tokens = master.context_pipeline.config.max_tokens
         total = sp_tokens + history_tokens
 
         # config info
-        cfg = master.context_manager.config
+        cfg = master.context_pipeline.config
         config_info = {
             'max_rounds': master.max_rounds,
-            'compression_strategy': cfg.compression_strategy,
+            'compression': {
+                'strategy': 'llm_summarize_with_fallback',
+                'trigger_ratio': cfg.compression_trigger_ratio,
+                'preserve_recent_turns': cfg.preserve_recent_turns,
+            },
             'model': llm_cfg.get('model_name', ''),
             'max_history_turns': cfg.max_history_turns,
         }

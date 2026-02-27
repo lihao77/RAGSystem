@@ -32,9 +32,19 @@
             <section class="ctx-section">
               <h4>配置</h4>
               <div class="ctx-kv-list">
-                <div v-for="(v, k) in data.config" :key="k" class="ctx-kv">
-                  <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
-                </div>
+                <template v-for="(v, k) in data.config" :key="k">
+                  <div v-if="typeof v !== 'object' || v === null" class="ctx-kv">
+                    <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
+                  </div>
+                  <div v-else class="ctx-kv ctx-kv-group">
+                    <span class="ctx-k">{{ k }}</span>
+                    <div class="ctx-kv-nested">
+                      <div v-for="(sv, sk) in v" :key="sk" class="ctx-kv-sub">
+                        <span class="ctx-k">{{ sk }}</span><span class="ctx-v">{{ sv }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </section>
 
@@ -148,6 +158,9 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-token-detail { display: flex; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--color-text-muted, #999); }
 .ctx-kv-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .ctx-kv { font-size: 12px; }
+.ctx-kv-group { width: 100%; }
+.ctx-kv-nested { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; padding-left: 12px; }
+.ctx-kv-sub { font-size: 12px; }
 .ctx-k { color: var(--color-text-muted, #999); margin-right: 4px; }
 .ctx-k::after { content: ':'; }
 .ctx-v { color: var(--color-text-primary, #333); }
