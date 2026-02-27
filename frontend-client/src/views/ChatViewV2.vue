@@ -35,6 +35,13 @@
           </svg>
           <span class="btn-text">监控面板</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-secondary" @click="goToAgentConfig" title="智能体配置">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"></path>
+          </svg>
+          <span class="btn-text">Agent配置</span>
+        </button>
       </div>
 
       <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
@@ -233,13 +240,14 @@
         <div class="input-area-wrapper">
           <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar" @click="ctxDrawerVisible = true" style="cursor:pointer" title="点击查看上下文详情">
             <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-              <circle cx="11" cy="11" r="9" fill="none" stroke="#dcdfe6" stroke-width="2.5" />
+              <!-- #10: 用 CSS 变量替换硬编码颜色 -->
+              <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
               <circle
                 cx="11"
                 cy="11"
                 r="9"
                 fill="none"
-                :stroke="contextUsageClass === 'danger' ? '#ff4d4f' : contextUsageClass === 'warning' ? '#faad14' : '#52c41a'"
+                :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
                 stroke-width="2.5"
                 stroke-linecap="round"
                 :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
@@ -474,6 +482,10 @@ const startNewChat = () => {
 
 const goToMonitor = () => {
   emit('navigate', '/monitor');
+};
+
+const goToAgentConfig = () => {
+  emit('navigate', '/agent-config');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
@@ -1529,38 +1541,67 @@ onUnmounted(() => {
 
 <style scoped src="../styles/chat-view.css"></style>
 <style scoped>
+/* #9: 压缩摘要卡片 - 使用项目设计变量，添加 hover/active/focus-visible */
 .compression-summary { margin: 0.5rem 0; }
 .compression-summary-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 0.75rem;
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
+  user-select: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  outline: none;
 }
-.compression-summary-title { font-weight: 500; }
-.compression-summary-toggle { color: var(--el-color-primary); font-size: 0.85rem; }
+.compression-summary-label:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-hover);
+}
+.compression-summary-label:active {
+  transform: scale(0.995);
+}
+.compression-summary-label:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+.compression-summary-title { font-weight: 600; color: var(--color-text-primary); }
+.compression-summary-toggle {
+  color: var(--color-brand-accent-light, var(--color-interactive));
+  font-size: var(--font-size-xs);
+}
 .compression-summary-detail {
   margin-top: 0.5rem;
   padding: 0.75rem;
-  background: var(--el-fill-color-lighter);
-  border-radius: 8px;
-  font-size: 0.9rem;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: var(--font-size-sm);
 }
+
+/* #10: 上下文指示器 - 字体调大至满足可读性，加 hover 反馈 */
 .context-usage-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   max-width: 800px;
   margin: 0 auto 6px;
-  padding: 0 8px;
+  padding: 3px 8px;
   width: 100%;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+.context-usage-bar:hover {
+  background: var(--color-bg-secondary);
 }
 .context-usage-label {
-  font-size: 0.7rem;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
   white-space: nowrap;
+  font-weight: 500;
 }
 </style>

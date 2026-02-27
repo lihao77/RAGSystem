@@ -1,5 +1,32 @@
 /* Chat View Styles */
 
+/* ===== CSS 局部变量补充（消除魔法数字） ===== */
+.chat-view {
+  /* 代码块主题色 */
+  --code-bg: #292929;
+  --code-fg: #e4e7ec;
+  --code-inline-fg: #7dd3fc;
+  --code-attr: #D7BA7D;
+  --code-string: #22a877;
+  /* Toast 语义色 */
+  --toast-success-bg: rgba(52, 211, 153, 0.08);
+  --toast-error-bg: rgba(239, 68, 68, 0.08);
+  --toast-warning-bg: rgba(250, 173, 20, 0.08);
+  --toast-warning-border: #faad14;
+  /* 上下文环状图颜色 */
+  --ctx-ring-track: #dcdfe6;
+  --ctx-ring-success: #52c41a;
+  --ctx-ring-warning: #faad14;
+  --ctx-ring-danger: #ff4d4f;
+  /* 消息气泡 */
+  --user-bubble-corner: 4px;
+  /* 编辑框 */
+  --edit-input-min-height: 90px;
+  /* 侧边栏 */
+  --sidebar-btn-text-transition-in: opacity 0.25s ease 0.05s;
+  --sidebar-btn-text-transition-out: opacity 0.15s ease;
+}
+
 .chat-view {
   display: flex;
   height: 100vh;
@@ -150,7 +177,9 @@
   white-space: nowrap;
   opacity: 1;
   max-width: 200px;
-  transition: opacity 0.3s ease, max-width 0.3s ease;
+  /* #6: 分阶段过渡，只对 opacity 做 GPU 加速动画 */
+  transition: var(--sidebar-btn-text-transition-in);
+  will-change: opacity;
 }
 
 /* 折叠状态：保持图标位置不变 */
@@ -165,6 +194,8 @@
 .sidebar.collapsed .sidebar-btn .btn-text {
   opacity: 0;
   max-width: 0;
+  /* #6: 折叠时先淡出（opacity），max-width 延迟至淡出完成后瞬间归零 */
+  transition: var(--sidebar-btn-text-transition-out), max-width 0s ease 0.15s;
 }
 
 .sidebar-btn:hover {
@@ -314,16 +345,26 @@
   color: var(--color-text-muted);
 }
 
+/* #7: 非 hover 时折叠为 0 宽度，消除占位空间 */
 .history-delete-btn {
-  display: none;
-  padding: 2px;
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: all var(--transition-fast);
   flex-shrink: 0;
+  transition: width var(--transition-fast), padding var(--transition-fast),
+              opacity var(--transition-fast), background var(--transition-fast),
+              color var(--transition-fast);
 }
 
 .history-delete-btn:hover {
@@ -331,10 +372,14 @@
   color: var(--color-error);
 }
 
-.history-item:hover .history-delete-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* 桌面端：hover 时展开 */
+@media (hover: hover) {
+  .history-item:hover .history-delete-btn {
+    width: 28px;
+    padding: 4px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .user-profile {
@@ -448,6 +493,7 @@
   /* 恢复子元素的点击 */
 }
 
+/* #2: 消除重复的 glass 背景定义 */
 .left-controls,
 .right-controls {
   display: flex;
@@ -455,16 +501,17 @@
   gap: 8px;
   padding: 4px;
   border-radius: 24px;
-  background-color: var(--glass-bg-light) !important;
+  background-color: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--color-border);
-  /* box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); */
 }
 
-.left-controls,
-.right-controls {
-  background-color: var(--glass-bg) !important;
+/* #8: LLMSelector 宽度约束，防止长模型名撑破顶部控制栏 */
+.left-controls .llm-selector {
+  max-width: 220px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .theme-btn {
@@ -480,7 +527,7 @@
 .version-btn {
   height: 40px;
   padding: 0 16px;
-  border-radius: 20px !important;
+  border-radius: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,7 +633,9 @@
   /* 改为纵向布局，让 subtasks-container-full 和 message-content-wrapper 上下排列 */
   gap: var(--spacing-md);
   opacity: 0;
-  animation: fadeIn 0.3s ease forwards;
+  /* #16: transform+opacity 组合，GPU 加速 */
+  animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: opacity, transform;
   width: 100%;
 }
 
@@ -606,9 +655,22 @@
   /* AI 消息靠左 */
 }
 
+/* #16: 改用 opacity+transform 组合，GPU 加速；添加 prefers-reduced-motion */
 @keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
   to {
     opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message {
+    animation: none !important;
+    opacity: 1 !important;
   }
 }
 
@@ -632,11 +694,12 @@
   gap: var(--spacing-md);
 }
 
+/* #3: 修正圆角混用，统一用 var(--radius-lg) + 一个角收缩 */
 .user-text {
   background: var(--color-bg-tertiary);
   padding: 12px 16px;
   border-radius: var(--radius-lg);
-  border-top-right-radius: 4px;
+  border-bottom-right-radius: var(--user-bubble-corner);
   color: var(--color-text-primary);
   line-height: 1.6;
   font-size: var(--font-size-base);
@@ -650,6 +713,7 @@
   flex-direction: column;
   gap: 8px;
 }
+/* #5: 修正 min-height，添加 focus 高亮 */
 .user-edit-input {
   width: 100%;
   padding: 12px 16px;
@@ -658,9 +722,17 @@
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
-  line-height: 1.2;
+  font-family: inherit;
+  line-height: 1.6;
   resize: vertical;
-  min-height: 30px;
+  min-height: var(--edit-input-min-height);
+  max-height: 300px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+}
+.user-edit-input:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
 }
 .user-edit-actions {
   display: flex;
@@ -675,43 +747,54 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
 }
+/* #1: 用品牌色变量替换 Element Plus 变量，消除硬编码兜底色 */
 .btn-editor.btn-save {
-  background: var(--color-primary, #409eff);
-  color: #fff;
-  border-color: var(--color-primary, #409eff);
+  background: rgba(var(--color-brand-accent-rgb), 0.25);
+  color: var(--color-text-primary);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
 }
 .btn-editor.btn-cancel:hover,
 .btn-editor.btn-save:hover {
   opacity: 0.9;
 }
 
-/* 消息操作：回退 / 编辑 / 从这条重新发送 */
-.message {
-  position: relative;
-}
+/* #4: 消息操作按钮 - 加大字体、添加 focus-visible、transition */
 .message-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--transition-fast);
 }
 .message-actions.visible {
   opacity: 1;
 }
 .msg-action-btn {
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 5px 11px;
+  font-size: var(--font-size-xs);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  outline: none;
 }
 .msg-action-btn:hover {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
+}
+.msg-action-btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* 移动端（触摸设备）消息操作按钮始终显示 */
+@media (hover: none) and (pointer: coarse) {
+  .message-actions {
+    opacity: 1;
+  }
 }
 
 /* Toast 提示框 - 与页面玻璃态 / 设计变量一致 */
@@ -753,10 +836,11 @@
   flex: 1;
 }
 
+/* #11: Toast 添加 warning 类型，背景色区分语义 */
 /* 成功：左侧细条 + 柔和背景 */
 .toast.success {
-  background: var(--glass-bg);
   border-left: 3px solid var(--color-success);
+  background: var(--toast-success-bg);
   color: var(--color-text-primary);
 }
 
@@ -764,10 +848,10 @@
   color: var(--color-text-primary);
 }
 
-/* 错误：左侧细条，不改变整体背景 */
+/* 错误：左侧细条 + 柔和背景 */
 .toast.error {
-  background: var(--glass-bg);
   border-left: 3px solid var(--color-error);
+  background: var(--toast-error-bg);
   color: var(--color-text-primary);
 }
 
@@ -775,8 +859,15 @@
   color: var(--color-text-primary);
 }
 
-/* 默认 / 信息：可选品牌色细条 */
-.toast:not(.success):not(.error) {
+/* 警告：左侧细条 + 柔和背景 */
+.toast.warning {
+  border-left: 3px solid var(--toast-warning-border);
+  background: var(--toast-warning-bg);
+  color: var(--color-text-primary);
+}
+
+/* 默认 / 信息：品牌色细条 */
+.toast:not(.success):not(.error):not(.warning) {
   border-left: 3px solid var(--color-border-hover);
 }
 
@@ -879,25 +970,38 @@
   background: var(--color-bg-elevated);
   padding: 0.2em 0.5em;
   border-radius: 6px;
-  color: #7dd3fc;
+  /* #12: 用 CSS 变量替换硬编码颜色 */
+  color: var(--code-inline-fg);
   border: 1px solid var(--color-glass-border);
 }
 
 /* 代码块 */
 .markdown-body :deep(pre) {
-  background: #292929;
+  /* #12: 用 CSS 变量替换硬编码颜色 */
+  background: var(--code-bg);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
   overflow-x: auto;
   margin: 1em 0;
   box-shadow: var(--glass-shadow);
   border: 1px solid var(--color-glass-border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-body :deep(pre)::-webkit-scrollbar { height: 5px; }
+.markdown-body :deep(pre)::-webkit-scrollbar-track { background: transparent; }
+.markdown-body :deep(pre)::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
 }
 
 .markdown-body :deep(pre code) {
   background-color: transparent;
   padding: 0;
-  color: #e4e7ec;
+  /* #12: 用 CSS 变量替换硬编码颜色 */
+  color: var(--code-fg);
   font-size: 0.88em;
   line-height: 1.6;
   border: none;
@@ -909,6 +1013,7 @@
   padding: 0 10px;
 }
 
+/* #12: 语法高亮颜色改用 CSS 变量 */
 .markdown-body :deep(.hljs-attr,
   .hljs-attribute,
   .hljs-literal,
@@ -919,15 +1024,13 @@
   .hljs-selector-attr,
   .hljs-selector-class,
   .hljs-selector-id) {
-  color: #D7BA7D;
-
+  color: var(--code-attr);
   font-weight: 600;
-  /* 加粗 */
   font-family: var(--font-mono) !important
 }
 
 .markdown-body :deep(.hljs-string, .hljs-number) {
-  color: #22a877;
+  color: var(--code-string);
 }
 
 /* 引用块 */
@@ -1048,17 +1151,9 @@
 }
 
 /* ===== Timeline Layout (展开状态的图标+卡片布局) ===== */
-.timeline-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.timeline-row {
-  display: flex;
-  gap: var(--spacing-md);
-  position: relative;
-}
+/* 注意：.timeline-container / .timeline-row / .timeline-line /
+        .timeline-label / .round-badge 的共享样式统一在下方
+        "Timeline Layout" 节中定义，此节仅保留 timeline-icon* 专属样式 */
 
 /* 图标列 */
 .timeline-icon-column {
@@ -1138,14 +1233,7 @@
   font-size: 10px;
 }
 
-/* Round Badge */
-.round-badge {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-interactive);
-}
-
-/* Spinner */
+/* Spinner（图标版） */
 .icon-spinner {
   position: absolute;
   top: -3px;
@@ -1158,40 +1246,11 @@
   animation: spin 1s linear infinite;
 }
 
-/* 连接线 */
-.timeline-line {
-  width: 2px;
-  background: var(--color-border);
-  flex: 1;
-  margin-top: 4px;
-  min-height: 20px;
-}
-
-.timeline-row:last-child .timeline-line {
-  display: none;
-}
-
 /* 卡片列 */
 .timeline-card-column {
   flex: 1;
   min-width: 0;
   padding-bottom: var(--spacing-sm);
-}
-
-.timeline-label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  padding: var(--spacing-sm) 0;
-}
-
-.timeline-label.muted {
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-.timeline-label.success {
-  color: var(--color-success);
 }
 
 /* ===== Timeline Layout ===== */
@@ -1320,7 +1379,7 @@
 .timeline-node.small {
   width: 24px;
   height: 24px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 /* 连接线 (Per Row) */
@@ -1551,6 +1610,9 @@
 
 /* 覆盖 SubtaskCard 样式以适应列表视图 */
 /* 让卡片背景透明，避免嵌套卡片效果 */
+/* NOTE: !important 是必要的 —— SubtaskCard 使用 scoped 样式，其 [data-v-xxx] 属性
+   选择器与 :deep() 选择器具有相同优先级，且组件自身样式加载顺序靠后，
+   不加 !important 会被组件内部样式覆盖 */
 .subtasks-list :deep(.subtask-card) {
   background: transparent !important;
   border: none !important;
@@ -1757,7 +1819,7 @@
   }
 
   .version-label {
-    font-size: 12px;
+    font-size: var(--font-size-xs);
   }
 
   /* Sidebar 覆盖层模式 */
@@ -1813,11 +1875,12 @@
     max-width: 200px;
   }
 
-  /* 移动端：删除按钮始终显示（触摸设备无 hover） */
+  /* 移动端：删除按钮始终可见（触摸设备无 hover） */
   .history-delete-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 28px;
+    padding: 4px;
+    opacity: 0.7;
+    pointer-events: auto;
   }
 
   /* 主聊天区域占满全屏 */
@@ -1937,7 +2000,7 @@
 
   /* 状态标签移动端优化 */
   .status-tag {
-    font-size: 0.7rem;
+    font-size: var(--font-size-xs);
     padding: 2px 6px;
   }
 }
@@ -2020,8 +2083,6 @@
 
 /* 触摸设备优化 */
 @media (hover: none) and (pointer: coarse) {
-
-  /* 增大可点击区域 */
   .sidebar-btn,
   .history-item,
   .toggle-sidebar-btn {
@@ -2045,5 +2106,49 @@
 
   .toggle-sidebar-btn:active {
     background: var(--color-bg-tertiary);
+  }
+}
+
+/* ===== #15: 补充响应式断点 ===== */
+
+/* 中等手机（600px 以下）：介于平板和小屏手机之间 */
+@media (max-width: 600px) {
+  .chat-input-wrapper {
+    padding: 0 var(--spacing-sm) var(--spacing-sm);
+  }
+
+  .message {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .subtasks-full-view {
+    padding: 0 var(--spacing-xs);
+  }
+}
+
+/* 横屏手机：减少顶部/底部空间，保留宝贵纵向高度 */
+@media (max-width: 932px) and (orientation: landscape) and (max-height: 500px) {
+  .top-controls-bar {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .chat-input-wrapper {
+    padding-bottom: max(var(--spacing-xs), env(safe-area-inset-bottom, 0px));
+  }
+
+  /* 横屏下侧边栏占更少高度 */
+  .sidebar {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* 刘海屏 / 安全区域（iPhone X+、Android 全面屏）*/
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .chat-input-wrapper {
+    padding-bottom: max(var(--spacing-sm), env(safe-area-inset-bottom));
+  }
+
+  .sidebar {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

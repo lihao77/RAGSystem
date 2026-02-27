@@ -15,6 +15,7 @@
 import { ref, onMounted, computed } from 'vue';
 import ChatViewV2 from './views/ChatViewV2.vue';
 import AgentMonitor from './views/AgentMonitor.vue';
+import AgentConfig from './views/AgentConfig.vue';
 import 'highlight.js/styles/github-dark.css';
 
 const isDark = ref(true);
@@ -25,7 +26,8 @@ const currentRoute = ref(window.location.pathname);
 const routes = {
   '/': ChatViewV2,
   '/monitor': AgentMonitor,
-  '/agent-monitor': AgentMonitor
+  '/agent-monitor': AgentMonitor,
+  '/agent-config': AgentConfig
 };
 
 const currentView = computed(() => {
