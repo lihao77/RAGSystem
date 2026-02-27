@@ -164,7 +164,9 @@ class AgentLoader:
                     'behavior': {
                         'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
                         'max_rounds': 15,  # ReAct 循环的最大轮数
-                        'max_history_turns': 15,
+                        'compression_trigger_ratio': 0.85,
+                        'summarize_max_tokens': 300,
+                        'preserve_recent_turns': 3,
                         # 'max_context_tokens': 10000,  # 如需显式限制可取消注释
                         'data_save_dir': './static/temp_data'
                     }

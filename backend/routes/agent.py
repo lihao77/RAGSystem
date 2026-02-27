@@ -1448,9 +1448,9 @@ def get_context_snapshot():
                 'strategy': 'llm_summarize_with_fallback',
                 'trigger_ratio': cfg.compression_trigger_ratio,
                 'preserve_recent_turns': cfg.preserve_recent_turns,
+                'summarize_max_tokens': cfg.summarize_max_tokens,
             },
             'model': llm_cfg.get('model_name', ''),
-            'max_history_turns': cfg.max_history_turns,
         }
 
         return success_response(data={

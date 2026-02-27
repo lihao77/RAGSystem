@@ -120,9 +120,11 @@ class MasterAgentV2(BaseAgent):
 
         # 初始化上下文管理器 (使用 ContextPipeline 统一入口)
         context_config = ContextConfig(
-            max_history_turns=behavior_config.get('max_history_turns', 15),
             max_tokens=max_context_tokens,
             model_name=llm_config.get('model_name'),
+            compression_trigger_ratio=behavior_config.get('compression_trigger_ratio', 0.85),
+            summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
+            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
         )
         self.context_pipeline = ContextPipeline(
             config=context_config,

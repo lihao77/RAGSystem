@@ -29,5 +29,7 @@ agents:
         system_prompt: "你是问答助手"
         max_rounds: 10
         auto_execute_tools: true
-        # max_context_tokens: 80000      # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
-        # compression_strategy: smart    # 可选：上下文压缩策略（sliding_window/smart/summarize）
+        # max_context_tokens: 80000           # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
+        # compression_trigger_ratio: 0.85     # 可选：触发压缩的 token 比例（默认 0.85）
+        # summarize_max_tokens: 300           # 可选：LLM 摘要的最大 token 数（默认 300）
+        # preserve_recent_turns: 3            # 可选：保留最近 N 轮对话不压缩（默认 3）

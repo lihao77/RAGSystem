@@ -22,7 +22,6 @@ class ContextConfig:
     """上下文管理配置"""
     # 预算
     max_tokens: int = 8000          # 由 budget.py 计算传入
-    max_history_turns: int = 10     # 安全边界（消息数兜底）
     model_name: Optional[str] = None  # 用于 tiktoken 选择 encoding
 
     # 压缩触发
