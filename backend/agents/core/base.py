@@ -16,6 +16,11 @@ from ..context import ContextManager, ContextConfig
 logger = logging.getLogger(__name__)
 
 
+class InterruptedError(Exception):
+    """Agent 执行被用户中断"""
+    pass
+
+
 def parse_llm_json(content: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     从 LLM 返回文本中解析 JSON，支持多种常见变形。
@@ -196,6 +201,12 @@ class BaseAgent(ABC):
             enabled_tools = self.agent_config.tools.enabled_tools
             return not enabled_tools or tool_name in enabled_tools
         return True
+
+    def _check_interrupt(self, context: AgentContext):
+        """检查是否被用户中断"""
+        cancel_event = context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None
+        if cancel_event and cancel_event.is_set():
+            raise InterruptedError(f"Agent {self.name} 被用户中断")
 
     def compress_context_if_needed(
         self,

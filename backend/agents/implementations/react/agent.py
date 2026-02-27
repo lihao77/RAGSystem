@@ -15,7 +15,7 @@ import os
 import time
 from typing import Optional, Dict, Any, List
 import uuid
-from agents.core import BaseAgent, AgentContext, AgentResponse, parse_llm_json
+from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
 from tools.tool_executor import execute_tool
 from agents.context import ContextManager, ContextConfig, ObservationFormatter
 from agents.events import get_session_event_bus, EventPublisher
@@ -439,6 +439,9 @@ class ReActAgent(BaseAgent):
 
             while rounds < self.max_rounds:
                 rounds += 1
+                # 检查中断
+                self._check_interrupt(context)
+
                 # 获取 LLM 配置（含请求级 context.llm_override），用于调用与日志前缀
                 llm_config = self.get_llm_config(context)
                 log_prefix = self._log_prefix(llm_config, "ReAct")
@@ -470,8 +473,12 @@ class ReActAgent(BaseAgent):
                     provider_type=llm_config.get('provider_type'),
                     temperature=llm_config.get('temperature', 0.3),
                     max_tokens=llm_config.get('max_tokens'),
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    cancel_event=context.metadata.get('cancel_event')
                 )
+
+                # 检查中断
+                self._check_interrupt(context)
 
                 # 检查错误
                 if response.error:
@@ -580,6 +587,9 @@ class ReActAgent(BaseAgent):
                     observations = []
 
                     for idx, action in enumerate(actions, 1):
+                        # 每个工具执行前检查中断
+                        self._check_interrupt(context)
+
                         tool_name = action.get('tool')
                         arguments = action.get('arguments', {})
 
@@ -666,6 +676,22 @@ class ReActAgent(BaseAgent):
                 execution_time=time.time() - start_time,
                 tool_calls=tool_calls_history,
                 metadata={'rounds': rounds, 'max_rounds_reached': True}
+            )
+
+        except InterruptedError as e:
+            self.logger.info(f"任务被用户中断: {e}")
+            if self._publisher:
+                self._publisher.agent_error(error=str(e), error_type="InterruptedError")
+                self._publisher.agent_end(
+                    result="[已停止生成]",
+                    execution_time=time.time() - start_time
+                )
+            return AgentResponse(
+                success=False,
+                content="[已停止生成]",
+                error="interrupted",
+                agent_name=self.name,
+                execution_time=time.time() - start_time
             )
 
         except Exception as e:

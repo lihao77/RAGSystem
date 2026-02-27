@@ -457,6 +457,11 @@ def stream_execute():
             run_id = str(uuid_module.uuid4())
             context.metadata['run_id'] = run_id
 
+            # 创建 cancel_event 用于用户中断
+            import threading as _threading
+            cancel_event = _threading.Event()
+            context.metadata['cancel_event'] = cancel_event
+
             # 统一入口：MasterAgent V2
             master_agent = orchestrator.agents.get('master_agent_v2')
             if not master_agent:
@@ -479,6 +484,17 @@ def stream_execute():
                 session_id=session_id,
                 buffer_size=100,
                 heartbeat_interval=15.0
+            )
+
+            # ✨ 订阅 USER_INTERRUPT 事件，设置 cancel_event
+            def handle_user_interrupt(event):
+                logger.info(f"收到用户中断事件: session_id={session_id}")
+                cancel_event.set()
+
+            interrupt_subscription_id = event_bus.subscribe(
+                event_types=[EventType.USER_INTERRUPT],
+                handler=handle_user_interrupt,
+                filter_func=lambda e: e.session_id == session_id
             )
 
             # ✨ 订阅 COMPRESSION_SUMMARY 事件并写 DB
@@ -638,6 +654,7 @@ def stream_execute():
             finally:
                 event_bus.unsubscribe(subscription_id)
                 event_bus.unsubscribe(compression_subscription_id)
+                event_bus.unsubscribe(interrupt_subscription_id)
                 if metrics_subscription_id:
                     event_bus.unsubscribe(metrics_subscription_id)
 
@@ -653,6 +670,42 @@ def stream_execute():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     return response
+
+
+@agent_bp.route('/stream/stop', methods=['POST'])
+def stream_stop():
+    """
+    停止正在执行的流式任务
+
+    Request:
+        {
+            "session_id": "会话ID"
+        }
+
+    Returns:
+        {"interrupted": true}
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+
+        if not session_id:
+            return error_response(message='session_id 不能为空', status_code=400)
+
+        event_bus = get_session_event_bus(session_id)
+        from agents.events.bus import Event
+        event_bus.publish(Event(
+            type=EventType.USER_INTERRUPT,
+            data={"reason": "user_stop"},
+            session_id=session_id
+        ))
+
+        logger.info(f"已发送用户中断事件: session_id={session_id}")
+        return success_response(data={"interrupted": True})
+
+    except Exception as e:
+        logger.error(f"停止流式任务失败: {e}", exc_info=True)
+        return error_response(message=str(e), status_code=500)
 
 
 @agent_bp.route('/execute/<agent_name>', methods=['POST'])

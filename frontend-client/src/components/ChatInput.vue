@@ -10,13 +10,21 @@
           ref="textareaRef"
         ></textarea>
         <button
+          v-if="isLoading"
+          class="send-btn stop-btn"
+          @click="handleStop"
+          aria-label="Stop generation"
+        >
+          <span class="stop-icon">■</span>
+        </button>
+        <button
+          v-else
           class="send-btn"
-          :disabled="!inputText.trim() || isLoading"
+          :disabled="!inputText.trim()"
           @click="handleSend"
           aria-label="Send message"
         >
-          <span v-if="isLoading" class="spinner"></span>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
             <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
           </svg>
         </button>
@@ -42,7 +50,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send']);
+const emit = defineEmits(['update:modelValue', 'send', 'stop']);
 
 const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
@@ -80,6 +88,10 @@ const handleSend = () => {
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto';
   }
+};
+
+const handleStop = () => {
+  emit('stop');
 };
 
 const focus = async () => {
@@ -180,6 +192,23 @@ textarea::placeholder {
 .send-icon {
   width: 18px;
   height: 18px;
+}
+
+.stop-btn {
+  background: var(--color-interactive) !important;
+  border-color: var(--color-interactive) !important;
+  color: white !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+
+.stop-btn:hover {
+  opacity: 0.85 !important;
+}
+
+.stop-icon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .spinner {

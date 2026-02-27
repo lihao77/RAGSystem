@@ -10,7 +10,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional, Generator
 
-from agents.core import BaseAgent, AgentContext, AgentResponse, parse_llm_json
+from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
 from agents.context import ContextManager, ContextConfig, ObservationFormatter
 from .function_definitions import get_agent_tools
 from .executor import AgentExecutor, parse_agent_invocation
@@ -447,6 +447,9 @@ class MasterAgentV2(BaseAgent):
 
             while rounds < self.max_rounds:
                 rounds += 1
+                # 检查中断
+                self._check_interrupt(context)
+
                 # 获取 LLM 配置（含请求级 context.llm_override），用于调用与日志前缀
                 llm_config = self.get_llm_config(context)
                 log_prefix = self._log_prefix(llm_config, "MasterV2")
@@ -478,8 +481,12 @@ class MasterAgentV2(BaseAgent):
                     provider_type=llm_config.get('provider_type'),
                     temperature=llm_config.get('temperature', 0.3),
                     max_tokens=llm_config.get('max_tokens'),
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    cancel_event=context.metadata.get('cancel_event')
                 )
+
+                # 检查中断
+                self._check_interrupt(context)
 
                 if response.error:
                     # ✨ 使用事件发布器发布错误
@@ -588,6 +595,9 @@ class MasterAgentV2(BaseAgent):
                     agent_results = {}
 
                     for idx, action in enumerate(actions, 1):
+                        # 每个 Agent 调用前检查中断
+                        self._check_interrupt(context)
+
                         tool_name = action.get('tool')
                         arguments = action.get('arguments', {})
 
@@ -649,6 +659,10 @@ class MasterAgentV2(BaseAgent):
                         child_context.metadata['parent_call_id'] = master_call_id  # 父调用指向 Master
                         child_context.metadata['run_id'] = run_id
                         child_context.metadata['task_order'] = current_order
+                        # 传播 cancel_event 到子上下文
+                        cancel_event = context.metadata.get('cancel_event')
+                        if cancel_event:
+                            child_context.metadata['cancel_event'] = cancel_event
 
                         # 执行 Agent（不再流式yield，但仍需收集结果）
                         agent_start = time.time()
@@ -761,6 +775,31 @@ class MasterAgentV2(BaseAgent):
                     'max_rounds_reached': True,
                     'agent_calls': len(agent_calls_history)
                 }
+            )
+
+        except InterruptedError as e:
+            self.logger.info(f"任务被用户中断: {e}")
+
+            # ✨ 发布 MasterAgent 自己的 CALL_AGENT_END 事件（中断）
+            self._publisher.agent_call_end(
+                call_id=master_call_id,
+                agent_name=self.name,
+                result="[已停止生成]",
+                success=False
+            )
+
+            self._publisher.agent_error(error=str(e), error_type="InterruptedError")
+            self._publisher.run_end(
+                run_id=run_id,
+                status="interrupted",
+                summary=f"用户中断执行"
+            )
+            return AgentResponse(
+                success=False,
+                content="[已停止生成]",
+                error="interrupted",
+                agent_name=self.name,
+                execution_time=time.time() - start_time
             )
 
         except Exception as e:

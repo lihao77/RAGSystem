@@ -249,7 +249,7 @@
             </svg>
             <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
           </div>
-          <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" />
+          <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" @stop="handleStop" />
         </div>
       </div>
 
@@ -1149,6 +1149,36 @@ const ensureSession = async () => {
   return currentSessionId.value;
 };
 
+const handleStop = async () => {
+  if (!currentSessionId.value) return;
+
+  try {
+    // 先通知后端终止
+    await fetch('/api/agent/stream/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId.value })
+    });
+  } catch (e) {
+    console.warn('停止请求发送失败:', e);
+  }
+
+  // 然后断开 SSE 接收
+  if (currentStreamController.value) {
+    currentStreamController.value.abort();
+    currentStreamController.value = null;
+  }
+
+  // 标记当前助手消息已完成
+  const lastMsg = messages.value[messages.value.length - 1];
+  if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.finished) {
+    lastMsg.content += '\n\n[已停止生成]';
+    lastMsg.finished = true;
+  }
+
+  isLoading.value = false;
+};
+
 const handleSend = async () => {
   const content = inputMessage.value.trim();
   if (!content || isLoading.value) return;
@@ -1432,16 +1462,20 @@ const handleSend = async () => {
       }
     }
   } catch (error) {
-    console.error('Error sending message:', error);
-    messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
-    messages.value[assistantMsgIndex].finished = true;
-    showToast('消息发送失败', async () => {
-      if (lastFailedSendContent.value) {
-        inputMessage.value = lastFailedSendContent.value;
-        await nextTick();
-        handleSend();
-      }
-    });
+    if (error.name === 'AbortError') {
+      console.log('Stream aborted by user');
+    } else {
+      console.error('Error sending message:', error);
+      messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
+      messages.value[assistantMsgIndex].finished = true;
+      showToast('消息发送失败', async () => {
+        if (lastFailedSendContent.value) {
+          inputMessage.value = lastFailedSendContent.value;
+          await nextTick();
+          handleSend();
+        }
+      });
+    }
   } finally {
     isLoading.value = false;
     scrollToBottom();

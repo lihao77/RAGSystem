@@ -7,11 +7,69 @@ AI Provider 具体实现
 import json
 import logging
 import time
+import threading
 from typing import Any, Dict, List, Optional, Union
 import requests
 from .base import AIProvider, ModelResponse, EmbeddingResponse, AIProviderType
 
 logger = logging.getLogger(__name__)
+
+
+class InterruptedError(Exception):
+    """请求被用户中断"""
+    pass
+
+
+class CancellableRequest:
+    """可取消的 HTTP 请求工具类"""
+
+    @staticmethod
+    def post(url, cancel_event=None, **kwargs):
+        """
+        发送可取消的 POST 请求
+
+        Args:
+            url: 请求 URL
+            cancel_event: threading.Event，用于取消请求
+            **kwargs: 传递给 requests.post 的参数
+
+        Returns:
+            requests.Response
+
+        Raises:
+            InterruptedError: 请求被取消
+        """
+        if cancel_event is None:
+            return requests.post(url, **kwargs)
+
+        if cancel_event.is_set():
+            raise InterruptedError("请求已取消")
+
+        session = requests.Session()
+        result = [None]
+        error = [None]
+        done = threading.Event()
+
+        def do_request():
+            try:
+                result[0] = session.post(url, **kwargs)
+            except Exception as e:
+                error[0] = e
+            finally:
+                done.set()
+
+        t = threading.Thread(target=do_request, daemon=True)
+        t.start()
+
+        while not done.is_set():
+            if cancel_event.is_set():
+                session.close()
+                raise InterruptedError("请求被用户取消")
+            done.wait(timeout=0.5)
+
+        if error[0]:
+            raise error[0]
+        return result[0]
 
 
 class OpenAIProvider(AIProvider):
@@ -44,6 +102,9 @@ class OpenAIProvider(AIProvider):
         **kwargs
     ) -> ModelResponse:
         """发送对话补全请求（实际实现，不含重试）"""
+        # 提取 cancel_event（不传给 API）
+        cancel_event = kwargs.pop('cancel_event', None)
+
         # 使用传入的模型，或者从 model_map['chat'] 获取，或者使用默认 model
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
@@ -66,8 +127,9 @@ class OpenAIProvider(AIProvider):
         response_data = None
 
         try:
-            response = requests.post(
+            response = CancellableRequest.post(
                 f"{self.api_endpoint}/chat/completions",
+                cancel_event=cancel_event,
                 headers=self.headers,
                 json=payload,
                 timeout=self.timeout
@@ -105,6 +167,14 @@ class OpenAIProvider(AIProvider):
                 tool_calls=choice["message"].get("tool_calls")
             )
 
+        except InterruptedError:
+            logger.info(f"OpenAI API 调用被用户中断")
+            return ModelResponse(
+                error="interrupted",
+                model=model,
+                provider=self.name,
+                latency=self._after_request(start_time)
+            )
         except Exception as e:
             logger.error(f"OpenAI API 调用失败: {str(e)}")
             return ModelResponse(
@@ -280,6 +350,9 @@ class DeepSeekProvider(AIProvider):
         **kwargs
     ) -> ModelResponse:
         """发送对话补全请求（实际实现，不含重试）"""
+        # 提取 cancel_event（不传给 API）
+        cancel_event = kwargs.pop('cancel_event', None)
+
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
@@ -300,8 +373,9 @@ class DeepSeekProvider(AIProvider):
         start_time = self._before_request()
 
         try:
-            response = requests.post(
+            response = CancellableRequest.post(
                 f"{self.api_endpoint}/chat/completions",
+                cancel_event=cancel_event,
                 headers=self.headers,
                 json=payload,
                 timeout=self.timeout
@@ -339,6 +413,14 @@ class DeepSeekProvider(AIProvider):
                 tool_calls=choice["message"].get("tool_calls")
             )
 
+        except InterruptedError:
+            logger.info(f"DeepSeek API 调用被用户中断")
+            return ModelResponse(
+                error="interrupted",
+                model=model,
+                provider=self.name,
+                latency=self._after_request(start_time)
+            )
         except Exception as e:
             logger.error(f"DeepSeek API 调用失败: {str(e)}")
             return ModelResponse(
@@ -527,6 +609,9 @@ class OpenRouterProvider(AIProvider):
         **kwargs
     ) -> ModelResponse:
         """发送对话补全请求（实际实现，不含重试）"""
+        # 提取 cancel_event（不传给 API）
+        cancel_event = kwargs.pop('cancel_event', None)
+
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
         max_tokens = max_tokens if max_tokens is not None else self.max_tokens
@@ -548,8 +633,9 @@ class OpenRouterProvider(AIProvider):
         response_data = None
 
         try:
-            response = requests.post(
+            response = CancellableRequest.post(
                 f"{self.api_endpoint}/chat/completions",
+                cancel_event=cancel_event,
                 headers=self.headers,
                 json=payload,
                 timeout=self.timeout
@@ -587,6 +673,14 @@ class OpenRouterProvider(AIProvider):
                 tool_calls=choice["message"].get("tool_calls")
             )
 
+        except InterruptedError:
+            logger.info(f"OpenRouter API 调用被用户中断")
+            return ModelResponse(
+                error="interrupted",
+                model=model,
+                provider=self.name,
+                latency=self._after_request(start_time) if response_data else 0
+            )
         except Exception as e:
             logger.error(f"OpenRouter API 调用失败: {str(e)}")
             return ModelResponse(

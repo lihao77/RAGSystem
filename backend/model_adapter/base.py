@@ -139,6 +139,7 @@ class AIProvider(ABC):
             tools: 工具列表
             tool_choice: 工具选择策略
             **kwargs: 其他参数
+                - cancel_event: threading.Event，用于取消请求
 
         Returns:
             ModelResponse: 响应对象
@@ -149,9 +150,19 @@ class AIProvider(ABC):
         logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         last_error = None
 
+        # 提取 cancel_event（不传给 provider）
+        cancel_event = kwargs.pop('cancel_event', None)
+
         for attempt in range(self.retry_attempts):
+            # 每次重试前检查是否被取消
+            if cancel_event and cancel_event.is_set():
+                return ModelResponse(
+                    error="interrupted",
+                    provider=self.name
+                )
+
             try:
-                # 调用子类实现的实际请求方法
+                # 调用子类实现的实际请求方法（传入 cancel_event）
                 response = self._do_chat_completion(
                     messages=messages,
                     model=model,
@@ -159,6 +170,7 @@ class AIProvider(ABC):
                     max_tokens=max_tokens,
                     tools=tools,
                     tool_choice=tool_choice,
+                    cancel_event=cancel_event,
                     **kwargs
                 )
 
@@ -166,6 +178,10 @@ class AIProvider(ABC):
                 if not response.error:
                     if attempt > 0:
                         logger.info(f"[{self.name}] LLM 调用成功（第 {attempt + 1} 次尝试）")
+                    return response
+
+                # 检查是否是中断错误
+                if response.error == "interrupted":
                     return response
 
                 # 有错误，记录并准备重试
@@ -178,10 +194,18 @@ class AIProvider(ABC):
                 if attempt == self.retry_attempts - 1:
                     return response
 
-                # 指数退避
+                # 指数退避（支持提前唤醒）
                 wait_time = self.retry_delay * (2 ** attempt)  # 1s, 2s, 4s
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
-                time.sleep(wait_time)
+                if cancel_event:
+                    # 使用 cancel_event.wait() 支持提前唤醒
+                    if cancel_event.wait(timeout=wait_time):
+                        return ModelResponse(
+                            error="interrupted",
+                            provider=self.name
+                        )
+                else:
+                    time.sleep(wait_time)
 
             except Exception as e:
                 last_error = str(e)
@@ -196,10 +220,17 @@ class AIProvider(ABC):
                         provider=self.name
                     )
 
-                # 指数退避
+                # 指数退避（支持提前唤醒）
                 wait_time = self.retry_delay * (2 ** attempt)
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
-                time.sleep(wait_time)
+                if cancel_event:
+                    if cancel_event.wait(timeout=wait_time):
+                        return ModelResponse(
+                            error="interrupted",
+                            provider=self.name
+                        )
+                else:
+                    time.sleep(wait_time)
 
         # 理论上不会到这里
         return ModelResponse(
