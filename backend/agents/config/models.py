@@ -78,7 +78,7 @@ class AgentLLMConfig(BaseModel):
         与默认配置合并，支持从 ModelAdapter 获取 Provider 元数据
 
         Args:
-            default_config: 系统默认配置对象
+            default_config: 系统默认配置对象（可以为 None）
             model_adapter: ModelAdapter 实例（可选，用于获取 Provider 配置）
 
         Returns:
@@ -87,10 +87,11 @@ class AgentLLMConfig(BaseModel):
         result = {}
 
         # 使用智能体配置优先，否则使用系统默认
-        result['provider'] = self.provider or getattr(default_config.llm, 'provider', None)
-        result['provider_type'] = self.provider_type or getattr(default_config.llm, 'provider_type', None)
-        result['model_name'] = self.model_name or getattr(default_config.llm, 'model_name', None)
-        result['temperature'] = self.temperature if self.temperature is not None else getattr(default_config.llm, 'temperature', 0.7)
+        default_llm = getattr(default_config, 'llm', None) if default_config else None
+        result['provider'] = self.provider or getattr(default_llm, 'provider', None)
+        result['provider_type'] = self.provider_type or getattr(default_llm, 'provider_type', None)
+        result['model_name'] = self.model_name or getattr(default_llm, 'model_name', None)
+        result['temperature'] = self.temperature if self.temperature is not None else getattr(default_llm, 'temperature', 0.7)
 
         # 输出 token 限制：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
         completion_tokens = self.max_completion_tokens or self.max_tokens
@@ -104,7 +105,7 @@ class AgentLLMConfig(BaseModel):
             except Exception:
                 pass  # 静默失败，使用默认值
 
-        result['max_tokens'] = completion_tokens or getattr(default_config.llm, 'max_tokens', 4096)
+        result['max_tokens'] = completion_tokens or getattr(default_llm, 'max_tokens', 4096)
 
         # 上下文窗口：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
         context_tokens = self.max_context_tokens
@@ -118,10 +119,10 @@ class AgentLLMConfig(BaseModel):
             except Exception:
                 pass  # 静默失败，使用默认值
 
-        result['max_context_tokens'] = context_tokens or getattr(default_config.llm, 'max_context_tokens', None)
+        result['max_context_tokens'] = context_tokens or getattr(default_llm, 'max_context_tokens', None)
 
-        result['timeout'] = self.timeout or getattr(default_config.llm, 'timeout', 30)
-        result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_config.llm, 'retry_attempts', 3)
+        result['timeout'] = self.timeout or getattr(default_llm, 'timeout', 30)
+        result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 3)
 
         if self.top_p is not None:
             result['top_p'] = self.top_p
@@ -219,7 +220,12 @@ class AgentConfig(BaseModel):
 
     llm: AgentLLMConfig = Field(
         default_factory=AgentLLMConfig,
-        description="LLM 配置"
+        description="默认 LLM 配置（用于主任务）"
+    )
+
+    llm_tiers: Optional[Dict[str, AgentLLMConfig]] = Field(
+        default=None,
+        description="多层级 LLM 配置（可选）。支持 fast/default/powerful 三个层级，用于不同复杂度的任务"
     )
 
     tools: AgentToolConfig = Field(

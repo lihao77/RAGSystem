@@ -118,7 +118,7 @@ class ReActAgent(BaseAgent):
         self.context_pipeline = ContextPipeline(
             config=context_config,
             model_adapter=self.model_adapter,
-            get_llm_config_fn=lambda: self.get_llm_config(),
+            get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
             logger=self.logger,
         )
 

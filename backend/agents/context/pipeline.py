@@ -35,7 +35,7 @@ class ContextPipeline:
         self,
         config,  # ContextConfig
         model_adapter,
-        get_llm_config_fn: Callable[[], Dict[str, Any]],
+        get_llm_config_fn: Callable[[Optional[str]], Dict[str, Any]],  # 支持 task_type 参数
         logger: Optional[logging.Logger] = None,
     ):
         self.config = config
@@ -186,13 +186,18 @@ class ContextPipeline:
     ) -> str:
         """尝试用 LLM 生成摘要，返回摘要内容；失败返回空字符串。"""
         try:
-            llm_config = self.get_llm_config_fn()
+            # 优先使用 fast 层级模型进行压缩（成本优化）
+            llm_config = self.get_llm_config_fn(task_type='fast')
             provider = llm_config.get("provider")
             provider_type = llm_config.get("provider_type")
 
             if not provider:
                 self.logger.warning("未配置 LLM provider，跳过 LLM 摘要")
                 return ""
+
+            # 记录使用的模型
+            model_name = llm_config.get('model_name', 'unknown')
+            self.logger.debug(f"使用 fast 层级模型进行压缩: {model_name}")
 
             lines = []
             for m in segment:

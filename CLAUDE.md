@@ -177,6 +177,20 @@ agents:
       temperature: 0.2
       max_completion_tokens: 4096      # 单次输出的最大 token 数
       max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
+
+    # 可选：多层级 LLM 配置（类似 Claude Code 的 sonnet/haiku/opus）
+    # 不配置时所有任务都使用上面的默认 llm
+    llm_tiers:
+      fast:                            # 快速模型（压缩、格式化等简单任务）
+        provider: deepseek
+        model_name: deepseek-chat      # 或更便宜的模型
+        temperature: 0.2
+        max_completion_tokens: 1000
+      # default: 不配置则使用主 llm
+      # powerful: 复杂推理任务（可选）
+      #   provider: openrouter
+      #   model_name: anthropic/claude-3.5-sonnet
+
     tools:
       enabled_tools:
         - query_knowledge_graph_with_nl
@@ -188,6 +202,13 @@ agents:
         max_rounds: 10
         # max_context_tokens: 50000    # 可选：显式指定上下文预算（覆盖自动计算）
 ```
+
+**多层级 LLM 说明**（新增 2026-02-27）：
+- **fast**: 用于简单任务（上下文压缩、格式化、简单判断），成本优化
+- **default**: 主任务模型（不配置 llm_tiers 时使用主 llm）
+- **powerful**: 复杂推理任务（可选，未来扩展）
+- 最小配置：只配置 `llm`，所有任务都用默认模型
+- 当前自动使用 fast 模型的场景：上下文压缩（ContextPipeline）
 
 #### 自研工具调用机制
 **不依赖特定 LLM 提供商的 Function Calling API**，支持任何大模型：

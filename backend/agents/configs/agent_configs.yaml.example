@@ -17,6 +17,30 @@ agents:
       max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
       timeout: 30
       retry_attempts: 3
+
+    # 可选：多层级 LLM 配置（类似 Claude Code 的 sonnet/haiku/opus 设计）
+    # 不配置时所有任务都使用上面的默认 llm 配置
+    llm_tiers:
+      # fast: 快速模型，用于简单任务（压缩、格式化、简单判断）
+      fast:
+        provider: my
+        provider_type: deepseek
+        model_name: deepseek-chat      # 或使用更便宜的模型如 glm-4-flash
+        temperature: 0.2
+        max_completion_tokens: 1000
+
+      # default: 默认模型（不配置时使用主 llm 配置）
+      # default:
+      #   provider: null  # 留空表示使用主 llm 配置
+
+      # powerful: 强力模型，用于复杂推理和困难任务
+      # powerful:
+      #   provider: my
+      #   provider_type: openrouter
+      #   model_name: anthropic/claude-3.5-sonnet
+      #   temperature: 0.5
+      #   max_completion_tokens: 8192
+
     tools:
       enabled_tools:
         - query_knowledge_graph_with_nl

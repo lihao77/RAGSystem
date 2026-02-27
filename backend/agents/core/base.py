@@ -155,8 +155,36 @@ class BaseAgent(ABC):
             return f"[{name} {extra}]"
         return f"[{name}]"
 
-    def get_llm_config(self, context: Optional[AgentContext] = None) -> Dict[str, Any]:
-        """获取 LLM 配置（优先智能体配置，支持请求级覆盖，支持从 ModelAdapter 继承）"""
+    def get_llm_config(self, context: Optional[AgentContext] = None, task_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        获取 LLM 配置（优先智能体配置，支持请求级覆盖，支持从 ModelAdapter 继承）
+
+        Args:
+            context: 智能体上下文（可选）
+            task_type: 任务类型（可选），支持 'fast'/'default'/'powerful'，用于多层级模型路由
+
+        Returns:
+            LLM 配置字典
+        """
+        # 1. 如果指定了 task_type 且配置了 llm_tiers，尝试使用对应层级的配置
+        if task_type and self.agent_config and self.agent_config.llm_tiers:
+            tier_config = self.agent_config.llm_tiers.get(task_type)
+            if tier_config:
+                # 使用层级配置
+                config = tier_config.merge_with_default(
+                    self.system_config,
+                    model_adapter=self.model_adapter
+                )
+                self.logger.debug(f"[{self.name}] 使用 {task_type} 层级模型: {config.get('model_name', 'default')}")
+                return config
+            elif task_type == 'default':
+                # 'default' 层级未配置时，回退到主 llm 配置
+                pass
+            else:
+                # 其他层级未配置时，记录警告并回退到主配置
+                self.logger.debug(f"[{self.name}] {task_type} 层级未配置，回退到默认配置")
+
+        # 2. 使用主 llm 配置
         config = {}
         if self.agent_config and self.agent_config.llm:
             # 传递 model_adapter 以支持从 Provider 配置继承 max_context_tokens
@@ -178,6 +206,8 @@ class BaseAgent(ABC):
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
             config = {'temperature': 0.7, 'max_tokens': 4096}
+
+        # 3. 应用请求级覆盖
         override = getattr(context, 'llm_override', None) if context else None
         if override:
             agent_llm = self.agent_config.llm if (self.agent_config and self.agent_config.llm) else None
