@@ -533,11 +533,12 @@ class MasterAgentV2(BaseAgent):
 
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
-                # ✨ 发布结构化思考事件
+                # ✨ 发布结构化思考事件（携带轮次信息，便于前端分组展示）
                 self._publisher.thought_structured(
                     thought=thought,
                     actions=[a.get('tool') for a in actions] if actions else [],
-                    reasoning=f"第 {rounds} 轮推理"
+                    reasoning=f"第 {rounds} 轮推理",
+                    round=rounds,
                 )
 
                 # 🎯 如果有 Agent 调用，需要先发送 subtask_start，再发送 thought

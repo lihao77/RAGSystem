@@ -134,16 +134,22 @@ class EventPublisher:
         self,
         thought: str,
         actions: Optional[list] = None,
-        reasoning: Optional[str] = None
+        reasoning: Optional[str] = None,
+        round: Optional[int] = None,
     ):
         """结构化思考（ReAct风格）"""
+        data: Dict[str, Any] = {
+            "thought": thought,
+            "actions": actions or [],
+            "reasoning": reasoning,
+        }
+        # 可选地携带轮次信息，便于前端按轮次分组展示
+        if round is not None:
+            data["round"] = round
+
         self._publish(
             EventType.THOUGHT_STRUCTURED,
-            {
-                "thought": thought,
-                "actions": actions or [],
-                "reasoning": reasoning
-            }
+            data,
         )
 
     # ==================== 运行生命周期事件 ====================

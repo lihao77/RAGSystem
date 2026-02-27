@@ -165,7 +165,8 @@ class ReActAgent(BaseAgent):
                     self._publisher.thought_structured(
                         thought=data.get('thought', ''),
                         actions=data.get('actions', []),
-                        reasoning=f"第 {data.get('round', 0)} 轮推理"
+                        reasoning=f"第 {data.get('round', 0)} 轮推理",
+                        round=data.get('round'),
                     )
                 elif event_type == 'tool_start':
                     # 生成唯一的 tool call_id
