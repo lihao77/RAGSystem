@@ -518,6 +518,31 @@ def stream_execute():
                 filter_func=lambda e: e.session_id == session_id
             )
 
+            # ✨ 订阅 REACT_INTERMEDIATE 事件，将中间推理过程写入 DB
+            def handle_react_intermediate(event):
+                try:
+                    d = event.data or {}
+                    store.add_message(
+                        session_id=session_id,
+                        role=d.get("role", "assistant"),
+                        content=d.get("content", ""),
+                        metadata={
+                            "react_intermediate": True,
+                            "msg_type": d.get("msg_type"),
+                            "round": d.get("round"),
+                            "run_id": run_id,
+                            "agent": "master_agent_v2",
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"写入 react_intermediate 消息失败: {e}", exc_info=True)
+
+            react_intermediate_subscription_id = event_bus.subscribe(
+                event_types=[EventType.REACT_INTERMEDIATE],
+                handler=handle_react_intermediate,
+                filter_func=lambda e: e.session_id == session_id
+            )
+
             # ✨ 在后台执行 Agent（不再迭代生成器）
             import threading
             final_answer_saved = threading.Event()
@@ -589,6 +614,11 @@ def stream_execute():
                 except Exception as e:
                     logger.warning(f"写入 run_step 失败: {e}", exc_info=True)
                 if event.type == EventType.FINAL_ANSWER:
+                    # 只持久化 master_agent_v2 的最终答案；子 Agent 也会发布 FINAL_ANSWER，
+                    # 若不过滤，子 Agent 的回答会先于 observation 写入，且 final_answer_saved
+                    # 被提前设置，导致 MasterAgent 真正的最终答案被丢弃。
+                    if event.agent_name and event.agent_name != 'master_agent_v2':
+                        return
                     content = (event.data or {}).get("content")
                     if content is not None and not final_answer_saved.is_set():
                         try:
@@ -654,6 +684,7 @@ def stream_execute():
             finally:
                 event_bus.unsubscribe(subscription_id)
                 event_bus.unsubscribe(compression_subscription_id)
+                event_bus.unsubscribe(react_intermediate_subscription_id)
                 event_bus.unsubscribe(interrupt_subscription_id)
                 if metrics_subscription_id:
                     event_bus.unsubscribe(metrics_subscription_id)
@@ -1235,6 +1266,12 @@ def get_session_messages(session_id):
         expand_steps = expand in ('1', 'true', 'steps', 'yes')
         store = _get_conversation_store()
         data = store.list_messages(session_id=session_id, limit=limit, offset=offset)
+        # 过滤掉 ReAct 中间消息，前端聊天界面不显示
+        if data.get('items'):
+            data['items'] = [
+                item for item in data['items']
+                if not (item.get('metadata') or {}).get('react_intermediate')
+            ]
         if expand_steps and data.get('items'):
             for item in data['items']:
                 if item.get('role') == 'assistant' and (item.get('metadata') or {}).get('run_id'):
@@ -1386,11 +1423,15 @@ def get_context_snapshot():
                     content = msg.get('content', '')
                     t = counter.count_text(content)
                     history_tokens += t
+                    meta = msg.get('metadata') or {}
                     history.append({
                         'role': msg['role'],
                         'content': content[:200] + ('...' if len(content) > 200 else ''),
                         'tokens': t,
                         'seq': msg.get('seq'),
+                        'react_intermediate': meta.get('react_intermediate', False),
+                        'msg_type': meta.get('msg_type'),
+                        'round': meta.get('round'),
                     })
 
         max_tokens = master.context_manager.config.max_tokens

@@ -309,6 +309,15 @@ class EventPublisher:
     # subtask_* 已废弃，建议直接移除或报错
 
 
+    # ==================== ReAct 中间过程事件 ====================
+
+    def react_intermediate(self, role: str, content: str, round: int, msg_type: str):
+        """ReAct 中间消息（thought / observation）"""
+        self._publish(
+            EventType.REACT_INTERMEDIATE,
+            {"role": role, "content": content, "round": round, "msg_type": msg_type}
+        )
+
     # ==================== 流式输出事件 ====================
 
     def chunk(self, content: str):

@@ -50,8 +50,11 @@
             <section class="ctx-section">
               <h4>对话历史 ({{ data.conversation_history.length }})</h4>
               <div class="ctx-history-list">
-                <div v-for="(msg, i) in data.conversation_history" :key="i" class="ctx-history-item" :class="'role-' + msg.role">
-                  <span class="ctx-role">{{ msg.role }}</span>
+                <div v-for="(msg, i) in data.conversation_history" :key="i"
+                  class="ctx-history-item"
+                  :class="msgClass(msg)">
+                  <span class="ctx-role">{{ msgLabel(msg) }}</span>
+                  <span v-if="msg.react_intermediate" class="ctx-msg-type">R{{ msg.round || '' }}</span>
                   <span class="ctx-tokens">{{ msg.tokens }} tokens</span>
                   <div class="ctx-content-preview">{{ msg.content }}</div>
                 </div>
@@ -91,6 +94,19 @@ const tokenPct = computed(() => {
   if (!data.value?.token_stats?.max_tokens) return 0;
   return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.max_tokens * 100));
 });
+
+function msgLabel(msg) {
+  if (!msg.react_intermediate) {
+    if (msg.role === 'assistant') return 'Final Answer';
+    return msg.role;
+  }
+  return msg.msg_type === 'thought' ? 'MasterAgent Thought' : 'SubAgent Result';
+}
+
+function msgClass(msg) {
+  if (!msg.react_intermediate) return 'role-' + msg.role;
+  return msg.msg_type === 'thought' ? 'react-thought' : 'react-observation';
+}
 
 async function fetchSnapshot() {
   loading.value = true;
@@ -142,6 +158,9 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-history-item.role-user { border-left: 3px solid #1890ff; }
 .ctx-history-item.role-assistant { border-left: 3px solid #52c41a; }
 .ctx-history-item.role-system { border-left: 3px solid #faad14; }
+.ctx-history-item.react-thought { border-left: 3px dashed #722ed1; opacity: 0.75; }
+.ctx-history-item.react-observation { border-left: 3px dashed #13c2c2; opacity: 0.75; }
+.ctx-msg-type { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #f0f0f0; color: #666; margin-right: 6px; }
 .ctx-role { font-weight: 600; text-transform: uppercase; margin-right: 8px; }
 .ctx-tokens { color: var(--color-text-muted, #999); float: right; }
 .ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }

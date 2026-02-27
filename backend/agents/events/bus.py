@@ -71,6 +71,9 @@ class EventType(str, Enum):
     USER_INTERRUPT = "user.interrupt"
     USER_FEEDBACK = "user.feedback"
 
+    # ReAct 中间过程事件
+    REACT_INTERMEDIATE = "react.intermediate"
+
     # 上下文压缩事件
     COMPRESSION_SUMMARY = "context.compression_summary"
 

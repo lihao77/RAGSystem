@@ -557,6 +557,13 @@ class MasterAgentV2(BaseAgent):
                     "content": response.content
                 })
 
+                # 🔄 持久化中间 assistant 消息（final_answer 有独立路径）
+                if not final_answer:
+                    self._publisher.react_intermediate(
+                        role="assistant", content=response.content,
+                        round=rounds, msg_type="thought"
+                    )
+
                 # 检查是否有最终答案
                 if final_answer:
                     self.logger.info(f"{log_prefix} 得到最终答案")
@@ -737,6 +744,12 @@ class MasterAgentV2(BaseAgent):
                         "content": f"Agent 执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
                     })
 
+                    # 🔄 持久化中间 observation 消息
+                    self._publisher.react_intermediate(
+                        role="user", content=messages[-1]["content"],
+                        round=rounds, msg_type="observation"
+                    )
+
                     continue
                 else:
                     # 没有 Agent 调用但也没有最终答案
@@ -745,6 +758,13 @@ class MasterAgentV2(BaseAgent):
                         "role": "user",
                         "content": "请根据当前信息给出最终答案，或者说明需要调用哪个 Agent 获取更多信息。"
                     })
+
+                    # 🔄 持久化兜底 observation 消息
+                    self._publisher.react_intermediate(
+                        role="user", content=messages[-1]["content"],
+                        round=rounds, msg_type="observation"
+                    )
+
                     continue
 
             # 达到最大轮数（循环外无 log_prefix，用 display 名）
