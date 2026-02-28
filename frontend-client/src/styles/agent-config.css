@@ -16,7 +16,7 @@
 .config-top__inner {
   max-width: 1100px;
   margin: 0 auto;
-  padding: var(--spacing-md) var(--spacing-xl);
+  padding: var(--spacing-sm) var(--spacing-xl);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
@@ -99,14 +99,14 @@
 
 .header-left {
   display: flex;
-  align-items: flex-start;
+  /* align-items: flex-start; */
   gap: var(--spacing-md);
 }
 
 .header-meta {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  align-items: baseline;
+  gap: var(--spacing-sm);
 }
 
 .config-title {
@@ -119,7 +119,7 @@
 .config-subtitle {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
 }
 
 /* ===== Buttons ===== */
@@ -465,6 +465,10 @@ input[type='number'].form-control {
   .config-top__inner {
     padding-left: var(--spacing-md);
     padding-right: var(--spacing-md);
+  }
+
+  .config-subtitle {
+    display: none;
   }
 
   .config-body {

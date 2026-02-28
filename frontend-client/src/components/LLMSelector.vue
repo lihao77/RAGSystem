@@ -391,7 +391,7 @@ onUnmounted(() => {
 }
 
 .option-item.selected {
-  background: var(--color-interactive);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
   color: var(--color-text-primary);
   font-weight: 600;
 }

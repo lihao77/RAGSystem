@@ -1,13 +1,16 @@
 <template>
   <div id="app">
-    <component
-      :is="currentView"
-      :selected-llm="selectedLLM"
-      :is-dark="isDark"
-      @update:selectedLLM="selectedLLM = $event"
-      @toggle-theme="toggleTheme"
-      @navigate="handleNavigate"
-    />
+    <Transition :name="transitionName">
+      <component
+        :key="currentRoute"
+        :is="currentView"
+        :selected-llm="selectedLLM"
+        :is-dark="isDark"
+        @update:selectedLLM="selectedLLM = $event"
+        @toggle-theme="toggleTheme"
+        @navigate="handleNavigate"
+      />
+    </Transition>
   </div>
 </template>
 
@@ -21,6 +24,21 @@ import 'highlight.js/styles/github-dark.css';
 const isDark = ref(true);
 const selectedLLM = ref('');
 const currentRoute = ref(window.location.pathname);
+const transitionName = ref('slide-forward');
+
+// 路由层级：数值越大越靠右
+const routeDepth = {
+  '/': 0,
+  '/chat': 0,
+  '/monitor': 1,
+  '/agent-monitor': 1,
+  '/agent-config': 1,
+};
+
+const getDepth = (path) => {
+  if (path.startsWith('/chat/')) return 0;
+  return routeDepth[path] ?? 0;
+};
 
 // 简单路由映射
 const routes = {
@@ -31,7 +49,6 @@ const routes = {
 };
 
 const currentView = computed(() => {
-  // 支持 /chat/:sessionId 路由
   if (currentRoute.value.startsWith('/chat/')) {
     return ChatViewV2;
   }
@@ -45,6 +62,9 @@ const toggleTheme = () => {
 
 const handleNavigate = (path) => {
   if (path && path !== currentRoute.value) {
+    const from = getDepth(currentRoute.value);
+    const to = getDepth(path);
+    transitionName.value = to >= from ? 'slide-forward' : 'slide-backward';
     currentRoute.value = path;
     window.history.pushState({}, '', path);
   }
@@ -84,5 +104,40 @@ onMounted(() => {
 </script>
 
 <style>
-/* App.vue 不再需要控制栏样式，已移到 ChatViewV2 */
+#app {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+/* 向右进入（从右滑入 + 淡入） */
+.slide-forward-enter-active,
+.slide-forward-leave-active {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+.slide-forward-enter-from { transform: translateX(40px); opacity: 0; }
+.slide-forward-enter-to   { transform: translateX(0);    opacity: 1; }
+.slide-forward-leave-from { transform: translateX(0);    opacity: 1; }
+.slide-forward-leave-to   { transform: translateX(-40px); opacity: 0; }
+
+/* 向左返回（从左滑入 + 淡入） */
+.slide-backward-enter-active,
+.slide-backward-leave-active {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+.slide-backward-enter-from { transform: translateX(-40px); opacity: 0; }
+.slide-backward-enter-to   { transform: translateX(0);     opacity: 1; }
+.slide-backward-leave-from { transform: translateX(0);     opacity: 1; }
+.slide-backward-leave-to   { transform: translateX(40px);  opacity: 0; }
 </style>

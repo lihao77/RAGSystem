@@ -115,7 +115,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   padding: 0 40px 0 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
   font-size: 13px;
   font-weight: 600;
@@ -206,7 +206,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
 }
 
 .option-item.selected {
-  background: var(--color-interactive);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
   font-weight: 600;
 }
 
