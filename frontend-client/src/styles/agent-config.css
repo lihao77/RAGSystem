@@ -420,3 +420,18 @@ input[type='number'].form-control {
     justify-content: center;
   }
 }
+
+.tier-block {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.tier-block__head {
+  display: flex;
+}
+
+.tier-block__body {
+  padding: 14px;
+}

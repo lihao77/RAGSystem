@@ -119,6 +119,71 @@
 
           <section class="form-section">
             <div class="section-head">
+              <h2>LLM 分层配置</h2>
+              <span>可选。fast 用于压缩等简单任务，powerful 用于复杂推理</span>
+            </div>
+            <div class="section-body">
+              <div v-for="tier in ['fast', 'powerful']" :key="tier" class="tier-block">
+                <div class="tier-block__head">
+                  <div class="toggle-card"
+                    :class="{ active: !!configForm.llm_tiers[tier] }"
+                    style="flex:1"
+                    @click="configForm.llm_tiers[tier] = configForm.llm_tiers[tier] ? null : createEmptyLLM()"
+                  >
+                    <div class="toggle-card__indicator">
+                      <svg v-if="configForm.llm_tiers[tier]"
+                        xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                    <div class="toggle-card__name">{{ tier }}</div>
+                    <div class="toggle-card__desc">{{ tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</div>
+                  </div>
+                </div>
+                <div v-if="configForm.llm_tiers[tier]" class="form-grid tier-block__body">
+                  <label class="form-item">
+                    <span class="field-label-text">Provider</span>
+                    <CustomSelect
+                      :model-value="getTierProviderKey(tier)"
+                      :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                      placeholder="未设置"
+                      @update:model-value="handleTierProviderChange(tier, $event)"
+                    />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Provider Type</span>
+                    <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Model Name</span>
+                    <CustomSelect
+                      :model-value="configForm.llm_tiers[tier].model_name"
+                      :options="[{ value: '', label: '选择模型' }, ...getTierModelOptions(tier).map(m => ({ value: m, label: m }))]"
+                      placeholder="选择模型"
+                      @update:model-value="configForm.llm_tiers[tier].model_name = $event"
+                    />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Temperature</span>
+                    <input v-model.number="configForm.llm_tiers[tier].temperature" type="number" class="form-control" min="0" max="2" step="0.1" />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Max Completion Tokens</span>
+                    <input v-model.number="configForm.llm_tiers[tier].max_completion_tokens" type="number" class="form-control" min="1" step="1" />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Max Context Tokens</span>
+                    <input v-model.number="configForm.llm_tiers[tier].max_context_tokens" type="number" class="form-control" min="1" step="1" />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-head">
               <h2>工具</h2>
               <span>选择当前 Agent 可使用的工具能力</span>
             </div>
@@ -179,7 +244,6 @@
           </section>
 
           <footer class="form-actions">
-            <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
             <button type="submit" class="btn-primary" :disabled="saving || agentLoading">
               {{ saving ? '保存中...' : '保存配置' }}
             </button>
@@ -187,6 +251,7 @@
         </form>
       </div>
     </div>
+    <AppToast ref="toastRef" />
   </div>
 </template>
 
@@ -201,6 +266,7 @@ import {
 } from '../api/agentConfig';
 import { getProviders } from '../api/llmAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
+import AppToast from '../components/AppToast.vue';
 
 const emit = defineEmits(['navigate']);
 
@@ -208,7 +274,11 @@ const loading = ref(false);
 const saving = ref(false);
 const agentLoading = ref(false);
 const error = ref('');
-const saveMessage = ref('');
+const toastRef = ref(null);
+
+function showToast(message, type = 'error') {
+  toastRef.value?.show(message, type);
+}
 
 const agents = ref([]);
 const selectedAgent = ref('');
@@ -246,28 +316,33 @@ const providerModelOptions = computed(() => {
   return getProviderModels(selectedProviderEntry.value);
 });
 
+function createEmptyLLM() {
+  return { provider: '', provider_type: '', model_name: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000 };
+}
+
 function createEmptyForm() {
   return {
     agent_name: '',
     display_name: '',
     description: '',
     enabled: true,
-    llm: {
-      provider: '',
-      provider_type: '',
-      model_name: '',
-      temperature: 0.7,
-      max_completion_tokens: 4096,
-      max_context_tokens: 128000
-    },
-    tools: {
-      enabled_tools: []
-    },
-    skills: {
-      enabled_skills: [],
-      auto_inject: true
-    },
+    llm: createEmptyLLM(),
+    llm_tiers: { fast: null, powerful: null },
+    tools: { enabled_tools: [] },
+    skills: { enabled_skills: [], auto_inject: true },
     custom_params: {}
+  };
+}
+
+function parseTierLLM(tier) {
+  if (!tier) return null;
+  return {
+    provider: tier.provider || '',
+    provider_type: tier.provider_type || '',
+    model_name: tier.model_name || '',
+    temperature: tier.temperature ?? 0.7,
+    max_completion_tokens: tier.max_completion_tokens ?? 4096,
+    max_context_tokens: tier.max_context_tokens ?? 128000
   };
 }
 
@@ -286,6 +361,10 @@ function applyConfigToForm(config) {
       temperature: safeConfig.llm?.temperature ?? 0.7,
       max_completion_tokens: safeConfig.llm?.max_completion_tokens ?? 4096,
       max_context_tokens: safeConfig.llm?.max_context_tokens ?? 128000
+    },
+    llm_tiers: {
+      fast: parseTierLLM(safeConfig.llm_tiers?.fast),
+      powerful: parseTierLLM(safeConfig.llm_tiers?.powerful)
     },
     tools: {
       enabled_tools: Array.isArray(safeConfig.tools?.enabled_tools) ? [...safeConfig.tools.enabled_tools] : []
@@ -321,6 +400,23 @@ function buildPayload() {
     max_context_tokens: configForm.value.llm.max_context_tokens === '' ? null : Number(configForm.value.llm.max_context_tokens)
   };
 
+  function buildTier(tier) {
+    if (!tier) return null;
+    return {
+      provider: tier.provider || null,
+      provider_type: tier.provider_type || null,
+      model_name: tier.model_name || null,
+      temperature: tier.temperature === '' ? null : Number(tier.temperature),
+      max_completion_tokens: tier.max_completion_tokens === '' ? null : Number(tier.max_completion_tokens),
+      max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens)
+    };
+  }
+  const tiers = configForm.value.llm_tiers;
+  const builtTiers = {};
+  if (tiers.fast) builtTiers.fast = buildTier(tiers.fast);
+  if (tiers.powerful) builtTiers.powerful = buildTier(tiers.powerful);
+  merged.llm_tiers = Object.keys(builtTiers).length ? builtTiers : null;
+
   merged.tools = {
     ...(merged.tools || {}),
     enabled_tools: configForm.value.tools.enabled_tools
@@ -339,7 +435,6 @@ function buildPayload() {
 async function loadInitialData() {
   loading.value = true;
   error.value = '';
-  saveMessage.value = '';
 
   try {
     const [configs, toolList, skillList, providerList] = await Promise.all([
@@ -375,15 +470,12 @@ async function loadAgentDetail(agentName) {
   if (!agentName) return;
 
   agentLoading.value = true;
-  error.value = '';
-  saveMessage.value = '';
 
   try {
     const config = await getAgentConfig(agentName);
     applyConfigToForm(config);
-    syncLLMWithProviderDefaults({ keepCurrentModel: true });
   } catch (err) {
-    error.value = err.message || '加载 Agent 详情失败';
+    showToast(err.message || '加载 Agent 详情失败');
   } finally {
     agentLoading.value = false;
   }
@@ -396,20 +488,59 @@ async function handleAgentChange() {
 async function handleSave() {
   if (!selectedAgent.value) return;
 
+  if (!configForm.value.llm.provider) {
+    showToast('请选择主 LLM 的 Provider');
+    return;
+  }
+  for (const tier of ['fast', 'powerful']) {
+    const t = configForm.value.llm_tiers[tier];
+    if (t && !t.provider) {
+      showToast(`请选择 ${tier} 层级的 Provider，或禁用该层级`);
+      return;
+    }
+  }
+
   saving.value = true;
-  error.value = '';
-  saveMessage.value = '';
 
   try {
     await updateAgentConfig(selectedAgent.value, buildPayload());
     const latest = await getAgentConfig(selectedAgent.value);
     applyConfigToForm(latest);
-    saveMessage.value = '保存成功';
+    showToast('保存成功', 'success');
   } catch (err) {
-    error.value = err.message || '保存配置失败';
+    showToast(err.message || '保存配置失败');
   } finally {
     saving.value = false;
   }
+}
+
+function getTierProviderKey(tier) {
+  const t = configForm.value.llm_tiers[tier];
+  if (!t?.provider) return '';
+  const matched = providers.value.find(p => p.name === t.provider && (!t.provider_type || p.provider_type === t.provider_type));
+  return matched ? (matched.key || matched.name) : '';
+}
+
+function getTierModelOptions(tier) {
+  const key = getTierProviderKey(tier);
+  if (!key) return [];
+  const p = providers.value.find(item => (item?.key || item?.name) === key);
+  return getProviderModels(p);
+}
+
+function handleTierProviderChange(tier, key) {
+  const t = configForm.value.llm_tiers[tier];
+  if (!t) return;
+  if (!key) { t.provider = ''; t.provider_type = ''; return; }
+  const p = providers.value.find(item => (item?.key || item?.name) === key);
+  if (!p) return;
+  t.provider = p.name || '';
+  t.provider_type = p.provider_type || '';
+  const models = getProviderModels(p);
+  t.model_name = models[0] || '';
+  if (p.temperature != null) t.temperature = Number(p.temperature);
+  if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
+  if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
 }
 
 function toggleTool(name, checked) {

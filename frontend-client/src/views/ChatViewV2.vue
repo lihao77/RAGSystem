@@ -264,10 +264,7 @@
 
 
     </main>
-    <div v-if="toast.visible" class="toast" :class="toast.type">
-      <span>{{ toast.message }}</span>
-      <button v-if="toast.action" class="toast-action" @click="toast.action">{{ toast.actionLabel }}</button>
-    </div>
+    <AppToast ref="toastRef" />
 
     <!-- 上下文快照抽屉 -->
     <ContextSnapshotDrawer
@@ -299,6 +296,7 @@ import MultimodalContent from '../components/MultimodalContent.vue';
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
+import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
 
@@ -337,13 +335,7 @@ const currentSessionId = ref(null);
 const messagesLoading = ref(false);
 const chatInputRef = ref(null);
 const confirmDialogRef = ref(null);
-const toast = ref({
-  visible: false,
-  message: '',
-  type: 'error',
-  action: null,
-  actionLabel: ''
-});
+const toastRef = ref(null);
 const confirmDialog = ref({
   title: '确认操作',
   message: '',
@@ -714,23 +706,12 @@ const formatTimeLabel = (timeStr) => {
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
   let action = null;
-  if (typeof actionOrType === 'string' && (actionOrType === 'success' || actionOrType === 'error')) {
+  if (typeof actionOrType === 'string') {
     type = actionOrType;
   } else if (typeof actionOrType === 'function') {
     action = actionOrType;
   }
-  toast.value = {
-    visible: true,
-    message,
-    type,
-    action,
-    actionLabel
-  };
-  setTimeout(() => {
-    if (toast.value.visible && toast.value.message === message) {
-      toast.value.visible = false;
-    }
-  }, 3000);
+  toastRef.value?.show(message, action || type, actionLabel);
 };
 
 const focusInput = async () => {
