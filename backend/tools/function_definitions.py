@@ -483,6 +483,12 @@ TOOLS = [
     # 当智能体启用了 Skills 时，这两个工具会自动添加到该智能体的工具列表中
 ]
 
+# 导入文档处理工具
+from tools.document_tools import DOCUMENT_TOOLS
+
+# 合并工具列表
+TOOLS.extend(DOCUMENT_TOOLS)
+
 
 def get_tool_definitions():
     """获取所有工具定义"""

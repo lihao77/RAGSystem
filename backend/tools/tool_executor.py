@@ -114,6 +114,22 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             return load_skill_resource(**arguments)
         elif tool_name == "execute_skill_script":
             return execute_skill_script(**arguments)
+        # 文档处理工具
+        elif tool_name == "read_document":
+            from tools.document_executor import read_document as read_doc
+            return read_doc(**arguments)
+        elif tool_name == "chunk_document":
+            from tools.document_executor import chunk_document as chunk_doc
+            return chunk_doc(**arguments)
+        elif tool_name == "extract_structured_data":
+            from tools.document_executor import extract_structured_data as extract_data
+            return extract_data(**arguments)
+        elif tool_name == "merge_extracted_data":
+            from tools.document_executor import merge_extracted_data as merge_data
+            return merge_data(**arguments)
+        elif tool_name == "save_json_file":
+            from tools.document_executor import save_json_file as save_json
+            return save_json(**arguments)
         else:
             return error_response(f"未知的工具: {tool_name}")
     except Exception as e:
