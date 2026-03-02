@@ -24,7 +24,8 @@ DOCUMENT_TOOLS = [
                     }
                 },
                 "required": ["file_path"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -57,7 +58,8 @@ DOCUMENT_TOOLS = [
                     }
                 },
                 "required": ["content"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -89,7 +91,8 @@ DOCUMENT_TOOLS = [
                     }
                 },
                 "required": ["text", "schema"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -119,7 +122,8 @@ DOCUMENT_TOOLS = [
                     }
                 },
                 "required": ["data_list"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -150,7 +154,8 @@ DOCUMENT_TOOLS = [
                     }
                 },
                 "required": ["data"]
-            }
+            },
+            "allowed_callers": ["direct"]
         }
     }
 ]

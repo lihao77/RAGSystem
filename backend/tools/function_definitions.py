@@ -35,7 +35,8 @@ TOOLS = [
                     }
                 },
                 "required": ["question"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -82,7 +83,8 @@ TOOLS = [
                     }
                 },
                 "required": []
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -99,7 +101,8 @@ TOOLS = [
                     }
                 },
                 "required": ["entity_id"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -116,7 +119,8 @@ TOOLS = [
                     }
                 },
                 "required": ["cypher"]
-            }
+            },
+            "allowed_callers": ["direct"]
         }
     },
     {
@@ -128,7 +132,8 @@ TOOLS = [
                 "type": "object",
                 "properties": {},
                 "required": []
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -157,7 +162,8 @@ TOOLS = [
                     }
                 },
                 "required": ["entity_name", "start_date", "end_date"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -189,7 +195,8 @@ TOOLS = [
                     }
                 },
                 "required": ["start_event"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -226,7 +233,8 @@ TOOLS = [
                     }
                 },
                 "required": ["entity_names"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -266,7 +274,8 @@ TOOLS = [
                     }
                 },
                 "required": ["attribute", "aggregation"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -295,7 +304,8 @@ TOOLS = [
                     }
                 },
                 "required": ["entity_name"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -330,7 +340,8 @@ TOOLS = [
                     }
                 },
                 "required": ["query"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -368,7 +379,8 @@ TOOLS = [
                     }
                 },
                 "required": ["data", "chart_type", "x_field", "y_field"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     {
@@ -393,7 +405,8 @@ TOOLS = [
                     }
                 },
                 "required": ["source_path", "python_code"]
-            }
+            },
+            "allowed_callers": ["direct"]
         }
     },
     {
@@ -433,7 +446,8 @@ TOOLS = [
                     }
                 },
                 "required": ["data", "value_field"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     # 14. 获取实体几何信息
@@ -454,7 +468,8 @@ TOOLS = [
                     }
                 },
                 "required": ["entity_ids"]
-            }
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     },
     # 15. 内存数据转换
@@ -476,7 +491,68 @@ TOOLS = [
                     }
                 },
                 "required": ["python_code"]
-            }
+            },
+            "allowed_callers": ["direct"]
+        }
+    },
+    # 16. PTC 代码执行
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_code",
+            "description": """执行 Python 代码进行复杂数据处理和工具编排。
+
+**核心优势**：
+- 可在代码中调用其他工具（使用 call_tool 函数）
+- 支持复杂逻辑、循环、条件判断
+- 中间结果不占用对话上下文（只有最终结果返回）
+
+**使用场景**：
+1. 批量调用同一工具（如查询 10 个城市）
+2. 根据中间结果动态决定下一步操作
+3. 复杂数据处理（循环、条件、聚合）
+4. 组合多个工具的结果
+
+**代码环境**：
+- 可用模块：math, json, re, datetime, collections, itertools, functools, statistics
+- 可用函数：call_tool(tool_name, arguments) - 调用其他工具
+- 必须设置 result 变量作为最终输出
+- 只有 allowed_callers 包含 "code_execution" 的工具可以在 call_tool 中调用
+
+**安全限制**：
+- 禁止 os, sys, subprocess 等系统模块
+- 禁止文件操作（open, file）
+- 执行超时：30秒
+- 高风险工具（如 execute_cypher_query）禁止从代码调用
+
+**示例**：
+```python
+# 批量查询
+cities = ["南宁市", "柳州市", "桂林市"]
+results = []
+for city in cities:
+    data = call_tool("search_knowledge_graph", {
+        "keyword": city,
+        "category": "地点"
+    })
+    results.append({"city": city, "count": len(data)})
+result = results
+```""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python 代码。必须设置 result 变量作为输出。可使用 call_tool(tool_name, arguments) 调用工具。"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "代码功能描述（可选），例如：'批量查询10个城市的灾害数据'"
+                    }
+                },
+                "required": ["code"]
+            },
+            "allowed_callers": ["direct"]
         }
     }
     # 注意：load_skill_resource 和 execute_skill_script 工具已由 agent_loader.py 自动注入
@@ -501,3 +577,17 @@ def get_tool_by_name(name):
         if tool["function"]["name"] == name:
             return tool
     return None
+
+
+def get_code_callable_tools():
+    """
+    获取允许从代码执行环境调用的工具列表
+
+    Returns:
+        list: 工具名称列表（allowed_callers 包含 "code_execution" 的工具）
+    """
+    return [
+        tool["function"]["name"]
+        for tool in TOOLS
+        if "code_execution" in tool["function"].get("allowed_callers", ["direct"])
+    ]

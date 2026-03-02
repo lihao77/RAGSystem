@@ -139,6 +139,7 @@ agents:
 - 在工具执行前自动检查权限
 - 检查工具是否在智能体配置中启用
 - 高风险工具需要用户审批（通过 USER_APPROVAL_REQUIRED 事件）
+- 支持 `allowed_callers` 字段控制工具调用来源（`direct` / `code_execution`）
 
 **配置示例**：
 ```yaml
@@ -148,7 +149,39 @@ agents:
       enabled_tools:
         - query_knowledge_graph_with_nl  # 低风险，自动允许
         - search_knowledge_graph          # 低风险，自动允许
+        - execute_code                    # PTC 代码执行
         # execute_cypher_query 未启用（高风险）
+```
+
+#### PTC 代码执行（新增 2026-03-02）
+
+**Programmatic Tool Calling** (`backend/tools/code_sandbox.py`)
+- 让 LLM 生成 Python 代码编排工具调用，在沙箱中执行
+- 中间结果隔离（不进入对话上下文），只有最终结果返回
+- 支持批量操作、条件逻辑、数据聚合
+
+**核心组件**：
+- `code_sandbox.py` - 受限 Python 执行环境
+- `execute_code` 工具定义 - 在 `function_definitions.py` 中
+- `allowed_callers` 权限 - 控制哪些工具可从代码调用
+
+**安全机制**：
+- 静态代码检查（禁止 os/sys/subprocess 等）
+- 受限 `__builtins__`（白名单内建函数）
+- 安全 `__import__`（仅允许白名单模块）
+- 超时保护（默认 30 秒）
+- 高风险工具（HIGH）禁止从代码调用（`allowed_callers=["direct"]`）
+- `execute_code` 本身禁止递归调用
+
+**使用示例**：
+```python
+# 批量查询 14 个城市
+cities = ["南宁市", "柳州市", "桂林市", ...]
+results = []
+for city in cities:
+    data = call_tool("search_knowledge_graph", {"keyword": city, "category": "地点"})
+    results.append({"city": city, "count": len(data)})
+result = results
 ```
 
 #### 智能体配置化系统
@@ -218,11 +251,17 @@ agents:
   - 分析/展示：`compare_entities`、`aggregate_statistics`、`generate_chart`、`generate_map`
   - 向量 RAG：`query_emergency_plan`
   - 数据与几何：`process_data_file`、`get_entity_geometry`、`transform_data`
+  - PTC 代码执行：`execute_code`（在沙箱中执行 Python 代码编排工具调用）
 
 - **工具执行器**: `backend/tools/tool_executor.py`
-  - `execute_tool(tool_name, arguments)` 统一执行入口
+  - `execute_tool(tool_name, arguments, caller="direct")` 统一执行入口
   - 路由到具体服务实现
   - 错误处理与结果包装
+
+- **代码沙箱**: `backend/tools/code_sandbox.py`
+  - 受限 Python 执行环境（PTC）
+  - 注入 `call_tool(name, args)` 函数供代码调用工具
+  - 超时保护、stdout 捕获、安全 import
 
 #### API 端点
 ```bash
@@ -902,7 +941,9 @@ response = adapter.embed(
 ### 工具系统
 - **工具定义**: `backend/tools/function_definitions.py` - 所有工具的定义
 - **工具执行**: `backend/tools/tool_executor.py` - 工具执行逻辑（含权限检查）
-- **工具权限**: `backend/tools/permissions.py` - 工具风险等级和权限配置
+- **工具权限**: `backend/tools/permissions.py` - 工具风险等级、权限配置、allowed_callers
+- **代码沙箱**: `backend/tools/code_sandbox.py` - PTC 代码执行引擎
+- **测试**: `backend/tests/test_code_sandbox.py` - PTC 单元测试（42 个测试用例）
 
 ### 向量存储系统（新版）
 - **抽象基类**: `backend/vector_store/base.py` - VectorStoreBase 接口

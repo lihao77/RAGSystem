@@ -415,6 +415,29 @@ class EventPublisher:
             }
         )
 
+    # ==================== 代码执行事件（PTC） ====================
+
+    def code_execution_start(self, description: str, code_preview: str):
+        """代码执行开始"""
+        self._publish(
+            EventType.CODE_EXECUTION_START,
+            {
+                "description": description,
+                "code_preview": code_preview[:200]
+            }
+        )
+
+    def code_execution_end(self, result: Any, execution_time: float, tool_calls_count: int):
+        """代码执行结束"""
+        self._publish(
+            EventType.CODE_EXECUTION_END,
+            {
+                "result_preview": str(result)[:500],
+                "execution_time": execution_time,
+                "tool_calls_count": tool_calls_count
+            }
+        )
+
     # ==================== 会话事件 ====================
 
     def session_start(self, metadata: Optional[Dict] = None):

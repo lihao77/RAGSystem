@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== 工具执行函数 ====================
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct"):
     """
     执行指定的工具
 
@@ -32,6 +32,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         agent_config: 智能体配置（可选，用于权限检查）
         event_bus: 事件总线（可选，用于用户审批）
         user_role: 用户角色（可选，用于权限检查）
+        caller: 调用来源（"direct" 或 "code_execution"）
 
     Returns:
         工具执行结果
@@ -43,7 +44,8 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         allowed, error_msg = check_tool_permission(
             tool_name=tool_name,
             agent_config=agent_config,
-            user_role=user_role
+            user_role=user_role,
+            caller=caller  # 传递调用来源
         )
 
         if not allowed:
@@ -76,7 +78,18 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                     logger.error(f"发布审批请求事件失败: {e}")
 
         # 3. 执行工具
-        if tool_name == "search_knowledge_graph":
+        if tool_name == "execute_code":
+            # PTC 代码执行
+            from tools.code_sandbox import execute_code_sandbox
+            return execute_code_sandbox(
+                code=arguments.get('code'),
+                description=arguments.get('description', ''),
+                timeout=arguments.get('timeout', 30),
+                agent_config=agent_config,
+                event_bus=event_bus,
+                user_role=user_role
+            )
+        elif tool_name == "search_knowledge_graph":
             return search_knowledge_graph(**arguments)
         elif tool_name == "query_knowledge_graph_with_nl":
             return query_knowledge_graph_with_nl(**arguments)

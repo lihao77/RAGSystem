@@ -80,6 +80,10 @@ class EventType(str, Enum):
     # 上下文用量事件
     CONTEXT_USAGE = "context.usage"
 
+    # 代码执行事件（PTC）
+    CODE_EXECUTION_START = "code.execution.start"
+    CODE_EXECUTION_END = "code.execution.end"
+
     # 系统事件
     SESSION_START = "session.start"
     SESSION_END = "session.end"

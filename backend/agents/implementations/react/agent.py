@@ -227,6 +227,30 @@ class ReActAgent(BaseAgent):
 
         tools_desc = "\n".join(tools_desc_lines)
 
+        # 构建 execute_code 可调用工具说明
+        # 当 execute_code 在可用工具中时，告知 LLM 哪些工具可在 call_tool() 中调用
+        code_callable_hint = ""
+        has_execute_code = any(
+            t['function']['name'] == 'execute_code' for t in self.available_tools
+        )
+        if has_execute_code:
+            code_callable_tools = [
+                t['function']['name']
+                for t in self.available_tools
+                if t['function']['name'] != 'execute_code'
+                and 'code_execution' in t['function'].get('allowed_callers', ['direct'])
+            ]
+            if code_callable_tools:
+                tools_list = ", ".join(f"`{t}`" for t in code_callable_tools)
+                code_callable_hint = f"""
+
+## execute_code 中可调用的工具
+
+在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，**只能调用以下工具**：
+{tools_list}
+
+其他工具（如高风险写操作工具）不允许从代码中调用，只能直接作为 action 使用。"""
+
         # 构建 Skills 说明
         skills_desc = self._format_skills_description()
 
@@ -260,6 +284,7 @@ class ReActAgent(BaseAgent):
 ## 可用工具
 
 {tools_desc}
+{code_callable_hint}
 
 ## 领域知识 (Skills)
 
@@ -609,9 +634,13 @@ class ReActAgent(BaseAgent):
                             'total': len(actions)
                         })
 
-                        # 执行工具
+                        # 执行工具（传递 agent_config 以确保 agent 级别的工具权限检查）
                         start_time = time.time()
-                        result = execute_tool(tool_name, arguments)
+                        result = execute_tool(
+                            tool_name, arguments,
+                            agent_config=self.agent_config,
+                            event_bus=event_bus,
+                        )
                         elapsed_time = time.time() - start_time
 
                         # 发送工具结束事件
