@@ -613,18 +613,18 @@ function stepsToSubtasks(steps) {
     }
 
     // 思考过程
-    else if (eventType === 'agent.thought_structured') {
+    else if (eventType === 'agent.thinking_structured' || eventType === 'agent.thought_structured') {
       const agentCallId = step.payload?.call_id;
       const isMasterThought = (step.payload?.agent_name || eventData.agent_name) === 'master_agent_v2';
       if (isMasterThought) {
-        master_steps.push({ round: eventData.round, thought: eventData.thought || '', toolCalls: [], expanded: true });
+        master_steps.push({ round: eventData.round, thinking: eventData.thinking || eventData.thought || '', toolCalls: [], expanded: true });
         continue;
       }
       const node = callNodes.get(agentCallId);
       if (node) {
         const newStep = {
           round: eventData.round,
-          thought: eventData.thought || '',
+          thinking: eventData.thinking || eventData.thought || '',
           toolCalls: [],
           expanded: true
         };
@@ -1296,27 +1296,78 @@ const handleSend = async () => {
                 currentStep: null
               });
             }
-            // 🎯 Master V2 的 thought：区分 Master 与子 Agent
-            else if (eventType === 'agent.thought_structured') {
+            // 🎯 Master V2 的 thinking（流式增量）
+            else if (eventType === 'agent.thinking_delta') {
               if (isMasterEvent(event)) {
                 if (!currentMsg.master_steps) currentMsg.master_steps = [];
-                currentMsg.master_steps.push({
-                  round: eventData.round,
-                  thought: eventData.thought || '',
-                  toolCalls: [],
-                  expanded: true
-                });
+                let lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
+                if (!lastStep || lastStep._thinkingComplete) {
+                  lastStep = { round: eventData.round, thinking: '', toolCalls: [], expanded: true };
+                  currentMsg.master_steps.push(lastStep);
+                }
+                lastStep.thinking += eventData.content;
               } else {
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
-                  const newStep = {
+                  let step = subtask.currentStep;
+                  if (!step || step._thinkingComplete) {
+                    step = { round: eventData.round, thinking: '', toolCalls: [], expanded: true };
+                    subtask.react_steps.push(step);
+                    subtask.currentStep = step;
+                  }
+                  step.thinking += eventData.content;
+                }
+              }
+            }
+            // thinking 完成标记
+            else if (eventType === 'agent.thinking_complete') {
+              if (isMasterEvent(event)) {
+                const lastStep = currentMsg.master_steps?.[currentMsg.master_steps.length - 1];
+                if (lastStep) lastStep._thinkingComplete = true;
+              } else {
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask && subtask.currentStep) {
+                  subtask.currentStep._thinkingComplete = true;
+                }
+              }
+            }
+            // 🎯 Master V2 的 thinking_structured：区分 Master 与子 Agent
+            else if (eventType === 'agent.thinking_structured' || eventType === 'agent.thought_structured') {
+              if (isMasterEvent(event)) {
+                if (!currentMsg.master_steps) currentMsg.master_steps = [];
+                // 如果最后一个 step 已经通过 delta 填充了 thinking，则跳过（避免重复）
+                let lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
+                if (lastStep && lastStep.thinking) {
+                  // 已通过 delta 填充，标记完成即可
+                  lastStep._thinkingComplete = true;
+                } else {
+                  // 没有通过 delta 收到过内容（回放场景），创建新 step
+                  currentMsg.master_steps.push({
                     round: eventData.round,
-                    thought: eventData.thought || '',
+                    thinking: eventData.thinking || eventData.thought || '',
                     toolCalls: [],
-                    expanded: true
-                  };
-                  subtask.react_steps.push(newStep);
-                  subtask.currentStep = newStep;
+                    expanded: true,
+                    _thinkingComplete: true
+                  });
+                }
+              } else {
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask) {
+                  let step = subtask.currentStep;
+                  if (step && step.thinking) {
+                    // 已通过 delta 填充，标记完成即可
+                    step._thinkingComplete = true;
+                  } else {
+                    const newStep = {
+                      round: eventData.round,
+                      thinking: eventData.thinking || eventData.thought || '',
+                      toolCalls: [],
+                      expanded: true,
+                      _thinkingComplete: true
+                    };
+                    subtask.react_steps.push(newStep);
+                    subtask.currentStep = newStep;
+                  }
                 }
               }
             }
@@ -1328,7 +1379,7 @@ const handleSend = async () => {
                 if (!subtask.currentStep) {
                   const newStep = {
                     round: eventData.round,
-                    thought: '',
+                    thinking: '',
                     toolCalls: [],
                     expanded: true
                   };
@@ -1442,8 +1493,9 @@ const handleSend = async () => {
             // 最终答案：Master→content+finished，子Agent→subtask.result_summary
             else if (eventType === 'output.final_answer') {
               if (isMasterEvent(event)) {
-                // final_answer 是权威内容，覆盖可能不完整的 chunk 拼接
-                if (eventData.content) {
+                // 如果已通过 chunk 流式拼接了内容，则不覆盖（避免闪烁）
+                // 仅当 chunk 拼接为空时，才用 final_answer 兜底赋值
+                if (eventData.content && !currentMsg.content) {
                   currentMsg.content = eventData.content;
                 }
                 if (eventData.metadata) {

@@ -70,6 +70,8 @@ class SSEAdapter:
         # 是否已停止
         self._stopped = False
         self._primary_agent_name: Optional[str] = None
+        # 追踪是否已收到过 CHUNK 事件（真流式模式下跳过 final_answer 拆分）
+        self._has_received_chunks = False
 
     def start(self):
         """开始监听事件"""
@@ -155,8 +157,14 @@ class SSEAdapter:
                         timeout=1.0
                     )
 
-                    # ✨ 特殊处理 final_answer：拆分为 chunks 流式输出
-                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming:
+                    # ✨ 追踪 CHUNK 事件
+                    if event.type == EventType.CHUNK:
+                        self._has_received_chunks = True
+
+                    # ✨ 特殊处理 final_answer：
+                    # 如果已收到过 CHUNK（真流式），则不再拆分，只发送完整事件
+                    # 如果未收到过 CHUNK（非流式），则拆分为 chunks 模拟流式
+                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming and not self._has_received_chunks:
                         content = event.data.get("content", "")
 
                         # 先发送 chunks（流式打字效果）
@@ -248,8 +256,14 @@ class SSEAdapter:
                     # 从同步队列获取事件（带超时）
                     event = self._sync_event_queue.get(timeout=1.0)
 
-                    # ✨ 特殊处理 final_answer：拆分为 chunks 流式输出
-                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming:
+                    # ✨ 追踪 CHUNK 事件
+                    if event.type == EventType.CHUNK:
+                        self._has_received_chunks = True
+
+                    # ✨ 特殊处理 final_answer：
+                    # 如果已收到过 CHUNK（真流式），则不再拆分，只发送完整事件
+                    # 如果未收到过 CHUNK（非流式），则拆分为 chunks 模拟流式
+                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming and not self._has_received_chunks:
                         content = event.data.get("content", "")
 
                         # 先发送 chunks（流式打字效果）

@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import threading
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Generator, List, Optional, Union
 import requests
 from .base import AIProvider, ModelResponse, EmbeddingResponse, AIProviderType
 
@@ -70,6 +70,72 @@ class CancellableRequest:
         if error[0]:
             raise error[0]
         return result[0]
+
+
+def _openai_compatible_stream(
+    url: str,
+    headers: Dict[str, str],
+    payload: Dict[str, Any],
+    timeout: int,
+    cancel_event: Optional[threading.Event] = None,
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    OpenAI 兼容 API 的流式请求公共实现。
+
+    所有兼容 OpenAI 格式的 Provider（OpenAI、DeepSeek、OpenRouter）共用此函数。
+
+    Yields:
+        {"content": str, "finish_reason": str|None}
+    """
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+            stream=True,
+        )
+        response.raise_for_status()
+
+        for line in response.iter_lines(decode_unicode=True):
+            # 检查取消信号
+            if cancel_event and cancel_event.is_set():
+                response.close()
+                yield {"content": "", "finish_reason": "interrupted"}
+                return
+
+            if not line or not line.startswith("data: "):
+                continue
+
+            data_str = line[6:]
+            if data_str.strip() == "[DONE]":
+                return
+
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                logger.debug(f"流式输出跳过无效 JSON: {data_str[:100]}")
+                continue
+
+            choices = chunk.get("choices", [])
+            if not choices:
+                continue
+
+            delta = choices[0].get("delta", {})
+            finish_reason = choices[0].get("finish_reason")
+
+            content = delta.get("content", "")
+            if content or finish_reason:
+                yield {
+                    "content": content or "",
+                    "finish_reason": finish_reason,
+                }
+
+    except InterruptedError:
+        yield {"content": "", "finish_reason": "interrupted"}
+    except Exception as e:
+        logger.error(f"流式请求失败: {e}")
+        yield {"content": "", "error": str(e), "finish_reason": "error"}
 
 
 class OpenAIProvider(AIProvider):
@@ -183,6 +249,39 @@ class OpenAIProvider(AIProvider):
                 provider=self.name,
                 latency=self._after_request(start_time) if response_data else 0
             )
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """流式对话补全（OpenAI 兼容 SSE）"""
+        cancel_event = kwargs.pop('cancel_event', None)
+        kwargs.pop('response_format', None)  # XML 模式不需要 json_object
+
+        model = model or self.get_model_for_task('chat')
+        temperature = temperature if temperature is not None else self.temperature
+        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+
+        yield from _openai_compatible_stream(
+            url=f"{self.api_endpoint}/chat/completions",
+            headers=self.headers,
+            payload=payload,
+            timeout=self.timeout,
+            cancel_event=cancel_event,
+        )
 
     def generate_text(
         self,
@@ -429,6 +528,39 @@ class DeepSeekProvider(AIProvider):
                 provider=self.name,
                 latency=self._after_request(start_time)
             )
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """流式对话补全（DeepSeek 兼容 OpenAI SSE）"""
+        cancel_event = kwargs.pop('cancel_event', None)
+        kwargs.pop('response_format', None)
+
+        model = model or self.get_model_for_task('chat')
+        temperature = temperature if temperature is not None else self.temperature
+        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+
+        yield from _openai_compatible_stream(
+            url=f"{self.api_endpoint}/chat/completions",
+            headers=self.headers,
+            payload=payload,
+            timeout=self.timeout,
+            cancel_event=cancel_event,
+        )
 
     def generate_text(
         self,
@@ -689,6 +821,39 @@ class OpenRouterProvider(AIProvider):
                 provider=self.name,
                 latency=self._after_request(start_time) if response_data else 0
             )
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """流式对话补全（OpenRouter 兼容 OpenAI SSE）"""
+        cancel_event = kwargs.pop('cancel_event', None)
+        kwargs.pop('response_format', None)
+
+        model = model or self.get_model_for_task('chat')
+        temperature = temperature if temperature is not None else self.temperature
+        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+
+        yield from _openai_compatible_stream(
+            url=f"{self.api_endpoint}/chat/completions",
+            headers=self.headers,
+            payload=payload,
+            timeout=self.timeout,
+            cancel_event=cancel_event,
+        )
 
     def generate_text(
         self,

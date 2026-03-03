@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-ReAct Agent - 使用 Structured Output 替代 Function Calling
+ReAct Agent - 使用 XML 标签格式 + 流式输出
 
 优势：
 1. 不依赖 function calling API
-2. 支持任何支持 JSON mode 的模型
-3. 推理过程可见
-4. 更容易调试和维护
+2. 支持任何大模型
+3. 推理过程实时流式可见（thinking_delta）
+4. 最终答案逐字流式输出
 """
 
 import logging
@@ -15,7 +15,8 @@ import os
 import time
 from typing import Optional, Dict, Any, List
 import uuid
-from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
+from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError
+from agents.streaming import StreamExecutor
 from tools.tool_executor import execute_tool
 from agents.context import ContextConfig, ObservationFormatter, ContextPipeline
 from agents.events import get_session_event_bus, EventPublisher
@@ -27,35 +28,8 @@ class ReActAgent(BaseAgent):
     """
     ReAct (Reasoning + Acting) 智能体
 
-    使用结构化输出代替 function calling，更加灵活和可控
+    使用 XML 标签格式 + 流式输出，支持实时展示思考和回答过程
     """
-
-    # 输出格式定义
-    RESPONSE_SCHEMA = {
-        "type": "object",
-        "properties": {
-            "thought": {
-                "type": "string",
-                "description": "当前的思考过程"
-            },
-            "actions": {
-                "type": "array",
-                "description": "要执行的工具调用列表（可以一次调用多个独立的工具）",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "tool": {"type": "string", "description": "工具名称"},
-                        "arguments": {"type": "object", "description": "工具参数"}
-                    }
-                }
-            },
-            "final_answer": {
-                "type": "string",
-                "description": "如果已经有足够信息，提供最终答案；否则为null"
-            }
-        },
-        "required": ["thought"]
-    }
 
     def __init__(
         self,
@@ -161,9 +135,9 @@ class ReActAgent(BaseAgent):
                     agent_call_id = getattr(self, '_current_task_id', None)
 
                 # 映射事件类型到 EventPublisher 方法
-                if event_type == 'thought_structured':
-                    self._publisher.thought_structured(
-                        thought=data.get('thought', ''),
+                if event_type == 'thinking_structured':
+                    self._publisher.thinking_structured(
+                        thinking=data.get('thinking', ''),
                         actions=data.get('actions', []),
                         reasoning=f"第 {data.get('round', 0)} 轮推理",
                         round=data.get('round'),
@@ -255,29 +229,15 @@ class ReActAgent(BaseAgent):
         skills_desc = self._format_skills_description()
 
         # 🔒 动态生成示例：使用当前智能体可用的工具
-        # 避免硬编码工具名称，防止 LLM 学习到未授权的工具
         example_tool_name = self.available_tools[0]['function']['name'] if self.available_tools else "tool_name"
         example_params = self.available_tools[0]['function'].get('parameters', {}).get('properties', {})
 
-        # 构造示例参数（取第一个参数作为示例）
+        # 构造示例参数
         if example_params:
             first_param = list(example_params.keys())[0]
-            example_arg = {first_param: "示例值"}
+            example_arg_json = json.dumps({first_param: "示例值"}, ensure_ascii=False)
         else:
-            example_arg = {}
-
-        parallel_example = f"""```json
-{{
-  "thought": "分析任务需求，如果需要执行多个独立操作，可以并行调用工具",
-  "actions": [
-    {{
-      "tool": "{example_tool_name}",
-      "arguments": {example_arg}
-    }}
-  ],
-  "final_answer": null
-}}
-```"""
+            example_arg_json = "{}"
 
         return f"""{self.base_prompt}
 
@@ -292,63 +252,50 @@ class ReActAgent(BaseAgent):
 
 ## 工作方式
 
-你需要以 JSON 格式返回你的思考和行动：
+你通过推理-行动-观察循环来完成任务。每一轮，你需要：
+1. 在 <thinking> 标签中写下简洁思考（不超过100字）
+2. 选择以下之一：
+   - 调用工具：在 <tools> 标签中列出工具调用
+   - 给出答案：在 <answer> 标签中给出最终答案
 
-```json
-{{
-  "thought": "我的思考过程...",
-  "actions": [
-    {{
-      "tool": "工具名称1",
-      "arguments": {{"参数名": "参数值"}}
-    }},
-    {{
-      "tool": "工具名称2",
-      "arguments": {{"参数名": "参数值"}}
-    }}
-  ],
-  "final_answer": null  // 如果还没有最终答案
-}}
-```
+### 调用工具示例
+<thinking>需要查询知识图谱获取相关数据</thinking>
+<tools>
+<tool name="{example_tool_name}">{example_arg_json}</tool>
+</tools>
+
+### 多工具并行调用示例
+<thinking>需要同时查询多个数据源</thinking>
+<tools>
+<tool name="{example_tool_name}">{example_arg_json}</tool>
+<tool name="{example_tool_name}">{example_arg_json}</tool>
+</tools>
+
+### 给出答案示例
+<thinking>数据充足，可以给出答案</thinking>
+<answer>根据查询结果...</answer>
 
 **重要规则：**
 1. **只能使用上面"可用工具"部分列出的工具**，不要使用其他工具
-2. **thought 必须简洁**（不超过100字）
+2. **thinking 必须简洁**（不超过100字）
    - 只说明核心决策：用什么工具、为什么用
    - 不要重复描述数据内容或详细推理过程
-   - 让工具调用本身展现你的思路
    - 示例：
-     - ❌ 差："用户要求查询广西各市受灾人口数据，数据包含10个城市，字段有城市名、受灾人口、紧急转移人口等，我需要先用transform_data转换格式，然后用generate_chart生成图表，柱状图比较适合..."
-     - ✅ 好："使用transform_data转换为列表格式，然后用generate_chart生成柱状图展示各市受灾人口对比"
-3. **可以一次执行多个工具调用**（actions 是数组）
-   - 如果工具之间没有依赖，可以并行执行（例如：同时查询多个地区）
-   - 如果工具B依赖工具A的结果，可以在同一轮中链式调用，使用占位符引用前面工具的结果
+     - ❌ 差："用户要求查询广西各市受灾人口数据，数据包含10个城市..."
+     - ✅ 好："使用transform_data转换为列表格式，然后用generate_chart生成柱状图"
+3. **可以一次执行多个工具调用**（在 <tools> 中写多个 <tool>）
 4. **链式调用：使用占位符引用前面工具的结果**
    - 格式：{{result_N}} 表示引用第N个工具的结果（N从1开始）
-   - 示例：第2个工具可以用 {{result_1}} 引用第1个工具的结果
    - 也可以使用 JSON 路径：{{result_1.data.results}} 提取特定字段
-   - 注意：只能引用前面的工具（如第3个工具可以引用 {{result_1}} 或 {{result_2}}）
-5. 当你有足够信息回答问题时，在 final_answer 中给出答案
-6. 如果工具返回了错误，在下一轮 thought 中分析原因并调整策略
+5. 当你有足够信息回答问题时，在 <answer> 中给出答案
+6. 如果工具返回了错误，在下一轮 <thinking> 中分析原因并调整策略
 
 **关于数据处理的重要规则：**
-1. **小数据**：直接在 `thought` 中分析。
-2. **大数据**：如果工具返回结果提示“数据已保存至文件”，说明数据量过大。
-   - **不要** 尝试让工具打印文件内容。
-   - **直接** 将该文件路径作为参数传递给下一个工具。
-3. **数据格式转换（关键）**：
-   - 如果上一个工具输出的文件格式（例如 JSON 列表）不符合下一个工具的要求（例如需要 CSV 格式，或需要提取特定字段），你 **不能** 直接传递文件路径。
-   - 你必须使用 `process_data_file` 工具，编写 Pandas 代码将数据转换为目标格式。
-   - **步骤**：
-     1. 观察上一个工具返回的元数据（字段名、数据类型）。
-     2. 思考下一个工具需要什么格式（例如需要 'time' 和 'value' 两个字段）。
-     3. 调用 `process_data_file`，在 `python_code` 中编写 DataFrame 转换逻辑。
-     4. 将 `process_data_file` 返回的新文件路径传递给下一个工具。
+1. **小数据**：直接在 thinking 中分析。
+2. **大数据**：如果工具返回"数据已保存至文件"，直接将文件路径传递给下一个工具。
+3. **数据格式转换**：使用 `process_data_file` 工具编写 Pandas 代码转换格式。
 
-**并行调用示例**：
-{parallel_example}
-
-只返回 JSON，不要有其他内容。
+重要：必须使用 XML 标签格式（<thinking>、<tools>、<answer>），不要返回 JSON。
 """
 
     def _format_skills_description(self) -> str:
@@ -488,24 +435,27 @@ class ReActAgent(BaseAgent):
                         'round': rounds
                     })
 
-                # 调用 LLM
-                response = self.model_adapter.chat_completion(
+                # 调用 LLM（流式 XML 模式）
+                stream_executor = StreamExecutor(
+                    model_adapter=self.model_adapter,
+                    publisher=self._publisher,
+                    agent_logger=self.logger,
+                )
+                result = stream_executor.execute_llm_stream(
                     messages=managed_messages,
-                    provider=llm_config.get('provider'),
-                    model=llm_config.get('model_name'),
-                    provider_type=llm_config.get('provider_type'),
-                    temperature=llm_config.get('temperature', 0.3),
-                    max_tokens=llm_config.get('max_tokens'),
-                    response_format={"type": "json_object"},
-                    cancel_event=context.metadata.get('cancel_event')
+                    llm_config=llm_config,
+                    round_num=rounds,
+                    cancel_event=context.metadata.get('cancel_event'),
                 )
 
                 # 检查中断
                 self._check_interrupt(context)
 
                 # 检查错误
-                if response.error:
-                    error_msg = f"LLM 调用失败: {response.error}"
+                if result.error:
+                    if result.error == 'interrupted':
+                        raise InterruptedError("LLM 调用被中断")
+                    error_msg = f"LLM 调用失败: {result.error}"
                     if self._publisher:
                         self._publisher.agent_error(error=error_msg, error_type="LLMError")
                     return AgentResponse(
@@ -516,69 +466,26 @@ class ReActAgent(BaseAgent):
                         execution_time=time.time() - start_time
                     )
 
-                # 重试机制：最多尝试 3 次解析
-                max_parse_retries = 3
-                output = None
-
-                for retry_attempt in range(max_parse_retries):
-                    # 解析 JSON 响应（使用 base 提供的 parse_llm_json，支持代码块、前后缀等）
-                    output, parse_err = parse_llm_json(response.content or "")
-                    if output is not None:
-                        if retry_attempt > 0:
-                            self.logger.info(f"第 {retry_attempt + 1} 次尝试成功解析 JSON")
-                        break
-                    self.logger.warning(
-                        f"第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {parse_err}"
-                    )
-                    if retry_attempt < max_parse_retries - 1:
-                        self.logger.info("要求 LLM 重新生成有效的 JSON...")
-                        current_session.append({
-                            "role": "assistant",
-                            "content": (response.content or "")[:200] + "..."
-                        })
-                        current_session.append({
-                            "role": "user",
-                            "content": f"你的上一个响应包含 JSON 格式错误: {parse_err}。请重新生成一个**严格符合 JSON 规范**的响应，确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
-                        })
-                    else:
-                        self.logger.error(f"达到最大重试次数，无法解析 LLM 响应: {(response.content or '')[:500]}... (已截断)")
-                        return AgentResponse(
-                            success=False,
-                            content="",
-                            error=f"LLM 多次返回无效的 JSON（已重试 {max_parse_retries} 次）: {parse_err}",
-                            agent_name=self.name,
-                            execution_time=time.time() - start_time
-                        )
-
-                # 如果所有重试都失败
-                if output is None:
-                    return AgentResponse(
-                        success=False,
-                        content="",
-                        error="无法从 LLM 获取有效的 JSON 响应",
-                        agent_name=self.name,
-                        execution_time=time.time() - start_time
-                    )
-
-                thought = output.get('thought', '')
-                actions = output.get('actions', [])
-                final_answer = output.get('final_answer')
+                thought = result.thought
+                actions = result.actions or []
+                final_answer = result.answer
+                full_response = result.full_response
 
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # 发送结构化的思考过程事件
                 # round 与 MasterAgent 保持一致：第一轮为 1
-                self._emit_event('thought_structured', {
-                    'thought': thought,
+                self._emit_event('thinking_structured', {
+                    'thinking': thought,
                     'round': rounds,
                     'has_actions': len(actions) > 0,
                     'has_answer': final_answer is not None
                 })
 
-                # 添加 assistant 消息
+                # 添加 assistant 消息（使用完整的 XML 响应文本用于持久化）
                 current_session.append({
                     "role": "assistant",
-                    "content": response.content
+                    "content": full_response
                 })
 
                 # 检查是否有最终答案

@@ -82,7 +82,7 @@ const executionTree = computed(() => {
       agent: 'master_agent_v2',
       agent_display_name: 'Master Agent',
       round: round,
-      thought: masterStep ? (masterStep.thought || '') : '',
+      thought: masterStep ? (masterStep.thinking || masterStep.thought || '') : '',
       children: []
     };
 
@@ -126,7 +126,7 @@ const executionTree = computed(() => {
             agent: subtask.agent_name,
             agent_display_name: subtask.agent_display_name,
             round: reactStep.round,
-            thought: reactStep.thought || '',
+            thought: reactStep.thinking || reactStep.thought || '',
             children: []
           };
 

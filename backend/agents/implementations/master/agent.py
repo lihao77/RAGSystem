@@ -10,7 +10,8 @@ import json
 import time
 from typing import Dict, List, Any, Optional, Generator
 
-from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError, parse_llm_json
+from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError
+from agents.streaming import StreamExecutor
 from agents.context import ContextConfig, ObservationFormatter, ContextPipeline
 from .function_definitions import get_agent_tools
 from .executor import AgentExecutor, parse_agent_invocation
@@ -26,45 +27,9 @@ class MasterAgentV2(BaseAgent):
     核心特性：
     1. **Agent 作为工具**: 将其他 Agent 视为可调用的工具
     2. **ReAct 模式**: 使用推理-行动循环，动态决定调用哪个 Agent
-    3. **完全可观察**: 每次 Agent 调用都有明确的输入输出
-    4. **灵活编排**: 不依赖预设的 DAG，根据任务进展实时决策
-
-    与 Master V1 的区别：
-    - V1: 预先分析任务 → 生成 DAG → 按计划执行 → 整合结果
-    - V2: 分析任务 → 调用 Agent → 观察结果 → 决定下一步 → ... → 生成答案
-
-    优势：
-    - 更灵活：可以根据中间结果调整策略
-    - 更自主：Master 自己决定何时调用哪个 Agent
-    - 更可靠：每一步都可观察，易于调试
+    3. **XML 流式输出**: 实时展示思考和回答过程
+    4. **完全可观察**: 每次 Agent 调用都有明确的输入输出
     """
-
-    # 输出格式定义（与 ReAct Agent 类似）
-    RESPONSE_SCHEMA = {
-        "type": "object",
-        "properties": {
-            "thought": {
-                "type": "string",
-                "description": "当前的思考过程和决策理由"
-            },
-            "actions": {
-                "type": "array",
-                "description": "要执行的 Agent 调用列表（可以一次调用多个独立的 Agent）",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "tool": {"type": "string", "description": "Agent 工具名称（如 invoke_agent_qa_agent）"},
-                        "arguments": {"type": "object", "description": "Agent 参数"}
-                    }
-                }
-            },
-            "final_answer": {
-                "type": "string",
-                "description": "如果已经有足够信息，提供最终答案；否则为null"
-            }
-        },
-        "required": ["thought"]
-    }
 
     def __init__(
         self,
@@ -308,24 +273,8 @@ class MasterAgentV2(BaseAgent):
 
         agent_tools_desc = "\n".join(agent_tools_desc_lines)
 
-        # 构造示例（使用第一个可用的 Agent 工具）
+        # 构造示例
         example_tool_name = available_agent_tools[0]['function']['name'] if available_agent_tools else "invoke_agent_qa_agent"
-
-        parallel_example = f"""```json
-{{
-  "thought": "分析用户任务，决定调用哪个 Agent 来处理",
-  "actions": [
-    {{
-      "tool": "{example_tool_name}",
-      "arguments": {{
-        "task": "要委托给 Agent 的具体任务描述",
-        "context_hint": "可选的上下文提示"
-      }}
-    }}
-  ],
-  "final_answer": null
-}}
-```"""
 
         # 构建直接工具描述段（仅在有直接工具时追加）
         direct_tools_section = ""
@@ -384,53 +333,41 @@ class MasterAgentV2(BaseAgent):
 
 ## 工作方式（ReAct 模式）
 
-你是一个智能体编排器，通过**推理-行动-观察**的循环来完成复杂任务：
+你是一个智能体编排器，通过**推理-行动-观察**的循环来完成复杂任务。每一轮，你需要：
+1. 在 <thinking> 标签中写下简洁思考（不超过100字）
+2. 选择以下之一：
+   - 调用工具/Agent：在 <tools> 标签中列出调用
+   - 给出答案：在 <answer> 标签中给出最终答案
 
-1. **Thought（推理）**: 分析当前情况，决定下一步调用哪个 Agent 或工具
-2. **Action（行动）**: 调用选定的 Agent 工具或直接工具
-3. **Observation（观察）**: 观察执行结果
-4. **重复**: 根据观察结果决定是否需要继续调用，或生成最终答案
+### 调用 Agent 示例
+<thinking>用户需要查询知识图谱，委派给 qa_agent</thinking>
+<tools>
+<tool name="{example_tool_name}">{{"task": "查询广西受灾情况", "context_hint": "关注受灾人口数据"}}</tool>
+</tools>
 
-**输出格式**:
-
-```json
-{{
-  "thought": "我的思考过程...",
-  "actions": [
-    {{
-      "tool": "Agent工具名称或直接工具名称",
-      "arguments": {{"task": "具体任务描述", "context_hint": "上下文提示"}}
-    }}
-  ],
-  "final_answer": null  // 如果还没有最终答案
-}}
-```
+### 给出答案示例
+<thinking>已获取充足数据，整合答案</thinking>
+<answer>根据查询结果...</answer>
 
 **重要规则：**
 
 {rule1}
-2. **thought 必须简洁**（不超过100字）
+2. **thinking 必须简洁**（不超过100字）
    - 说明为什么选择这个 Agent 或工具
    - 说明期望完成什么任务
-3. **可以一次调用多个 Agent 或工具**（如果它们之间没有依赖）
-4. **链式调用**：如果 B 依赖 A 的结果，可以在同一轮中链式调用
-   - 使用占位符 {{result_1}} 引用第1个工具/Agent 的结果
-   - 使用占位符 {{result_2}} 引用第2个工具/Agent 的结果
-   - 以此类推
-5. **当你有足够信息回答用户问题时，在 final_answer 中给出答案**
-6. **如果调用返回错误，在下一轮 thought 中分析原因并调整策略**
+3. **可以一次调用多个 Agent 或工具**（在 <tools> 中写多个 <tool>）
+4. **链式调用**：使用占位符引用前面工具的结果
+   - 使用 {{result_1}}, {{result_2}} 等引用结果
+5. **当你有足够信息回答用户问题时，在 <answer> 中给出答案**
+6. **如果调用返回错误，在下一轮 <thinking> 中分析原因并调整策略**
 
 **决策指南：**
 
-- 如果任务涉及知识图谱查询、数据分析 → 调用 invoke_agent_qa_agent
-- 如果需要执行预定义的工作流 → 调用 invoke_agent_workflow_agent{direct_tools_guide}
-- 如果任务很简单（如问候、闲聊） → 直接生成 final_answer，不调用 Agent
-- 如果需要多个步骤 → 按顺序调用相应的 Agent 或工具，每次观察结果后再决定下一步
+- 如果任务涉及知识图谱查询、数据分析 → 调用对应 Agent
+- 如果任务很简单（如问候、闲聊） → 直接在 <answer> 中回答{direct_tools_guide}
+- 如果需要多个步骤 → 按顺序调用，每次观察结果后再决定下一步
 
-**示例**:
-{parallel_example}
-
-只返回 JSON，不要有其他内容。
+重要：必须使用 XML 标签格式（<thinking>、<tools>、<answer>），不要返回 JSON。
 """
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
@@ -521,181 +458,78 @@ class MasterAgentV2(BaseAgent):
                         'round': rounds
                     })
 
-                # 调用 LLM（使用 JSON mode）
-                response = self.model_adapter.chat_completion(
+                # 调用 LLM（流式 XML 模式）
+                stream_executor = StreamExecutor(
+                    model_adapter=self.model_adapter,
+                    publisher=self._publisher,
+                    agent_logger=self.logger,
+                )
+                result = stream_executor.execute_llm_stream(
                     messages=managed_messages,
-                    provider=llm_config.get('provider'),
-                    model=llm_config.get('model_name'),
-                    provider_type=llm_config.get('provider_type'),
-                    temperature=llm_config.get('temperature', 0.3),
-                    max_tokens=llm_config.get('max_tokens'),
-                    response_format={"type": "json_object"},
-                    cancel_event=context.metadata.get('cancel_event')
+                    llm_config=llm_config,
+                    round_num=rounds,
+                    cancel_event=context.metadata.get('cancel_event'),
                 )
 
                 # 检查中断
                 self._check_interrupt(context)
 
-                if response.error:
+                if result.error:
+                    if result.error == 'interrupted':
+                        raise InterruptedError("LLM 调用被中断")
                     # ✨ 使用事件发布器发布错误
                     self._publisher.agent_error(
-                        error=f"LLM 调用失败: {response.error}",
+                        error=f"LLM 调用失败: {result.error}",
                         error_type="LLMError"
                     )
                     # ✨ 发布完整的结束事件链，确保 SSE 流正确终止
                     self._publisher.agent_call_end(
                         call_id=master_call_id,
                         agent_name=self.name,
-                        result=f"LLM 调用失败: {response.error}",
+                        result=f"LLM 调用失败: {result.error}",
                         success=False
                     )
                     self._publisher.agent_end(
-                        f"LLM 调用失败: {response.error}",
+                        f"LLM 调用失败: {result.error}",
                         execution_time=time.time() - start_time
                     )
                     self._publisher.run_end(
                         run_id=run_id,
                         status="error",
-                        summary=f"LLM 调用失败: {response.error}"
+                        summary=f"LLM 调用失败: {result.error}"
                     )
                     return AgentResponse(
                         success=False,
-                        error=f"LLM 调用失败: {response.error}",
+                        error=f"LLM 调用失败: {result.error}",
                         agent_name=self.name,
                         execution_time=time.time() - start_time
                     )
 
-                # 解析 JSON 响应，支持最多 3 次重试（与 ReActAgent 一致）
-                max_parse_retries = 3
-                output = None
-                parse_err = None
-                for retry_attempt in range(max_parse_retries):
-                    content = (response.content or "").strip()
-                    output, parse_err = parse_llm_json(content)
-                    if output is not None:
-                        if retry_attempt > 0:
-                            self.logger.info(f"{log_prefix} 第 {retry_attempt + 1} 次尝试成功解析 JSON")
-                        break
-
-                    self.logger.warning(
-                        f"{log_prefix} 第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {parse_err}，"
-                        f"原始响应预览: {content[:200]!r}"
-                    )
-
-                    if content and retry_attempt == max_parse_retries - 1:
-                        # 最后一次失败但有内容：降级为纯文本
-                        output = {
-                            "thought": "模型返回了非 JSON 格式，已作为直接回复处理。",
-                            "actions": [],
-                            "final_answer": content
-                        }
-                        self.logger.info(f"{log_prefix} 已降级为纯文本回复 (长度 {len(content)} 字符)")
-                        break
-                    elif not content and retry_attempt == max_parse_retries - 1:
-                        # 最后一次失败且内容为空：发布完整结束事件后 return
-                        error_msg = f"LLM 多次返回无效的 JSON 或空响应（已重试 {max_parse_retries} 次）: {parse_err}"
-                        self._publisher.agent_error(
-                            error=error_msg,
-                            error_type="JSONDecodeError"
-                        )
-                        self._publisher.agent_call_end(
-                            call_id=master_call_id,
-                            agent_name=self.name,
-                            result=error_msg,
-                            success=False
-                        )
-                        self._publisher.agent_end(
-                            error_msg,
-                            execution_time=time.time() - start_time
-                        )
-                        self._publisher.run_end(
-                            run_id=run_id,
-                            status="error",
-                            summary=error_msg
-                        )
-                        return AgentResponse(
-                            success=False,
-                            error=error_msg,
-                            agent_name=self.name,
-                            execution_time=time.time() - start_time
-                        )
-                    else:
-                        # 还有重试机会：追加错误消息，要求 LLM 重新生成
-                        current_session.append({
-                            "role": "assistant",
-                            "content": (response.content or "")[:200] + "..."
-                        })
-                        current_session.append({
-                            "role": "user",
-                            "content": (
-                                f"你的上一个响应包含 JSON 格式错误: {parse_err}。"
-                                "请重新生成一个**严格符合 JSON 规范**的响应，"
-                                "确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
-                            )
-                        })
-                        # 重新调用 LLM
-                        response = self.model_adapter.chat_completion(
-                            messages=self.context_pipeline.prepare_messages(
-                                system_prompt=self._build_system_prompt(),
-                                context=context,
-                                current_session=current_session,
-                                publisher=self._publisher,
-                            ),
-                            provider=llm_config.get('provider'),
-                            model=llm_config.get('model_name'),
-                            provider_type=llm_config.get('provider_type'),
-                            temperature=llm_config.get('temperature', 0.3),
-                            max_tokens=llm_config.get('max_tokens'),
-                            response_format={"type": "json_object"},
-                            cancel_event=context.metadata.get('cancel_event')
-                        )
-                        if response.error:
-                            # 重试时 LLM 又报错，直接退出
-                            error_msg = f"LLM 重试调用失败: {response.error}"
-                            self._publisher.agent_error(error=error_msg, error_type="LLMError")
-                            self._publisher.agent_call_end(
-                                call_id=master_call_id,
-                                agent_name=self.name,
-                                result=error_msg,
-                                success=False
-                            )
-                            self._publisher.agent_end(error_msg, execution_time=time.time() - start_time)
-                            self._publisher.run_end(run_id=run_id, status="error", summary=error_msg)
-                            return AgentResponse(
-                                success=False,
-                                error=error_msg,
-                                agent_name=self.name,
-                                execution_time=time.time() - start_time
-                            )
-
-                thought = output.get('thought', '')
-                actions = output.get('actions', [])
-                final_answer = output.get('final_answer')
+                thought = result.thought
+                actions = result.actions or []
+                final_answer = result.answer
+                full_response = result.full_response
 
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # ✨ 发布结构化思考事件（携带轮次信息，便于前端分组展示）
-                self._publisher.thought_structured(
-                    thought=thought,
+                self._publisher.thinking_structured(
+                    thinking=thought,
                     actions=[a.get('tool') for a in actions] if actions else [],
                     reasoning=f"第 {rounds} 轮推理",
                     round=rounds,
                 )
 
-                # 🎯 如果有 Agent 调用，需要先发送 subtask_start，再发送 thought
-                # 但如果没有 Agent 调用，则不需要 subtask_start
-                # 为了简化，我们在执行 Agent 调用的循环中发送 thought_structured
-
-                # 添加 assistant 消息
+                # 添加 assistant 消息（使用完整 XML 响应用于持久化）
                 current_session.append({
                     "role": "assistant",
-                    "content": response.content
+                    "content": full_response
                 })
 
                 # 🔄 持久化中间 assistant 消息（final_answer 有独立路径）
                 if not final_answer:
                     self._publisher.react_intermediate(
-                        role="assistant", content=response.content,
+                        role="assistant", content=full_response,
                         round=rounds, msg_type="thought"
                     )
 

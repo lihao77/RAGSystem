@@ -556,7 +556,7 @@ def stream_execute():
             step_event_types = [
                 EventType.RUN_START,
                 EventType.AGENT_START,
-                EventType.THOUGHT_STRUCTURED,
+                EventType.THINKING_STRUCTURED,
                 EventType.CALL_AGENT_START,
                 EventType.CALL_AGENT_END,
                 EventType.CALL_TOOL_START,

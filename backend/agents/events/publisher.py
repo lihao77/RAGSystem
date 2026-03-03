@@ -124,33 +124,79 @@ class EventPublisher:
     # ==================== 思考过程事件 ====================
 
     def thought(self, content: str):
+        """简单思考（纯文本）- 兼容旧 API"""
+        self._publish(
+            EventType.THINKING,
+            {"content": content}
+        )
+
+    def thinking(self, content: str):
         """简单思考（纯文本）"""
         self._publish(
-            EventType.THOUGHT,
+            EventType.THINKING,
             {"content": content}
         )
 
     def thought_structured(
         self,
-        thought: str,
+        thought: str = "",
         actions: Optional[list] = None,
         reasoning: Optional[str] = None,
         round: Optional[int] = None,
+        thinking: Optional[str] = None,
     ):
-        """结构化思考（ReAct风格）"""
+        """结构化思考（ReAct风格）- 兼容旧 API，支持 thinking 参数"""
+        # 优先使用 thinking 参数，向后兼容 thought
+        content = thinking if thinking is not None else thought
         data: Dict[str, Any] = {
-            "thought": thought,
+            "thinking": content,
+            "thought": content,  # 兼容旧前端
             "actions": actions or [],
             "reasoning": reasoning,
         }
-        # 可选地携带轮次信息，便于前端按轮次分组展示
         if round is not None:
             data["round"] = round
 
         self._publish(
-            EventType.THOUGHT_STRUCTURED,
+            EventType.THINKING_STRUCTURED,
             data,
         )
+
+    def thinking_structured(
+        self,
+        thinking: str = "",
+        actions: Optional[list] = None,
+        reasoning: Optional[str] = None,
+        round: Optional[int] = None,
+    ):
+        """结构化思考（ReAct风格）- 新 API"""
+        data: Dict[str, Any] = {
+            "thinking": thinking,
+            "thought": thinking,  # 兼容旧前端
+            "actions": actions or [],
+            "reasoning": reasoning,
+        }
+        if round is not None:
+            data["round"] = round
+
+        self._publish(
+            EventType.THINKING_STRUCTURED,
+            data,
+        )
+
+    def thinking_delta(self, content: str, round: Optional[int] = None):
+        """流式思考增量内容"""
+        data: Dict[str, Any] = {"content": content}
+        if round is not None:
+            data["round"] = round
+        self._publish(EventType.THINKING_DELTA, data)
+
+    def thinking_complete(self, full_content: str, round: Optional[int] = None):
+        """思考完成"""
+        data: Dict[str, Any] = {"content": full_content}
+        if round is not None:
+            data["round"] = round
+        self._publish(EventType.THINKING_COMPLETE, data)
 
     # ==================== 运行生命周期事件 ====================
 

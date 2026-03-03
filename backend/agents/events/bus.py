@@ -40,8 +40,14 @@ class EventType(str, Enum):
     AGENT_ERROR = "agent.error"
 
     # 思考过程事件
-    THOUGHT = "agent.thought"
-    THOUGHT_STRUCTURED = "agent.thought_structured"
+    THOUGHT = "agent.thought"                       # 兼容旧代码
+    THOUGHT_STRUCTURED = "agent.thought_structured"  # 兼容旧代码
+    THINKING = "agent.thinking"                      # 新名称（等同 THOUGHT）
+    THINKING_STRUCTURED = "agent.thinking_structured" # 新名称（等同 THOUGHT_STRUCTURED）
+
+    # 流式思考事件（新增）
+    THINKING_DELTA = "agent.thinking_delta"          # thinking 增量内容
+    THINKING_COMPLETE = "agent.thinking_complete"    # thinking 完成
 
     # 调用生命周期（Agent）
     CALL_AGENT_START = "call.agent.start"
