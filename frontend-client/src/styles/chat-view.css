@@ -810,7 +810,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
+  margin-bottom: 8px;
   opacity: 0;
   transition: opacity var(--transition-fast);
 }

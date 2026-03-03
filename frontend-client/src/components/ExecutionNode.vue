@@ -12,7 +12,7 @@
     </div>
 
     <!-- 智能体调用节点 -->
-    <div v-else-if="node.type === 'agent_call'" class="node-agent-call" :class="node.status">
+    <div v-else-if="node.type === 'agent_call'" class="node-agent-call" :class="[node.status, { expanded: localExpanded }]">
       <div class="agent-call-header" @click="toggleExpanded">
         <span class="expand-icon" :class="{ expanded: localExpanded }">
           <svg class="expand-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -55,38 +55,37 @@
         </span>
       </div>
 
-      <!-- 使用滑动动画的内容区域 -->
-      <div class="agent-call-body" :style="contentStyle">
-        <div class="agent-call-slider" :style="sliderStyle">
-          <!-- 详情 (Top) -->
-          <div ref="detailRef" class="agent-call-details" :style="{ opacity: localExpanded ? 1 : 0 }">
-            <div class="description-full">
-              <strong>任务描述：</strong>{{ node.description }}
-            </div>
-
-            <!-- 递归渲染子节点 -->
-            <div v-if="node.children && node.children.length > 0" class="children-container">
-              <ExecutionNode
-                v-for="(child, index) in node.children"
-                :key="index"
-                :node="child"
-                :level="level + 1"
-              />
-            </div>
-
-            <!-- 结果摘要 -->
-            <div v-if="node.result_summary" class="result-summary">
-              <div class="section-header">📋 执行结果</div>
-              <div class="result-content">{{ node.result_summary }}</div>
-            </div>
+      <!-- 详情区（grid 折叠动画，展开时可见） -->
+      <div class="agent-call-detail-wrap" :class="{ expanded: localExpanded }">
+        <div class="agent-call-details">
+          <div class="description-full">
+            <strong>任务描述：</strong>{{ node.description }}
           </div>
 
-          <!-- 预览 (Bottom) -->
-          <div ref="previewRef" class="agent-call-preview" :style="{ opacity: localExpanded ? 0 : 1 }">
-            <div class="description">{{ node.description }}</div>
-            <div v-if="node.result_summary" class="result-preview">
-              {{ node.result_summary }}
-            </div>
+          <!-- 递归渲染子节点 -->
+          <div v-if="node.children && node.children.length > 0" class="children-container">
+            <ExecutionNode
+              v-for="(child, index) in node.children"
+              :key="index"
+              :node="child"
+              :level="level + 1"
+            />
+          </div>
+
+          <!-- 结果摘要 -->
+          <div v-if="node.result_summary" class="result-summary">
+            <div class="section-header">📋 执行结果</div>
+            <div class="result-content">{{ node.result_summary }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 预览区（折叠时可见，展开时收起） -->
+      <div class="agent-call-preview-wrap">
+        <div class="agent-call-preview">
+          <div class="description">{{ node.description }}</div>
+          <div v-if="node.result_summary" class="result-preview">
+            {{ node.result_summary }}
           </div>
         </div>
       </div>
@@ -174,7 +173,7 @@
 </template>
 
 <script setup>
-import { ref, computed, defineProps, onMounted, onUnmounted } from 'vue';
+import { ref, computed, defineProps } from 'vue';
 
 const props = defineProps({
   node: {
@@ -189,9 +188,6 @@ const props = defineProps({
 
 const localExpanded = ref(props.node.expanded !== undefined ? props.node.expanded : false);
 
-const toggleExpanded = () => {
-  localExpanded.value = !localExpanded.value;
-};
 
 const isRunning = computed(() => {
   if (props.node.type === 'thought' && props.node.children) {
@@ -237,49 +233,10 @@ const getStatusText = (status) => {
   return statusMap[status] || status;
 };
 
-// 滑动动画逻辑（仅用于 agent_call 节点）
-const detailRef = ref(null);
-const previewRef = ref(null);
-const detailHeight = ref(0);
-const previewHeight = ref(0);
-let resizeObserver;
-
-onMounted(() => {
-  if (props.node.type === 'agent_call') {
-    resizeObserver = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        if (entry.target === detailRef.value) {
-          detailHeight.value = entry.target.offsetHeight;
-        } else if (entry.target === previewRef.value) {
-          previewHeight.value = entry.target.offsetHeight;
-        }
-      }
-    });
-
-    if (detailRef.value) resizeObserver.observe(detailRef.value);
-    if (previewRef.value) resizeObserver.observe(previewRef.value);
-  }
-});
-
-onUnmounted(() => {
-  if (resizeObserver) resizeObserver.disconnect();
-});
-
-const contentStyle = computed(() => {
-  if (props.node.type !== 'agent_call') return {};
-  const height = localExpanded.value ? detailHeight.value : previewHeight.value;
-  // 防止初始化时高度为 0 导致闪烁
-  if (height === 0) return { height: 'auto' };
-  return { height: `${height}px` };
-});
-
-const sliderStyle = computed(() => {
-  if (props.node.type !== 'agent_call') return {};
-  // 展开时 translateY = 0（显示详情）
-  // 收起时 translateY = -detailHeight（向上滑动显示预览）
-  const translateY = localExpanded.value ? 0 : -detailHeight.value;
-  return { transform: `translateY(${translateY}px)` };
-});
+// agent_call 折叠/展开，纯 CSS grid-template-rows 动画，无需 JS 测量高度
+const toggleExpanded = () => {
+  localExpanded.value = !localExpanded.value;
+};
 </script>
 
 <style scoped>
@@ -452,40 +409,49 @@ const sliderStyle = computed(() => {
   display: block;
 }
 
-/* 滑动动画容器 */
-.agent-call-body {
-  /* background: var(--color-bg-primary); */
-  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: height;
+/* 预览区 wrapper：折叠时展开(1fr)，展开时收起(0fr) */
+.agent-call-preview-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s ease;
+  opacity: 1;
+}
+
+.node-agent-call.expanded .agent-call-preview-wrap {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* 内层必须 overflow: hidden */
+.agent-call-preview {
   overflow: hidden;
-}
-
-.agent-call-slider {
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
-}
-
-/* 详情区域 (Top) */
-.agent-call-details {
-  /* padding: var(--spacing-lg); */
   box-sizing: border-box;
-  transition: opacity 0.4s ease;
+}
+
+/* grid 折叠容器：用 grid-template-rows 0fr→1fr 实现无需知道高度的平滑展开 */
+.agent-call-detail-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s ease;
+  opacity: 0;
+}
+
+.agent-call-detail-wrap.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* 内层必须 overflow: hidden，才能让 0fr 时内容真正不可见 */
+.agent-call-details {
+  overflow: hidden;
+  box-sizing: border-box;
   border-left: 2px solid var(--color-border);
 }
 
-
-.agent-call-details>.children-container {
+.agent-call-details > .children-container {
   border-left: none;
-}
-
-/* 预览区域 (Bottom) */
-.agent-call-preview {
-  /* padding: var(--spacing-lg); */
-  /* background: var(--color-bg-primary); */
-  box-sizing: border-box;
-  transition: opacity 0.4s ease;
 }
 
 .description {
@@ -705,7 +671,7 @@ const sliderStyle = computed(() => {
   justify-content: center;
   width: 40px;
   height: 40px;
-  color: var(--color-interactive);
+  color: var(--color-brand-accent-light);
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   border-radius: 50%;
   cursor: pointer;
@@ -713,7 +679,7 @@ const sliderStyle = computed(() => {
 
 .trigger-content:hover {
   transform: scale(1.15);
-  color: var(--color-interactive-hover);
+  color: var(--color-brand-accent);
 }
 
 .icon-up {
