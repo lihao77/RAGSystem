@@ -197,7 +197,7 @@ class ReActAgent(BaseAgent):
             if 'examples' in func:
                 tools_desc_lines.append("**示例**:")
                 for example in func['examples']:
-                    tools_desc_lines.append(f"  ```json\n  {example}\n  ```")
+                    tools_desc_lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False)}\n  ```")
 
         tools_desc = "\n".join(tools_desc_lines)
 
@@ -473,14 +473,13 @@ class ReActAgent(BaseAgent):
 
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
-                # 发送结构化的思考过程事件
-                # round 与 MasterAgent 保持一致：第一轮为 1
-                self._emit_event('thinking_structured', {
-                    'thinking': thought,
-                    'round': rounds,
-                    'has_actions': len(actions) > 0,
-                    'has_answer': final_answer is not None
-                })
+                # 若 LLM 未输出 <thinking> 标签，thinking_complete 不会触发，前端会丢失这一轮
+                # 补发 thinking_complete，让前端能正常创建该轮 step
+                if not thought and self._publisher:
+                    self._publisher.thinking_complete(
+                        full_content=full_response.strip(),
+                        round=rounds,
+                    )
 
                 # 添加 assistant 消息（使用完整的 XML 响应文本用于持久化）
                 current_session.append({

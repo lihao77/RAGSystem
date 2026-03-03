@@ -139,9 +139,18 @@ class StreamExecutor:
             if parse_err:
                 self.logger.warning(f"工具 XML 解析警告: {parse_err}")
 
+        full_response = self.parser.get_full_response()
+
+        # LLM 输出了裸文本（没有任何 XML 标签），解析器会丢弃标签外文本
+        # 此时 thought/actions/answer 全为空，但 full_response 有内容
+        # 将 full_response 视为最终答案，避免触发兜底重试逻辑
+        if not thought and not actions and not answer and full_response.strip():
+            self.logger.warning("LLM 输出了裸文本（无 XML 标签），将其作为最终答案处理")
+            answer = full_response.strip()
+
         return StreamResult(
             thought=thought,
             actions=actions if actions else None,
             answer=answer or None,
-            full_response=self.parser.get_full_response(),
+            full_response=full_response,
         )

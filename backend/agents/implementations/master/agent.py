@@ -303,7 +303,7 @@ class MasterAgentV2(BaseAgent):
                 if 'examples' in func:
                     direct_tool_lines.append("**示例**:")
                     for example in func['examples']:
-                        direct_tool_lines.append(f"  ```json\n  {example}\n  ```")
+                        direct_tool_lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False)}\n  ```")
 
             direct_tools_section = (
                 "\n\n## 可直接调用的工具\n\n"
@@ -512,13 +512,14 @@ class MasterAgentV2(BaseAgent):
 
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
-                # ✨ 发布结构化思考事件（携带轮次信息，便于前端分组展示）
-                self._publisher.thinking_structured(
-                    thinking=thought,
-                    actions=[a.get('tool') for a in actions] if actions else [],
-                    reasoning=f"第 {rounds} 轮推理",
-                    round=rounds,
-                )
+                # 若 LLM 未输出 <thinking> 标签，thinking_complete 不会触发，前端会丢失这一轮
+                # 补发 thinking_complete，让前端能正常创建该轮 step
+                # full_response 作为兜底内容（LLM 可能输出了裸文本而没有用标签包裹）
+                if not thought:
+                    self._publisher.thinking_complete(
+                        full_content=full_response.strip(),
+                        round=rounds,
+                    )
 
                 # 添加 assistant 消息（使用完整 XML 响应用于持久化）
                 current_session.append({

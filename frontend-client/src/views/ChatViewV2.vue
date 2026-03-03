@@ -613,18 +613,18 @@ function stepsToSubtasks(steps) {
     }
 
     // 思考过程
-    else if (eventType === 'agent.thinking_structured' || eventType === 'agent.thought_structured') {
+    else if (eventType === 'agent.thinking_complete') {
       const agentCallId = step.payload?.call_id;
       const isMasterThought = (step.payload?.agent_name || eventData.agent_name) === 'master_agent_v2';
       if (isMasterThought) {
-        master_steps.push({ round: eventData.round, thinking: eventData.thinking || eventData.thought || '', toolCalls: [], expanded: true });
+        master_steps.push({ round: eventData.round, thinking: eventData.content || '', toolCalls: [], expanded: true });
         continue;
       }
       const node = callNodes.get(agentCallId);
       if (node) {
         const newStep = {
           round: eventData.round,
-          thinking: eventData.thinking || eventData.thought || '',
+          thinking: eventData.content || '',
           toolCalls: [],
           expanded: true
         };
@@ -1319,32 +1319,19 @@ const handleSend = async () => {
                 }
               }
             }
-            // thinking 完成标记
+            // thinking 完成：携带完整内容，直接用于创建或收尾 step
             else if (eventType === 'agent.thinking_complete') {
               if (isMasterEvent(event)) {
-                const lastStep = currentMsg.master_steps?.[currentMsg.master_steps.length - 1];
-                if (lastStep) lastStep._thinkingComplete = true;
-              } else {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask && subtask.currentStep) {
-                  subtask.currentStep._thinkingComplete = true;
-                }
-              }
-            }
-            // 🎯 Master V2 的 thinking_structured：区分 Master 与子 Agent
-            else if (eventType === 'agent.thinking_structured' || eventType === 'agent.thought_structured') {
-              if (isMasterEvent(event)) {
                 if (!currentMsg.master_steps) currentMsg.master_steps = [];
-                // 如果最后一个 step 已经通过 delta 填充了 thinking，则跳过（避免重复）
-                let lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
+                const lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
                 if (lastStep && lastStep.thinking) {
-                  // 已通过 delta 填充，标记完成即可
+                  // delta 已填充内容，标记完成即可
                   lastStep._thinkingComplete = true;
                 } else {
-                  // 没有通过 delta 收到过内容（回放场景），创建新 step
+                  // 未收到 delta（异常情况），用完整内容兜底建 step
                   currentMsg.master_steps.push({
                     round: eventData.round,
-                    thinking: eventData.thinking || eventData.thought || '',
+                    thinking: eventData.content || '',
                     toolCalls: [],
                     expanded: true,
                     _thinkingComplete: true
@@ -1353,14 +1340,15 @@ const handleSend = async () => {
               } else {
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
-                  let step = subtask.currentStep;
+                  const step = subtask.currentStep;
                   if (step && step.thinking) {
-                    // 已通过 delta 填充，标记完成即可
+                    // delta 已填充内容，标记完成即可
                     step._thinkingComplete = true;
                   } else {
+                    // 未收到 delta（异常情况），用完整内容兜底建 step
                     const newStep = {
                       round: eventData.round,
-                      thinking: eventData.thinking || eventData.thought || '',
+                      thinking: eventData.content || '',
                       toolCalls: [],
                       expanded: true,
                       _thinkingComplete: true

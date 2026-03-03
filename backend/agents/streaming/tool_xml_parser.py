@@ -26,6 +26,83 @@ TOOL_PATTERN = re.compile(
     re.DOTALL
 )
 
+# 兜底：匹配未闭合的 <tool name="xxx">... （stop token 截断导致 </tool> 丢失）
+TOOL_PATTERN_UNCLOSED = re.compile(
+    r'<tool\s+name\s*=\s*"([^"]+)"\s*>(.*?)(?=<tool[\s>]|</tools>|$)',
+    re.DOTALL
+)
+
+# 匹配 XML 子标签 <tagname>value</tagname>
+XML_FIELD_PATTERN = re.compile(
+    r'<([^/>\s][^>\s]*)>(.*?)</\1>',
+    re.DOTALL
+)
+
+
+def _extract_json_object(s: str) -> Optional[str]:
+    """
+    从字符串中提取第一个完整的 JSON 对象（{...}）。
+    用于处理 args_str 中混入了额外标签或文本的情况。
+    """
+    start = s.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    for i, ch in enumerate(s[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return s[start:i + 1]
+    return None
+
+
+def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
+    """
+    尝试将 XML 格式的参数体解析为字典。
+    处理形如：
+        <skill_name>kg-advanced-query</skill_name>
+        <script_name>query.py</script_name>
+        <arguments>
+        --cypher
+        MATCH ...
+        --params
+        {"name": "x"}
+        </arguments>
+    其中嵌套的 <arguments> 标签内容解析为字符串列表（按行分割，过滤空行）。
+    """
+    fields = XML_FIELD_PATTERN.findall(args_str)
+    if not fields:
+        return None
+
+    result = {}
+    for tag, value in fields:
+        value = value.strip()
+        tag = tag.strip()
+
+        # 嵌套 <arguments> 标签：把多行内容拆成列表
+        if tag == "arguments":
+            items = [line.strip() for line in value.splitlines() if line.strip()]
+            result[tag] = items
+        else:
+            result[tag] = value
+
+    return result if result else None
+
 
 def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
@@ -44,6 +121,9 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 
     matches = TOOL_PATTERN.findall(content)
     if not matches:
+        # 兜底：尝试匹配未闭合的 <tool> 标签（stop token 截断了 </tool>）
+        matches = TOOL_PATTERN_UNCLOSED.findall(content)
+    if not matches:
         return [], f"未找到有效的 <tool> 标签，内容: {content[:200]}"
 
     actions = []
@@ -58,15 +138,40 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             actions.append({"tool": tool_name, "arguments": {}})
             continue
 
+        # 先尝试直接 JSON 解析
         try:
             arguments = json.loads(args_str)
             if not isinstance(arguments, dict):
                 arguments = {"value": arguments}
             actions.append({"tool": tool_name, "arguments": arguments})
-        except json.JSONDecodeError as e:
-            errors.append(f"工具 '{tool_name}' 参数 JSON 解析失败: {e}, 原始: {args_str[:100]}")
-            # 仍然添加，但参数为原始字符串
-            actions.append({"tool": tool_name, "arguments": {"_raw": args_str}})
+            continue
+        except json.JSONDecodeError:
+            pass
+
+        # JSON 解析失败：args_str 可能混入了多余内容（残留标签等）
+        # 尝试从中提取第一个完整 JSON 对象
+        json_str = _extract_json_object(args_str)
+        if json_str:
+            try:
+                arguments = json.loads(json_str)
+                if not isinstance(arguments, dict):
+                    arguments = {"value": arguments}
+                logger.debug(f"工具 '{tool_name}' 参数通过 JSON 提取解析成功")
+                actions.append({"tool": tool_name, "arguments": arguments})
+                continue
+            except json.JSONDecodeError:
+                pass
+
+        # 尝试 XML 格式解析
+        xml_arguments = _try_parse_xml_arguments(args_str)
+        if xml_arguments:
+            logger.debug(f"工具 '{tool_name}' 参数使用 XML 格式解析成功")
+            actions.append({"tool": tool_name, "arguments": xml_arguments})
+            continue
+
+        # 所有解析方式都失败，记录错误并跳过该工具调用
+        errors.append(f"工具 '{tool_name}' 参数解析失败，原始内容: {args_str[:100]}")
+        logger.warning(f"工具 '{tool_name}' 参数解析失败，跳过该调用")
 
     error_msg = "; ".join(errors) if errors else None
     return actions, error_msg

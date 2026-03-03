@@ -297,7 +297,7 @@ class AgentLoader:
             "type": "function",
             "function": {
                 "name": "execute_skill_script",
-                "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。",
+                "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。\n\n**调用格式**：skill_name、script_name、arguments 必须作为独立的 JSON 字段传入，例如：\n{\"skill_name\": \"kg-advanced-query\", \"script_name\": \"query.py\", \"arguments\": [\"--cypher\", \"MATCH (n) RETURN n\"]}\n\n**错误示例**（禁止）：不要把参数序列化成字符串放进 arguments 数组。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -311,12 +311,15 @@ class AgentLoader:
                         },
                         "arguments": {
                             "type": "array",
-                            "description": "传递给脚本的命令行参数（可选）",
+                            "description": "传递给脚本的命令行参数列表，每个参数单独一个字符串元素，例如：[\"--param\", \"值\"]",
                             "items": {"type": "string"}
                         }
                     },
                     "required": ["skill_name", "script_name"]
-                }
+                },
+                "examples": [
+                    {"skill_name": "kg-advanced-query", "script_name": "query.py", "arguments": ["--cypher", "MATCH (s:State) WHERE s.id CONTAINS $name RETURN s.id LIMIT 10", "--params", "{\"name\": \"潘厂水库\"}"]}
+                ]
             }
         }
     ]

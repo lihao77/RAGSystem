@@ -152,13 +152,20 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         allowed_callers=["direct", "code_execution"]
     ),
 
-    # Skills 系统工具（中风险）
+    # Skills 系统工具（低/中风险）
+    "activate_skill": ToolPermission(
+        tool_name="activate_skill",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="激活 Skill 并加载主文件（只读）",
+        allowed_callers=["direct"]
+    ),
     "load_skill_resource": ToolPermission(
         tool_name="load_skill_resource",
         risk_level=RiskLevel.MEDIUM,
         requires_approval=False,
         description="加载 Skill 资源文件",
-        allowed_callers=["direct", "code_execution"]
+        allowed_callers=["direct"]
     ),
     "execute_skill_script": ToolPermission(
         tool_name="execute_skill_script",
@@ -229,6 +236,9 @@ def get_tool_permission(tool_name: str) -> Optional[ToolPermission]:
     return TOOL_PERMISSIONS.get(tool_name)
 
 
+_SKILLS_SYSTEM_TOOLS = {'activate_skill', 'load_skill_resource', 'execute_skill_script'}
+
+
 def is_tool_enabled(tool_name: str, agent_config) -> bool:
     """
     检查工具是否在智能体配置中启用
@@ -240,7 +250,19 @@ def is_tool_enabled(tool_name: str, agent_config) -> bool:
     Returns:
         bool: 是否启用
     """
-    if not agent_config or not hasattr(agent_config, 'tools'):
+    if not agent_config:
+        return False
+
+    # Skills 系统工具是动态注入的，不在 enabled_tools 列表里
+    # 只要智能体启用了任意 Skill，这三个工具就自动可用
+    if tool_name in _SKILLS_SYSTEM_TOOLS:
+        skills_config = getattr(agent_config, 'skills', None)
+        if skills_config:
+            enabled_skills = getattr(skills_config, 'enabled_skills', [])
+            return bool(enabled_skills)
+        return False
+
+    if not hasattr(agent_config, 'tools'):
         return False
 
     enabled_tools = agent_config.tools.enabled_tools if agent_config.tools else []

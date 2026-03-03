@@ -111,6 +111,16 @@ class SkillEnvironment:
         env['PYTHONIOENCODING'] = 'utf-8'  # Python I/O 编码
         env['PYTHONUTF8'] = '1'            # Python 3.7+ 强制 UTF-8 模式
 
+        # 注入 Neo4j 连接参数，供脚本直接使用驱动连接
+        try:
+            from config import get_config
+            cfg = get_config()
+            env.setdefault('NEO4J_URI', cfg.neo4j.uri)
+            env.setdefault('NEO4J_USER', cfg.neo4j.user)
+            env.setdefault('NEO4J_PASSWORD', cfg.neo4j.password)
+        except Exception:
+            pass  # 如果读取配置失败，脚本自行处理缺失的环境变量
+
         try:
             result = subprocess.run(
                 command,

@@ -553,7 +553,7 @@
   padding: var(--chat-padding-y) var(--chat-padding-x);
   scroll-behavior: smooth;
   padding-bottom: var(--chat-padding-bottom);
-  margin-bottom: -32px;
+  margin-bottom: -60px;
 }
 
 /* ===== Welcome Screen ===== */
@@ -1675,7 +1675,7 @@
 
 /* ===== Input Area ===== */
 .input-area-wrapper {
-  background: linear-gradient(to bottom, transparent 32px, var(--color-bg-secondary) 32px);
+  background: linear-gradient(to bottom, transparent 60px, var(--color-bg-secondary) 60px);
   border-top: none;
   backdrop-filter: none;
   padding: 0px var(--input-area-padding-x);
