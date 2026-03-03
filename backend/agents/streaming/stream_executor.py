@@ -143,10 +143,12 @@ class StreamExecutor:
 
         # LLM 输出了裸文本（没有任何 XML 标签），解析器会丢弃标签外文本
         # 此时 thought/actions/answer 全为空，但 full_response 有内容
-        # 将 full_response 视为最终答案，避免触发兜底重试逻辑
+        # 将 full_response 视为最终答案，并补发 chunk 事件（保证流式完整性）
         if not thought and not actions and not answer and full_response.strip():
             self.logger.warning("LLM 输出了裸文本（无 XML 标签），将其作为最终答案处理")
             answer = full_response.strip()
+            if self.publisher:
+                self.publisher.chunk(answer)
 
         return StreamResult(
             thought=thought,

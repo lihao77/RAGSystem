@@ -65,6 +65,7 @@ class EventType(str, Enum):
     # 流式输出事件
     CHUNK = "output.chunk"
     FINAL_ANSWER = "output.final_answer"
+    MESSAGE_SAVED = "output.message_saved"  # 消息持久化完成，携带 id/seq 供前端补全
 
     # 可视化事件
     CHART_GENERATED = "visualization.chart"

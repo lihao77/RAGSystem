@@ -411,25 +411,36 @@ if summary_content:
 ---
 
 #### 5.2 run_steps 的 message_id 更新时机问题
-**位置**: `backend/routes/agent.py:584`
+**位置**: `backend/routes/agent.py`
 
-**问题**：
+> **状态**: 已重构（2026-03-03）
+>
+> 写库逻辑已从 `sse_event_transformer`（SSE 消费路径内）迁移为独立的事件总线订阅（`handle_final_answer_persist`，priority=10），与 SSE 完全解耦。写库完成后发布 `MESSAGE_SAVED` 事件，由 SSEAdapter 转发给前端补全 `id`/`seq`。
+
+**当前实现**：
 ```python
-if event.type == EventType.FINAL_ANSWER:
+# 独立订阅 FINAL_ANSWER（priority=10，先于 SSEAdapter 执行）
+def handle_final_answer_persist(event):
     msg = store.add_message(...)
     message_id_for_run[0] = msg["id"]
     store.update_run_steps_message_id(session_id, run_id, msg["id"])
+    # 发布独立事件通知前端补全 id/seq
+    event_bus.publish(Event(
+        type=EventType.MESSAGE_SAVED,
+        data={"id": msg["id"], "seq": msg.get("seq")},
+        session_id=session_id,
+    ))
 
+# RUN_END 时再次绑定（FINAL_ANSWER 之后还有 AGENT_END、RUN_END）
 if event.type == EventType.RUN_END and message_id_for_run[0]:
-    # 再次更新（因为 FINAL_ANSWER 之后还有 AGENT_END、RUN_END）
     store.update_run_steps_message_id(session_id, run_id, message_id_for_run[0])
 ```
 
-**风险**：
-- ⚠️ 需要两次更新才能关联所有 steps
-- ⚠️ 如果 RUN_END 事件丢失，部分 steps 无法关联
+**残留风险**：
+- ⚠️ 仍需两次 `update_run_steps_message_id` 才能关联所有 steps
+- ⚠️ 如果 RUN_END 事件丢失，FINAL_ANSWER 之后的 steps 无法关联
 
-**建议改进**：
+**建议改进**（保留原方案参考）：
 ```python
 # 方案 1：在 RUN_START 时创建占位消息
 if event.type == EventType.RUN_START:

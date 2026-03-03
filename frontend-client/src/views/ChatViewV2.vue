@@ -146,7 +146,7 @@
 
           <!-- Message Stream -->
           <div v-else class="message-stream">
-            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg, index)" :class="['message', msg.role]" :data-msg-index="index"
+            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role]" :data-msg-index="index"
               @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
               <!-- 持久化压缩：历史摘要占位，详情默认折叠 -->
               <div v-if="msg.role === 'system' && msg.metadata && msg.metadata.compression" class="message-content-wrapper compression-summary">
@@ -199,17 +199,18 @@
                     <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                   </div>
 
-                  <!-- User Message (可编辑时显示 textarea) -->
-                  <div v-if="msg.role === 'user' && editingMessage !== msg" class="user-text">
-                    {{ msg.content }}
-                  </div>
-                  <div v-else-if="msg.role === 'user' && editingMessage === msg" class="user-edit-row">
-                    <textarea v-model="editingDraft" class="user-edit-input" rows="3" @keydown.ctrl.enter="confirmEditAndResend" @keydown.meta.enter="confirmEditAndResend" />
-                    <div class="user-edit-actions">
-                      <button type="button" class="btn-editor btn-save" @click="confirmEditAndResend">确定</button>
-                      <button type="button" class="btn-editor btn-cancel" @click="cancelEdit">取消</button>
-                    </div>
-                  </div>
+                  <!-- User Message -->
+                  <div
+                    v-if="msg.role === 'user'"
+                    class="user-text"
+                    :class="{ 'is-editing': editingMessage === msg }"
+                    :contenteditable="editingMessage === msg ? 'plaintext-only' : 'false'"
+                    :data-msg-id="msg.id"
+                    @keydown.ctrl.enter.prevent="confirmEditAndResend"
+                    @keydown.meta.enter.prevent="confirmEditAndResend"
+                    @keydown.esc="cancelEdit"
+                    @input="e => { if (editingMessage === msg) editingDraft = e.currentTarget.innerText }"
+                  >{{ msg.content }}</div>
 
                   <!-- Status Updates -->
                   <div v-if="msg.status && msg.status.length > 0" class="status-updates">
@@ -220,17 +221,35 @@
                   </div>
                 </div>
               </div>
-              <!-- 消息操作：仅 user 可编辑、复制、从此处重试 -->
-              <div class="message-actions" :class="{ 'visible': messageActionsVisible === index }">
+              <!-- 消息操作 -->
+              <div class="message-actions" :class="{ 'visible': messageActionsVisible === index || editingMessage === msg }">
                 <template v-if="msg.role === 'user'">
-                  <button v-if="msg.seq != null" type="button" class="msg-action-btn" title="删除此条之后的对话并用原问题重新执行（流式输出）" @click="rollbackAndRetry(msg)">
-                    从此处重试
-                  </button>
-                  <button type="button" class="msg-action-btn" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
-                    编辑
-                  </button>
-                  <button type="button" class="msg-action-btn" title="复制内容" @click="copyMessage(msg)">
+                  <template v-if="editingMessage === msg">
+                    <button type="button" class="btn-editor btn-save" @click="confirmEditAndResend">确定</button>
+                    <button type="button" class="btn-editor btn-cancel" @click="cancelEdit">取消</button>
+                  </template>
+                  <template v-else>
+                    <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
+                      编辑
+                    </button>
+                    <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
+                      复制
+                    </button>
+                  </template>
+                </template>
+                <template v-if="msg.role === 'assistant' && msg.finished">
+                  <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
                     复制
+                  </button>
+                  <button
+                    v-if="visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null) != null"
+                    type="button"
+                    class="msg-action-btn btn-retry"
+                    :disabled="isLoading"
+                    title="删除此条之后的对话并用原问题重新执行（流式输出）"
+                    @click="rollbackAndRetry(visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null))"
+                  >
+                    重试
                   </button>
                 </template>
               </div>
@@ -794,7 +813,10 @@ const cacheMessages = (sessionId, list) => {
   }
 };
 
-/** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
+/** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁）
+ *  注意：流结束后 subtasks/master_steps 已由 SSE 事件填充完毕，
+ *  此处仅补全 id/seq，不重写任何 UI 相关字段，避免引起重渲染闪烁。
+ */
 const mergeMessageIdsFromServer = async (sessionId) => {
   if (!sessionId || messages.value.length === 0) return;
   try {
@@ -808,16 +830,35 @@ const mergeMessageIdsFromServer = async (sessionId) => {
       const it = items[i];
       if (!m || !it) continue;
       if (m.role !== it.role) continue;
+      // 只补全持久化 ID，不触碰任何 UI 渲染相关字段
       m.id = it.id;
       m.seq = it.seq;
-      if (it.role === 'assistant' && (it.steps || it.metadata?.steps)?.length && !m.subtasks?.length) {
-        const parsed = stepsToSubtasks(it.steps || it.metadata.steps);
-        m.subtasks = parsed.subtasks;
-        if (parsed.master_steps?.length) m.master_steps = parsed.master_steps;
-      }
     }
     cacheMessages(sessionId, messages.value);
   } catch (_) {}
+};
+
+/** 加载指定会话的上下文用量快照（用于历史会话进入时恢复上下文指示器） */
+const loadContextSnapshot = async (sessionId) => {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`/api/agent/context-snapshot?session_id=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) return;
+    const json = await res.json();
+    const tokenStats = json.data?.token_stats;
+    if (
+      tokenStats &&
+      typeof tokenStats.total_tokens === 'number' &&
+      typeof tokenStats.max_tokens === 'number'
+    ) {
+      contextUsage.value = {
+        used: tokenStats.total_tokens,
+        max: tokenStats.max_tokens
+      };
+    }
+  } catch (_) {
+    // 静默失败，不影响主流程
+  }
 };
 
 const loadSessionMessages = async (sessionId) => {
@@ -835,6 +876,7 @@ const loadSessionMessages = async (sessionId) => {
       await nextTick();
       await scrollToBottom(true);
       focusInput();
+      await loadContextSnapshot(sessionId);
       messagesLoading.value = false;
       return;
     }
@@ -877,6 +919,7 @@ const loadSessionMessages = async (sessionId) => {
     await nextTick();
     await scrollToBottom(true);
     focusInput();
+    await loadContextSnapshot(sessionId);
   } catch (error) {
     showToast('加载会话失败', () => loadSessionMessages(sessionId));
   } finally {
@@ -918,7 +961,11 @@ const updateRecentSession = (sessionId, content, timestamp) => {
   }
 };
 
-const messageKey = (msg, index) => msg.id != null ? `msg-${msg.id}` : `idx-${index}`;
+let _msgKeyCounter = 0;
+const messageKey = (msg) => {
+  if (msg._key == null) msg._key = `mk-${_msgKeyCounter++}`;
+  return msg._key;
+};
 
 /** 用于展示的消息列表：按 seq 升序，若有 compression 则隐藏 seq < 最后一条摘要.seq 的消息 */
 const visibleMessages = computed(() => {
@@ -988,6 +1035,19 @@ const startEditMessage = (msg, index) => {
   const idx = messages.value.findIndex(m => m === msg);
   editingMessageIndex.value = idx >= 0 ? idx : index;
   editingDraft.value = msg.content || '';
+  nextTick(() => {
+    const el = document.querySelector(`.user-text.is-editing[data-msg-id="${msg.id}"]`)
+              || document.querySelector('.user-text.is-editing');
+    if (!el) return;
+    el.focus();
+    // 光标移到末尾
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
 };
 
 const cancelEdit = () => {
@@ -1043,7 +1103,7 @@ const confirmEditAndResend = async () => {
   }
 };
 
-/** 从此处重试：仅回退到该条之后，再用原问题流式发送（与正常发送一致，有流式输出） */
+/** 重试：仅回退到该条之后，再用原问题流式发送（与正常发送一致，有流式输出） */
 const rollbackAndRetry = async (msg) => {
   const sessionId = currentSessionId.value;
   if (!sessionId) {
@@ -1061,13 +1121,13 @@ const rollbackAndRetry = async (msg) => {
     const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ after_seq: msg.seq })
+      body: JSON.stringify({ after_seq: msg.seq - 1 })
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || '回退失败');
     }
-    messages.value = messages.value.slice(0, idx + 1);
+    messages.value = messages.value.slice(0, idx);
     cacheMessages(sessionId, messages.value);
     inputMessage.value = (msg.content || '').trim();
     await nextTick();
@@ -1252,7 +1312,6 @@ const handleSend = async () => {
           updateRecentSession(sessionId, assistantContent, new Date().toISOString());
         }
         cacheMessages(sessionId, messages.value);
-        mergeMessageIdsFromServer(sessionId);
         break;
       }
 
@@ -1478,24 +1537,32 @@ const handleSend = async () => {
                 if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
               }
             }
-            // 最终答案：Master→content+finished，子Agent→subtask.result_summary
+            // 最终答案完成信号：仅标记 finished 并写入 metadata，content 已由 output.chunk 流式拼接
+            // id/seq 由独立的 output.message_saved 事件补全（持久化与 SSE 解耦）
             else if (eventType === 'output.final_answer') {
               if (isMasterEvent(event)) {
-                // 如果已通过 chunk 流式拼接了内容，则不覆盖（避免闪烁）
-                // 仅当 chunk 拼接为空时，才用 final_answer 兜底赋值
-                if (eventData.content && !currentMsg.content) {
-                  currentMsg.content = eventData.content;
-                }
-                if (eventData.metadata) {
-                  currentMsg.metadata = eventData.metadata;
-                }
-                currentMsg.finished = true;
+                Object.assign(currentMsg, {
+                  ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
+                  finished: true
+                });
                 updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+                cacheMessages(sessionId, messages.value);
               } else {
                 // 子 agent 的 final_answer：兜底写入 subtask（不 break）
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask && !subtask.result_summary) subtask.result_summary = eventData.content || '';
               }
+            }
+            // 消息持久化完成：补全 id/seq（由后端写库后发布，与 FINAL_ANSWER 解耦）
+            else if (eventType === 'output.message_saved') {
+              const target = eventData.role === 'user'
+                ? messages.value[assistantMsgIndex - 1]
+                : currentMsg;
+              if (target) {
+                if (eventData.id != null) target.id = eventData.id;
+                if (eventData.seq != null) target.seq = eventData.seq;
+              }
+              cacheMessages(sessionId, messages.value);
             }
             // 主 Agent 结束：仅兜底标记完成（若未在 output.final_answer 中标记）
             else if (eventType === 'agent.end') {

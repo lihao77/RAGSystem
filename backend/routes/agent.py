@@ -19,6 +19,7 @@ from agents import (
 from agents.context.manager import ContextManager
 from agents.core.models import Message
 from agents.events import EventType, get_session_event_bus, SSEAdapter
+from agents.events.bus import Event
 from conversation_store import ConversationStore
 from model_adapter import get_default_adapter
 from config import get_config
@@ -478,12 +479,12 @@ def stream_execute():
                 metrics_subscription_id = metrics_collector.subscribe_to_events(event_bus)
                 logger.info(f"✓ MetricsCollector 已订阅会话 {session_id} 的事件总线")
 
-            # ✨ 创建 SSEAdapter 订阅事件总线
+            # ✨ 创建 SSEAdapter（纯转发管道，不含业务逻辑）
             adapter = SSEAdapter(
                 event_bus=event_bus,
                 session_id=session_id,
                 buffer_size=100,
-                heartbeat_interval=15.0
+                heartbeat_interval=15.0,
             )
 
             # ✨ 订阅 USER_INTERRUPT 事件，设置 cancel_event
@@ -552,16 +553,53 @@ def stream_execute():
             # 保存 FINAL_ANSWER 时写入的 message_id，供 RUN_END 时再次更新 run_steps，使 AGENT_END/RUN_END 等后续步骤也关联到该消息
             message_id_for_run = [None]
 
+            # ✨ 独立订阅 FINAL_ANSWER 写库（与 SSE 完全解耦）
+            # priority=10 保证先于 SSEAdapter（priority=0）执行写库，
+            # 写库后发布独立的 MESSAGE_SAVED 事件，由 SSEAdapter 转发给前端补全 id/seq。
+            def handle_final_answer_persist(event):
+                if event.agent_name and event.agent_name != 'master_agent_v2':
+                    return
+                if final_answer_saved.is_set():
+                    return
+                content = (event.data or {}).get("content")
+                if content is None:
+                    return
+                try:
+                    msg = store.add_message(
+                        session_id=session_id,
+                        role="assistant",
+                        content=content if isinstance(content, str) else str(content),
+                        metadata={"agent": event.agent_name, "run_id": run_id},
+                    )
+                    message_id_for_run[0] = msg["id"]
+                    store.update_run_steps_message_id(session_id, run_id, msg["id"])
+                    final_answer_saved.set()
+                    # 发布独立事件通知前端补全 id/seq
+                    event_bus.publish(Event(
+                        type=EventType.MESSAGE_SAVED,
+                        data={"id": msg["id"], "seq": msg.get("seq"), "role": "assistant"},
+                        session_id=session_id,
+                        agent_name=event.agent_name,
+                    ))
+                except Exception as e:
+                    logger.warning(f"写入 assistant 消息失败: {e}", exc_info=True)
+
+            persist_subscription_id = event_bus.subscribe(
+                event_types=[EventType.FINAL_ANSWER],
+                handler=handle_final_answer_persist,
+                filter_func=lambda e: e.session_id == session_id,
+                priority=10,
+            )
+
             # 需要落库的中间过程事件类型
             step_event_types = [
                 EventType.RUN_START,
                 EventType.AGENT_START,
-                EventType.THINKING_STRUCTURED,
+                EventType.THINKING_COMPLETE,
                 EventType.CALL_AGENT_START,
                 EventType.CALL_AGENT_END,
                 EventType.CALL_TOOL_START,
                 EventType.CALL_TOOL_END,
-                EventType.FINAL_ANSWER,
                 EventType.RUN_END,
             ]
 
@@ -616,26 +654,6 @@ def stream_execute():
                     )
                 except Exception as e:
                     logger.warning(f"写入 run_step 失败: {e}", exc_info=True)
-                if event.type == EventType.FINAL_ANSWER:
-                    # 只持久化 master_agent_v2 的最终答案；子 Agent 也会发布 FINAL_ANSWER，
-                    # 若不过滤，子 Agent 的回答会先于 observation 写入，且 final_answer_saved
-                    # 被提前设置，导致 MasterAgent 真正的最终答案被丢弃。
-                    if event.agent_name and event.agent_name != 'master_agent_v2':
-                        return
-                    content = (event.data or {}).get("content")
-                    if content is not None and not final_answer_saved.is_set():
-                        try:
-                            msg = store.add_message(
-                                session_id=session_id,
-                                role="assistant",
-                                content=content if isinstance(content, str) else str(content),
-                                metadata={"agent": event.agent_name, "run_id": run_id},
-                            )
-                            message_id_for_run[0] = msg["id"]
-                            store.update_run_steps_message_id(session_id, run_id, msg["id"])
-                        except Exception as e:
-                            logger.warning(f"写入 assistant 消息或更新 run_steps message_id 失败: {e}", exc_info=True)
-                        final_answer_saved.set()
                 if event.type == EventType.RUN_END and message_id_for_run[0]:
                     # FINAL_ANSWER 之后还会写入 AGENT_END、RUN_END，需再次绑定 message_id，否则按 message_id 查 steps 会漏掉
                     try:
@@ -649,10 +667,18 @@ def stream_execute():
                 filter_func=lambda e: e.session_id == session_id
             )
 
-            store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": "master_agent_v2"})
+            user_msg = store.add_message(session_id=session_id, role="user", content=task, metadata={"agent": "master_agent_v2"})
 
             def execute_agent_task():
                 try:
+                    # 通知前端补全 user 消息的 id/seq（用于「从此处重试」按钮）
+                    # 放在 agent 线程内，此时 SSEAdapter 已在 stream_sync() 中订阅
+                    event_bus.publish(Event(
+                        type=EventType.MESSAGE_SAVED,
+                        data={"id": user_msg["id"], "seq": user_msg.get("seq"), "role": "user"},
+                        session_id=session_id,
+                        agent_name="master_agent_v2",
+                    ))
                     logger.info(f"后台执行 Agent 任务: {task}")
                     response = master_agent.execute(task, context)
                     if response and getattr(response, "content", None) and not final_answer_saved.is_set():
@@ -676,16 +702,20 @@ def stream_execute():
                     )
                     publisher.agent_error(error=str(e), error_type="ExecutionError")
 
+            # ✨ 先启动 SSEAdapter 订阅，再启动 Agent 线程，避免早期事件丢失
+            adapter.start()
+
             # 启动后台线程执行 Agent
             thread = threading.Thread(target=execute_agent_task, daemon=True)
             thread.start()
 
-            # ✨ 从事件总线流式输出（SSEAdapter 内部管理 start/stop 生命周期）
+            # ✨ 从事件总线流式输出（SSEAdapter 内部管理 stop 生命周期）
             try:
                 for sse_data in adapter.stream_sync():
                     yield sse_data
             finally:
                 event_bus.unsubscribe(subscription_id)
+                event_bus.unsubscribe(persist_subscription_id)
                 event_bus.unsubscribe(compression_subscription_id)
                 event_bus.unsubscribe(react_intermediate_subscription_id)
                 event_bus.unsubscribe(interrupt_subscription_id)

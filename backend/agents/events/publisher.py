@@ -379,11 +379,14 @@ class EventPublisher:
             {"content": content}
         )
 
-    def final_answer(self, content: str):
-        """最终答案"""
+    def final_answer(self, content: str, metadata: dict = None):
+        """最终答案完成信号（content 供后端写库用，前端通过 chunk 事件已获得完整内容）"""
+        data = {"content": content}
+        if metadata:
+            data["metadata"] = metadata
         self._publish(
             EventType.FINAL_ANSWER,
-            {"content": content},
+            data,
             priority=EventPriority.HIGH
         )
 

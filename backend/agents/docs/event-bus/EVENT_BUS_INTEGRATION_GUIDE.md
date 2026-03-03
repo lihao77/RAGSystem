@@ -367,7 +367,8 @@ def handle_approval():
 
 ### 流式输出事件
 - `output.chunk` - 流式输出片段
-- `output.final_answer` - 最终答案
+- `output.final_answer` - 最终答案（标记完成，不含持久化字段）
+- `output.message_saved` - 消息持久化完成（携带 `id`/`seq` 供前端补全）
 
 ### 可视化事件
 - `visualization.chart` - 图表生成

@@ -686,6 +686,12 @@
 .message.user .message-content-wrapper {
   max-width: var(--user-message-max-width);
   width: auto;
+  transition: max-width 0.3s cubic-bezier(0.34, 1.4, 0.64, 1), width 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+/* 编辑态时撑宽到 100% */
+.message.user .message-content-wrapper:has(.user-text.is-editing) {
+  max-width: 100%;
+  width: 100%;
 }
 
 .message-content {
@@ -694,76 +700,117 @@
   gap: var(--spacing-md);
 }
 
-/* #3: 修正圆角混用，统一用 var(--radius-lg) + 一个角收缩 */
+/* ===== User 消息气泡 & 单元素编辑过渡 ===== */
+
+/* #3: 正常态气泡 */
 .user-text {
   background: var(--color-bg-tertiary);
   padding: 12px 16px;
   border-radius: var(--radius-lg);
   border-bottom-right-radius: var(--user-bubble-corner);
+  border: 1px solid transparent;
   color: var(--color-text-primary);
   line-height: 1.6;
   font-size: var(--font-size-base);
-  /* 0.95rem -> 1rem */
-  /* border: 1px solid var(--color-border); */
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: default;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  box-shadow: none;
+  /* 过渡全部属性，编辑态切换时平滑 */
+  transition:
+    border-color 0.22s cubic-bezier(0.34, 1.3, 0.64, 1),
+    box-shadow   0.22s cubic-bezier(0.34, 1.3, 0.64, 1),
+    min-height   0.25s cubic-bezier(0.34, 1.3, 0.64, 1),
+    background   0.2s ease;
 }
 
-/* 用户消息行内编辑 */
-.user-edit-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* 编辑态：同一个元素，切换样式 */
+.user-text.is-editing {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
+  box-shadow:
+    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12),
+    0 2px 12px rgba(var(--color-brand-accent-rgb), 0.08);
+  background: color-mix(in srgb, var(--color-bg-tertiary) 85%, rgba(var(--color-brand-accent-rgb), 0.15));
+  cursor: text;
+  min-height: 80px;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  max-height: 320px;
+  /* 进入编辑时的弹入动画 */
+  animation: editPulse 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-/* #5: 修正 min-height，添加 focus 高亮 */
-.user-edit-input {
-  width: 100%;
-  padding: 12px 16px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: inherit;
-  line-height: 1.6;
-  resize: vertical;
-  min-height: var(--edit-input-min-height);
-  max-height: 300px;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  outline: none;
+.user-text.is-editing:focus {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.7);
+  box-shadow:
+    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.18),
+    0 4px 16px rgba(var(--color-brand-accent-rgb), 0.12);
 }
-.user-edit-input:focus {
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
+
+/* 进入编辑时轻微"呼吸"弹入 */
+@keyframes editPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(var(--color-brand-accent-rgb), 0.35); }
+  50%  { box-shadow: 0 0 0 6px rgba(var(--color-brand-accent-rgb), 0.15); }
+  100% { box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12),
+                     0 2px 12px rgba(var(--color-brand-accent-rgb), 0.08); }
 }
+
+@keyframes btnPop {
+  0%   { opacity: 0; transform: scale(0.72) translateY(4px); }
+  100% { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+/* 编辑态确定/取消按钮 */
 .user-edit-actions {
   display: flex;
   gap: 8px;
 }
 .btn-editor {
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
+  padding: 5px 14px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
+  border: 1px solid transparent;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
+  outline: none;
+  white-space: nowrap;
+  animation: btnPop 0.28s cubic-bezier(0.34, 1.7, 0.64, 1) both;
 }
-/* #1: 用品牌色变量替换 Element Plus 变量，消除硬编码兜底色 */
+.btn-editor:nth-child(2) { animation-delay: 0.04s; }
+.btn-editor:active { transform: scale(0.94); }
+/* #1: 确定按钮 - 品牌色 */
 .btn-editor.btn-save {
-  background: rgba(var(--color-brand-accent-rgb), 0.25);
-  color: var(--color-text-primary);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
+  background: rgba(var(--color-brand-accent-rgb), 0.15);
+  color: var(--color-brand-accent-light);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
 }
-.btn-editor.btn-cancel:hover,
 .btn-editor.btn-save:hover {
-  opacity: 0.9;
+  background: rgba(var(--color-brand-accent-rgb), 0.25);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.55);
+}
+/* 取消按钮 - 中性 ghost */
+.btn-editor.btn-cancel {
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: transparent;
+}
+.btn-editor.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-secondary);
 }
 
-/* #4: 消息操作按钮 - 加大字体、添加 focus-visible、transition */
+/* #4: 消息操作按钮 */
 .message-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
@@ -771,23 +818,58 @@
   opacity: 1;
 }
 .msg-action-btn {
-  padding: 5px 11px;
-  font-size: var(--font-size-xs);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
   outline: none;
+  white-space: nowrap;
 }
 .msg-action-btn:hover {
-  background: var(--color-bg-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-secondary);
+}
+.msg-action-btn:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+/* 重试 - 品牌 indigo */
+.msg-action-btn.btn-retry:hover {
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.25);
+  color: var(--color-brand-accent-light);
+}
+/* 编辑 - 暖白 */
+.msg-action-btn.btn-edit:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
   color: var(--color-text-primary);
 }
+/* 复制 - 成功绿 */
+.msg-action-btn.btn-copy:hover {
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.2);
+  color: var(--color-success);
+}
 .msg-action-btn:focus-visible {
-  outline: 2px solid var(--color-border-focus);
+  outline: 1.5px solid rgba(var(--color-brand-accent-light-rgb), 0.5);
   outline-offset: 2px;
+}
+.msg-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* 移动端（触摸设备）消息操作按钮始终显示 */

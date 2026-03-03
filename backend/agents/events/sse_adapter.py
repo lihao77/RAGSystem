@@ -37,26 +37,20 @@ class SSEAdapter:
         session_id: str,
         buffer_size: int = 100,
         heartbeat_interval: float = 15.0,
-        enable_final_answer_streaming: bool = True,  # ✨ 新增：是否启用 final_answer 流式输出
-        chunk_size: int = 5  # ✨ 新增：流式输出的 chunk 大小
     ):
         """
-        初始化SSE适配器
+        初始化SSE适配器（纯转发管道，不含业务逻辑）
 
         Args:
             event_bus: 事件总线实例
             session_id: 会话ID（仅接收该会话的事件）
             buffer_size: 事件缓冲区大小
             heartbeat_interval: 心跳间隔（秒）
-            enable_final_answer_streaming: 是否将 final_answer 拆分为 chunks 流式输出
-            chunk_size: 每个 chunk 的字符数
         """
         self.event_bus = event_bus
         self.session_id = session_id
         self.buffer_size = buffer_size
         self.heartbeat_interval = heartbeat_interval
-        self.enable_final_answer_streaming = enable_final_answer_streaming
-        self.chunk_size = chunk_size
 
         # 事件队列（异步）- 无界队列，避免事件丢失
         self._event_queue: asyncio.Queue = asyncio.Queue()
@@ -70,8 +64,6 @@ class SSEAdapter:
         # 是否已停止
         self._stopped = False
         self._primary_agent_name: Optional[str] = None
-        # 追踪是否已收到过 CHUNK 事件（真流式模式下跳过 final_answer 拆分）
-        self._has_received_chunks = False
 
     def start(self):
         """开始监听事件"""
@@ -157,46 +149,9 @@ class SSEAdapter:
                         timeout=1.0
                     )
 
-                    # ✨ 追踪 CHUNK 事件
-                    if event.type == EventType.CHUNK:
-                        self._has_received_chunks = True
-
-                    # ✨ 特殊处理 final_answer：
-                    # 如果已收到过 CHUNK（真流式），则不再拆分，只发送完整事件
-                    # 如果未收到过 CHUNK（非流式），则拆分为 chunks 模拟流式
-                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming and not self._has_received_chunks:
-                        content = event.data.get("content", "")
-
-                        # 先发送 chunks（流式打字效果）
-                        for i in range(0, len(content), self.chunk_size):
-                            chunk = content[i:i + self.chunk_size]
-
-                            # ✨ 创建完整的 Event 对象格式的 chunk
-                            chunk_event = {
-                                "type": EventType.CHUNK.value,
-                                "event_id": event.event_id,  # 复用原事件ID
-                                "timestamp": time.time(),
-                                "priority": event.priority.value,
-                                "session_id": event.session_id,
-                                "trace_id": event.trace_id,
-                                "span_id": event.span_id,
-                                "agent_name": event.agent_name,
-                                "data": {
-                                    "content": chunk
-                                },
-                                "requires_user_action": False,
-                                "user_action_timeout": None
-                            }
-                            chunk_sse = f"data: {json.dumps(chunk_event, ensure_ascii=False)}\n\n"
-                            yield chunk_sse
-
-                        # 最后发送完整的 final_answer（包含元数据）
-                        sse_data = self._format_sse(event)
-                        yield sse_data
-                    else:
-                        # 其他事件正常输出
-                        sse_data = self._format_sse(event)
-                        yield sse_data
+                    # 所有事件直接转发，无假流式处理
+                    sse_data = self._format_sse(event)
+                    yield sse_data
 
                     last_heartbeat = time.time()
 
@@ -256,46 +211,9 @@ class SSEAdapter:
                     # 从同步队列获取事件（带超时）
                     event = self._sync_event_queue.get(timeout=1.0)
 
-                    # ✨ 追踪 CHUNK 事件
-                    if event.type == EventType.CHUNK:
-                        self._has_received_chunks = True
-
-                    # ✨ 特殊处理 final_answer：
-                    # 如果已收到过 CHUNK（真流式），则不再拆分，只发送完整事件
-                    # 如果未收到过 CHUNK（非流式），则拆分为 chunks 模拟流式
-                    if event.type == EventType.FINAL_ANSWER and self.enable_final_answer_streaming and not self._has_received_chunks:
-                        content = event.data.get("content", "")
-
-                        # 先发送 chunks（流式打字效果）
-                        for i in range(0, len(content), self.chunk_size):
-                            chunk = content[i:i + self.chunk_size]
-
-                            # ✨ 创建完整的 Event 对象格式的 chunk
-                            chunk_event = {
-                                "type": EventType.CHUNK.value,
-                                "event_id": event.event_id,  # 复用原事件ID
-                                "timestamp": time.time(),
-                                "priority": event.priority.value,
-                                "session_id": event.session_id,
-                                "trace_id": event.trace_id,
-                                "span_id": event.span_id,
-                                "agent_name": event.agent_name,
-                                "data": {
-                                    "content": chunk
-                                },
-                                "requires_user_action": False,
-                                "user_action_timeout": None
-                            }
-                            chunk_sse = f"data: {json.dumps(chunk_event, ensure_ascii=False)}\n\n"
-                            yield chunk_sse
-
-                        # 最后发送完整的 final_answer（包含元数据）
-                        sse_data = self._format_sse(event)
-                        yield sse_data
-                    else:
-                        # 其他事件正常输出
-                        sse_data = self._format_sse(event)
-                        yield sse_data
+                    # 所有事件直接转发，无假流式处理
+                    sse_data = self._format_sse(event)
+                    yield sse_data
 
                     last_heartbeat = time.time()
 
@@ -337,22 +255,9 @@ class SSEAdapter:
             self.stop()
 
     def _format_sse(self, event: Event) -> str:
-        """
-        将事件格式化为SSE格式（完整的Event对象格式）
-
-        Args:
-            event: 事件对象
-
-        Returns:
-            str: SSE格式的数据
-        """
-        # ✨ 使用完整的Event对象格式
+        """将事件格式化为SSE格式（纯序列化，不含业务逻辑）"""
         full_event = self._to_full_event_dict(event)
-
-        # 序列化为JSON
         json_data = json.dumps(full_event, ensure_ascii=False)
-
-        # SSE格式: "data: {json}\\n\\n"
         return f"data: {json_data}\n\n"
 
     def _to_full_event_dict(self, event: Event) -> dict:

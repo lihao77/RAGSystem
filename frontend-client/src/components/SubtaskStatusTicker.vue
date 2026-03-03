@@ -306,20 +306,25 @@ const progressPercentage = computed(() => {
 }
 
 /* Transitions */
-.ticker-item-enter-active,
+.ticker-item-enter-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  position: absolute;
+}
+
 .ticker-item-leave-active {
-  transition: all 0.3s ease;
-  position: absolute; /* Allows overlap during transition */
+  /* 离场极速消失，避免切换瞬间产生视觉闪烁 */
+  transition: opacity 0.05s ease;
+  position: absolute;
 }
 
 .ticker-item-enter-from {
   opacity: 0;
-  transform: translateY(20px);
+  transform: translateY(12px);
 }
 
 .ticker-item-leave-to {
   opacity: 0;
-  transform: translateY(-20px);
+  transform: translateY(0);
 }
 
 /* 移动端优化 */

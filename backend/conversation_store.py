@@ -275,9 +275,14 @@ class ConversationStore:
                     "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
                     (session_id,)
                 )
+                row = conn.execute(
+                    "SELECT seq FROM messages WHERE id=?", (message_id,)
+                ).fetchone()
+                seq = row[0] if row else None
 
         return {
             "id": message_id,
+            "seq": seq,
             "session_id": session_id,
             "role": role,
             "content": content,
