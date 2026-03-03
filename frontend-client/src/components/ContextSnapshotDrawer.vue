@@ -56,6 +56,23 @@
               </div>
             </section>
 
+            <!-- Master 直接工具 -->
+            <section v-if="data.available_tools && data.available_tools.length" class="ctx-section">
+              <h4>可直接调用的工具 ({{ data.available_tools.length }})</h4>
+              <div v-for="tool in data.available_tools" :key="tool.name" class="ctx-tool-item">
+                <span class="ctx-tool-name">{{ tool.name }}</span>
+              </div>
+            </section>
+
+            <!-- Skills -->
+            <section v-if="data.available_skills && data.available_skills.length" class="ctx-section">
+              <h4>Skills ({{ data.available_skills.length }})</h4>
+              <div v-for="skill in data.available_skills" :key="skill.name" class="ctx-tool-item">
+                <span class="ctx-tool-name">{{ skill.name }}</span>
+                <span class="ctx-v" style="margin-left: 6px;">{{ skill.description }}</span>
+              </div>
+            </section>
+
             <!-- 对话历史 -->
             <section class="ctx-section">
               <h4>对话历史 ({{ data.conversation_history.length }})</h4>

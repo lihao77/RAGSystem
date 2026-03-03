@@ -1409,6 +1409,29 @@ def get_context_snapshot():
             for t in master._get_available_agent_tools()
         ]
 
+        # master 直接工具（包含普通工具与 Skills 系统工具）
+        master_tools = getattr(master, 'available_tools', []) or []
+        direct_tools = []
+        for t in master_tools:
+            if isinstance(t, dict) and t.get('function'):
+                func = t.get('function') or {}
+                direct_tools.append({
+                    'name': func.get('name'),
+                    'description': func.get('description'),
+                })
+
+        # master Skills 概览
+        master_skills_raw = getattr(master, 'available_skills', []) or []
+        skills = []
+        for s in master_skills_raw:
+            if hasattr(s, 'to_dict'):
+                skills.append(s.to_dict())
+            else:
+                skills.append({
+                    'name': getattr(s, 'name', None),
+                    'description': getattr(s, 'description', None),
+                })
+
         # token counter
         from agents.context.token_counter import TokenCounter
         llm_cfg = master.get_llm_config()
@@ -1464,6 +1487,8 @@ def get_context_snapshot():
                 'max_tokens': max_tokens,
             },
             'config': config_info,
+            'available_tools': direct_tools,
+            'available_skills': skills,
         }, message='获取上下文快照成功')
 
     except Exception as e:

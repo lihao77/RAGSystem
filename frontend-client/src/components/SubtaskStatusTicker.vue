@@ -16,7 +16,16 @@
              </div>
            </div>
 
-           <!-- 最近完成的任务 (只显示最新的一个作为历史参考) -->
+           <!-- 运行中但无活跃工具：正在推理 -->
+           <div v-else-if="running" key="thinking" class="ticker-item active">
+             <span class="agent-badge">Master Agent</span>
+             <span class="action-text">正在推理中</span>
+             <div class="loading-dots">
+               <span>.</span><span>.</span><span>.</span>
+             </div>
+           </div>
+
+           <!-- 最近完成的任务（仅 running=false 时显示，即任务真正结束后） -->
            <div v-else-if="lastCompletedTask" key="last" class="ticker-item completed">
              <span class="agent-badge success">✓ {{ lastCompletedTask.agent_display_name }}</span>
              <span class="action-text">任务已完成</span>
@@ -51,7 +60,15 @@ const props = defineProps({
     type: Array,
     required: true
   },
+  masterSteps: {
+    type: Array,
+    default: () => []
+  },
   expanded: {
+    type: Boolean,
+    default: false
+  },
+  running: {
     type: Boolean,
     default: false
   }
@@ -61,40 +78,74 @@ defineEmits(['toggle-view']);
 
 // 计算当前正在进行的活动
 const currentActivity = computed(() => {
-  // 找正在运行的子任务
+  // 1. 先找正在运行的子任务
   const runningTask = props.subtasks.find(t => t.status === 'running');
-  if (!runningTask) return null;
-
-  // 检查该任务是否有正在运行的工具调用
-  // 需要深入 react_steps 查找
-  let runningTool = null;
-  if (runningTask.react_steps) {
+  if (runningTask) {
+    // 检查该任务是否有正在运行的工具调用
+    let runningTool = null;
+    if (runningTask.react_steps) {
       for (const step of runningTask.react_steps) {
-          if (step.toolCalls) {
-              const activeTool = step.toolCalls.find(t => t.status === 'running');
-              if (activeTool) {
-                  runningTool = activeTool;
-                  break;
-              }
+        if (step.toolCalls) {
+          const activeTool = step.toolCalls.find(t => t.status === 'running');
+          if (activeTool) {
+            runningTool = activeTool;
+            break;
           }
+        }
       }
+    }
+    return {
+      agent_display_name: runningTask.agent_display_name,
+      description: runningTask.description,
+      tool_name: runningTool ? runningTool.tool_name : null
+    };
   }
 
-  return {
-    agent_display_name: runningTask.agent_display_name,
-    description: runningTask.description,
-    tool_name: runningTool ? runningTool.tool_name : null
-  };
+  // 2. 找 Master 直接调用的正在运行的工具（在 masterSteps 里）
+  const masterSteps = props.masterSteps || [];
+  for (const step of masterSteps) {
+    if (step.toolCalls) {
+      const activeTool = step.toolCalls.find(t => t.status === 'running');
+      if (activeTool) {
+        return {
+          agent_display_name: 'Master Agent',
+          description: null,
+          tool_name: activeTool.tool_name
+        };
+      }
+    }
+  }
+
+  return null;
 });
 
 // 最近完成的任务
 const lastCompletedTask = computed(() => {
-    // 找最后一个完成的任务
-    const completedTasks = props.subtasks.filter(t => t.status === 'success' || t.status === 'error');
-    if (completedTasks.length > 0) {
-        return completedTasks[completedTasks.length - 1];
+  // 先找子任务
+  const completedTasks = props.subtasks.filter(t => t.status === 'success' || t.status === 'error');
+  if (completedTasks.length > 0) {
+    return completedTasks[completedTasks.length - 1];
+  }
+  // 再找 Master 直接完成的工具
+  const masterSteps = props.masterSteps || [];
+  for (let i = masterSteps.length - 1; i >= 0; i--) {
+    const step = masterSteps[i];
+    if (step.toolCalls && step.toolCalls.length > 0) {
+      const lastTool = step.toolCalls[step.toolCalls.length - 1];
+      if (lastTool.status === 'success') {
+        return {
+          agent_display_name: 'Master Agent',
+          description: lastTool.tool_name,
+          status: 'success'
+        };
+      }
     }
-    return null;
+  }
+  // 兜底：任务已结束（running=false）且有 master_steps（纯推理直接回答的情况）
+  if (!props.running && masterSteps.length > 0) {
+    return { agent_display_name: 'Master Agent', status: 'success' };
+  }
+  return null;
 });
 
 const totalTasks = computed(() => props.subtasks.length);

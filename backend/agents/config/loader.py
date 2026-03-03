@@ -181,14 +181,22 @@ class AgentLoader:
                 )
                 logger.info("MasterAgent V2：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
 
+            # 解析工具与 Skills 配置（复用公共方法）
+            available_tools, available_skills = self._resolve_tools_and_skills(master_v2_config)
+
             from agents.implementations.master import MasterAgentV2
             master_agent_v2 = MasterAgentV2(
                 orchestrator=self.orchestrator,
                 model_adapter=self.model_adapter,
                 agent_config=master_v2_config,
-                system_config=self.system_config
+                system_config=self.system_config,
+                available_tools=available_tools,
+                available_skills=available_skills,
             )
-            logger.info("MasterAgent V2 已创建（新版动态编排架构）")
+            logger.info(
+                f"MasterAgent V2 已创建（新版动态编排架构），"
+                f"直接工具: {len(available_tools)} 个，Skills: {len(available_skills)} 个"
+            )
 
             return master_agent_v2
 
@@ -220,6 +228,149 @@ class AgentLoader:
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
         return 'react'
 
+    # ─── Skills 系统工具定义（供 _resolve_tools_and_skills 使用）───────────────
+    _SKILLS_SYSTEM_TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "activate_skill",
+                "description": """激活一个 Skill 并加载其主文件内容（SKILL.md）。
+
+**使用时机**：
+- 当你判断用户任务匹配某个 Skill 的适用场景时，首先激活该 Skill
+- 激活后你将获得该 Skill 的完整指导流程和工作方法
+
+**效果**：
+- 加载 SKILL.md 主文件内容
+- 系统记录该 Skill 已激活，便于上下文管理
+- 返回 Skill 的完整指导内容
+
+**后续操作**：
+- 根据主文件中的提示，使用 `load_skill_resource` 加载详细文档
+- 根据主文件中的指示，使用 `execute_skill_script` 执行脚本
+
+**重要**：每个任务通常只需激活一个 Skill。如果需要切换到不同的 Skill，再次调用此工具。""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "要激活的 Skill 名称，例如：'disaster-report-example'"
+                        }
+                    },
+                    "required": ["skill_name"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "load_skill_resource",
+                "description": """加载 Skill 的引用文件内容（Additional Resources）。
+
+**前置条件**：
+- 你需要先使用 `activate_skill` 激活 Skill
+- 然后根据主文件（SKILL.md）中的提示，加载详细的引用文件
+
+**使用场景**：
+- 当主文件提到某个引用文件时（如 [report-template.md](report-template.md)）
+- 需要查看详细的模板、指南、示例等
+
+**重要**：此工具用于加载**额外的引用文件**，不是主文件。主文件通过 `activate_skill` 加载。""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Skill 名称"
+                        },
+                        "resource_file": {
+                            "type": "string",
+                            "description": "要加载的引用文件名，例如：'report-template.md'、'advanced-analysis.md'"
+                        }
+                    },
+                    "required": ["skill_name", "resource_file"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_skill_script",
+                "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Skill 名称"
+                        },
+                        "script_name": {
+                            "type": "string",
+                            "description": "脚本文件名，例如：'validate_data.py'"
+                        },
+                        "arguments": {
+                            "type": "array",
+                            "description": "传递给脚本的命令行参数（可选）",
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "required": ["skill_name", "script_name"]
+                }
+            }
+        }
+    ]
+
+    def _resolve_tools_and_skills(self, agent_config):
+        """
+        根据 agent_config 过滤工具列表并注入 Skills 工具
+
+        Returns:
+            (available_tools, available_skills) 元组
+        """
+        from tools.function_definitions import get_tool_definitions
+        from agents.skills.skill_loader import get_skill_loader
+
+        # 1. 工具过滤
+        all_tools = get_tool_definitions()
+        if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
+            enabled_tools = agent_config.tools.enabled_tools
+            filtered_tools = [
+                tool for tool in all_tools
+                if tool.get('function', {}).get('name') in enabled_tools
+            ]
+            logger.info(f"{agent_config.agent_name} 启用工具: {enabled_tools}")
+        else:
+            filtered_tools = []
+            logger.info(f"{agent_config.agent_name} 未配置工具或配置为空列表，不启用任何工具")
+
+        # 2. Skills 过滤
+        skill_loader = get_skill_loader()
+        all_skills = skill_loader.load_all_skills()
+        filtered_skills = []
+
+        if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
+            enabled_skill_names = agent_config.skills.enabled_skills
+            filtered_skills = [
+                skill for skill in all_skills
+                if skill.name in enabled_skill_names
+            ]
+            logger.info(f"{agent_config.agent_name} 已根据配置过滤 Skills，启用: {enabled_skill_names}")
+
+            # 3. 如果 auto_inject=True，自动追加 Skills 系统工具
+            auto_inject = agent_config.skills.auto_inject if agent_config.skills else True
+            if auto_inject:
+                existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+                for skill_tool in self._SKILLS_SYSTEM_TOOLS:
+                    tool_name = skill_tool.get('function', {}).get('name')
+                    if tool_name not in existing_tool_names:
+                        filtered_tools.append(skill_tool)
+                        logger.info(f"  → 自动注入 Skills 系统工具: {tool_name}")
+        else:
+            logger.info(f"{agent_config.agent_name} 未配置 Skills，不加载任何 Skill")
+
+        return filtered_tools, filtered_skills
+
     def _create_agent_instance(
         self,
         agent_class: Type[BaseAgent],
@@ -246,149 +397,15 @@ class AgentLoader:
 
         # 根据不同类型添加特殊参数
         if agent_class == ReActAgent:
-            # ReActAgent 需要额外参数
-            from tools.function_definitions import get_tool_definitions
-            from agents.skills.skill_loader import get_skill_loader
-
-            # 获取所有工具
-            all_tools = get_tool_definitions()
-
-            # 根据配置过滤工具
-            if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
-                # 配置了具体工具列表
-                enabled_tools = agent_config.tools.enabled_tools
-                filtered_tools = [
-                    tool for tool in all_tools
-                    if tool.get('function', {}).get('name') in enabled_tools
-                ]
-                logger.info(f"{agent_config.agent_name} 启用工具: {enabled_tools}")
-            else:
-                # 空列表或未配置，不启用任何工具
-                filtered_tools = []
-                logger.info(f"{agent_config.agent_name} 未配置工具或配置为空列表，不启用任何工具")
-
-            # 加载 Skills（根据配置过滤）
-            skill_loader = get_skill_loader()
-            all_skills = skill_loader.load_all_skills()
-
-            filtered_skills = []
-            if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
-                enabled_skill_names = agent_config.skills.enabled_skills
-                filtered_skills = [
-                    skill for skill in all_skills
-                    if skill.name in enabled_skill_names
-                ]
-                logger.info(f"{agent_config.agent_name} 已根据配置过滤 Skills，启用: {enabled_skill_names}")
-
-                # 🔧 自动注入 Skills 系统工具（内置能力，无需用户配置）
-                skill_tools = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "activate_skill",
-                            "description": """激活一个 Skill 并加载其主文件内容（SKILL.md）。
-
-**使用时机**：
-- 当你判断用户任务匹配某个 Skill 的适用场景时，首先激活该 Skill
-- 激活后你将获得该 Skill 的完整指导流程和工作方法
-
-**效果**：
-- 加载 SKILL.md 主文件内容
-- 系统记录该 Skill 已激活，便于上下文管理
-- 返回 Skill 的完整指导内容
-
-**后续操作**：
-- 根据主文件中的提示，使用 `load_skill_resource` 加载详细文档
-- 根据主文件中的指示，使用 `execute_skill_script` 执行脚本
-
-**重要**：每个任务通常只需激活一个 Skill。如果需要切换到不同的 Skill，再次调用此工具。""",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "skill_name": {
-                                        "type": "string",
-                                        "description": "要激活的 Skill 名称，例如：'disaster-report-example'"
-                                    }
-                                },
-                                "required": ["skill_name"]
-                            }
-                        }
-                    },
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "load_skill_resource",
-                            "description": """加载 Skill 的引用文件内容（Additional Resources）。
-
-**前置条件**：
-- 你需要先使用 `activate_skill` 激活 Skill
-- 然后根据主文件（SKILL.md）中的提示，加载详细的引用文件
-
-**使用场景**：
-- 当主文件提到某个引用文件时（如 [report-template.md](report-template.md)）
-- 需要查看详细的模板、指南、示例等
-
-**重要**：此工具用于加载**额外的引用文件**，不是主文件。主文件通过 `activate_skill` 加载。""",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "skill_name": {
-                                        "type": "string",
-                                        "description": "Skill 名称"
-                                    },
-                                    "resource_file": {
-                                        "type": "string",
-                                        "description": "要加载的引用文件名，例如：'report-template.md'、'advanced-analysis.md'"
-                                    }
-                                },
-                                "required": ["skill_name", "resource_file"]
-                            }
-                        }
-                    },
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "execute_skill_script",
-                            "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "skill_name": {
-                                        "type": "string",
-                                        "description": "Skill 名称"
-                                    },
-                                    "script_name": {
-                                        "type": "string",
-                                        "description": "脚本文件名，例如：'validate_data.py'"
-                                    },
-                                    "arguments": {
-                                        "type": "array",
-                                        "description": "传递给脚本的命令行参数（可选）",
-                                        "items": {"type": "string"}
-                                    }
-                                },
-                                "required": ["skill_name", "script_name"]
-                            }
-                        }
-                    }
-                ]
-
-                # 自动添加到工具列表（避免重复）
-                existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
-                for skill_tool in skill_tools:
-                    tool_name = skill_tool.get('function', {}).get('name')
-                    if tool_name not in existing_tool_names:
-                        filtered_tools.append(skill_tool)
-                        logger.info(f"  → 自动注入 Skills 系统工具: {tool_name}")
-            else:
-                logger.info(f"{agent_config.agent_name} 未配置 Skills，不加载任何 Skill")
+            # ReActAgent 需要额外参数：使用公共方法解析工具与 Skills
+            filtered_tools, filtered_skills = self._resolve_tools_and_skills(agent_config)
 
             common_kwargs.update({
                 'agent_name': agent_config.agent_name,
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
                 'available_tools': filtered_tools,
-                'available_skills': filtered_skills  # 新增：传递 Skills
+                'available_skills': filtered_skills
             })
 
         # 创建实例

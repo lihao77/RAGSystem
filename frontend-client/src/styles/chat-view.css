@@ -2121,9 +2121,9 @@
     padding: var(--spacing-xs) var(--spacing-sm);
   }
 
-  .subtasks-full-view {
+  /* .subtasks-full-view {
     padding: 0 var(--spacing-xs);
-  }
+  } */
 }
 
 /* 横屏手机：减少顶部/底部空间，保留宝贵纵向高度 */

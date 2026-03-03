@@ -157,10 +157,11 @@
                 <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
               </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
-              <div v-else-if="msg.role === 'assistant' && msg.subtasks && msg.subtasks.length > 0"
+              <div v-else-if="msg.role === 'assistant' && ((msg.subtasks && msg.subtasks.length > 0) || (msg.master_steps && msg.master_steps.length > 0))"
                 class="subtasks-container-full">
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
-                <SubtaskStatusTicker :subtasks="msg.subtasks" :expanded="msg.showFullSubtasks"
+                <SubtaskStatusTicker :subtasks="msg.subtasks" :master-steps="msg.master_steps" :expanded="msg.showFullSubtasks"
+                  :running="!msg.finished"
                   @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks" />
 
                 <!-- 视图切换按钮 -->
@@ -646,11 +647,17 @@ function stepsToSubtasks(steps) {
       };
       toolCalls.set(callId, toolCall);
       if (parentNode) {
+        // 子 Agent 的工具调用：挂到对应 react_step
         parentNode.tool_calls.push(toolCall);
         if (parentNode.currentStep) {
           parentNode.currentStep.toolCalls.push(toolCall);
         } else if (parentNode.react_steps.length > 0) {
           parentNode.react_steps[parentNode.react_steps.length - 1].toolCalls.push(toolCall);
+        }
+      } else {
+        // Master 直接调用工具：挂到 master_steps 最后一个 step
+        if (master_steps.length > 0) {
+          master_steps[master_steps.length - 1].toolCalls.push(toolCall);
         }
       }
     }
@@ -1315,6 +1322,7 @@ const handleSend = async () => {
             }
             // 工具调用（支持 call.tool.start / tool.start）
             else if (eventType === 'tool.start' || eventType === 'call.tool.start') {
+              // 先尝试找子 Agent subtask（parent_call_id 对应某个 subtask.task_id）
               const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
               if (subtask) {
                 if (!subtask.currentStep) {
@@ -1340,12 +1348,34 @@ const handleSend = async () => {
                 subtask.tool_calls.push(toolCall);
                 // 注册到 registry，供 tool.end 精确匹配
                 if (event.call_id && currentMsg.toolCallRegistry) {
-                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, subtask });
+                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
+                }
+              } else {
+                // Master 直接调用工具：挂到 master_steps 最后一个 step 的 toolCalls
+                const masterSteps = currentMsg.master_steps;
+                const masterStep = masterSteps && masterSteps.length > 0
+                  ? masterSteps[masterSteps.length - 1]
+                  : null;
+                if (masterStep) {
+                  const toolCall = {
+                    tool_name: eventData.tool_name,
+                    arguments: eventData.arguments,
+                    status: 'running',
+                    index: eventData.index,
+                    total: eventData.total,
+                    showResult: false,
+                    showArgs: false
+                  };
+                  masterStep.toolCalls.push(toolCall);
+                  // 注册到 registry，供 tool.end 精确匹配
+                  if (event.call_id && currentMsg.toolCallRegistry) {
+                    currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: masterStep });
+                  }
                 }
               }
             }
             else if (eventType === 'tool.end' || eventType === 'call.tool.end') {
-              // 优先通过 registry 精确匹配
+              // 优先通过 registry 精确匹配（同时覆盖 subtask 和 master_step）
               const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
               if (registered) {
                 registered.toolCall.status = 'success';
@@ -1361,6 +1391,20 @@ const handleSend = async () => {
                     tc.status = 'success';
                     tc.result = eventData.result;
                     tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
+                  }
+                } else {
+                  // fallback：在 master_steps 中查找
+                  const masterSteps = currentMsg.master_steps;
+                  if (masterSteps) {
+                    for (const ms of masterSteps) {
+                      const tc = (ms.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
+                      if (tc) {
+                        tc.status = 'success';
+                        tc.result = eventData.result;
+                        tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
+                        break;
+                      }
+                    }
                   }
                 }
               }

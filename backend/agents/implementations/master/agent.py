@@ -71,7 +71,9 @@ class MasterAgentV2(BaseAgent):
         orchestrator,
         model_adapter=None,
         agent_config=None,
-        system_config=None
+        system_config=None,
+        available_tools=None,
+        available_skills=None
     ):
         """
         初始化 Master Agent V2
@@ -81,6 +83,8 @@ class MasterAgentV2(BaseAgent):
             model_adapter: Model 适配器
             agent_config: 智能体配置
             system_config: 系统配置
+            available_tools: 可直接调用的工具列表（来自 agent_configs.yaml 的 tools 配置）
+            available_skills: 可用的 Skills 列表（来自 agent_configs.yaml 的 skills 配置）
         """
         super().__init__(
             name='master_agent_v2',
@@ -98,6 +102,10 @@ class MasterAgentV2(BaseAgent):
         self.orchestrator = orchestrator
         self.agent_executor = AgentExecutor(orchestrator)
         self._publisher = None  # EventPublisher 实例（延迟创建）
+
+        # 直接工具与 Skills（从 YAML 配置注入）
+        self.available_tools = available_tools or []
+        self.available_skills = available_skills or []
 
         # 从配置获取行为参数
         behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
@@ -319,22 +327,69 @@ class MasterAgentV2(BaseAgent):
 }}
 ```"""
 
+        # 构建直接工具描述段（仅在有直接工具时追加）
+        direct_tools_section = ""
+        if self.available_tools:
+            direct_tool_lines = []
+            for tool in self.available_tools:
+                func = tool.get('function', {})
+                t_name = func.get('name', '')
+                t_desc = func.get('description', '')
+                params = func.get('parameters', {})
+
+                direct_tool_lines.append(f"\n### {t_name}")
+                direct_tool_lines.append(f"**描述**: {t_desc}")
+
+                # 参数说明
+                if params and 'properties' in params:
+                    direct_tool_lines.append("**参数**:")
+                    required = params.get('required', [])
+                    for param_name, param_info in params['properties'].items():
+                        param_type = param_info.get('type', 'any')
+                        param_desc = param_info.get('description', '')
+                        required_mark = " (必填)" if param_name in required else " (可选)"
+                        direct_tool_lines.append(f"  - `{param_name}` ({param_type}){required_mark}: {param_desc}")
+
+                # 示例（如果有）
+                if 'examples' in func:
+                    direct_tool_lines.append("**示例**:")
+                    for example in func['examples']:
+                        direct_tool_lines.append(f"  ```json\n  {example}\n  ```")
+
+            direct_tools_section = (
+                "\n\n## 可直接调用的工具\n\n"
+                "除调用子 Agent 外，你还可以**直接**使用以下工具（无需委派 Agent）：\n"
+                + "\n".join(direct_tool_lines)
+            )
+
+        # 决策指南：根据是否有直接工具动态调整
+        direct_tool_names = [t.get('function', {}).get('name', '') for t in self.available_tools]
+        direct_tools_guide = ""
+        if direct_tool_names:
+            direct_tools_guide = f"\n- 如果任务可以通过直接工具完成（{', '.join(direct_tool_names[:3])}{'...' if len(direct_tool_names) > 3 else ''}），优先直接调用，无需委派 Agent"
+
+        # 规则第1条：说明可用工具类型
+        if self.available_tools:
+            rule1 = '1. **可用工具分为两类**：`invoke_agent_xxx`（委派子 Agent）和直接工具（见"可直接调用的工具"段）'
+        else:
+            rule1 = '1. **只能使用上面"可用的 Agent 工具"部分列出的工具**'
+
         return f"""{self.base_prompt}
 
 ## 可用的 Agent 工具
 
 你可以调用以下 Agent 来完成不同类型的任务：
 
-{agent_tools_desc}
+{agent_tools_desc}{direct_tools_section}
 
 ## 工作方式（ReAct 模式）
 
 你是一个智能体编排器，通过**推理-行动-观察**的循环来完成复杂任务：
 
-1. **Thought（推理）**: 分析当前情况，决定下一步调用哪个 Agent
-2. **Action（行动）**: 调用选定的 Agent 工具
-3. **Observation（观察）**: 观察 Agent 的执行结果
-4. **重复**: 根据观察结果决定是否需要调用其他 Agent，或生成最终答案
+1. **Thought（推理）**: 分析当前情况，决定下一步调用哪个 Agent 或工具
+2. **Action（行动）**: 调用选定的 Agent 工具或直接工具
+3. **Observation（观察）**: 观察执行结果
+4. **重复**: 根据观察结果决定是否需要继续调用，或生成最终答案
 
 **输出格式**:
 
@@ -343,7 +398,7 @@ class MasterAgentV2(BaseAgent):
   "thought": "我的思考过程...",
   "actions": [
     {{
-      "tool": "Agent工具名称",
+      "tool": "Agent工具名称或直接工具名称",
       "arguments": {{"task": "具体任务描述", "context_hint": "上下文提示"}}
     }}
   ],
@@ -353,24 +408,24 @@ class MasterAgentV2(BaseAgent):
 
 **重要规则：**
 
-1. **只能使用上面"可用的 Agent 工具"部分列出的工具**
+{rule1}
 2. **thought 必须简洁**（不超过100字）
-   - 说明为什么选择这个 Agent
-   - 说明期望 Agent 完成什么任务
-3. **可以一次调用多个 Agent**（如果它们之间没有依赖）
-4. **链式调用**：如果 Agent B 依赖 Agent A 的结果，可以在同一轮中链式调用
-   - 使用占位符 {{result_1}} 引用第1个 Agent 的结果
-   - 使用占位符 {{result_2}} 引用第2个 Agent 的结果
+   - 说明为什么选择这个 Agent 或工具
+   - 说明期望完成什么任务
+3. **可以一次调用多个 Agent 或工具**（如果它们之间没有依赖）
+4. **链式调用**：如果 B 依赖 A 的结果，可以在同一轮中链式调用
+   - 使用占位符 {{result_1}} 引用第1个工具/Agent 的结果
+   - 使用占位符 {{result_2}} 引用第2个工具/Agent 的结果
    - 以此类推
 5. **当你有足够信息回答用户问题时，在 final_answer 中给出答案**
-6. **如果 Agent 返回错误，在下一轮 thought 中分析原因并调整策略**
+6. **如果调用返回错误，在下一轮 thought 中分析原因并调整策略**
 
 **决策指南：**
 
 - 如果任务涉及知识图谱查询、数据分析 → 调用 invoke_agent_qa_agent
-- 如果需要执行预定义的工作流 → 调用 invoke_agent_workflow_agent
+- 如果需要执行预定义的工作流 → 调用 invoke_agent_workflow_agent{direct_tools_guide}
 - 如果任务很简单（如问候、闲聊） → 直接生成 final_answer，不调用 Agent
-- 如果需要多个步骤 → 按顺序调用相应的 Agent，每次观察结果后再决定下一步
+- 如果需要多个步骤 → 按顺序调用相应的 Agent 或工具，每次观察结果后再决定下一步
 
 **示例**:
 {parallel_example}
@@ -487,7 +542,17 @@ class MasterAgentV2(BaseAgent):
                         error=f"LLM 调用失败: {response.error}",
                         error_type="LLMError"
                     )
-                    # ✨ 发布运行结束事件，确保 SSE 流正确终止
+                    # ✨ 发布完整的结束事件链，确保 SSE 流正确终止
+                    self._publisher.agent_call_end(
+                        call_id=master_call_id,
+                        agent_name=self.name,
+                        result=f"LLM 调用失败: {response.error}",
+                        success=False
+                    )
+                    self._publisher.agent_end(
+                        f"LLM 调用失败: {response.error}",
+                        execution_time=time.time() - start_time
+                    )
                     self._publisher.run_end(
                         run_id=run_id,
                         status="error",
@@ -500,32 +565,108 @@ class MasterAgentV2(BaseAgent):
                         execution_time=time.time() - start_time
                     )
 
-                # 解析 JSON 响应（使用 base 提供的 parse_llm_json，支持代码块、前后缀等）
-                content = (response.content or "").strip()
-                output, parse_err = parse_llm_json(content)
-                if output is None:
-                    raw_preview = content[:500]
+                # 解析 JSON 响应，支持最多 3 次重试（与 ReActAgent 一致）
+                max_parse_retries = 3
+                output = None
+                parse_err = None
+                for retry_attempt in range(max_parse_retries):
+                    content = (response.content or "").strip()
+                    output, parse_err = parse_llm_json(content)
+                    if output is not None:
+                        if retry_attempt > 0:
+                            self.logger.info(f"{log_prefix} 第 {retry_attempt + 1} 次尝试成功解析 JSON")
+                        break
+
                     self.logger.warning(
-                        f"{log_prefix} JSON 解析失败: {parse_err}，原始响应预览: {raw_preview!r}"
+                        f"{log_prefix} 第 {retry_attempt + 1}/{max_parse_retries} 次 JSON 解析失败: {parse_err}，"
+                        f"原始响应预览: {content[:200]!r}"
                     )
-                    if content:
+
+                    if content and retry_attempt == max_parse_retries - 1:
+                        # 最后一次失败但有内容：降级为纯文本
                         output = {
                             "thought": "模型返回了非 JSON 格式，已作为直接回复处理。",
                             "actions": [],
                             "final_answer": content
                         }
                         self.logger.info(f"{log_prefix} 已降级为纯文本回复 (长度 {len(content)} 字符)")
-                    else:
+                        break
+                    elif not content and retry_attempt == max_parse_retries - 1:
+                        # 最后一次失败且内容为空：发布完整结束事件后 return
+                        error_msg = f"LLM 多次返回无效的 JSON 或空响应（已重试 {max_parse_retries} 次）: {parse_err}"
                         self._publisher.agent_error(
-                            error=f"LLM 返回无效的 JSON 或空响应: {parse_err}",
+                            error=error_msg,
                             error_type="JSONDecodeError"
+                        )
+                        self._publisher.agent_call_end(
+                            call_id=master_call_id,
+                            agent_name=self.name,
+                            result=error_msg,
+                            success=False
+                        )
+                        self._publisher.agent_end(
+                            error_msg,
+                            execution_time=time.time() - start_time
+                        )
+                        self._publisher.run_end(
+                            run_id=run_id,
+                            status="error",
+                            summary=error_msg
                         )
                         return AgentResponse(
                             success=False,
-                            error=f"LLM 返回无效的 JSON 或空响应: {parse_err}",
+                            error=error_msg,
                             agent_name=self.name,
                             execution_time=time.time() - start_time
                         )
+                    else:
+                        # 还有重试机会：追加错误消息，要求 LLM 重新生成
+                        current_session.append({
+                            "role": "assistant",
+                            "content": (response.content or "")[:200] + "..."
+                        })
+                        current_session.append({
+                            "role": "user",
+                            "content": (
+                                f"你的上一个响应包含 JSON 格式错误: {parse_err}。"
+                                "请重新生成一个**严格符合 JSON 规范**的响应，"
+                                "确保所有字符串内的换行符、制表符等特殊字符都被正确转义（如 \\n, \\t）。"
+                            )
+                        })
+                        # 重新调用 LLM
+                        response = self.model_adapter.chat_completion(
+                            messages=self.context_pipeline.prepare_messages(
+                                system_prompt=self._build_system_prompt(),
+                                context=context,
+                                current_session=current_session,
+                                publisher=self._publisher,
+                            ),
+                            provider=llm_config.get('provider'),
+                            model=llm_config.get('model_name'),
+                            provider_type=llm_config.get('provider_type'),
+                            temperature=llm_config.get('temperature', 0.3),
+                            max_tokens=llm_config.get('max_tokens'),
+                            response_format={"type": "json_object"},
+                            cancel_event=context.metadata.get('cancel_event')
+                        )
+                        if response.error:
+                            # 重试时 LLM 又报错，直接退出
+                            error_msg = f"LLM 重试调用失败: {response.error}"
+                            self._publisher.agent_error(error=error_msg, error_type="LLMError")
+                            self._publisher.agent_call_end(
+                                call_id=master_call_id,
+                                agent_name=self.name,
+                                result=error_msg,
+                                success=False
+                            )
+                            self._publisher.agent_end(error_msg, execution_time=time.time() - start_time)
+                            self._publisher.run_end(run_id=run_id, status="error", summary=error_msg)
+                            return AgentResponse(
+                                success=False,
+                                error=error_msg,
+                                agent_name=self.name,
+                                execution_time=time.time() - start_time
+                            )
 
                 thought = output.get('thought', '')
                 actions = output.get('actions', [])
@@ -616,120 +757,189 @@ class MasterAgentV2(BaseAgent):
 
                         # 解析出 Agent 名称
                         agent_name = parse_agent_invocation(tool_name)
-                        if not agent_name:
-                            error_msg = f"无效的 Agent 工具名称: {tool_name}"
-                            self.logger.warning(f"{log_prefix} {error_msg}")
-                            observations.append(f"**Agent 调用 {idx}**: 失败\n错误: {error_msg}")
-                            continue
+                        if agent_name:
+                            # ─── 路由1：委派子 Agent ──────────────────────────────
+                            # 🎯 使用全局计数器确保每个 Agent 有唯一的 order
+                            global_agent_order += 1
+                            current_order = global_agent_order
 
-                        # 🎯 使用全局计数器确保每个 Agent 有唯一的 order
-                        global_agent_order += 1
-                        current_order = global_agent_order
+                            # 提取参数
+                            agent_task = arguments.get('task', '')
+                            context_hint = arguments.get('context_hint')
 
-                        # 提取参数
-                        agent_task = arguments.get('task', '')
-                        context_hint = arguments.get('context_hint')
+                            self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
+                            self.logger.info(f"{log_prefix} 任务: {agent_task[:100]}...")
 
-                        self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
-                        self.logger.info(f"{log_prefix} 任务: {agent_task[:100]}...")
+                            # 🎯 使用新版 call_id（原 task_id）
+                            call_id = f"call_{run_id}_{rounds}_{idx}"
+                            agent_display_name = self._get_agent_display_name(agent_name)
 
-                        # 🎯 使用新版 call_id（原 task_id）
-                        call_id = f"call_{run_id}_{rounds}_{idx}"
-                        agent_display_name = self._get_agent_display_name(agent_name)
-
-                        # ✨ 发布 AgentCall 开始事件（parent_call_id 指向 MasterAgent 的 call_id）
-                        self._publisher.agent_call_start(
-                            call_id=call_id,
-                            agent_name=agent_name,
-                            description=agent_task,
-                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
-                            order=current_order,
-                            round=rounds,
-                            round_index=idx
-                        )
-
-                        # 🎯 派生子上下文 (Context Forking)
-                        # 为子 Agent 创建独立的执行环境，避免污染 Master 的上下文
-                        child_context = context.fork()
-                        self.logger.info(f"{log_prefix} 已派生子上下文 (Level {child_context.level})")
-
-                        # ✨ 将 call_id 传递到子 Agent 的 context
-                        if not hasattr(child_context, 'metadata'):
-                            child_context.metadata = {}
-                        child_context.metadata['call_id'] = call_id  # 子 Agent 应使用此 call_id（与 call.agent.start 一致）
-                        child_context.metadata['parent_call_id'] = master_call_id  # 父调用指向 Master
-                        child_context.metadata['run_id'] = run_id
-                        child_context.metadata['task_order'] = current_order
-                        # 传播 cancel_event 到子上下文
-                        cancel_event = context.metadata.get('cancel_event')
-                        if cancel_event:
-                            child_context.metadata['cancel_event'] = cancel_event
-
-                        # 执行 Agent（不再流式yield，但仍需收集结果）
-                        agent_start = time.time()
-
-                        # 🎯 调用子Agent执行（子Agent会自己发布事件到事件总线）
-                        agent_result = self.agent_executor.execute_agent(
-                            agent_name=agent_name,
-                            task=agent_task,
-                            context=child_context,  # 使用子上下文
-                            context_hint=context_hint
-                        )
-
-                        elapsed_time = time.time() - agent_start
-
-                        # 使用收集到的最终结果
-                        if agent_result is None:
-                            agent_result = {
-                                "success": False,
-                                "error": "Agent 未返回结果"
-                            }
-                        
-                        # 🎯 合并子上下文 (Context Merging)
-                        # 将子 Agent 的关键结果合并回 Master 上下文
-                        try:
-                            response_obj = AgentResponse(
-                                success=agent_result.get('success', False),
-                                content=agent_result.get('data', {}).get('results', ''),
-                                metadata=agent_result.get('data', {}).get('metadata', {}),
-                                error=agent_result.get('error'),
-                                agent_name=agent_name
+                            # ✨ 发布 AgentCall 开始事件（parent_call_id 指向 MasterAgent 的 call_id）
+                            self._publisher.agent_call_start(
+                                call_id=call_id,
+                                agent_name=agent_name,
+                                description=agent_task,
+                                parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
+                                order=current_order,
+                                round=rounds,
+                                round_index=idx
                             )
-                            context.merge(child_context, response_obj)
-                            self.logger.info(f"{log_prefix} 子上下文已合并")
-                        except Exception as e:
-                            self.logger.warning(f"{log_prefix} 合并上下文失败: {e}")
 
-                        result = agent_result
+                            # 🎯 派生子上下文 (Context Forking)
+                            # 为子 Agent 创建独立的执行环境，避免污染 Master 的上下文
+                            child_context = context.fork()
+                            self.logger.info(f"{log_prefix} 已派生子上下文 (Level {child_context.level})")
 
-                        # ✨ 发布 AgentCall 结束事件
-                        # result_summary = self._format_agent_result_summary(result)
-                        self._publisher.agent_call_end(
-                            call_id=call_id,
-                            agent_name=agent_name,
-                            result=result.get('data', {}).get('results', ''),
-                            success=result.get('success', False),
-                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
-                            order=current_order
-                        )
+                            # ✨ 将 call_id 传递到子 Agent 的 context
+                            if not hasattr(child_context, 'metadata'):
+                                child_context.metadata = {}
+                            child_context.metadata['call_id'] = call_id  # 子 Agent 应使用此 call_id（与 call.agent.start 一致）
+                            child_context.metadata['parent_call_id'] = master_call_id  # 父调用指向 Master
+                            child_context.metadata['run_id'] = run_id
+                            child_context.metadata['task_order'] = current_order
+                            # 传播 cancel_event 到子上下文
+                            cancel_event = context.metadata.get('cancel_event')
+                            if cancel_event:
+                                child_context.metadata['cancel_event'] = cancel_event
 
-                        # 记录调用历史
-                        agent_calls_history.append({
-                            'agent_name': agent_name,
-                            'task': agent_task,
-                            'result': result
-                        })
+                            # 执行 Agent（不再流式yield，但仍需收集结果）
+                            agent_start = time.time()
 
-                        # 存储结果供后续引用
-                        agent_results[idx] = result
+                            # 🎯 调用子Agent执行（子Agent会自己发布事件到事件总线）
+                            agent_result = self.agent_executor.execute_agent(
+                                agent_name=agent_name,
+                                task=agent_task,
+                                context=child_context,  # 使用子上下文
+                                context_hint=context_hint
+                            )
 
-                        # 格式化观察结果
-                        observation = self.observation_formatter.format(
-                            result,
-                            tool_name=agent_name,
-                            is_skills_tool=False
-                        )
-                        observations.append(f"**Agent {idx} ({agent_name})**:\n{observation}")
+                            elapsed_time = time.time() - agent_start
+
+                            # 使用收集到的最终结果
+                            if agent_result is None:
+                                agent_result = {
+                                    "success": False,
+                                    "error": "Agent 未返回结果"
+                                }
+
+                            # 🎯 合并子上下文 (Context Merging)
+                            # 将子 Agent 的关键结果合并回 Master 上下文
+                            try:
+                                response_obj = AgentResponse(
+                                    success=agent_result.get('success', False),
+                                    content=agent_result.get('data', {}).get('results', ''),
+                                    metadata=agent_result.get('data', {}).get('metadata', {}),
+                                    error=agent_result.get('error'),
+                                    agent_name=agent_name
+                                )
+                                context.merge(child_context, response_obj)
+                                self.logger.info(f"{log_prefix} 子上下文已合并")
+                            except Exception as e:
+                                self.logger.warning(f"{log_prefix} 合并上下文失败: {e}")
+
+                            result = agent_result
+
+                            # ✨ 发布 AgentCall 结束事件
+                            self._publisher.agent_call_end(
+                                call_id=call_id,
+                                agent_name=agent_name,
+                                result=result.get('data', {}).get('results', ''),
+                                success=result.get('success', False),
+                                parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
+                                order=current_order
+                            )
+
+                            # 记录调用历史
+                            agent_calls_history.append({
+                                'agent_name': agent_name,
+                                'task': agent_task,
+                                'result': result
+                            })
+
+                            # 存储结果供后续引用
+                            agent_results[idx] = result
+
+                            # 格式化观察结果
+                            observation = self.observation_formatter.format(
+                                result,
+                                tool_name=agent_name,
+                                is_skills_tool=False
+                            )
+                            observations.append(f"**Agent {idx} ({agent_name})**:\n{observation}")
+
+                        else:
+                            # ─── 路由2/3：直接工具或 Skills 工具 ─────────────────
+                            SKILLS_TOOLS = {'activate_skill', 'load_skill_resource', 'execute_skill_script'}
+                            available_tool_names = {
+                                t.get('function', {}).get('name') for t in self.available_tools
+                            }
+                            is_skills_tool = tool_name in SKILLS_TOOLS
+
+                            if is_skills_tool or tool_name in available_tool_names:
+                                # 路由2（Skills 工具）或路由3（普通直接工具）
+                                self.logger.info(
+                                    f"{log_prefix} [{idx}/{len(actions)}] 直接执行工具: {tool_name} "
+                                    f"({'Skills工具' if is_skills_tool else '直接工具'})"
+                                )
+
+                                # ✨ 发布工具调用开始事件（parent_call_id 指向 MasterAgent 自身）
+                                tool_call_id = f"call_{run_id}_{rounds}_{idx}_tool"
+                                self._publisher.tool_call_start(
+                                    call_id=tool_call_id,
+                                    tool_name=tool_name,
+                                    arguments=arguments,
+                                    parent_call_id=master_call_id,
+                                )
+
+                                tool_start_time = time.time()
+                                try:
+                                    from tools.tool_executor import execute_tool as _execute_tool
+                                    result = _execute_tool(
+                                        tool_name,
+                                        arguments,
+                                        agent_config=self.agent_config,
+                                        event_bus=event_bus,
+                                    )
+                                except Exception as tool_exc:
+                                    self.logger.error(
+                                        f"{log_prefix} 直接工具 {tool_name} 执行异常: {tool_exc}",
+                                        exc_info=True
+                                    )
+                                    result = {
+                                        "success": False,
+                                        "error": str(tool_exc)
+                                    }
+
+                                tool_elapsed = time.time() - tool_start_time
+
+                                # ✨ 发布工具调用结束事件
+                                tool_result_for_event = result.get('data', result) if isinstance(result, dict) else result
+                                self._publisher.tool_call_end(
+                                    call_id=tool_call_id,
+                                    tool_name=tool_name,
+                                    result=tool_result_for_event,
+                                    execution_time=tool_elapsed,
+                                    parent_call_id=master_call_id,
+                                )
+
+                                # 存储结果供后续占位符引用
+                                agent_results[idx] = result
+
+                                # 格式化观察结果
+                                observation = self.observation_formatter.format(
+                                    result,
+                                    tool_name=tool_name,
+                                    is_skills_tool=is_skills_tool
+                                )
+                                observations.append(f"**工具 {idx} ({tool_name})**:\n{observation}")
+
+                            else:
+                                # 未知工具名
+                                error_msg = (
+                                    f"无效的工具名称: {tool_name}（既不是 Agent 工具也不是已配置的直接工具）"
+                                )
+                                self.logger.warning(f"{log_prefix} {error_msg}")
+                                observations.append(f"**工具 {idx}**: 失败\n错误: {error_msg}")
 
                     # 将所有结果作为 user 消息添加
                     combined_observations = "\n\n".join(observations)
