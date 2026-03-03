@@ -567,9 +567,10 @@ class ReActAgent(BaseAgent):
                 self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
 
                 # 发送结构化的思考过程事件
+                # round 与 MasterAgent 保持一致：第一轮为 1
                 self._emit_event('thought_structured', {
                     'thought': thought,
-                    'round': rounds + 1,
+                    'round': rounds,
                     'has_actions': len(actions) > 0,
                     'has_answer': final_answer is not None
                 })

@@ -123,16 +123,17 @@ class AgentLoader:
         master_agent_v2 = self._load_system_master_agent_v2()
         if master_agent_v2 is not None:
             agents['master_agent_v2'] = master_agent_v2
-            logger.info(f"✅ 已加载系统智能体: master_agent_v2（不可配置）")
+            logger.info(f"✅ 已加载系统智能体: master_agent_v2（支持通过 agent_configs.yaml 配置）")
 
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
 
     def _load_system_master_agent_v2(self) -> Optional[BaseAgent]:
         """
-        加载系统级 MasterAgent V2（硬编码配置，不受用户控制）
+        加载系统级 MasterAgent V2
 
-        MasterAgent V2 支持并行执行、DAG 编排、失败重试等高级特性。
+        优先从 agent_configs.yaml 读取 master_agent_v2 配置；
+        如果用户未配置，则使用硬编码默认值兜底。
 
         Returns:
             MasterAgent V2 实例
@@ -144,34 +145,41 @@ class AgentLoader:
 
             from .models import AgentConfig, AgentLLMConfig
 
-            # 硬编码的 MasterAgent V2 配置
-            # 新版 Master V2: 将 Agent 当作工具，通过 ReAct 模式动态调用
-            master_v2_config = AgentConfig(
-                agent_name='master_agent_v2',
-                display_name='Master Agent V2 (动态编排)',
-                description='动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策',
-                enabled=True,
-                llm=AgentLLMConfig(
-                    provider=None,  # 使用系统配置
-                    model_name=None,  # 使用系统配置
-                    temperature=0.3,  # ReAct 模式需要一定的灵活性
-                    max_tokens=4096,  # 需要更大的上下文
-                    timeout=60,
-                    retry_attempts=3
-                ),
-                custom_params={
-                    'type': 'master_v2',
-                    'behavior': {
-                        'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
-                        'max_rounds': 15,  # ReAct 循环的最大轮数
-                        'compression_trigger_ratio': 0.85,
-                        'summarize_max_tokens': 300,
-                        'preserve_recent_turns': 3,
-                        # 'max_context_tokens': 10000,  # 如需显式限制可取消注释
-                        'data_save_dir': './static/temp_data'
+            # 尝试从 YAML 读取用户配置
+            yaml_config = self.config_manager.get_config('master_agent_v2')
+            if yaml_config is not None:
+                # 用户有配置：直接使用（Pydantic 已验证字段默认值）
+                # 注意：忽略 enabled 字段，Master Agent 作为系统级智能体始终加载
+                master_v2_config = yaml_config
+                logger.info("MasterAgent V2：使用 agent_configs.yaml 中的用户配置")
+            else:
+                # 用户无配置：使用硬编码默认值兜底
+                master_v2_config = AgentConfig(
+                    agent_name='master_agent_v2',
+                    display_name='Master Agent V2 (动态编排)',
+                    description='动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策',
+                    enabled=True,
+                    llm=AgentLLMConfig(
+                        provider=None,  # 使用系统配置
+                        model_name=None,  # 使用系统配置
+                        temperature=0.3,
+                        max_tokens=4096,
+                        timeout=60,
+                        retry_attempts=3
+                    ),
+                    custom_params={
+                        'type': 'master_v2',
+                        'behavior': {
+                            'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
+                            'max_rounds': 15,
+                            'compression_trigger_ratio': 0.85,
+                            'summarize_max_tokens': 300,
+                            'preserve_recent_turns': 3,
+                            'data_save_dir': './static/temp_data'
+                        }
                     }
-                }
-            )
+                )
+                logger.info("MasterAgent V2：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
 
             from agents.implementations.master import MasterAgentV2
             master_agent_v2 = MasterAgentV2(
