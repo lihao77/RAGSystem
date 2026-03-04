@@ -861,6 +861,69 @@ const loadContextSnapshot = async (sessionId) => {
   }
 };
 
+/** 检查会话是否有正在执行的任务，若有则恢复 loading 状态并重连 SSE */
+const checkSessionTaskStatus = async (sessionId) => {
+  if (!sessionId) return;
+  try {
+    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
+    if (!resp.ok) return;
+    const result = await resp.json();
+    if (result.data?.has_running_task) {
+      isLoading.value = true;
+      showToast('正在恢复执行中的任务...', 'warning');
+      // 创建一个占位 assistant 消息（如果最后一条不是未完成的 assistant）
+      const lastMsg = messages.value[messages.value.length - 1];
+      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+        messages.value.push({
+          role: 'assistant',
+          content: '',
+          subtasks: [],
+          master_steps: [],
+          showFullSubtasks: false,
+          multimodalContents: [],
+          status: [],
+          toolCallRegistry: new Map(),
+          finished: false
+        });
+      }
+      // 重连 SSE（不 await，避免阻塞 loadSessionMessages 的 finally 导致 messagesLoading 一直为 true）
+      reconnectToRunningTask(sessionId);
+    }
+  } catch (e) {
+    // 查询失败不影响主流程
+  }
+};
+
+/** 重连到正在执行的任务，恢复 SSE 事件流 */
+const reconnectToRunningTask = async (sessionId) => {
+  const controller = new AbortController();
+  currentStreamController.value = controller;
+
+  const assistantMsgIndex = messages.value.length - 1;
+
+  try {
+    const response = await fetch('/api/agent/stream/reconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    if (!response.ok) {
+      isLoading.value = false;
+      return;
+    }
+
+    // 复用与 handleSend 相同的 SSE 读取+事件分发逻辑
+    await processSSEStream(response, assistantMsgIndex, sessionId);
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('重连失败:', e);
+  } finally {
+    isLoading.value = false;
+    currentStreamController.value = null;
+    scrollToBottom();
+  }
+};
+
 const loadSessionMessages = async (sessionId) => {
   if (!sessionId) return;
   if (currentStreamController.value) {
@@ -878,6 +941,8 @@ const loadSessionMessages = async (sessionId) => {
       focusInput();
       await loadContextSnapshot(sessionId);
       messagesLoading.value = false;
+      // 缓存命中也需检查是否有运行中任务
+      await checkSessionTaskStatus(sessionId);
       return;
     }
     const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
@@ -920,6 +985,8 @@ const loadSessionMessages = async (sessionId) => {
     await scrollToBottom(true);
     focusInput();
     await loadContextSnapshot(sessionId);
+    // ── 检查该会话是否有正在执行的任务 ──
+    await checkSessionTaskStatus(sessionId);
   } catch (error) {
     showToast('加载会话失败', () => loadSessionMessages(sessionId));
   } finally {
@@ -1248,58 +1315,20 @@ const handleStop = async () => {
   isLoading.value = false;
 };
 
-const handleSend = async () => {
-  const content = inputMessage.value.trim();
-  if (!content || isLoading.value) return;
-
-  const sessionId = await ensureSession();
-  lastFailedSendContent.value = content;
-  messages.value.push({ role: 'user', content: content });
-  inputMessage.value = '';
-  isUserAtBottom.value = true;
-  scrollToBottom(true);
-  updateRecentSession(sessionId, content, new Date().toISOString());
-
-  const assistantMsgIndex = messages.value.push({
-    role: 'assistant',
-    content: '',
-    subtasks: [],
-    master_steps: [],
-    showFullSubtasks: false,
-    multimodalContents: [],
-    status: [],
-    toolCallRegistry: new Map(),
-    finished: false
-  }) - 1;
-
-  isLoading.value = true;
-  contextUsage.value = { used: 0, max: 0 };
-
-  try {
-    const controller = new AbortController();
-    currentStreamController.value = controller;
-    const body = {
-      task: content,
-      session_id: sessionId,
-      use_v2: true
-    };
-    // 前端 llm-select-trigger 选择：临时指定默认主智能体及未配置 LLM 的智能体使用的模型（格式 provider|provider_type|model_name）
-    const selectedLlm = props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
-    if (selectedLlm) {
-      body.selected_llm = selectedLlm;
-    }
-    const response = await fetch('/api/agent/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
+/**
+ * 通用 SSE 流处理：读取 response body 并分发事件到 UI
+ * handleSend 和 reconnectToRunningTask 共用
+ *
+ * @param {Response} response - fetch 返回的 Response 对象
+ * @param {number} assistantMsgIndex - 当前 assistant 消息在 messages 中的索引
+ * @param {string} sessionId - 会话 ID
+ */
+const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let sseBuffer = '';  // 缓冲跨 chunk 的不完整 SSE 事件
+    // 重连模式标记：收到 reconnect_start 后进入回放阶段，收到 reconnect_end 结束
+    let isReplaying = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1325,6 +1354,20 @@ const handleSend = async () => {
           try {
             const event = JSON.parse(line.substring(6));
             const currentMsg = messages.value[assistantMsgIndex];
+
+            // ── 重连协议：reconnect_start / reconnect_end ──
+            if (event.type === 'reconnect_start') {
+              isReplaying = true;
+              continue;
+            }
+            if (event.type === 'reconnect_end') {
+              isReplaying = false;
+              continue;
+            }
+            // 回放阶段跳过心跳和 done
+            if (isReplaying && (event.type === 'heartbeat' || event.type === 'done')) {
+              continue;
+            }
 
             // ✨ 提取事件数据（完整Event对象格式）
             const eventData = event.data || {};
@@ -1614,6 +1657,71 @@ const handleSend = async () => {
         }
       }
     }
+};
+
+const handleSend = async () => {
+  const content = inputMessage.value.trim();
+  if (!content || isLoading.value) return;
+
+  const sessionId = await ensureSession();
+
+  // ── 后端双重检查：防止并发 ──
+  try {
+    const statusResp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
+    if (statusResp.ok) {
+      const result = await statusResp.json();
+      if (result.data?.has_running_task) {
+        showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
+        return;
+      }
+    }
+  } catch (_) { /* 查询失败不阻塞发送 */ }
+
+  lastFailedSendContent.value = content;
+  messages.value.push({ role: 'user', content: content });
+  inputMessage.value = '';
+  isUserAtBottom.value = true;
+  scrollToBottom(true);
+  updateRecentSession(sessionId, content, new Date().toISOString());
+
+  const assistantMsgIndex = messages.value.push({
+    role: 'assistant',
+    content: '',
+    subtasks: [],
+    master_steps: [],
+    showFullSubtasks: false,
+    multimodalContents: [],
+    status: [],
+    toolCallRegistry: new Map(),
+    finished: false
+  }) - 1;
+
+  isLoading.value = true;
+  contextUsage.value = { used: 0, max: 0 };
+
+  try {
+    const controller = new AbortController();
+    currentStreamController.value = controller;
+    const body = {
+      task: content,
+      session_id: sessionId,
+      use_v2: true
+    };
+    // 前端 llm-select-trigger 选择：临时指定默认主智能体及未配置 LLM 的智能体使用的模型（格式 provider|provider_type|model_name）
+    const selectedLlm = props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+    if (selectedLlm) {
+      body.selected_llm = selectedLlm;
+    }
+    const response = await fetch('/api/agent/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    await processSSEStream(response, assistantMsgIndex, sessionId);
   } catch (error) {
     if (error.name === 'AbortError') {
       console.log('Stream aborted by user');
@@ -1660,12 +1768,13 @@ onUnmounted(() => {
   // 清理事件监听器
   window.removeEventListener('resize', checkMobile);
   window.removeEventListener('popstate', handlePopState);
+
+  // 不再通知后端停止任务 — Agent 继续在后台执行
+
   if (currentStreamController.value) {
     currentStreamController.value.abort();
   }
 
-  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
-  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   document.body.style.overflow = '';
 });

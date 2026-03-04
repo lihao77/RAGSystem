@@ -2037,8 +2037,9 @@
 
   /* 移动端表格优化 */
   .markdown-body :deep(table) {
-    display: block;
-    overflow-x: auto;
+    display: table;      /* 不要用 block */
+    width: 100%;         /* 明确占满容器 */
+    overflow-x: auto;    /* 可选：其实 table 自己一般不用 overflow */
     -webkit-overflow-scrolling: touch;
     font-size: 0.85rem;
   }

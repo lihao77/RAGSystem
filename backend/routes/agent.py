@@ -24,6 +24,7 @@ from conversation_store import ConversationStore
 from model_adapter import get_default_adapter
 from config import get_config
 from utils.response_helpers import success_response, error_response
+from agents.task_registry import get_task_registry
 
 logger = logging.getLogger(__name__)
 
@@ -443,6 +444,13 @@ def stream_execute():
     logger.info(f'流式执行任务: {task} (session_id: {session_id})')
 
     def generate():
+        # ── 并发拒绝：同一 session 不允许同时执行多个任务 ──
+        registry = get_task_registry()
+        pre_status = registry.get_status(session_id)
+        if pre_status and pre_status["status"] == "running":
+            yield f"data: {json.dumps({'type': 'error', 'content': '该会话正在执行任务，请等待完成或停止当前任务'}, ensure_ascii=False)}\n\n"
+            return
+
         try:
             store = _get_conversation_store()
             store.create_session(session_id=session_id, user_id=user_id)
@@ -691,8 +699,10 @@ def stream_execute():
                         store.update_run_steps_message_id(session_id, run_id, msg["id"])
                         final_answer_saved.set()
                     logger.info(f"Agent 任务执行完成: {task}")
+                    registry.unregister(session_id, "completed")
                 except Exception as e:
                     logger.error(f"后台执行 Agent 失败: {e}", exc_info=True)
+                    registry.unregister(session_id, "failed")
                     # 发布错误事件
                     from agents.events import EventPublisher
                     publisher = EventPublisher(
@@ -701,6 +711,9 @@ def stream_execute():
                         event_bus=event_bus
                     )
                     publisher.agent_error(error=str(e), error_type="ExecutionError")
+                finally:
+                    # Agent 线程结束 → 清理持久化订阅
+                    registry.cleanup_subscriptions(session_id)
 
             # ✨ 先启动 SSEAdapter 订阅，再启动 Agent 线程，避免早期事件丢失
             adapter.start()
@@ -709,18 +722,32 @@ def stream_execute():
             thread = threading.Thread(target=execute_agent_task, daemon=True)
             thread.start()
 
+            # ── 注册到 TaskRegistry（线程启动后注册，确保 thread 对象有效）──
+            if not registry.register(session_id, run_id, task, thread, cancel_event):
+                cancel_event.set()
+                yield f"data: {json.dumps({'type': 'error', 'content': '该会话正在执行另一任务'}, ensure_ascii=False)}\n\n"
+                return
+
+            # ── 将持久化订阅 ID 存入 TaskInfo，由 Agent 线程结束时清理 ──
+            persistent_sub_ids = [
+                subscription_id,            # run_steps
+                persist_subscription_id,     # FINAL_ANSWER 写库
+                compression_subscription_id, # COMPRESSION_SUMMARY
+                react_intermediate_subscription_id,  # REACT_INTERMEDIATE
+                interrupt_subscription_id,   # USER_INTERRUPT
+            ]
+            if metrics_subscription_id:
+                persistent_sub_ids.append(metrics_subscription_id)
+            registry.set_persistent_subscriptions(session_id, persistent_sub_ids, event_bus)
+
             # ✨ 从事件总线流式输出（SSEAdapter 内部管理 stop 生命周期）
+            # SSE 断开时只清理 adapter，不取消 Agent 线程，不清理持久化订阅
             try:
                 for sse_data in adapter.stream_sync():
                     yield sse_data
             finally:
-                event_bus.unsubscribe(subscription_id)
-                event_bus.unsubscribe(persist_subscription_id)
-                event_bus.unsubscribe(compression_subscription_id)
-                event_bus.unsubscribe(react_intermediate_subscription_id)
-                event_bus.unsubscribe(interrupt_subscription_id)
-                if metrics_subscription_id:
-                    event_bus.unsubscribe(metrics_subscription_id)
+                # SSE 断开：只清理过期记录，不取消 Agent
+                registry.cleanup_finished()
 
             # 结束事件
             yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"
@@ -764,12 +791,131 @@ def stream_stop():
             session_id=session_id
         ))
 
+        # ── 双重保障：直接设置 cancel_event ──
+        registry = get_task_registry()
+        registry.cancel(session_id)
+
         logger.info(f"已发送用户中断事件: session_id={session_id}")
         return success_response(data={"interrupted": True})
 
     except Exception as e:
         logger.error(f"停止流式任务失败: {e}", exc_info=True)
         return error_response(message=str(e), status_code=500)
+
+
+def _format_event_to_sse(event) -> str:
+    """将 Event 对象格式化为 SSE 字符串（与 SSEAdapter._format_sse 保持一致）"""
+    full_event = {
+        "type": event.type.value,
+        "event_id": getattr(event, "event_id", None),
+        "timestamp": getattr(event, "timestamp", None),
+        "priority": getattr(getattr(event, "priority", None), "value", None),
+        "session_id": getattr(event, "session_id", None),
+        "trace_id": getattr(event, "trace_id", None),
+        "span_id": getattr(event, "span_id", None),
+        "agent_name": getattr(event, "agent_name", None),
+        "call_id": getattr(event, "call_id", None),
+        "parent_call_id": getattr(event, "parent_call_id", None),
+        "data": event.data or {},
+        "requires_user_action": getattr(event, "requires_user_action", False),
+        "user_action_timeout": getattr(event, "user_action_timeout", None),
+    }
+    json_data = json.dumps(full_event, ensure_ascii=False, default=str)
+    return f"data: {json_data}\n\n"
+
+
+@agent_bp.route('/stream/reconnect', methods=['POST'])
+def stream_reconnect():
+    """
+    重连到正在执行的任务的 SSE 流。
+
+    页面刷新后，前端检测到有运行中任务时调用此端点：
+    1. 回放断开期间的事件历史
+    2. 建立新 SSE 订阅接收后续事件
+
+    Request:
+        { "session_id": "会话ID" }
+
+    Response:
+        text/event-stream
+        data: {"type": "reconnect_start", "replay_count": N, ...}
+        data: ... (回放的历史事件)
+        data: {"type": "reconnect_end", ...}
+        data: ... (后续实时事件)
+        data: {"type": "done", "session_id": "..."}
+    """
+    data = request.get_json()
+    session_id = data.get('session_id')
+
+    if not session_id:
+        return error_response(message='session_id 不能为空', status_code=400)
+
+    registry = get_task_registry()
+    status = registry.get_status(session_id)
+    if not status or status["status"] != "running":
+        return error_response(message='该会话没有正在执行的任务', status_code=404)
+
+    # 当前 run 的启动时间，用于过滤历史事件（只回放本次 run 的事件）
+    run_started_at = status.get("started_at", 0)
+
+    def generate():
+        event_bus = get_session_event_bus(session_id)
+
+        # 回放断开期间的事件历史（只回放当前 run 的事件，按时间戳过滤）
+        all_history = event_bus.get_event_history(session_id=session_id, limit=1000)
+        history = [e for e in all_history if getattr(e, 'timestamp', 0) >= run_started_at]
+
+        # 先发 reconnect_start 告知前端即将回放
+        yield f"data: {json.dumps({'type': 'reconnect_start', 'session_id': session_id, 'replay_count': len(history)}, ensure_ascii=False)}\n\n"
+
+        for event in history:
+            yield _format_event_to_sse(event)
+
+        # 回放结束标记
+        yield f"data: {json.dumps({'type': 'reconnect_end', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+        # 建立新 SSE 订阅接收后续事件
+        adapter = SSEAdapter(
+            event_bus=event_bus,
+            session_id=session_id,
+            buffer_size=100,
+            heartbeat_interval=15.0,
+        )
+        adapter.start()
+        try:
+            for sse_data in adapter.stream_sync():
+                yield sse_data
+        finally:
+            pass  # adapter.stop() 在 stream_sync 的 finally 已调用
+
+        yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+    response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response.headers['Content-Type'] = 'text/event-stream; charset=utf-8'
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
+
+@agent_bp.route('/sessions/<session_id>/task-status', methods=['GET'])
+def get_session_task_status(session_id):
+    """
+    查询会话的当前任务执行状态
+
+    Returns:
+        {
+            "session_id": "...",
+            "has_running_task": true/false,
+            "task_info": { status, run_id, task, elapsed_seconds, thread_alive } | null
+        }
+    """
+    registry = get_task_registry()
+    status = registry.get_status(session_id)
+    return success_response(data={
+        "session_id": session_id,
+        "has_running_task": status is not None and status["status"] == "running",
+        "task_info": status,
+    })
 
 
 @agent_bp.route('/execute/<agent_name>', methods=['POST'])

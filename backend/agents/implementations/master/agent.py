@@ -345,6 +345,13 @@ class MasterAgentV2(BaseAgent):
 <tool name="{example_tool_name}">{{"task": "查询广西受灾情况", "context_hint": "关注受灾人口数据"}}</tool>
 </tools>
 
+**重要：需要传递给子 Agent 的所有数据（包括结构化数据、图表配置等）必须内联写入 `task` 字段，不要添加 `task` 和 `context_hint` 以外的字段。**
+
+例如，传递数据给可视化 Agent 时：
+<tools>
+<tool name="invoke_agent_chart_agent">{{"task": "生成折线图，数据如下：years=[2016,2017,2018], values=[18.8,46.87,41.67]（单位：万人），要求：添加标题'受灾人口趋势'，Y轴标签'万人'"}}</tool>
+</tools>
+
 ### 给出答案示例
 <thinking>已获取充足数据，整合答案</thinking>
 <answer>根据查询结果...</answer>

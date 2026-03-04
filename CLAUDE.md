@@ -269,9 +269,12 @@ agents:
 GET  /api/agent/agents              # 列出所有智能体
 POST /api/agent/execute             # 执行任务（自动路由到 MasterAgent）
 POST /api/agent/stream               # 流式执行（SSE）
+POST /api/agent/stream/stop          # 停止正在执行的流式任务
+POST /api/agent/stream/reconnect     # 重连到运行中任务的 SSE 流（页面刷新后恢复）
 POST /api/agent/execute/<agent_name> # 指定智能体执行
 GET  /api/agent/sessions             # 会话列表
 POST /api/agent/sessions             # 创建会话
+GET  /api/agent/sessions/<id>/task-status  # 查询会话任务执行状态
 
 # 性能监控（新增）
 GET  /api/agent/metrics              # 获取系统性能指标
@@ -785,7 +788,26 @@ response = adapter.embed(
 - 支持智能体筛选、刷新和重置功能
 - 使用 `/api/agent/metrics` API 获取数据
 
-**使���指南**: 详见 `FRONTEND_USAGE_GUIDE.md`
+**使用指南**: 详见 `FRONTEND_USAGE_GUIDE.md`
+
+#### SSE 流管理与断线重连（新增 2026-03-04）
+
+**设计目标**：页面刷新后 Agent 继续执行，前端重新加载后自动检测运行中任务并重连 SSE 接收后续事件。
+
+**订阅生命周期分离**：
+- **持久化组**（persist, run_steps, compression, react_intermediate, user_interrupt, metrics）：跟随 Agent 线程生命周期，SSE 断开后保留，Agent 完成/失败时由 `TaskRegistry.cleanup_subscriptions()` 清理
+- **SSE 组**（SSEAdapter）：跟随 SSE 连接生命周期，断开即清理
+
+**核心组件**：
+- `TaskRegistry` (`backend/agents/task_registry.py`) — 新增 `persistent_subscriptions`、`event_bus` 字段和 `cleanup_subscriptions()` 方法
+- `/stream/reconnect` 端点 — 回放 EventBus 历史事件（按 `started_at` 时间戳过滤当前 run）+ 建立新 SSE 订阅
+- `processSSEStream()` (`ChatViewV2.vue`) — 从 `handleSend` 提取的公共 SSE 事件处理函数，`handleSend` 和 `reconnectToRunningTask` 共用
+- `reconnectToRunningTask()` — 检测到运行中任务后调用 `/stream/reconnect` 恢复事件流
+
+**关键生命周期**：
+- 正常执行：`/stream` → Agent 完成 → `cleanup_subscriptions` → RUN_END → SSE 结束
+- 页面刷新：旧 SSE 断开（Agent 继续）→ 重载 → `checkSessionTaskStatus` → `reconnectToRunningTask` → 回放历史 + 接续实时事件
+- 用户主动停止：`handleStop` → `/stream/stop`（唯一取消途径）
 
 ### 节点配置 UI 元数据
 参考 `backend/nodes/UI_METADATA_REFERENCE.md` 获取完整的元数据选项。
