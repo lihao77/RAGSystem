@@ -258,24 +258,26 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
-          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar" @click="ctxDrawerVisible = true" style="cursor:pointer" title="点击查看上下文详情">
-            <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-              <!-- #10: 用 CSS 变量替换硬编码颜色 -->
-              <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
-              <circle
-                cx="11"
-                cy="11"
-                r="9"
-                fill="none"
-                :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
-                stroke-dashoffset="0"
-                :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
-              />
-            </svg>
-            <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar">
+            <!-- 把点击事件和 cursor 移到这个内层容器 -->
+            <div class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
+              <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+                <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="9"
+                  fill="none"
+                  :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                  stroke-dashoffset="0"
+                  :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+                />
+              </svg>
+              <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+            </div>
           </div>
           <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" @stop="handleStop" />
         </div>
@@ -1836,9 +1838,20 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
 }
-.context-usage-bar:hover {
+/* .context-usage-bar:hover {
   background: var(--color-bg-secondary);
+} */
+
+.context-usage-content {
+  display: inline-flex;  /* 关键：只包裹内容，不撑满宽度 */
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;       /* 只在这里设置手型 */
+  /* 可选：增加一点点击热区，但不要过大 */
+  padding: 4px;
+  margin: -4px;
 }
+
 .context-usage-label {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);

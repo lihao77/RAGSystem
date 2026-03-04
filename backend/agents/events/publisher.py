@@ -392,23 +392,33 @@ class EventPublisher:
 
     # ==================== 可视化事件 ====================
 
-    def chart_generated(self, chart_config: Dict, chart_type: str):
+    def chart_generated(self, chart_config: Dict, chart_type: str, title: str = None):
         """图表生成"""
+        # 从 echarts_config 中提取标题（如果没有提供）
+        if not title and chart_config:
+            title = chart_config.get('title', {}).get('text', 'Data Visualization')
         self._publish(
             EventType.CHART_GENERATED,
             {
                 "chart_type": chart_type,
-                "config": chart_config
+                "config": chart_config,
+                "echarts_config": chart_config,
+                "title": title or 'Data Visualization'
             }
         )
 
-    def map_generated(self, map_data: Dict, map_type: str):
+    def map_generated(self, map_data: Dict, map_type: str, title: str = None):
         """地图生成"""
+        # 从 map_data 中提取标题（如果没有提供）
+        if not title and map_data:
+            title = map_data.get('title', 'Map Visualization')
         self._publish(
             EventType.MAP_GENERATED,
             {
                 "map_type": map_type,
-                "data": map_data
+                "data": map_data,
+                "mapData": map_data,
+                "title": title or 'Map Visualization'
             }
         )
 

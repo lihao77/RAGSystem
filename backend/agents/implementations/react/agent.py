@@ -560,6 +560,26 @@ class ReActAgent(BaseAgent):
                             'total': len(actions)
                         })
 
+                        # ✨ 发布可视化事件（如果是图表/地图工具）
+                        if self._publisher:
+                            if tool_name == 'generate_chart' and result.get('success'):
+                                results = result.get('data', {}).get('results', {})
+                                chart_config = results.get('echarts_config')
+                                chart_type = results.get('chart_type', 'bar')
+                                if chart_config:
+                                    self._publisher.chart_generated(
+                                        chart_config=chart_config,
+                                        chart_type=chart_type
+                                    )
+                            elif tool_name == 'generate_map' and result.get('success'):
+                                results = result.get('data', {}).get('results', {})
+                                map_type = results.get('map_type', 'marker')
+                                if results:
+                                    self._publisher.map_generated(
+                                        map_data=results,
+                                        map_type=map_type
+                                    )
+
                         # 记录工具调用
                         tool_calls_history.append({
                             'tool_name': tool_name,
