@@ -594,21 +594,39 @@ geom_list = ret["data"]["results"]  # list[dict]
 - 可在代码中调用其他工具（使用 call_tool 函数）
 - 支持复杂逻辑、循环、条件判断
 - 中间结果不进入对话上下文（只有最终 result 返回）
+- 支持受限文件读写（限沙箱目录，写操作需用户审批）
 
 **与其他工具的区别**：
 - vs `transform_data`：本工具可调用其他工具（call_tool），适合批量查询；transform_data仅做内存数据转换
-- vs `process_data_file`：本工具无法读写文件；process_data_file用于处理文件路径的大数据
+- vs `process_data_file`：本工具支持沙箱内文件读写；process_data_file用于处理文件路径的大数据
 
 **使用场景**：
 1. 批量调用同一工具（如查询多个城市）
 2. 根据中间结果动态决定下一步
 3. 组合多个工具的结果
+4. 读取沙箱内文件进行处理
+5. 将处理结果写入沙箱文件（需审批）
 
 **代码环境**：
-- 可用模块：math, json, re, datetime, collections, itertools, functools, statistics
+- 可用模块：math, json, re, csv, datetime, collections, itertools, functools, statistics
 - 可用函数：call_tool(tool_name, arguments_dict) → 返回工具结果字典
 - 必须设置 result 变量作为最终输出（list 或 dict）
 - 只有 allowed_callers 包含 "code_execution" 的工具可在 call_tool 中调用
+
+**文件读写**（限沙箱目录 SANDBOX_DIR）：
+- 读文件：直接使用 open(path, 'r')，path 为相对或绝对路径（必须在沙箱内）
+- 写文件：需先调用 request_write_approval(path, reason)，获批后再 open(path, 'w')
+- SANDBOX_DIR 变量：沙箱根目录的绝对路径字符串
+```python
+# 读文件示例
+with open('result.json', 'r') as f:
+    data = json.load(f)
+
+# 写文件示例（需审批）
+request_write_approval('output.csv', reason='保存查询结果')
+with open('output.csv', 'w') as f:
+    f.write('city,count\\n')
+```
 
 **call_tool 返回值结构**：
 ```python
@@ -621,7 +639,7 @@ data = ret.get("data", {}).get("results", [])  # 提取实际数据列表
 
 **安全限制**：
 - 禁止 os, sys, subprocess 等系统模块
-- 禁止文件操作（open, file）
+- 文件读写限制在沙箱目录内，写操作需用户审批
 - 执行超时：30秒
 - 高风险工具（如 execute_cypher_query）禁止从代码调用
 
