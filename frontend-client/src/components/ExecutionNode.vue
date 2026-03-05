@@ -265,7 +265,6 @@ const toggleExpanded = () => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
 }
 
 .agent-badge {
@@ -310,10 +309,15 @@ const toggleExpanded = () => {
 }
 
 .thought-content {
+  margin-top: var(--spacing-sm);
   font-size: 0.9rem;
   line-height: 1.8;
   color: var(--color-text-primary);
   font-weight: 400;
+}
+
+.thought-content:empty {
+  margin-top: 0;
 }
 
 /* 智能体调用节点 */

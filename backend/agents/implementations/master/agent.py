@@ -331,50 +331,40 @@ class MasterAgentV2(BaseAgent):
 
 {agent_tools_desc}{direct_tools_section}
 
-## 工作方式（ReAct 模式）
+## 输出格式
 
-你是一个智能体编排器，通过**推理-行动-观察**的循环来完成复杂任务。每一轮，你需要：
-1. 在 <thinking> 标签中写下简洁思考（不超过100字）
-2. 选择以下之一：
-   - 调用工具/Agent：在 <tools> 标签中列出调用
-   - 给出答案：在 <answer> 标签中给出最终答案
+**直接输出工具调用或答案，禁止在 <thinking> 中写分析过程。**
 
-### 调用 Agent 示例
-<thinking>用户需要查询知识图谱，委派给 qa_agent</thinking>
+调用 Agent：
 <tools>
-<tool name="{example_tool_name}">{{"task": "查询广西受灾情况", "context_hint": "关注受灾人口数据"}}</tool>
+<tool name="{example_tool_name}">{{"task": "查询2023年广西洪涝灾害受灾人口，需要分市统计"}}</tool>
 </tools>
 
-**重要：需要传递给子 Agent 的所有数据（包括结构化数据、图表配置等）必须内联写入 `task` 字段，不要添加 `task` 和 `context_hint` 以外的字段。**
+给出最终答案：
+<answer>答案内容</answer>
 
-例如，传递数据给可视化 Agent 时：
+如需意图备注（可选，最多10字）：
+<thinking>查受灾数据</thinking>
+<tools>...</tools>
+
+**task 字段**：子Agent无对话历史，必须把所有必要信息写入 task。`context_hint`（可选）补充引导方向。
+
+**用占位符传递上步数据**：
 <tools>
-<tool name="invoke_agent_chart_agent">{{"task": "生成折线图，数据如下：years=[2016,2017,2018], values=[18.8,46.87,41.67]（单位：万人），要求：添加标题'受灾人口趋势'，Y轴标签'万人'"}}</tool>
+<tool name="invoke_agent_chart_agent">{{"task": "生成折线图，数据：{{result_1}}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'"}}</tool>
 </tools>
 
-### 给出答案示例
-<thinking>已获取充足数据，整合答案</thinking>
-<answer>根据查询结果...</answer>
-
-**重要规则：**
-
+**规则：**
 {rule1}
-2. **thinking 必须简洁**（不超过100字）
-   - 说明为什么选择这个 Agent 或工具
-   - 说明期望完成什么任务
-3. **可以一次调用多个 Agent 或工具**（在 <tools> 中写多个 <tool>）
-4. **链式调用**：使用占位符引用前面工具的结果
-   - 使用 {{result_1}}, {{result_2}} 等引用结果
-5. **当你有足够信息回答用户问题时，在 <answer> 中给出答案**
-6. **如果调用返回错误，在下一轮 <thinking> 中分析原因并调整策略**
+2. 禁止在 <thinking> 写推理、分析、解释——只允许不超过10字的动作标注，或直接省略
+3. 互相独立的调用放同一 <tools> 中并行
+4. 链式调用用 {{result_1}}, {{result_2}} 引用同轮前序结果
+5. 数据充足时直接输出 <answer>{direct_tools_guide}
+6. 调用报错时下一轮换策略
 
-**决策指南：**
-
-- 如果任务涉及知识图谱查询、数据分析 → 调用对应 Agent
-- 如果任务很简单（如问候、闲聊） → 直接在 <answer> 中回答{direct_tools_guide}
-- 如果需要多个步骤 → 按顺序调用，每次观察结果后再决定下一步
-
-重要：必须使用 XML 标签格式（<thinking>、<tools>、<answer>），不要返回 JSON。
+### 图表引用规则
+子Agent或直接工具生成图表后系统自动全局编号。**必须**在 <answer> 按顺序插入 [CHART:N]（独占一行，前后空行）。未生成图表则不插入。
+若本次回答没有生成任何图表，则不需要插入 [CHART:N] 标记。
 """
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
@@ -427,11 +417,27 @@ class MasterAgentV2(BaseAgent):
             "call_id": master_call_id
         })
 
+        # 订阅子 Agent 的可视化事件，用于计数（子 Agent 生成的图表也需要编号）
+        from agents.events.bus import EventType
+        _child_viz_count = [0]  # 使用可变容器以便闭包内修改
+
+        def _on_child_visualization(event):
+            # 只统计子 Agent 发布的（非 MasterAgent 直接工具产生的）
+            if event.agent_name != self.name:
+                _child_viz_count[0] += 1
+
+        child_viz_sub_id = event_bus.subscribe(
+            event_types=[EventType.CHART_GENERATED, EventType.MAP_GENERATED],
+            handler=_on_child_visualization,
+            filter_func=lambda e: e.session_id == context.session_id,
+        )
+
         try:
             # 构建当次执行的消息列表（从 task 开始）
             current_session = [{"role": "user", "content": task}]
 
             rounds = 0
+            visualization_counter = 0
             agent_calls_history = []
             global_agent_order = 0  # 🎯 全局 Agent 调用计数器
 
@@ -544,6 +550,11 @@ class MasterAgentV2(BaseAgent):
                 # 检查是否有最终答案
                 if final_answer:
                     self.logger.info(f"{log_prefix} 得到最终答案")
+                    # 后端兜底：确保所有可视化占位符存在
+                    total_viz = visualization_counter + _child_viz_count[0]
+                    if total_viz > 0:
+                        from agents.utils.visualization_postprocess import ensure_chart_placeholders
+                        final_answer = ensure_chart_placeholders(final_answer, total_viz)
 
                     # ✨ 发布最终答案事件（通过事件总线流式输出）
                     self._publisher.final_answer(final_answer)
@@ -770,6 +781,7 @@ class MasterAgentV2(BaseAgent):
                                     chart_config = results.get('echarts_config')
                                     chart_type = results.get('chart_type', 'bar')
                                     if chart_config:
+                                        visualization_counter += 1
                                         self._publisher.chart_generated(
                                             chart_config=chart_config,
                                             chart_type=chart_type
@@ -778,6 +790,7 @@ class MasterAgentV2(BaseAgent):
                                     results = result.get('data', {}).get('results', {})
                                     map_type = results.get('map_type', 'marker')
                                     if results:
+                                        visualization_counter += 1
                                         self._publisher.map_generated(
                                             map_data=results,
                                             map_type=map_type
@@ -806,7 +819,7 @@ class MasterAgentV2(BaseAgent):
                     combined_observations = "\n\n".join(observations)
                     current_session.append({
                         "role": "user",
-                        "content": f"Agent 执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
+                        "content": f"Agent 执行结果：\n\n{combined_observations}"
                     })
 
                     # 🔄 持久化中间 observation 消息
@@ -821,7 +834,7 @@ class MasterAgentV2(BaseAgent):
                     self.logger.warning(f"{log_prefix} 既没有调用 Agent 也没有给出最终答案")
                     current_session.append({
                         "role": "user",
-                        "content": "请根据当前信息给出最终答案，或者说明需要调用哪个 Agent 获取更多信息。"
+                        "content": "请直接输出 <answer> 或 <tools>。"
                     })
 
                     # 🔄 持久化兜底 observation 消息
@@ -912,6 +925,13 @@ class MasterAgentV2(BaseAgent):
                 agent_name=self.name,
                 execution_time=time.time() - start_time
             )
+
+        finally:
+            # 清理子 Agent 可视化事件订阅
+            try:
+                event_bus.unsubscribe(child_viz_sub_id)
+            except Exception:
+                pass
 
     def stream_execute(self, task: str, context: AgentContext) -> AgentResponse:
         """

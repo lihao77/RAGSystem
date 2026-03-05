@@ -676,6 +676,7 @@
 
 /* Assistant 消息固定占满 85% */
 .message.assistant .message-content-wrapper {
+  margin-top: var(--spacing-md);
   width: 100%;
   max-width: 100%;
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);

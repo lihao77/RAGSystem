@@ -250,52 +250,39 @@ class ReActAgent(BaseAgent):
 
 {skills_desc}
 
-## 工作方式
+## 输出格式
 
-你通过推理-行动-观察循环来完成任务。每一轮，你需要：
-1. 在 <thinking> 标签中写下简洁思考（不超过100字）
-2. 选择以下之一：
-   - 调用工具：在 <tools> 标签中列出工具调用
-   - 给出答案：在 <answer> 标签中给出最终答案
+**直接输出工具调用或答案，禁止在 <thinking> 中写分析过程。**
 
-### 调用工具示例
-<thinking>需要查询知识图谱获取相关数据</thinking>
+调用工具：
 <tools>
-<tool name="{example_tool_name}">{example_arg_json}</tool>
+<tool name="工具名">{{"参数": "值"}}</tool>
 </tools>
 
-### 多工具并行调用示例
-<thinking>需要同时查询多个数据源</thinking>
-<tools>
-<tool name="{example_tool_name}">{example_arg_json}</tool>
-<tool name="{example_tool_name}">{example_arg_json}</tool>
-</tools>
+给出最终答案：
+<answer>
+答案内容
+</answer>
 
-### 给出答案示例
-<thinking>数据充足，可以给出答案</thinking>
-<answer>根据查询结果...</answer>
+如需备注意图（可选，最多10字）：
+<thinking>激活技能</thinking>
+<tools>...</tools>
 
-**重要规则：**
-1. **只能使用上面"可用工具"部分列出的工具**，不要使用其他工具
-2. **thinking 必须简洁**（不超过100字）
-   - 只说明核心决策：用什么工具、为什么用
-   - 不要重复描述数据内容或详细推理过程
-   - 示例：
-     - ❌ 差："用户要求查询广西各市受灾人口数据，数据包含10个城市..."
-     - ✅ 好："使用transform_data转换为列表格式，然后用generate_chart生成柱状图"
-3. **可以一次执行多个工具调用**（在 <tools> 中写多个 <tool>）
-4. **链式调用：使用占位符引用前面工具的结果**
-   - 格式：{{result_N}} 表示引用第N个工具的结果（N从1开始）
-   - 也可以使用 JSON 路径：{{result_1.data.results}} 提取特定字段
-5. 当你有足够信息回答问题时，在 <answer> 中给出答案
-6. 如果工具返回了错误，在下一轮 <thinking> 中分析原因并调整策略
+**规则：**
+1. 只能使用"可用工具"中列出的工具
+2. 禁止在 <thinking> 写推理、分析、解释——只允许写不超过10字的动作标注，或直接省略
+3. 互相独立的工具调用放同一 <tools> 中并行
+4. 链式调用：{{result_N}} 引用同轮第N个工具结果
+5. 数据充足时直接输出 <answer>
+6. 报错时下一轮换策略
 
-**关于数据处理的重要规则：**
-1. **小数据**：直接在 thinking 中分析。
-2. **大数据**：如果工具返回"数据已保存至文件"，直接将文件路径传递给下一个工具。
-3. **数据格式转换**：使用 `process_data_file` 工具编写 Pandas 代码转换格式。
+**数据处理：**
+- 批量查多实体 → `execute_code`（call_tool 循环）
+- 工具返回文件路径 → 直接传给 `process_data_file` 或 `generate_chart`
+- 内存中小数据格式变换 → `transform_data`
 
-重要：必须使用 XML 标签格式（<thinking>、<tools>、<answer>），不要返回 JSON。
+### 图表引用规则
+使用了 generate_chart / generate_map 后，**必须**在 <answer> 相关段落插入 [CHART:N]（N 从 1 起，独占一行，前后空行）。未生成图表则不插入。
 """
 
     def _format_skills_description(self) -> str:
@@ -403,6 +390,7 @@ class ReActAgent(BaseAgent):
             current_session = [{"role": "user", "content": task}]
 
             rounds = 0
+            visualization_counter = 0
             tool_calls_history = []
 
             while rounds < self.max_rounds:
@@ -490,6 +478,10 @@ class ReActAgent(BaseAgent):
                 # 检查是否有最终答案
                 if final_answer:
                     self.logger.info(f"{log_prefix} 得到最终答案")
+                    # 后端兜底：确保所有可视化占位符存在
+                    if visualization_counter > 0:
+                        from agents.utils.visualization_postprocess import ensure_chart_placeholders
+                        final_answer = ensure_chart_placeholders(final_answer, visualization_counter)
                     # ✨ 发布事件
                     if self._publisher:
                         self._publisher.final_answer(final_answer)
@@ -567,6 +559,7 @@ class ReActAgent(BaseAgent):
                                 chart_config = results.get('echarts_config')
                                 chart_type = results.get('chart_type', 'bar')
                                 if chart_config:
+                                    visualization_counter += 1
                                     self._publisher.chart_generated(
                                         chart_config=chart_config,
                                         chart_type=chart_type
@@ -575,6 +568,7 @@ class ReActAgent(BaseAgent):
                                 results = result.get('data', {}).get('results', {})
                                 map_type = results.get('map_type', 'marker')
                                 if results:
+                                    visualization_counter += 1
                                     self._publisher.map_generated(
                                         map_data=results,
                                         map_type=map_type
@@ -600,7 +594,7 @@ class ReActAgent(BaseAgent):
                     combined_observations = "\n\n".join(observations)
                     current_session.append({
                         "role": "user",
-                        "content": f"工具执行结果：\n\n{combined_observations}\n\n请基于以上结果继续分析并决定下一步行动。"
+                        "content": f"工具执行结果：\n\n{combined_observations}"
                     })
 
                     continue
@@ -609,7 +603,7 @@ class ReActAgent(BaseAgent):
                     self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案")
                     current_session.append({
                         "role": "user",
-                        "content": "请根据当前信息给出最终答案，或者说明需要使用哪个工具获取更多信息。"
+                        "content": "请直接输出 <answer> 或 <tools>。"
                     })
                     continue
 

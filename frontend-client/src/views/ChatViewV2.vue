@@ -190,14 +190,21 @@
                   </div>
 
 
-                  <!-- Multimodal Content -->
-                  <MultimodalContent v-if="msg.multimodalContents && msg.multimodalContents.length > 0"
-                    :contents="msg.multimodalContents" />
-
-                  <!-- Final Answer -->
-                  <div v-if="msg.role === 'assistant' && msg.content && msg.content.trim()" class="final-answer">
-                    <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
-                  </div>
+                  <!-- Multimodal Content + Final Answer（统一内联渲染） -->
+                  <template v-if="msg.role === 'assistant'">
+                    <template v-for="(part, pi) in parseMessageParts(msg)" :key="pi">
+                      <div v-if="part.type === 'text' && part.content?.trim()"
+                           class="final-answer">
+                        <div class="markdown-body" v-html="renderMarkdown(part.content)"></div>
+                      </div>
+                      <div v-else-if="part.type === 'chart'" class="inline-chart-wrapper">
+                        <component
+                          :is="getChartComponent(msg.multimodalContents[part.index])"
+                          v-bind="getChartProps(msg.multimodalContents[part.index])"
+                        />
+                      </div>
+                    </template>
+                  </template>
 
                   <!-- User Message -->
                   <div
@@ -315,6 +322,48 @@ import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
+import ChartRenderer from '../components/ChartRenderer.vue';
+import MapRenderer from '../components/MapRenderer.vue';
+
+// ── 可视化注册表 ─────────────────────────────────────────────────────
+// 新增可视化类型只需在此注册一行，无需改动 processSSEStream / extractMultimodalFromSteps
+const VISUALIZATION_REGISTRY = {
+  'visualization.chart': {
+    type: 'chart',
+    component: ChartRenderer,
+    extract: (data) => ({
+      type: 'chart',
+      echartsConfig: data.echarts_config || data.config,
+      title: data.title || 'Data Visualization',
+      chartType: data.chart_type || 'bar',
+    }),
+    props: (item) => ({
+      echartsConfig: item.echartsConfig,
+      title: item.title,
+      chartType: item.chartType,
+    }),
+  },
+  'visualization.map': {
+    type: 'map',
+    component: MapRenderer,
+    extract: (data) => ({
+      type: 'map',
+      mapData: data.mapData || data.data,
+      title: data.title || 'Map Visualization',
+    }),
+    props: (item) => ({
+      mapData: item.mapData,
+      title: item.title,
+    }),
+  },
+};
+
+const TYPE_TO_COMPONENT = Object.fromEntries(
+  Object.values(VISUALIZATION_REGISTRY).map((r) => [r.type, r.component])
+);
+const TYPE_TO_PROPS = Object.fromEntries(
+  Object.values(VISUALIZATION_REGISTRY).map((r) => [r.type, r.props])
+);
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
@@ -698,6 +747,19 @@ function stepsToSubtasks(steps) {
   return { subtasks, master_steps };
 }
 
+function extractMultimodalFromSteps(steps) {
+  if (!Array.isArray(steps)) return [];
+  const contents = [];
+  for (const step of steps) {
+    const reg = VISUALIZATION_REGISTRY[step.step_type];
+    if (reg) {
+      const data = step.payload?.data || {};
+      contents.push(reg.extract(data));
+    }
+  }
+  return contents;
+}
+
 const isMasterEvent = (event) => {
   const agentName = event.agent_name || event.data?.agent_name;
   return !agentName || agentName === 'master_agent_v2';
@@ -964,7 +1026,9 @@ const loadSessionMessages = async (sessionId) => {
           subtasks,
           master_steps: parsed.master_steps || [],
           showFullSubtasks: false,
-          multimodalContents: item.multimodalContents || [],
+          multimodalContents: (item.multimodalContents?.length > 0)
+            ? item.multimodalContents
+            : extractMultimodalFromSteps(item.steps),
           status: item.status || [],
           finished: true
         };
@@ -1065,9 +1129,51 @@ const contextUsageClass = computed(() => {
   return '';
 });
 
+function parseMessageParts(msg) {
+  const contents = msg.multimodalContents || [];
+  if (!contents.length || !msg.content) {
+    return [{ type: 'text', content: msg.content || '' }];
+  }
+
+  const CHART_RE = /\[CHART:(\d+)\]/g;
+  if (!CHART_RE.test(msg.content)) {
+    return [
+      { type: 'text', content: msg.content },
+      ...contents.map((c, i) => ({ type: 'chart', index: i }))
+    ];
+  }
+
+  const parts = [];
+  let lastIndex = 0;
+  CHART_RE.lastIndex = 0;
+  let match;
+  while ((match = CHART_RE.exec(msg.content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: msg.content.slice(lastIndex, match.index) });
+    }
+    const chartIdx = parseInt(match[1], 10) - 1;
+    if (chartIdx >= 0 && chartIdx < contents.length) {
+      parts.push({ type: 'chart', index: chartIdx });
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < msg.content.length) {
+    parts.push({ type: 'text', content: msg.content.slice(lastIndex) });
+  }
+  return parts;
+}
+
+function getChartComponent(item) {
+  return TYPE_TO_COMPONENT[item?.type] || ChartRenderer;
+}
+
+function getChartProps(item) {
+  if (!item) return {};
+  const fn = TYPE_TO_PROPS[item.type];
+  return fn ? fn(item) : {};
+}
+
 const copyToClipboard = async (text) => {
-  if (!text) return false;
-  // 优先使用 Clipboard API（仅在安全上下文可用）
   try {
     if (typeof navigator !== 'undefined' &&
         navigator.clipboard &&
@@ -1618,22 +1724,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 }
               }
             }
-            // 图表生成
-            else if (eventType === 'visualization.chart') {
-              currentMsg.multimodalContents.push({
-                type: 'chart',
-                echartsConfig: eventData.echarts_config || eventData.config,
-                title: eventData.title || 'Data Visualization',
-                chartType: eventData.chart_type || 'bar'
-              });
-            }
-            // 地图生成
-            else if (eventType === 'visualization.map') {
-              currentMsg.multimodalContents.push({
-                type: 'map',
-                mapData: eventData.mapData || eventData.data,
-                title: eventData.title || 'Map Visualization'
-              });
+            // 图表/地图等可视化事件（注册表驱动）
+            else if (VISUALIZATION_REGISTRY[eventType]) {
+              currentMsg.multimodalContents.push(
+                VISUALIZATION_REGISTRY[eventType].extract(eventData)
+              );
             }
             // 错误
             else if (eventType === 'agent.error') {
@@ -1857,5 +1952,10 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   white-space: nowrap;
   font-weight: 500;
+}
+
+.inline-chart-wrapper {
+  margin: 12px 0;
+  width: 100%;
 }
 </style>

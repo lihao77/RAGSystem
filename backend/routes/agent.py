@@ -608,6 +608,8 @@ def stream_execute():
                 EventType.CALL_AGENT_END,
                 EventType.CALL_TOOL_START,
                 EventType.CALL_TOOL_END,
+                EventType.CHART_GENERATED,
+                EventType.MAP_GENERATED,
                 EventType.RUN_END,
             ]
 

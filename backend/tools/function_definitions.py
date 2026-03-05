@@ -9,7 +9,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_knowledge_graph_with_nl",
-            "description": "使用自然语言查询知识图谱。自动将问题转换为Cypher查询并返回结果。适用于复杂查询、因果分析、时序分析。优先使用此工具。",
+            "description": """使用自然语言查询知识图谱。自动将问题转换为Cypher查询并返回结果。适用于复杂查询、因果分析、时序分析。优先使用此工具。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("query_knowledge_graph_with_nl", {"question": "..."})
+# ret["success"] == True 时：
+records = ret["data"]["results"]   # list[dict]，查询记录列表
+answer  = ret["data"]["answer"]    # str，LLM生成的文字答案
+summary = ret["data"]["summary"]   # str，如"查询返回10条记录，包含字段: state_id, time, ..."
+# 每条记录的字段取决于查询内容，通常包含：state_id/id、time、value等
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -43,18 +53,27 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_knowledge_graph",
-            "description": "搜索知识图谱中的实体或状态节点。基础实体(地点/设施/事件)是静态骨架，State节点包含时间段内的具体数据。category参数决定查询目标：'地点'/'设施'/'事件'查基础实体，'State'查状态节点。损失数据查询必须用category='State'。",
+            "description": """搜索知识图谱中的实体或状态节点。基础实体(地点/设施/事件)是静态骨架，State节点包含时间段内的具体灾情数据。category参数决定查询目标：'地点'/'设施'/'事件'查基础实体，'State'查状态节点（含降雨量、受灾人口、经济损失等具体数值）。查询损失/水位/降雨等具体数值必须用category='State'，查询实体是否存在用对应类别。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("search_knowledge_graph", {"keyword": "南宁市", "category": "State"})
+items = ret["data"]["results"]  # list[dict]
+# 查基础实体时每条记录：{"id": "L-450100", "name": "南宁市", "category": "地点", "labels": [...], "source": "...", "properties": {...}}
+# 查State节点时每条记录：{"id": "LS-L-450100-...", "name": "State", "category": "State", "time": "...", "source": "...", "entity_ids": [...], "properties": {...}}
+# entity_ids 是该State关联的实体ID列表，properties 包含具体的属性值
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "keyword": {
                         "type": "string",
-                        "description": "搜索关键词，用于模糊匹配。查基础实体时匹配name/id字段，查State节点时在状态ID上过滤。"
+                        "description": "搜索关键词，模糊匹配。查基础实体(地点/设施/事件)时匹配实体名称；查State节点时匹配状态ID（状态ID中包含实体名称，直接填写实体名称片段即可，如'潘厂水库'、'南宁市'、'450100'）。"
                     },
                     "category": {
                         "type": "string",
-                        "description": "节点类别：'地点'(行政区/河流)、'设施'(水库/大坝)、'事件'(台风/洪水)、'State'(时序数据)、''(默认State)。",
-                        "enum": ["地点", "设施", "事件", "State", ""]
+                        "description": "节点类别：'地点'（行政区/河流）、'设施'（水库/大坝）、'事件'（台风/洪水）、'State'（包含具体灾情数值的时序数据节点）。不填默认查询State节点。",
+                        "enum": ["地点", "设施", "事件", "State"]
                     },
                     "document_source": {
                         "type": "string",
@@ -91,13 +110,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_relations",
-            "description": "获取实体的关系网络。自动识别基础实体和State节点，返回对应关系。基础实体返回空间关系和状态链，State节点返回属性关系和因果关系。",
+            "description": """获取实体的关系网络。自动识别基础实体和State节点，返回对应关系。基础实体返回空间关系和状态链，State节点返回属性关系和因果关系。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("get_entity_relations", {"entity_id": "L-450100"})
+graph = ret["data"]["results"]     # dict，包含 nodes 和 relationships
+nodes = graph["nodes"]             # list[dict]，节点列表，每个节点：{"id": int, "labels": [...], "properties": {...}}
+rels  = graph["relationships"]     # list[dict]，关系列表：{"id": int, "type": "locatedIn", "source": str, "target": str, "properties": {...}}
+# 常见关系类型：locatedIn(空间层级)、occurredAt(事件发生地)、hasState(状态链)、hasAttribute(属性)、hasRelation(因果)
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_id": {
                         "type": "string",
-                        "description": "实体ID，支持基础实体(L-/F-/E-)和State节点(LS-/FS-/ES-/JS-)，支持部分匹配。"
+                        "description": "实体ID，支持部分匹配。通常直接使用search_knowledge_graph等工具返回结果中的id字段值，无需手动构造。基础实体ID以L-(地点)/F-(设施)/E-(事件)开头，State节点ID以LS-/FS-/ES-/JS-开头（分别对应地点/设施/事件/联合状态）。"
                     }
                 },
                 "required": ["entity_id"]
@@ -140,7 +168,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "analyze_temporal_pattern",
-            "description": "分析时序模式和趋势。查询指定时间范围内的状态数据，支持指标趋势分析。自动计算min/max/avg和趋势方向。",
+            "description": """分析时序模式和趋势。查询指定时间范围内的状态数据，支持指标趋势分析。自动计算min/max/avg和趋势方向。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("analyze_temporal_pattern", {"entity_name": "南宁市", "start_date": "2020-01-01", "end_date": "2023-12-31", "metric": "受灾人口"})
+records = ret["data"]["results"]   # list[dict]，时序记录
+# 指定metric时每条记录：{"state_id": "LS-L-450100-...", "time": "...", "start": date, "end": date, "state_type": "...", "attr_name": "受灾人口", "value": "18.8万人"}
+# 未指定metric时：{"state_id": ..., "time": ..., "start": date, "end": date, "state_type": ...}
+analysis = ret["data"]["metadata"]["analysis"]  # dict，趋势分析
+# analysis 包含：{"count": 5, "min": 10.2, "max": 46.87, "avg": 28.5, "trend": "increasing", "valid_values": 5}
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -170,7 +208,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_causal_chain",
-            "description": "查找因果链路。追踪事件的前因后果，分析影响传播路径。支持forward(影响)/backward(原因)/both三个方向。",
+            "description": """查找因果链路。追踪事件的前因后果，分析影响传播路径。支持forward(影响)/backward(原因)/both三个方向。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("find_causal_chain", {"start_event": "南宁市洪涝", "direction": "forward"})
+chains = ret["data"]["results"]    # list[dict]，每条链路
+# 每个链路：{"nodes": [{"id": "ES-...", "state_type": "...", "time": "...", "entity_ids": [...], "attributes": [{"type": "受灾人口", "value": "..."}]}], "relationships": [...]}
+# chains[0]["nodes"] 是路径上的状态节点列表，relationships 是连接它们的因果关系
+count = ret["data"]["metadata"]["chain_count"]  # int，找到的链路数量
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -203,7 +250,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "compare_entities",
-            "description": "比较多个实体的状态和属性。一次性获取所有实体数据，支持按属性列表过滤。",
+            "description": """比较多个实体的状态和属性。一次性获取所有实体数据，支持按属性列表过滤。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("compare_entities", {"entity_names": ["南宁市", "柳州市"], "compare_attributes": ["受灾人口", "经济损失"]})
+comparisons = ret["data"]["results"]  # dict，以实体名为key
+# comparisons["南宁市"] 是该实体的记录列表
+# 指定compare_attributes时每条记录：{"state_id": "...", "time": "...", "entity_ids": [...], "attributes": [{"attr": "受灾人口", "value": "18.8万人"}]}
+# 未指定时：{"state_id": ..., "time": ..., "state_type": ..., "entity_ids": [...], "properties": {...}}
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -241,7 +297,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "aggregate_statistics",
-            "description": "聚合统计分析。计算sum/avg/max/min等统计指标。支持按实体类型(地点/设施/事件)过滤，支持时间范围和分组。",
+            "description": """聚合统计分析。计算sum/avg/max/min等统计指标。支持按实体类型(地点/设施/事件)过滤，支持时间范围和分组。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("aggregate_statistics", {"attribute": "受灾人口", "aggregation": "sum", "group_by": "source"})
+records = ret["data"]["results"]   # list[dict]
+# 有group_by时每条记录：{"group_key": "2023年广西水旱灾害公报", "result": 1234567.0}
+# 无group_by时：[{"result": 5678901.0}]（单条，直接取 records[0]["result"]）
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -256,7 +320,7 @@ TOOLS = [
                     },
                     "entity_type": {
                         "type": "string",
-                        "description": "实体类型（可选）。指定后只统计该类型实体的状态：\n- '地点'：地点状态（LS-L-*）\n- '设施'：设施状态（FS-F-*）\n- '事件'：事件状态（ES-E-*）\n不指定则统计所有状态",
+                        "description": "实体类型过滤（可选）：'地点'（行政区/河流相关灾情数据）、'设施'（水库/大坝相关运行数据）、'事件'（台风/洪水等灾害事件数据）。不指定则统计所有类型的状态数据。",
                         "enum": ["地点", "设施", "事件"]
                     },
                     "time_range": {
@@ -270,7 +334,7 @@ TOOLS = [
                     },
                     "group_by": {
                         "type": "string",
-                        "description": "分组字段（可选）。常用字段：\n- 'source'：按数据来源分组\n- 'time'：按时间分组\n- 'state_type'：按状态类型分组"
+                        "description": "分组字段（可选）。支持的值：'source'（按数据来源年份分组，如按年份公报）、'time'（按时间分组）、'state_type'（按状态类型分组）。仅使用这三个支持的值，其他字段名可能无效。"
                     }
                 },
                 "required": ["attribute", "aggregation"]
@@ -282,7 +346,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_spatial_neighbors",
-            "description": "获取空间邻近实体。查找指定实体周边的地理位置、设施等，使用locatedIn/occurredAt关系。",
+            "description": """获取空间邻近实体。查找指定实体周边的地理位置、设施等，使用locatedIn/occurredAt关系。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("get_spatial_neighbors", {"entity_name": "南宁市", "radius": 1})
+neighbors = ret["data"]["results"]  # list[dict]，邻近实体列表
+# 每条记录：{"id": "L-450103", "name": "青秀区", "labels": ["地点", "entity"], "distance": 1}
+# distance 是层级数（1=直接相邻，2=隔一层）
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -312,7 +384,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "query_emergency_plan",
-            "description": "查询应急预案文档。使用语义搜索从应急预案知识库检索。适用于查询响应等级、应急流程、部门职责、操作指南、标准规范等。",
+            "description": """查询应急预案文档。使用语义搜索从应急预案知识库检索。适用于查询响应等级、应急流程、部门职责、操作指南、标准规范等。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("query_emergency_plan", {"query": "Ⅰ级应急响应启动条件"})
+docs = ret["data"]["results"]      # list[dict]，检索到的文档片段
+# 每条记录：{"content": "文档原文...", "source": "广西应急预案", "similarity": 0.85, "chunk_id": "..."}
+# 按相似度降序排列，直接读取 content 字段即可
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -354,11 +434,11 @@ TOOLS = [
                 "properties": {
                     "data": {
                         "type": "string",
-                        "description": "数据源。可以是JSON格式的字符串(如'[{\"a\":1},{\"b\":2}]')，也可以是JSON/CSV文件路径。"
+                        "description": "数据源，两种格式：\n1. JSON字符串（对象数组）：如'[{\"年份\":2020,\"受灾人口\":18.8},{\"年份\":2021,\"受灾人口\":22.3}]'\n2. 文件路径：上一个工具返回的JSON/CSV文件路径（当工具返回'数据已保存至文件'时使用）\n注意：x_field和y_field的值必须与data中实际存在的字段名完全一致。"
                     },
                     "chart_type": {
                         "type": "string",
-                        "description": "图表类型：line(折线图)/bar(柱状图)/pie(饼图)/scatter(散点图)。",
+                        "description": "图表类型：line(折线图，适合时序/趋势)/bar(柱状图，适合分类对比)/pie(饼图，适合占比)/scatter(散点图，适合相关性)。",
                         "enum": ["line", "bar", "pie", "scatter"]
                     },
                     "title": {
@@ -367,11 +447,11 @@ TOOLS = [
                     },
                     "x_field": {
                         "type": "string",
-                        "description": "X轴字段名，用于映射到类目轴或时间轴。"
+                        "description": "X轴字段名，必须与data中的字段名完全一致（区分大小写）。通常是时间、地区等分类字段，用于类目轴。"
                     },
                     "y_field": {
                         "type": "string",
-                        "description": "Y轴字段名，用于映射到数值轴。"
+                        "description": "Y轴字段名，必须与data中的字段名完全一致（区分大小写）。必须是数字类型字段，用于数值轴。"
                     },
                     "series_field": {
                         "type": "string",
@@ -380,7 +460,7 @@ TOOLS = [
                 },
                 "required": ["data", "chart_type", "x_field", "y_field"]
             },
-            "allowed_callers": ["direct", "code_execution"]
+            "allowed_callers": ["direct"]
         }
     },
     {
@@ -441,7 +521,7 @@ TOOLS = [
                     },
                     "geometry_field": {
                         "type": "string",
-                        "description": "几何字段名（默认 'geometry'）。包含 WKT POINT 格式坐标的字段名。",
+                        "description": "几何字段名（默认'geometry'）。该字段的值必须是WKT格式的POINT坐标，例如：'POINT(108.366543 22.817002)'（经度 纬度，WGS84）。通常来自get_entity_geometry工具的返回结果，直接使用即可。暂不支持POLYGON等其他几何类型。",
                         "default": "geometry"
                     }
                 },
@@ -455,7 +535,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_entity_geometry",
-            "description": "根据实体ID列表获取几何信息(WKT坐标)。支持基础实体和State节点混合，返回id、geometry和type的映射列表。",
+            "description": """根据实体ID列表获取几何信息(WKT坐标)。支持基础实体和State节点混合，返回id、geometry和type的映射列表。
+
+**返回值结构（execute_code中使用）**：
+```python
+ret = call_tool("get_entity_geometry", {"entity_ids": ["L-450100", "L-450200"]})
+geom_list = ret["data"]["results"]  # list[dict]
+# 每条记录：{"id": "L-450100", "geometry": "POINT(108.366543 22.817002)", "type": "地点"}
+# geometry 格式为 WKT POINT（经度 纬度），可直接传给 generate_map 的 data 参数
+```""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -477,13 +565,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "transform_data",
-            "description": "执行Python代码进行内存数据转换。适用于小数据量(<1000条)的快速转换，如添加geometry字段、合并数据、格式转换等。代码中直接硬编码数据，最后必须设置result变量为list或dict（不要使用json.dumps序列化）。",
+            "description": "在内存中执行Python代码进行数据格式转换，适合小数据量(<1000条)。与execute_code的区别：本工具不能调用其他工具（call_tool不可用），仅适合对已有数据做格式变换（如添加字段、过滤、合并）；execute_code可调用其他工具进行批量查询。代码中将数据字面量赋值给变量，处理后设置result变量（list或dict）作为输出。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "python_code": {
                         "type": "string",
-                        "description": "Python转换代码。在代码中硬编码数据，最后必须设置result变量为list或dict（例如result = filtered_data，不要用json.dumps）。可使用pd和json模块。"
+                        "description": "Python转换代码。将数据字面量赋值给变量（例如：data = [{\"id\": \"L-001\", ...}, ...]），进行处理后设置result变量为list或dict（不要用json.dumps序列化result）。可用模块：pd（pandas）、json。"
                     },
                     "description": {
                         "type": "string",
@@ -505,19 +593,31 @@ TOOLS = [
 **核心优势**：
 - 可在代码中调用其他工具（使用 call_tool 函数）
 - 支持复杂逻辑、循环、条件判断
-- 中间结果不占用对话上下文（只有最终结果返回）
+- 中间结果不进入对话上下文（只有最终 result 返回）
+
+**与其他工具的区别**：
+- vs `transform_data`：本工具可调用其他工具（call_tool），适合批量查询；transform_data仅做内存数据转换
+- vs `process_data_file`：本工具无法读写文件；process_data_file用于处理文件路径的大数据
 
 **使用场景**：
-1. 批量调用同一工具（如查询 10 个城市）
-2. 根据中间结果动态决定下一步操作
-3. 复杂数据处理（循环、条件、聚合）
-4. 组合多个工具的结果
+1. 批量调用同一工具（如查询多个城市）
+2. 根据中间结果动态决定下一步
+3. 组合多个工具的结果
 
 **代码环境**：
 - 可用模块：math, json, re, datetime, collections, itertools, functools, statistics
-- 可用函数：call_tool(tool_name, arguments) - 调用其他工具
-- 必须设置 result 变量作为最终输出
-- 只有 allowed_callers 包含 "code_execution" 的工具可以在 call_tool 中调用
+- 可用函数：call_tool(tool_name, arguments_dict) → 返回工具结果字典
+- 必须设置 result 变量作为最终输出（list 或 dict）
+- 只有 allowed_callers 包含 "code_execution" 的工具可在 call_tool 中调用
+
+**call_tool 返回值结构**：
+```python
+# 成功时返回：{"success": True, "data": {"results": [...]}}
+# 失败时返回：{"success": False, "error": "错误信息"}
+# 提取数据的标准写法：
+ret = call_tool("search_knowledge_graph", {"keyword": "南宁市", "category": "State"})
+data = ret.get("data", {}).get("results", [])  # 提取实际数据列表
+```
 
 **安全限制**：
 - 禁止 os, sys, subprocess 等系统模块
@@ -527,14 +627,15 @@ TOOLS = [
 
 **示例**：
 ```python
-# 批量查询
+# 批量查询多个城市
 cities = ["南宁市", "柳州市", "桂林市"]
 results = []
 for city in cities:
-    data = call_tool("search_knowledge_graph", {
+    ret = call_tool("search_knowledge_graph", {
         "keyword": city,
-        "category": "地点"
+        "category": "State"
     })
+    data = ret.get("data", {}).get("results", [])
     results.append({"city": city, "count": len(data)})
 result = results
 ```""",
@@ -543,7 +644,7 @@ result = results
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python 代码。必须设置 result 变量作为输出。可使用 call_tool(tool_name, arguments) 调用工具。"
+                        "description": "Python 代码。必须设置 result 变量（list 或 dict）作为输出。使用 call_tool(tool_name, arguments_dict) 调用工具，通过 ret.get('data', {}).get('results', []) 提取结果数据。"
                     },
                     "description": {
                         "type": "string",
