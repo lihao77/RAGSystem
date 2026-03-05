@@ -10,6 +10,7 @@ from typing import Dict, Optional, Type
 from agents.core import BaseAgent
 from agents.implementations import ReActAgent
 from .manager import get_config_manager
+from agents.tools.builtin import SKILLS_SYSTEM_TOOLS as _SKILLS_SYSTEM_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -229,100 +230,8 @@ class AgentLoader:
         return 'react'
 
     # ─── Skills 系统工具定义（供 _resolve_tools_and_skills 使用）───────────────
-    _SKILLS_SYSTEM_TOOLS = [
-        {
-            "type": "function",
-            "function": {
-                "name": "activate_skill",
-                "description": """激活一个 Skill 并加载其主文件内容（SKILL.md）。
-
-**使用时机**：
-- 当你判断用户任务匹配某个 Skill 的适用场景时，首先激活该 Skill
-- 激活后你将获得该 Skill 的完整指导流程和工作方法
-
-**效果**：
-- 加载 SKILL.md 主文件内容
-- 系统记录该 Skill 已激活，便于上下文管理
-- 返回 Skill 的完整指导内容
-
-**后续操作**：
-- 根据主文件中的提示，使用 `load_skill_resource` 加载详细文档
-- 根据主文件中的指示，使用 `execute_skill_script` 执行脚本
-
-**重要**：每个任务通常只需激活一个 Skill。如果需要切换到不同的 Skill，再次调用此工具。""",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "skill_name": {
-                            "type": "string",
-                            "description": "要激活的 Skill 名称，例如：'disaster-report-example'"
-                        }
-                    },
-                    "required": ["skill_name"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "load_skill_resource",
-                "description": """加载 Skill 的引用文件内容（Additional Resources）。
-
-**前置条件**：
-- 你需要先使用 `activate_skill` 激活 Skill
-- 然后根据主文件（SKILL.md）中的提示，加载详细的引用文件
-
-**使用场景**：
-- 当主文件提到某个引用文件时（如 [report-template.md](report-template.md)）
-- 需要查看详细的模板、指南、示例等
-
-**重要**：此工具用于加载**额外的引用文件**，不是主文件。主文件通过 `activate_skill` 加载。""",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "skill_name": {
-                            "type": "string",
-                            "description": "Skill 名称"
-                        },
-                        "resource_file": {
-                            "type": "string",
-                            "description": "要加载的引用文件名，例如：'report-template.md'、'advanced-analysis.md'"
-                        }
-                    },
-                    "required": ["skill_name", "resource_file"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "execute_skill_script",
-                "description": "执行 Skill 的实用脚本（零上下文执行）。只返回脚本的输出结果，不加载代码到上下文。\n\n**调用格式**：skill_name、script_name、arguments 必须作为独立的 JSON 字段传入，例如：\n{\"skill_name\": \"kg-advanced-query\", \"script_name\": \"query.py\", \"arguments\": [\"--cypher\", \"MATCH (n) RETURN n\"]}\n\n**错误示例**（禁止）：不要把参数序列化成字符串放进 arguments 数组。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "skill_name": {
-                            "type": "string",
-                            "description": "Skill 名称"
-                        },
-                        "script_name": {
-                            "type": "string",
-                            "description": "脚本文件名，例如：'validate_data.py'"
-                        },
-                        "arguments": {
-                            "type": "array",
-                            "description": "传递给脚本的命令行参数列表，每个参数单独一个字符串元素，例如：[\"--param\", \"值\"]",
-                            "items": {"type": "string"}
-                        }
-                    },
-                    "required": ["skill_name", "script_name"]
-                },
-                "examples": [
-                    {"skill_name": "kg-advanced-query", "script_name": "query.py", "arguments": ["--cypher", "MATCH (s:State) WHERE s.id CONTAINS $name RETURN s.id LIMIT 10", "--params", "{\"name\": \"潘厂水库\"}"]}
-                ]
-            }
-        }
-    ]
+    # 定义在 agents/tools/builtin.py，顶部已导入为 _SKILLS_SYSTEM_TOOLS
+    _SKILLS_SYSTEM_TOOLS = _SKILLS_SYSTEM_TOOLS
 
     def _resolve_tools_and_skills(self, agent_config):
         """

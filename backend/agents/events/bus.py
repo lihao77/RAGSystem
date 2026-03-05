@@ -75,6 +75,8 @@ class EventType(str, Enum):
     USER_APPROVAL_REQUIRED = "user.approval_required"
     USER_APPROVAL_GRANTED = "user.approval_granted"
     USER_APPROVAL_DENIED = "user.approval_denied"
+    USER_INPUT_REQUIRED = "user.input_required"
+    USER_INPUT_RECEIVED = "user.input_received"
     USER_INTERRUPT = "user.interrupt"
     USER_FEEDBACK = "user.feedback"
 

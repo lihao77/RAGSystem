@@ -11,6 +11,7 @@
 import threading
 import time
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +32,14 @@ class TaskInfo:
     persistent_subscriptions: List[str] = field(default_factory=list)
     # 对应的 EventBus 引用（用于清理订阅）
     event_bus: Optional[Any] = field(default=None, repr=False)
+    # 待审批请求：approval_id -> threading.Event
+    pending_approvals: Dict[str, threading.Event] = field(default_factory=dict)
+    # 审批结果：approval_id -> bool
+    approval_results: Dict[str, bool] = field(default_factory=dict)
+    # 待用户输入请求：input_id -> threading.Event
+    pending_inputs: Dict[str, threading.Event] = field(default_factory=dict)
+    # 用户输入结果：input_id -> str
+    input_results: Dict[str, str] = field(default_factory=dict)
 
 
 class TaskRegistry:
@@ -104,12 +113,27 @@ class TaskRegistry:
             }
 
     def cancel(self, session_id: str) -> bool:
-        """设置 cancel_event 取消任务"""
+        """设置 cancel_event 取消任务，同时拒绝所有待审批和待输入请求"""
         with self._lock:
             info = self._tasks.get(session_id)
             if info and info.status == "running":
                 info.cancel_event.set()
-                logger.info(f"TaskRegistry: 取消任务 session={session_id}")
+                # 拒绝所有待审批，唤醒阻塞中的工具线程
+                pending_count = len(info.pending_approvals)
+                for aid, evt in list(info.pending_approvals.items()):
+                    info.approval_results[aid] = False
+                    evt.set()
+                info.pending_approvals.clear()
+                # 取消所有待输入，唤醒阻塞中的 agent 线程
+                input_count = len(info.pending_inputs)
+                for iid, evt in list(info.pending_inputs.items()):
+                    info.input_results[iid] = ""
+                    evt.set()
+                info.pending_inputs.clear()
+                logger.info(
+                    f"TaskRegistry: 取消任务 session={session_id}，"
+                    f"拒绝 {pending_count} 个待审批，取消 {input_count} 个待输入"
+                )
                 return True
             return False
 
@@ -157,6 +181,89 @@ class TaskRegistry:
                 except Exception as e:
                     logger.debug(f"TaskRegistry: 清理订阅 {sub_id} 失败: {e}")
             logger.info(f"TaskRegistry: 已清理 {len(subs)} 个持久化订阅 session={session_id}")
+
+    def add_pending_approval(self, session_id: str, approval_id: str) -> Optional[threading.Event]:
+        """
+        注册一个待审批请求，返回用于阻塞等待的 Event。
+        工具执行线程调用此方法后应 wait() 该 Event。
+        """
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info:
+                return None
+            evt = threading.Event()
+            info.pending_approvals[approval_id] = evt
+            info.approval_results[approval_id] = False  # 默认拒绝
+            logger.info(f"TaskRegistry: 注册审批请求 session={session_id} approval_id={approval_id}")
+            return evt
+
+    def resolve_approval(self, session_id: str, approval_id: str, approved: bool) -> bool:
+        """
+        响应审批请求（由 HTTP 端点调用）。
+        返回 True 表示找到并成功响应，False 表示未找到。
+        """
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info or approval_id not in info.pending_approvals:
+                logger.warning(f"TaskRegistry: 未找到审批请求 session={session_id} approval_id={approval_id}")
+                return False
+            info.approval_results[approval_id] = approved
+            evt = info.pending_approvals.pop(approval_id)
+        # 锁外 set，避免死锁
+        evt.set()
+        logger.info(f"TaskRegistry: 审批响应 session={session_id} approval_id={approval_id} approved={approved}")
+        return True
+
+    def get_approval_result(self, session_id: str, approval_id: str) -> bool:
+        """获取审批结果（等待完成后调用）"""
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info:
+                return False
+            result = info.approval_results.pop(approval_id, False)
+            return result
+
+    # ── 用户输入等待机制 ──────────────────────────────────────────
+
+    def add_pending_input(self, session_id: str, input_id: str) -> Optional[threading.Event]:
+        """
+        注册一个待用户输入请求，返回用于阻塞等待的 Event。
+        Agent 线程调用此方法后应 wait() 该 Event。
+        """
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info:
+                return None
+            evt = threading.Event()
+            info.pending_inputs[input_id] = evt
+            info.input_results[input_id] = ""  # 默认空字符串
+            logger.info(f"TaskRegistry: 注册用户输入请求 session={session_id} input_id={input_id}")
+            return evt
+
+    def resolve_input(self, session_id: str, input_id: str, value: str) -> bool:
+        """
+        提交用户输入（由 HTTP 端点调用）。
+        返回 True 表示找到并成功响应，False 表示未找到。
+        """
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info or input_id not in info.pending_inputs:
+                logger.warning(f"TaskRegistry: 未找到输入请求 session={session_id} input_id={input_id}")
+                return False
+            info.input_results[input_id] = value
+            evt = info.pending_inputs.pop(input_id)
+        # 锁外 set，避免死锁
+        evt.set()
+        logger.info(f"TaskRegistry: 用户输入已提交 session={session_id} input_id={input_id}")
+        return True
+
+    def get_input_result(self, session_id: str, input_id: str) -> str:
+        """获取用户输入结果（等待完成后调用）"""
+        with self._lock:
+            info = self._tasks.get(session_id)
+            if not info:
+                return ""
+            return info.input_results.pop(input_id, "")
 
 
 # ── 全局单例 ──

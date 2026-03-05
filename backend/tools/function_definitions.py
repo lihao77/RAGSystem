@@ -684,6 +684,10 @@ from tools.document_tools import DOCUMENT_TOOLS
 # 合并工具列表
 TOOLS.extend(DOCUMENT_TOOLS)
 
+# Human-in-the-Loop 伪工具：定义已迁移到 agents/tools/builtin.py
+# 此处保持向后兼容导出，避免已有 import 报错
+from agents.tools.builtin import REQUEST_USER_INPUT_TOOL  # noqa: F401
+
 
 def get_tool_definitions():
     """获取所有工具定义"""

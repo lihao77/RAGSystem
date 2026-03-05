@@ -25,6 +25,12 @@
               <div class="action-description">{{ actionDescription }}</div>
             </div>
 
+            <div v-if="toolName" class="approval-tool-info">
+              <span class="tool-label">工具:</span>
+              <span class="tool-name">{{ toolName }}</span>
+              <span v-if="riskLevel" class="risk-badge" :class="`risk-${riskLevel.toLowerCase()}`">{{ riskLabel }}</span>
+            </div>
+
             <div class="approval-warning">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -32,10 +38,6 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"></line>
               </svg>
               <span>此操作可能修改数据或执行敏感命令，请谨慎确认</span>
-            </div>
-
-            <div v-if="timeoutSeconds > 0" class="approval-timeout">
-              <span>{{ timeoutSeconds }}秒后自动拒绝</span>
             </div>
           </div>
 
@@ -54,88 +56,62 @@
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue';
+import { ref, computed } from 'vue';
 
-const props = defineProps({
-  agentName: {
-    type: String,
-    default: ''
-  },
-  actionDescription: {
-    type: String,
-    default: ''
-  },
-  approvalId: {
-    type: String,
-    default: ''
-  },
-  timeout: {
-    type: Number,
-    default: 60 // 默认60秒超时
-  }
-});
-
-const emit = defineEmits(['approve', 'deny', 'timeout']);
+const emit = defineEmits(['approve', 'deny']);
 
 const visible = ref(false);
-const timeoutSeconds = ref(0);
-let countdownTimer = null;
+const agentName = ref('');
+const actionDescription = ref('');
+const toolName = ref('');
+const riskLevel = ref('');
 
-const show = () => {
+let _approvalId = '';
+let _onApprove = null;
+let _onDeny = null;
+
+const riskLabel = computed(() => {
+  const map = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险' };
+  return map[riskLevel.value?.toUpperCase()] || riskLevel.value;
+});
+
+/**
+ * 显示审批对话框
+ * @param {object} data - { approval_id, tool_name, arguments, risk_level, description }
+ * @param {function} onApprove - (approvalId) => void
+ * @param {function} onDeny - (approvalId) => void
+ */
+const show = (data, onApprove, onDeny) => {
+  _approvalId = data.approval_id || '';
+  agentName.value = data.agent_name || '智能体';
+  toolName.value = data.tool_name || '';
+  riskLevel.value = data.risk_level || '';
+  actionDescription.value = data.description || `请求执行工具: ${data.tool_name || '未知工具'}`;
+  _onApprove = onApprove || null;
+  _onDeny = onDeny || null;
   visible.value = true;
-  timeoutSeconds.value = props.timeout;
-  startCountdown();
 };
 
 const hide = () => {
   visible.value = false;
-  stopCountdown();
-};
-
-const startCountdown = () => {
-  stopCountdown();
-  countdownTimer = setInterval(() => {
-    timeoutSeconds.value--;
-    if (timeoutSeconds.value <= 0) {
-      handleTimeout();
-    }
-  }, 1000);
-};
-
-const stopCountdown = () => {
-  if (countdownTimer) {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
-  }
 };
 
 const handleApprove = () => {
-  emit('approve', props.approvalId);
   hide();
+  if (_onApprove) _onApprove(_approvalId);
+  emit('approve', _approvalId);
 };
 
 const handleDeny = () => {
-  emit('deny', props.approvalId);
   hide();
+  if (_onDeny) _onDeny(_approvalId);
+  emit('deny', _approvalId);
 };
 
-const handleTimeout = () => {
-  emit('timeout', props.approvalId);
-  hide();
-};
+// 点击遮罩不关闭，强制用户做出选择
+const handleOverlayClick = () => {};
 
-const handleOverlayClick = () => {
-  // 点击遮罩层不关闭，强制用户做出选择
-};
-
-onUnmounted(() => {
-  stopCountdown();
-});
-
-defineExpose({
-  show,
-  hide
-});
+defineExpose({ show, hide });
 </script>
 
 <style scoped>
@@ -156,12 +132,8 @@ defineExpose({
 }
 
 @keyframes overlayFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .approval-container {
@@ -176,14 +148,8 @@ defineExpose({
 }
 
 @keyframes containerSlideIn {
-  from {
-    transform: scale(0.9) translateY(-20px);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1) translateY(0);
-    opacity: 1;
-  }
+  from { transform: scale(0.9) translateY(-20px); opacity: 0; }
+  to   { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 .approval-header {
@@ -265,6 +231,48 @@ defineExpose({
   font-weight: 500;
 }
 
+.approval-tool-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 0.875rem;
+}
+
+.tool-label {
+  color: var(--color-text-secondary);
+}
+
+.tool-name {
+  font-family: 'Courier New', monospace;
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.risk-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.risk-badge.risk-high {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.risk-badge.risk-medium {
+  background: rgba(255, 193, 7, 0.15);
+  color: var(--color-warning);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.risk-badge.risk-low {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
 .approval-warning {
   display: flex;
   align-items: flex-start;
@@ -281,15 +289,6 @@ defineExpose({
 .approval-warning svg {
   flex-shrink: 0;
   margin-top: 2px;
-}
-
-.approval-timeout {
-  text-align: center;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  padding: var(--spacing-xs);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-sm);
 }
 
 .approval-footer {
@@ -343,7 +342,6 @@ defineExpose({
 .dialog-fade-leave-active {
   transition: opacity 0.2s ease;
 }
-
 .dialog-fade-enter-from,
 .dialog-fade-leave-to {
   opacity: 0;
@@ -354,20 +352,16 @@ defineExpose({
   .approval-container {
     max-width: calc(100vw - 32px);
   }
-
   .approval-header {
     padding: var(--spacing-md);
   }
-
   .approval-body {
     padding: var(--spacing-md);
   }
-
   .approval-footer {
     padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
     flex-direction: column-reverse;
   }
-
   .approval-btn {
     width: 100%;
   }

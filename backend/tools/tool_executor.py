@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== 工具执行函数 ====================
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct"):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct", session_id=None):
     """
     执行指定的工具
 
@@ -33,6 +33,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         event_bus: 事件总线（可选，用于用户审批）
         user_role: 用户角色（可选，用于权限检查）
         caller: 调用来源（"direct" 或 "code_execution"）
+        session_id: 会话 ID（可选，用于审批等待）
 
     Returns:
         工具执行结果
@@ -57,25 +58,55 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         if permission and permission.requires_approval:
             logger.info(f"工具 {tool_name} 需要用户审批")
 
-            # 如果提供了事件总线，请求用户审批
             if event_bus:
                 try:
+                    import uuid as _uuid
                     from agents.events import EventType, Event
-                    # 发布审批请求事件
+                    from agents.task_registry import get_task_registry
+
+                    approval_id = str(_uuid.uuid4())
+
+                    # 在 registry 中注册审批等待句柄
+                    registry = get_task_registry()
+                    wait_evt = None
+                    if session_id:
+                        wait_evt = registry.add_pending_approval(session_id, approval_id)
+
+                    # 发布审批请求事件（携带 approval_id 和 session_id，前端可据此响应）
                     event_bus.publish(Event(
                         type=EventType.USER_APPROVAL_REQUIRED,
+                        session_id=session_id,
                         data={
+                            "approval_id": approval_id,
                             "tool_name": tool_name,
                             "arguments": arguments,
                             "risk_level": permission.risk_level.value,
-                            "description": permission.description
+                            "description": permission.description,
                         }
                     ))
-                    # 注意：实际审批逻辑需要在前端实现，这里只是发布事件
-                    # 在生产环境中，应该等待审批结果后再继续执行
-                    logger.info(f"已发布工具 {tool_name} 的审批请求事件")
+                    logger.info(f"已发布工具 {tool_name} 的审批请求事件 approval_id={approval_id}")
+
+                    if wait_evt is not None:
+                        # 真正无限等待：由用户点允许/拒绝触发，或任务被 cancel() 时自动唤醒
+                        wait_evt.wait()
+                        approved = registry.get_approval_result(session_id, approval_id)
+
+                        if not approved:
+                            logger.info(f"工具 {tool_name} 审批被拒绝或任务已停止")
+                            return error_response(f"工具 {tool_name} 需要用户授权，已被拒绝或任务已停止")
+                        logger.info(f"工具 {tool_name} 审批通过，继续执行")
+                    else:
+                        # 无 session_id 时无法等待，直接拒绝高风险操作
+                        logger.warning(f"工具 {tool_name} 需要审批但缺少 session_id，拒绝执行")
+                        return error_response(f"工具 {tool_name} 需要用户授权，但当前上下文无法等待审批")
+
                 except Exception as e:
-                    logger.error(f"发布审批请求事件失败: {e}")
+                    logger.error(f"审批流程异常: {e}")
+                    return error_response(f"审批流程异常: {e}")
+            else:
+                # 没有事件总线，直接拒绝
+                logger.warning(f"工具 {tool_name} 需要审批但无事件总线，拒绝执行")
+                return error_response(f"工具 {tool_name} 需要用户授权，但当前上下文不支持审批")
 
         # 3. 执行工具
         if tool_name == "execute_code":

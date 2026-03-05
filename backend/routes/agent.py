@@ -765,6 +765,44 @@ def stream_execute():
     return response
 
 
+@agent_bp.route('/sessions/<session_id>/approvals/<approval_id>/respond', methods=['POST'])
+def respond_approval(session_id, approval_id):
+    """
+    响应工具审批请求
+
+    POST /api/agent/sessions/<session_id>/approvals/<approval_id>/respond
+    Body: { "approved": true|false }
+    """
+    data = request.get_json() or {}
+    approved = bool(data.get('approved', False))
+
+    registry = get_task_registry()
+    ok = registry.resolve_approval(session_id, approval_id, approved)
+    if not ok:
+        return error_response(message='未找到对应的审批请求，可能已超时或不存在', status_code=404)
+
+    return success_response(data={'approved': approved}, message='审批响应已提交')
+
+
+@agent_bp.route('/sessions/<session_id>/inputs/<input_id>/respond', methods=['POST'])
+def respond_input(session_id, input_id):
+    """
+    提交用户输入（响应 request_user_input 工具请求）
+
+    POST /api/agent/sessions/<session_id>/inputs/<input_id>/respond
+    Body: { "value": "用户输入的内容" }
+    """
+    data = request.get_json() or {}
+    value = str(data.get('value', ''))
+
+    registry = get_task_registry()
+    ok = registry.resolve_input(session_id, input_id, value)
+    if not ok:
+        return error_response(message='未找到对应的输入请求，可能已被取消或不存在', status_code=404)
+
+    return success_response(data={'value': value}, message='用户输入已提交')
+
+
 @agent_bp.route('/stream/stop', methods=['POST'])
 def stream_stop():
     """

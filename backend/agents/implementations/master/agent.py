@@ -68,8 +68,9 @@ class MasterAgentV2(BaseAgent):
         self.agent_executor = AgentExecutor(orchestrator)
         self._publisher = None  # EventPublisher 实例（延迟创建）
 
-        # 直接工具与 Skills（从 YAML 配置注入）
-        self.available_tools = available_tools or []
+        # 自动注入内置工具（Human-in-the-Loop：request_user_input）
+        from agents.tools.builtin import get_builtin_tools_for_master
+        self.available_tools = get_builtin_tools_for_master(available_tools or [])
         self.available_skills = available_skills or []
 
         # 从配置获取行为参数
@@ -256,6 +257,55 @@ class MasterAgentV2(BaseAgent):
         """
         return get_agent_tools(self.orchestrator.agents)
 
+    def _handle_user_input_request(
+        self,
+        arguments: dict,
+        event_bus,
+        session_id: str,
+        tool_call_id: str,
+    ):
+        """
+        处理 request_user_input 伪工具调用：发布 USER_INPUT_REQUIRED 事件，
+        阻塞等待用户回复，返回用户输入的字符串；被取消时返回 None。
+        """
+        import uuid as _uuid
+        from agents.task_registry import get_task_registry
+        from agents.events.bus import Event, EventType
+
+        prompt = arguments.get('prompt', '')
+        input_type = arguments.get('input_type', 'text')
+        options = arguments.get('options', [])
+
+        input_id = str(_uuid.uuid4())
+        registry = get_task_registry()
+        wait_evt = registry.add_pending_input(session_id, input_id) if session_id else None
+
+        if event_bus:
+            event_bus.publish(Event(
+                type=EventType.USER_INPUT_REQUIRED,
+                session_id=session_id,
+                agent_name=self.name,
+                data={
+                    "input_id": input_id,
+                    "tool_call_id": tool_call_id,
+                    "prompt": prompt,
+                    "input_type": input_type,
+                    "options": options,
+                }
+            ))
+
+        self.logger.info(
+            f"[MasterV2] 等待用户输入 input_id={input_id} prompt={prompt[:60]!r}"
+        )
+
+        if wait_evt is None:
+            return ""
+
+        wait_evt.wait()  # 无超时，直到 resolve_input() 或 cancel() 触发
+        result = registry.get_input_result(session_id, input_id)
+        self.logger.info(f"[MasterV2] 用户输入已接收 input_id={input_id}")
+        return result if result != "" else None
+
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
         # 动态获取 Agent 工具列表（延迟获取，确保其他 Agent 已注册）
@@ -279,10 +329,14 @@ class MasterAgentV2(BaseAgent):
         # 构建直接工具描述段（仅在有直接工具时追加）
         direct_tools_section = ""
         if self.available_tools:
+            from agents.tools.builtin import BUILTIN_TOOL_NAMES
             direct_tool_lines = []
             for tool in self.available_tools:
                 func = tool.get('function', {})
                 t_name = func.get('name', '')
+                # 内置工具（如 request_user_input）不在系统提示的"可直接调用工具"段展示
+                if t_name in BUILTIN_TOOL_NAMES:
+                    continue
                 t_desc = func.get('description', '')
                 params = func.get('parameters', {})
 
@@ -311,14 +365,18 @@ class MasterAgentV2(BaseAgent):
                 + "\n".join(direct_tool_lines)
             )
 
-        # 决策指南：根据是否有直接工具动态调整
-        direct_tool_names = [t.get('function', {}).get('name', '') for t in self.available_tools]
+        # 决策指南：根据是否有直接工具动态调整（排除内置工具）
+        from agents.tools.builtin import BUILTIN_TOOL_NAMES
+        direct_tool_names = [
+            t.get('function', {}).get('name', '') for t in self.available_tools
+            if t.get('function', {}).get('name', '') not in BUILTIN_TOOL_NAMES
+        ]
         direct_tools_guide = ""
         if direct_tool_names:
             direct_tools_guide = f"\n- 如果任务可以通过直接工具完成（{', '.join(direct_tool_names[:3])}{'...' if len(direct_tool_names) > 3 else ''}），优先直接调用，无需委派 Agent"
 
-        # 规则第1条：说明可用工具类型
-        if self.available_tools:
+        # 规则第1条：说明可用工具类型（有非内置直接工具时才说明两类）
+        if direct_tool_names:
             rule1 = '1. **可用工具分为两类**：`invoke_agent_xxx`（委派子 Agent）和直接工具（见"可直接调用的工具"段）'
         else:
             rule1 = '1. **只能使用上面"可用的 Agent 工具"部分列出的工具**'
@@ -604,6 +662,24 @@ class MasterAgentV2(BaseAgent):
                         if original_arguments != arguments:
                             self.logger.info(f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}")
 
+                        # ─── 路由0：内置伪工具 request_user_input ─────────────
+                        if tool_name == 'request_user_input':
+                            tool_call_id = action.get('tool_call_id') or f"call_{run_id}_{rounds}_{idx}_input"
+                            user_value = self._handle_user_input_request(
+                                arguments=arguments,
+                                event_bus=event_bus,
+                                session_id=context.session_id,
+                                tool_call_id=tool_call_id,
+                            )
+                            if user_value is None:
+                                # 被取消（cancel_event 已设置），下一次检查中断时会退出
+                                self._check_interrupt(context)
+                                user_value = ""
+                            observation = f"**工具 {idx}: request_user_input**\n用户输入: {user_value}"
+                            observations.append(observation)
+                            agent_results[idx] = {"success": True, "data": {"results": user_value}}
+                            continue
+
                         # 解析出 Agent 名称
                         agent_name = parse_agent_invocation(tool_name)
                         if agent_name:
@@ -718,11 +794,11 @@ class MasterAgentV2(BaseAgent):
 
                         else:
                             # ─── 路由2/3：直接工具或 Skills 工具 ─────────────────
-                            SKILLS_TOOLS = {'activate_skill', 'load_skill_resource', 'execute_skill_script'}
+                            from agents.tools.builtin import SKILLS_TOOL_NAMES, BUILTIN_TOOL_NAMES
                             available_tool_names = {
                                 t.get('function', {}).get('name') for t in self.available_tools
-                            }
-                            is_skills_tool = tool_name in SKILLS_TOOLS
+                            } - BUILTIN_TOOL_NAMES  # 排除内置工具（已在路由0处理）
+                            is_skills_tool = tool_name in SKILLS_TOOL_NAMES
 
                             if is_skills_tool or tool_name in available_tool_names:
                                 # 路由2（Skills 工具）或路由3（普通直接工具）
@@ -748,6 +824,7 @@ class MasterAgentV2(BaseAgent):
                                         arguments,
                                         agent_config=self.agent_config,
                                         event_bus=event_bus,
+                                        session_id=context.session_id,
                                     )
                                 except Exception as tool_exc:
                                     self.logger.error(

@@ -54,11 +54,14 @@ class ReActAgent(BaseAgent):
         )
 
         self.display_name = display_name or agent_name
-        self.available_tools = available_tools or []
         self.available_skills = available_skills or []  # 新增：保存 Skills
         self.event_callback = event_callback  # 保存回调函数（向后兼容）
         self.event_bus = event_bus  # 保存事件总线实例
         self._publisher = None  # EventPublisher 实例（延迟创建）
+
+        # 自动注入内置工具（Human-in-the-Loop：request_user_input）
+        from agents.tools.builtin import get_builtin_tools_for_react
+        self.available_tools = get_builtin_tools_for_react(available_tools or [])
 
         # 从配置获取行为参数
         behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
@@ -109,6 +112,62 @@ class ReActAgent(BaseAgent):
             f"上下文窗口: {model_context_window or '未配置'}, "
             f"上下文预算: {max_context_tokens} tokens"
         )
+
+    def _handle_user_input_request(
+        self,
+        arguments: Dict[str, Any],
+        event_bus,
+        session_id: Optional[str],
+        tool_call_id: str,
+    ) -> Optional[str]:
+        """
+        处理 request_user_input 伪工具调用。
+        发布 USER_INPUT_REQUIRED 事件，阻塞等待用户输入。
+
+        Returns:
+            用户输入的字符串；任务被取消时返回 None。
+        """
+        from agents.events import EventType
+        from agents.events.bus import Event
+        from agents.task_registry import get_task_registry
+
+        prompt = arguments.get('prompt', '请提供额外信息')
+        input_type = arguments.get('input_type', 'text')
+        options = arguments.get('options', [])
+
+        input_id = str(uuid.uuid4())
+        registry = get_task_registry()
+
+        wait_evt = None
+        if session_id:
+            wait_evt = registry.add_pending_input(session_id, input_id)
+
+        if event_bus:
+            event_bus.publish(Event(
+                type=EventType.USER_INPUT_REQUIRED,
+                session_id=session_id,
+                data={
+                    "input_id": input_id,
+                    "tool_call_id": tool_call_id,
+                    "prompt": prompt,
+                    "input_type": input_type,
+                    "options": options,
+                }
+            ))
+            self.logger.info(f"已发布用户输入请求 input_id={input_id} prompt={prompt!r}")
+
+        if wait_evt is None:
+            self.logger.warning("request_user_input: 缺少 session_id，无法等待用户输入")
+            return ""
+
+        # 真正无限等待：由 resolve_input() 或 cancel() 唤醒
+        wait_evt.wait()
+        value = registry.get_input_result(session_id, input_id)
+
+        # cancel() 唤醒时 cancel_event 也被 set，上层 _check_interrupt 会抛出
+        # 这里直接返回 value（空字符串），调用方判断
+        self.logger.info(f"用户输入已收到 input_id={input_id} value={value!r}")
+        return value
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
         """
@@ -521,6 +580,27 @@ class ReActAgent(BaseAgent):
                         import uuid
                         tool_call_id = f"tool_{uuid.uuid4()}"
 
+                        # ── 伪工具：request_user_input（不走 tool_executor）──
+                        if tool_name == 'request_user_input':
+                            user_value = self._handle_user_input_request(
+                                arguments=arguments,
+                                event_bus=event_bus,
+                                session_id=current_session_id,
+                                tool_call_id=tool_call_id,
+                            )
+                            # 用户取消（任务被停止）时 value 为 None，检查中断
+                            if user_value is None:
+                                self._check_interrupt(context)
+                                # 若未抛出则当作空输入处理
+                                user_value = ""
+                            observations.append(f"**工具 {idx}: {tool_name}**\n用户输入: {user_value}")
+                            tool_calls_history.append({
+                                'tool_name': tool_name,
+                                'arguments': arguments,
+                                'result': {'success': True, 'user_input': user_value}
+                            })
+                            continue
+
                         # 发送工具开始事件
                         self._emit_event('tool_start', {
                             'tool_call_id': tool_call_id,  # 传入 ID
@@ -536,6 +616,7 @@ class ReActAgent(BaseAgent):
                             tool_name, arguments,
                             agent_config=self.agent_config,
                             event_bus=event_bus,
+                            session_id=current_session_id,
                         )
                         elapsed_time = time.time() - start_time
 
