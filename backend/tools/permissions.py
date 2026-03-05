@@ -169,9 +169,9 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
     ),
     "execute_skill_script": ToolPermission(
         tool_name="execute_skill_script",
-        risk_level=RiskLevel.HIGH,
-        requires_approval=True,
-        description="执行 Skill 脚本（可能执行任意代码）",
+        risk_level=RiskLevel.MEDIUM,
+        requires_approval=False,
+        description="执行 Skill 脚本（在隔离虚拟环境中运行）",
         allowed_callers=["direct"]  # 禁止代码调用
     ),
 

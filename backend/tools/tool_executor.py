@@ -60,17 +60,17 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             # 如果提供了事件总线，请求用户审批
             if event_bus:
                 try:
-                    from agents.events import EventType
+                    from agents.events import EventType, Event
                     # 发布审批请求事件
-                    event_bus.publish(
-                        EventType.USER_APPROVAL_REQUIRED,
-                        {
+                    event_bus.publish(Event(
+                        type=EventType.USER_APPROVAL_REQUIRED,
+                        data={
                             "tool_name": tool_name,
                             "arguments": arguments,
                             "risk_level": permission.risk_level.value,
                             "description": permission.description
                         }
-                    )
+                    ))
                     # 注意：实际审批逻辑需要在前端实现，这里只是发布事件
                     # 在生产环境中，应该等待审批结果后再继续执行
                     logger.info(f"已发布工具 {tool_name} 的审批请求事件")

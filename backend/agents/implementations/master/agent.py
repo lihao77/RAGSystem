@@ -523,16 +523,12 @@ class MasterAgentV2(BaseAgent):
                 final_answer = result.answer
                 full_response = result.full_response
 
-                self.logger.info(f"{log_prefix} Thought: {thought[:100]}...")
-
-                # 若 LLM 未输出 <thinking> 标签，thinking_complete 不会触发，前端会丢失这一轮
-                # 补发 thinking_complete，让前端能正常创建该轮 step
-                # full_response 作为兜底内容（LLM 可能输出了裸文本而没有用标签包裹）
-                if not thought:
-                    self._publisher.thinking_complete(
-                        full_content=full_response.strip(),
-                        round=rounds,
-                    )
+                if thought:
+                    self.logger.info(f"{log_prefix} Thinking: {thought[:100]}...")
+                elif actions:
+                    self.logger.info(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name','?') for a in actions]}")
+                elif final_answer:
+                    self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
 
                 # 添加 assistant 消息（使用完整 XML 响应用于持久化）
                 current_session.append({
