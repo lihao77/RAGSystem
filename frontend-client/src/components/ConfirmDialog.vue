@@ -89,7 +89,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: var(--z-toast);
   padding: var(--spacing-md);
 }
 
@@ -160,8 +160,8 @@ defineExpose({
 }
 
 .dialog-btn-confirm:hover {
-  background: #dc2626;
-  box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
+  filter: brightness(0.9);
+  box-shadow: 0 0 12px rgba(var(--color-error-rgb), 0.4);
 }
 
 .dialog-btn:active {

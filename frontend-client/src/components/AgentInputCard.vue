@@ -175,18 +175,18 @@ watch(() => props.data, () => {
 <style scoped>
 .agent-input-card {
   margin-top: 12px;
-  border: 1.5px solid var(--color-accent, #63b3ed);
+  border: 1.5px solid var(--color-active);
   border-radius: 12px;
   background: var(--color-bg-primary);
   overflow: hidden;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15),
-              0 0 0 1px rgba(99, 179, 237, 0.12);
+              0 0 0 1px rgba(var(--color-active-rgb), 0.12);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   max-width: 560px;
 }
 
 .agent-input-card.submitted {
-  border-color: rgba(34, 197, 94, 0.5);
+  border-color: rgba(var(--color-success-rgb), 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -202,11 +202,11 @@ watch(() => props.data, () => {
   gap: 8px;
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--color-border);
-  background: linear-gradient(135deg, rgba(99, 179, 237, 0.06) 0%, transparent 100%);
+  background: linear-gradient(135deg, rgba(var(--color-active-rgb), 0.06) 0%, transparent 100%);
 }
 
 .submitted .card-header {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.06) 0%, transparent 100%);
+  background: linear-gradient(135deg, rgba(var(--color-success-rgb), 0.06) 0%, transparent 100%);
   border-bottom-color: transparent;
 }
 
@@ -214,8 +214,8 @@ watch(() => props.data, () => {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(99, 179, 237, 0.15);
-  color: var(--color-accent, #63b3ed);
+  background: rgba(var(--color-active-rgb), 0.15);
+  color: var(--color-active);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -228,18 +228,18 @@ watch(() => props.data, () => {
 }
 
 .submitted .card-icon {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
 }
 
 .cancelled .card-icon {
-  background: rgba(156, 163, 175, 0.15);
+  background: var(--color-agent-default-bg);
   color: var(--color-text-secondary);
 }
 
 @keyframes pulse-ring {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 179, 237, 0.25); }
-  50%       { box-shadow: 0 0 0 5px rgba(99, 179, 237, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-active-rgb), 0.25); }
+  50%       { box-shadow: 0 0 0 5px rgba(var(--color-active-rgb), 0); }
 }
 
 .card-label {
@@ -247,11 +247,11 @@ watch(() => props.data, () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--color-accent, #63b3ed);
+  color: var(--color-active);
 }
 
 .submitted .card-label {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .cancelled .card-label {
@@ -292,8 +292,8 @@ watch(() => props.data, () => {
 .answer-bubble {
   display: inline-flex;
   padding: 8px 12px;
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: rgba(var(--color-success-rgb), 0.08);
+  border: 1px solid rgba(var(--color-success-rgb), 0.25);
   border-radius: 8px;
   font-size: 0.9375rem;
   line-height: 1.6;
@@ -336,8 +336,8 @@ watch(() => props.data, () => {
 }
 
 .inline-textarea:focus {
-  border-color: var(--color-accent, #63b3ed);
-  box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.12);
+  border-color: var(--color-active);
+  box-shadow: 0 0 0 3px rgba(var(--color-active-rgb), 0.12);
 }
 
 .text-input-footer {
@@ -389,13 +389,13 @@ watch(() => props.data, () => {
 }
 
 .select-option:hover {
-  border-color: var(--color-accent, #63b3ed);
-  background: var(--color-bg-tertiary, rgba(99, 179, 237, 0.05));
+  border-color: var(--color-active);
+  background: var(--color-bg-tertiary);
 }
 
 .select-option.active {
-  border-color: var(--color-accent, #63b3ed);
-  background: rgba(99, 179, 237, 0.08);
+  border-color: var(--color-active);
+  background: rgba(var(--color-active-rgb), 0.08);
   color: var(--color-text-primary);
 }
 
@@ -412,14 +412,14 @@ watch(() => props.data, () => {
 }
 
 .select-option.active .option-radio {
-  border-color: var(--color-accent, #63b3ed);
+  border-color: var(--color-active);
 }
 
 .option-radio-inner {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-accent, #63b3ed);
+  background: var(--color-active);
 }
 
 .option-label {
@@ -448,9 +448,9 @@ watch(() => props.data, () => {
 }
 
 .btn-cancel:hover {
-  border-color: #ef4444;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.06);
+  border-color: var(--color-error);
+  color: var(--color-error);
+  background: rgba(var(--color-error-rgb), 0.06);
 }
 
 .btn-submit {
@@ -458,7 +458,7 @@ watch(() => props.data, () => {
   align-items: center;
   gap: 6px;
   padding: 7px 16px;
-  background: var(--color-accent, #63b3ed);
+  background: var(--color-active);
   border: none;
   border-radius: 6px;
   color: #fff;
@@ -470,7 +470,7 @@ watch(() => props.data, () => {
 
 .btn-submit:hover:not(:disabled) {
   filter: brightness(1.1);
-  box-shadow: 0 0 12px rgba(99, 179, 237, 0.4);
+  box-shadow: 0 0 12px rgba(var(--color-active-rgb), 0.4);
   transform: translateY(-1px);
 }
 

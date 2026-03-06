@@ -329,7 +329,7 @@ onUnmounted(() => {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  z-index: 1000;
+  z-index: var(--z-overlay);
   overflow: hidden;
 }
 

@@ -71,7 +71,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20;
+  z-index: var(--z-sidebar);
   transition: all var(--transition-fast);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -84,7 +84,7 @@
 }
 
 [data-theme="light"] .btn-scroll-bottom {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.92);
   border-color: var(--color-border);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
@@ -228,7 +228,7 @@
 .form-section {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
   padding: var(--spacing-md) var(--spacing-lg);
 }
 
@@ -312,7 +312,7 @@
 
 .form-control:disabled {
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-secondary);
   cursor: not-allowed;
 }
 
@@ -355,7 +355,7 @@ input[type='number'].form-control {
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
@@ -418,8 +418,8 @@ input[type='number'].form-control {
   color: var(--color-success);
   font-size: var(--font-size-sm);
   padding: 6px 12px;
-  border: 1px solid rgba(52, 211, 153, 0.3);
-  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(var(--color-success-rgb), 0.3);
+  background: rgba(var(--color-success-rgb), 0.08);
   border-radius: 20px;
 }
 
@@ -433,13 +433,13 @@ input[type='number'].form-control {
   padding: var(--spacing-xl);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
   color: var(--color-text-secondary);
 }
 
 .state-panel--error {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.08), transparent 65%);
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
 }
 
 .state-panel--empty {
@@ -532,7 +532,7 @@ input[type='number'].form-control {
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--glass-shadow);
-  z-index: 15;
+  z-index: var(--z-sticky);
 }
 
 /* 桌面端玻璃滑块 */
@@ -603,7 +603,7 @@ input[type='number'].form-control {
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100vw - 32px);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   padding: 6px 12px;
   background: var(--glass-bg);
   backdrop-filter: blur(32px) saturate(240%);
@@ -692,18 +692,18 @@ input[type='number'].form-control {
 /* ===== Light Theme Adaptation ===== */
 [data-theme="light"] .section-nav--mobile,
 [data-theme="light"] .section-nav--desktop {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.12),
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 [data-theme="light"] .section-nav--mobile::before,
 [data-theme="light"] .section-nav--desktop::before {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   border-color: var(--color-border);
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }

@@ -392,7 +392,7 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 9999;
+  z-index: var(--z-toast);
   background: var(--color-bg-app);
   padding: var(--spacing-2xl);
 }
@@ -403,7 +403,7 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 9999;
+  z-index: var(--z-toast);
   background: var(--color-bg-app);
   display: flex;
   flex-direction: column;

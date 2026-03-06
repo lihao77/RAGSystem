@@ -67,14 +67,14 @@ const selectOption = (opt) => {
 }
 
 .r-option:hover {
-  border-color: rgba(99, 179, 237, 0.5);
-  background: rgba(99, 179, 237, 0.04);
+  border-color: rgba(var(--color-active-rgb), 0.5);
+  background: rgba(var(--color-active-rgb), 0.04);
 }
 
 .r-option.active {
-  border-color: var(--color-accent, #63b3ed);
-  background: rgba(99, 179, 237, 0.08);
-  box-shadow: 0 0 0 1px rgba(99, 179, 237, 0.15);
+  border-color: var(--color-active);
+  background: rgba(var(--color-active-rgb), 0.08);
+  box-shadow: 0 0 0 1px rgba(var(--color-active-rgb), 0.15);
 }
 
 /* 单选圆圈 */
@@ -91,14 +91,14 @@ const selectOption = (opt) => {
 }
 
 .r-option.active .r-radio {
-  border-color: var(--color-accent, #63b3ed);
+  border-color: var(--color-active);
 }
 
 .r-radio-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--color-accent, #63b3ed);
+  background: var(--color-active);
 }
 
 .r-label {
@@ -108,7 +108,7 @@ const selectOption = (opt) => {
 
 /* 已选对勾 */
 .r-check {
-  color: var(--color-accent, #63b3ed);
+  color: var(--color-active);
   flex-shrink: 0;
   opacity: 0.85;
 }

@@ -386,14 +386,14 @@ onMounted(() => {
 }
 
 .btn-action--danger {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  background: rgba(var(--color-error-rgb), 0.08);
   color: var(--color-error);
 }
 
 .btn-action--danger:hover {
-  background: rgba(239, 68, 68, 0.16) !important;
-  border-color: rgba(239, 68, 68, 0.55) !important;
+  background: rgba(var(--color-error-rgb), 0.16) !important;
+  border-color: rgba(var(--color-error-rgb), 0.55) !important;
 }
 
 .btn-back:focus-visible,
@@ -417,13 +417,13 @@ onMounted(() => {
   padding: var(--spacing-xl);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
   color: var(--color-text-secondary);
 }
 
 .state-panel--error {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.08), transparent 65%);
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
 }
 
 .spinner {
@@ -465,8 +465,8 @@ onMounted(() => {
 
 .stat-card--success .stat-icon {
   color: var(--color-success);
-  background: rgba(52, 211, 153, 0.12);
-  border-color: rgba(52, 211, 153, 0.25);
+  background: rgba(var(--color-success-rgb), 0.12);
+  border-color: rgba(var(--color-success-rgb), 0.25);
 }
 
 .stat-icon {
@@ -519,7 +519,7 @@ onMounted(() => {
   gap: 2px;
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
 }
 
 .detail-card__head h2 {
@@ -558,7 +558,7 @@ onMounted(() => {
 }
 
 .agent-card:hover {
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--color-hover-overlay-md);
 }
 
 .agent-card__head {
@@ -594,8 +594,8 @@ onMounted(() => {
 }
 
 .badge--success {
-  border-color: rgba(52, 211, 153, 0.35);
-  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(var(--color-success-rgb), 0.35);
+  background: rgba(var(--color-success-rgb), 0.1);
   color: var(--color-success);
 }
 
@@ -706,7 +706,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   padding: 6px 10px;
-  background: rgba(248, 113, 113, 0.07);
+  background: rgba(var(--color-error-rgb), 0.07);
   border-left: 2px solid var(--color-error);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   font-size: var(--font-size-xs);

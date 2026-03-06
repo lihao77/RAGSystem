@@ -80,22 +80,22 @@ const submittedValue = computed(() => props.data._submitted || '');
 
 /* ── 已提交 ── */
 .input-record.submitted {
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.04);
+  border: 1px solid rgba(var(--color-success-rgb), 0.3);
+  background: rgba(var(--color-success-rgb), 0.04);
 }
 
 .input-record.submitted .record-header {
-  background: rgba(34, 197, 94, 0.07);
-  border-bottom: 1px solid rgba(34, 197, 94, 0.15);
+  background: rgba(var(--color-success-rgb), 0.07);
+  border-bottom: 1px solid rgba(var(--color-success-rgb), 0.15);
 }
 
 .submitted-icon {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+  background: rgba(var(--color-success-rgb), 0.15);
 }
 
 .input-record.submitted .record-label {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 /* ── 已取消 ── */
@@ -112,7 +112,7 @@ const submittedValue = computed(() => props.data._submitted || '');
 
 .cancelled-icon {
   color: var(--color-text-secondary);
-  background: rgba(156, 163, 175, 0.12);
+  background: var(--color-agent-default-bg);
 }
 
 .input-record.cancelled .record-label {

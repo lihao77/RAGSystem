@@ -9,15 +9,15 @@
   --code-attr: #D7BA7D;
   --code-string: #22a877;
   /* Toast 语义色 */
-  --toast-success-bg: rgba(52, 211, 153, 0.08);
-  --toast-error-bg: rgba(239, 68, 68, 0.08);
-  --toast-warning-bg: rgba(250, 173, 20, 0.08);
-  --toast-warning-border: #faad14;
+  --toast-success-bg: rgba(var(--color-success-rgb), 0.08);
+  --toast-error-bg: rgba(var(--color-error-rgb), 0.08);
+  --toast-warning-bg: rgba(var(--color-warning-rgb), 0.08);
+  --toast-warning-border: var(--color-warning);
   /* 上下文环状图颜色 */
-  --ctx-ring-track: #dcdfe6;
-  --ctx-ring-success: #52c41a;
-  --ctx-ring-warning: #faad14;
-  --ctx-ring-danger: #ff4d4f;
+  --ctx-ring-track: var(--color-border);
+  --ctx-ring-success: var(--color-success);
+  --ctx-ring-warning: var(--color-warning);
+  --ctx-ring-danger: var(--color-error);
   /* 消息气泡 */
   --user-bubble-corner: 4px;
   /* 编辑框 */
@@ -25,6 +25,15 @@
   /* 侧边栏 */
   --sidebar-btn-text-transition-in: opacity 0.25s ease 0.05s;
   --sidebar-btn-text-transition-out: opacity 0.15s ease;
+}
+
+/* 亮色模式代码块覆盖 */
+:root[data-theme="light"] .chat-view {
+  --code-bg: #eef0f2;
+  --code-fg: #1f2937;
+  --code-inline-fg: #6d28d9;
+  --code-attr: #b45309;
+  --code-string: #047857;
 }
 
 .chat-view {
@@ -44,7 +53,7 @@
   flex-direction: column;
   /* padding: var(--spacing-md); */
   flex-shrink: 0;
-  z-index: 20;
+  z-index: var(--z-sidebar);
   transition: width 0.3s ease;
 
   /* 展开状态：图标中心线位置 */
@@ -453,7 +462,7 @@
 
 /* ===== 顶部控制栏 ===== */
 .top-controls-bar {
-  z-index: 100;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -800,8 +809,8 @@
   border-color: transparent;
 }
 .btn-editor.btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--color-hover-overlay);
+  border-color: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
 }
 
@@ -838,12 +847,12 @@
   white-space: nowrap;
 }
 .msg-action-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: var(--color-hover-overlay);
+  border-color: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
 }
 .msg-action-btn:active {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-hover-overlay-lg);
 }
 /* 重试 - 品牌 indigo */
 .msg-action-btn.btn-retry:hover {
@@ -853,14 +862,14 @@
 }
 /* 编辑 - 暖白 */
 .msg-action-btn.btn-edit:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--color-hover-overlay-md);
+  border-color: var(--color-hover-overlay-lg);
   color: var(--color-text-primary);
 }
 /* 复制 - 成功绿 */
 .msg-action-btn.btn-copy:hover {
-  background: rgba(52, 211, 153, 0.08);
-  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(var(--color-success-rgb), 0.08);
+  border-color: rgba(var(--color-success-rgb), 0.2);
   color: var(--color-success);
 }
 .msg-action-btn:focus-visible {
@@ -886,7 +895,7 @@
   top: var(--spacing-lg);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 9999;
+  z-index: var(--z-toast);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-lg);
   background: var(--glass-bg);
@@ -1090,9 +1099,9 @@
   border: none;
 }
 
-/* 代码块语法高亮 - 确保 highlight.js 样式生效 */
+/* 代码块语法高亮 - 强制覆盖 highlight.js 注入的背景色，避免与 pre 背景产生色差 */
 .markdown-body :deep(.hljs) {
-  /* background-color: transparent; */
+  background-color: transparent !important;
   padding: 0 10px;
 }
 
@@ -1130,15 +1139,15 @@
 
 /* 链接 */
 .markdown-body :deep(a) {
-  color: var(--color-interactive-hover);
+  color: var(--color-link);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: all var(--transition-fast);
 }
 
 .markdown-body :deep(a:hover) {
-  border-bottom-color: var(--color-interactive-hover);
-  text-shadow: 0 0 8px var(--color-interactive-glow);
+  color: var(--color-link-hover);
+  border-bottom-color: var(--color-link-hover);
 }
 
 /* 表格 */
@@ -1166,7 +1175,7 @@
 }
 
 .markdown-body :deep(tr:nth-child(even)) {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-hover-overlay);
 }
 
 /* 分隔线 */
@@ -1580,7 +1589,7 @@
   padding: 0 var(--subtasks-padding);
   margin-top: 0;
   /* 移除 transition，由 JS 钩子控制动画 */
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* 动画类名对应 Vue transition name="expand" */
@@ -1749,7 +1758,7 @@
 .status-tag.error {
   background-color: var(--color-error-bg);
   color: var(--color-error);
-  border-color: #fca5a5;
+  border-color: rgba(var(--color-error-rgb), 0.35);
 }
 
 .status-icon {
@@ -1767,7 +1776,7 @@
   left: 0;
   isolation: isolate;
   width: 100%;
-  z-index: 10;
+  z-index: var(--z-sticky);
   transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   /* display: flex;
   justify-content: center; */
@@ -1830,7 +1839,7 @@
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  z-index: 999;
+  z-index: var(--z-overlay);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
@@ -1914,7 +1923,7 @@
     width: 280px;
     /* 移动端稍微宽一些 */
     max-width: 85vw;
-    z-index: 1002;
+    z-index: calc(var(--z-overlay) + 2);
     /* 高于汉堡菜单按钮，确保能盖住按钮 */
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -2234,5 +2243,44 @@
 
   .sidebar {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ===== 亮色主题补充覆盖 ===== */
+:root[data-theme="light"] {
+  /* 侧边栏在亮色下用阴影代替深色背景来产生层次感 */
+  .sidebar {
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+  }
+
+  /* 顶部控制栏 glass 在白底下要更不透明、有边框 */
+  .left-controls,
+  .right-controls {
+    background-color: rgba(255, 255, 255, 0.88);
+    border-color: var(--color-border);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  /* 代码块：亮色下需要明显的边框区分代码区域 */
+  .markdown-body :deep(pre) {
+    border-color: var(--color-border);
+  }
+
+  /* 行内代码：亮色下加深背景使其更明显 */
+  .markdown-body :deep(code) {
+    border-color: var(--color-border);
+  }
+
+  /* 引用块：亮色下调整为更柔和的背景 */
+  .markdown-body :deep(blockquote) {
+    background: var(--color-bg-secondary);
+    border-left-color: var(--color-brand-accent);
+  }
+
+  /* 移动端侧边栏抽屉在亮色下加强阴影 */
+  @media (max-width: 767px) {
+    .sidebar {
+      box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
+    }
   }
 }

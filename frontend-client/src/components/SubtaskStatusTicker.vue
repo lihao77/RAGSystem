@@ -235,7 +235,7 @@ const progressPercentage = computed(() => {
 .agent-badge.success {
     background: var(--color-success-bg);
     color: var(--color-success);
-    border-color: rgba(52, 211, 153, 0.2);
+    border-color: rgba(var(--color-success-rgb), 0.2);
 }
 
 .action-text {

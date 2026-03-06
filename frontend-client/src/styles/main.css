@@ -51,12 +51,35 @@
     /* Status Colors - Muted */
     --color-success: #34d399;
     --color-success-bg: rgba(52, 211, 153, 0.1);
+    --color-success-rgb: 52, 211, 153;
     --color-warning: #fbbf24;
     --color-warning-bg: rgba(251, 191, 36, 0.1);
+    --color-warning-rgb: 251, 191, 36;
     --color-error: #f87171;
     --color-error-bg: rgba(248, 113, 113, 0.1);
+    --color-error-rgb: 248, 113, 113;
     --color-active: #60a5fa;
     --color-active-bg: rgba(96, 165, 250, 0.1);
+    --color-active-rgb: 96, 165, 250;
+
+    /* Link Color */
+    --color-link: #818cf8;
+    --color-link-hover: #a5b4fc;
+
+    /* Semantic Agent Colors */
+    --color-agent-master: #c084fc;
+    --color-agent-master-bg: rgba(168, 85, 247, 0.15);
+    --color-agent-qa: #60a5fa;
+    --color-agent-qa-bg: rgba(59, 130, 246, 0.15);
+    --color-agent-analysis: #4ade80;
+    --color-agent-analysis-bg: rgba(34, 197, 94, 0.15);
+    --color-agent-default: #9ca3af;
+    --color-agent-default-bg: rgba(156, 163, 175, 0.15);
+
+    /* Hover overlay — 主题感知的微交互叠加色 */
+    --color-hover-overlay: rgba(255, 255, 255, 0.06);
+    --color-hover-overlay-md: rgba(255, 255, 255, 0.08);
+    --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
 
     /* Minimal Glass - Only for overlays */
     --glass-bg: rgba(20, 20, 20, 0.5);
@@ -65,15 +88,15 @@
     --glass-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2);
     --glass-blur: 20px;
 
-    /* Refined Shadows */
-    --shadow-sm: 0 1px 2px rgba(255, 255, 255, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(255, 255, 255, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.15);
-    --shadow-lg: 0 10px 15px -3px rgba(255, 255, 255, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+    /* Refined Shadows — 暗色模式用黑色阴影 */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
 
     /* 向四周发光的 */
-    --shadow-glow: 0 0 10px rgba(255, 255, 255, 0.2);
-    --shadow-glow-md: 0 0 20px rgba(255, 255, 255, 0.3);
-    --shadow-glow-lg: 0 0 30px rgba(255, 255, 255, 0.4);
+    --shadow-glow: 0 0 10px rgba(255, 255, 255, 0.08);
+    --shadow-glow-md: 0 0 20px rgba(255, 255, 255, 0.12);
+    --shadow-glow-lg: 0 0 30px rgba(255, 255, 255, 0.16);
 
     /* Spacing - 4px Grid */
     --spacing-xs: 4px;
@@ -94,6 +117,17 @@
     /* Transitions */
     --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Z-Index Layers */
+    --z-base: 0;
+    --z-sticky: 10;         /* 顶部控制栏、固定导航 */
+    --z-sidebar: 20;        /* 侧边栏 */
+    --z-floating: 50;       /* 浮动按钮、固定导航 */
+    --z-dropdown: 100;      /* 下拉菜单、选择器弹出层 */
+    --z-overlay: 1000;      /* 侧边栏遮罩 */
+    --z-modal: 2000;        /* 弹窗、抽屉 */
+    --z-toast: 9000;        /* Toast 通知 */
+    --z-dialog: 10000;      /* 最高层级弹窗（审批、输入） */
 
     /* Typography */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
@@ -162,11 +196,11 @@
 
 :root[data-theme="light"] {
     /* Interactive Accent Colors */
-    --color-interactive: #e9e9e9;
-    --color-interactive-hover: #f9f9f9;
+    --color-interactive: #f0f0f0;
+    --color-interactive-hover: #e4e4e7;
     --color-interactive-glow: rgba(79, 70, 229, 0.15);
-    --color-interactive-subtle: rgba(100, 100, 100, 0.4);
-    --color-interactive-rgb: 229, 229, 229;
+    --color-interactive-subtle: rgba(100, 100, 100, 0.15);
+    --color-interactive-rgb: 240, 240, 240;
     /* RGB triplet for rgba() usage */
 
     /* Brand Accent Colors - For decorative glows and highlights */
@@ -177,15 +211,16 @@
     --color-brand-accent-light-rgb: 99, 102, 241;
 
     /* Background Layers - Light */
-    --color-bg-app: #ffffff;
-    /* Zinc 100 */
+    --color-bg-app: #eaeaec;
+    /* 主背景：中灰，拉开与卡片的对比 */
     --color-bg-primary: #ffffff;
-    /* White */
-    --color-bg-secondary: #f4f4f4;
-    /* Zinc 100 */
-    --color-bg-tertiary: #e6e6e6;
-    /* Zinc 200 */
-    --color-bg-elevated: #f1f1f1;
+    /* 侧边栏/卡片：纯白，在 app 背景上清晰"浮起" */
+    --color-bg-secondary: #f4f4f5;
+    /* 次级背景：略深于卡片，用于内嵌区域 */
+    --color-bg-tertiary: #e4e4e7;
+    /* 激活/用户消息气泡，比次级更深 */
+    --color-bg-elevated: #ffffff;
+    /* 浮层用纯白+阴影 */
 
     /* Text Colors */
     --color-text-primary: #18181b;
@@ -201,37 +236,60 @@
     --color-bg-message-assistant: transparent;
 
     /* Borders */
-    --color-border: #e4e4e7;
-    /* Zinc 200 */
-    --color-border-hover: #d4d4d8;
-    /* Zinc 300 */
+    --color-border: #d4d4d8;
+    /* Zinc 300 - 略深，在白色卡片上更清晰 */
+    --color-border-hover: #a1a1aa;
+    /* Zinc 400 */
     --color-border-focus: rgba(var(--color-brand-accent-rgb), 0.4);
 
     /* Status Colors - Light Theme */
     --color-success: #10b981;
     --color-success-bg: rgba(16, 185, 129, 0.1);
+    --color-success-rgb: 16, 185, 129;
     --color-warning: #f59e0b;
     --color-warning-bg: rgba(245, 158, 11, 0.1);
+    --color-warning-rgb: 245, 158, 11;
     --color-error: #ef4444;
     --color-error-bg: rgba(239, 68, 68, 0.1);
+    --color-error-rgb: 239, 68, 68;
     --color-active: #3b82f6;
     --color-active-bg: rgba(59, 130, 246, 0.1);
+    --color-active-rgb: 59, 130, 246;
 
-    /* Glass - Light */
-    --glass-bg: rgba(255, 255, 255, 0.5);
+    /* Link Color */
+    --color-link: #4f46e5;
+    --color-link-hover: #4338ca;
+
+    /* Semantic Agent Colors */
+    --color-agent-master: #9333ea;
+    --color-agent-master-bg: rgba(147, 51, 234, 0.12);
+    --color-agent-qa: #2563eb;
+    --color-agent-qa-bg: rgba(37, 99, 235, 0.1);
+    --color-agent-analysis: #16a34a;
+    --color-agent-analysis-bg: rgba(22, 163, 74, 0.1);
+    --color-agent-default: #6b7280;
+    --color-agent-default-bg: rgba(107, 114, 128, 0.1);
+
+    /* Hover overlay — 亮色模式用黑色叠加 */
+    --color-hover-overlay: rgba(0, 0, 0, 0.04);
+    --color-hover-overlay-md: rgba(0, 0, 0, 0.06);
+    --color-hover-overlay-lg: rgba(0, 0, 0, 0.08);
+
+    /* Glass - Light：用深色边框 + 更不透明的白色背景，在白底上产生层次感 */
+    --glass-bg: rgba(255, 255, 255, 0.88);
     --glass-bg-light: rgba(160, 160, 160, 0);
-    --color-glass-border: rgba(209, 213, 219, 0.3);
-    --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    --color-glass-border: rgba(0, 0, 0, 0.08);
+    --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.05);
 
-    /* Refined Shadows */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(255, 255, 255, 0.15);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(255, 255, 255, 0.2);
+    /* Refined Shadows — 亮色模式加强阴影，弥补背景层次感 */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 10px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.07);
+    --shadow-lg: 0 10px 24px -3px rgba(0, 0, 0, 0.14), 0 4px 10px -2px rgba(0, 0, 0, 0.08);
 
         /* 向四周发光的 */
-    --shadow-glow: 0 0 10px rgba(0, 0, 0, 0.2);
-    --shadow-glow-md: 0 0 20px rgba(0, 0, 0, 0.3);
-    --shadow-glow-lg: 0 0 30px rgba(0, 0, 0, 0.4);
+    --shadow-glow: 0 0 12px rgba(0, 0, 0, 0.08);
+    --shadow-glow-md: 0 0 24px rgba(0, 0, 0, 0.1);
+    --shadow-glow-lg: 0 0 36px rgba(0, 0, 0, 0.12);
 }
 
 /* ===== Global Reset ===== */
@@ -271,11 +329,9 @@ textarea,
   -webkit-tap-highlight-color: transparent; /* 或 rgba(0,0,0,0) */
 }
 
-/* 2. 去掉默认的 focus 外轮廓（如果你只在移动端使用，可以加上） */
-button:focus,
-button:active,
-a:focus,
-a:active {
+/* 2. 去掉鼠标/触摸的 focus 轮廓，保留键盘导航的 focus-visible */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -313,6 +369,18 @@ a:active {
 :focus-visible {
     outline: 2px solid var(--color-interactive);
     outline-offset: 2px;
+}
+
+/* ===== Reduced Motion ===== */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 

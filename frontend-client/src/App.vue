@@ -19,7 +19,9 @@ import { ref, onMounted, computed } from 'vue';
 import ChatViewV2 from './views/ChatViewV2.vue';
 import AgentMonitor from './views/AgentMonitor.vue';
 import AgentConfig from './views/AgentConfig.vue';
-import 'highlight.js/styles/github-dark.css';
+// highlight.js 主题随亮暗模式动态切换，避免固定主题在反色模式下产生行级色差
+import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
+import hljsLightUrl from 'highlight.js/styles/github.css?url';
 
 const isDark = ref(true);
 const selectedLLM = ref('');
@@ -78,6 +80,19 @@ const updateTheme = () => {
     root.setAttribute('data-theme', 'light');
   }
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
+
+  // 动态切换 highlight.js 主题，避免固定主题在反色模式下产生行级色差
+  const existingLink = document.getElementById('hljs-theme');
+  const href = isDark.value ? hljsDarkUrl : hljsLightUrl;
+  if (existingLink) {
+    existingLink.setAttribute('href', href);
+  } else {
+    const link = document.createElement('link');
+    link.id = 'hljs-theme';
+    link.rel = 'stylesheet';
+    link.href = href;
+    document.head.appendChild(link);
+  }
 };
 
 // 监听浏览器前进后退

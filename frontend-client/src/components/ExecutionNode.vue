@@ -318,23 +318,23 @@ const toggleExpanded = () => {
 }
 
 .agent-badge.master {
-  background: rgba(168, 85, 247, 0.15);
-  color: #c084fc;
+  background: var(--color-agent-master-bg);
+  color: var(--color-agent-master);
 }
 
 .agent-badge.qa {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
+  background: var(--color-agent-qa-bg);
+  color: var(--color-agent-qa);
 }
 
 .agent-badge.analysis {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
+  background: var(--color-agent-analysis-bg);
+  color: var(--color-agent-analysis);
 }
 
 .agent-badge.default {
-  background: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
+  background: var(--color-agent-default-bg);
+  color: var(--color-agent-default);
 }
 
 .round-badge {
@@ -1014,7 +1014,7 @@ const toggleExpanded = () => {
 }
 
 .user-input-answer-block .detail-header {
-  border-left-color: #22c55e;
+  border-left-color: var(--color-success);
 }
 
 .user-input-answer {
@@ -1027,9 +1027,9 @@ const toggleExpanded = () => {
 }
 
 .user-tag {
-  background: rgba(34, 197, 94, 0.15) !important;
-  color: #22c55e !important;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(var(--color-success-rgb), 0.15) !important;
+  color: var(--color-success) !important;
+  border: 1px solid rgba(var(--color-success-rgb), 0.3);
 }
 
 .user-input-waiting {

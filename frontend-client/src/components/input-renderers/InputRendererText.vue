@@ -73,8 +73,8 @@ onMounted(() => {
 }
 
 .r-textarea:focus {
-  border-color: var(--color-accent, #63b3ed);
-  box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.12);
+  border-color: var(--color-active);
+  box-shadow: 0 0 0 3px rgba(var(--color-active-rgb), 0.12);
 }
 
 .r-hint {

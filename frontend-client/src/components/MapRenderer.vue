@@ -408,7 +408,7 @@ watch(() => props.mapData, () => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 9999;
+  z-index: var(--z-toast);
   background: var(--color-bg-app);
   display: flex;
   flex-direction: column;
@@ -435,8 +435,8 @@ watch(() => props.mapData, () => {
   position: absolute;
   bottom: 20px;
   right: 20px;
-  z-index: 1000; /* 确保在地图之上 */
-  background: rgba(24, 24, 27, 0.8); /* 半透明背景 */
+  z-index: var(--z-overlay); /* 确保在地图之上 */
+  background: var(--glass-bg); /* 半透明背景 */
   backdrop-filter: blur(10px);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);

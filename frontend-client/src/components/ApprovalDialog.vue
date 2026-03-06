@@ -205,7 +205,7 @@ defineExpose({ show, hide });
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-dialog);
   padding: var(--spacing-md);
   animation: overlayFadeIn 0.2s ease;
 }
@@ -219,7 +219,7 @@ defineExpose({ show, hide });
   background: var(--color-bg-primary);
   border: 2px solid var(--color-warning);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 193, 7, 0.2);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(var(--color-warning-rgb), 0.2);
   max-width: 520px;
   width: 100%;
   max-height: 90vh;
@@ -238,7 +238,7 @@ defineExpose({ show, hide });
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, transparent 100%);
+  background: linear-gradient(135deg, rgba(var(--color-warning-rgb), 0.1) 0%, transparent 100%);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -320,21 +320,21 @@ defineExpose({ show, hide });
 }
 
 .risk-badge.risk-high {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(var(--color-error-rgb), 0.15);
+  color: var(--color-error);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
 }
 
 .risk-badge.risk-medium {
-  background: rgba(255, 193, 7, 0.15);
+  background: rgba(var(--color-warning-rgb), 0.15);
   color: var(--color-warning);
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.3);
 }
 
 .risk-badge.risk-low {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+  border: 1px solid rgba(var(--color-success-rgb), 0.3);
 }
 
 /* 操作说明 */
@@ -402,8 +402,8 @@ defineExpose({ show, hide });
   align-items: flex-start;
   gap: var(--spacing-sm);
   padding: 8px 12px;
-  background: rgba(255, 193, 7, 0.08);
-  border: 1px solid rgba(255, 193, 7, 0.25);
+  background: rgba(var(--color-warning-rgb), 0.08);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.25);
   border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -445,7 +445,7 @@ defineExpose({ show, hide });
 }
 
 .mode-tab-deny.active {
-  color: #ef4444;
+  color: var(--color-error);
 }
 
 /* 附言输入 */
@@ -456,12 +456,12 @@ defineExpose({ show, hide });
 }
 
 .approval-message-box.denial .message-textarea {
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(var(--color-error-rgb), 0.3);
 }
 
 .approval-message-box.denial .message-textarea:focus {
-  border-color: rgba(239, 68, 68, 0.6);
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  border-color: rgba(var(--color-error-rgb), 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.1);
 }
 
 .message-label {
@@ -488,7 +488,7 @@ defineExpose({ show, hide });
 
 .message-textarea:focus {
   border-color: var(--color-warning);
-  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.15);
+  box-shadow: 0 0 0 3px rgba(var(--color-warning-rgb), 0.15);
 }
 
 /* 底部按钮 */
@@ -517,20 +517,20 @@ defineExpose({ show, hide });
 }
 
 .approval-btn-approve:hover {
-  background: #f59e0b;
-  box-shadow: 0 0 16px rgba(255, 193, 7, 0.5);
+  background: var(--color-warning);
+  box-shadow: 0 0 16px rgba(var(--color-warning-rgb), 0.5);
   transform: translateY(-1px);
 }
 
 .approval-btn-deny {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+  border: 1px solid rgba(var(--color-error-rgb), 0.35);
 }
 
 .approval-btn-deny:hover {
-  background: rgba(239, 68, 68, 0.2);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+  background: rgba(var(--color-error-rgb), 0.2);
+  box-shadow: 0 0 12px rgba(var(--color-error-rgb), 0.3);
   transform: translateY(-1px);
 }
 
