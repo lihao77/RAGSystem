@@ -7,23 +7,23 @@
             <h1 class="config-title">Agent 配置</h1>
             <p class="config-subtitle">统一管理智能体基础参数、模型、工具与 Skills</p>
           </div>
-          <button class="btn-back" @click="navigateToChat">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            返回聊天
-          </button>
-        </div>
-        <div class="agent-selector-row">
-          <label class="field-label" for="agent-select">选择 Agent</label>
-          <CustomSelect
-            id="agent-select"
-            :model-value="selectedAgent"
-            :options="agents.map(a => ({ value: a, label: a }))"
-            placeholder="请选择 Agent"
-            @update:model-value="selectedAgent = $event; handleAgentChange()"
-          />
+          <div class="header-actions">
+            <CustomSelect
+              id="agent-select"
+              :model-value="selectedAgent"
+              :options="agents.map(a => ({ value: a, label: a }))"
+              placeholder="请选择 Agent"
+              style="width: 200px"
+              @update:model-value="selectedAgent = $event; handleAgentChange()"
+            />
+            <button class="btn-back" @click="navigateToChat">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              返回聊天
+            </button>
+          </div>
         </div>
       </div>
     </div>

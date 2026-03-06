@@ -16,10 +16,7 @@
 .config-top__inner {
   max-width: 1100px;
   margin: 0 auto;
-  padding: var(--spacing-sm) var(--spacing-xl);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-xl);
 }
 
 .header-left {
@@ -29,14 +26,17 @@
   gap: var(--spacing-md);
 }
 
-.agent-selector-row {
+.header-meta {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
+  flex-direction: column;
+  gap: 2px;
 }
 
-.agent-selector-row .custom-select {
-  max-width: 360px;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .config-body {
@@ -90,28 +90,9 @@
 }
 
 /* ===== Header ===== */
-.config-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-}
-
-.header-left {
-  display: flex;
-  /* align-items: flex-start; */
-  gap: var(--spacing-md);
-}
-
-.header-meta {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-sm);
-}
-
 .config-title {
   margin: 0;
-  font-size: var(--font-size-3xl);
+  font-size: var(--font-size-xl);
   font-weight: 700;
   color: var(--color-text-primary);
 }
@@ -119,7 +100,7 @@
 .config-subtitle {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 /* ===== Buttons ===== */
@@ -479,6 +460,16 @@ input[type='number'].form-control {
   .config-top__inner {
     padding-left: var(--spacing-md);
     padding-right: var(--spacing-md);
+  }
+
+  .header-left {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .config-subtitle {

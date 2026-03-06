@@ -5,14 +5,6 @@
       <!-- Header -->
       <header class="monitor-header">
         <div class="header-left">
-          <button class="btn-back" @click="navigateToChat">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            返回聊天
-          </button>
           <div class="header-meta">
             <h1 class="page-title">智能体性能监控</h1>
             <p class="page-subtitle">实时查看调用次数、耗时、成功率与工具使用统计</p>
@@ -42,6 +34,14 @@
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
             重置指标
+          </button>
+          <button class="btn-back" @click="navigateToChat">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            返回聊天
           </button>
         </div>
       </header>
@@ -725,7 +725,7 @@ onMounted(() => {
 @media (max-width: 900px) {
   .monitor-page { padding: var(--spacing-md); }
   .monitor-header { flex-direction: column; align-items: stretch; }
-  .header-left { flex-direction: column; }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
