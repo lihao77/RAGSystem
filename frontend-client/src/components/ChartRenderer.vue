@@ -300,6 +300,8 @@ onUnmounted(() => {
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
   transition: all var(--transition-fast);
+  gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .chart-title {
@@ -309,6 +311,15 @@ onUnmounted(() => {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--color-text-primary);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chart-title > span:not(.chart-icon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-icon {
@@ -416,6 +427,8 @@ onUnmounted(() => {
   padding: var(--spacing-md) var(--spacing-lg);
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
+  gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .chart-fullscreen-content {
@@ -423,6 +436,17 @@ onUnmounted(() => {
   width: 100%;
   padding: var(--spacing-lg);
   background: var(--color-bg-primary);
+}
+
+/* 响应式：移动端全屏收缩 padding */
+@media (max-width: 767px) {
+  .chart-fullscreen-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .chart-fullscreen-content {
+    padding: var(--spacing-sm);
+  }
 }
 
 .close-btn {

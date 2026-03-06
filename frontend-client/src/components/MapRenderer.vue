@@ -50,37 +50,33 @@
             </button>
           </div>
         </div>
-        <div ref="fullscreenContainer" class="map-fullscreen-content"></div>
-        <!-- 这里的 legend 是全屏模式下的 -->
-        <div class="map-legend fullscreen-legend" v-if="mapData.value_range">
-          <div class="legend-title">{{ mapData.value_field }}</div>
-          <div class="legend-scale">
-            <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
-            <div class="legend-gradient"></div>
-            <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
-          </div>
-          <div class="map-stats">
-            <span>数据点：{{ mapData.total_points }}</span>
+        <div class="map-fullscreen-content">
+          <div ref="fullscreenContainer" style="width:100%;height:100%;"></div>
+          <div class="map-legend" v-if="mapData.value_range">
+            <div class="legend-title">{{ mapData.value_field }}</div>
+            <div class="legend-scale">
+              <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+              <div class="legend-gradient"></div>
+              <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+            </div>
           </div>
         </div>
       </div>
     </Teleport>
 
-    <div
-      ref="mapContainer"
-      class="map-container"
-      v-show="!isFullscreen"
-    ></div>
-    <div class="map-legend" v-if="mapData.value_range">
-      <div class="legend-title">{{ mapData.value_field }}</div>
-      <div class="legend-scale">
-        <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
-        <div class="legend-gradient"></div>
-        <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+    <div class="map-body" v-show="!isFullscreen">
+      <div ref="mapContainer" class="map-container"></div>
+      <div class="map-legend" v-if="mapData.value_range">
+        <div class="legend-title">{{ mapData.value_field }}</div>
+        <div class="legend-scale">
+          <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+          <div class="legend-gradient"></div>
+          <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+        </div>
       </div>
-      <div class="map-stats">
-        <span>数据点：{{ mapData.total_points }}</span>
-      </div>
+    </div>
+    <div class="map-footer" v-if="mapData.value_range && mapData.total_points">
+      <span class="map-stats">数据点：{{ mapData.total_points }}</span>
     </div>
   </div>
 </template>
@@ -140,7 +136,7 @@ const initMap = (container) => {
     center: props.mapData.center || [23.5, 108.5], // 默认中心：广西
     zoom: props.mapData.map_type === 'heatmap' ? 7 : 8,
     zoomControl: true,
-    attributionControl: true
+    attributionControl: false
   });
 
   // 添加瓦片图层 (OpenStreetMap)
@@ -333,6 +329,10 @@ watch(() => props.mapData, () => {
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
   transition: all var(--transition-fast);
+  gap: var(--spacing-sm);
+  min-width: 0;
+  position: relative;
+  z-index: 600; /* 高于 Leaflet 最高层 pane（z-index 400~500） */
 }
 
 .map-title {
@@ -342,6 +342,15 @@ watch(() => props.mapData, () => {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--color-text-primary);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.map-title > span:not(.map-icon):not(.map-type-badge) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .map-icon {
@@ -352,7 +361,7 @@ watch(() => props.mapData, () => {
 .map-type-badge {
   padding: 4px 12px;
   background: var(--color-interactive-subtle);
-  color: var(--color-interactive);
+  color: var(--color-brand-accent-light);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 700;
@@ -393,13 +402,127 @@ watch(() => props.mapData, () => {
   transform: translateY(0);
 }
 
+.map-body {
+  position: relative;
+}
+
 .map-container {
   width: 100%;
   height: 500px;
-  position: relative;
-  transition: all var(--transition-normal);
   background: var(--color-bg-primary);
   z-index: 1;
+}
+
+.map-legend {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 500; /* 在 Leaflet 控件之上 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--glass-bg);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.legend-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
+.legend-scale {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-min,
+.legend-max {
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
+.legend-gradient {
+  width: 12px;
+  height: 60px;
+  background: linear-gradient(to bottom,
+    rgba(255, 0, 0, 0.9),
+    rgba(255, 255, 0, 0.9),
+    rgba(0, 255, 0, 0.9),
+    rgba(0, 255, 255, 0.9),
+    rgba(0, 0, 255, 0.9)
+  );
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.map-stats {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.map-footer {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border);
+}
+
+/* 响应式：平板端收缩高度 */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .map-container {
+    height: 420px;
+  }
+}
+
+/* 响应式：移动端大幅收缩高度，适合竖屏 */
+@media (max-width: 767px) {
+  .map-container {
+    height: 300px;
+  }
+
+  .map-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .map-footer {
+    padding: var(--spacing-sm);
+  }
+
+  .map-type-badge {
+    display: none;
+  }
+
+  .map-legend {
+    bottom: 10px;
+    right: 10px;
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  .legend-gradient {
+    height: 44px;
+  }
+
+  .map-fullscreen-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .map-fullscreen-header .map-type-badge {
+    display: none;
+  }
 }
 
 .map-fullscreen-overlay {
@@ -426,22 +549,8 @@ watch(() => props.mapData, () => {
 .map-fullscreen-content {
   flex: 1;
   width: 100%;
-  height: 100%;
   position: relative;
-  /* 确保地图容器占满剩余空间 */
-}
-
-.fullscreen-legend {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  z-index: var(--z-overlay); /* 确保在地图之上 */
-  background: var(--glass-bg); /* 半透明背景 */
-  backdrop-filter: blur(10px);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--color-border);
-  min-width: 200px;
+  overflow: hidden;
 }
 
 .close-btn {
@@ -453,52 +562,6 @@ watch(() => props.mapData, () => {
     background: var(--color-error-bg);
     color: var(--color-error);
     border-color: var(--color-error);
-}
-
-.map-legend {
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--color-bg-elevated);
-  border-top: 1px solid var(--color-border);
-}
-
-.legend-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin-bottom: var(--spacing-sm);
-}
-
-.legend-scale {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
-}
-
-.legend-min,
-.legend-max {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  min-width: 50px;
-}
-
-.legend-gradient {
-  flex: 1;
-  height: 20px;
-  background: linear-gradient(to right,
-    rgba(0, 0, 255, 0.9),
-    rgba(0, 255, 255, 0.9),
-    rgba(0, 255, 0, 0.9),
-    rgba(255, 255, 0, 0.9),
-    rgba(255, 0, 0, 0.9)
-  );
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-}
-
-.map-stats {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
 }
 
 /* Leaflet 弹出窗口样式 */
