@@ -2,7 +2,7 @@
   <div class="agent-config-container">
     <div class="page-header">
       <h1>智能体配置管理</h1>
-      <p class="page-subtitle">为每个智能体配置独立的 LLM 参数、工具设置和自定义参数</p>
+      <p class="page-subtitle">为每个智能体配置独立的 LLM、工具、Skills 与 MCP 服务</p>
     </div>
 
     <el-row :gutter="16">
@@ -261,6 +261,65 @@
               </el-alert>
             </el-form-item>
 
+            <el-divider content-position="left">MCP 服务配置</el-divider>
+
+            <el-alert
+              title="MCP 配置说明"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 16px"
+            >
+              为当前 Agent 选择可访问的 MCP Server。保存后，已连接且可发现工具的服务会在 Agent 加载时自动注入。
+            </el-alert>
+
+            <el-form-item label="启用的 MCP 服务">
+              <el-select
+                v-model="currentConfig.mcp.enabled_servers"
+                multiple
+                placeholder="选择可授权给当前 Agent 的 MCP 服务"
+                style="width: 100%"
+                clearable
+                filterable
+              >
+                <el-option
+                  v-for="server in availableMCPServers"
+                  :key="server.name"
+                  :label="server.display_name || server.name"
+                  :value="server.name"
+                  :disabled="!server.enabled"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+                    <span>{{ server.display_name || server.name }}</span>
+                    <div style="display: inline-flex; gap: 6px; align-items: center">
+                      <el-tag size="small" type="info">{{ server.transport || 'stdio' }}</el-tag>
+                      <el-tag size="small" :type="server.status === 'connected' ? 'success' : server.status === 'error' ? 'danger' : 'warning'">
+                        {{ server.status || 'unknown' }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  <div style="font-size: 12px; color: #999; margin-top: 4px">
+                    {{ server.name }} · 工具 {{ server.tool_count || 0 }} 个<span v-if="server.error_message"> · {{ server.error_message }}</span>
+                  </div>
+                </el-option>
+              </el-select>
+              <el-alert
+                type="info"
+                :closable="false"
+                style="margin-top: 8px"
+              >
+                <template #default>
+                  <div style="font-size: 12px">
+                    <strong>MCP 启用逻辑：</strong>
+                    <ul style="margin: 4px 0 0 0; padding-left: 20px">
+                      <li>不选择任何 MCP 服务 = 不注入 MCP 工具</li>
+                      <li>选择服务后，只有已连接且能发现工具的服务会真正注入</li>
+                      <li>禁用状态的 MCP 服务不可选</li>
+                    </ul>
+                  </div>
+                </template>
+              </el-alert>
+            </el-form-item>
+
             <!-- 行为配置 -->
             <el-divider content-position="left">行为配置</el-divider>
 
@@ -441,6 +500,7 @@ import {
   getPresets,
   getAvailableTools,
   getAvailableSkills,
+  getAvailableMCPServers,
   createAgent,
   deleteAgent
 } from '@/api/agentConfig'
@@ -458,6 +518,7 @@ const presets = ref({})
 const applyingPreset = ref('')
 const availableTools = ref([]) // 可用工具列表
 const availableSkills = ref([]) // 可用 Skills 列表
+const availableMCPServers = ref([]) // MCP servers
 
 // 导入对话框
 const importDialogVisible = ref(false)
@@ -589,6 +650,18 @@ const loadAvailableSkills = async () => {
   }
 }
 
+
+const loadAvailableMCPServers = async () => {
+  try {
+    const res = await getAvailableMCPServers()
+    if (res.success) {
+      availableMCPServers.value = res.data
+    }
+  } catch (error) {
+    console.error('加载 MCP Server 列表失败:', error)
+    ElMessage.error('加载 MCP Server 列表失败')
+  }
+}
 const onSelectAgent = (agentName) => {
   selectedAgent.value = agentName
   currentConfig.value = JSON.parse(JSON.stringify(agentConfigs.value[agentName]))
@@ -610,7 +683,14 @@ const syncJsonFields = () => {
 
   // 3. 确保 skills 配置存在
   if (!currentConfig.value.skills) {
-    currentConfig.value.skills = { enabled_skills: [] }
+    currentConfig.value.skills = { enabled_skills: [], auto_inject: true }
+  } else if (typeof currentConfig.value.skills.auto_inject !== 'boolean') {
+    currentConfig.value.skills.auto_inject = true
+  }
+
+  // 4. 确保 mcp 配置存在
+  if (!currentConfig.value.mcp) {
+    currentConfig.value.mcp = { enabled_servers: [] }
   }
 
   // 4. 确保 generic 类型的智能体有 behavior 对象
@@ -901,6 +981,7 @@ onMounted(() => {
   loadPresets()
   loadAvailableTools()
   loadAvailableSkills()
+  loadAvailableMCPServers()
 })
 
 // 监听配置对象的变化，实时更新 JSON 视图

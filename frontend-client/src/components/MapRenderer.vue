@@ -54,11 +54,23 @@
           <div ref="fullscreenContainer" style="width:100%;height:100%;"></div>
           <div class="map-legend" v-if="mapData.value_range">
             <div class="legend-title">{{ mapData.value_field }}</div>
-            <div class="legend-scale">
-              <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
-              <div class="legend-gradient"></div>
-              <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
-            </div>
+            <!-- 热力图：彩色渐变条 -->
+            <template v-if="mapData.map_type === 'heatmap'">
+              <div class="legend-scale">
+                <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+                <div class="legend-gradient"></div>
+                <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+              </div>
+            </template>
+            <!-- 圆圈标记：橙色圆圈示例；普通标记：蓝色 pin -->
+            <template v-else>
+              <div :class="mapData.map_type === 'circle' ? 'legend-circle-demo' : 'legend-pin-demo'"></div>
+              <div class="legend-scale-row">
+                <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+                <span class="legend-sep">–</span>
+                <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -68,14 +80,26 @@
       <div ref="mapContainer" class="map-container"></div>
       <div class="map-legend" v-if="mapData.value_range">
         <div class="legend-title">{{ mapData.value_field }}</div>
-        <div class="legend-scale">
-          <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
-          <div class="legend-gradient"></div>
-          <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
-        </div>
+        <!-- 热力图：彩色渐变条 -->
+        <template v-if="mapData.map_type === 'heatmap'">
+          <div class="legend-scale">
+            <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+            <div class="legend-gradient"></div>
+            <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+          </div>
+        </template>
+        <!-- 圆圈/标记：橙色圆圈示例 -->
+        <template v-else>
+          <div class="legend-circle-demo"></div>
+          <div class="legend-scale-row">
+            <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
+            <span class="legend-sep">–</span>
+            <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
+          </div>
+        </template>
       </div>
     </div>
-    <div class="map-footer" v-if="mapData.value_range && mapData.total_points">
+    <div class="map-footer" v-if="!isFullscreen && mapData.value_range && mapData.total_points">
       <span class="map-stats">数据点：{{ mapData.total_points }}</span>
     </div>
   </div>
@@ -139,11 +163,12 @@ const initMap = (container) => {
     attributionControl: false
   });
 
-  // 添加瓦片图层 (OpenStreetMap)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-    maxZoom: 18
-  }).addTo(mapInstance.value);
+  // 根据主题选择瓦片源
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(mapInstance.value);
 
   // 根据地图类型渲染数据
   renderMapData();
@@ -277,11 +302,24 @@ const formatNumber = (num) => {
 };
 
 // Lifecycle
+let themeObserver = null;
+
 onMounted(() => {
   initMap(mapContainer.value);
+
+  // 监听主题切换，重新初始化地图以更换瓦片
+  themeObserver = new MutationObserver(() => {
+    const container = isFullscreen.value ? fullscreenContainer.value : mapContainer.value;
+    initMap(container);
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme']
+  });
 });
 
 onBeforeUnmount(() => {
+  themeObserver?.disconnect();
   if (mapInstance.value) {
     mapInstance.value.remove();
     mapInstance.value = null;
@@ -409,6 +447,7 @@ watch(() => props.mapData, () => {
 .map-container {
   width: 100%;
   height: 500px;
+  position: relative;
   background: var(--color-bg-primary);
   z-index: 1;
 }
@@ -465,6 +504,39 @@ watch(() => props.mapData, () => {
   );
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.legend-circle-demo {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 120, 0, 0.5);
+  border: 2px solid #ff7800;
+  flex-shrink: 0;
+}
+
+.legend-pin-demo {
+  width: 12px;
+  height: 20px;
+  background: #2a81cb;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+  border: 2px solid #1a6ab5;
+  margin: 4px;
+}
+
+.legend-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.legend-sep {
+  color: var(--color-text-muted);
 }
 
 .map-stats {
@@ -544,6 +616,8 @@ watch(() => props.mapData, () => {
   padding: var(--spacing-md) var(--spacing-lg);
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
+  position: relative;
+  z-index: 600;
 }
 
 .map-fullscreen-content {

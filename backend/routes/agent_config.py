@@ -7,7 +7,15 @@
 
 from flask import Blueprint, request
 import logging
-from agents.config import get_config_manager, AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset
+from agents.config import (
+    get_config_manager,
+    AgentConfig,
+    AgentLLMConfig,
+    AgentToolConfig,
+    AgentSkillConfig,
+    AgentMCPConfig,
+    AgentConfigPreset,
+)
 from utils.response_helpers import success_response, error_response
 
 logger = logging.getLogger(__name__)
@@ -213,10 +221,15 @@ def patch_config(agent_name):
         skills = None
         if 'skills' in data:
             # 合并现有配置
-            from agents.config import AgentSkillConfig
             skills_data = config.skills.model_dump()
             skills_data.update(data['skills'])
             skills = AgentSkillConfig(**skills_data)
+
+        mcp = None
+        if 'mcp' in data:
+            mcp_data = config.mcp.model_dump()
+            mcp_data.update(data['mcp'])
+            mcp = AgentMCPConfig(**mcp_data)
 
         custom_params = data.get('custom_params')
         enabled = data.get('enabled')
@@ -227,6 +240,7 @@ def patch_config(agent_name):
             llm=llm,
             tools=tools,
             skills=skills,
+            mcp=mcp,
             custom_params=custom_params,
             enabled=enabled,
             save=True
@@ -554,6 +568,30 @@ def _get_tool_category(tool_name: str) -> str:
 
     # 默认分类
     return 'other'
+
+
+@agent_config_bp.route('/mcp-servers', methods=['GET'])
+def list_available_mcp_servers():
+    """List configured MCP servers for agent assignment UI."""
+    try:
+        from mcp import get_mcp_manager
+        from mcp.config_store import get_mcp_config_store
+
+        store = get_mcp_config_store()
+        manager = get_mcp_manager()
+        servers = []
+        for cfg in store.list_servers():
+            name = cfg.get('name') or cfg.get('server_name', '')
+            status = manager.get_server_status(name)
+            servers.append({**cfg, **status})
+
+        return success_response(
+            data=servers,
+            message=f'Found {len(servers)} MCP servers'
+        )
+    except Exception as e:
+        logger.error(f'Failed to load MCP servers: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
 
 
 @agent_config_bp.route('/skills', methods=['GET'])

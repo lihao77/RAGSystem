@@ -281,6 +281,34 @@ class AgentLoader:
         else:
             logger.info(f"{agent_config.agent_name} 未配置 Skills，不加载任何 Skill")
 
+        # 4. MCP 工具注入
+        mcp_config = getattr(agent_config, 'mcp', None)
+        if mcp_config and getattr(mcp_config, 'enabled_servers', None):
+            try:
+                from mcp import get_mcp_manager
+                manager = get_mcp_manager()
+                injected_count = 0
+                for server_name in mcp_config.enabled_servers:
+                    mcp_tools = manager.get_tools_openai_format(server_name)
+                    if mcp_tools:
+                        filtered_tools.extend(mcp_tools)
+                        injected_count += len(mcp_tools)
+                        logger.info(
+                            f"  → {agent_config.agent_name} 注入 MCP 工具 "
+                            f"({server_name}): {len(mcp_tools)} 个"
+                        )
+                    else:
+                        logger.warning(
+                            f"  ⚠ MCP Server '{server_name}' 未连接或无工具，"
+                            f"智能体 {agent_config.agent_name} 的该 Server 工具跳过"
+                        )
+                if injected_count:
+                    logger.info(
+                        f"{agent_config.agent_name} 共注入 {injected_count} 个 MCP 工具"
+                    )
+            except Exception as e:
+                logger.warning(f"注入 MCP 工具失败（{agent_config.agent_name}）: {e}")
+
         return filtered_tools, filtered_skills
 
     def _create_agent_instance(

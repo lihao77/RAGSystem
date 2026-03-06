@@ -5,6 +5,28 @@
 // API基础URL
 const BASE_URL = 'http://localhost:5000';
 
+async function parseResponse(response) {
+  const text = await response.text();
+  let data = null;
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      data = text;
+    }
+  }
+
+  if (!response.ok) {
+    const message = (data && typeof data === 'object' && (data.message || data.error))
+      ? (data.message || data.error)
+      : `请求失败: ${response.status}`;
+    throw new Error(message);
+  }
+
+  return data;
+}
+
 /**
  * 通用GET请求方法
  * @param {string} url - 请求路径
@@ -13,10 +35,7 @@ const BASE_URL = 'http://localhost:5000';
 async function get(url) {
   try {
     const response = await fetch(`${BASE_URL}${url}`);
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
-    }
-    return await response.json();
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -38,12 +57,7 @@ async function post(url, data) {
       },
       body: JSON.stringify(data)
     });
-    const res = await response.json();
-    if (!response.ok) {
-      
-      throw new Error(res.message || res.error || `请求失败: ${response.status}`);
-    }
-    return res;
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -62,10 +76,7 @@ async function postFormData(url, formData) {
       method: 'POST',
       body: formData // 直接使用FormData，不进行JSON序列化
     });
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
-    }
-    return await response.json();
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -87,10 +98,7 @@ async function put(url, data) {
       },
       body: JSON.stringify(data)
     });
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
-    }
-    return await response.json();
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -112,10 +120,7 @@ async function patch(url, data) {
       },
       body: JSON.stringify(data)
     });
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
-    }
-    return await response.json();
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;
@@ -132,10 +137,7 @@ async function del(url) {
     const response = await fetch(`${BASE_URL}${url}`, {
       method: 'DELETE'
     });
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
-    }
-    return await response.json();
+    return await parseResponse(response);
   } catch (error) {
     console.error('API请求错误:', error);
     throw error;

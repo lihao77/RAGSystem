@@ -53,6 +53,10 @@ pandas==2.3.3
 # 空间数据处理，搭配neo4j使用
 shapely==2.1.2
 
+# MCP (Model Context Protocol) Client
+# 让智能体连接外部 MCP Server，调用第三方工具
+mcp>=1.0.0
+
 # 自定义依赖（需源码安装）
 # llmjson: git+https://github.com/lihao77/llmjson.git
 # json2graph: git+https://github.com/lihao77/json2graph-for-review.git

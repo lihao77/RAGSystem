@@ -129,6 +129,13 @@ export async function getAvailableSkills() {
   return await get('/api/agent-config/skills')
 }
 
+/**
+ * 获取可供智能体使用的 MCP Server 列表
+ */
+export async function getAvailableMCPServers() {
+  return await get('/api/agent-config/mcp-servers')
+}
+
 export default {
   getAllAgentConfigs,
   getAgentConfig,
@@ -142,6 +149,7 @@ export default {
   getPresets,
   getAvailableTools,
   getAvailableSkills,
+  getAvailableMCPServers,
   createAgent,
   deleteAgent
 }

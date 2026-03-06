@@ -1,0 +1,66 @@
+# MCP Server 配置示例
+#
+# 此文件为 mcp_servers.yaml 的示例，实际使用时复制为 mcp_servers.yaml
+# 并根据需要修改。
+#
+# 支持三种传输方式：
+#   stdio         - 通过标准输入/输出启动本地进程（最常用）
+#   sse           - 通过 Server-Sent Events 连接远程服务
+#   streamable_http - 通过 HTTP 流连接远程服务
+
+servers:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 示例 1：文件系统 MCP Server（stdio 模式）
+  # 允许智能体读写指定目录下的文件
+  # 需要安装：npm install -g @anthropic-ai/mcp-server-filesystem
+  # ──────────────────────────────────────────────────────────────────────────
+  filesystem:
+    display_name: 文件系统
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@anthropic-ai/mcp-server-filesystem"
+      - "/tmp"          # 允许访问的目录，可以是项目目录
+    env: {}
+    enabled: false       # 改为 true 以启用
+    auto_connect: true
+    timeout: 30
+    risk_level: medium   # low / medium / high
+    requires_approval: false
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 示例 2：Web 搜索 MCP Server（stdio 模式）
+  # 允许智能体进行网络搜索
+  # 需要安装：npm install -g @anthropic-ai/mcp-server-brave-search
+  # ──────────────────────────────────────────────────────────────────────────
+  brave_search:
+    display_name: Brave 网络搜索
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@anthropic-ai/mcp-server-brave-search"
+    env:
+      BRAVE_API_KEY: "your-brave-api-key-here"
+    enabled: false
+    auto_connect: true
+    timeout: 30
+    risk_level: low
+    requires_approval: false
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 示例 3：自定义 SSE 远程 MCP Server
+  # 连接到已部署的远程 MCP Server
+  # ──────────────────────────────────────────────────────────────────────────
+  remote_tools:
+    display_name: 远程工具集
+    transport: sse
+    url: "http://localhost:8080/sse"
+    headers:
+      Authorization: "Bearer your-token"
+    enabled: false
+    auto_connect: true
+    timeout: 60
+    risk_level: medium
+    requires_approval: false

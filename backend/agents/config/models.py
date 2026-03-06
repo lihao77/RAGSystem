@@ -158,6 +158,18 @@ class AgentSkillConfig(BaseModel):
     )
 
 
+class AgentMCPConfig(BaseModel):
+    """
+    智能体的 MCP Server 配置
+
+    定义智能体可以使用哪些 MCP Server 的工具
+    """
+    enabled_servers: List[str] = Field(
+        default_factory=list,
+        description="启用的 MCP Server 名称列表，留空表示不使用 MCP 工具"
+    )
+
+
 class AgentConfig(BaseModel):
     """
     智能体完整配置
@@ -236,6 +248,11 @@ class AgentConfig(BaseModel):
     skills: AgentSkillConfig = Field(
         default_factory=AgentSkillConfig,
         description="Skills 配置"
+    )
+
+    mcp: AgentMCPConfig = Field(
+        default_factory=AgentMCPConfig,
+        description="MCP Server 配置"
     )
 
     custom_params: Dict[str, Any] = Field(

@@ -47,6 +47,12 @@ agents:
     skills:
       enabled_skills: []
       auto_inject: true
+    # MCP Server 配置（可选）
+    # 需要先在 backend/mcp/configs/mcp_servers.yaml 中添加对应 Server
+    # mcp:
+    #   enabled_servers:
+    #     - filesystem      # 使用文件系统 MCP Server 的工具
+    #     - brave_search    # 使用 Brave 搜索 MCP Server 的工具
     custom_params:
       type: react
       behavior:

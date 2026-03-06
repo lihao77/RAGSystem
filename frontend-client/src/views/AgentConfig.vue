@@ -104,17 +104,17 @@
 
               <label class="form-item">
                 <span class="field-label-text">Temperature</span>
-                <input v-model.number="configForm.llm.temperature" type="number" class="form-control" min="0" max="2" step="0.1" />
+                <NumberInput :model-value="configForm.llm.temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm.temperature = $event" />
               </label>
 
               <label class="form-item">
                 <span class="field-label-text">Max Completion Tokens</span>
-                <input v-model.number="configForm.llm.max_completion_tokens" type="number" class="form-control" min="1" step="1" />
+                <NumberInput :model-value="configForm.llm.max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_completion_tokens = $event" />
               </label>
 
               <label class="form-item">
                 <span class="field-label-text">Max Context Tokens</span>
-                <input v-model.number="configForm.llm.max_context_tokens" type="number" class="form-control" min="1" step="1" />
+                <NumberInput :model-value="configForm.llm.max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_context_tokens = $event" />
               </label>
             </div>
           </section>
@@ -169,15 +169,15 @@
                   </label>
                   <label class="form-item">
                     <span class="field-label-text">Temperature</span>
-                    <input v-model.number="configForm.llm_tiers[tier].temperature" type="number" class="form-control" min="0" max="2" step="0.1" />
+                    <NumberInput :model-value="configForm.llm_tiers[tier].temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm_tiers[tier].temperature = $event" />
                   </label>
                   <label class="form-item">
                     <span class="field-label-text">Max Completion Tokens</span>
-                    <input v-model.number="configForm.llm_tiers[tier].max_completion_tokens" type="number" class="form-control" min="1" step="1" />
+                    <NumberInput :model-value="configForm.llm_tiers[tier].max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_completion_tokens = $event" />
                   </label>
                   <label class="form-item">
                     <span class="field-label-text">Max Context Tokens</span>
-                    <input v-model.number="configForm.llm_tiers[tier].max_context_tokens" type="number" class="form-control" min="1" step="1" />
+                    <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
                   </label>
                 </div>
               </div>
@@ -245,6 +245,43 @@
             </div>
           </section>
 
+          <section id="section-mcp" class="form-section">
+            <div class="section-head">
+              <h2>MCP 服务</h2>
+              <span>将已配置的 MCP Server 工具授权给当前 Agent</span>
+            </div>
+            <div class="section-body">
+              <div v-if="mcpServers.length === 0" class="state-panel state-panel--empty state-panel--compact">
+                <p>当前还没有可用的 MCP 服务，请先在管理端完成 MCP Server 配置。</p>
+              </div>
+
+              <div v-else class="toggle-grid">
+                <div
+                  v-for="server in mcpServers"
+                  :key="server.name"
+                  class="toggle-card"
+                  :class="{ active: configForm.mcp.enabled_servers.includes(server.name) }"
+                  @click="toggleMcpServer(server.name, !configForm.mcp.enabled_servers.includes(server.name))"
+                >
+                  <div class="toggle-card__indicator">
+                    <svg v-if="configForm.mcp.enabled_servers.includes(server.name)"
+                      xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <div class="toggle-card__name">{{ server.display_name || server.name }}</div>
+                  <div class="toggle-card__desc">{{ server.transport || 'stdio' }} / {{ server.status || 'unknown' }} / {{ server.tool_count || 0 }} tools</div>
+                  <div class="toggle-card__meta">
+                    <span>{{ server.enabled ? '已启用' : '已禁用' }}</span>
+                    <span v-if="server.error_message">{{ server.error_message }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div class="form-bottom-actions">
             <button type="button" class="btn-primary" :disabled="saving || agentLoading" @click="handleSave">
               {{ saving ? '保存中...' : '保存配置' }}
@@ -286,10 +323,12 @@ import {
   getAgentConfig,
   updateAgentConfig,
   getAvailableTools,
-  getAvailableSkills
+  getAvailableSkills,
+  getAvailableMCPServers
 } from '../api/agentConfig';
 import { getProviders } from '../api/llmAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
+import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';
 
 const emit = defineEmits(['navigate']);
@@ -299,7 +338,8 @@ const sections = [
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-tiers', label: '分层' },
   { id: 'section-tools', label: '工具' },
-  { id: 'section-skills', label: 'Skills' }
+  { id: 'section-skills', label: 'Skills' },
+  { id: 'section-mcp', label: 'MCP' }
 ];
 const activeSection = ref('section-basic');
 let observer = null;
@@ -385,6 +425,7 @@ const agents = ref([]);
 const selectedAgent = ref('');
 const tools = ref([]);
 const skills = ref([]);
+const mcpServers = ref([]);
 const providers = ref([]);
 
 const configForm = ref(createEmptyForm());
@@ -431,6 +472,7 @@ function createEmptyForm() {
     llm_tiers: { fast: null, powerful: null },
     tools: { enabled_tools: [] },
     skills: { enabled_skills: [], auto_inject: true },
+    mcp: { enabled_servers: [] },
     custom_params: {}
   };
 }
@@ -473,6 +515,9 @@ function applyConfigToForm(config) {
     skills: {
       enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : [],
       auto_inject: safeConfig.skills?.auto_inject ?? true
+    },
+    mcp: {
+      enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
     },
     custom_params: safeConfig.custom_params || {}
   };
@@ -529,6 +574,11 @@ function buildPayload() {
     auto_inject: configForm.value.skills.auto_inject
   };
 
+  merged.mcp = {
+    ...(merged.mcp || {}),
+    enabled_servers: configForm.value.mcp.enabled_servers
+  };
+
   merged.custom_params = configForm.value.custom_params || merged.custom_params || {};
   return merged;
 }
@@ -538,15 +588,17 @@ async function loadInitialData() {
   error.value = '';
 
   try {
-    const [configs, toolList, skillList, providerList] = await Promise.all([
+    const [configs, toolList, skillList, mcpServerList, providerList] = await Promise.all([
       getAllAgentConfigs(),
       getAvailableTools(),
       getAvailableSkills(),
+      getAvailableMCPServers(),
       getProviders()
     ]);
 
     tools.value = Array.isArray(toolList) ? toolList : [];
     skills.value = Array.isArray(skillList) ? skillList : [];
+    mcpServers.value = Array.isArray(mcpServerList) ? mcpServerList : [];
     providers.value = Array.isArray(providerList) ? providerList : [];
 
     const agentNames = Object.keys(configs || {});
@@ -659,6 +711,15 @@ function toggleSkill(name, checked) {
     list.push(name);
   } else if (!checked) {
     configForm.value.skills.enabled_skills = list.filter(item => item !== name);
+  }
+}
+
+function toggleMcpServer(name, checked) {
+  const list = configForm.value.mcp.enabled_servers;
+  if (checked && !list.includes(name)) {
+    list.push(name);
+  } else if (!checked) {
+    configForm.value.mcp.enabled_servers = list.filter(item => item !== name);
   }
 }
 

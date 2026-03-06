@@ -411,6 +411,15 @@ input[type='number'].form-control {
   overflow: hidden;
 }
 
+.toggle-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* ===== Form actions (hidden - replaced by config-bottom) ===== */
 .form-actions { display: none; }
 
@@ -444,6 +453,11 @@ input[type='number'].form-control {
 
 .state-panel--empty {
   margin: var(--spacing-lg);
+}
+
+.state-panel--compact {
+  margin: 0;
+  padding: var(--spacing-md);
 }
 
 /* ===== Loading spinner ===== */

@@ -109,6 +109,12 @@
           </el-icon>
           <template #title><span>Model Adapter 配置</span></template>
         </el-menu-item>
+        <el-menu-item index="/mcp">
+          <el-icon>
+            <Connection />
+          </el-icon>
+          <template #title><span>MCP 服务</span></template>
+        </el-menu-item>
         <el-menu-item index="/agent-config">
           <el-icon>
             <Avatar />

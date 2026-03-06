@@ -114,6 +114,16 @@ const routes = [
     }
   },
   {
+    path: '/mcp',
+    name: 'mcp',
+    component: () => import('../views/MCPView.vue'),
+    meta: {
+      title: 'MCP 服务',
+      keepAlive: true,
+      cacheName: 'MCPView'
+    }
+  },
+  {
     path: '/agent-config',
     name: 'agent-config',
     component: () => import('../views/AgentConfigView.vue'),

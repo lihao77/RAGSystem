@@ -42,6 +42,15 @@
           </svg>
           <span class="btn-text">Agent配置</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-secondary" @click="goToMCPManager" title="MCP 服务管理">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <path d="M12 22v-5"></path>
+            <path d="M9 8V2"></path>
+            <path d="M15 8V2"></path>
+            <path d="M18 8H6a2 2 0 0 0-2 2v3a7 7 0 0 0 14 0v-3a2 2 0 0 0-2-2z"></path>
+          </svg>
+          <span class="btn-text">MCP管理</span>
+        </button>
       </div>
 
       <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
@@ -560,6 +569,10 @@ const goToMonitor = () => {
 
 const goToAgentConfig = () => {
   emit('navigate', '/agent-config');
+};
+
+const goToMCPManager = () => {
+  emit('navigate', '/mcp');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {

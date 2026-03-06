@@ -187,6 +187,16 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         elif tool_name == "read_file":
             from tools.document_executor import read_file
             result = read_file(**arguments)
+        elif tool_name.startswith("mcp__"):
+            # MCP 工具路由
+            from mcp import get_mcp_manager
+            from mcp.converter import parse_mcp_tool_name
+            parsed = parse_mcp_tool_name(tool_name)
+            if not parsed:
+                result = error_response(f"无效的 MCP 工具名: {tool_name}")
+            else:
+                server_name, original_tool = parsed
+                result = get_mcp_manager().call_tool(server_name, original_tool, arguments)
         else:
             result = error_response(f"未知的工具: {tool_name}")
 

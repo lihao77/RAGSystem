@@ -44,6 +44,7 @@ from routes.agent import agent_bp
 from routes.agent_config import agent_config_bp
 from routes.embedding_models import embedding_models_bp
 from routes.vector_library import vector_library_bp
+from routes.mcp import mcp_bp
 
 # 导入数据库连接
 from db import test_connection, close_driver
@@ -95,6 +96,7 @@ app.register_blueprint(agent_bp, url_prefix='/api/agent')
 app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
 app.register_blueprint(embedding_models_bp, url_prefix='/api/embedding-models')
 app.register_blueprint(vector_library_bp, url_prefix='/api/vector-library')
+app.register_blueprint(mcp_bp, url_prefix='/api/mcp')
 
 # 静态文件服务
 @app.route('/uploads/<filename>')
@@ -202,9 +204,28 @@ with app.app_context():
         logger.info("  ✗ 向量数据库: 未配置或初始化失败")
     logger.info("=" * 70)
 
+    # 3. 启动 MCP Client Manager（后台事件循环）
+    try:
+        from mcp import get_mcp_manager
+        mcp_manager = get_mcp_manager()
+        mcp_manager.startup()
+        logger.info("  ✓ MCP Client Manager: 已启动")
+    except Exception as e:
+        logger.warning(f"  ⚠ MCP Client Manager 启动失败（不影响其他功能）: {e}")
+
 # 优雅关闭
 import atexit
 atexit.register(close_driver)
+
+def _shutdown_mcp():
+    """关闭 MCP Client Manager"""
+    try:
+        from mcp import get_mcp_manager
+        get_mcp_manager().shutdown()
+    except Exception:
+        pass
+
+atexit.register(_shutdown_mcp)
 
 if __name__ == '__main__':
     # 启动Flask应用

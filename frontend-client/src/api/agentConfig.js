@@ -137,3 +137,29 @@ export async function getAvailableSkills() {
     throw error;
   }
 }
+
+/**
+ * 获取可供智能体使用的 MCP Server 列表
+ * @returns {Promise<Array>} MCP Server 列表
+ */
+export async function getAvailableMCPServers() {
+  try {
+    const response = await fetch(`${API_BASE}/mcp-servers`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to fetch available MCP servers');
+    }
+
+    return result.data || [];
+  } catch (error) {
+    console.error('Error fetching available MCP servers:', error);
+    throw error;
+  }
+}
