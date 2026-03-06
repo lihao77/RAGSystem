@@ -129,33 +129,51 @@ DOCUMENT_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "save_json_file",
-            "description": "保存 JSON 数据到文件。支持格式化输出、编码设置。返回保存的文件路径。",
+            "name": "write_file",
+            "description": "将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。不指定路径时自动生成临时文件，返回实际保存的文件路径（在 results.file_path 字段中）。若要在同一 <tools> 块内让下一个工具使用此路径，可用链式引用 {result_N.data.results.file_path}；若是下一轮调用，请直接从观察结果文本中复制文件路径字符串填入参数。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "data": {
-                        "type": "object",
-                        "description": "要保存的数据（dict 或 list）"
+                    "content": {
+                        "type": "string",
+                        "description": "要写入的文本内容。若要保存 JSON，请先 json.dumps 转为字符串。"
                     },
                     "file_path": {
                         "type": "string",
                         "description": "保存路径（可选）。不指定则自动生成临时文件路径。"
                     },
-                    "indent": {
-                        "type": "integer",
-                        "description": "JSON 缩进空格数，默认 2（美化输出）",
-                        "default": 2
-                    },
-                    "ensure_ascii": {
-                        "type": "boolean",
-                        "description": "是否转义非 ASCII 字符，默认 False（保留中文）",
-                        "default": False
+                    "encoding": {
+                        "type": "string",
+                        "description": "文件编码，默认 utf-8",
+                        "default": "utf-8"
                     }
                 },
-                "required": ["data"]
+                "required": ["content"]
             },
-            "allowed_callers": ["direct"]
+            "allowed_callers": ["direct", "code_execution"]
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取文件内容，以字符串返回。若文件是 JSON，可对返回的 content 执行 json.loads 解析。file_path 必须是真实的文件路径字符串，不能是占位符变量名。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "文件路径（绝对路径或相对路径）"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "文件编码，默认 utf-8",
+                        "default": "utf-8"
+                    }
+                },
+                "required": ["file_path"]
+            },
+            "allowed_callers": ["direct", "code_execution"]
         }
     }
 ]

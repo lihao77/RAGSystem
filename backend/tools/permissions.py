@@ -213,12 +213,27 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         description="合并提取结果（只读）",
         allowed_callers=["direct", "code_execution"]
     ),
+    # 向后兼容旧工具名
     "save_json_file": ToolPermission(
         tool_name="save_json_file",
         risk_level=RiskLevel.HIGH,
         requires_approval=True,
-        description="保存 JSON 文件到磁盘",
-        allowed_callers=["direct"]  # 文件写入，禁止代码调用
+        description="写入 JSON 文件到磁盘（已弃用，请使用 write_file）",
+        allowed_callers=["direct"]
+    ),
+    "write_file": ToolPermission(
+        tool_name="write_file",
+        risk_level=RiskLevel.HIGH,
+        requires_approval=True,
+        description="写入文本文件到磁盘",
+        allowed_callers=["direct", "code_execution"]
+    ),
+    "read_file": ToolPermission(
+        tool_name="read_file",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="读取文件内容（只读）",
+        allowed_callers=["direct", "code_execution"]
     ),
 }
 

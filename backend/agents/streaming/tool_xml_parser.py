@@ -104,6 +104,29 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
     return result if result else None
 
 
+def _fix_backslash_paths(s: str) -> str:
+    """
+    修复 JSON 字符串中 Windows 路径反斜杠导致的非法转义。
+    例如 {"file_path": ".\\static\\temp"} 中的 \\s、\\t 等非法转义序列
+    会被替换为正斜杠，使 JSON 可以正常解析。
+    合法转义（\\\\、\\"、\\/、\\n、\\r、\\t、\\b、\\f、\\uXXXX）保持不变。
+    """
+    LEGAL_ESCAPES = set('"\\\/bfnrtu')
+    result = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == '\\' and i + 1 < len(s):
+            next_ch = s[i + 1]
+            if next_ch not in LEGAL_ESCAPES:
+                result.append('/')
+                i += 1
+                continue
+        result.append(ch)
+        i += 1
+    return ''.join(result)
+
+
 def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
     解析 <tools> 标签内的工具调用 XML。
@@ -147,6 +170,19 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             continue
         except json.JSONDecodeError:
             pass
+
+        # JSON 解析失败：尝试修复反斜杠路径后再解析
+        fixed_str = _fix_backslash_paths(args_str)
+        if fixed_str != args_str:
+            try:
+                arguments = json.loads(fixed_str)
+                if not isinstance(arguments, dict):
+                    arguments = {"value": arguments}
+                logger.debug(f"工具 '{tool_name}' 参数经反斜杠修复后解析成功")
+                actions.append({"tool": tool_name, "arguments": arguments})
+                continue
+            except json.JSONDecodeError:
+                pass
 
         # JSON 解析失败：args_str 可能混入了多余内容（残留标签等）
         # 尝试从中提取第一个完整 JSON 对象

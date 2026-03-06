@@ -15,39 +15,95 @@
           </div>
 
           <div class="approval-body">
-            <div class="approval-agent-info">
-              <span class="label">智能体:</span>
-              <span class="value">{{ agentName }}</span>
+            <!-- 智能体 + 工具名 -->
+            <div class="approval-meta-row">
+              <div class="meta-item">
+                <span class="meta-label">智能体</span>
+                <span class="meta-value">{{ agentName }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">工具</span>
+                <span class="meta-value mono">{{ toolName }}</span>
+                <span v-if="riskLevel" class="risk-badge" :class="`risk-${riskLevel.toLowerCase()}`">{{ riskLabel }}</span>
+              </div>
             </div>
 
+            <!-- 操作描述 -->
             <div class="approval-action-box">
-              <div class="action-label">请求执行操作:</div>
+              <div class="action-label">操作说明</div>
               <div class="action-description">{{ actionDescription }}</div>
             </div>
 
-            <div v-if="toolName" class="approval-tool-info">
-              <span class="tool-label">工具:</span>
-              <span class="tool-name">{{ toolName }}</span>
-              <span v-if="riskLevel" class="risk-badge" :class="`risk-${riskLevel.toLowerCase()}`">{{ riskLabel }}</span>
+            <!-- 调用参数 -->
+            <div v-if="hasArguments" class="approval-args-box">
+              <div class="args-label">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="16 18 22 12 16 6"></polyline>
+                  <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+                调用参数
+              </div>
+              <pre class="args-content">{{ formattedArguments }}</pre>
             </div>
 
+            <!-- 警告提示 -->
             <div class="approval-warning">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
                 <line x1="12" y1="8" x2="12" y2="12"></line>
                 <line x1="12" y1="16" x2="12.01" y2="16"></line>
               </svg>
               <span>此操作可能修改数据或执行敏感命令，请谨慎确认</span>
             </div>
+
+            <!-- 审批模式切换 -->
+            <div class="approval-mode-tabs">
+              <button
+                class="mode-tab"
+                :class="{ active: activeMode === 'approve' }"
+                @click="activeMode = 'approve'"
+              >允许执行</button>
+              <button
+                class="mode-tab mode-tab-deny"
+                :class="{ active: activeMode === 'deny' }"
+                @click="activeMode = 'deny'"
+              >拒绝</button>
+            </div>
+
+            <!-- 批准附言 -->
+            <div v-if="activeMode === 'approve'" class="approval-message-box">
+              <label class="message-label">附加提示（可选）</label>
+              <textarea
+                v-model="approveMessage"
+                class="message-textarea"
+                placeholder="可向智能体补充说明，例如：请特别注意备份现有数据…"
+                rows="2"
+              ></textarea>
+            </div>
+
+            <!-- 拒绝理由 -->
+            <div v-if="activeMode === 'deny'" class="approval-message-box denial">
+              <label class="message-label">拒绝理由 / 后续指令（可选）</label>
+              <textarea
+                v-model="denyMessage"
+                class="message-textarea"
+                placeholder="可告诉智能体原因或指定下一步，例如：请改用只读方式查询…"
+                rows="2"
+              ></textarea>
+            </div>
           </div>
 
           <div class="approval-footer">
-            <button class="approval-btn approval-btn-deny" @click="handleDeny">
-              拒绝
-            </button>
-            <button class="approval-btn approval-btn-approve" @click="handleApprove">
-              允许执行
-            </button>
+            <button
+              v-if="activeMode === 'approve'"
+              class="approval-btn approval-btn-approve"
+              @click="handleApprove"
+            >确认允许执行</button>
+            <button
+              v-if="activeMode === 'deny'"
+              class="approval-btn approval-btn-deny"
+              @click="handleDeny"
+            >确认拒绝</button>
           </div>
         </div>
       </div>
@@ -65,6 +121,10 @@ const agentName = ref('');
 const actionDescription = ref('');
 const toolName = ref('');
 const riskLevel = ref('');
+const toolArguments = ref(null);
+const activeMode = ref('approve');
+const approveMessage = ref('');
+const denyMessage = ref('');
 
 let _approvalId = '';
 let _onApprove = null;
@@ -75,11 +135,24 @@ const riskLabel = computed(() => {
   return map[riskLevel.value?.toUpperCase()] || riskLevel.value;
 });
 
+const hasArguments = computed(() => {
+  if (!toolArguments.value) return false;
+  return Object.keys(toolArguments.value).length > 0;
+});
+
+const formattedArguments = computed(() => {
+  try {
+    return JSON.stringify(toolArguments.value, null, 2);
+  } catch {
+    return String(toolArguments.value);
+  }
+});
+
 /**
  * 显示审批对话框
- * @param {object} data - { approval_id, tool_name, arguments, risk_level, description }
- * @param {function} onApprove - (approvalId) => void
- * @param {function} onDeny - (approvalId) => void
+ * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name }
+ * @param {function} onApprove - (approvalId, message) => void
+ * @param {function} onDeny   - (approvalId, message) => void
  */
 const show = (data, onApprove, onDeny) => {
   _approvalId = data.approval_id || '';
@@ -87,6 +160,10 @@ const show = (data, onApprove, onDeny) => {
   toolName.value = data.tool_name || '';
   riskLevel.value = data.risk_level || '';
   actionDescription.value = data.description || `请求执行工具: ${data.tool_name || '未知工具'}`;
+  toolArguments.value = data.arguments || null;
+  activeMode.value = 'approve';
+  approveMessage.value = '';
+  denyMessage.value = '';
   _onApprove = onApprove || null;
   _onDeny = onDeny || null;
   visible.value = true;
@@ -97,14 +174,16 @@ const hide = () => {
 };
 
 const handleApprove = () => {
+  const msg = approveMessage.value.trim();
   hide();
-  if (_onApprove) _onApprove(_approvalId);
+  if (_onApprove) _onApprove(_approvalId, msg);
   emit('approve', _approvalId);
 };
 
 const handleDeny = () => {
+  const msg = denyMessage.value.trim();
   hide();
-  if (_onDeny) _onDeny(_approvalId);
+  if (_onDeny) _onDeny(_approvalId, msg);
   emit('deny', _approvalId);
 };
 
@@ -141,9 +220,10 @@ defineExpose({ show, hide });
   border: 2px solid var(--color-warning);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 193, 7, 0.2);
-  max-width: 480px;
+  max-width: 520px;
   width: 100%;
-  overflow: hidden;
+  max-height: 90vh;
+  overflow-y: auto;
   animation: containerSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -159,6 +239,9 @@ defineExpose({ show, hide });
   align-items: center;
   gap: var(--spacing-md);
   background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, transparent 100%);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .approval-icon {
@@ -187,72 +270,53 @@ defineExpose({ show, hide });
   gap: var(--spacing-md);
 }
 
-.approval-agent-info {
+/* 元信息行 */
+.approval-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.meta-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
+  gap: 6px;
+  padding: 6px 12px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
+  flex: 1;
+  min-width: 0;
 }
 
-.approval-agent-info .label {
+.meta-label {
   color: var(--color-text-secondary);
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.approval-agent-info .value {
+.meta-value {
   color: var(--color-text-primary);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-value.mono {
   font-family: 'Courier New', monospace;
+  font-size: 0.8125rem;
 }
 
-.approval-action-box {
-  padding: var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border-left: 3px solid var(--color-warning);
-  border-radius: var(--radius-sm);
-}
-
-.action-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-xs);
-  font-weight: 600;
-}
-
-.action-description {
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-
-.approval-tool-info {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: 0.875rem;
-}
-
-.tool-label {
-  color: var(--color-text-secondary);
-}
-
-.tool-name {
-  font-family: 'Courier New', monospace;
-  color: var(--color-text-primary);
-  font-weight: 600;
-}
-
+/* 风险标签 */
 .risk-badge {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .risk-badge.risk-high {
@@ -273,13 +337,73 @@ defineExpose({ show, hide });
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
+/* 操作说明 */
+.approval-action-box {
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+}
+
+.action-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.action-description {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* 调用参数 */
+.approval-args-box {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.args-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: var(--color-bg-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.args-content {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  background: transparent;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* 警告 */
 .approval-warning {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  padding: 8px 12px;
+  background: rgba(255, 193, 7, 0.08);
+  border: 1px solid rgba(255, 193, 7, 0.25);
   border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -291,6 +415,83 @@ defineExpose({ show, hide });
   margin-top: 2px;
 }
 
+/* 模式切换 Tab */
+.approval-mode-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--color-bg-secondary);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 7px 12px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.mode-tab.active {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.mode-tab-deny.active {
+  color: #ef4444;
+}
+
+/* 附言输入 */
+.approval-message-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.approval-message-box.denial .message-textarea {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.approval-message-box.denial .message-textarea:focus {
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.message-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.message-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  font-family: inherit;
+}
+
+.message-textarea:focus {
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.15);
+}
+
+/* 底部按钮 */
 .approval-footer {
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
   display: flex;
@@ -299,7 +500,7 @@ defineExpose({ show, hide });
 }
 
 .approval-btn {
-  padding: 12px 24px;
+  padding: 12px 28px;
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 600;
@@ -307,19 +508,7 @@ defineExpose({ show, hide });
   transition: all var(--transition-fast);
   border: none;
   outline: none;
-  flex: 1;
-}
-
-.approval-btn-deny {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-}
-
-.approval-btn-deny:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  border-color: var(--color-text-secondary);
+  width: 100%;
 }
 
 .approval-btn-approve {
@@ -330,6 +519,18 @@ defineExpose({ show, hide });
 .approval-btn-approve:hover {
   background: #f59e0b;
   box-shadow: 0 0 16px rgba(255, 193, 7, 0.5);
+  transform: translateY(-1px);
+}
+
+.approval-btn-deny {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.approval-btn-deny:hover {
+  background: rgba(239, 68, 68, 0.2);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
   transform: translateY(-1px);
 }
 
@@ -352,18 +553,15 @@ defineExpose({ show, hide });
   .approval-container {
     max-width: calc(100vw - 32px);
   }
-  .approval-header {
-    padding: var(--spacing-md);
-  }
+  .approval-header,
   .approval-body {
     padding: var(--spacing-md);
   }
   .approval-footer {
     padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
-    flex-direction: column-reverse;
   }
-  .approval-btn {
-    width: 100%;
+  .approval-meta-row {
+    flex-direction: column;
   }
 }
 </style>

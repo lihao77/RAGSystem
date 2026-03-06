@@ -133,11 +133,18 @@ class StreamExecutor:
 
         # 解析工具调用
         actions = None
+        parse_err = None
         tools_content = self.parser.get_tag_content(TagType.TOOLS)
         if tools_content:
             actions, parse_err = parse_tools_xml(tools_content)
             if parse_err:
                 self.logger.warning(f"工具 XML 解析警告: {parse_err}")
+                # 通知前端（无论 actions 是否部分解析成功都发）
+                if self.publisher:
+                    self.publisher.tool_error(
+                        tool_name="xml_parser",
+                        error=f"工具参数解析失败: {parse_err}"
+                    )
 
         full_response = self.parser.get_full_response()
 
@@ -155,4 +162,5 @@ class StreamExecutor:
             actions=actions if actions else None,
             answer=answer or None,
             full_response=full_response,
+            error=parse_err if (parse_err and not actions) else None,
         )

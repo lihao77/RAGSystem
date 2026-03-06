@@ -54,6 +54,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             return error_response(error_msg)
 
         # 2. 检查是否需要用户审批
+        _approval_message = ""   # 审批通过时用户可附带的提示信息
         permission = get_tool_permission(tool_name)
         if permission and permission.requires_approval:
             logger.info(f"工具 {tool_name} 需要用户审批")
@@ -89,12 +90,16 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                     if wait_evt is not None:
                         # 真正无限等待：由用户点允许/拒绝触发，或任务被 cancel() 时自动唤醒
                         wait_evt.wait()
-                        approved = registry.get_approval_result(session_id, approval_id)
+                        approved, approval_message = registry.get_approval_result(session_id, approval_id)
 
                         if not approved:
                             logger.info(f"工具 {tool_name} 审批被拒绝或任务已停止")
-                            return error_response(f"工具 {tool_name} 需要用户授权，已被拒绝或任务已停止")
+                            deny_reason = approval_message if approval_message else "用户拒绝执行此操作"
+                            return error_response(f"工具 {tool_name} 执行已被拒绝：{deny_reason}")
                         logger.info(f"工具 {tool_name} 审批通过，继续执行")
+                        if approval_message:
+                            _approval_message = approval_message
+                            logger.info(f"用户审批附言: {approval_message}")
                     else:
                         # 无 session_id 时无法等待，直接拒绝高风险操作
                         logger.warning(f"工具 {tool_name} 需要审批但缺少 session_id，拒绝执行")
@@ -112,7 +117,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         if tool_name == "execute_code":
             # PTC 代码执行
             from tools.code_sandbox import execute_code_sandbox
-            return execute_code_sandbox(
+            result = execute_code_sandbox(
                 code=arguments.get('code'),
                 description=arguments.get('description', ''),
                 timeout=arguments.get('timeout', 30),
@@ -121,61 +126,75 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 user_role=user_role
             )
         elif tool_name == "search_knowledge_graph":
-            return search_knowledge_graph(**arguments)
+            result = search_knowledge_graph(**arguments)
         elif tool_name == "query_knowledge_graph_with_nl":
-            return query_knowledge_graph_with_nl(**arguments)
+            result = query_knowledge_graph_with_nl(**arguments)
         elif tool_name == "get_entity_relations":
-            return get_entity_relations(**arguments)
+            result = get_entity_relations(**arguments)
         elif tool_name == "execute_cypher_query":
-            return execute_cypher_query(**arguments)
+            result = execute_cypher_query(**arguments)
         elif tool_name == "get_graph_schema":
-            return get_graph_schema_tool()
+            result = get_graph_schema_tool()
         elif tool_name == "analyze_temporal_pattern":
-            return analyze_temporal_pattern(**arguments)
+            result = analyze_temporal_pattern(**arguments)
         elif tool_name == "find_causal_chain":
-            return find_causal_chain(**arguments)
+            result = find_causal_chain(**arguments)
         elif tool_name == "compare_entities":
-            return compare_entities(**arguments)
+            result = compare_entities(**arguments)
         elif tool_name == "aggregate_statistics":
-            return aggregate_statistics(**arguments)
+            result = aggregate_statistics(**arguments)
         elif tool_name == "get_spatial_neighbors":
-            return get_spatial_neighbors(**arguments)
+            result = get_spatial_neighbors(**arguments)
         elif tool_name == "query_emergency_plan":
-            return query_emergency_plan(**arguments)
+            result = query_emergency_plan(**arguments)
         elif tool_name == "generate_chart":
-            return generate_chart(**arguments)
+            result = generate_chart(**arguments)
         elif tool_name == "generate_map":
-            return generate_map(**arguments)
+            result = generate_map(**arguments)
         elif tool_name == "get_entity_geometry":
-            return get_entity_geometry(**arguments)
+            result = get_entity_geometry(**arguments)
         elif tool_name == "transform_data":
-            return transform_data(**arguments)
+            result = transform_data(**arguments)
         elif tool_name == "process_data_file":
-            return process_data_file(**arguments)
+            result = process_data_file(**arguments)
         elif tool_name == "activate_skill":
-            return activate_skill(**arguments)
+            result = activate_skill(**arguments)
         elif tool_name == "load_skill_resource":
-            return load_skill_resource(**arguments)
+            result = load_skill_resource(**arguments)
         elif tool_name == "execute_skill_script":
-            return execute_skill_script(**arguments)
+            result = execute_skill_script(**arguments)
         # 文档处理工具
         elif tool_name == "read_document":
             from tools.document_executor import read_document as read_doc
-            return read_doc(**arguments)
+            result = read_doc(**arguments)
         elif tool_name == "chunk_document":
             from tools.document_executor import chunk_document as chunk_doc
-            return chunk_doc(**arguments)
+            result = chunk_doc(**arguments)
         elif tool_name == "extract_structured_data":
             from tools.document_executor import extract_structured_data as extract_data
-            return extract_data(**arguments)
+            result = extract_data(**arguments)
         elif tool_name == "merge_extracted_data":
             from tools.document_executor import merge_extracted_data as merge_data
-            return merge_data(**arguments)
+            result = merge_data(**arguments)
         elif tool_name == "save_json_file":
-            from tools.document_executor import save_json_file as save_json
-            return save_json(**arguments)
+            # 向后兼容旧调用
+            from tools.document_executor import write_file as _write_file
+            data = arguments.pop("data", arguments)
+            result = _write_file(content=data, mode="json", **arguments)
+        elif tool_name == "write_file":
+            from tools.document_executor import write_file
+            result = write_file(**arguments)
+        elif tool_name == "read_file":
+            from tools.document_executor import read_file
+            result = read_file(**arguments)
         else:
-            return error_response(f"未知的工具: {tool_name}")
+            result = error_response(f"未知的工具: {tool_name}")
+
+        # 4. 若审批时用户附带了提示信息，注入到工具结果中
+        if _approval_message and isinstance(result, dict) and result.get('success'):
+            result['approval_message'] = _approval_message
+
+        return result
     except Exception as e:
         logger.error(f"执行工具 {tool_name} 失败: {e}")
         import traceback

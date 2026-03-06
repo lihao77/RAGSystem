@@ -288,31 +288,70 @@ def merge_extracted_data(
         return {"success": False, "error": f"合并失败: {str(e)}"}
 
 
-def save_json_file(
-    data: Any,
+def write_file(
+    content: str,
     file_path: Optional[str] = None,
-    indent: int = 2,
-    ensure_ascii: bool = False
+    encoding: str = "utf-8"
 ) -> Dict[str, Any]:
-    """保存 JSON 数据到文件"""
+    """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。"""
     try:
-        # 如果未指定路径，生成临时文件
         if not file_path:
             temp_dir = tempfile.gettempdir()
-            file_path = os.path.join(temp_dir, f"extracted_data_{os.getpid()}.json")
+            file_path = os.path.join(temp_dir, f"output_{os.getpid()}.txt")
 
-        # 确保目录存在
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        dir_path = os.path.dirname(file_path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
 
-        # 保存文件
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=ensure_ascii, indent=indent)
+        with open(file_path, 'w', encoding=encoding) as f:
+            f.write(content if isinstance(content, str) else str(content))
 
+        file_size = os.path.getsize(file_path)
         return {
             "success": True,
-            "file_path": file_path,
-            "file_size": os.path.getsize(file_path)
+            "data": {
+                "results": {"file_path": file_path, "file_size": file_size},
+                "summary": f"文件已写入: {file_path}（{file_size} 字节）"
+            }
         }
 
     except Exception as e:
-        return {"success": False, "error": f"保存文件失败: {str(e)}"}
+        return {"success": False, "error": f"写入文件失败: {str(e)}"}
+
+
+def read_file(
+    file_path: str,
+    encoding: str = "utf-8"
+) -> Dict[str, Any]:
+    """读取文件内容，以字符串返回。JSON 文件可在收到结果后自行 json.loads 解析。"""
+    try:
+        file_path_obj = Path(file_path)
+
+        if not file_path_obj.exists():
+            return {"success": False, "error": f"文件不存在: {file_path}"}
+
+        with open(file_path_obj, 'r', encoding=encoding) as f:
+            content = f.read()
+
+        # 兼容历史上双重编码的文件：若整个内容是一个 JSON 字符串字面量（以 " 开头和结尾），
+        # 自动解包一层，避免 LLM 看到满屏的 \n \\" 转义。
+        stripped = content.strip()
+        if stripped.startswith('"') and stripped.endswith('"'):
+            try:
+                decoded = json.loads(stripped)
+                if isinstance(decoded, str):
+                    content = decoded
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        file_size = file_path_obj.stat().st_size
+        return {
+            "success": True,
+            "data": {
+                "results": content,
+                "summary": f"文件读取成功: {file_path}（{file_size} 字节）"
+            }
+        }
+
+    except Exception as e:
+        return {"success": False, "error": f"读取文件失败: {str(e)}"}

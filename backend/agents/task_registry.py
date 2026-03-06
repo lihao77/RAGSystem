@@ -34,8 +34,8 @@ class TaskInfo:
     event_bus: Optional[Any] = field(default=None, repr=False)
     # 待审批请求：approval_id -> threading.Event
     pending_approvals: Dict[str, threading.Event] = field(default_factory=dict)
-    # 审批结果：approval_id -> bool
-    approval_results: Dict[str, bool] = field(default_factory=dict)
+    # 审批结果：approval_id -> {"approved": bool, "message": str}
+    approval_results: Dict[str, dict] = field(default_factory=dict)
     # 待用户输入请求：input_id -> threading.Event
     pending_inputs: Dict[str, threading.Event] = field(default_factory=dict)
     # 用户输入结果：input_id -> str
@@ -121,7 +121,7 @@ class TaskRegistry:
                 # 拒绝所有待审批，唤醒阻塞中的工具线程
                 pending_count = len(info.pending_approvals)
                 for aid, evt in list(info.pending_approvals.items()):
-                    info.approval_results[aid] = False
+                    info.approval_results[aid] = {"approved": False, "message": ""}
                     evt.set()
                 info.pending_approvals.clear()
                 # 取消所有待输入，唤醒阻塞中的 agent 线程
@@ -193,11 +193,11 @@ class TaskRegistry:
                 return None
             evt = threading.Event()
             info.pending_approvals[approval_id] = evt
-            info.approval_results[approval_id] = False  # 默认拒绝
+            info.approval_results[approval_id] = {"approved": False, "message": ""}  # 默认拒绝
             logger.info(f"TaskRegistry: 注册审批请求 session={session_id} approval_id={approval_id}")
             return evt
 
-    def resolve_approval(self, session_id: str, approval_id: str, approved: bool) -> bool:
+    def resolve_approval(self, session_id: str, approval_id: str, approved: bool, message: str = "") -> bool:
         """
         响应审批请求（由 HTTP 端点调用）。
         返回 True 表示找到并成功响应，False 表示未找到。
@@ -207,21 +207,21 @@ class TaskRegistry:
             if not info or approval_id not in info.pending_approvals:
                 logger.warning(f"TaskRegistry: 未找到审批请求 session={session_id} approval_id={approval_id}")
                 return False
-            info.approval_results[approval_id] = approved
+            info.approval_results[approval_id] = {"approved": approved, "message": message}
             evt = info.pending_approvals.pop(approval_id)
         # 锁外 set，避免死锁
         evt.set()
         logger.info(f"TaskRegistry: 审批响应 session={session_id} approval_id={approval_id} approved={approved}")
         return True
 
-    def get_approval_result(self, session_id: str, approval_id: str) -> bool:
-        """获取审批结果（等待完成后调用）"""
+    def get_approval_result(self, session_id: str, approval_id: str) -> tuple:
+        """获取审批结果（等待完成后调用），返回 (approved: bool, message: str)"""
         with self._lock:
             info = self._tasks.get(session_id)
             if not info:
-                return False
-            result = info.approval_results.pop(approval_id, False)
-            return result
+                return False, ""
+            result = info.approval_results.pop(approval_id, {"approved": False, "message": ""})
+            return result.get("approved", False), result.get("message", "")
 
     # ── 用户输入等待机制 ──────────────────────────────────────────
 

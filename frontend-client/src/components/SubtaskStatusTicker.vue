@@ -165,12 +165,13 @@ const progressPercentage = computed(() => {
 <style scoped>
 .subtask-status-ticker {
   overflow: hidden;
+  border: 1px solid transparent;
   /* margin: var(--spacing-sm) 0; */
   /* box-shadow: var(--shadow-sm); */
   /* 增加 transition-property 和 duration 以匹配展开动画 */
   transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1),
               background var(--transition-normal),
-              border-color var(--transition-normal),
+              border var(--transition-normal),
               box-shadow var(--transition-normal),
               margin 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
   position: relative;
@@ -181,7 +182,9 @@ const progressPercentage = computed(() => {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; /* 上方圆角，下方直角 */
   /* border-bottom: 1px solid rgba(255, 255, 255, 0.05); */
   /* margin-bottom: 0; */
-  background: var(--color-bg-elevated); /* 保持一致的背景 */
+  border: 1px solid var(--color-border);
+  background: var(--glass-bg); /* 保持一致的背景 */
+  border-bottom: 1px solid transparent;
   box-shadow: none; /* 移除阴影，让整体容器统一投影 */
   /* position: sticky;
   top: calc(-1 * var(--radius-lg));

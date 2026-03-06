@@ -366,6 +366,14 @@ class ObservationFormatter:
 
         self.logger.debug(f"数据大小估算: {estimated_size} 字符（阈值: {self.LARGE_DATA_THRESHOLD}）")
 
+        # 【字符串内容】直接输出，不做 JSON 序列化（避免转义）
+        if isinstance(pure_data, str):
+            prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+            if len(pure_data) <= self.LARGE_DATA_THRESHOLD:
+                return f"{prefix}{pure_data}"
+            else:
+                return f"{prefix}{pure_data[:self.LARGE_DATA_THRESHOLD]}\n...（内容过长，已截断）"
+
         # 【小数据】直接返回（此时才进行完整序列化）
         if estimated_size < self.LARGE_DATA_THRESHOLD:
             # 仅在需要时才完整序列化
@@ -386,7 +394,11 @@ class ObservationFormatter:
 
         # 保存纯净数据
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(pure_data, f, ensure_ascii=False, indent=2)
+            if isinstance(pure_data, str):
+                # 已经是字符串（如某些工具直接返回文本）：直接写，不再套一层 json.dump
+                f.write(pure_data)
+            else:
+                json.dump(pure_data, f, ensure_ascii=False, indent=2)
 
         # 构建紧凑的元数据提示
         meta_info_parts = []

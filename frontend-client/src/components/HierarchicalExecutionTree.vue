@@ -161,7 +161,7 @@ const executionTree = computed(() => {
 
 <style scoped>
 .execution-tree {
-  padding: var(--spacing-lg) 0;
+  padding: var(--spacing-md) 0;
   font-family: var(--font-sans);
 }
 

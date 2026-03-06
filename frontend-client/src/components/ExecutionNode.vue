@@ -114,13 +114,13 @@
     </div>
 
     <!-- 工具调用节点 -->
-    <div v-else-if="node.type === 'tool_call'" class="node-tool-call" :class="[node.status, { expanded: localExpanded }]">
+    <div v-else-if="node.type === 'tool_call'" class="node-tool-call" :class="[node.status, { expanded: localExpanded }, { 'user-input-tool': node.tool_name === 'request_user_input' }]">
       <div class="tool-header" @click="toggleExpanded">
         <div class="tool-status-indicator">
           <div class="status-dot"></div>
           <div class="status-ring"></div>
         </div>
-        <span class="tool-name">{{ node.tool_name }}</span>
+        <span class="tool-name">{{ toolDisplayName }}</span>
         <div class="tool-meta">
           <span v-if="node.elapsed_time" class="tool-time">
             {{ node.elapsed_time.toFixed(2) }}s
@@ -135,27 +135,51 @@
 
       <transition name="slide-fade">
         <div v-show="localExpanded" class="tool-details">
-          <!-- 参数 -->
-          <div v-if="Object.keys(node.arguments || {}).length > 0" class="detail-block">
-            <div class="detail-header">
-              <span>输入参数</span>
-              <span class="code-tag">JSON</span>
+          <!-- request_user_input：专属问答展示 -->
+          <template v-if="node.tool_name === 'request_user_input'">
+            <div v-if="node.arguments && node.arguments.prompt" class="detail-block user-input-prompt-block">
+              <div class="detail-header">
+                <span>智能体提问</span>
+              </div>
+              <div class="user-input-prompt">{{ node.arguments.prompt }}</div>
+              <div v-if="node.arguments.options && node.arguments.options.length > 0" class="user-input-options">
+                <span v-for="opt in node.arguments.options" :key="opt" class="option-chip">{{ opt }}</span>
+              </div>
             </div>
-            <div class="code-wrapper">
-              <pre class="detail-code">{{ JSON.stringify(node.arguments, null, 2) }}</pre>
+            <div v-if="node.result && node.result !== '（已取消）'" class="detail-block user-input-answer-block">
+              <div class="detail-header">
+                <span>用户回答</span>
+                <span class="code-tag user-tag">USER</span>
+              </div>
+              <div class="user-input-answer">{{ node.result }}</div>
             </div>
-          </div>
+            <div v-else-if="node.status === 'running'" class="detail-block">
+              <div class="user-input-waiting">等待用户输入中…</div>
+            </div>
+          </template>
 
-          <!-- 结果 -->
-          <div v-if="node.result" class="detail-block">
-            <div class="detail-header">
-              <span>执行结果</span>
-              <span class="code-tag result-tag">RESULT</span>
+          <!-- 普通工具：通用 JSON 展示 -->
+          <template v-else>
+            <div v-if="Object.keys(node.arguments || {}).length > 0" class="detail-block">
+              <div class="detail-header">
+                <span>输入参数</span>
+                <span class="code-tag">JSON</span>
+              </div>
+              <div class="code-wrapper">
+                <pre class="detail-code">{{ JSON.stringify(node.arguments, null, 2) }}</pre>
+              </div>
             </div>
-            <div class="code-wrapper">
-              <pre class="detail-code result-code">{{ JSON.stringify(node.result, null, 2) }}</pre>
+
+            <div v-if="node.result" class="detail-block">
+              <div class="detail-header">
+                <span>执行结果</span>
+                <span class="code-tag result-tag">RESULT</span>
+              </div>
+              <div class="code-wrapper">
+                <pre class="detail-code result-code">{{ JSON.stringify(node.result, null, 2) }}</pre>
+              </div>
             </div>
-          </div>
+          </template>
         </div>
       </transition>
     </div>
@@ -186,8 +210,24 @@ const props = defineProps({
   }
 });
 
-const localExpanded = ref(props.node.expanded !== undefined ? props.node.expanded : false);
+// request_user_input 节点默认展开（让用户立即看到提问内容）
+const defaultExpanded = props.node.expanded !== undefined
+  ? props.node.expanded
+  : props.node.tool_name === 'request_user_input';
+const localExpanded = ref(defaultExpanded);
 
+// 工具名展示映射
+const TOOL_DISPLAY_NAMES = {
+  'request_user_input': '请求用户输入',
+  'activate_skill': '激活 Skill',
+  'load_skill_resource': '加载 Skill 资源',
+  'execute_skill_script': '执行 Skill 脚本',
+};
+
+const toolDisplayName = computed(() => {
+  const name = props.node.tool_name || '';
+  return TOOL_DISPLAY_NAMES[name] || name;
+});
 
 const isRunning = computed(() => {
   if (props.node.type === 'thought' && props.node.children) {
@@ -726,9 +766,9 @@ const toggleExpanded = () => {
   box-shadow: 0 0 0 1px var(--color-warning);
 }
 
-.node-tool-call.expanded {
+/* .node-tool-call.expanded {
   background: var(--color-bg-primary);
-}
+} */
 
 .tool-header {
   display: flex;
@@ -934,5 +974,68 @@ const toggleExpanded = () => {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
+}
+
+/* ── request_user_input 专属样式 ── */
+.user-input-tool .tool-status-indicator .status-dot {
+  background: var(--color-accent, #6366f1);
+}
+
+.user-input-tool.running .tool-status-indicator .status-ring {
+  border-color: var(--color-accent, #6366f1);
+}
+
+.user-input-prompt-block .detail-header {
+  border-left-color: var(--color-accent, #6366f1);
+}
+
+.user-input-prompt {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-sm);
+  font-weight: 500;
+}
+
+.user-input-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.option-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  background: var(--color-bg-tertiary, rgba(99, 102, 241, 0.1));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.user-input-answer-block .detail-header {
+  border-left-color: #22c55e;
+}
+
+.user-input-answer {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user-tag {
+  background: rgba(34, 197, 94, 0.15) !important;
+  color: #22c55e !important;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.user-input-waiting {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+  padding: 4px 0;
 }
 </style>

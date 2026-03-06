@@ -306,11 +306,16 @@ class EventPublisher:
         parent_call_id: Optional[str] = None
     ):
         """工具调用结束"""
+        import json as _json
+        if isinstance(result, (dict, list)):
+            result_str = _json.dumps(result, ensure_ascii=False)[:500]
+        else:
+            result_str = str(result)[:500]
         self._publish(
             EventType.CALL_TOOL_END,
             {
                 "tool_name": tool_name,
-                "result": str(result)[:500],
+                "result": result_str,
                 "execution_time": execution_time
             },
             override_call_id=call_id,
@@ -356,6 +361,25 @@ class EventPublisher:
                 "execution_time": execution_time,
                 "task_id": task_id
             }
+        )
+
+    def tool_error(
+        self,
+        tool_name: str,
+        error: str,
+        task_id: Optional[str] = None
+    ):
+        """[兼容] 工具执行出错"""
+        self._publish(
+            EventType.AGENT_ERROR,
+            {
+                "agent_name": self.agent_name,
+                "tool_name": tool_name,
+                "error": error,
+                "error_type": "tool_error",
+                "task_id": task_id
+            },
+            priority=EventPriority.HIGH
         )
 
     # subtask_* 已废弃，建议直接移除或报错

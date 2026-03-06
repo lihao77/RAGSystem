@@ -228,6 +228,7 @@
                   </div>
                 </div>
               </div>
+
               <!-- 消息操作 -->
               <div class="message-actions" :class="{ 'visible': messageActionsVisible === index || editingMessage === msg }">
                 <template v-if="msg.role === 'user'">
@@ -326,6 +327,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
+import UserInputDialog from '../components/UserInputDialog.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
@@ -373,7 +375,6 @@ const TYPE_TO_PROPS = Object.fromEntries(
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
-import UserInputDialog from '../components/UserInputDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
@@ -1704,7 +1705,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
               if (isMasterEvent(event)) {
                 Object.assign(currentMsg, {
                   ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
-                  finished: true
+                  finished: true,
                 });
                 updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
                 cacheMessages(sessionId, messages.value);
@@ -1759,33 +1760,32 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
 
             // 工具审批请求：弹出确认对话框，等待用户操作
             else if (eventType === 'user.approval_required') {
-              const approvalId = eventData.approval_id;
               approvalDialogRef.value?.show(
                 { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
-                // onApprove
-                async (aid) => {
+                // onApprove(approvalId, message)
+                async (aid, message) => {
                   try {
                     await fetch(
                       `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
                       {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ approved: true })
+                        body: JSON.stringify({ approved: true, message })
                       }
                     );
                   } catch (e) {
                     console.warn('审批响应失败:', e);
                   }
                 },
-                // onDeny
-                async (aid) => {
+                // onDeny(approvalId, message)
+                async (aid, message) => {
                   try {
                     await fetch(
                       `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
                       {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ approved: false })
+                        body: JSON.stringify({ approved: false, message })
                       }
                     );
                   } catch (e) {
@@ -1795,15 +1795,17 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
               );
             }
 
-            // 用户输入请求：弹出输入对话框，等待用户填写
+            // 用户输入请求：弹出遮罩输入对话框
             else if (eventType === 'user.input_required') {
+              const inputSessionId = currentSessionId.value;
+
               userInputDialogRef.value?.show(
                 eventData,
-                // onSubmit
+                // onSubmit: 用户提交 → POST 到后端
                 async (inputId, value) => {
                   try {
                     await fetch(
-                      `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
+                      `/api/agent/sessions/${encodeURIComponent(inputSessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
                       {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1814,7 +1816,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                     console.warn('用户输入提交失败:', e);
                   }
                 },
-                // onCancel → 停止任务
+                // onCancel: 停止任务
                 async (_inputId) => {
                   await handleStop();
                 }
@@ -2032,4 +2034,6 @@ onUnmounted(() => {
   margin: 12px 0;
   width: 100%;
 }
+
+
 </style>

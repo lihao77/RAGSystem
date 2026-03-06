@@ -119,10 +119,13 @@ class ReActAgent(BaseAgent):
         event_bus,
         session_id: Optional[str],
         tool_call_id: str,
+        publisher=None,
+        parent_call_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         处理 request_user_input 伪工具调用。
-        发布 USER_INPUT_REQUIRED 事件，阻塞等待用户输入。
+        发布 tool_call_start → USER_INPUT_REQUIRED 事件，阻塞等待用户输入，
+        收到输入后发布 tool_call_end（result = 用户输入），让执行树可见。
 
         Returns:
             用户输入的字符串；任务被取消时返回 None。
@@ -130,6 +133,7 @@ class ReActAgent(BaseAgent):
         from agents.events import EventType
         from agents.events.bus import Event
         from agents.task_registry import get_task_registry
+        import time as _time
 
         prompt = arguments.get('prompt', '请提供额外信息')
         input_type = arguments.get('input_type', 'text')
@@ -141,6 +145,15 @@ class ReActAgent(BaseAgent):
         wait_evt = None
         if session_id:
             wait_evt = registry.add_pending_input(session_id, input_id)
+
+        # 发布 tool_call_start，让执行树显示「等待用户输入」节点
+        if publisher:
+            publisher.tool_call_start(
+                call_id=tool_call_id,
+                tool_name='request_user_input',
+                arguments=arguments,
+                parent_call_id=parent_call_id,
+            )
 
         if event_bus:
             event_bus.publish(Event(
@@ -158,11 +171,29 @@ class ReActAgent(BaseAgent):
 
         if wait_evt is None:
             self.logger.warning("request_user_input: 缺少 session_id，无法等待用户输入")
+            if publisher:
+                publisher.tool_call_end(
+                    call_id=tool_call_id,
+                    tool_name='request_user_input',
+                    result='（无 session，跳过）',
+                    parent_call_id=parent_call_id,
+                )
             return ""
 
+        _t0 = _time.time()
         # 真正无限等待：由 resolve_input() 或 cancel() 唤醒
         wait_evt.wait()
         value = registry.get_input_result(session_id, input_id)
+
+        # 发布 tool_call_end，result 展示用户输入内容
+        if publisher:
+            publisher.tool_call_end(
+                call_id=tool_call_id,
+                tool_name='request_user_input',
+                result=value if value else '（已取消）',
+                execution_time=_time.time() - _t0,
+                parent_call_id=parent_call_id,
+            )
 
         # cancel() 唤醒时 cancel_event 也被 set，上层 _check_interrupt 会抛出
         # 这里直接返回 value（空字符串），调用方判断
@@ -343,44 +374,6 @@ class ReActAgent(BaseAgent):
 ### 图表引用规则
 使用了 generate_chart / generate_map 后，**必须**在 <answer> 相关段落插入 [CHART:N]（N 从 1 起，独占一行，前后空行）。未生成图表则不插入。
 """
-
-    def _format_skills_description(self) -> str:
-        """
-        格式化 Skills 说明（仅列出 name 和 description）
-
-        根据 Claude Skills 的渐进式披露原则：
-        1. System Prompt 只包含 name + description（最小化信息）
-        2. AI 判断需要时，调用 activate_skill 工具激活 Skill 并加载主文件
-        3. AI 根据主文件提示，调用 load_skill_resource 加载引用文件
-        4. AI 根据主文件指示，调用 execute_skill_script 执行脚本
-
-        Skills 不是工具，而是领域知识指南，告诉 Agent 如何更好地完成特定任务。
-        """
-        if not self.available_skills:
-            return "当前无可用的领域知识。"
-
-        lines = []
-        lines.append("## 领域知识 Skills")
-        lines.append("")
-        lines.append("以下是可用的领域知识 Skills。使用流程：")
-        lines.append("")
-        lines.append("**第 1 步**：当任务匹配某个 Skill 的场景时，调用 `activate_skill(skill_name)` 激活它")
-        lines.append("  - 效果：加载 SKILL.md 主文件，获取完整指导流程")
-        lines.append("  - 返回：主文件内容 + 可用的资源和脚本列表")
-        lines.append("")
-        lines.append("**第 2 步**：根据主文件中的提示，使用 `load_skill_resource` 加载详细文档")
-        lines.append("")
-        lines.append("**第 3 步**：根据主文件中的指示，使用 `execute_skill_script` 执行脚本")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-
-        for idx, skill in enumerate(self.available_skills, 1):
-            lines.append(f"### Skill {idx}: {skill.name}")
-            lines.append(f"**适用场景**: {skill.description}")
-            lines.append("")
-
-        return "\n".join(lines)
 
     def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
         """
@@ -587,6 +580,8 @@ class ReActAgent(BaseAgent):
                                 event_bus=event_bus,
                                 session_id=current_session_id,
                                 tool_call_id=tool_call_id,
+                                publisher=self._publisher,
+                                parent_call_id=self._current_call_id,
                             )
                             # 用户取消（任务被停止）时 value 为 None，检查中断
                             if user_value is None:
@@ -677,11 +672,16 @@ class ReActAgent(BaseAgent):
 
                     continue
                 else:
-                    # 没有工具调用但也没有最终答案，可能是 LLM 困惑了
-                    self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案")
+                    # 没有工具调用但也没有最终答案，可能是参数解析失败或 LLM 困惑
+                    parse_fail_hint = f"（工具参数解析失败: {result.error}）" if result.error else ""
+                    self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案{parse_fail_hint}")
                     current_session.append({
                         "role": "user",
-                        "content": "请直接输出 <answer> 或 <tools>。"
+                        "content": (
+                            f"工具参数解析失败{parse_fail_hint}，请检查参数格式。"
+                            "Windows 文件路径中的反斜杠 \\ 在 JSON 中需要转义为 \\\\，"
+                            "或直接使用正斜杠 / 代替。请重新输出 <tools>。"
+                        ) if result.error else "请直接输出 <answer> 或 <tools>。"
                     })
                     continue
 

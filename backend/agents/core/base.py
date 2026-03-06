@@ -147,6 +147,39 @@ class BaseAgent(ABC):
             }
         return info
 
+    def _format_skills_description(self) -> str:
+        """
+        格式化 Skills 说明（仅列出 name 和 description）
+
+        渐进式披露：System Prompt 只包含 name + description，
+        Agent 按需调用 activate_skill → load_skill_resource → execute_skill_script。
+        """
+        available_skills = getattr(self, 'available_skills', [])
+        if not available_skills:
+            return "当前无可用的领域知识。"
+
+        lines = [
+            "## 领域知识 Skills",
+            "",
+            "以下是可用的领域知识 Skills。使用流程：",
+            "",
+            "**第 1 步**：当任务匹配某个 Skill 的场景时，调用 `activate_skill(skill_name)` 激活它",
+            "  - 效果：加载 SKILL.md 主文件，获取完整指导流程",
+            "  - 返回：主文件内容 + 可用的资源和脚本列表",
+            "",
+            "**第 2 步**：根据主文件中的提示，使用 `load_skill_resource` 加载详细文档",
+            "",
+            "**第 3 步**：根据主文件中的指示，使用 `execute_skill_script` 执行脚本",
+            "",
+            "---",
+            "",
+        ]
+        for idx, skill in enumerate(available_skills, 1):
+            lines.append(f"### Skill {idx}: {skill.name}")
+            lines.append(f"**适用场景**: {skill.description}")
+            lines.append("")
+        return "\n".join(lines)
+
     def _log_prefix(self, llm_config: Optional[Dict[str, Any]] = None, display_name: Optional[str] = None) -> str:
         """返回带模型名的日志前缀"""
         name = display_name if display_name is not None else self.name

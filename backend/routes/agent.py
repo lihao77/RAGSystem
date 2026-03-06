@@ -775,9 +775,10 @@ def respond_approval(session_id, approval_id):
     """
     data = request.get_json() or {}
     approved = bool(data.get('approved', False))
+    message = str(data.get('message', ''))
 
     registry = get_task_registry()
-    ok = registry.resolve_approval(session_id, approval_id, approved)
+    ok = registry.resolve_approval(session_id, approval_id, approved, message)
     if not ok:
         return error_response(message='未找到对应的审批请求，可能已超时或不存在', status_code=404)
 
