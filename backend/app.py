@@ -78,6 +78,46 @@ def _get_cors_origins() -> List[str]:
     return _parse_csv_env('CORS_ORIGINS', DEFAULT_CORS_ORIGINS)
 
 
+def _parse_bool_env(name: str, default: bool) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() == 'true'
+
+
+def _get_default_use_reloader(debug_mode: bool) -> bool:
+    if not debug_mode:
+        return False
+    return os.name != 'nt'
+
+
+def _patch_windows_werkzeug_shutdown_race() -> None:
+    if os.name != 'nt':
+        return
+
+    try:
+        from werkzeug.serving import BaseWSGIServer
+    except Exception:
+        return
+
+    if getattr(BaseWSGIServer, '_ragsystem_win10038_patched', False):
+        return
+
+    original_serve_forever = BaseWSGIServer.serve_forever
+
+    def _serve_forever(self, poll_interval: float = 0.5):
+        try:
+            return original_serve_forever(self, poll_interval=poll_interval)
+        except OSError as error:
+            if getattr(error, 'winerror', None) == 10038:
+                logger.debug('忽略 Windows 下 Werkzeug 退出时的 WinError 10038')
+                return None
+            raise
+
+    BaseWSGIServer.serve_forever = _serve_forever
+    BaseWSGIServer._ragsystem_win10038_patched = True
+
+
 def register_blueprints(app: Flask) -> None:
     app.register_blueprint(home_bp, url_prefix='/api/home')
     app.register_blueprint(search_bp, url_prefix='/api/search')
@@ -274,15 +314,19 @@ register_shutdown_hooks()
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', os.environ.get('FLASK_PORT', 5000)))
     host = os.environ.get('FLASK_HOST', '0.0.0.0')
-    debug_mode = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
-    use_reloader = os.environ.get('FLASK_USE_RELOADER', 'True').lower() == 'true'
+    debug_mode = _parse_bool_env('FLASK_DEBUG', True)
+    use_reloader = _parse_bool_env('FLASK_USE_RELOADER', _get_default_use_reloader(debug_mode))
     should_init_runtime = not (debug_mode and use_reloader and os.environ.get('WERKZEUG_RUN_MAIN') != 'true')
+
+    _patch_windows_werkzeug_shutdown_race()
 
     run_startup_checks_or_exit(app, initialize_runtime=should_init_runtime)
 
     if debug_mode and not use_reloader:
         logger.info('提示: 开发模式已启动，但自动重载已禁用（避免双重初始化）')
         logger.info('      如需自动重载，设置环境变量: FLASK_USE_RELOADER=True')
+    elif debug_mode and os.name == 'nt':
+        logger.info('提示: 已为 Windows 开发环境启用 Werkzeug 退出兼容处理')
 
     app.run(
         host=host,

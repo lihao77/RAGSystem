@@ -1,364 +1,109 @@
 """
 Model Adapter API Routes
 
-提供 Model Adapter 配置管理的 REST API 接口
+提供 Model Adapter 配置管理的 REST API 接口。
 """
 
-from flask import Blueprint, request, jsonify
-from typing import Dict, List, Optional, Any
+from flask import Blueprint, request
 import logging
-import sys
-import os
 
-# 添加项目根目录到 Python 路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
-
-from model_adapter import ModelAdapter, get_default_adapter
-from model_adapter.providers import OpenAIProvider, DeepSeekProvider, OpenRouterProvider
+from services.model_adapter_service import (
+    ModelAdapterServiceError,
+    get_model_adapter_service,
+)
+from utils.response_helpers import error_response, success_response
 
 logger = logging.getLogger(__name__)
 
-# 创建蓝图
 model_adapter_bp = Blueprint('model_adapter', __name__)
-
-# 获取或创建 Model Adapter 实例
-adapter = get_default_adapter()
 
 
 @model_adapter_bp.route('/providers', methods=['GET'])
 def get_providers():
-    """
-    获取所有 Provider 列表
-
-    Returns:
-        JSON: Provider 列表
-    """
+    """获取所有 Provider 列表。"""
     try:
-        configs = adapter.get_provider_configs()
-
-        providers = []
-        for config in configs:
-            provider = {
-                **config
-            }
-            providers.append(provider)
-
-        return jsonify({
-            'success': True,
-            'providers': providers,
-            'message': 'Provider 列表获取成功'
-        })
-    except Exception as e:
-        logger.error(f"获取 Provider 列表失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'获取 Provider 列表失败: {str(e)}'
-        }), 500
+        providers = get_model_adapter_service().list_providers()
+        return success_response(
+            data=providers,
+            providers=providers,
+            message='Provider 列表获取成功',
+        )
+    except Exception as error:
+        logger.error('获取 Provider 列表失败: %s', error, exc_info=True)
+        return error_response(message=f'获取 Provider 列表失败: {error}', status_code=500)
 
 
 @model_adapter_bp.route('/providers', methods=['POST'])
 def create_provider():
-    """
-    创建新的 Provider
-
-    Request Body:
-        - provider_type: Provider 类型（openai, deepseek, openrouter）
-        - name: Provider 名称
-        - api_key: API 密钥
-        - api_endpoint: API 端点（可选）
-        - model: 模型名称
-        - 其他可选参数...
-
-    Returns:
-        JSON: 创建结果
-    """
+    """创建新的 Provider。"""
     try:
-        data = request.get_json()
-
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': '请求数据不能为空'
-            }), 400
-
-        # 必需字段（model 现在是可选的，因为可以使用 models 列表）
-        required_fields = ['provider_type', 'name', 'api_key']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({
-                    'success': False,
-                    'message': f'缺少必需字段: {field}'
-                }), 400
-
-        config = data.copy()
-        # model_map 值可为字符串或列表，统一展开到 models 集合（供兼容使用）
-        if 'model_map' in config and config['model_map']:
-            current_models = set(config.get('models', []))
-            for task, model in config['model_map'].items():
-                if isinstance(model, list):
-                    for m in model:
-                        if m and str(m).strip():
-                            current_models.add(str(m).strip())
-                elif model and str(model).strip():
-                    current_models.add(str(model).strip())
-            config['models'] = list(current_models)
-
-        # 注册 Provider（返回 provider_key）
-        provider_key = adapter.register_provider_from_config(config)
-
-        return jsonify({
-            'success': True,
-            'message': 'Provider 创建成功',
-            'provider_key': provider_key
-        })
-    except Exception as e:
-        logger.error(f"创建 Provider 失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'创建 Provider 失败: {str(e)}'
-        }), 500
+        provider_key = get_model_adapter_service().create_provider(request.get_json(silent=True))
+        return success_response(
+            data={'provider_key': provider_key},
+            provider_key=provider_key,
+            message='Provider 创建成功',
+        )
+    except ModelAdapterServiceError as error:
+        return error_response(message=error.message, status_code=error.status_code)
+    except Exception as error:
+        logger.error('创建 Provider 失败: %s', error, exc_info=True)
+        return error_response(message=f'创建 Provider 失败: {error}', status_code=500)
 
 
 @model_adapter_bp.route('/providers/<provider_key>', methods=['PUT'])
 def update_provider(provider_key):
-    """
-    更新 Provider
-
-    Args:
-        provider_key: Provider 复合键（如 test_deepseek）
-
-    Request Body:
-        - models: 支持模型列表（可选）
-        - temperature: 温度（可选）
-        - max_tokens: 最大Token（已废弃，可选）
-        - max_completion_tokens: 单次输出Token限制（可选）
-        - max_context_tokens: 模型上下文窗口（可选）
-        - timeout: 超时时间（可选）
-        - retry_attempts: 重试次数（可选）
-        - supports_function_calling: 支持工具调用（可选）
-        - model_map: 模型映射（可选）
-
-    Returns:
-        JSON: 更新结果
-    """
+    """更新 Provider。"""
     try:
-        data = request.get_json()
-
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': '请求数据不能为空'
-            }), 400
-
-        # 获取现有配置
-        existing_config = adapter.config_store.get_provider(provider_key)
-        if not existing_config:
-            return jsonify({
-                'success': False,
-                'message': f'Provider 不存在: {provider_key}'
-            }), 404
-
-        # 合并配置（保留原有值，用新值覆盖）
-        config = existing_config.copy()
-
-        # 只更新允许修改的字段
-        allowed_fields = [
-            'models', 'temperature', 'max_tokens', 'max_completion_tokens', 'max_context_tokens',
-            'timeout', 'retry_attempts', 'retry_delay', 'supports_function_calling',
-            'model_map', 'api_endpoint'
-        ]
-
-        for field in allowed_fields:
-            if field in data:
-                config[field] = data[field]
-        
-        # model_map 值可为字符串或列表，统一展开到 models
-        if 'model_map' in config and config['model_map']:
-            current_models = set(config.get('models', []))
-            for task, model in config['model_map'].items():
-                if isinstance(model, list):
-                    for m in model:
-                        if m and str(m).strip():
-                            current_models.add(str(m).strip())
-                elif model and str(model).strip():
-                    current_models.add(str(model).strip())
-            config['models'] = list(current_models)
-
-        # 删除旧的 provider（从内存中）
-        if provider_key in adapter.providers:
-            adapter.remove_provider(provider_key, delete_config=False)
-
-        # 重新注册（使用更新后的配置）
-        provider_key = adapter.register_provider_from_config(config, save_config=True)
-
-        return jsonify({
-            'success': True,
-            'message': 'Provider 更新成功',
-            'provider_key': provider_key
-        })
-    except Exception as e:
-        logger.error(f"更新 Provider 失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'更新 Provider 失败: {str(e)}'
-        }), 500
+        updated_provider_key = get_model_adapter_service().update_provider(
+            provider_key,
+            request.get_json(silent=True),
+        )
+        return success_response(
+            data={'provider_key': updated_provider_key},
+            provider_key=updated_provider_key,
+            message='Provider 更新成功',
+        )
+    except ModelAdapterServiceError as error:
+        return error_response(message=error.message, status_code=error.status_code)
+    except Exception as error:
+        logger.error('更新 Provider 失败: %s', error, exc_info=True)
+        return error_response(message=f'更新 Provider 失败: {error}', status_code=500)
 
 
 @model_adapter_bp.route('/providers/<provider_key>', methods=['DELETE'])
 def delete_provider(provider_key):
-    """
-    删除 Provider
-
-    Args:
-        provider_key: Provider 复合键（如 test_deepseek）
-
-    Returns:
-        JSON: 删除结果
-    """
+    """删除 Provider。"""
     try:
-        adapter.remove_provider(provider_key, delete_config=True)
-
-        return jsonify({
-            'success': True,
-            'message': 'Provider 删除成功'
-        })
-    except Exception as e:
-        logger.error(f"删除 Provider 失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'删除 Provider 失败: {str(e)}'
-        }), 500
-
-
+        get_model_adapter_service().delete_provider(provider_key)
+        return success_response(message='Provider 删除成功')
+    except ModelAdapterServiceError as error:
+        return error_response(message=error.message, status_code=error.status_code)
+    except Exception as error:
+        logger.error('删除 Provider 失败: %s', error, exc_info=True)
+        return error_response(message=f'删除 Provider 失败: {error}', status_code=500)
 
 
 @model_adapter_bp.route('/providers/<provider_key>/check', methods=['GET'])
 def check_provider_availability(provider_key):
-    """
-    检查 Provider 可用性（按需调用）
-
-    Args:
-        provider_key: Provider 复合键（如 test_deepseek）
-
-    Returns:
-        JSON: 可用性检查结果
-    """
+    """检查 Provider 可用性（按需调用）。"""
     try:
-        provider = adapter.providers.get(provider_key)
-        if not provider:
-            return jsonify({
-                'success': False,
-                'message': f'Provider 不存在: {provider_key}'
-            }), 404
-
-        is_available = provider.is_available()
-
-        return jsonify({
-            'success': True,
-            'provider_key': provider_key,
-            'is_available': is_available
-        })
-    except Exception as e:
-        logger.error(f"检查 Provider 可用性失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'检查失败: {str(e)}'
-        }), 500
+        result = get_model_adapter_service().check_provider_availability(provider_key)
+        return success_response(data=result, message='检查成功', **result)
+    except ModelAdapterServiceError as error:
+        return error_response(message=error.message, status_code=error.status_code)
+    except Exception as error:
+        logger.error('检查 Provider 可用性失败: %s', error, exc_info=True)
+        return error_response(message=f'检查失败: {error}', status_code=500)
 
 
 @model_adapter_bp.route('/test', methods=['POST'])
 def test_provider():
-    """
-    测试 Provider
-
-    Request Body:
-        - provider: Provider 名称（必需）
-        - prompt: 测试提示词（必需）
-        - model: 模型名称（可选）
-        - task: 任务类型 (chat/embedding)
-
-    Returns:
-        JSON: 测试结果
-    """
+    """测试 Provider。"""
     try:
-        data = request.get_json()
-        provider = data.get('provider')  # name 或复合键
-        provider_type = data.get('provider_type')  # 与 provider 一起解析为复合键
-        prompt = data.get('prompt')
-        model = data.get('model')
-        task = data.get('task', 'chat')
-
-        if not provider:
-            return jsonify({
-                'success': False,
-                'message': '请提供 Provider'
-            }), 400
-
-        if not prompt:
-            return jsonify({
-                'success': False,
-                'message': '请提供测试内容'
-            }), 400
-
-        if task == 'chat':
-            # 测试对话
-            messages = [{"role": "user", "content": prompt}]
-            response = adapter.chat_completion(
-                messages=messages,
-                provider=provider,
-                model=model,
-                provider_type=provider_type,
-                temperature=0.7,
-                max_tokens=500
-            )
-            
-            return jsonify({
-                'success': True,
-                'message': '测试成功',
-                'response': {
-                    'content': response.content,
-                    'error': response.error,
-                    'model': response.model,
-                    'provider': response.provider,
-                    'cost': response.cost,
-                    'latency': response.latency,
-                    'usage': response.usage,
-                    'finish_reason': response.finish_reason
-                }
-            })
-            
-        elif task == 'embedding':
-            # 测试 Embedding
-            response = adapter.embed(
-                texts=[prompt],
-                provider=provider,
-                model=model,
-                provider_type=provider_type
-            )
-            
-            return jsonify({
-                'success': True,
-                'message': '测试成功',
-                'response': {
-                    'embeddings': response.embeddings,
-                    'error': response.error,
-                    'model': response.model,
-                    'provider': response.provider,
-                    'latency': response.latency,
-                    'usage': response.usage
-                }
-            })
-            
-        else:
-             return jsonify({
-                'success': False,
-                'message': f'不支持的任务类型: {task}'
-            }), 400
-            
-    except Exception as e:
-        logger.error(f"测试 Provider 失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'测试 Provider 失败: {str(e)}'
-        }), 500
+        result = get_model_adapter_service().test_provider(request.get_json(silent=True))
+        return success_response(data=result, response=result, message='测试成功')
+    except ModelAdapterServiceError as error:
+        return error_response(message=error.message, status_code=error.status_code)
+    except Exception as error:
+        logger.error('测试 Provider 失败: %s', error, exc_info=True)
+        return error_response(message=f'测试 Provider 失败: {error}', status_code=500)

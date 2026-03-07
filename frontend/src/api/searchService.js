@@ -1,8 +1,15 @@
 /**
- * 实体查询相关API服务
+ * 实体查询相关 API 服务
  */
 
-import { get, post } from './http';
+import { get, post } from './http'
+
+function unwrapData(response) {
+  if (response && typeof response === 'object' && 'data' in response) {
+    return response.data
+  }
+  return response
+}
 
 /**
  * 搜索实体
@@ -11,14 +18,14 @@ import { get, post } from './http';
  */
 export async function getGeoCode() {
   try {
-    const response = await fetch('/api/src/assets/admin_codes.json');
+    const response = await fetch('/api/src/assets/admin_codes.json')
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(`请求失败: ${response.status}`)
     }
-    return await response.json();
+    return await response.json()
   } catch (error) {
-    console.error('API请求错误:', error);
-    throw error;
+    console.error('API请求错误:', error)
+    throw error
   }
 }
 
@@ -28,7 +35,7 @@ export async function getGeoCode() {
  * @returns {Promise<Array>} 搜索结果
  */
 export async function searchEntities(searchParams) {
-  return await post('/api/search/entities', searchParams);
+  return unwrapData(await post('/api/search/entities', searchParams))
 }
 
 /**
@@ -37,7 +44,7 @@ export async function searchEntities(searchParams) {
  * @returns {Promise<Array>} 关系列表
  */
 export async function getEntityRelations(entityId) {
-  return await get(`/api/search/relations/${entityId}`);
+  return unwrapData(await get(`/api/search/relations/${entityId}`))
 }
 
 /**
@@ -46,7 +53,7 @@ export async function getEntityRelations(entityId) {
  * @returns {Promise<object>} 导出结果
  */
 export async function exportResults(results) {
-  return await post('/api/search/export', { results });
+  return unwrapData(await post('/api/search/export', { results }))
 }
 
 /**
@@ -54,7 +61,7 @@ export async function exportResults(results) {
  * @returns {Promise<Array>} 地理位置选项
  */
 export async function getLocationOptions() {
-  return await get('/api/search/location-options');
+  return unwrapData(await get('/api/search/location-options'))
 }
 
 /**
@@ -62,5 +69,5 @@ export async function getLocationOptions() {
  * @returns {Promise<Array>} 文档来源列表
  */
 export async function getDocumentSources() {
-  return await get('/api/search/document-sources');
+  return unwrapData(await get('/api/search/document-sources'))
 }
