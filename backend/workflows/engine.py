@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, Optional, List
 
-from nodes import init_registry, NodeConfigStore
+from nodes import get_node_config_store, init_registry
 from .models import WorkflowDefinition, WorkflowEdge
 
 
@@ -14,9 +14,9 @@ def _port_map(defn_ports: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
 
 
 class WorkflowEngine:
-    def __init__(self):
-        self.registry = init_registry()
-        self.config_store = NodeConfigStore()
+    def __init__(self, registry=None, config_store=None):
+        self.registry = registry or init_registry()
+        self.config_store = config_store or get_node_config_store()
 
     def _compile_initial_inputs(self, wf: WorkflowDefinition, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         from file_index import FileIndex

@@ -99,11 +99,10 @@ def create_agent():
         # 动态加载新智能体
         try:
             from agents.config import AgentLoader
-            from config import get_config as get_system_config
 
             loader = AgentLoader(
                 model_adapter=get_default_adapter(),
-                system_config=get_system_config(),
+                system_config=get_config(),
                 orchestrator=orchestrator
             )
 

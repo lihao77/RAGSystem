@@ -15,6 +15,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from runtime.dependencies import get_runtime_dependency
+
 logger = logging.getLogger(__name__)
 
 
@@ -269,13 +271,14 @@ class TaskRegistry:
 # ── 全局单例 ──
 
 _registry: Optional[TaskRegistry] = None
-_registry_lock = threading.Lock()
 
 
 def get_task_registry() -> TaskRegistry:
     global _registry
-    if _registry is None:
-        with _registry_lock:
-            if _registry is None:
-                _registry = TaskRegistry()
-    return _registry
+    return get_runtime_dependency(
+        container_getter='get_task_registry',
+        fallback_name='task_registry',
+        fallback_factory=TaskRegistry,
+        legacy_getter=lambda: _registry,
+        legacy_setter=lambda instance: globals().__setitem__('_registry', instance),
+    )

@@ -7,6 +7,8 @@ from typing import Dict, Type, List, Optional
 from pathlib import Path
 import importlib.util
 
+from runtime.dependencies import get_runtime_dependency
+
 from .base import INode, NodeDefinition
 
 
@@ -84,13 +86,28 @@ class NodeRegistry:
                 print(f"[NodeRegistry] 加载节点 {node_dir.name} 失败: {e}")
 
 
+_node_registry: Optional[NodeRegistry] = None
+
+
+def create_initialized_registry() -> NodeRegistry:
+    registry = NodeRegistry()
+    if not registry.list_types():
+        registry.scan_and_register()
+    return registry
+
+
 def get_registry() -> NodeRegistry:
-    """获取注册中心实例"""
-    return NodeRegistry()
+    """获取注册中心实例。"""
+    global _node_registry
+    return get_runtime_dependency(
+        container_getter='get_node_registry',
+        fallback_name='node_registry',
+        fallback_factory=create_initialized_registry,
+        legacy_getter=lambda: _node_registry,
+        legacy_setter=lambda instance: globals().__setitem__('_node_registry', instance),
+    )
 
 
 def init_registry() -> NodeRegistry:
-    """初始化并扫描节点"""
-    registry = NodeRegistry()
-    registry.scan_and_register()
-    return registry
+    """初始化并扫描节点。"""
+    return get_registry()

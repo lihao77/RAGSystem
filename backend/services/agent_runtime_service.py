@@ -36,10 +36,15 @@ class AgentRuntimeService:
                     registry=AgentRegistry(),
                 )
 
+                from agents import get_config_manager
+                from mcp import get_mcp_manager
+
                 agents = load_agents_from_config(
                     model_adapter=adapter,
                     system_config=system_config,
                     orchestrator=self._orchestrator,
+                    config_manager=get_config_manager(),
+                    mcp_manager_getter=get_mcp_manager,
                 )
 
                 for agent_name, agent in agents.items():
@@ -86,10 +91,15 @@ class AgentRuntimeService:
 
             system_config = get_config()
             adapter = get_default_adapter()
+            from agents import get_config_manager
+            from mcp import get_mcp_manager
+
             agents = load_agents_from_config(
                 model_adapter=adapter,
                 system_config=system_config,
                 orchestrator=self._orchestrator,
+                config_manager=get_config_manager(),
+                mcp_manager_getter=get_mcp_manager,
             )
 
             for agent_name, agent in agents.items():

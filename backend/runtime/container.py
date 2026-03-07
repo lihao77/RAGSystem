@@ -53,15 +53,41 @@ class RuntimeContainer:
     def set_model_adapter(self, adapter) -> None:
         self.set_instance('model_adapter', adapter)
 
+    def get_mcp_config_store(self):
+        from mcp.config_store import MCPConfigStore
+
+        return self._get_or_create('mcp_config_store', MCPConfigStore)
+
     def get_mcp_manager(self):
         from mcp.client_manager import MCPClientManager
 
-        return self._get_or_create('mcp_manager', MCPClientManager)
+        instance = self.get_instance('mcp_manager')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('mcp_manager')
+            if instance is None:
+                instance = MCPClientManager(store=self.get_mcp_config_store())
+                self._instances['mcp_manager'] = instance
+            return instance
 
     def get_mcp_service(self):
         from services.mcp_service import MCPService
 
-        return self._get_or_create('mcp_service', MCPService)
+        instance = self.get_instance('mcp_service')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('mcp_service')
+            if instance is None:
+                instance = MCPService(
+                    store=self.get_mcp_config_store(),
+                    manager=self.get_mcp_manager(),
+                )
+                self._instances['mcp_service'] = instance
+            return instance
 
     def get_model_adapter_service(self):
         from services.model_adapter_service import ModelAdapterService
@@ -77,6 +103,16 @@ class RuntimeContainer:
         from services.agent_config_service import AgentConfigService
 
         return self._get_or_create('agent_config_service', AgentConfigService)
+
+    def get_node_registry(self):
+        from nodes.registry import create_initialized_registry
+
+        return self._get_or_create('node_registry', create_initialized_registry)
+
+    def get_node_config_store(self):
+        from nodes.config_store import NodeConfigStore
+
+        return self._get_or_create('node_config_store', NodeConfigStore)
 
     def get_node_service(self):
         from services.node_service import NodeService
@@ -153,11 +189,49 @@ class RuntimeContainer:
 
         return self._get_or_create('neo4j_connection', Neo4jConnection)
 
+    def get_task_registry(self):
+        from agents.task_registry import TaskRegistry
+
+        return self._get_or_create('task_registry', TaskRegistry)
+
+    def get_session_manager(
+        self,
+        *,
+        session_ttl: int = 3600,
+        cleanup_interval: int = 300,
+        enable_persistence: bool = True,
+        max_history: int = 1000,
+    ):
+        from agents.events.session_manager import SessionEventBusManager
+
+        instance = self.get_instance('session_manager')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('session_manager')
+            if instance is None:
+                instance = SessionEventBusManager(
+                    session_ttl=session_ttl,
+                    cleanup_interval=cleanup_interval,
+                    enable_persistence=enable_persistence,
+                    max_history=max_history,
+                )
+                self._instances['session_manager'] = instance
+            return instance
+
     def startup_mcp(self) -> None:
         self.get_mcp_manager().startup()
 
     def shutdown(self) -> None:
         """统一关闭容器中已创建的运行时资源。"""
+        session_manager = self._instances.get('session_manager')
+        if session_manager is not None:
+            try:
+                session_manager.shutdown()
+            except Exception as error:
+                logger.warning('关闭会话事件总线管理器失败: %s', error)
+
         mcp_manager = self._instances.get('mcp_manager')
         if mcp_manager is not None:
             try:

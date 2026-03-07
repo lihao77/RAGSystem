@@ -129,9 +129,24 @@
   - 优先从 `RuntimeContainer` 获取依赖
   - 若容器未初始化，则退回 legacy fallback
   - 每个依赖名只告警一次，提示正在使用兼容路径
+  - fallback 诊断会记录访问入口 / 上游调用，便于在测试中定位遗留调用链
+  - 执行平面的 `task_registry` / `session_manager` 也已纳入同一套 runtime 解析策略
+  - `node_registry` / `node_config_store` 也开始通过 runtime 统一解析，避免执行链再回落到包级单例/直接构造
+  - `mcp_config_store` / `mcp_manager` 也已切到 runtime 主解析，`client_manager` 内部不再直接抓包级单例
 - 严格模式：
   - 设置环境变量 `RAGSYSTEM_RUNTIME_STRICT=1`
   - 在容器未初始化时，getter 将直接报错，而不是静默 fallback
+  - 报错信息会带上调用方位置，方便快速收敛 strict-mode 失败点
+
+### Fallback Diagnostics
+
+- 可通过 `runtime.get_runtime_fallback_stats()` 或 `runtime.dependencies.get_runtime_fallback_stats()` 查看 fallback 统计。
+- 统计项包含：
+  - `dependency_name`
+  - `accessor`
+  - `caller`
+  - `count`
+- 测试前可调用 `runtime.reset_runtime_fallback_tracking()` 清空告警和统计，避免不同用例互相污染。
 
 ### Legacy Fallback Policy
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 from runtime.dependencies import get_runtime_dependency
 from typing import Optional
 
-from agents import AgentContext
+from agents import AgentContext, get_config_manager as get_agent_config_manager
+from agents.events import get_session_manager
+from agents.task_registry import get_task_registry
 from config import get_config
 from model_adapter import get_default_adapter
 from conversation_store import ConversationStore
@@ -24,11 +26,17 @@ class AgentApiRuntimeService:
         conversation_store: Optional[ConversationStore] = None,
         runtime_service=None,
         config_getter=None,
+        config_manager_getter=None,
+        task_registry_getter=None,
+        session_manager_getter=None,
         default_adapter_getter=None,
     ):
         self._conversation_store = conversation_store or ConversationStore()
         self._runtime_service = runtime_service or get_agent_runtime_service()
         self._config_getter = config_getter or get_config
+        self._config_manager_getter = config_manager_getter or get_agent_config_manager
+        self._task_registry_getter = task_registry_getter or get_task_registry
+        self._session_manager_getter = session_manager_getter or get_session_manager
         self._default_adapter_getter = default_adapter_getter or get_default_adapter
 
     def get_conversation_store(self) -> ConversationStore:
@@ -52,6 +60,18 @@ class AgentApiRuntimeService:
 
     def get_system_config(self):
         return self._config_getter()
+
+    def get_config_manager(self):
+        return self._config_manager_getter()
+
+    def get_task_registry(self):
+        return self._task_registry_getter()
+
+    def get_session_manager(self):
+        return self._session_manager_getter()
+
+    def get_session_event_bus(self, session_id: str):
+        return self.get_session_manager().get_or_create(session_id)
 
     def get_default_adapter(self):
         return self._default_adapter_getter()

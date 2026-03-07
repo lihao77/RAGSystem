@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from runtime.dependencies import get_runtime_dependency
-from nodes import NodeConfigStore, init_registry
+from nodes import get_node_config_store, init_registry
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,9 @@ class NodeServiceError(Exception):
 class NodeService:
     """封装节点定义、配置与执行逻辑。"""
 
-    def __init__(self):
-        self._registry = init_registry()
-        self._config_store = NodeConfigStore()
+    def __init__(self, registry=None, config_store=None):
+        self._registry = registry or init_registry()
+        self._config_store = config_store or get_node_config_store()
 
     def list_node_types(self):
         return [definition.model_dump() for definition in self._registry.list_all()]

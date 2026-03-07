@@ -10,15 +10,11 @@ import uuid as uuid_module
 
 from flask import Blueprint, Response, request, stream_with_context
 
-from agents import (
-    AgentContext,
-    get_config_manager,
-)
+from agents import AgentContext
 from agents.context.manager import ContextManager
 from agents.core.models import Message
-from agents.events import EventType, SSEAdapter, get_session_event_bus
+from agents.events import EventType, SSEAdapter
 from agents.events.bus import Event
-from agents.task_registry import get_task_registry
 from services.agent_api_runtime_service import get_agent_api_runtime_service
 from utils.response_helpers import error_response, success_response
 
@@ -53,6 +49,18 @@ def reload_agents():
 
 def get_config():
     return get_agent_api_runtime_service().get_system_config()
+
+
+def get_config_manager():
+    return get_agent_api_runtime_service().get_config_manager()
+
+
+def get_task_registry():
+    return get_agent_api_runtime_service().get_task_registry()
+
+
+def get_session_event_bus(session_id: str):
+    return get_agent_api_runtime_service().get_session_event_bus(session_id)
 
 
 def get_default_adapter():

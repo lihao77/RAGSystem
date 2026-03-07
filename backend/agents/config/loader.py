@@ -40,7 +40,7 @@ class AgentLoader:
     负责从配置文件动态加载智能体实例
     """
 
-    def __init__(self, model_adapter, system_config, orchestrator=None):
+    def __init__(self, model_adapter, system_config, orchestrator=None, config_manager=None, mcp_manager_getter=None):
         """
         初始化加载器
 
@@ -52,7 +52,8 @@ class AgentLoader:
         self.model_adapter = model_adapter
         self.system_config = system_config
         self.orchestrator = orchestrator
-        self.config_manager = get_config_manager()
+        self.config_manager = config_manager or get_config_manager()
+        self._mcp_manager_getter = mcp_manager_getter
 
     def load_agent(self, agent_name: str) -> Optional[BaseAgent]:
         """
@@ -285,8 +286,11 @@ class AgentLoader:
         mcp_config = getattr(agent_config, 'mcp', None)
         if mcp_config and getattr(mcp_config, 'enabled_servers', None):
             try:
-                from mcp import get_mcp_manager
-                manager = get_mcp_manager()
+                manager_getter = self._mcp_manager_getter
+                if manager_getter is None:
+                    from mcp import get_mcp_manager
+                    manager_getter = get_mcp_manager
+                manager = manager_getter()
                 injected_count = 0
                 for server_name in mcp_config.enabled_servers:
                     mcp_tools = manager.get_tools_openai_format(server_name)
@@ -355,7 +359,9 @@ class AgentLoader:
 def load_agents_from_config(
     model_adapter,
     system_config,
-    orchestrator=None
+    orchestrator=None,
+    config_manager=None,
+    mcp_manager_getter=None,
 ) -> Dict[str, BaseAgent]:
     """
     从配置文件加载所有智能体（便捷函数）
@@ -364,9 +370,17 @@ def load_agents_from_config(
         model_adapter: Model 适配器
         system_config: 系统配置
         orchestrator: 编排器（可选）
+        config_manager: 已解析的配置管理器（可选）
+        mcp_manager_getter: MCP 管理器 getter（可选）
 
     Returns:
         智能体字典
     """
-    loader = AgentLoader(model_adapter, system_config, orchestrator)
+    loader = AgentLoader(
+        model_adapter,
+        system_config,
+        orchestrator,
+        config_manager=config_manager,
+        mcp_manager_getter=mcp_manager_getter,
+    )
     return loader.load_all_agents()

@@ -12,6 +12,8 @@ from datetime import datetime
 
 import yaml
 
+from runtime.dependencies import get_runtime_dependency
+
 from .config import MCPServerConfig
 
 logger = logging.getLogger(__name__)
@@ -105,8 +107,15 @@ _instance: Optional[MCPConfigStore] = None
 
 
 def get_mcp_config_store(config_path: Optional[Path] = None) -> MCPConfigStore:
-    """获取 MCP 配置存储单例"""
+    """获取 MCP 配置存储实例。"""
     global _instance
-    if _instance is None:
-        _instance = MCPConfigStore(config_path)
-    return _instance
+    if config_path is not None:
+        return MCPConfigStore(config_path)
+
+    return get_runtime_dependency(
+        container_getter='get_mcp_config_store',
+        fallback_name='mcp_config_store',
+        fallback_factory=MCPConfigStore,
+        legacy_getter=lambda: _instance,
+        legacy_setter=lambda instance: globals().__setitem__('_instance', instance),
+    )

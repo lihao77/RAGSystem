@@ -16,6 +16,12 @@ from runtime.dependencies import get_runtime_dependency
 logger = logging.getLogger(__name__)
 
 
+def _default_config_store_getter():
+    from .config_store import get_mcp_config_store
+
+    return get_mcp_config_store()
+
+
 class MCPConnection:
     """单个 MCP Server 连接的状态"""
 
@@ -45,12 +51,14 @@ class MCPClientManager:
     - .result(timeout) 同步等待结果
     """
 
-    def __init__(self):
+    def __init__(self, store=None, store_getter=None):
         self._connections: Dict[str, MCPConnection] = {}
         self._lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._started = False
+        self._store = store
+        self._store_getter = store_getter or _default_config_store_getter
 
     # ─── 生命周期 ────────────────────────────────────────────────────────────
 
@@ -120,13 +128,17 @@ class MCPClientManager:
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
+
+    def _get_store(self):
+        if self._store is None:
+            self._store = self._store_getter()
+        return self._store
+
     # ─── 连接管理 ─────────────────────────────────────────────────────────────
 
     def _auto_connect_all(self):
         """自动连接所有 auto_connect=True 且 enabled=True 的 Server"""
-        from .config_store import get_mcp_config_store
-        store = get_mcp_config_store()
-        servers = store.list_servers()
+        servers = self._get_store().list_servers()
         for srv_cfg in servers:
             if srv_cfg.get("enabled", True) and srv_cfg.get("auto_connect", True):
                 name = srv_cfg.get("name") or srv_cfg.get("server_name")
@@ -146,9 +158,7 @@ class MCPClientManager:
         Returns:
             是否连接成功
         """
-        from .config_store import get_mcp_config_store
-        store = get_mcp_config_store()
-        srv_cfg = store.get_server(server_name)
+        srv_cfg = self._get_store().get_server(server_name)
         if srv_cfg is None:
             raise ValueError(f"MCP Server 配置不存在: {server_name}")
 
@@ -356,9 +366,7 @@ class MCPClientManager:
 
     def refresh_server(self, server_name: str) -> dict:
         """Refresh a server connection using the latest stored config."""
-        from .config_store import get_mcp_config_store
-
-        srv_cfg = get_mcp_config_store().get_server(server_name)
+        srv_cfg = self._get_store().get_server(server_name)
         if srv_cfg is None:
             raise ValueError(f"MCP Server configuration not found: {server_name}")
 
@@ -465,8 +473,7 @@ class MCPClientManager:
             return error_response(f"MCP Server '{server_name}' 未连接")
 
         # 获取 server 配置中的 timeout
-        from .config_store import get_mcp_config_store
-        srv_cfg = get_mcp_config_store().get_server(server_name) or {}
+        srv_cfg = self._get_store().get_server(server_name) or {}
         timeout = srv_cfg.get("timeout", 30)
 
         try:
@@ -556,7 +563,6 @@ class MCPClientManager:
 # ─── 单例 ─────────────────────────────────────────────────────────────────────
 
 _manager_instance: Optional[MCPClientManager] = None
-_manager_lock = threading.Lock()
 
 
 def get_mcp_manager() -> MCPClientManager:

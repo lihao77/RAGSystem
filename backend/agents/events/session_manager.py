@@ -15,6 +15,8 @@ import threading
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 
+from runtime.dependencies import get_runtime_dependency
+
 from .bus import EventBus
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,7 @@ class SessionEventBusManager:
 
         # 线程锁（保证线程安全）
         self._lock = threading.RLock()
+        self._shutdown_event = threading.Event()
 
         # 启动后台清理线程
         self._cleanup_thread = threading.Thread(
@@ -216,12 +219,13 @@ class SessionEventBusManager:
         """后台清理循环（在独立线程中运行）"""
         logger.info("事件总线清理线程已启动")
 
-        while True:
+        while not self._shutdown_event.wait(self.cleanup_interval):
             try:
-                time.sleep(self.cleanup_interval)
                 self._cleanup_expired_sessions()
             except Exception as e:
                 logger.error(f"清理线程异常: {e}", exc_info=True)
+
+        logger.info("事件总线清理线程已停止")
 
     def _cleanup_expired_sessions(self):
         """清理过期的会话"""
@@ -244,10 +248,15 @@ class SessionEventBusManager:
                 logger.info(f"清理完成，移除 {len(expired_sessions)} 个过期会话")
 
     def shutdown(self):
-        """关闭管理器，清理所有会话"""
-        with self._lock:
-            logger.info("关闭 SessionEventBusManager，清理所有会话...")
+        """关闭管理器，清理所有会话并停止后台线程。"""
+        logger.info("关闭 SessionEventBusManager，清理所有会话...")
+        self._shutdown_event.set()
 
+        current_thread = threading.current_thread()
+        if self._cleanup_thread.is_alive() and self._cleanup_thread is not current_thread:
+            self._cleanup_thread.join(timeout=1)
+
+        with self._lock:
             session_ids = list(self._session_buses.keys())
             for session_id in session_ids:
                 self.remove(session_id)
@@ -264,7 +273,7 @@ def get_session_manager(
     session_ttl: int = 3600,
     cleanup_interval: int = 300,
     enable_persistence: bool = True,
-    max_history: int = 1000  # ✨ 添加 max_history 参数
+    max_history: int = 1000,
 ) -> SessionEventBusManager:
     """
     获取全局会话事件总线管理器（单例）
@@ -279,14 +288,23 @@ def get_session_manager(
         SessionEventBusManager实例
     """
     global _global_session_manager
-    if _global_session_manager is None:
-        _global_session_manager = SessionEventBusManager(
+    return get_runtime_dependency(
+        fallback_name='session_manager',
+        fallback_factory=lambda: SessionEventBusManager(
             session_ttl=session_ttl,
             cleanup_interval=cleanup_interval,
             enable_persistence=enable_persistence,
-            max_history=max_history  # ✨ 传递 max_history
-        )
-    return _global_session_manager
+            max_history=max_history,
+        ),
+        legacy_getter=lambda: _global_session_manager,
+        legacy_setter=lambda instance: globals().__setitem__('_global_session_manager', instance),
+        container_resolver=lambda container: container.get_session_manager(
+            session_ttl=session_ttl,
+            cleanup_interval=cleanup_interval,
+            enable_persistence=enable_persistence,
+            max_history=max_history,
+        ),
+    )
 
 
 # ==================== 便捷函数 ====================

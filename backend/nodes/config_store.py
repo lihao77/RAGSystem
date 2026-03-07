@@ -10,6 +10,8 @@ from datetime import datetime
 import yaml
 import uuid
 
+from runtime.dependencies import get_runtime_dependency
+
 from .base import NodeConfigBase, INode
 
 
@@ -200,3 +202,20 @@ class NodeConfigStore:
             return ConfigMetadata(**data.get("_metadata", {}))
         except Exception:
             return None
+
+_node_config_store: Optional[NodeConfigStore] = None
+
+
+def get_node_config_store(base_dir: str = None) -> NodeConfigStore:
+    """获取节点配置存储实例。"""
+    global _node_config_store
+    if base_dir is not None:
+        return NodeConfigStore(base_dir=base_dir)
+
+    return get_runtime_dependency(
+        container_getter='get_node_config_store',
+        fallback_name='node_config_store',
+        fallback_factory=NodeConfigStore,
+        legacy_getter=lambda: _node_config_store,
+        legacy_setter=lambda instance: globals().__setitem__('_node_config_store', instance),
+    )
