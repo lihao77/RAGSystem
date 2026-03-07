@@ -640,7 +640,7 @@ class ConfigService:
             reload_config_func()
             
             if service_name == 'neo4j':
-                from db import neo4j_conn, is_neo4j_configured
+                from db import get_neo4j_connection, is_neo4j_configured
                 
                 # 检查配置
                 if not is_neo4j_configured():
@@ -650,7 +650,7 @@ class ConfigService:
                     }
                 
                 # 重新连接（单例模式，自动处理旧连接）
-                driver = neo4j_conn.reconnect()
+                driver = get_neo4j_connection().reconnect()
                 
                 # 测试连接
                 if driver:

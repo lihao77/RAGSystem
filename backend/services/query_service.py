@@ -4,7 +4,7 @@
 """
 
 import logging
-from db import neo4j_conn
+from db import get_neo4j_connection
 from utils.neo4j_helpers import parse_neo4j_record
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class QueryService:
             }
         """
         try:
-            with neo4j_conn.get_session() as session:
+            with get_neo4j_connection().get_session() as session:
                 result = session.run(cypher)
                 
                 records = []
@@ -82,7 +82,7 @@ class QueryService:
             }
         """
         try:
-            with neo4j_conn.get_session() as session:
+            with get_neo4j_connection().get_session() as session:
                 # 获取所有节点标签
                 labels_result = session.run("""
                     CALL db.labels() YIELD label

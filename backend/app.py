@@ -36,6 +36,7 @@ from routes.vector_library import vector_library_bp
 from routes.vector_management import vector_management_bp
 from routes.visualization_refactored import visualization_bp
 from routes.workflows import workflow_bp
+from runtime.container import create_runtime_container
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ def register_error_handlers(app: Flask) -> None:
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    runtime_container = create_runtime_container()
+    runtime_container.init_app(app)
     config = get_config()
     upload_folder = _resolve_backend_path(os.environ.get('UPLOAD_FOLDER', ''), DEFAULT_UPLOAD_FOLDER)
     frontend_dist = _resolve_backend_path(os.environ.get('FRONTEND_DIST', ''), DEFAULT_FRONTEND_DIST)
@@ -209,14 +212,14 @@ def create_app() -> Flask:
 
 def test_db_connection() -> bool:
     """测试数据库连接（仅在已配置时执行）"""
-    from db import is_neo4j_configured, neo4j_conn
+    from db import get_neo4j_connection, is_neo4j_configured
 
     if not is_neo4j_configured():
         logger.info('⚠ Neo4j 未配置，将在配置完成后初始化')
         return False
 
     try:
-        driver = neo4j_conn.connect()
+        driver = get_neo4j_connection().connect()
         if driver:
             with driver.session() as session:
                 session.run('RETURN 1')
@@ -268,9 +271,8 @@ def initialize_runtime_services(app: Flask) -> None:
         logger.info('=' * 70)
 
         try:
-            from mcp import get_mcp_manager
-
-            get_mcp_manager().startup()
+            runtime_container = app.extensions['runtime_container']
+            runtime_container.startup_mcp()
             logger.info('  ✓ MCP Client Manager: 已启动')
         except Exception as error:
             logger.warning('  ⚠ MCP Client Manager 启动失败（不影响其他功能）: %s', error)
@@ -278,23 +280,24 @@ def initialize_runtime_services(app: Flask) -> None:
     _runtime_initialized = True
 
 
-def register_shutdown_hooks() -> None:
+def register_shutdown_hooks(app: Flask) -> None:
     global _shutdown_hooks_registered
 
     if _shutdown_hooks_registered:
         return
 
-    atexit.register(close_driver)
-
-    def _shutdown_mcp() -> None:
+    def _shutdown_runtime() -> None:
         try:
-            from mcp import get_mcp_manager
-
-            get_mcp_manager().shutdown()
+            runtime_container = app.extensions.get('runtime_container')
+            if runtime_container is not None:
+                runtime_container.shutdown()
+                return
         except Exception:
             pass
 
-    atexit.register(_shutdown_mcp)
+        close_driver()
+
+    atexit.register(_shutdown_runtime)
     _shutdown_hooks_registered = True
 
 
@@ -308,7 +311,7 @@ def run_startup_checks_or_exit(app: Flask, initialize_runtime: bool = True) -> N
 
 
 app = create_app()
-register_shutdown_hooks()
+register_shutdown_hooks(app)
 
 
 if __name__ == '__main__':

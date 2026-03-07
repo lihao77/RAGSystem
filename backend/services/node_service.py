@@ -179,6 +179,15 @@ _node_service: Optional[NodeService] = None
 
 
 def get_node_service() -> NodeService:
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_node_service()
+    except Exception:
+        pass
+
     global _node_service
     if _node_service is None:
         _node_service = NodeService()

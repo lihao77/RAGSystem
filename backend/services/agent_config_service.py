@@ -245,6 +245,15 @@ _agent_config_service: Optional[AgentConfigService] = None
 
 
 def get_agent_config_service() -> AgentConfigService:
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_agent_config_service()
+    except Exception:
+        pass
+
     global _agent_config_service
     if _agent_config_service is None:
         _agent_config_service = AgentConfigService()

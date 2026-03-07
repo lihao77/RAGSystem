@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Union
 from .base import AIProvider, ModelResponse, EmbeddingResponse, AIProviderType
-from .providers import OpenAIProvider, DeepSeekProvider, OpenRouterProvider, ModelScopeProvider
+from .providers import create_provider_from_config
 from .config_store import ModelAdapterConfigStore
 
 logger = logging.getLogger(__name__)
@@ -121,42 +121,8 @@ class ModelAdapter:
         provider_kwargs = {k: v for k, v in config.items() 
                           if k not in ["provider_type", "name", "api_key", "api_endpoint", "models", "model"]}
 
-        provider = None
-        if provider_type == "openai":
-            provider = OpenAIProvider(
-                api_key=api_key,
-                model=model,
-                name=name,
-                api_endpoint=api_endpoint or "https://api.openai.com/v1",
-                **provider_kwargs
-            )
-        elif provider_type == "deepseek":
-            provider = DeepSeekProvider(
-                api_key=api_key,
-                model=model,
-                name=name,
-                api_endpoint=api_endpoint or "https://api.deepseek.com/v1",
-                **provider_kwargs
-            )
-        elif provider_type == "openrouter":
-            provider = OpenRouterProvider(
-                api_key=api_key,
-                model=model,
-                name=name,
-                api_endpoint=api_endpoint or "https://openrouter.ai/api/v1",
-                **provider_kwargs
-            )
-        elif provider_type == "modelscope":
-            provider = ModelScopeProvider(
-                api_key=api_key,
-                model=model,
-                name=name,
-                api_endpoint=api_endpoint or "https://api-inference.modelscope.cn/v1",
-                **provider_kwargs
-            )
-        else:
-            raise ValueError(f"不支持的 Provider 类型: {provider_type}")
-            
+        provider = create_provider_from_config(config)
+
         self.register_provider(provider)
         
         # 保存配置到文件
@@ -581,6 +547,15 @@ _default_adapter = None
 
 def get_default_adapter() -> ModelAdapter:
     """获取全局默认的 Model Adapter 实例"""
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_model_adapter()
+    except Exception:
+        pass
+
     global _default_adapter
     if _default_adapter is None:
         _default_adapter = ModelAdapter()
@@ -589,5 +564,14 @@ def get_default_adapter() -> ModelAdapter:
 
 def set_default_adapter(adapter: ModelAdapter) -> None:
     """设置全局默认的 Model Adapter 实例"""
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            container.set_model_adapter(adapter)
+    except Exception:
+        pass
+
     global _default_adapter
     _default_adapter = adapter

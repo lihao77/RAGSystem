@@ -560,6 +560,15 @@ _manager_lock = threading.Lock()
 
 def get_mcp_manager() -> MCPClientManager:
     """获取 MCPClientManager 单例（懒初始化，不自动 startup）"""
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_mcp_manager()
+    except Exception:
+        pass
+
     global _manager_instance
     if _manager_instance is None:
         with _manager_lock:

@@ -149,6 +149,15 @@ _global_orchestrator: Optional[AgentOrchestrator] = None
 
 
 def get_orchestrator(model_adapter=None) -> AgentOrchestrator:
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_agent_runtime_service().get_orchestrator()
+    except Exception:
+        pass
+
     global _global_orchestrator
     if _global_orchestrator is None:
         _global_orchestrator = AgentOrchestrator(model_adapter=model_adapter)

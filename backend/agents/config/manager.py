@@ -353,6 +353,15 @@ def get_config_manager() -> AgentConfigManager:
     Returns:
         AgentConfigManager 实例
     """
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_agent_config_manager()
+    except Exception:
+        pass
+
     global _global_config_manager
     if _global_config_manager is None:
         _global_config_manager = AgentConfigManager()

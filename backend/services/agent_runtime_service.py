@@ -8,7 +8,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from agents import get_orchestrator, load_agents_from_config
+from agents import load_agents_from_config
+from agents.core.orchestrator import AgentOrchestrator
+from agents.core.registry import AgentRegistry
 from config import get_config
 from model_adapter import get_default_adapter
 
@@ -19,7 +21,7 @@ class AgentRuntimeService:
     """封装 Orchestrator 的初始化与热重载。"""
 
     def __init__(self):
-        self._orchestrator = None
+        self._orchestrator: Optional[AgentOrchestrator] = None
 
     def get_orchestrator(self):
         """获取或初始化全局 Orchestrator。"""
@@ -28,7 +30,10 @@ class AgentRuntimeService:
                 system_config = get_config()
                 adapter = get_default_adapter()
 
-                self._orchestrator = get_orchestrator(model_adapter=adapter)
+                self._orchestrator = AgentOrchestrator(
+                    model_adapter=adapter,
+                    registry=AgentRegistry(),
+                )
 
                 agents = load_agents_from_config(
                     model_adapter=adapter,
@@ -101,6 +106,15 @@ _agent_runtime_service: Optional[AgentRuntimeService] = None
 
 
 def get_agent_runtime_service() -> AgentRuntimeService:
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_agent_runtime_service()
+    except Exception:
+        pass
+
     global _agent_runtime_service
     if _agent_runtime_service is None:
         _agent_runtime_service = AgentRuntimeService()

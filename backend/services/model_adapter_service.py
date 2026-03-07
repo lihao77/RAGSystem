@@ -171,6 +171,15 @@ _model_adapter_service: Optional[ModelAdapterService] = None
 
 
 def get_model_adapter_service() -> ModelAdapterService:
+    try:
+        from runtime.container import get_current_runtime_container
+
+        container = get_current_runtime_container()
+        if container is not None:
+            return container.get_model_adapter_service()
+    except Exception:
+        pass
+
     global _model_adapter_service
     if _model_adapter_service is None:
         _model_adapter_service = ModelAdapterService()
