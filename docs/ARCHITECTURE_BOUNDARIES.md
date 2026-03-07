@@ -86,8 +86,7 @@
 
 ### 同步处理的遗留项
 
-- 明确 `backend/services/service_manager.py` 的去向。
-- 建议将其标记为废弃，并逐步并入 `backend/runtime/container.py`，避免出现两套装配中心。
+- `service_manager` 兼容层已移除，统一以 `backend/runtime/container.py` 作为唯一装配中心。
 
 ### 验收标准
 
@@ -133,6 +132,7 @@
   - 执行平面的 `task_registry` / `session_manager` 也已纳入同一套 runtime 解析策略
   - `node_registry` / `node_config_store` 也开始通过 runtime 统一解析，避免执行链再回落到包级单例/直接构造
   - `mcp_config_store` / `mcp_manager` 也已切到 runtime 主解析，`client_manager` 内部不再直接抓包级单例
+  - `event_bus` 全局入口也已纳入 runtime 解析，默认发布链可在 strict mode 下被显式发现
 - 严格模式：
   - 设置环境变量 `RAGSYSTEM_RUNTIME_STRICT=1`
   - 在容器未初始化时，getter 将直接报错，而不是静默 fallback
@@ -159,14 +159,15 @@
   - 新增运行时依赖必须优先挂入 `RuntimeContainer`
   - 若确需兼容 fallback，必须复用 `runtime.dependencies`，不能重新实现一套逻辑
 - 对 legacy 装配层的态度：
-  - `backend/services/service_manager.py` 仅保留兼容壳
-  - 不再作为新的服务装配中心
+  - `service_manager` 已移除
+  - 不再保留第二套服务装配中心
 
 ### 下一步收口目标
 
 - 在 CI / 测试环境中逐步启用 `RAGSYSTEM_RUNTIME_STRICT`
 - 先从核心模块开始消除 fallback 创建行为，仅保留容器解析
 - 最终目标是让 getter 成为“容器访问器”，而不是“容器优先 + 单例兜底”
+- 可先用 `python backend/scripts/runtime_strict_audit.py --format table` 生成当前 fallback getter 清单
 
 ## P2：统一配置与存储基座
 
@@ -174,8 +175,14 @@
 
 ### 建议的基座拆分
 
+- 已落第一刀：`backend/utils/yaml_store.py`
+  - 提供统一 YAML 读取 + 原子写入（临时文件 + replace）
+- 已落第二刀：`backend/utils/versioned_yaml_store.py`
+  - 提供迁移落盘 + `.backup` 备份语义
+- 已落第三刀：`backend/utils/file_lock.py`
+  - 提供最小本地文件锁，统一保护 YAML 写入和迁移回写
 - `AtomicFileStore`
-  - 临时文件写入 + replace
+  - 后续可继续扩为更通用的文件语义层
 - `VersionedYamlStore`
   - schema version、迁移钩子、备份
 - `FileLock`
@@ -183,11 +190,14 @@
 
 ### 优先收口的模块
 
-- `backend/model_adapter/config_store.py`
-- `backend/nodes/config_store.py`
-- `backend/workflows/store.py`
-- `backend/mcp/config_store.py`
-- `backend/agents/config/manager.py`
+- `backend/model_adapter/config_store.py`（已接入）
+- `backend/nodes/config_store.py`（已接入）
+- `backend/workflows/store.py`（已接入）
+- `backend/mcp/config_store.py`（已接入）
+- `backend/agents/config/manager.py`（已接入）
+- `backend/vector_store/vectorizer_config.py`（已接入）
+- `backend/file_index/store.py`（已接入）
+- `backend/services/config_service.py`（写入路径已接入）
 
 ### 统一能力
 

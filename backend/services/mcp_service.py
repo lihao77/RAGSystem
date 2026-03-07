@@ -196,6 +196,7 @@ def get_mcp_service() -> MCPService:
         container_getter='get_mcp_service',
         fallback_name='mcp_service',
         fallback_factory=MCPService,
+        require_container=True,
         legacy_getter=lambda: _mcp_service,
         legacy_setter=lambda instance: globals().__setitem__('_mcp_service', instance),
     )

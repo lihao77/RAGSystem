@@ -151,16 +151,12 @@ _global_orchestrator: Optional[AgentOrchestrator] = None
 
 
 def get_orchestrator(model_adapter=None) -> AgentOrchestrator:
+    del model_adapter
     global _global_orchestrator
-    orchestrator = get_runtime_dependency(
+    return get_runtime_dependency(
         fallback_name='agent_orchestrator',
         fallback_factory=lambda: None,
         legacy_getter=lambda: _global_orchestrator,
         container_resolver=lambda container: container.get_agent_runtime_service().get_orchestrator(),
+        require_container=True,
     )
-    if orchestrator is not None:
-        return orchestrator
-
-    if _global_orchestrator is None:
-        _global_orchestrator = AgentOrchestrator(model_adapter=model_adapter)
-    return _global_orchestrator

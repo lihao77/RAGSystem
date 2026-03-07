@@ -231,6 +231,7 @@ def get_graphrag_api_service() -> GraphRAGApiService:
         container_getter='get_graphrag_api_service',
         fallback_name='graphrag_api_service',
         fallback_factory=GraphRAGApiService,
+        require_container=True,
         legacy_getter=lambda: _graphrag_api_service,
         legacy_setter=lambda instance: globals().__setitem__('_graphrag_api_service', instance),
     )

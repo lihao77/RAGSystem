@@ -185,6 +185,7 @@ def get_node_service() -> NodeService:
         container_getter='get_node_service',
         fallback_name='node_service',
         fallback_factory=NodeService,
+        require_container=True,
         legacy_getter=lambda: _node_service,
         legacy_setter=lambda instance: globals().__setitem__('_node_service', instance),
     )

@@ -5,17 +5,35 @@
 负责智能体配置的加载、保存、更新和查询
 """
 
-import os
 import yaml
 import json
 import logging
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from datetime import datetime
 from pathlib import Path
 from runtime.dependencies import get_runtime_dependency
+from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 from .models import AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset, apply_preset
 
 logger = logging.getLogger(__name__)
+
+CONFIG_SCHEMA_VERSION = '1.0'
+
+
+def _render_config_text(data: Dict[str, Any], format: str) -> str:
+    if format == 'yaml':
+        return yaml.safe_dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    if format == 'json':
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    raise ValueError(f'不支持的格式: {format}')
+
+
+def _parse_config_text(config_str: str, format: str) -> Dict[str, Any]:
+    if format == 'yaml':
+        return yaml.safe_load(config_str) or {}
+    if format == 'json':
+        return json.loads(config_str)
+    raise ValueError(f'不支持的格式: {format}')
 
 
 class AgentConfigManager:
@@ -64,8 +82,15 @@ class AgentConfigManager:
             return
 
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
+            data, _ = load_versioned_yaml_file(
+                self.config_file,
+                default_factory=self._build_empty_payload,
+                migrate=self._migrate_config_data,
+                persist_on_change=True,
+                backup_on_change=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
             # 解析配置
             for agent_name, config_data in data.get('agents', {}).items():
@@ -88,24 +113,58 @@ class AgentConfigManager:
 
         logger.info("已创建默认智能体配置")
 
+    def _build_empty_payload(self) -> Dict[str, Any]:
+        return {
+            'agents': {},
+            'metadata': {
+                'updated_at': datetime.now().isoformat(),
+                'version': CONFIG_SCHEMA_VERSION,
+            },
+        }
+
+    def _migrate_config_data(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        changed = False
+        if not isinstance(data, dict):
+            return self._build_empty_payload(), True
+
+        payload = dict(data)
+        agents = payload.get('agents')
+        if not isinstance(agents, dict):
+            payload['agents'] = {}
+            changed = True
+
+        metadata = payload.get('metadata')
+        if not isinstance(metadata, dict):
+            metadata = {}
+            payload['metadata'] = metadata
+            changed = True
+
+        if metadata.get('version') != CONFIG_SCHEMA_VERSION:
+            metadata['version'] = CONFIG_SCHEMA_VERSION
+            changed = True
+
+        if not metadata.get('updated_at'):
+            metadata['updated_at'] = datetime.now().isoformat()
+            changed = True
+
+        return payload, changed
+
     def _save_configs(self):
         """保存配置到文件"""
         try:
-            # 准备数据
-            data = {
-                'agents': {},
-                'metadata': {
-                    'updated_at': datetime.now().isoformat(),
-                    'version': '1.0'
-                }
-            }
+            data = self._build_empty_payload()
+            data['metadata']['updated_at'] = datetime.now().isoformat()
 
             for agent_name, config in self._configs.items():
                 data['agents'][agent_name] = config.model_dump()
 
-            # 写入文件
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            save_versioned_yaml_file(
+                self.config_file,
+                data,
+                backup=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
             logger.info(f"配置已保存到: {self.config_file}")
 
@@ -284,13 +343,7 @@ class AgentConfigManager:
             return None
 
         data = config.model_dump()
-
-        if format == 'yaml':
-            return yaml.dump(data, allow_unicode=True, default_flow_style=False)
-        elif format == 'json':
-            return json.dumps(data, ensure_ascii=False, indent=2)
-        else:
-            raise ValueError(f"不支持的格式: {format}")
+        return _render_config_text(data, format)
 
     def import_config(self, config_str: str, format: str = 'yaml', save: bool = True) -> AgentConfig:
         """
@@ -304,12 +357,7 @@ class AgentConfigManager:
         Returns:
             导入的配置
         """
-        if format == 'yaml':
-            data = yaml.safe_load(config_str)
-        elif format == 'json':
-            data = json.loads(config_str)
-        else:
-            raise ValueError(f"不支持的格式: {format}")
+        data = _parse_config_text(config_str, format)
 
         # 验证并创建配置
         config = AgentConfig(**data)
@@ -343,9 +391,6 @@ class AgentConfigManager:
             return False, str(e)
 
 
-# 全局单例
-_global_config_manager: Optional[AgentConfigManager] = None
-
 
 def get_config_manager() -> AgentConfigManager:
     """
@@ -354,11 +399,9 @@ def get_config_manager() -> AgentConfigManager:
     Returns:
         AgentConfigManager 实例
     """
-    global _global_config_manager
     return get_runtime_dependency(
         container_getter='get_agent_config_manager',
         fallback_name='agent_config_manager',
         fallback_factory=AgentConfigManager,
-        legacy_getter=lambda: _global_config_manager,
-        legacy_setter=lambda instance: globals().__setitem__('_global_config_manager', instance),
+        require_container=True,
     )

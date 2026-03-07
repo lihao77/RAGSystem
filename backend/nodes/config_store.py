@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Type
 from pydantic import BaseModel
 from datetime import datetime
-import yaml
 import uuid
 
 from runtime.dependencies import get_runtime_dependency
+from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 
 from .base import NodeConfigBase, INode
 
@@ -100,8 +100,7 @@ class NodeConfigStore:
         if not file_path:
             return None
         
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
+        data, _ = load_versioned_yaml_file(file_path, default_factory=dict)
         
         config_class = node_class.get_config_class()
         return config_class(**data.get("config", {}))
@@ -112,8 +111,8 @@ class NodeConfigStore:
         if not file_path:
             return None
         
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+        data, _ = load_versioned_yaml_file(file_path, default_factory=dict)
+        return data
     
     def list_configs(self, 
                      node_type: str = None, 
@@ -181,8 +180,7 @@ class NodeConfigStore:
             "config": config.model_dump()
         }
 
-        with open(file_path, 'w', encoding='utf-8') as f:
-            yaml.dump(full_config, f, allow_unicode=True, default_flow_style=False)
+        save_versioned_yaml_file(file_path, full_config, backup=True, default_flow_style=False, sort_keys=False)
     
     def _find_config_file(self, config_id: str) -> Optional[Path]:
         """查找配置文件"""
@@ -197,8 +195,7 @@ class NodeConfigStore:
     def _load_metadata(self, file_path: Path) -> Optional[ConfigMetadata]:
         """加载配置元信息"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data, _ = load_versioned_yaml_file(file_path, default_factory=dict)
             return ConfigMetadata(**data.get("_metadata", {}))
         except Exception:
             return None
@@ -216,6 +213,7 @@ def get_node_config_store(base_dir: str = None) -> NodeConfigStore:
         container_getter='get_node_config_store',
         fallback_name='node_config_store',
         fallback_factory=NodeConfigStore,
+        require_container=True,
         legacy_getter=lambda: _node_config_store,
         legacy_setter=lambda instance: globals().__setitem__('_node_config_store', instance),
     )

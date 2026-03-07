@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
-import yaml
 from datetime import datetime
 import uuid
+
+from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 
 from .models import WorkflowDefinition
 
@@ -128,8 +129,7 @@ class WorkflowStore:
         wf2 = WorkflowDefinition(**raw)
 
         f = self.base_dir / f"{wf2.id}.yaml"
-        with open(f, 'w', encoding='utf-8') as fp:
-            yaml.dump(wf2.model_dump(), fp, allow_unicode=True, default_flow_style=False)
+        save_versioned_yaml_file(f, wf2.model_dump(), backup=True, default_flow_style=False, sort_keys=False)
         return wf2
 
     def delete(self, workflow_id: str) -> bool:
@@ -143,17 +143,15 @@ class WorkflowStore:
         if not path.exists():
             return None
         try:
-            with open(path, 'r', encoding='utf-8') as fp:
-                data = yaml.safe_load(fp) or {}
-
-            data, changed = self._migrate_data_to_v2(data)
-            wf = WorkflowDefinition(**data)
-
-            # 一次性迁移：写回磁盘，后续统一使用 v2
-            if changed:
-                with open(path, 'w', encoding='utf-8') as fp:
-                    yaml.dump(wf.model_dump(), fp, allow_unicode=True, default_flow_style=False)
-
-            return wf
+            data, _ = load_versioned_yaml_file(
+                path,
+                default_factory=dict,
+                migrate=self._migrate_data_to_v2,
+                persist_on_change=True,
+                backup_on_change=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+            return WorkflowDefinition(**data)
         except Exception:
             return None

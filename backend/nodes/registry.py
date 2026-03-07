@@ -98,13 +98,11 @@ def create_initialized_registry() -> NodeRegistry:
 
 def get_registry() -> NodeRegistry:
     """获取注册中心实例。"""
-    global _node_registry
     return get_runtime_dependency(
         container_getter='get_node_registry',
         fallback_name='node_registry',
         fallback_factory=create_initialized_registry,
-        legacy_getter=lambda: _node_registry,
-        legacy_setter=lambda instance: globals().__setitem__('_node_registry', instance),
+        require_container=True,
     )
 
 

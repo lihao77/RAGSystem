@@ -177,6 +177,7 @@ def get_model_adapter_service() -> ModelAdapterService:
         container_getter='get_model_adapter_service',
         fallback_name='model_adapter_service',
         fallback_factory=ModelAdapterService,
+        require_container=True,
         legacy_getter=lambda: _model_adapter_service,
         legacy_setter=lambda instance: globals().__setitem__('_model_adapter_service', instance),
     )

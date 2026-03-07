@@ -4,10 +4,11 @@ Model Adapter 配置存储管理（单一文件架构）
 简化版本：使用单一 YAML 文件存储所有 Provider 配置
 """
 
-import yaml
 import logging
 from typing import Dict, Optional
 from pathlib import Path
+
+from utils.yaml_store import load_yaml_file, save_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,9 @@ class ModelAdapterConfigStore:
     以复合键 {name}_{provider_type} 作为唯一标识
     """
     
-    def __init__(self):
+    def __init__(self, config_file: Optional[str | Path] = None):
         """初始化配置存储管理器"""
-        self.config_file = Path(__file__).parent / "configs" / "providers.yaml"
+        self.config_file = Path(config_file) if config_file else Path(__file__).parent / "configs" / "providers.yaml"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Model Adapter 配置文件: {self.config_file}")
     
@@ -38,8 +39,7 @@ class ModelAdapterConfigStore:
             return {}
         
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                configs = yaml.safe_load(f) or {}
+            configs = load_yaml_file(self.config_file, default_factory=dict)
             
             logger.debug(f"加载了 {len(configs)} 个 Provider 配置")
             return configs
@@ -56,8 +56,7 @@ class ModelAdapterConfigStore:
             configs: {provider_key: config_dict}
         """
         try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(configs, f, allow_unicode=True, indent=2, sort_keys=False)
+            save_yaml_file(self.config_file, configs, indent=2, sort_keys=False)
             
             logger.info(f"已保存 {len(configs)} 个 Provider 配置")
             

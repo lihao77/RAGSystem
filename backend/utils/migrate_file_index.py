@@ -11,7 +11,6 @@
 """
 
 import sys
-import yaml
 import shutil
 import logging
 from pathlib import Path
@@ -21,6 +20,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from file_index.sqlite_store import FileIndexSQLite
+from utils.yaml_store import load_yaml_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,8 +69,7 @@ def migrate_yaml_to_sqlite():
 
     # 3. 读取 YAML 数据
     try:
-        with open(yaml_path, 'r', encoding='utf-8') as f:
-            yaml_data = yaml.safe_load(f) or {}
+        yaml_data = load_yaml_file(yaml_path, default_factory=dict)
         logger.info(f"✅ 已读取 YAML 数据，共 {len(yaml_data)} 条记录")
     except Exception as e:
         logger.error(f"❌ 读取 YAML 文件失败: {e}")

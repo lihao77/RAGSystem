@@ -122,6 +122,7 @@ def get_agent_runtime_service() -> AgentRuntimeService:
         container_getter='get_agent_runtime_service',
         fallback_name='agent_runtime_service',
         fallback_factory=AgentRuntimeService,
+        require_container=True,
         legacy_getter=lambda: _agent_runtime_service,
         legacy_setter=lambda instance: globals().__setitem__('_agent_runtime_service', instance),
     )

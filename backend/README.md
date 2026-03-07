@@ -61,6 +61,24 @@ python app.py
 - `UPLOAD_FOLDER`：上传目录，默认 `backend/uploads`
 - `FRONTEND_DIST`：静态前端产物目录，默认 `../frontend/dist`
 
+## 开发检查
+
+在项目根目录可运行：
+
+```bash
+make runtime-strict-audit
+make runtime-strict-check
+python3 backend/scripts/runtime_strict_audit.py
+python3 backend/scripts/runtime_strict_audit.py --check-container-only
+```
+
+Windows CMD：
+```bat
+runtime_strict_check.bat
+```
+
+其中 `make runtime-strict-check`、`python3 backend/scripts/runtime_strict_audit.py --check-container-only` 和 `runtime_strict_check.bat` 都会执行 runtime strict 审计门禁，只要存在非 `container_only` 站点就返回非 0。
+
 ## 当前结构
 
 ```text

@@ -6,6 +6,35 @@
 
 ## 可用脚本
 
+### runtime_strict_audit.py
+
+**功能**：静态盘点 `get_runtime_dependency(...)` 调用点，生成 strict-mode fallback backlog。
+
+**用途**：
+- 在逐步启用 `RAGSYSTEM_RUNTIME_STRICT` 前先摸清兼容 fallback 分布
+- 区分 `container_getter` / `container_resolver` 路径与 legacy 单例残留
+- 给 P1 收口提供稳定、可复用的审计入口
+
+**使用方法**：
+```bash
+# 表格输出
+python backend/scripts/runtime_strict_audit.py --format table
+
+# JSON 输出
+python backend/scripts/runtime_strict_audit.py --format json
+
+# CI / pre-commit 门禁：只要还有非 container_only 站点就返回非 0
+python backend/scripts/runtime_strict_audit.py --check-container-only
+```
+
+**输出内容**：
+- fallback 名称
+- container 目标 getter / resolver
+- 是否仍挂着 legacy getter/setter
+- 文件路径与行号
+- 可选的 CI 门禁结果（`--check-container-only`）
+- GitHub Actions 门禁工作流：`.github/workflows/runtime-strict-audit.yml`
+
 ### init_emergency_plans.py
 
 **功能**：初始化应急预案向量数据库

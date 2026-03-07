@@ -196,6 +196,7 @@ def get_query_service():
         container_getter='get_query_service',
         fallback_name='query_service',
         fallback_factory=QueryService,
+        require_container=True,
         legacy_getter=lambda: _query_service,
         legacy_setter=lambda instance: globals().__setitem__('_query_service', instance),
     )

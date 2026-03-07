@@ -492,6 +492,7 @@ def get_search_service():
         container_getter='get_search_service',
         fallback_name='search_service',
         fallback_factory=SearchService,
+        require_container=True,
         legacy_getter=lambda: _search_service,
         legacy_setter=lambda instance: globals().__setitem__('_search_service', instance),
     )

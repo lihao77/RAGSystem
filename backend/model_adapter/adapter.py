@@ -5,8 +5,9 @@ Model Adapter 主类
 """
 
 import json
-import yaml
 import logging
+
+from utils.yaml_store import load_yaml_file, save_yaml_file
 import time
 from typing import Any, Dict, List, Optional, Union
 from runtime.dependencies import get_runtime_dependency
@@ -506,8 +507,7 @@ class ModelAdapter:
         # 直接导出当前的 providers.yaml 内容
         all_configs = self.config_store.load_all()
         
-        with open(config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(all_configs, f, allow_unicode=True, indent=2, sort_keys=False)
+        save_yaml_file(config_path, all_configs, indent=2, sort_keys=False)
 
         logger.info(f"[ModelAdapter] 配置已导出到: {config_path}")
 
@@ -519,8 +519,7 @@ class ModelAdapter:
             config_path: 导入文件路径
             api_keys: 可选的 API 密钥字典（provider_key -> api_key）
         """
-        with open(config_path, 'r', encoding='utf-8') as f:
-            configs = yaml.safe_load(f) or {}
+        configs = load_yaml_file(config_path, default_factory=dict)
 
         self.providers.clear()
         
@@ -548,13 +547,11 @@ _default_adapter = None
 
 def get_default_adapter() -> ModelAdapter:
     """获取全局默认的 Model Adapter 实例"""
-    global _default_adapter
     return get_runtime_dependency(
         container_getter='get_model_adapter',
         fallback_name='model_adapter',
         fallback_factory=ModelAdapter,
-        legacy_getter=lambda: _default_adapter,
-        legacy_setter=lambda instance: globals().__setitem__('_default_adapter', instance),
+        require_container=True,
     )
 
 

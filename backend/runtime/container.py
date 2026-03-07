@@ -220,6 +220,23 @@ class RuntimeContainer:
                 self._instances['session_manager'] = instance
             return instance
 
+    def get_event_bus(self, *, enable_persistence: bool = False, max_history: int = 1000):
+        from agents.events.bus import EventBus
+
+        instance = self.get_instance('event_bus')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('event_bus')
+            if instance is None:
+                instance = EventBus(
+                    enable_persistence=enable_persistence,
+                    max_history=max_history,
+                )
+                self._instances['event_bus'] = instance
+            return instance
+
     def startup_mcp(self) -> None:
         self.get_mcp_manager().startup()
 
@@ -231,6 +248,13 @@ class RuntimeContainer:
                 session_manager.shutdown()
             except Exception as error:
                 logger.warning('关闭会话事件总线管理器失败: %s', error)
+
+        event_bus = self._instances.get('event_bus')
+        if event_bus is not None:
+            try:
+                event_bus.clear_history()
+            except Exception as error:
+                logger.warning('清理全局事件总线历史失败: %s', error)
 
         mcp_manager = self._instances.get('mcp_manager')
         if mcp_manager is not None:

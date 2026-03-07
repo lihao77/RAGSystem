@@ -225,6 +225,7 @@ def get_vector_management_service() -> VectorManagementService:
         container_getter='get_vector_management_service',
         fallback_name='vector_management_service',
         fallback_factory=VectorManagementService,
+        require_container=True,
         legacy_getter=lambda: _vector_management_service,
         legacy_setter=lambda instance: globals().__setitem__('_vector_management_service', instance),
     )

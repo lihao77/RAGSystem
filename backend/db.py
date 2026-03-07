@@ -75,7 +75,7 @@ def get_neo4j_connection() -> Neo4jConnection:
         container_getter='get_neo4j_connection',
         fallback_name='neo4j_connection',
         fallback_factory=Neo4jConnection,
-        legacy_getter=lambda: neo4j_conn,
+        require_container=True,
     )
 
 

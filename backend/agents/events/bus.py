@@ -22,6 +22,8 @@ from enum import Enum
 from collections import defaultdict
 from contextvars import ContextVar
 
+from runtime.dependencies import get_runtime_dependency
+
 logger = logging.getLogger(__name__)
 
 
@@ -512,9 +514,16 @@ def get_event_bus(enable_persistence: bool = False) -> EventBus:
         EventBus实例
     """
     global _global_event_bus
-    if _global_event_bus is None:
-        _global_event_bus = EventBus(enable_persistence=enable_persistence)
-    return _global_event_bus
+    return get_runtime_dependency(
+        fallback_name='event_bus',
+        fallback_factory=lambda: EventBus(enable_persistence=enable_persistence),
+        legacy_getter=lambda: _global_event_bus,
+        legacy_setter=lambda instance: globals().__setitem__('_global_event_bus', instance),
+        container_resolver=lambda container: container.get_event_bus(
+            enable_persistence=enable_persistence,
+        ),
+        require_container=True,
+    )
 
 
 # ==================== 上下文变量 ====================

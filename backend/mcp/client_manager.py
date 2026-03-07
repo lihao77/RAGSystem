@@ -567,11 +567,9 @@ _manager_instance: Optional[MCPClientManager] = None
 
 def get_mcp_manager() -> MCPClientManager:
     """获取 MCPClientManager 单例（懒初始化，不自动 startup）"""
-    global _manager_instance
     return get_runtime_dependency(
         container_getter='get_mcp_manager',
         fallback_name='mcp_manager',
         fallback_factory=MCPClientManager,
-        legacy_getter=lambda: _manager_instance,
-        legacy_setter=lambda instance: globals().__setitem__('_manager_instance', instance),
+        require_container=True,
     )

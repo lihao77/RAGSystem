@@ -279,6 +279,7 @@ def get_task_registry() -> TaskRegistry:
         container_getter='get_task_registry',
         fallback_name='task_registry',
         fallback_factory=TaskRegistry,
+        require_container=True,
         legacy_getter=lambda: _registry,
         legacy_setter=lambda instance: globals().__setitem__('_registry', instance),
     )

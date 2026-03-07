@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uuid
-import yaml
+
+from utils.yaml_store import load_yaml_file, save_yaml_file
 
 
 class FileIndex:
@@ -60,11 +61,9 @@ class FileIndex:
         if not self.index_path.exists():
             return {}
         try:
-            with open(self.index_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f) or {}
+            return load_yaml_file(self.index_path, default_factory=dict)
         except Exception:
             return {}
 
     def _write(self, data: Dict[str, Any]):
-        with open(self.index_path, 'w', encoding='utf-8') as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+        save_yaml_file(self.index_path, data, default_flow_style=False, sort_keys=False)

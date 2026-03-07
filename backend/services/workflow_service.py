@@ -93,6 +93,7 @@ def get_workflow_service() -> WorkflowService:
         container_getter='get_workflow_service',
         fallback_name='workflow_service',
         fallback_factory=WorkflowService,
+        require_container=True,
         legacy_getter=lambda: _workflow_service,
         legacy_setter=lambda instance: globals().__setitem__('_workflow_service', instance),
     )

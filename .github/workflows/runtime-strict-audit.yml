@@ -1,0 +1,37 @@
+name: Runtime Strict Audit
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**/*.py'
+      - 'backend/scripts/runtime_strict_audit.py'
+      - 'backend/tests/runtime_strict_audit_test.py'
+      - '.github/workflows/runtime-strict-audit.yml'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'backend/**/*.py'
+      - 'backend/scripts/runtime_strict_audit.py'
+      - 'backend/tests/runtime_strict_audit_test.py'
+      - '.github/workflows/runtime-strict-audit.yml'
+
+jobs:
+  runtime-strict-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify strict audit script
+        run: python backend/scripts/runtime_strict_audit.py --check-container-only
+
+      - name: Run strict audit unit tests
+        run: python -m unittest backend.tests.runtime_strict_audit_test -v

@@ -304,6 +304,7 @@ def get_session_manager(
             enable_persistence=enable_persistence,
             max_history=max_history,
         ),
+        require_container=True,
     )
 
 

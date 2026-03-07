@@ -175,6 +175,25 @@ RAGSystem/
 └── start_server.bat             # Windows 一键启动脚本
 ```
 
+## 开发检查
+
+```bash
+# 运行 runtime strict 审计（若本机安装了 make）
+make runtime-strict-audit
+
+# 本地执行 container-only 门禁（若本机安装了 make）
+make runtime-strict-check
+
+# 直接运行 Python 脚本
+python3 backend/scripts/runtime_strict_audit.py
+python3 backend/scripts/runtime_strict_audit.py --check-container-only
+```
+
+Windows CMD：
+```bat
+runtime_strict_check.bat
+```
+
 ## 安全说明
 
 ⚠️ 配置文件包含敏感信息，已添加到 `.gitignore`，请勿提交到版本控制。

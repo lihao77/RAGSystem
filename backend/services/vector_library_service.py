@@ -466,6 +466,7 @@ def get_vector_library_service() -> VectorLibraryService:
         container_getter='get_vector_library_service',
         fallback_name='vector_library_service',
         fallback_factory=VectorLibraryService,
+        require_container=True,
         legacy_getter=lambda: _vector_library_service,
         legacy_setter=lambda instance: globals().__setitem__('_vector_library_service', instance),
     )

@@ -3,7 +3,7 @@ import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -684,7 +684,7 @@ class ConversationStore:
             return items
 
     def cleanup_expired_sessions(self) -> int:
-        cutoff = datetime.utcnow() - timedelta(days=self.session_ttl_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.session_ttl_days)
         cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
         with self._get_connection() as conn:

@@ -8,11 +8,11 @@ MCP Server 配置持久化
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from datetime import datetime
-
-import yaml
+from datetime import datetime, timezone
 
 from runtime.dependencies import get_runtime_dependency
+
+from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 
 from .config import MCPServerConfig
 
@@ -29,24 +29,40 @@ class MCPConfigStore:
         self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _build_empty_payload(self) -> Dict[str, Any]:
+        return {"servers": {}}
+
+    def _migrate_raw(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        if not isinstance(data, dict):
+            return self._build_empty_payload(), True
+
+        payload = dict(data)
+        servers = payload.get('servers')
+        if not isinstance(servers, dict):
+            payload['servers'] = {}
+            return payload, True
+        return payload, False
+
     def _load_raw(self) -> Dict[str, Any]:
         """读取 YAML，文件不存在时返回默认结构"""
-        if not self.config_path.exists():
-            return {"servers": {}}
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+            data, _ = load_versioned_yaml_file(
+                self.config_path,
+                default_factory=self._build_empty_payload,
+                migrate=self._migrate_raw,
+                persist_on_change=True,
+                backup_on_change=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
         except Exception as e:
             logger.warning(f"读取 MCP 配置失败，使用默认: {e}")
-            return {"servers": {}}
-        if not isinstance(data, dict):
-            return {"servers": {}}
-        return {"servers": data.get("servers") or {}}
+            return self._build_empty_payload()
+        return data
 
     def _save_raw(self, data: Dict[str, Any]) -> None:
         """写入 YAML"""
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        save_versioned_yaml_file(self.config_path, data, backup=True, default_flow_style=False, sort_keys=False)
 
     def list_servers(self) -> List[Dict[str, Any]]:
         """列出所有 MCP Server 配置"""
@@ -75,7 +91,7 @@ class MCPConfigStore:
             raise ValueError(f"MCP Server 已存在: {config.name}")
         entry = config.model_dump(exclude_none=False)
         entry.pop("name", None)
-        entry["created_at"] = datetime.utcnow().isoformat() + "Z"
+        entry["created_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         data["servers"][config.name] = entry
         self._save_raw(data)
         logger.info(f"已添加 MCP Server: {config.name}")
@@ -89,7 +105,7 @@ class MCPConfigStore:
         # 不允许修改 name
         updates.pop("name", None)
         data["servers"][server_name].update(updates)
-        data["servers"][server_name]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        data["servers"][server_name]["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._save_raw(data)
         logger.info(f"已更新 MCP Server: {server_name}")
 
@@ -116,6 +132,7 @@ def get_mcp_config_store(config_path: Optional[Path] = None) -> MCPConfigStore:
         container_getter='get_mcp_config_store',
         fallback_name='mcp_config_store',
         fallback_factory=MCPConfigStore,
+        require_container=True,
         legacy_getter=lambda: _instance,
         legacy_setter=lambda instance: globals().__setitem__('_instance', instance),
     )

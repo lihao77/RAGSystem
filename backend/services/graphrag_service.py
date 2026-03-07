@@ -485,6 +485,7 @@ def get_graphrag_service():
         container_getter='get_graphrag_service',
         fallback_name='graphrag_service',
         fallback_factory=GraphRAGService,
+        require_container=True,
         legacy_getter=lambda: _graphrag_service,
         legacy_setter=lambda instance: globals().__setitem__('_graphrag_service', instance),
     )

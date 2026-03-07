@@ -243,6 +243,7 @@ def get_agent_config_service() -> AgentConfigService:
         container_getter='get_agent_config_service',
         fallback_name='agent_config_service',
         fallback_factory=AgentConfigService,
+        require_container=True,
         legacy_getter=lambda: _agent_config_service,
         legacy_setter=lambda instance: globals().__setitem__('_agent_config_service', instance),
     )

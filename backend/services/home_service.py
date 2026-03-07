@@ -107,6 +107,7 @@ def get_home_service() -> HomeService:
         container_getter='get_home_service',
         fallback_name='home_service',
         fallback_factory=HomeService,
+        require_container=True,
         legacy_getter=lambda: _home_service,
         legacy_setter=lambda instance: globals().__setitem__('_home_service', instance),
     )

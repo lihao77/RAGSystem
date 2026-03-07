@@ -143,6 +143,7 @@ def get_embedding_model_service() -> EmbeddingModelService:
         container_getter='get_embedding_model_service',
         fallback_name='embedding_model_service',
         fallback_factory=EmbeddingModelService,
+        require_container=True,
         legacy_getter=lambda: _embedding_model_service,
         legacy_setter=lambda instance: globals().__setitem__('_embedding_model_service', instance),
     )

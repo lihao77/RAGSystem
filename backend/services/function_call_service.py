@@ -156,6 +156,7 @@ def get_function_call_service() -> FunctionCallService:
         container_getter='get_function_call_service',
         fallback_name='function_call_service',
         fallback_factory=FunctionCallService,
+        require_container=True,
         legacy_getter=lambda: _function_call_service,
         legacy_setter=lambda instance: globals().__setitem__('_function_call_service', instance),
     )

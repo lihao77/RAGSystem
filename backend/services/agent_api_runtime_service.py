@@ -87,6 +87,7 @@ def get_agent_api_runtime_service() -> AgentApiRuntimeService:
         container_getter='get_agent_api_runtime_service',
         fallback_name='agent_api_runtime_service',
         fallback_factory=AgentApiRuntimeService,
+        require_container=True,
         legacy_getter=lambda: _agent_api_runtime_service,
         legacy_setter=lambda instance: globals().__setitem__('_agent_api_runtime_service', instance),
     )

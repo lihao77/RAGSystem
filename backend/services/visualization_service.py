@@ -799,6 +799,7 @@ def get_visualization_service():
         container_getter='get_visualization_service',
         fallback_name='visualization_service',
         fallback_factory=VisualizationService,
+        require_container=True,
         legacy_getter=lambda: _visualization_service,
         legacy_setter=lambda instance: globals().__setitem__('_visualization_service', instance),
     )

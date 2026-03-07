@@ -72,6 +72,24 @@ class RuntimeDependenciesTest(unittest.TestCase):
         self.assertIn('test_strict_mode_raises_with_callsite', message)
         self.assertEqual(get_runtime_fallback_stats(), [])
 
+    def test_require_container_raises_without_runtime_strict(self) -> None:
+        def invoke_dependency() -> object:
+            return get_runtime_dependency(
+                fallback_name='container_only_service',
+                fallback_factory=object,
+                container_resolver=lambda container: container,
+                require_container=True,
+            )
+
+        with self.assertRaises(RuntimeError) as context:
+            invoke_dependency()
+
+        message = str(context.exception)
+        self.assertIn('container_only_service', message)
+        self.assertIn('invoke_dependency', message)
+        self.assertIn('禁用 legacy fallback', message)
+        self.assertEqual(get_runtime_fallback_stats(), [])
+
     def test_fallback_tracking_captures_caller_and_count(self) -> None:
         state: dict[str, object | None] = {'instance': None}
 

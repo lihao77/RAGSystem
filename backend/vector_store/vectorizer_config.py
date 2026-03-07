@@ -10,9 +10,9 @@ import re
 import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
-import yaml
+from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -41,30 +41,46 @@ class VectorizerConfigStore:
         self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _build_empty_payload(self) -> Dict[str, Any]:
+        return {
+            "active_vectorizer_key": None,
+            "vectorizers": {},
+        }
+
+    def _migrate_raw(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        if not isinstance(data, dict):
+            return self._build_empty_payload(), True
+
+        payload = dict(data)
+        changed = False
+        if 'active_vectorizer_key' not in payload:
+            payload['active_vectorizer_key'] = None
+            changed = True
+        if not isinstance(payload.get('vectorizers'), dict):
+            payload['vectorizers'] = {}
+            changed = True
+        return payload, changed
+
     def _load_raw(self) -> Dict[str, Any]:
         """读取 YAML 为字典，文件不存在时返回默认结构"""
-        if not self.config_path.exists():
-            return {
-                "active_vectorizer_key": None,
-                "vectorizers": {},
-            }
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+            data, _ = load_versioned_yaml_file(
+                self.config_path,
+                default_factory=self._build_empty_payload,
+                migrate=self._migrate_raw,
+                persist_on_change=True,
+                backup_on_change=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
         except Exception as e:
             logger.warning("读取向量化器配置失败，使用默认: %s", e)
-            return {"active_vectorizer_key": None, "vectorizers": {}}
-        if not isinstance(data, dict):
-            return {"active_vectorizer_key": None, "vectorizers": {}}
-        return {
-            "active_vectorizer_key": data.get("active_vectorizer_key"),
-            "vectorizers": data.get("vectorizers") or {},
-        }
+            return self._build_empty_payload()
+        return data
 
     def _save_raw(self, data: Dict[str, Any]) -> None:
         """写入 YAML"""
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        save_versioned_yaml_file(self.config_path, data, backup=True, default_flow_style=False, sort_keys=False)
 
     def get_active_key(self) -> Optional[str]:
         """当前激活的向量化器键"""
@@ -125,7 +141,7 @@ class VectorizerConfigStore:
             "provider_key": provider_key,
             "model_name": model_name,
             "distance_metric": distance_metric,
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         if provider_type:
             entry["provider_type"] = provider_type

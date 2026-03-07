@@ -8,11 +8,11 @@
 from __future__ import annotations
 
 import os
-import yaml
 from pathlib import Path
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from utils.yaml_store import load_yaml_file
 
 
 # ============ Model Adapter 配置 ============
@@ -68,8 +68,7 @@ class ProvidersConfig(BaseModel):
                 f"请运行: cp {example} {path}\n"
                 f"然后编辑 {path} 填入真实 API 密钥"
             )
-        with open(path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        raw = load_yaml_file(path, default_factory=dict) or {}
         validated = {}
         errors = []
         for key, value in raw.items():
@@ -118,8 +117,7 @@ class VectorizersConfig(BaseModel):
         path = Path(path)
         if not path.exists():
             return cls()
-        with open(path, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        raw = load_yaml_file(path, default_factory=dict) or {}
         return cls(
             active_vectorizer_key=raw.get("active_vectorizer_key"),
             vectorizers={

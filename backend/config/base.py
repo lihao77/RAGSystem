@@ -4,11 +4,11 @@
 """
 
 import os
-import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from pydantic import ValidationError
+from utils.yaml_store import load_yaml_file
 from .models import AppConfig
 
 
@@ -58,8 +58,7 @@ class ConfigManager:
         if not path.exists():
             return None
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f) or {}
+            return load_yaml_file(path, default_factory=dict)
         except Exception as e:
             print(f"加载配置文件失败 {path}: {e}")
             return None

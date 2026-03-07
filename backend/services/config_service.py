@@ -4,14 +4,33 @@
 """
 
 import logging
-from runtime.dependencies import get_runtime_dependency
-import yaml
-import requests
 from pathlib import Path
-from config import get_config, reload_config as reload_config_func, AppConfig
+
+import requests
+import yaml
+from config import AppConfig, get_config, reload_config as reload_config_func
 from db import test_connection
+from runtime.dependencies import get_runtime_dependency
+from utils.versioned_yaml_store import save_versioned_yaml_file
+from utils.yaml_store import load_yaml_file
 
 logger = logging.getLogger(__name__)
+
+
+def _config_yaml_path() -> Path:
+    return Path(__file__).parent.parent / 'config' / 'yaml' / 'config.yaml'
+
+
+def _default_config_yaml_path() -> Path:
+    return Path(__file__).parent.parent / 'config' / 'yaml' / 'config.default.yaml'
+
+
+def _read_yaml_text(path: Path) -> str:
+    return path.read_text(encoding='utf-8')
+
+
+def _parse_yaml_text(content: str) -> dict:
+    return yaml.safe_load(content) or {}
 
 
 def _embedding_display_from_vector_library():
@@ -48,32 +67,15 @@ class ConfigService:
             dict: {'data': dict, 'content': str}
         """
         try:
-            import yaml
-            
-            config_file_path = Path(__file__).parent.parent / 'config' / 'yaml' / 'config.yaml'
-            
-            if config_file_path.exists():
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    config_content = f.read()
-                
-                # 解析 YAML 为字典
-                config_dict = yaml.safe_load(config_content) or {}
-                
-                return {
-                    'data': config_dict,
-                    'content': config_content
-                }
-            else:
-                # 如果用户配置文件不存在，返回默认配置
-                default_config_path = Path(__file__).parent.parent / 'config' / 'yaml' / 'config.default.yaml'
-                with open(default_config_path, 'r', encoding='utf-8') as f:
-                    default_content = f.read()
-                
-                return {
-                    'data': yaml.safe_load(default_content) or {},
-                    'content': default_content
-                }
-                
+            config_file_path = _config_yaml_path()
+            target_path = config_file_path if config_file_path.exists() else _default_config_yaml_path()
+            config_content = _read_yaml_text(target_path)
+
+            return {
+                'data': _parse_yaml_text(config_content),
+                'content': config_content,
+            }
+
         except Exception as e:
             logger.error(f'获取原始配置失败: {e}')
             raise
@@ -135,22 +137,25 @@ class ConfigService:
             bool: 是否更新成功
         """
         try:
-            config_file_path = Path(__file__).parent.parent / 'config' / 'yaml' / 'config.yaml'
+            config_file_path = _config_yaml_path()
             config_file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # 读取现有配置（如果存在且需要合并）
             if merge and config_file_path.exists():
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    existing_config = yaml.safe_load(f) or {}
+                existing_config = load_yaml_file(config_file_path, default_factory=dict)
                 # 深度合并
                 merged_config = self._deep_merge(existing_config, config_data)
             else:
                 merged_config = config_data
             
-            # 写入
-            with open(config_file_path, 'w', encoding='utf-8') as f:
-                yaml.dump(merged_config, f, allow_unicode=True, 
-                         default_flow_style=False, indent=2, sort_keys=False)
+            save_versioned_yaml_file(
+                config_file_path,
+                merged_config,
+                backup=True,
+                default_flow_style=False,
+                indent=2,
+                sort_keys=False,
+            )
             
             logger.info('配置文件已更新')
             reload_config_func()
@@ -411,14 +416,13 @@ class ConfigService:
             tuple: (content, filename) 或 None（文件不存在时）
         """
         try:
-            config_file_path = Path(__file__).parent.parent / 'config' / 'yaml' / 'config.yaml'
-            
+            config_file_path = _config_yaml_path()
+
             if not config_file_path.exists():
                 return None
-            
-            with open(config_file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
+
+            content = _read_yaml_text(config_file_path)
+
             return (content, 'config.yaml')
             
         except Exception as e:
@@ -782,6 +786,7 @@ def get_config_service():
         container_getter='get_config_service',
         fallback_name='config_service',
         fallback_factory=ConfigService,
+        require_container=True,
         legacy_getter=lambda: _config_service,
         legacy_setter=lambda instance: globals().__setitem__('_config_service', instance),
     )

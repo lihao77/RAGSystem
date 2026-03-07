@@ -37,6 +37,7 @@ def get_runtime_dependency(
     legacy_getter: Optional[Callable[[], Any]] = None,
     legacy_setter: Optional[Callable[[Any], None]] = None,
     container_resolver: Optional[Callable[[Any], Any]] = None,
+    require_container: bool = False,
 ):
     """优先从 RuntimeContainer 获取依赖；必要时退回 legacy fallback。"""
     container = get_current_runtime_container()
@@ -49,15 +50,21 @@ def get_runtime_dependency(
 
     accessor, caller = _capture_runtime_callsite()
 
-    if _runtime_strict_enabled():
+    if require_container or _runtime_strict_enabled():
         location_message = ''
         context = _format_runtime_fallback_context(accessor=accessor, caller=caller)
         if context:
             location_message = f'调用链: {context}。'
+        resolution_message = '请先通过 app/runtime 初始化运行时容器。'
+        if require_container and not _runtime_strict_enabled():
+            resolution_message = (
+                '该依赖已禁用 legacy fallback；'
+                '请先通过 app/runtime 初始化运行时容器。'
+            )
         raise RuntimeError(
             f'RuntimeContainer 未初始化，无法解析依赖: {fallback_name}。'
             f'{location_message}'
-            f'请先通过 app/runtime 初始化运行时容器。'
+            f'{resolution_message}'
         )
 
     _record_runtime_fallback(fallback_name, accessor=accessor, caller=caller)

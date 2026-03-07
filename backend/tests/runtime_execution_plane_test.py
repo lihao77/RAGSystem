@@ -7,11 +7,14 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
+import agents.core.orchestrator as orchestrator_module
+import agents.events.bus as event_bus_module
 import agents.events.session_manager as session_manager_module
 import agents.task_registry as task_registry_module
 import mcp.client_manager as mcp_client_manager_module
@@ -48,8 +51,11 @@ class RuntimeExecutionPlaneTest(unittest.TestCase):
             except Exception:
                 pass
         session_manager_module._global_session_manager = None
+        orchestrator_module._global_orchestrator = None
         task_registry_module._registry = None
         mcp_client_manager_module._manager_instance = None
+        event_bus_module._global_event_bus = None
+        event_bus_module._current_event_bus.set(None)
         reset_runtime_fallback_tracking()
 
     def test_task_registry_prefers_container_instance(self) -> None:
@@ -61,6 +67,40 @@ class RuntimeExecutionPlaneTest(unittest.TestCase):
         result = task_registry_module.get_task_registry()
 
         self.assertIs(result, expected)
+        self.assertEqual(get_runtime_fallback_stats(), [])
+
+    def test_orchestrator_prefers_container_instance(self) -> None:
+        class FakeRuntimeService:
+            def __init__(self, orchestrator):
+                self._orchestrator = orchestrator
+
+            def get_orchestrator(self):
+                return self._orchestrator
+
+        container = RuntimeContainer()
+        expected = object()
+        set_current_runtime_container(container)
+
+        with patch.object(
+            container,
+            'get_agent_runtime_service',
+            return_value=FakeRuntimeService(expected),
+        ):
+            result = orchestrator_module.get_orchestrator()
+
+        self.assertIs(result, expected)
+        self.assertEqual(get_runtime_fallback_stats(), [])
+
+    def test_orchestrator_requires_container(self) -> None:
+        def invoke_orchestrator():
+            return orchestrator_module.get_orchestrator()
+
+        with self.assertRaises(RuntimeError) as context:
+            invoke_orchestrator()
+
+        message = str(context.exception)
+        self.assertIn('agent_orchestrator', message)
+        self.assertIn('invoke_orchestrator', message)
         self.assertEqual(get_runtime_fallback_stats(), [])
 
     def test_session_manager_prefers_container_and_keeps_config(self) -> None:
@@ -142,6 +182,32 @@ class RuntimeExecutionPlaneTest(unittest.TestCase):
         message = str(context.exception)
         self.assertIn('mcp_manager', message)
         self.assertIn('invoke_manager', message)
+        self.assertEqual(get_runtime_fallback_stats(), [])
+
+
+    def test_event_bus_prefers_container_instance(self) -> None:
+        container = RuntimeContainer()
+        expected = event_bus_module.EventBus(enable_persistence=True)
+        container.set_instance('event_bus', expected)
+        set_current_runtime_container(container)
+
+        result = event_bus_module.get_event_bus(enable_persistence=False)
+
+        self.assertIs(result, expected)
+        self.assertEqual(get_runtime_fallback_stats(), [])
+
+    def test_event_bus_strict_mode_raises_without_container(self) -> None:
+        os.environ['RAGSYSTEM_RUNTIME_STRICT'] = '1'
+
+        def invoke_event_bus():
+            return event_bus_module.get_event_bus()
+
+        with self.assertRaises(RuntimeError) as context:
+            invoke_event_bus()
+
+        message = str(context.exception)
+        self.assertIn('event_bus', message)
+        self.assertIn('invoke_event_bus', message)
         self.assertEqual(get_runtime_fallback_stats(), [])
 
 
