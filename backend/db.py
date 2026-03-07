@@ -8,6 +8,7 @@ import logging
 from neo4j import GraphDatabase
 
 from config import get_config
+from runtime.dependencies import get_runtime_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +71,12 @@ neo4j_conn = Neo4jConnection()
 
 
 def get_neo4j_connection() -> Neo4jConnection:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_neo4j_connection()
-    except Exception:
-        pass
-
-    return neo4j_conn
+    return get_runtime_dependency(
+        container_getter='get_neo4j_connection',
+        fallback_name='neo4j_connection',
+        fallback_factory=Neo4jConnection,
+        legacy_getter=lambda: neo4j_conn,
+    )
 
 
 

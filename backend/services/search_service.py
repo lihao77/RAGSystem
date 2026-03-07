@@ -4,6 +4,7 @@
 """
 
 import logging
+from runtime.dependencies import get_runtime_dependency
 from datetime import datetime
 from db import get_session
 from utils.neo4j_helpers import convert_neo4j_types
@@ -487,6 +488,10 @@ _search_service = None
 def get_search_service():
     """获取搜索服务单例"""
     global _search_service
-    if _search_service is None:
-        _search_service = SearchService()
-    return _search_service
+    return get_runtime_dependency(
+        container_getter='get_search_service',
+        fallback_name='search_service',
+        fallback_factory=SearchService,
+        legacy_getter=lambda: _search_service,
+        legacy_setter=lambda instance: globals().__setitem__('_search_service', instance),
+    )

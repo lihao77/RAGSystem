@@ -9,6 +9,7 @@ import yaml
 import logging
 import time
 from typing import Any, Dict, List, Optional, Union
+from runtime.dependencies import get_runtime_dependency
 from .base import AIProvider, ModelResponse, EmbeddingResponse, AIProviderType
 from .providers import create_provider_from_config
 from .config_store import ModelAdapterConfigStore
@@ -547,19 +548,14 @@ _default_adapter = None
 
 def get_default_adapter() -> ModelAdapter:
     """获取全局默认的 Model Adapter 实例"""
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_model_adapter()
-    except Exception:
-        pass
-
     global _default_adapter
-    if _default_adapter is None:
-        _default_adapter = ModelAdapter()
-    return _default_adapter
+    return get_runtime_dependency(
+        container_getter='get_model_adapter',
+        fallback_name='model_adapter',
+        fallback_factory=ModelAdapter,
+        legacy_getter=lambda: _default_adapter,
+        legacy_setter=lambda instance: globals().__setitem__('_default_adapter', instance),
+    )
 
 
 def set_default_adapter(adapter: ModelAdapter) -> None:

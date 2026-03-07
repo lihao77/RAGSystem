@@ -7,6 +7,8 @@ from typing import Dict, List, Any, Optional
 import time
 import logging
 
+from runtime.dependencies import get_runtime_dependency
+
 from .base import BaseAgent, AgentExecutionError
 from .context import AgentContext
 from .models import AgentResponse
@@ -149,16 +151,16 @@ _global_orchestrator: Optional[AgentOrchestrator] = None
 
 
 def get_orchestrator(model_adapter=None) -> AgentOrchestrator:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_agent_runtime_service().get_orchestrator()
-    except Exception:
-        pass
-
     global _global_orchestrator
+    orchestrator = get_runtime_dependency(
+        fallback_name='agent_orchestrator',
+        fallback_factory=lambda: None,
+        legacy_getter=lambda: _global_orchestrator,
+        container_resolver=lambda container: container.get_agent_runtime_service().get_orchestrator(),
+    )
+    if orchestrator is not None:
+        return orchestrator
+
     if _global_orchestrator is None:
         _global_orchestrator = AgentOrchestrator(model_adapter=model_adapter)
     return _global_orchestrator

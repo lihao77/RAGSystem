@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from runtime.dependencies import get_runtime_dependency
 from nodes import NodeConfigStore, init_registry
 
 logger = logging.getLogger(__name__)
@@ -179,16 +180,11 @@ _node_service: Optional[NodeService] = None
 
 
 def get_node_service() -> NodeService:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_node_service()
-    except Exception:
-        pass
-
     global _node_service
-    if _node_service is None:
-        _node_service = NodeService()
-    return _node_service
+    return get_runtime_dependency(
+        container_getter='get_node_service',
+        fallback_name='node_service',
+        fallback_factory=NodeService,
+        legacy_getter=lambda: _node_service,
+        legacy_setter=lambda instance: globals().__setitem__('_node_service', instance),
+    )

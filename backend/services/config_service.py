@@ -4,6 +4,7 @@
 """
 
 import logging
+from runtime.dependencies import get_runtime_dependency
 import yaml
 import requests
 from pathlib import Path
@@ -777,6 +778,10 @@ _config_service = None
 def get_config_service():
     """获取配置服务单例"""
     global _config_service
-    if _config_service is None:
-        _config_service = ConfigService()
-    return _config_service
+    return get_runtime_dependency(
+        container_getter='get_config_service',
+        fallback_name='config_service',
+        fallback_factory=ConfigService,
+        legacy_getter=lambda: _config_service,
+        legacy_setter=lambda instance: globals().__setitem__('_config_service', instance),
+    )

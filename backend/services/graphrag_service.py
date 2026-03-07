@@ -4,6 +4,7 @@ GraphRAG服务 - 知识图谱问答核心业务逻辑
 """
 
 import logging
+from runtime.dependencies import get_runtime_dependency
 import json
 from model_adapter import get_default_adapter
 from services.query_service import get_query_service
@@ -480,9 +481,13 @@ _graphrag_service = None
 def get_graphrag_service():
     """获取GraphRAG服务单例"""
     global _graphrag_service
-    if _graphrag_service is None:
-        _graphrag_service = GraphRAGService()
-    return _graphrag_service
+    return get_runtime_dependency(
+        container_getter='get_graphrag_service',
+        fallback_name='graphrag_service',
+        fallback_factory=GraphRAGService,
+        legacy_getter=lambda: _graphrag_service,
+        legacy_setter=lambda instance: globals().__setitem__('_graphrag_service', instance),
+    )
 
 
 def reset_graphrag_service():

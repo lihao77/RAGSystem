@@ -5,6 +5,7 @@
 
 from .base import ConfigManager
 from .models import AppConfig, Neo4jConfig, LLMConfig, SystemConfig, ExternalLibsConfig
+from runtime.dependencies import get_runtime_dependency
 
 _config_manager: ConfigManager = None
 
@@ -12,19 +13,14 @@ _config_manager: ConfigManager = None
 
 def get_manager() -> ConfigManager:
     """获取配置管理器实例。"""
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_config_manager()
-    except Exception:
-        pass
-
     global _config_manager
-    if not _config_manager:
-        _config_manager = ConfigManager()
-    return _config_manager
+    return get_runtime_dependency(
+        container_getter='get_config_manager',
+        fallback_name='config_manager',
+        fallback_factory=ConfigManager,
+        legacy_getter=lambda: _config_manager,
+        legacy_setter=lambda instance: globals().__setitem__('_config_manager', instance),
+    )
 
 
 

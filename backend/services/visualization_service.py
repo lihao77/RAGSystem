@@ -4,6 +4,7 @@
 """
 
 import logging
+from runtime.dependencies import get_runtime_dependency
 from db import get_session
 from utils.geo_helpers import add_coordinates_to_entity
 
@@ -794,6 +795,10 @@ _visualization_service = None
 def get_visualization_service():
     """获取可视化服务单例"""
     global _visualization_service
-    if _visualization_service is None:
-        _visualization_service = VisualizationService()
-    return _visualization_service
+    return get_runtime_dependency(
+        container_getter='get_visualization_service',
+        fallback_name='visualization_service',
+        fallback_factory=VisualizationService,
+        legacy_getter=lambda: _visualization_service,
+        legacy_setter=lambda instance: globals().__setitem__('_visualization_service', instance),
+    )

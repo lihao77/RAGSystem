@@ -18,6 +18,7 @@
   - [更新日志](node-config-ui/NODE_CONFIG_CHANGELOG.md) - 查看所有更新
 
 ### 后端开发
+- **[架构边界与路线图](ARCHITECTURE_BOUNDARIES.md)** - 分层规则、运行时入口和重构优先级
 - **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的节点开发指南
 - **[UI元数据快速参考](../backend/nodes/UI_METADATA_REFERENCE.md)** - 节点配置元数据速查
 
@@ -52,6 +53,7 @@ docs/
 ├── README.md                    # 本文件 - 文档中心导航
 ├── DOCUMENTATION_MAP.md         # 文档地图
 ├── configuration-guide.md       # 配置系统指南
+├── ARCHITECTURE_BOUNDARIES.md   # 架构边界与演进路线图
 ├── BACKEND_CONFIG_SURVEY.md    # 后端配置调查报告
 ├── FILE_SYSTEM_INTEGRATION.md   # 文件系统集成
 ├── migration/                  # 迁移指南

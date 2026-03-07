@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from runtime.dependencies import get_runtime_dependency
 from agents import load_agents_from_config
 from agents.core.orchestrator import AgentOrchestrator
 from agents.core.registry import AgentRegistry
@@ -106,16 +107,11 @@ _agent_runtime_service: Optional[AgentRuntimeService] = None
 
 
 def get_agent_runtime_service() -> AgentRuntimeService:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_agent_runtime_service()
-    except Exception:
-        pass
-
     global _agent_runtime_service
-    if _agent_runtime_service is None:
-        _agent_runtime_service = AgentRuntimeService()
-    return _agent_runtime_service
+    return get_runtime_dependency(
+        container_getter='get_agent_runtime_service',
+        fallback_name='agent_runtime_service',
+        fallback_factory=AgentRuntimeService,
+        legacy_getter=lambda: _agent_runtime_service,
+        legacy_setter=lambda instance: globals().__setitem__('_agent_runtime_service', instance),
+    )

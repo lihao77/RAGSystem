@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import logging
 
+from runtime.dependencies import get_runtime_dependency
 from model_adapter import get_default_adapter
 
 logger = logging.getLogger(__name__)
@@ -171,16 +172,11 @@ _model_adapter_service: Optional[ModelAdapterService] = None
 
 
 def get_model_adapter_service() -> ModelAdapterService:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_model_adapter_service()
-    except Exception:
-        pass
-
     global _model_adapter_service
-    if _model_adapter_service is None:
-        _model_adapter_service = ModelAdapterService()
-    return _model_adapter_service
+    return get_runtime_dependency(
+        container_getter='get_model_adapter_service',
+        fallback_name='model_adapter_service',
+        fallback_factory=ModelAdapterService,
+        legacy_getter=lambda: _model_adapter_service,
+        legacy_setter=lambda instance: globals().__setitem__('_model_adapter_service', instance),
+    )

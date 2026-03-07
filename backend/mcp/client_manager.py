@@ -11,6 +11,7 @@ import inspect
 import logging
 import threading
 from typing import Any, Dict, List, Optional
+from runtime.dependencies import get_runtime_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -560,18 +561,11 @@ _manager_lock = threading.Lock()
 
 def get_mcp_manager() -> MCPClientManager:
     """获取 MCPClientManager 单例（懒初始化，不自动 startup）"""
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_mcp_manager()
-    except Exception:
-        pass
-
     global _manager_instance
-    if _manager_instance is None:
-        with _manager_lock:
-            if _manager_instance is None:
-                _manager_instance = MCPClientManager()
-    return _manager_instance
+    return get_runtime_dependency(
+        container_getter='get_mcp_manager',
+        fallback_name='mcp_manager',
+        fallback_factory=MCPClientManager,
+        legacy_getter=lambda: _manager_instance,
+        legacy_setter=lambda instance: globals().__setitem__('_manager_instance', instance),
+    )

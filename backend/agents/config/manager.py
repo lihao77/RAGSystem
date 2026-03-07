@@ -12,6 +12,7 @@ import logging
 from typing import Dict, Optional, List
 from datetime import datetime
 from pathlib import Path
+from runtime.dependencies import get_runtime_dependency
 from .models import AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset, apply_preset
 
 logger = logging.getLogger(__name__)
@@ -353,16 +354,11 @@ def get_config_manager() -> AgentConfigManager:
     Returns:
         AgentConfigManager 实例
     """
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_agent_config_manager()
-    except Exception:
-        pass
-
     global _global_config_manager
-    if _global_config_manager is None:
-        _global_config_manager = AgentConfigManager()
-    return _global_config_manager
+    return get_runtime_dependency(
+        container_getter='get_agent_config_manager',
+        fallback_name='agent_config_manager',
+        fallback_factory=AgentConfigManager,
+        legacy_getter=lambda: _global_config_manager,
+        legacy_setter=lambda instance: globals().__setitem__('_global_config_manager', instance),
+    )

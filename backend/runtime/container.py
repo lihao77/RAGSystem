@@ -58,6 +58,11 @@ class RuntimeContainer:
 
         return self._get_or_create('mcp_manager', MCPClientManager)
 
+    def get_mcp_service(self):
+        from services.mcp_service import MCPService
+
+        return self._get_or_create('mcp_service', MCPService)
+
     def get_model_adapter_service(self):
         from services.model_adapter_service import ModelAdapterService
 
@@ -77,6 +82,71 @@ class RuntimeContainer:
         from services.node_service import NodeService
 
         return self._get_or_create('node_service', NodeService)
+
+    def get_workflow_service(self):
+        from services.workflow_service import WorkflowService
+
+        return self._get_or_create('workflow_service', WorkflowService)
+
+    def get_vector_library_service(self):
+        from services.vector_library_service import VectorLibraryService
+
+        return self._get_or_create('vector_library_service', VectorLibraryService)
+
+    def get_agent_api_runtime_service(self):
+        from services.agent_api_runtime_service import AgentApiRuntimeService
+
+        return self._get_or_create('agent_api_runtime_service', AgentApiRuntimeService)
+
+    def get_embedding_model_service(self):
+        from services.embedding_model_service import EmbeddingModelService
+
+        return self._get_or_create('embedding_model_service', EmbeddingModelService)
+
+    def get_vector_management_service(self):
+        from services.vector_management_service import VectorManagementService
+
+        return self._get_or_create('vector_management_service', VectorManagementService)
+
+    def get_graphrag_api_service(self):
+        from services.graphrag_api_service import GraphRAGApiService
+
+        return self._get_or_create('graphrag_api_service', GraphRAGApiService)
+
+    def get_function_call_service(self):
+        from services.function_call_service import FunctionCallService
+
+        return self._get_or_create('function_call_service', FunctionCallService)
+
+    def get_home_service(self):
+        from services.home_service import HomeService
+
+        return self._get_or_create('home_service', HomeService)
+
+    def get_query_service(self):
+        from services.query_service import QueryService
+
+        return self._get_or_create('query_service', QueryService)
+
+    def get_search_service(self):
+        from services.search_service import SearchService
+
+        return self._get_or_create('search_service', SearchService)
+
+    def get_config_service(self):
+        from services.config_service import ConfigService
+
+        return self._get_or_create('config_service', ConfigService)
+
+    def get_visualization_service(self):
+        from services.visualization_service import VisualizationService
+
+        return self._get_or_create('visualization_service', VisualizationService)
+
+    def get_graphrag_service(self):
+        from services.graphrag_service import GraphRAGService
+
+        return self._get_or_create('graphrag_service', GraphRAGService)
 
     def get_neo4j_connection(self):
         from db import Neo4jConnection

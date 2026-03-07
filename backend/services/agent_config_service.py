@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from runtime.dependencies import get_runtime_dependency
 from agents.config import (
     PRESET_CONFIGS,
     AgentConfig,
@@ -167,17 +168,9 @@ class AgentConfigService:
         return tool_list
 
     def list_available_mcp_servers(self):
-        from mcp import get_mcp_manager
-        from mcp.config_store import get_mcp_config_store
+        from services.mcp_service import get_mcp_service
 
-        store = get_mcp_config_store()
-        manager = get_mcp_manager()
-        servers = []
-        for config in store.list_servers():
-            name = config.get('name') or config.get('server_name', '')
-            status = manager.get_server_status(name)
-            servers.append({**config, **status})
-        return servers
+        return get_mcp_service().list_servers()
 
     def list_available_skills(self):
         from agents.skills.skill_loader import get_skill_loader
@@ -245,16 +238,11 @@ _agent_config_service: Optional[AgentConfigService] = None
 
 
 def get_agent_config_service() -> AgentConfigService:
-    try:
-        from runtime.container import get_current_runtime_container
-
-        container = get_current_runtime_container()
-        if container is not None:
-            return container.get_agent_config_service()
-    except Exception:
-        pass
-
     global _agent_config_service
-    if _agent_config_service is None:
-        _agent_config_service = AgentConfigService()
-    return _agent_config_service
+    return get_runtime_dependency(
+        container_getter='get_agent_config_service',
+        fallback_name='agent_config_service',
+        fallback_factory=AgentConfigService,
+        legacy_getter=lambda: _agent_config_service,
+        legacy_setter=lambda instance: globals().__setitem__('_agent_config_service', instance),
+    )

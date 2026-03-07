@@ -4,6 +4,7 @@
 """
 
 import logging
+from runtime.dependencies import get_runtime_dependency
 from db import get_neo4j_connection
 from utils.neo4j_helpers import parse_neo4j_record
 
@@ -191,6 +192,10 @@ _query_service = None
 def get_query_service():
     """获取查询服务单例"""
     global _query_service
-    if _query_service is None:
-        _query_service = QueryService()
-    return _query_service
+    return get_runtime_dependency(
+        container_getter='get_query_service',
+        fallback_name='query_service',
+        fallback_factory=QueryService,
+        legacy_getter=lambda: _query_service,
+        legacy_setter=lambda instance: globals().__setitem__('_query_service', instance),
+    )

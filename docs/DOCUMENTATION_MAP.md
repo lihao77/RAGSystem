@@ -148,6 +148,7 @@ RAGSystem/
 ### 技术细节
 | 主题 | 文档 | 位置 |
 |------|------|------|
+| 架构边界与路线图 | [ARCHITECTURE_BOUNDARIES](ARCHITECTURE_BOUNDARIES.md) | docs/ |
 | 完整升级说明 | [UPGRADE](node-config-ui/NODE_CONFIG_UI_UPGRADE.md) | docs/node-config-ui/ |
 | 检查清单 | [CHECKLIST](node-config-ui/NODE_CONFIG_CHECKLIST.md) | docs/node-config-ui/ |
 
