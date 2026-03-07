@@ -7,6 +7,7 @@ import os
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 from pydantic import ValidationError
 from .models import AppConfig
 
@@ -16,9 +17,11 @@ class ConfigManager:
 
     def __init__(self):
         self._config: Optional[AppConfig] = None
+        self._backend_root = Path(__file__).resolve().parent.parent
         self._config_dir = Path(__file__).parent / "yaml"
         self._default_config_path = self._config_dir / "config.default.yaml"
         self._user_config_path = self._config_dir / "config.yaml"
+        load_dotenv(self._backend_root / ".env", override=False)
         self.load()
 
     def load(self):

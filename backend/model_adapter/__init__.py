@@ -9,20 +9,12 @@ from .adapter import ModelAdapter, get_default_adapter, set_default_adapter
 from .base import AIProvider, ModelResponse, EmbeddingResponse
 from .providers import OpenAIProvider, DeepSeekProvider, OpenRouterProvider, ModelScopeProvider
 
-# 兼容旧名称
-LLMAdapter = ModelAdapter
-LLMProvider = AIProvider
-LLMResponse = ModelResponse
-
 __all__ = [
     "ModelAdapter",
-    "LLMAdapter",
     "get_default_adapter",
     "set_default_adapter",
     "AIProvider",
-    "LLMProvider",
     "ModelResponse",
-    "LLMResponse",
     "EmbeddingResponse",
     "OpenAIProvider",
     "DeepSeekProvider",

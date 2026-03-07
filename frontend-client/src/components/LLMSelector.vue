@@ -95,7 +95,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { getAvailableModels } from '../api/llmAdapter';
+import { getAvailableModels } from '../api/modelAdapter';
 
 const props = defineProps({
   modelValue: {

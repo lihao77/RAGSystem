@@ -326,7 +326,7 @@ import {
   getAvailableSkills,
   getAvailableMCPServers
 } from '../api/agentConfig';
-import { getProviders } from '../api/llmAdapter';
+import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';

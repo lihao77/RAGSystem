@@ -6,9 +6,9 @@
 
 ### 配置与迁移
 - **[配置系统指南](configuration-guide.md)** - 后端配置、首次部署、健康检查
-- **[迁移指南](migration/README.md)** - 向量存储、LLMAdapter/ModelAdapter 等迁移文档
+- **[迁移指南](migration/README.md)** - 向量存储与 ModelAdapter 历史迁移文档
   - [向量存储迁移](migration/VECTOR_STORE_MIGRATION.md) - ChromaDB → SQLite-vec
-  - [LLMAdapter 迁移](migration/LLMADAPTER_MIGRATION_GUIDE.md) - LLMService → LLMAdapter（历史文档，现已由 ModelAdapter 统一）
+  - [ModelAdapter 历史迁移](migration/LLMADAPTER_MIGRATION_GUIDE.md) - LLMService / LLMAdapter → ModelAdapter（历史说明）
 
 ### 节点系统
 - **[节点配置UI文档](node-config-ui/README.md)** - 节点配置界面升级完整文档

@@ -1,13 +1,9 @@
 /**
- * Model Adapter API 调用模块（兼容旧 llm adapter 调用）
+ * Model Adapter API 调用模块。
  */
 
 const API_BASE = '/api/model-adapter';
 
-/**
- * 获取所有已配置的 LLM Providers
- * @returns {Promise<Array>} Provider 列表
- */
 export async function getProviders() {
   try {
     const response = await fetch(`${API_BASE}/providers`, {
@@ -30,9 +26,6 @@ export async function getProviders() {
   }
 }
 
-/**
- * 从 provider 配置中取出 chat 模型列表（model_map.chat 或 models 或 model）
- */
 function getChatModels(provider) {
   const fromMap = provider.model_map?.chat;
   if (fromMap != null) {
@@ -44,10 +37,6 @@ function getChatModels(provider) {
   return [];
 }
 
-/**
- * 获取所有可用的 LLM 模型列表（使用复合键 provider_key，value 为 provider_key/model）
- * @returns {Promise<Array<{label: string, value: string, provider: string, model: string}>>}
- */
 export async function getAvailableModels() {
   try {
     const providers = await getProviders();
@@ -90,13 +79,6 @@ export async function getAvailableModels() {
   }
 }
 
-/**
- * 测试 Provider 连接
- * @param {string} provider - Provider 名称
- * @param {string} model - 模型名称（可选）
- * @param {string} prompt - 测试提示词
- * @returns {Promise<Object>} 测试结果
- */
 export async function testProvider(provider, model, prompt = 'Hello') {
   try {
     const response = await fetch(`${API_BASE}/test`, {
@@ -108,7 +90,6 @@ export async function testProvider(provider, model, prompt = 'Hello') {
         provider,
         model,
         prompt,
-        // 显式指定任务类型，兼容 ModelAdapter 的多任务测试接口
         task: 'chat'
       })
     });

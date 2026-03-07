@@ -1,100 +1,130 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================
 # RAGSystem 依赖安装脚本
-# 版本: v2.0
-# 更新日期: 2025-12-18
+# 版本: v3.1
+# 更新日期: 2026-03-07
 # ============================================
 
-set -e  # 遇到错误立即退出
+set -euo pipefail
+
+resolve_python_bin() {
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    echo "$PYTHON_BIN"
+    return
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    echo "python"
+    return
+  fi
+
+  echo ""
+}
+
+PYTHON_BIN="$(resolve_python_bin)"
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "❌ 未找到可用的 Python 解释器（python3 / python）"
+  exit 1
+fi
+
+PIP_CMD=("$PYTHON_BIN" -m pip)
+REQUIREMENTS_FILE="requirements.lock.txt"
+if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
+  REQUIREMENTS_FILE="requirements.txt"
+fi
 
 echo "================================================"
 echo "  RAGSystem 依赖安装脚本"
 echo "================================================"
+echo "Python解释器: $PYTHON_BIN"
+echo "依赖清单: $REQUIREMENTS_FILE"
 echo ""
 
-# 检查Python版本
-echo "[1/5] 检查Python环境..."
-python_version=$(python --version 2>&1 | awk '{print $2}')
+echo "[1/5] 检查 Python 环境..."
+python_version=$($PYTHON_BIN --version 2>&1 | awk '{print $2}')
 echo "当前Python版本: $python_version"
-
-if ! python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"; then
-    echo "❌ 错误: 需要Python 3.10或更高版本"
-    exit 1
+if ! $PYTHON_BIN -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"; then
+  echo "❌ 错误: 需要 Python 3.10 或更高版本"
+  exit 1
 fi
 echo "✅ Python版本检查通过"
 echo ""
 
-# 升级pip
-echo "[2/5] 升级pip..."
-pip install --upgrade pip
-echo "✅ pip升级完成"
+echo "[2/5] 升级 pip..."
+"${PIP_CMD[@]}" install --upgrade pip
+echo "✅ pip 升级完成"
 echo ""
 
-# 安装核心依赖
-echo "[3/5] 安装核心依赖..."
-pip install -r requirements.txt
-echo "✅ 核心依赖安装完成"
+echo "[3/5] 安装后端依赖..."
+"${PIP_CMD[@]}" install -r "$REQUIREMENTS_FILE"
+echo "✅ 后端依赖安装完成"
 echo ""
 
-# 安装自定义依赖（源码安装）
-echo "[4/5] 安装自定义依赖..."
-
-# 安装llmjson
-if [ -d "/tmp/llmjson" ]; then
-    rm -rf /tmp/llmjson
-fi
-git clone https://github.com/lihao77/llmjson.git /tmp/llmjson
-pip install -e /tmp/llmjson
-echo "✅ llmjson 安装完成"
-
-# 安装json2graph
-if [ -d "/tmp/json2graph-for-review" ]; then
-    rm -rf /tmp/json2graph-for-review
-fi
-git clone https://github.com/lihao77/json2graph-for-review.git /tmp/json2graph-for-review
-pip install -e /tmp/json2graph-for-review
-echo "✅ json2graph 安装完成"
-echo ""
-
-# 验证安装
-echo "[5/5] 验证安装..."
-python -c "
+echo "[4/5] 验证关键依赖..."
+$PYTHON_BIN - <<'PY'
+import importlib
 import sys
-try:
-    # 核心依赖
-    import flask
-    import neo4j
-    import chromadb
-    import sentence_transformers
-    import jieba
-    
-    # 向量数据库模块
-    from vector_store import get_vector_client, get_embedder, DocumentIndexer, VectorRetriever
-    
-    # 自定义依赖
-    import llmjson
-    import json2graph
-    
-    print('✅ 所有依赖验证通过')
-    sys.exit(0)
-except ImportError as e:
-    print(f'❌ 导入失败: {e}')
-    sys.exit(1)
-"
 
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "================================================"
-    echo "  🎉 依赖安装完成！"
-    echo "================================================"
-    echo ""
-    echo "下一步操作:"
-    echo "  1. 配置 config.json 文件"
-    echo "  2. 启动Neo4j数据库"
-    echo "  3. 运行: python app.py"
-    echo ""
-else
-    echo ""
-    echo "❌ 安装验证失败，请检查错误信息"
-    exit 1
-fi
+checks = [
+    ("flask", "Flask"),
+    ("flask_cors", "Flask-CORS"),
+    ("neo4j", "neo4j"),
+    ("requests", "requests"),
+    ("dotenv", "python-dotenv"),
+    ("pydantic", "pydantic"),
+    ("yaml", "PyYAML"),
+    ("coloredlogs", "coloredlogs"),
+    ("structlog", "structlog"),
+    ("docx", "python-docx"),
+    ("tiktoken", "tiktoken"),
+    ("json_repair", "json-repair"),
+    ("sqlite_vec", "sqlite-vec"),
+    ("jieba", "jieba"),
+    ("numpy", "numpy"),
+    ("pandas", "pandas"),
+    ("shapely", "shapely"),
+    ("mcp", "mcp"),
+    ("llmjson", "llmjson"),
+    ("json2graph", "json2graph"),
+]
+
+missing = []
+for module_name, display_name in checks:
+    try:
+        importlib.import_module(module_name)
+    except Exception as exc:
+        missing.append(f"{display_name} ({exc.__class__.__name__}: {exc})")
+
+if missing:
+    print("❌ 以下依赖导入失败:")
+    for item in missing:
+        print(f"  - {item}")
+    sys.exit(1)
+
+from model_adapter import ModelAdapter
+from vector_store.sqlite_store import SQLiteVectorStore
+
+print("✅ 关键依赖与核心模块导入通过")
+print(f"   ModelAdapter: {ModelAdapter.__name__}")
+print(f"   SQLiteVectorStore: {SQLiteVectorStore.__name__}")
+PY
+echo "✅ 依赖验证完成"
+echo ""
+
+echo "[5/5] 下一步建议..."
+echo "  1. cp .env.example .env"
+echo "  2. cp model_adapter/configs/providers.yaml.example model_adapter/configs/providers.yaml"
+echo "  3. 编辑上述文件并填入真实配置"
+echo "  4. 运行: $PYTHON_BIN app.py"
+echo ""
+echo "如需检查配置结构，可运行："
+echo "  $PYTHON_BIN -m config.health_check"
+echo ""
+echo "================================================"
+echo "  🎉 依赖安装流程完成"
+echo "================================================"

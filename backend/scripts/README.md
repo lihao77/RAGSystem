@@ -28,8 +28,8 @@ python -m scripts.init_emergency_plans
 **执行过程**：
 1. 读取 `广西应急预案.md` (项目根目录)
 2. 文本分块（500字符/块，50字符重叠）
-3. 使用 sentence-transformers 生成向量（384维）
-4. 存储到 ChromaDB (`backend/data/vector_store/`)
+3. 调用当前激活向量化器生成向量嵌入
+4. 存储到 SQLite + sqlite-vec 向量库 (`backend/data/vector_store.db`)
 5. 自动测试检索功能
 
 **输出示例**：
@@ -69,9 +69,9 @@ python -m scripts.init_emergency_plans
 
 **注意事项**：
 - 确保 `广西应急预案.md` 存在于项目根目录
-- 需要安装向量数据库依赖（chromadb, sentence-transformers）
-- 首次运行会下载embedding模型（~500MB）
-- 索引过程需要1-5分钟，取决于文档大小
+- 需要安装当前后端依赖（推荐使用 `requirements.lock.txt`）
+- 向量维度由当前激活向量化器决定
+- 索引过程需要1-5分钟，取决于文档大小与向量化服务响应速度
 
 **环境要求**：
 ```bash
@@ -79,7 +79,7 @@ python -m scripts.init_emergency_plans
 conda activate ragsystem
 
 # 或确保安装了依赖
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 ```
 
 ## 脚本开发规范

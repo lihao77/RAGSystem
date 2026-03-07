@@ -1,245 +1,292 @@
 # -*- coding: utf-8 -*-
 """
-知识图谱系统Flask后端
+知识图谱系统 Flask 后端入口。
 """
 
-import sys
-
-# 必须在导入 chromadb 之前设置环境变量
-import os
-os.environ['ANONYMIZED_TELEMETRY'] = 'False'  # 禁用 ChromaDB 遥测
-os.environ['CHROMA_TELEMETRY_ENABLED'] = 'False'  # 额外保险
-
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-
+import atexit
 import logging
+import os
+import sys
+from typing import List
+
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['CHROMA_TELEMETRY_ENABLED'] = 'False'
+
+from flask import Flask, jsonify, send_from_directory
+from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
 
-# 导入配置系统
 from config import get_config
 from config.health_check import run_health_check
-
-# 启动前配置健康检查（缺失必需配置时直接退出）
-if not run_health_check():
-    print("\n请修复上述配置错误后重新启动。")
-    sys.exit(1)
-
-# 导入蓝图
-from routes.home import home_bp
-from routes.search_refactored import search_bp  # 使用重构版本
-# 使用重构后的visualization路由（原版本备份在visualization.py.backup）
-from routes.visualization_refactored import visualization_bp
-from routes.evaluation import evaluation_bp
-# 使用重构后的graphrag路由（原版本备份在graphrag.py.backup）
-from routes.graphrag_refactored import graphrag_bp
-from routes.function_call import function_call_bp
-from routes.config_refactored import config_bp
-from routes.nodes import nodes_bp
-from routes.workflows import workflow_bp
-from routes.files import files_bp
-from routes.vector_management import vector_management_bp
-from routes.model_adapter import model_adapter_bp
+from db import close_driver
 from routes.agent import agent_bp
 from routes.agent_config import agent_config_bp
+from routes.config_refactored import config_bp
 from routes.embedding_models import embedding_models_bp
-from routes.vector_library import vector_library_bp
+from routes.evaluation import evaluation_bp
+from routes.files import files_bp
+from routes.function_call import function_call_bp
+from routes.graphrag_refactored import graphrag_bp
+from routes.home import home_bp
 from routes.mcp import mcp_bp
+from routes.model_adapter import model_adapter_bp
+from routes.nodes import nodes_bp
+from routes.search_refactored import search_bp
+from routes.vector_library import vector_library_bp
+from routes.vector_management import vector_management_bp
+from routes.visualization_refactored import visualization_bp
+from routes.workflows import workflow_bp
 
-# 导入数据库连接
-from db import test_connection, close_driver
-
-# 创建Flask应用
-app = Flask(__name__)
-
-# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 加载配置
-config = get_config()
-logger.info(f"配置加载完成: Neo4j URI = {config.neo4j.uri}")
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BACKEND_DIR, '..'))
+DEFAULT_UPLOAD_FOLDER = os.path.join(BACKEND_DIR, 'uploads')
+DEFAULT_FRONTEND_DIST = os.path.join(PROJECT_ROOT, 'frontend', 'dist')
+DEFAULT_CORS_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'http://localhost:8081',
+    'http://127.0.0.1:8081',
+]
 
-# 应用配置
-app.config['MAX_CONTENT_LENGTH'] = config.system.max_content_length
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+_runtime_initialized = False
+_shutdown_hooks_registered = False
 
-# 启用CORS
-CORS(app,
-     origins=[
-         'http://localhost:5173', 'http://127.0.0.1:5173',
-         'http://localhost:8081', 'http://127.0.0.1:8081',
-         'http://localhost:8080', 'http://127.0.0.1:8080',
-         'http://10.24.250.158:8080', 'http://10.24.250.158:8081', 'http://10.24.250.158:5173'
-     ],
-     methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-     allow_headers=['Content-Type', 'Authorization'],
-     supports_credentials=True)
 
-# 确保上传目录存在
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+def _parse_csv_env(name: str, default: List[str]) -> List[str]:
+    raw_value = os.environ.get(name, '').strip()
+    if not raw_value:
+        return list(default)
+    return [item.strip() for item in raw_value.split(',') if item.strip()]
 
-# 注册蓝图
-app.register_blueprint(home_bp, url_prefix='/api/home')
-app.register_blueprint(search_bp, url_prefix='/api/search')
-app.register_blueprint(visualization_bp, url_prefix='/api/visualization')
-app.register_blueprint(evaluation_bp, url_prefix='/api/evaluation')
-app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
-app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
-app.register_blueprint(config_bp, url_prefix='/api/config')
-app.register_blueprint(nodes_bp)  # 已包含 url_prefix='/api/nodes'
-app.register_blueprint(workflow_bp)  # /api/workflows
-app.register_blueprint(files_bp)  # /api/files
-app.register_blueprint(vector_management_bp)  # /api/vector
-app.register_blueprint(model_adapter_bp, url_prefix='/api/model-adapter')
-app.register_blueprint(agent_bp, url_prefix='/api/agent')
-app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
-app.register_blueprint(embedding_models_bp, url_prefix='/api/embedding-models')
-app.register_blueprint(vector_library_bp, url_prefix='/api/vector-library')
-app.register_blueprint(mcp_bp, url_prefix='/api/mcp')
 
-# 静态文件服务
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+def _resolve_backend_path(path_value: str, fallback: str) -> str:
+    if not path_value:
+        return fallback
+    if os.path.isabs(path_value):
+        return path_value
+    return os.path.abspath(os.path.join(BACKEND_DIR, path_value))
 
-# 前端静态文件服务
-# @app.route('/')
-# def index():
-#     frontend_dist = os.path.join(os.path.dirname(__file__), '../frontend/dist')
-#     if os.path.exists(os.path.join(frontend_dist, 'index.html')):
-#         return send_from_directory(frontend_dist, 'index.html')
-#     return jsonify({'message': '前端文件未找到'}), 404
 
-@app.route('/<path:filename>')
-def frontend_static(filename):
-    frontend_dist = os.path.join(os.path.dirname(__file__), '../frontend/dist')
-    if os.path.exists(os.path.join(frontend_dist, filename)):
-        return send_from_directory(frontend_dist, filename)
-    # 如果文件不存在，返回index.html（用于SPA路由）
-    if os.path.exists(os.path.join(frontend_dist, 'index.html')):
-        return send_from_directory(frontend_dist, 'index.html')
-    return jsonify({'message': '文件未找到'}), 404
+def _get_cors_origins() -> List[str]:
+    return _parse_csv_env('CORS_ORIGINS', DEFAULT_CORS_ORIGINS)
 
-# 错误处理
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'message': '接口不存在'}), 404
 
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f'服务器内部错误: {error}')
-    return jsonify({'message': '服务器内部错误'}), 500
+def register_blueprints(app: Flask) -> None:
+    app.register_blueprint(home_bp, url_prefix='/api/home')
+    app.register_blueprint(search_bp, url_prefix='/api/search')
+    app.register_blueprint(visualization_bp, url_prefix='/api/visualization')
+    app.register_blueprint(evaluation_bp, url_prefix='/api/evaluation')
+    app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
+    app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
+    app.register_blueprint(config_bp, url_prefix='/api/config')
+    app.register_blueprint(nodes_bp)
+    app.register_blueprint(workflow_bp)
+    app.register_blueprint(files_bp)
+    app.register_blueprint(vector_management_bp)
+    app.register_blueprint(model_adapter_bp, url_prefix='/api/model-adapter')
+    app.register_blueprint(agent_bp, url_prefix='/api/agent')
+    app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
+    app.register_blueprint(embedding_models_bp, url_prefix='/api/embedding-models')
+    app.register_blueprint(vector_library_bp, url_prefix='/api/vector-library')
+    app.register_blueprint(mcp_bp, url_prefix='/api/mcp')
 
-@app.errorhandler(RequestEntityTooLarge)
-def handle_file_too_large(error):
-    return jsonify({'message': '文件过大，请上传小于100MB的文件'}), 413
 
-def test_db_connection():
+def register_static_routes(app: Flask) -> None:
+    @app.route('/')
+    def frontend_index():
+        frontend_dist = app.config['FRONTEND_DIST']
+        index_path = os.path.join(frontend_dist, 'index.html')
+        if os.path.exists(index_path):
+            return send_from_directory(frontend_dist, 'index.html')
+        return jsonify({'message': '前端文件未找到'}), 404
+
+    @app.route('/uploads/<filename>')
+    def uploaded_file(filename: str):
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+    @app.route('/<path:filename>')
+    def frontend_static(filename: str):
+        frontend_dist = app.config['FRONTEND_DIST']
+        if os.path.exists(os.path.join(frontend_dist, filename)):
+            return send_from_directory(frontend_dist, filename)
+        index_path = os.path.join(frontend_dist, 'index.html')
+        if os.path.exists(index_path):
+            return send_from_directory(frontend_dist, 'index.html')
+        return jsonify({'message': '文件未找到'}), 404
+
+
+def register_error_handlers(app: Flask) -> None:
+    @app.errorhandler(404)
+    def not_found(error):
+        return jsonify({'message': '接口不存在'}), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        logger.error('服务器内部错误: %s', error)
+        return jsonify({'message': '服务器内部错误'}), 500
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_file_too_large(error):
+        return jsonify({'message': '文件过大，请上传小于100MB的文件'}), 413
+
+
+def create_app() -> Flask:
+    app = Flask(__name__)
+    config = get_config()
+    upload_folder = _resolve_backend_path(os.environ.get('UPLOAD_FOLDER', ''), DEFAULT_UPLOAD_FOLDER)
+    frontend_dist = _resolve_backend_path(os.environ.get('FRONTEND_DIST', ''), DEFAULT_FRONTEND_DIST)
+    cors_origins = _get_cors_origins()
+
+    logger.info('配置加载完成: Neo4j URI = %s', config.neo4j.uri)
+    logger.info('CORS 白名单: %s', ', '.join(cors_origins))
+
+    app.config['MAX_CONTENT_LENGTH'] = config.system.max_content_length
+    app.config['UPLOAD_FOLDER'] = upload_folder
+    app.config['FRONTEND_DIST'] = frontend_dist
+
+    os.makedirs(upload_folder, exist_ok=True)
+
+    CORS(
+        app,
+        origins=cors_origins,
+        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allow_headers=['Content-Type', 'Authorization'],
+        supports_credentials=True,
+    )
+
+    register_blueprints(app)
+    register_static_routes(app)
+    register_error_handlers(app)
+    return app
+
+
+def test_db_connection() -> bool:
     """测试数据库连接（仅在已配置时执行）"""
     from db import is_neo4j_configured, neo4j_conn
-    
-    # 先检查是否已配置
+
     if not is_neo4j_configured():
         logger.info('⚠ Neo4j 未配置，将在配置完成后初始化')
         return False
-    
+
     try:
-        # 尝试连接（单例模式，不会重复连接）
         driver = neo4j_conn.connect()
         if driver:
-            # 测试连接
             with driver.session() as session:
                 session.run('RETURN 1')
             logger.info('✓ Neo4j 数据库连接成功')
             return True
-        else:
-            logger.warning('✗ Neo4j 连接失败')
-            return False
-    except Exception as e:
-        logger.error(f'✗ Neo4j 数据库连接失败: {e}')
+        logger.warning('✗ Neo4j 连接失败')
+        return False
+    except Exception as error:
+        logger.error('✗ Neo4j 数据库连接失败: %s', error)
         return False
 
-def init_vector_database():
+
+def init_vector_database() -> bool:
     """初始化向量数据库（仅在已配置时执行）"""
-    from init_vector_store import is_vector_db_configured, init_vector_store
-    
-    # 先检查是否已配置
+    from init_vector_store import init_vector_store, is_vector_db_configured
+
     if not is_vector_db_configured():
         logger.info('⚠ 向量数据库未配置，将在配置完成后初始化')
         return False
-    
+
     try:
-        # 初始化（内置重复检查，不会重复初始化）
         success = init_vector_store()
         if not success:
             logger.warning('⚠ 向量数据库初始化失败，但不影响其他功能')
         return success
-    except Exception as e:
-        logger.warning(f'⚠ 向量数据库初始化失败: {e}')
+    except Exception as error:
+        logger.warning('⚠ 向量数据库初始化失败: %s', error)
         return False
 
-# 在应用启动时初始化数据库
-with app.app_context():
-    logger.info("=" * 70)
-    logger.info("开始检查和初始化数据库连接...")
-    logger.info("=" * 70)
-    
-    # 1. 测试 Neo4j 连接
-    neo4j_ok = test_db_connection()
-    
-    # 2. 初始化向量数据库
-    vector_ok = init_vector_database()
-    
-    logger.info("=" * 70)
-    logger.info("数据库初始化完成")
-    if neo4j_ok:
-        logger.info("  ✓ Neo4j: 已连接")
-    else:
-        logger.info("  ✗ Neo4j: 未配置或连接失败")
-    
-    if vector_ok:
-        logger.info("  ✓ 向量数据库: 已初始化")
-    else:
-        logger.info("  ✗ 向量数据库: 未配置或初始化失败")
-    logger.info("=" * 70)
 
-    # 3. 启动 MCP Client Manager（后台事件循环）
-    try:
-        from mcp import get_mcp_manager
-        mcp_manager = get_mcp_manager()
-        mcp_manager.startup()
-        logger.info("  ✓ MCP Client Manager: 已启动")
-    except Exception as e:
-        logger.warning(f"  ⚠ MCP Client Manager 启动失败（不影响其他功能）: {e}")
+def initialize_runtime_services(app: Flask) -> None:
+    global _runtime_initialized
 
-# 优雅关闭
-import atexit
-atexit.register(close_driver)
+    if _runtime_initialized:
+        return
 
-def _shutdown_mcp():
-    """关闭 MCP Client Manager"""
-    try:
-        from mcp import get_mcp_manager
-        get_mcp_manager().shutdown()
-    except Exception:
-        pass
+    with app.app_context():
+        logger.info('=' * 70)
+        logger.info('开始检查和初始化数据库连接...')
+        logger.info('=' * 70)
 
-atexit.register(_shutdown_mcp)
+        neo4j_ok = test_db_connection()
+        vector_ok = init_vector_database()
+
+        logger.info('=' * 70)
+        logger.info('数据库初始化完成')
+        logger.info('  %s Neo4j: %s', '✓' if neo4j_ok else '✗', '已连接' if neo4j_ok else '未配置或连接失败')
+        logger.info('  %s 向量数据库: %s', '✓' if vector_ok else '✗', '已初始化' if vector_ok else '未配置或初始化失败')
+        logger.info('=' * 70)
+
+        try:
+            from mcp import get_mcp_manager
+
+            get_mcp_manager().startup()
+            logger.info('  ✓ MCP Client Manager: 已启动')
+        except Exception as error:
+            logger.warning('  ⚠ MCP Client Manager 启动失败（不影响其他功能）: %s', error)
+
+    _runtime_initialized = True
+
+
+def register_shutdown_hooks() -> None:
+    global _shutdown_hooks_registered
+
+    if _shutdown_hooks_registered:
+        return
+
+    atexit.register(close_driver)
+
+    def _shutdown_mcp() -> None:
+        try:
+            from mcp import get_mcp_manager
+
+            get_mcp_manager().shutdown()
+        except Exception:
+            pass
+
+    atexit.register(_shutdown_mcp)
+    _shutdown_hooks_registered = True
+
+
+def run_startup_checks_or_exit(app: Flask, initialize_runtime: bool = True) -> None:
+    if not run_health_check():
+        print('\n请修复上述配置错误后重新启动。')
+        sys.exit(1)
+
+    if initialize_runtime:
+        initialize_runtime_services(app)
+
+
+app = create_app()
+register_shutdown_hooks()
+
 
 if __name__ == '__main__':
-    # 启动Flask应用
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', os.environ.get('FLASK_PORT', 5000)))
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
     debug_mode = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
     use_reloader = os.environ.get('FLASK_USE_RELOADER', 'True').lower() == 'true'
-    
+    should_init_runtime = not (debug_mode and use_reloader and os.environ.get('WERKZEUG_RUN_MAIN') != 'true')
+
+    run_startup_checks_or_exit(app, initialize_runtime=should_init_runtime)
+
     if debug_mode and not use_reloader:
-        logger.info("提示: 开发模式已启动，但自动重载已禁用（避免双重初始化）")
-        logger.info("      如需自动重载，设置环境变量: FLASK_USE_RELOADER=True")
-    
+        logger.info('提示: 开发模式已启动，但自动重载已禁用（避免双重初始化）')
+        logger.info('      如需自动重载，设置环境变量: FLASK_USE_RELOADER=True')
+
     app.run(
-        host='0.0.0.0', 
-        port=port, 
+        host=host,
+        port=port,
         debug=debug_mode,
-        use_reloader=use_reloader
+        use_reloader=use_reloader,
     )

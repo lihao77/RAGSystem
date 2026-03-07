@@ -1,45 +1,32 @@
-# 知识图谱可视化系统
+# 后台管理前端
 
-这是一个基于Vue.js的知识图谱可视化前端系统，用于展示、查询和管理知识图谱数据。
-
-## 功能特点
-
-- 知识图谱可视化展示
-- 实体关系查询
-- 地理位置信息展示
-- 参数配置管理
-- 数据导入导出
-
-## 技术栈
-
-- Vue 3 + Vite
-- Element Plus UI组件库
-- ECharts 图表可视化
-- Neo4j Driver 数据库连接
-- Leaflet 地图展示
+基于 Vue 3 + Vite + Element Plus 的后台管理端，负责系统配置、图谱查询、流程编排、向量库和模型管理。
 
 ## 快速开始
 
 ```bash
-# 安装依赖
+cd frontend
+cp .env.example .env
 npm install
-
-# 启动开发服务器
 npm run dev
-
-# 构建生产版本
-npm run build
 ```
 
-## 项目结构
+默认启动地址：`http://localhost:8080`
 
-- `src/components`: 组件目录
-- `src/views`: 页面视图
-- `src/api`: API接口
-- `src/utils`: 工具函数
-- `src/assets`: 静态资源
-- `src/router`: 路由配置
+## 环境变量
 
-## 配置说明
+- `VITE_DEV_PORT`：开发端口，默认 `8080`
+- `VITE_API_PROXY_TARGET`：后端 API 地址，默认 `http://localhost:5000`
+- `VITE_NEO4J_PROXY_TARGET`：Neo4j Browser / HTTP 代理地址，默认 `http://localhost:7474`
 
-系统配置位于`src/config.js`文件中，包括Neo4j数据库连接信息、API端点等。
+## 目录结构
+
+- `src/views`：页面视图
+- `src/components`：复用组件
+- `src/api`：接口封装
+- `src/router`：路由配置
+- `src/composables`：组合式逻辑
+
+## 备注
+
+如果你仍在使用 `src/config.example.js` / `src/config.js` 方式配置，请优先迁移到 `.env`，避免端口和代理信息分散在多个文件里。

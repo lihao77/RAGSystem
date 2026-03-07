@@ -323,7 +323,7 @@ def execute(task, context):
         rounds += 1
 
         # 调用 LLM (JSON mode)
-        response = self.llm_adapter.chat_completion(
+        response = self.model_adapter.chat_completion(
             messages=messages,
             response_format={"type": "json_object"}
         )
@@ -1044,7 +1044,7 @@ ERROR:agents.react_agent:无法解析 LLM 响应: Expecting value: line 1 column
 
 **症状**：
 ```
-ERROR:llm_adapter.providers:DeepSeek API 400 错误详情:
+ERROR:model_adapter.providers:DeepSeek API 400 错误详情:
 Missing `reasoning_content` field
 ```
 

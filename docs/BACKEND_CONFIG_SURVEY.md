@@ -16,7 +16,7 @@
 | **工作流** | `workflow_configs/user/*.yaml` | WorkflowStore | Pydantic（workflows/models） | 用户保存的工作流定义（按文件存储） |
 | **节点配置** | `node_configs/instances/*.yaml`、`node_configs/presets/*.yaml` | NodeConfigStore | 各节点 NodeConfigBase | 节点实例与预设配置（按文件存储） |
 
-此外，`llm_adapter` 目录下仍有旧版配置逻辑（多文件 + active_providers.yaml），当前应用只注册了 **model_adapter** 蓝图，未使用 llm_adapter，属历史遗留。
+旧版 `llm_adapter` 配置与兼容入口已移除，当前仅保留 **model_adapter** 一套实现。
 
 ---
 
@@ -92,8 +92,8 @@
 4. **与系统 config 的重复语义**  
    config.llm / config.embedding 与 agents 的 llm、以及 Model Adapter 的 providers，在“谁决定用哪个模型”上存在多层：系统默认 → 智能体覆盖 → Provider 实际能力。逻辑清晰但文档若未写清容易混淆。
 
-5. **遗留 llm_adapter**  
-   backend/llm_adapter 及其多文件/active_providers 配置仍存在，但 app 只注册 model_adapter；若确定废弃，建议标记废弃或移除，避免与 model_adapter 混淆。
+5. **ModelAdapter 单一实现**  
+   当前应用已删除旧 `llm_adapter` 兼容层，仅保留 `model_adapter` 与 `/api/model-adapter` 入口，避免双轨并存。
 
 6. **agents 示例文件**  
    agent_configs 存在 .example 与 .plugin_example；若智能体配置也有“无文件则用代码默认生成”的机制，可像系统 config 一样精简为“以 Pydantic 默认 + 文档为主”，或只保留一份最小示例。
@@ -111,7 +111,7 @@
 ### 4.2 中期（可选）
 
 - **Model Adapter / 向量化器结构校验**：为 providers.yaml、vectorizers.yaml 的顶层或关键字段增加 Pydantic 模型（或 JSON Schema），在 load 时校验，失败时给出明确错误信息。
-- **llm_adapter 清理**：若确认不再使用，在代码与文档中标记为废弃，或删除相关代码与配置，避免与 model_adapter 双轨并存。
+- **ModelAdapter 文档统一**：继续将剩余文档、截图和示例中的旧名称统一为 ModelAdapter，避免历史术语造成误解。
 
 ### 4.3 长期（可选）
 

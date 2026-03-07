@@ -136,7 +136,7 @@ RAGSystem/
 | 配置系统指南 | [configuration-guide](configuration-guide.md) | docs/ |
 | 迁移指南索引 | [migration/README](migration/README.md) | docs/migration/ |
 | 向量存储迁移 | [VECTOR_STORE_MIGRATION](migration/VECTOR_STORE_MIGRATION.md) | docs/migration/ |
-| LLMAdapter 迁移 | [LLMADAPTER_MIGRATION_GUIDE](migration/LLMADAPTER_MIGRATION_GUIDE.md) | docs/migration/ |
+| ModelAdapter 历史迁移 | [LLMADAPTER_MIGRATION_GUIDE](migration/LLMADAPTER_MIGRATION_GUIDE.md) | docs/migration/ |
 
 ### 更新信息
 | 主题 | 文档 | 位置 |

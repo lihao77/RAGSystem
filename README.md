@@ -16,12 +16,34 @@
    cd backend
    pip install -r requirements.txt
 
-   # 前端依赖
-   cd frontend
+   # 后台管理端依赖
+   cd ../frontend
+   npm install
+
+   # 多 Agent 客户端依赖
+   cd ../frontend-client
    npm install
    ```
 
+   Windows PowerShell（后端一键安装）：
+   ```powershell
+   cd backend
+   .\install_dependencies.ps1
+   ```
+
+   Windows CMD：
+   ```bat
+   cd backend
+   install_dependencies.bat
+   ```
+
 3. **配置文件**
+
+   后端运行时环境：
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
 
    **LLM 配置（推荐使用 ModelAdapter）**
 
@@ -47,10 +69,16 @@
    - 向量化器（Embedding 模型）通过「向量知识库 → 向量化器」页面或 `backend/vector_store/config/vectorizers.yaml` 管理  
    - 不再使用 `config.embedding` 段配置向量化器，详细说明见 [向量存储迁移指南](docs/migration/VECTOR_STORE_MIGRATION.md)
 
-   前端配置：
+   前端开发配置：
    ```bash
-   cd frontend/src
-   cp config.example.js config.js
+   cd frontend
+   cp .env.example .env
+   ```
+
+   多 Agent 客户端配置：
+   ```bash
+   cd frontend-client
+   cp .env.example .env
    ```
 
 ### 启动服务
@@ -68,7 +96,14 @@ python app.py
 ```bash
 cd frontend
 npm run dev
-# 前端运行在 http://localhost:5173
+# 后台管理端运行在 http://localhost:8080
+```
+
+启动前端（多 Agent 客户端）：
+```bash
+cd frontend-client
+npm run dev
+# 多 Agent 客户端运行在 http://localhost:5174
 ```
 
 **方式二：一键启动（Windows）**
@@ -152,19 +187,19 @@ RAGSystem/
 - **[节点配置UI文档](docs/node-config-ui/README.md)** - 节点系统配置界面升级文档
 - **[快速启动指南](docs/node-config-ui/QUICK_START_CONFIG_UI.md)** - 5分钟快速上手节点配置
 - **[向量存储迁移指南](docs/migration/VECTOR_STORE_MIGRATION.md)** - 从 ChromaDB 迁移到 SQLite-vec
-- **[LLMAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)** - LLMAdapter 统一 LLM 管理接口文档
+- **[ModelAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)** - ModelAdapter 统一 LLM 管理接口文档
 
 ## 🎯 最新更新
 
-### LLMAdapter 全面集成 (2025-01-03)
+### ModelAdapter 全面集成 (2025-01-03)
 - ✅ 统一的 LLM 管理接口 - 支持 OpenAI、DeepSeek、OpenRouter 等多提供商
 - ✅ 灵活配置 - 支持配置多个 Provider 和模型列表
 - ✅ 成本追踪 - 自动记录 token 使用量和调用成本
-- ✅ 前端集成 - 新增 LLMAdapterView.vue 管理界面
-- ✅ LLMService 移除 - 全面使用 LLMAdapter，代码更简洁
+- ✅ 前端集成 - 新增 ModelAdapterView.vue 管理界面
+- ✅ LLMService 移除 - 全面使用 ModelAdapter，代码更简洁
 - ✅ 配置升级 - 迁移到 YAML 格式，支持环境变量覆盖
 
-查看详情：[LLMAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)
+查看详情：[ModelAdapter 迁移指南](docs/migration/LLMADAPTER_MIGRATION_GUIDE.md)
 
 ### 节点配置UI升级 (2025-12-26)
 - ✅ 智能表单生成 - 根据配置类型自动选择UI控件

@@ -253,4 +253,3 @@ python -m scripts.init_emergency_plans
 - [OpenAI Function Calling](https://platform.openai.com/docs/guides/function-calling)
 - [Neo4j Cypher文档](https://neo4j.com/docs/cypher-manual/)
 - [SQLite + sqlite-vec 项目页面](https://github.com/asg017/sqlite-vec)
-- [sentence-transformers文档](https://www.sbert.net/)

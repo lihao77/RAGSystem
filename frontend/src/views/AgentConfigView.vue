@@ -148,7 +148,7 @@
               :closable="false"
               style="margin-bottom: 16px"
             >
-              从 LLM Adapter 中选择配置的 Provider 和模型。如果未选择，将使用系统默认配置。
+              从 ModelAdapter 中选择配置的 Provider 和模型。如果未选择，将使用系统默认配置。
             </el-alert>
 
             <LLMConfigSelector v-model="currentConfig.llm" />

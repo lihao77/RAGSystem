@@ -96,11 +96,11 @@ class MasterAgentV2(BaseAgent):
         self,
         orchestrator,
         agent_executor,
-        llm_adapter,
+        model_adapter,
         agent_name="master_agent_v2",
         # ... 其他参数
     ):
-        super().__init__(agent_name, llm_adapter)
+        super().__init__(agent_name, model_adapter)
 
         self.orchestrator = orchestrator
         self.agent_executor = agent_executor
@@ -145,7 +145,7 @@ def execute_stream(self, task: str, context: AgentContext):
             self._publisher.thought(f"第 {rounds} 轮思考...")
 
             # 调用LLM
-            response = self.llm_adapter.chat_completion(
+            response = self.model_adapter.chat_completion(
                 messages=messages,
                 tools=available_tools,
                 ...
