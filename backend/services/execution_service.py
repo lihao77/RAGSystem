@@ -229,6 +229,62 @@ class ExecutionService:
             self._release_finished_handle(status.get('task_id'), status)
         return status
 
+    def get_diagnostics(self, task_id: str) -> Optional[Dict[str, Any]]:
+        status = self.get_status(task_id)
+        if status is None:
+            return None
+        return self._build_diagnostics(task_id, status)
+
+    def get_diagnostics_by_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        status = self.get_status_by_session(session_id)
+        if status is None:
+            return None
+        return self._build_diagnostics(status.get('task_id'), status)
+
+    def list_statuses(self, *, active_only: bool = False) -> list[Dict[str, Any]]:
+        statuses = self._task_registry.list_task_statuses(active_only=active_only)
+        results = []
+        for status in statuses:
+            synced = self._sync_handle_result(status.get('task_id'), status)
+            self._release_finished_handle(status.get('task_id'), synced)
+            if synced is not None:
+                results.append(synced)
+        return results
+
+    def list_diagnostics(self, *, active_only: bool = False) -> list[Dict[str, Any]]:
+        return [
+            self._build_diagnostics(status.get('task_id'), status)
+            for status in self.list_statuses(active_only=active_only)
+        ]
+
+    def get_overview(self, *, active_only: bool = True) -> Dict[str, Any]:
+        items = self.list_statuses(active_only=active_only)
+        by_execution_kind: Dict[str, int] = {}
+        by_status: Dict[str, int] = {}
+        sessions = []
+        seen_sessions = set()
+
+        for item in items:
+            execution_kind = item.get('execution_kind') or 'unknown'
+            by_execution_kind[execution_kind] = by_execution_kind.get(execution_kind, 0) + 1
+
+            status = item.get('status') or 'unknown'
+            by_status[status] = by_status.get(status, 0) + 1
+
+            session_id = item.get('session_id')
+            if session_id and session_id not in seen_sessions:
+                seen_sessions.add(session_id)
+                sessions.append(session_id)
+
+        return {
+            'active_only': active_only,
+            'count': len(items),
+            'by_execution_kind': by_execution_kind,
+            'by_status': by_status,
+            'sessions': sessions,
+            'items': items,
+        }
+
     def cleanup_finished(self, max_age_seconds: float = 300) -> None:
         self._sync_finished_handles()
         self._task_registry.cleanup_finished(max_age_seconds=max_age_seconds)
@@ -333,6 +389,31 @@ class ExecutionService:
                 return
             if status is None or status.get('raw_status') not in {'starting', 'running', 'cancel_requested'}:
                 self._handles.pop(task_id, None)
+
+    def _build_diagnostics(self, task_id: Optional[str], status: Dict[str, Any]) -> Dict[str, Any]:
+        handle_snapshot = None
+        handle_registered = False
+        if task_id:
+            with self._lock:
+                handle = self._handles.get(task_id)
+            handle_registered = handle is not None
+            if handle is not None:
+                handle_snapshot = handle.get_status()
+
+        observability = {
+            'task_id': status.get('task_id'),
+            'session_id': status.get('session_id'),
+            'run_id': status.get('run_id'),
+            'execution_kind': status.get('execution_kind'),
+            'request_id': status.get('request_id'),
+        }
+        return {
+            'task': status,
+            'runner': handle_snapshot,
+            'observability': observability,
+            'handle_registered': handle_registered,
+            'is_running': status.get('status') == 'running',
+        }
 
 
 _execution_service: Optional[ExecutionService] = None

@@ -564,6 +564,8 @@
 
 ## 15. P4 首步进展：execution observability context
 
+查询接口与聚合概览的集中说明见：`docs/P4_OBSERVABILITY_ROUTES.md`
+
 ### 已完成
 
 - [x] 新增 `backend/execution/observability.py`
@@ -597,5 +599,15 @@
 - [x] execution context 继承 `run_id/request_id` 测试
 - [x] Agent 事件 payload 扁平化 execution 字段测试
 - [x] Node / MCP adapter 与 service 透传测试
+- [x] session / task 维度 execution diagnostics 查询测试
 - [ ] Route 级 request_id 透传测试
 - [ ] SSE 附加字段 contract 测试
+
+### 诊断查询面
+
+- [x] `GET /api/agent/sessions/<session_id>/task-status` 补充 `observability`
+- [x] `GET /api/agent/sessions/<session_id>/execution-diagnostics`
+- [x] `GET /api/agent/tasks/<task_id>/execution-diagnostics`
+- [x] `GET /api/agent/tasks/<task_id>/status`
+- [x] `GET /api/agent/tasks/running`
+- [x] `GET /api/agent/execution/overview`

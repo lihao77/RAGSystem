@@ -201,6 +201,205 @@ class ExecutionServiceTest(unittest.TestCase):
         self.assertEqual(observed['current']['request_id'], 'req-root')
         self.assertEqual(observed['current']['execution_kind'], 'mcp_tool_call')
 
+    def test_get_diagnostics_by_session_returns_status_runner_and_observability(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        ready = threading.Event()
+
+        def target(context):
+            ready.set()
+            while not context.cancel_event.is_set():
+                time.sleep(0.01)
+            return 'done'
+
+        handle = service.submit(
+            ExecutionRequest(
+                execution_kind='agent_stream',
+                session_id='session-diagnostics',
+                run_id='run-diagnostics',
+                request_id='req-diagnostics',
+            ),
+            target,
+        )
+        self.assertTrue(ready.wait(timeout=1))
+
+        diagnostics = service.get_diagnostics_by_session('session-diagnostics')
+
+        self.assertIsNotNone(diagnostics)
+        self.assertTrue(diagnostics['handle_registered'])
+        self.assertTrue(diagnostics['is_running'])
+        self.assertEqual(diagnostics['task']['task_id'], handle.task_id)
+        self.assertEqual(diagnostics['runner']['task_id'], handle.task_id)
+        self.assertEqual(diagnostics['observability']['session_id'], 'session-diagnostics')
+        self.assertEqual(diagnostics['observability']['run_id'], 'run-diagnostics')
+        self.assertEqual(diagnostics['observability']['request_id'], 'req-diagnostics')
+
+        self.assertTrue(service.cancel(handle.task_id))
+        handle.join(timeout=1)
+
+    def test_get_diagnostics_by_task_id_returns_matching_snapshot(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        ready = threading.Event()
+
+        def target(context):
+            ready.set()
+            while not context.cancel_event.is_set():
+                time.sleep(0.01)
+            return 'done'
+
+        handle = service.submit(
+            ExecutionRequest(
+                execution_kind='node_execute',
+                session_id='session-task-diag',
+                run_id='run-task-diag',
+                request_id='req-task-diag',
+            ),
+            target,
+        )
+        self.assertTrue(ready.wait(timeout=1))
+
+        diagnostics = service.get_diagnostics(handle.task_id)
+
+        self.assertIsNotNone(diagnostics)
+        self.assertEqual(diagnostics['task']['task_id'], handle.task_id)
+        self.assertEqual(diagnostics['runner']['task_id'], handle.task_id)
+        self.assertEqual(diagnostics['observability']['task_id'], handle.task_id)
+        self.assertEqual(diagnostics['observability']['execution_kind'], 'node_execute')
+        self.assertEqual(diagnostics['observability']['request_id'], 'req-task-diag')
+
+        self.assertTrue(service.cancel(handle.task_id))
+        handle.join(timeout=1)
+
+    def test_list_statuses_active_only_returns_running_tasks(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        ready = threading.Event()
+
+        def target(context):
+            ready.set()
+            while not context.cancel_event.is_set():
+                time.sleep(0.01)
+            return 'done'
+
+        handle = service.submit(
+            ExecutionRequest(
+                execution_kind='agent_stream',
+                session_id='session-running-list',
+                run_id='run-running-list',
+                request_id='req-running-list',
+            ),
+            target,
+        )
+        self.assertTrue(ready.wait(timeout=1))
+
+        items = service.list_statuses(active_only=True)
+
+        self.assertTrue(any(item['task_id'] == handle.task_id for item in items))
+        matched = next(item for item in items if item['task_id'] == handle.task_id)
+        self.assertEqual(matched['status'], 'running')
+        self.assertEqual(matched['request_id'], 'req-running-list')
+
+        self.assertTrue(service.cancel(handle.task_id))
+        handle.join(timeout=1)
+
+    def test_list_diagnostics_active_only_returns_running_snapshots(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        ready = threading.Event()
+
+        def target(context):
+            ready.set()
+            while not context.cancel_event.is_set():
+                time.sleep(0.01)
+            return 'done'
+
+        handle = service.submit(
+            ExecutionRequest(
+                execution_kind='mcp_tool_call',
+                session_id='session-running-diag',
+                run_id='run-running-diag',
+                request_id='req-running-diag',
+            ),
+            target,
+        )
+        self.assertTrue(ready.wait(timeout=1))
+
+        diagnostics = service.list_diagnostics(active_only=True)
+
+        matched = next(item for item in diagnostics if item['task']['task_id'] == handle.task_id)
+        self.assertTrue(matched['is_running'])
+        self.assertEqual(matched['observability']['execution_kind'], 'mcp_tool_call')
+        self.assertEqual(matched['observability']['request_id'], 'req-running-diag')
+
+        self.assertTrue(service.cancel(handle.task_id))
+        handle.join(timeout=1)
+
+    def test_get_overview_groups_running_tasks_by_kind_and_status(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        first_ready = threading.Event()
+        second_ready = threading.Event()
+
+        def target(ready_event):
+            def _run(context):
+                ready_event.set()
+                while not context.cancel_event.is_set():
+                    time.sleep(0.01)
+                return 'done'
+            return _run
+
+        first = service.submit(
+            ExecutionRequest(
+                execution_kind='agent_stream',
+                session_id='session-overview-1',
+                run_id='run-overview-1',
+                request_id='req-overview-1',
+            ),
+            target(first_ready),
+        )
+        second = service.submit(
+            ExecutionRequest(
+                execution_kind='mcp_tool_call',
+                session_id='session-overview-2',
+                run_id='run-overview-2',
+                request_id='req-overview-2',
+            ),
+            target(second_ready),
+        )
+
+        self.assertTrue(first_ready.wait(timeout=1))
+        self.assertTrue(second_ready.wait(timeout=1))
+
+        overview = service.get_overview(active_only=True)
+
+        self.assertEqual(overview['count'], 2)
+        self.assertEqual(overview['by_execution_kind']['agent_stream'], 1)
+        self.assertEqual(overview['by_execution_kind']['mcp_tool_call'], 1)
+        self.assertEqual(overview['by_status']['running'], 2)
+        self.assertIn('session-overview-1', overview['sessions'])
+        self.assertIn('session-overview-2', overview['sessions'])
+
+        self.assertTrue(service.cancel(first.task_id))
+        self.assertTrue(service.cancel(second.task_id))
+        first.join(timeout=1)
+        second.join(timeout=1)
+
     def test_cancel_marks_interrupted_when_target_exits_cooperatively(self) -> None:
         service = ExecutionService(
             task_registry=TaskRegistry(),

@@ -287,6 +287,7 @@
   - 以 `ExecutionService` 为规范化入口补齐字段来源与继承规则
   - 通过 execution context + `contextvars` 在线程内自动透传
   - Agent SSE / reconnect / MCP / Node 已补兼容性附加字段
+  - 查询接口与聚合概览见 `docs/P4_OBSERVABILITY_ROUTES.md`
 - 从以下模块开始落地：
   - `backend/services/agent_runtime_service.py`
   - `backend/mcp/client_manager.py`

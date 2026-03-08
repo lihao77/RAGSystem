@@ -59,6 +59,98 @@
       </div>
 
       <template v-else>
+        <div v-if="!selectedAgent && executionOverview" class="detail-card">
+          <div class="detail-card__head">
+            <h2>执行平面概览</h2>
+            <span>基于统一 execution plane 的运行态聚合视图</span>
+          </div>
+
+          <div class="metrics-grid metrics-grid--compact">
+            <div class="stat-card">
+              <div class="stat-body">
+                <div class="stat-label">运行中任务</div>
+                <div class="stat-value">{{ executionOverview.count ?? 0 }}</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-body">
+                <div class="stat-label">活跃会话</div>
+                <div class="stat-value">{{ executionOverview.sessions?.length ?? 0 }}</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-body">
+                <div class="stat-label">Agent 执行</div>
+                <div class="stat-value">{{ executionOverview.by_execution_kind?.agent_stream ?? 0 }}</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-body">
+                <div class="stat-label">MCP 调用</div>
+                <div class="stat-value">{{ executionOverview.by_execution_kind?.mcp_tool_call ?? 0 }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="runningTasks.length > 0" class="sub-section">
+            <h4 class="sub-section__title">运行中任务列表</h4>
+            <div class="running-task-list">
+              <button
+                v-for="task in runningTasks.slice(0, 8)"
+                :key="task.task_id"
+                type="button"
+                class="running-task-item"
+                :class="{ 'is-active': selectedTaskId === task.task_id }"
+                @click="selectTask(task.task_id)"
+              >
+                <div class="running-task-main">
+                  <span class="badge">{{ task.execution_kind }}</span>
+                  <span class="running-task-title">{{ task.task || task.task_id }}</span>
+                </div>
+                <div class="running-task-meta">
+                  <span>{{ task.session_id || '无会话' }}</span>
+                  <span>{{ task.run_id }}</span>
+                  <span>{{ task.elapsed_seconds }}s</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="selectedTaskId" class="sub-section">
+            <div class="detail-inline-head">
+              <h4 class="sub-section__title">任务详情</h4>
+              <button type="button" class="btn-inline" @click="clearSelectedTask">关闭</button>
+            </div>
+
+            <div v-if="taskDetailLoading" class="inline-state">加载任务详情中...</div>
+            <div v-else-if="taskDetailError" class="inline-state inline-state--error">{{ taskDetailError }}</div>
+            <div v-else-if="selectedTaskStatus" class="task-detail-grid">
+              <div class="task-detail-card">
+                <div class="task-detail-title">状态快照</div>
+                <div class="task-detail-row"><span>task_id</span><code>{{ selectedTaskStatus.task_id }}</code></div>
+                <div class="task-detail-row"><span>session_id</span><code>{{ selectedTaskStatus.session_id || '—' }}</code></div>
+                <div class="task-detail-row"><span>run_id</span><code>{{ selectedTaskStatus.run_id || '—' }}</code></div>
+                <div class="task-detail-row"><span>request_id</span><code>{{ selectedTaskStatus.request_id || '—' }}</code></div>
+                <div class="task-detail-row"><span>execution_kind</span><code>{{ selectedTaskStatus.execution_kind }}</code></div>
+                <div class="task-detail-row"><span>status</span><strong>{{ selectedTaskStatus.status }}</strong></div>
+                <div class="task-detail-row"><span>elapsed</span><span>{{ selectedTaskStatus.elapsed_seconds }}s</span></div>
+              </div>
+
+              <div v-if="selectedTaskDiagnostics" class="task-detail-card">
+                <div class="task-detail-title">执行诊断</div>
+                <div class="task-detail-row"><span>handle_registered</span><strong>{{ selectedTaskDiagnostics.handle_registered ? '是' : '否' }}</strong></div>
+                <div class="task-detail-row"><span>is_running</span><strong>{{ selectedTaskDiagnostics.is_running ? '是' : '否' }}</strong></div>
+                <div class="task-detail-row"><span>runner.status</span><code>{{ selectedTaskDiagnostics.runner?.status || '—' }}</code></div>
+                <div class="task-detail-row"><span>runner.thread_alive</span><code>{{ selectedTaskDiagnostics.runner?.thread_alive ?? '—' }}</code></div>
+                <div class="task-detail-row"><span>observability</span><code>{{ formatObservability(selectedTaskDiagnostics.observability) }}</code></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 系统级概览指标 -->
         <div v-if="!selectedAgent && systemMetrics" class="metrics-grid">
           <div class="stat-card">
@@ -201,7 +293,14 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { getMetrics, resetMetrics } from '../api/monitoring';
+import {
+  getExecutionOverview,
+  getMetrics,
+  getRunningTasks,
+  getTaskExecutionDiagnostics,
+  getTaskStatus,
+  resetMetrics
+} from '../api/monitoring';
 import CustomSelect from '../components/CustomSelect.vue';
 
 const emit = defineEmits(['navigate']);
@@ -210,6 +309,13 @@ const loading = ref(false);
 const error = ref('');
 const selectedAgent = ref('');
 const metricsData = ref(null);
+const executionOverview = ref(null);
+const runningTasks = ref([]);
+const selectedTaskId = ref('');
+const selectedTaskStatus = ref(null);
+const selectedTaskDiagnostics = ref(null);
+const taskDetailLoading = ref(false);
+const taskDetailError = ref('');
 
 const systemMetrics = computed(() => {
   if (!metricsData.value) return null;
@@ -241,10 +347,55 @@ const loadMetrics = async () => {
   try {
     const data = await getMetrics(selectedAgent.value || null);
     metricsData.value = data;
+
+    if (!selectedAgent.value) {
+      const [overview, running] = await Promise.all([
+        getExecutionOverview(true).catch(() => null),
+        getRunningTasks().catch(() => ({ items: [] }))
+      ]);
+      executionOverview.value = overview;
+      runningTasks.value = running?.items || [];
+    } else {
+      executionOverview.value = null;
+      runningTasks.value = [];
+      clearSelectedTask();
+    }
   } catch (err) {
     error.value = err.message || '加载指标失败';
   } finally {
     loading.value = false;
+  }
+};
+
+const clearSelectedTask = () => {
+  selectedTaskId.value = '';
+  selectedTaskStatus.value = null;
+  selectedTaskDiagnostics.value = null;
+  taskDetailLoading.value = false;
+  taskDetailError.value = '';
+};
+
+const selectTask = async (taskId) => {
+  if (!taskId) return;
+  if (selectedTaskId.value === taskId) return;
+
+  selectedTaskId.value = taskId;
+  selectedTaskStatus.value = null;
+  selectedTaskDiagnostics.value = null;
+  taskDetailLoading.value = true;
+  taskDetailError.value = '';
+
+  try {
+    const [statusData, diagnosticsData] = await Promise.all([
+      getTaskStatus(taskId),
+      getTaskExecutionDiagnostics(taskId)
+    ]);
+    selectedTaskStatus.value = statusData?.task_info || null;
+    selectedTaskDiagnostics.value = diagnosticsData?.diagnostics || null;
+  } catch (err) {
+    taskDetailError.value = err.message || '加载任务详情失败';
+  } finally {
+    taskDetailLoading.value = false;
   }
 };
 
@@ -290,6 +441,14 @@ const getToolPercentage = (count, toolUsage) => {
   return total > 0 ? (count / total) * 100 : 0;
 };
 
+const formatObservability = (value) => {
+  if (!value) return '—';
+  const parts = ['task_id', 'session_id', 'run_id', 'execution_kind', 'request_id']
+    .filter((key) => value[key])
+    .map((key) => `${key}=${value[key]}`);
+  return parts.join(' | ') || '—';
+};
+
 const navigateToChat = () => {
   emit('navigate', '/');
 };
@@ -314,6 +473,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
+}
+
+.metrics-grid--compact {
+  margin-bottom: var(--spacing-md);
 }
 
 /* ===== Header ===== */
@@ -648,6 +811,125 @@ onMounted(() => {
   letter-spacing: 0.06em;
 }
 
+.running-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.running-task-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover-overlay);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.running-task-item:hover,
+.running-task-item.is-active {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
+  background: rgba(var(--color-brand-accent-rgb), 0.08);
+}
+
+.running-task-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.running-task-title {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.running-task-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.detail-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.btn-inline {
+  border: none;
+  background: transparent;
+  color: var(--color-brand-accent-light);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.inline-state {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+
+.inline-state--error {
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  color: var(--color-error);
+}
+
+.task-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+.task-detail-card {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover-overlay);
+}
+
+.task-detail-title {
+  margin-bottom: 10px;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.task-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(var(--color-border-rgb), 0.3);
+  font-size: var(--font-size-xs);
+}
+
+.task-detail-row:last-child {
+  border-bottom: none;
+}
+
+.task-detail-row span:first-child {
+  color: var(--color-text-secondary);
+}
+
+.task-detail-row code {
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
 /* ===== Tool list ===== */
 .tool-list {
   display: flex;
@@ -733,5 +1015,8 @@ onMounted(() => {
   .metrics-grid { grid-template-columns: 1fr; }
   .metric-item { border-right: none; border-bottom: 1px solid var(--color-border); }
   .metric-item:last-child { border-bottom: none; }
+  .task-detail-grid { grid-template-columns: 1fr; }
+  .running-task-item { flex-direction: column; align-items: flex-start; }
+  .running-task-meta { justify-content: flex-start; }
 }
 </style>

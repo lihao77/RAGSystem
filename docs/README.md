@@ -19,6 +19,7 @@
 
 ### 后端开发
 - **[架构边界与路线图](ARCHITECTURE_BOUNDARIES.md)** - 分层规则、运行时入口和重构优先级
+- **[P4 Execution Observability Routes](P4_OBSERVABILITY_ROUTES.md)** - execution 查询接口、diagnostics 与 overview 契约
 - **[P3 执行平面设计](P3_EXECUTION_LAYER_DESIGN.md)** - 进程内最小 execution layer 设计草案
 - **[P3 执行平面实施清单](P3_EXECUTION_LAYER_CHECKLIST.md)** - 按阶段推进的实施与验收 checklist
 - **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的节点开发指南

@@ -210,6 +210,18 @@ class TaskRegistry:
             self._refresh_zombie_state_locked(info)
             return self._build_status_snapshot_locked(info)
 
+    def list_task_statuses(self, *, active_only: bool = False) -> List[dict]:
+        """列出任务状态快照。"""
+        with self._lock:
+            snapshots = []
+            for info in self._tasks_by_task_id.values():
+                self._refresh_zombie_state_locked(info)
+                if active_only and info.status not in _ACTIVE_STATUSES:
+                    continue
+                snapshots.append(self._build_status_snapshot_locked(info))
+        snapshots.sort(key=lambda item: item.get('started_at', 0), reverse=True)
+        return snapshots
+
     def cancel_task(self, task_id: str) -> bool:
         """按 task_id 发起协作式取消，同时唤醒待审批和待输入。"""
         with self._lock:

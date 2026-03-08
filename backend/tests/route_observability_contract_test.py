@@ -239,6 +239,203 @@ class RouteObservabilityContractTest(unittest.TestCase):
         self.assertEqual(done_payload['task_id'], 'task-reconnect')
         self.assertEqual(done_payload['request_id'], 'req-reconnect')
 
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_execution_diagnostics_route_returns_observability_snapshot(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        diagnostics = {
+            'task': {
+                'task_id': 'task-diagnostics',
+                'session_id': 'session-diagnostics',
+                'run_id': 'run-diagnostics',
+                'execution_kind': 'agent_stream',
+                'request_id': 'req-diagnostics',
+                'status': 'running',
+            },
+            'runner': {
+                'task_id': 'task-diagnostics',
+                'run_id': 'run-diagnostics',
+                'request_id': 'req-diagnostics',
+                'status': 'running',
+            },
+            'observability': {
+                'task_id': 'task-diagnostics',
+                'session_id': 'session-diagnostics',
+                'run_id': 'run-diagnostics',
+                'execution_kind': 'agent_stream',
+                'request_id': 'req-diagnostics',
+            },
+            'handle_registered': True,
+            'is_running': True,
+        }
+        fake_execution_service = SimpleNamespace(
+            get_diagnostics_by_session=lambda session_id: diagnostics,
+            get_status_by_session=lambda session_id: diagnostics['task'],
+        )
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/sessions/session-diagnostics/execution-diagnostics')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        self.assertTrue(payload['data']['found'])
+        self.assertEqual(payload['data']['scope'], 'session_id')
+        self.assertEqual(payload['data']['scope_id'], 'session-diagnostics')
+        self.assertEqual(payload['data']['diagnostics']['observability']['request_id'], 'req-diagnostics')
+
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_task_execution_diagnostics_route_returns_snapshot(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        diagnostics = {
+            'task': {
+                'task_id': 'task-route-diag',
+                'session_id': 'session-route-diag',
+                'run_id': 'run-route-diag',
+                'execution_kind': 'node_execute',
+                'request_id': 'req-route-diag',
+                'status': 'running',
+            },
+            'runner': {
+                'task_id': 'task-route-diag',
+                'run_id': 'run-route-diag',
+                'request_id': 'req-route-diag',
+                'status': 'running',
+            },
+            'observability': {
+                'task_id': 'task-route-diag',
+                'session_id': 'session-route-diag',
+                'run_id': 'run-route-diag',
+                'execution_kind': 'node_execute',
+                'request_id': 'req-route-diag',
+            },
+            'handle_registered': True,
+            'is_running': True,
+        }
+        fake_execution_service = SimpleNamespace(
+            get_diagnostics=lambda task_id: diagnostics,
+        )
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/tasks/task-route-diag/execution-diagnostics')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        self.assertTrue(payload['data']['found'])
+        self.assertEqual(payload['data']['task_id'], 'task-route-diag')
+        self.assertEqual(payload['data']['scope'], 'task_id')
+        self.assertEqual(payload['data']['scope_id'], 'task-route-diag')
+        self.assertEqual(payload['data']['diagnostics']['observability']['execution_kind'], 'node_execute')
+
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_task_status_route_returns_task_info(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        task_info = {
+            'task_id': 'task-status-1',
+            'session_id': 'session-status-1',
+            'run_id': 'run-status-1',
+            'execution_kind': 'agent_stream',
+            'request_id': 'req-status-1',
+            'status': 'running',
+        }
+        fake_execution_service = SimpleNamespace(get_status=lambda task_id: task_info)
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/tasks/task-status-1/status')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['data']['found'])
+        self.assertEqual(payload['data']['scope'], 'task_id')
+        self.assertEqual(payload['data']['scope_id'], 'task-status-1')
+        self.assertEqual(payload['data']['task_info']['request_id'], 'req-status-1')
+        self.assertEqual(payload['data']['observability']['request_id'], 'req-status-1')
+
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_running_tasks_route_returns_items(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        items = [
+            {
+                'task_id': 'task-running-1',
+                'session_id': 'session-running-1',
+                'run_id': 'run-running-1',
+                'execution_kind': 'agent_stream',
+                'request_id': 'req-running-1',
+                'status': 'running',
+            }
+        ]
+        fake_execution_service = SimpleNamespace(list_statuses=lambda active_only=False: items)
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/tasks/running')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['data']['active_only'])
+        self.assertEqual(payload['data']['count'], 1)
+        self.assertEqual(payload['data']['items'][0]['task_id'], 'task-running-1')
+
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_execution_overview_route_returns_grouped_summary(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        overview = {
+            'active_only': True,
+            'count': 2,
+            'by_execution_kind': {'agent_stream': 1, 'mcp_tool_call': 1},
+            'by_status': {'running': 2},
+            'sessions': ['session-overview-1', 'session-overview-2'],
+            'items': [
+                {'task_id': 'task-overview-1', 'execution_kind': 'agent_stream', 'status': 'running'},
+                {'task_id': 'task-overview-2', 'execution_kind': 'mcp_tool_call', 'status': 'running'},
+            ],
+        }
+        fake_execution_service = SimpleNamespace(get_overview=lambda active_only=True: overview)
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/execution/overview?active_only=true')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload['data']['count'], 2)
+        self.assertEqual(payload['data']['by_execution_kind']['agent_stream'], 1)
+        self.assertEqual(payload['data']['by_status']['running'], 2)
+
+    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
+    def test_agent_execution_overview_route_parses_active_only_false(self) -> None:
+        app = Flask(__name__)
+        app.register_blueprint(agent_bp, url_prefix='/api/agent')
+        observed = {}
+
+        def get_overview(active_only=True):
+            observed['active_only'] = active_only
+            return {
+                'active_only': active_only,
+                'count': 0,
+                'by_execution_kind': {},
+                'by_status': {},
+                'sessions': [],
+                'items': [],
+            }
+
+        fake_execution_service = SimpleNamespace(get_overview=get_overview)
+
+        with patch('routes.agent_api.execution_sync.get_execution_service', return_value=fake_execution_service):
+            with app.test_client() as client:
+                response = client.get('/api/agent/execution/overview?active_only=false')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(observed['active_only'])
+
 
 if __name__ == '__main__':
     unittest.main()

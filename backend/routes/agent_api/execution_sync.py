@@ -16,6 +16,28 @@ from .shared import (
 )
 from services.execution_service import get_execution_service
 
+
+def _build_status_payload(*, scope: str, scope_id: str, status, observability=None):
+    return {
+        scope: scope_id,
+        'scope': scope,
+        'scope_id': scope_id,
+        'found': status is not None,
+        'has_running_task': status is not None and status.get('status') == 'running',
+        'task_info': status,
+        'observability': observability,
+    }
+
+
+def _build_diagnostics_payload(*, scope: str, scope_id: str, diagnostics):
+    return {
+        scope: scope_id,
+        'scope': scope,
+        'scope_id': scope_id,
+        'found': diagnostics is not None,
+        'diagnostics': diagnostics,
+    }
+
 @agent_bp.route('/execute', methods=['POST'])
 def execute():
     """
@@ -109,12 +131,77 @@ def get_session_task_status(session_id):
             "task_info": { status, run_id, task, elapsed_seconds, thread_alive } | null
         }
     """
-    status = get_execution_service().get_status_by_session(session_id)
+    execution_service = get_execution_service()
+    status = execution_service.get_status_by_session(session_id)
+    diagnostics = execution_service.get_diagnostics_by_session(session_id)
+    return success_response(data=_build_status_payload(
+        scope='session_id',
+        scope_id=session_id,
+        status=status,
+        observability=diagnostics.get('observability') if diagnostics is not None else None,
+    ))
+
+
+@agent_bp.route('/sessions/<session_id>/execution-diagnostics', methods=['GET'])
+def get_session_execution_diagnostics(session_id):
+    """查询会话的 execution diagnostics（面向排障与观测）。"""
+    diagnostics = get_execution_service().get_diagnostics_by_session(session_id)
+    return success_response(data=_build_diagnostics_payload(
+        scope='session_id',
+        scope_id=session_id,
+        diagnostics=diagnostics,
+    ))
+
+
+@agent_bp.route('/tasks/<task_id>/execution-diagnostics', methods=['GET'])
+def get_task_execution_diagnostics(task_id):
+    """按 task_id 查询 execution diagnostics（面向排障与观测）。"""
+    diagnostics = get_execution_service().get_diagnostics(task_id)
+    return success_response(data=_build_diagnostics_payload(
+        scope='task_id',
+        scope_id=task_id,
+        diagnostics=diagnostics,
+    ))
+
+
+@agent_bp.route('/tasks/<task_id>/status', methods=['GET'])
+def get_task_status(task_id):
+    """按 task_id 查询任务状态。"""
+    status = get_execution_service().get_status(task_id)
+    return success_response(data=_build_status_payload(
+        scope='task_id',
+        scope_id=task_id,
+        status=status,
+        observability=(
+            {
+                'task_id': status.get('task_id'),
+                'session_id': status.get('session_id'),
+                'run_id': status.get('run_id'),
+                'execution_kind': status.get('execution_kind'),
+                'request_id': status.get('request_id'),
+            }
+            if status is not None else None
+        ),
+    ))
+
+
+@agent_bp.route('/tasks/running', methods=['GET'])
+def list_running_tasks():
+    """列出当前运行中的任务状态。"""
+    items = get_execution_service().list_statuses(active_only=True)
     return success_response(data={
-        "session_id": session_id,
-        "has_running_task": status is not None and status["status"] == "running",
-        "task_info": status,
+        'active_only': True,
+        'count': len(items),
+        'items': items,
     })
+
+
+@agent_bp.route('/execution/overview', methods=['GET'])
+def get_execution_overview():
+    """获取 execution plane 的聚合概览。"""
+    active_only = str(request.args.get('active_only', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
+    overview = get_execution_service().get_overview(active_only=active_only)
+    return success_response(data=overview)
 
 @agent_bp.route('/execute/<agent_name>', methods=['POST'])
 def execute_specific_agent(agent_name):

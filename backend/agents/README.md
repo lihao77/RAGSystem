@@ -1127,10 +1127,53 @@ POST /api/agent/execute              # 执行任务（自动路由）
 POST /api/agent/stream               # 流式执行（推荐）
 POST /api/agent/execute/<agent_name> # 执行指定智能体
 POST /api/agent/collaborate          # 多智能体协作
+GET  /api/agent/sessions/<session_id>/task-status          # 查询会话任务状态
+GET  /api/agent/sessions/<session_id>/execution-diagnostics # 查询会话 execution 诊断快照
+GET  /api/agent/tasks/<task_id>/status                     # 按 task_id 查询状态
+GET  /api/agent/tasks/<task_id>/execution-diagnostics      # 按 task_id 查询 execution 诊断快照
+GET  /api/agent/tasks/running                              # 列出当前运行中的任务
+GET  /api/agent/execution/overview                         # 获取 execution plane 聚合概览
 POST /api/agent/agents/create        # 创建智能体
 DELETE /api/agent/agents/delete/<name> # 删除智能体
 GET  /api/agent/health               # 健康检查
 ```
+
+### A.1 Execution 查询接口说明
+
+- `GET /api/agent/sessions/<session_id>/task-status`
+  - 返回当前会话是否有运行中任务，以及 `task_info`
+  - 额外附带 `observability`，用于前端或运维侧直接拿到 `task_id/session_id/run_id/execution_kind/request_id`
+  - 统一附带：`found`、`scope`、`scope_id`
+
+- `GET /api/agent/sessions/<session_id>/execution-diagnostics`
+  - 返回 session 维度的 execution diagnostics
+  - 包含：`task`、`runner`、`observability`、`handle_registered`、`is_running`
+  - 统一附带：`found`、`scope`、`scope_id`
+
+- `GET /api/agent/tasks/<task_id>/status`
+  - 返回单个 task 的统一状态快照
+  - 适合前端从 SSE 或日志拿到 `task_id` 后进行状态追查
+  - 统一附带：`found`、`scope`、`scope_id`、`observability`
+
+- `GET /api/agent/tasks/<task_id>/execution-diagnostics`
+  - 返回单个 task 的完整 diagnostics 视图
+  - 适合排障页面或运维脚本查看 runner / registry 是否一致
+  - 统一附带：`found`、`scope`、`scope_id`
+
+- `GET /api/agent/tasks/running`
+  - 返回当前所有运行中任务
+  - 适合做运行列表、页面刷新恢复、调试面板轮询
+  - 返回字段包括：`active_only`、`count`、`items`
+
+- `GET /api/agent/execution/overview?active_only=true`
+  - 返回 execution plane 聚合概览
+  - 关键字段包括：
+    - `count`
+    - `by_execution_kind`
+    - `by_status`
+    - `sessions`
+    - `items`
+  - 默认只返回活跃任务；如传 `active_only=false`，可查看全部任务快照
 
 ### B. 目录结构（2026-02 重组）
 

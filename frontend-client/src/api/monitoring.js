@@ -4,6 +4,22 @@
 
 const API_BASE = '/api/agent';
 
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    ...options
+  });
+
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.message || 'Request failed');
+  }
+  return result.data || result;
+}
+
 /**
  * 获取系统性能指标
  * @param {string} agentName - 可选,指定智能体名称
@@ -14,22 +30,7 @@ export async function getMetrics(agentName = null) {
     const url = agentName
       ? `${API_BASE}/metrics?agent_name=${encodeURIComponent(agentName)}`
       : `${API_BASE}/metrics`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch metrics');
-    }
-
-    // 返回 data 字段的内容
-    return result.data || result;
+    return await requestJson(url, { method: 'GET' });
   } catch (error) {
     console.error('Error fetching metrics:', error);
     throw error;
@@ -44,22 +45,10 @@ export async function getMetrics(agentName = null) {
 export async function resetMetrics(agentName = null) {
   try {
     const body = agentName ? { agent_name: agentName } : {};
-
-    const response = await fetch(`${API_BASE}/metrics/reset`, {
+    return await requestJson(`${API_BASE}/metrics/reset`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify(body)
     });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to reset metrics');
-    }
-
-    return result.data || result;
   } catch (error) {
     console.error('Error resetting metrics:', error);
     throw error;
@@ -73,19 +62,7 @@ export async function resetMetrics(agentName = null) {
  */
 export async function getCheckpoints(sessionId) {
   try {
-    const response = await fetch(`${API_BASE}/sessions/${sessionId}/checkpoints`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch checkpoints');
-    }
-
+    const result = await requestJson(`${API_BASE}/sessions/${sessionId}/checkpoints`, { method: 'GET' });
     return result.checkpoints || result.data?.checkpoints || [];
   } catch (error) {
     console.error('Error fetching checkpoints:', error);
@@ -110,21 +87,10 @@ export async function recoverFromCheckpoint(sessionId, agentName, checkpointId =
       body.checkpoint_id = checkpointId;
     }
 
-    const response = await fetch(`${API_BASE}/sessions/${sessionId}/recover`, {
+    return await requestJson(`${API_BASE}/sessions/${sessionId}/recover`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify(body)
     });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to recover from checkpoint');
-    }
-
-    return result.data || result;
   } catch (error) {
     console.error('Error recovering from checkpoint:', error);
     throw error;
@@ -139,25 +105,52 @@ export async function recoverFromCheckpoint(sessionId, agentName, checkpointId =
  */
 export async function respondToApproval(approvalId, approved) {
   try {
-    const response = await fetch(`${API_BASE}/approvals/${approvalId}/respond`, {
+    return await requestJson(`${API_BASE}/approvals/${approvalId}/respond`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify({
         approved: approved
       })
     });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to respond to approval');
-    }
-
-    return result.data || result;
   } catch (error) {
     console.error('Error responding to approval:', error);
+    throw error;
+  }
+}
+
+export async function getExecutionOverview(activeOnly = true) {
+  try {
+    return await requestJson(`${API_BASE}/execution/overview?active_only=${activeOnly ? 'true' : 'false'}`, {
+      method: 'GET'
+    });
+  } catch (error) {
+    console.error('Error fetching execution overview:', error);
+    throw error;
+  }
+}
+
+export async function getRunningTasks() {
+  try {
+    return await requestJson(`${API_BASE}/tasks/running`, { method: 'GET' });
+  } catch (error) {
+    console.error('Error fetching running tasks:', error);
+    throw error;
+  }
+}
+
+export async function getTaskStatus(taskId) {
+  try {
+    return await requestJson(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/status`, { method: 'GET' });
+  } catch (error) {
+    console.error('Error fetching task status:', error);
+    throw error;
+  }
+}
+
+export async function getTaskExecutionDiagnostics(taskId) {
+  try {
+    return await requestJson(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/execution-diagnostics`, { method: 'GET' });
+  } catch (error) {
+    console.error('Error fetching task execution diagnostics:', error);
     throw error;
   }
 }
