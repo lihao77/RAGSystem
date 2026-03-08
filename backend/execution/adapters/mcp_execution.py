@@ -40,44 +40,88 @@ class MCPExecutionAdapter:
         except RuntimeError:
             self._execution_service = _build_fallback_execution_service()
 
-    def connect_server(self, server_name: str, *, manager) -> Dict[str, Any]:
+    def connect_server(
+        self,
+        server_name: str,
+        *,
+        manager,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = self._execution_service.run(
             ExecutionRequest(
                 execution_kind='mcp_connect',
                 payload={'server_name': server_name},
+                session_id=session_id,
+                run_id=run_id,
+                request_id=request_id,
                 concurrency_key=f'mcp:server:{server_name}',
             ),
             target=lambda context: self._connect(manager, server_name),
         )
         return self._unwrap_result(result)
 
-    def disconnect_server(self, server_name: str, *, manager) -> Dict[str, Any]:
+    def disconnect_server(
+        self,
+        server_name: str,
+        *,
+        manager,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = self._execution_service.run(
             ExecutionRequest(
                 execution_kind='mcp_disconnect',
                 payload={'server_name': server_name},
+                session_id=session_id,
+                run_id=run_id,
+                request_id=request_id,
                 concurrency_key=f'mcp:server:{server_name}',
             ),
             target=lambda context: self._disconnect(manager, server_name),
         )
         return self._unwrap_result(result)
 
-    def refresh_server(self, server_name: str, *, manager) -> Dict[str, Any]:
+    def refresh_server(
+        self,
+        server_name: str,
+        *,
+        manager,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = self._execution_service.run(
             ExecutionRequest(
                 execution_kind='mcp_refresh',
                 payload={'server_name': server_name},
+                session_id=session_id,
+                run_id=run_id,
+                request_id=request_id,
                 concurrency_key=f'mcp:server:{server_name}',
             ),
             target=lambda context: manager.refresh_server(server_name),
         )
         return self._unwrap_result(result)
 
-    def test_server(self, server_name: str, *, manager) -> Dict[str, Any]:
+    def test_server(
+        self,
+        server_name: str,
+        *,
+        manager,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = self._execution_service.run(
             ExecutionRequest(
                 execution_kind='mcp_test',
                 payload={'server_name': server_name},
+                session_id=session_id,
+                run_id=run_id,
+                request_id=request_id,
                 concurrency_key=f'mcp:server:{server_name}',
             ),
             target=lambda context: manager.test_connection(server_name),
@@ -92,6 +136,8 @@ class MCPExecutionAdapter:
         *,
         manager,
         session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> dict:
         result = self._execution_service.run(
             ExecutionRequest(
@@ -102,6 +148,8 @@ class MCPExecutionAdapter:
                     'arguments': arguments,
                 },
                 session_id=session_id,
+                run_id=run_id,
+                request_id=request_id,
                 metadata={'server_name': server_name, 'tool_name': tool_name},
             ),
             target=lambda context: manager.call_tool(server_name, tool_name, arguments),

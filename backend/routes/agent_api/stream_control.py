@@ -16,6 +16,7 @@ from .shared import (
     stream_with_context,
     success_response,
 )
+from execution.observability import apply_observability_fields, ensure_request_id
 from services.execution_service import get_execution_service
 from .stream_helpers import build_stream_response, format_event_to_sse
 
@@ -70,8 +71,9 @@ def stream_stop():
         {"interrupted": true}
     """
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         session_id = data.get('session_id')
+        request_id = ensure_request_id(request.headers.get('X-Request-ID'))
 
         if not session_id:
             return error_response(message='session_id 不能为空', status_code=400)
@@ -80,7 +82,7 @@ def stream_stop():
         if not interrupted:
             return error_response(message='该会话没有正在执行的任务', status_code=404)
 
-        logger.info(f"已发送用户中断事件: session_id={session_id}")
+        logger.info('已发送用户中断事件: session_id=%s request_id=%s', session_id, request_id)
         return success_response(data={"interrupted": True})
 
     except Exception as e:
@@ -107,8 +109,9 @@ def stream_reconnect():
         data: ... (后续实时事件)
         data: {"type": "done", "session_id": "..."}
     """
-    data = request.get_json()
+    data = request.get_json() or {}
     session_id = data.get('session_id')
+    request_id = ensure_request_id(request.headers.get('X-Request-ID'))
 
     if not session_id:
         return error_response(message='session_id 不能为空', status_code=400)
@@ -128,13 +131,23 @@ def stream_reconnect():
         history = [e for e in all_history if getattr(e, 'timestamp', 0) >= run_started_at]
 
         # 先发 reconnect_start 告知前端即将回放
-        yield f"data: {json.dumps({'type': 'reconnect_start', 'session_id': session_id, 'replay_count': len(history)}, ensure_ascii=False)}\n\n"
+        reconnect_start = {'type': 'reconnect_start', 'session_id': session_id, 'replay_count': len(history)}
+        apply_observability_fields(reconnect_start, {
+            **status,
+            'request_id': status.get('request_id') or request_id,
+        })
+        yield f"data: {json.dumps(reconnect_start, ensure_ascii=False)}\n\n"
 
         for event in history:
             yield format_event_to_sse(event)
 
         # 回放结束标记
-        yield f"data: {json.dumps({'type': 'reconnect_end', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        reconnect_end = {'type': 'reconnect_end', 'session_id': session_id}
+        apply_observability_fields(reconnect_end, {
+            **status,
+            'request_id': status.get('request_id') or request_id,
+        })
+        yield f"data: {json.dumps(reconnect_end, ensure_ascii=False)}\n\n"
 
         # 建立新 SSE 订阅接收后续事件
         adapter = SSEAdapter(
@@ -150,6 +163,11 @@ def stream_reconnect():
         finally:
             pass  # adapter.stop() 在 stream_sync 的 finally 已调用
 
-        yield f"data: {json.dumps({'type': 'done', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+        done_payload = {'type': 'done', 'session_id': session_id}
+        apply_observability_fields(done_payload, {
+            **status,
+            'request_id': status.get('request_id') or request_id,
+        })
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
     return build_stream_response(generate, Response, stream_with_context)

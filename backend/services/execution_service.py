@@ -10,6 +10,12 @@ from typing import Any, Callable, Dict, Optional
 
 from agents.events.bus import Event, EventType
 from execution import ExecutionContext, ExecutionHandle, ExecutionRequest, ExecutionResult, ExecutionStatus, InProcessExecutionRunner
+from execution.observability import (
+    attach_execution_metadata,
+    extract_observability_fields,
+    get_current_execution_observability,
+    merge_observability_metadata,
+)
 from runtime.dependencies import get_runtime_dependency
 
 from agents.events.session_manager import get_session_manager
@@ -44,20 +50,47 @@ class ExecutionService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ExecutionContext:
         task_id = request.resolved_task_id()
-        resolved_event_bus = event_bus
-        if resolved_event_bus is None and request.session_id:
-            resolved_event_bus = self._session_manager.get_or_create(request.session_id)
+        inherited_observability = get_current_execution_observability()
 
         combined_metadata = dict(request.metadata)
         if metadata:
             combined_metadata.update(metadata)
 
+        existing_fields = extract_observability_fields(combined_metadata)
+        resolved_session_id = request.session_id or existing_fields.get('session_id')
+        if resolved_session_id is None and inherited_observability is not None:
+            resolved_session_id = inherited_observability.session_id
+
+        resolved_run_id = request.run_id or existing_fields.get('run_id')
+        if resolved_run_id is None and inherited_observability is not None:
+            resolved_run_id = inherited_observability.run_id
+        if resolved_run_id is None:
+            resolved_run_id = task_id
+
+        resolved_request_id = request.request_id or existing_fields.get('request_id')
+        if resolved_request_id is None and inherited_observability is not None:
+            resolved_request_id = inherited_observability.request_id
+
+        resolved_event_bus = event_bus
+        if resolved_event_bus is None and resolved_session_id:
+            resolved_event_bus = self._session_manager.get_or_create(resolved_session_id)
+
+        combined_metadata = merge_observability_metadata(
+            combined_metadata,
+            task_id=task_id,
+            session_id=resolved_session_id,
+            run_id=resolved_run_id,
+            execution_kind=request.execution_kind,
+            request_id=resolved_request_id,
+        )
+
         return ExecutionContext(
             task_id=task_id,
             execution_kind=request.execution_kind,
             payload=request.payload,
-            session_id=request.session_id,
-            run_id=request.run_id,
+            session_id=resolved_session_id,
+            run_id=resolved_run_id,
+            request_id=resolved_request_id,
             concurrency_key=request.concurrency_key,
             timeout_seconds=request.timeout_seconds,
             metadata=combined_metadata,
@@ -144,7 +177,14 @@ class ExecutionService:
                 event_bus = self._session_manager.get_or_create(session_id)
             event_bus.publish(Event(
                 type=EventType.USER_INTERRUPT,
-                data={'reason': reason},
+                data=attach_execution_metadata(
+                    {'reason': reason},
+                    task_id=status.get('task_id'),
+                    session_id=session_id,
+                    run_id=status.get('run_id'),
+                    execution_kind=status.get('execution_kind'),
+                    request_id=status.get('request_id'),
+                ),
                 session_id=session_id,
             ))
 
@@ -178,6 +218,7 @@ class ExecutionService:
         registered_task_id = self._task_registry.register_task(
             session_id=context.session_id,
             run_id=context.run_id or context.task_id,
+            request_id=context.request_id,
             task=self._describe_task(context),
             cancel_event=context.cancel_event,
             status='starting',

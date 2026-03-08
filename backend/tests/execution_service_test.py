@@ -16,6 +16,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 from agents.events.bus import EventBus, EventType
 from agents.task_registry import TaskRegistry
 from execution import ExecutionRequest, ExecutionStatus, InProcessExecutionRunner
+from execution.observability import get_current_execution_observability_fields
 from services.execution_service import ExecutionService
 
 
@@ -51,6 +52,7 @@ class ExecutionServiceTest(unittest.TestCase):
                 execution_kind='agent_stream',
                 session_id='session-1',
                 run_id='run-1',
+                request_id='req-1',
                 metadata={'alpha': 1},
             ),
             metadata={'beta': 2},
@@ -59,7 +61,15 @@ class ExecutionServiceTest(unittest.TestCase):
         self.assertEqual(context.execution_kind, 'agent_stream')
         self.assertEqual(context.session_id, 'session-1')
         self.assertEqual(context.run_id, 'run-1')
-        self.assertEqual(context.metadata, {'alpha': 1, 'beta': 2})
+        self.assertEqual(context.request_id, 'req-1')
+        self.assertEqual(context.metadata['alpha'], 1)
+        self.assertEqual(context.metadata['beta'], 2)
+        self.assertEqual(context.metadata['task_id'], context.task_id)
+        self.assertEqual(context.metadata['session_id'], 'session-1')
+        self.assertEqual(context.metadata['run_id'], 'run-1')
+        self.assertEqual(context.metadata['execution_kind'], 'agent_stream')
+        self.assertEqual(context.metadata['request_id'], 'req-1')
+        self.assertEqual(context.metadata['_execution']['request_id'], 'req-1')
         self.assertEqual(context.event_bus, {'session_id': 'session-1'})
         self.assertIs(context.task_registry, registry)
         self.assertEqual(session_manager.calls, ['session-1'])
@@ -148,6 +158,48 @@ class ExecutionServiceTest(unittest.TestCase):
         self.assertIsNotNone(status)
         self.assertEqual(status['status'], ExecutionStatus.COMPLETED.value)
         self.assertEqual(status['execution_kind'], 'node_execute')
+
+    def test_nested_execution_inherits_run_and_request_ids(self) -> None:
+        service = ExecutionService(
+            task_registry=TaskRegistry(),
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        observed = {}
+
+        def inner_target(inner_context):
+            observed.update({
+                'task_id': inner_context.task_id,
+                'session_id': inner_context.session_id,
+                'run_id': inner_context.run_id,
+                'request_id': inner_context.request_id,
+                'current': get_current_execution_observability_fields(),
+            })
+            return 'inner-ok'
+
+        def outer_target(_context):
+            return service.run(
+                ExecutionRequest(execution_kind='mcp_tool_call'),
+                inner_target,
+            )
+
+        result = service.run(
+            ExecutionRequest(
+                execution_kind='agent_stream',
+                session_id='session-nested',
+                run_id='run-root',
+                request_id='req-root',
+            ),
+            outer_target,
+        )
+
+        self.assertEqual(result.status, ExecutionStatus.COMPLETED)
+        self.assertEqual(observed['session_id'], 'session-nested')
+        self.assertEqual(observed['run_id'], 'run-root')
+        self.assertEqual(observed['request_id'], 'req-root')
+        self.assertEqual(observed['current']['run_id'], 'run-root')
+        self.assertEqual(observed['current']['request_id'], 'req-root')
+        self.assertEqual(observed['current']['execution_kind'], 'mcp_tool_call')
 
     def test_cancel_marks_interrupted_when_target_exits_cooperatively(self) -> None:
         service = ExecutionService(

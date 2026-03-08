@@ -17,6 +17,7 @@ from agents.core.models import AgentResponse
 from agents.events import EventPublisher, EventType, SSEAdapter
 from agents.events.bus import Event
 from execution import ExecutionRequest, ExecutionResult, ExecutionStatus
+from execution.observability import apply_observability_fields, attach_execution_metadata
 from services.execution_service import ExecutionService, get_execution_service
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class AgentStreamStartResult:
     session_id: str
     run_id: Optional[str] = None
     task_id: Optional[str] = None
+    request_id: Optional[str] = None
     sse_adapter: Optional[SSEAdapter] = None
     error_message: Optional[str] = None
     handle: Any = None
@@ -46,6 +48,7 @@ class AgentExecutionAdapter:
         session_id: str,
         user_id: Optional[str],
         llm_override: Optional[Dict[str, Optional[str]]],
+        request_id: Optional[str],
         conversation_store,
         orchestrator,
         history_loader: Callable[[AgentContext, str, int], None],
@@ -58,6 +61,7 @@ class AgentExecutionAdapter:
 
         run_id = str(uuid.uuid4())
         context.metadata['run_id'] = run_id
+        context.metadata['request_id'] = request_id
 
         cancel_event = threading.Event()
         context.metadata['cancel_event'] = cancel_event
@@ -67,6 +71,7 @@ class AgentExecutionAdapter:
             return AgentStreamStartResult(
                 started=False,
                 session_id=session_id,
+                request_id=request_id,
                 error_message='MasterAgent 未找到，请确认已正确加载',
             )
 
@@ -75,6 +80,7 @@ class AgentExecutionAdapter:
         task_id = registry.register_task(
             session_id=session_id,
             run_id=run_id,
+            request_id=request_id,
             task=task,
             cancel_event=cancel_event,
             status='starting',
@@ -85,8 +91,23 @@ class AgentExecutionAdapter:
             return AgentStreamStartResult(
                 started=False,
                 session_id=session_id,
+                request_id=request_id,
                 error_message='该会话正在执行任务，请等待完成或停止当前任务',
             )
+
+        context.metadata.update({
+            'task_id': task_id,
+            'session_id': session_id,
+            'execution_kind': 'agent_stream',
+            'request_id': request_id,
+            '_execution': {
+                'task_id': task_id,
+                'session_id': session_id,
+                'run_id': run_id,
+                'execution_kind': 'agent_stream',
+                'request_id': request_id,
+            },
+        })
 
         metrics_subscription_id = None
         sse_adapter = None
@@ -148,6 +169,7 @@ class AgentExecutionAdapter:
                     payload={'task': task, 'user_id': user_id},
                     session_id=session_id,
                     run_id=run_id,
+                    request_id=request_id,
                     concurrency_key=concurrency_key,
                     task_id=task_id,
                 ),
@@ -175,6 +197,7 @@ class AgentExecutionAdapter:
                 session_id=session_id,
                 run_id=run_id,
                 task_id=task_id,
+                request_id=request_id,
                 sse_adapter=sse_adapter,
                 handle=handle,
             )
@@ -201,6 +224,7 @@ class AgentExecutionAdapter:
                 session_id=session_id,
                 run_id=run_id,
                 task_id=task_id,
+                request_id=request_id,
                 error_message=str(error),
             )
 
@@ -237,6 +261,7 @@ class AgentExecutionAdapter:
             'requires_user_action': getattr(event, 'requires_user_action', False),
             'user_action_timeout': getattr(event, 'user_action_timeout', None),
         }
+        apply_observability_fields(payload, event.data or {})
         if event.type in (EventType.CALL_AGENT_START, EventType.CALL_AGENT_END):
             called = (event.data or {}).get('agent_name')
             if called is not None:
@@ -332,7 +357,14 @@ class AgentExecutionAdapter:
                 final_answer_saved.set()
                 event_bus.publish(Event(
                     type=EventType.MESSAGE_SAVED,
-                    data={'id': message['id'], 'seq': message.get('seq'), 'role': 'assistant'},
+                    data=attach_execution_metadata(
+                        {'id': message['id'], 'seq': message.get('seq'), 'role': 'assistant'},
+                        task_id=(event.data or {}).get('task_id'),
+                        session_id=session_id,
+                        run_id=run_id,
+                        execution_kind='agent_stream',
+                        request_id=(event.data or {}).get('request_id'),
+                    ),
                     session_id=session_id,
                     agent_name=event.agent_name,
                 ))
@@ -410,7 +442,14 @@ class AgentExecutionAdapter:
             try:
                 event_bus.publish(Event(
                     type=EventType.MESSAGE_SAVED,
-                    data={'id': user_message['id'], 'seq': user_message.get('seq'), 'role': 'user'},
+                    data=attach_execution_metadata(
+                        {'id': user_message['id'], 'seq': user_message.get('seq'), 'role': 'user'},
+                        task_id=task_id,
+                        session_id=session_id,
+                        run_id=run_id,
+                        execution_kind='agent_stream',
+                        request_id=context.metadata.get('request_id'),
+                    ),
                     session_id=session_id,
                     agent_name='master_agent_v2',
                 ))

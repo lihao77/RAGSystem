@@ -5,6 +5,8 @@ Agent 流式执行辅助函数。
 
 from typing import Any, Callable, Dict, Optional
 
+from execution.observability import apply_observability_fields
+
 from .shared import json
 
 
@@ -39,6 +41,7 @@ def format_event_to_sse(event) -> str:
         'requires_user_action': getattr(event, 'requires_user_action', False),
         'user_action_timeout': getattr(event, 'user_action_timeout', None),
     }
+    apply_observability_fields(full_event, event.data or {})
     json_data = json.dumps(full_event, ensure_ascii=False, default=str)
     return f"data: {json_data}\n\n"
 

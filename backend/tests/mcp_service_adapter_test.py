@@ -67,24 +67,24 @@ class _FakeAdapter:
     def __init__(self):
         self.calls = []
 
-    def connect_server(self, server_name: str, *, manager):
-        self.calls.append(('connect', server_name, manager))
+    def connect_server(self, server_name: str, *, manager, request_id=None):
+        self.calls.append(('connect', server_name, manager, request_id))
         return {'success': True, 'status': {'server_name': server_name, 'status': 'connected', 'tool_count': 1, 'error_message': ''}}
 
-    def disconnect_server(self, server_name: str, *, manager):
-        self.calls.append(('disconnect', server_name, manager))
+    def disconnect_server(self, server_name: str, *, manager, request_id=None):
+        self.calls.append(('disconnect', server_name, manager, request_id))
         return {'status': {'server_name': server_name, 'status': 'disconnected'}}
 
-    def refresh_server(self, server_name: str, *, manager):
-        self.calls.append(('refresh', server_name, manager))
+    def refresh_server(self, server_name: str, *, manager, request_id=None):
+        self.calls.append(('refresh', server_name, manager, request_id))
         return {'server_name': server_name, 'status': 'connected', 'tool_count': 1, 'error_message': ''}
 
-    def test_server(self, server_name: str, *, manager):
-        self.calls.append(('test', server_name, manager))
+    def test_server(self, server_name: str, *, manager, request_id=None):
+        self.calls.append(('test', server_name, manager, request_id))
         return {'success': True, 'message': 'ok', 'tool_count': 1}
 
-    def call_tool(self, server_name: str, tool_name: str, arguments: dict, *, manager, session_id=None):
-        self.calls.append(('call_tool', server_name, tool_name, arguments, manager, session_id))
+    def call_tool(self, server_name: str, tool_name: str, arguments: dict, *, manager, session_id=None, run_id=None, request_id=None):
+        self.calls.append(('call_tool', server_name, tool_name, arguments, manager, session_id, run_id, request_id))
         return {'success': True, 'results': arguments}
 
 
@@ -94,20 +94,23 @@ class MCPServiceAdapterTest(unittest.TestCase):
         manager = _FakeManager()
         service = MCPService(store=_FakeStore(), manager=manager, execution_adapter=adapter)
 
-        result = service.connect_server('demo')
+        result = service.connect_server('demo', request_id='req-connect')
 
         self.assertEqual(result['status'], 'connected')
         self.assertEqual(adapter.calls[0][0], 'connect')
+        self.assertEqual(adapter.calls[0][-1], 'req-connect')
 
     def test_call_tool_passes_session_id(self) -> None:
         adapter = _FakeAdapter()
         manager = _FakeManager()
         service = MCPService(store=_FakeStore(), manager=manager, execution_adapter=adapter)
 
-        result = service.call_tool('demo', 'search', {'q': 1}, session_id='session-9')
+        result = service.call_tool('demo', 'search', {'q': 1}, session_id='session-9', run_id='run-9', request_id='req-9')
 
         self.assertTrue(result['success'])
-        self.assertEqual(adapter.calls[0][-1], 'session-9')
+        self.assertEqual(adapter.calls[0][5], 'session-9')
+        self.assertEqual(adapter.calls[0][6], 'run-9')
+        self.assertEqual(adapter.calls[0][7], 'req-9')
 
     def test_update_missing_server_raises(self) -> None:
         service = MCPService(store=_FakeStore(), manager=_FakeManager(), execution_adapter=_FakeAdapter())

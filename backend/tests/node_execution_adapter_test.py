@@ -15,6 +15,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 from agents.task_registry import TaskRegistry
 from execution import InProcessExecutionRunner
 from execution.adapters.node_execution import NodeExecutionAdapter
+from execution.observability import get_current_execution_observability_fields
 from services.execution_service import ExecutionService
 
 
@@ -29,9 +30,11 @@ class _FakeNodeService:
         self._error = error
         self._sleep_seconds = sleep_seconds
         self.calls = []
+        self.observability = []
 
     def execute_node(self, payload):
         self.calls.append(payload)
+        self.observability.append(get_current_execution_observability_fields())
         if self._sleep_seconds:
             time.sleep(self._sleep_seconds)
         if self._error is not None:
@@ -52,10 +55,20 @@ class NodeExecutionAdapterTest(unittest.TestCase):
         adapter = self._build_adapter()
         node_service = _FakeNodeService(result={'answer': 42})
 
-        result = adapter.execute({'node_type': 'demo', 'inputs': {'x': 1}}, node_service=node_service)
+        result = adapter.execute(
+            {'node_type': 'demo', 'inputs': {'x': 1}},
+            node_service=node_service,
+            session_id='session-node',
+            run_id='run-node',
+            request_id='req-node',
+        )
 
         self.assertEqual(result, {'answer': 42})
         self.assertEqual(node_service.calls[0]['node_type'], 'demo')
+        self.assertEqual(node_service.observability[0]['session_id'], 'session-node')
+        self.assertEqual(node_service.observability[0]['run_id'], 'run-node')
+        self.assertEqual(node_service.observability[0]['request_id'], 'req-node')
+        self.assertEqual(node_service.observability[0]['execution_kind'], 'node_execute')
 
     def test_execute_re_raises_service_error(self) -> None:
         adapter = self._build_adapter()

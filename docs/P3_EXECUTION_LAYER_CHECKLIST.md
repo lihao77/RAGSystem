@@ -559,3 +559,43 @@
 - 这三步能最早解决 P3 中最核心的问题：Route 直接起线程。
 - Node 和 MCP 可以在执行层骨架稳定后再平滑接入。
 - 这样最符合“先收口执行控制，再逐步接业务入口”的策略。
+
+---
+
+## 15. P4 首步进展：execution observability context
+
+### 已完成
+
+- [x] 新增 `backend/execution/observability.py`
+- [x] 统一 execution canonical 字段：
+  - [x] `task_id`
+  - [x] `session_id`
+  - [x] `run_id`
+  - [x] `execution_kind`
+  - [x] `request_id`
+- [x] `ExecutionService.build_context(...)` 统一解析/继承/兜底这些字段
+- [x] `InProcessExecutionRunner` 通过 `contextvars` 绑定当前 execution 观测上下文
+- [x] `TaskRegistry` 状态快照补充 `request_id`
+
+### Agent / SSE
+
+- [x] Agent stream 启动结果补充 `request_id`
+- [x] 事件发布自动附加 execution metadata
+- [x] SSE payload 顶层补充 execution 字段，保持兼容
+- [x] `/api/agent/stream` 的 `done/error` 事件补充 execution 字段
+- [x] `/api/agent/stream/reconnect` 的 `reconnect_start/reconnect_end/done` 补充 execution 字段
+
+### Node / MCP
+
+- [x] Node 执行支持透传 `session_id/run_id/request_id`
+- [x] MCP connect / disconnect / refresh / test / call_tool 支持透传 `request_id`
+- [x] MCP tool call 支持透传/继承 `session_id/run_id/request_id`
+- [x] `MCPClientManager` 关键日志点补充 execution 字段
+
+### 测试进展
+
+- [x] execution context 继承 `run_id/request_id` 测试
+- [x] Agent 事件 payload 扁平化 execution 字段测试
+- [x] Node / MCP adapter 与 service 透传测试
+- [ ] Route 级 request_id 透传测试
+- [ ] SSE 附加字段 contract 测试

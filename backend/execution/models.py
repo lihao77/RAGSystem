@@ -33,6 +33,7 @@ class ExecutionRequest:
     payload: Any = None
     session_id: Optional[str] = None
     run_id: Optional[str] = None
+    request_id: Optional[str] = None
     concurrency_key: Optional[str] = None
     timeout_seconds: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -64,6 +65,7 @@ class ExecutionContext:
     payload: Any = None
     session_id: Optional[str] = None
     run_id: Optional[str] = None
+    request_id: Optional[str] = None
     concurrency_key: Optional[str] = None
     timeout_seconds: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -81,6 +83,7 @@ class ExecutionHandle:
         execution_kind: str,
         session_id: Optional[str],
         run_id: Optional[str],
+        request_id: Optional[str],
         timeout_seconds: Optional[float],
         started_at: float,
         thread,
@@ -92,6 +95,7 @@ class ExecutionHandle:
         self.execution_kind = execution_kind
         self.session_id = session_id
         self.run_id = run_id
+        self.request_id = request_id
         self.timeout_seconds = timeout_seconds
         self.started_at = started_at
         self.thread = thread

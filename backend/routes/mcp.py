@@ -8,6 +8,7 @@ MCP Server 管理 API
 import logging
 from flask import Blueprint, jsonify, request
 
+from execution.observability import ensure_request_id
 from services.mcp_service import MCPServiceError, get_mcp_service
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,10 @@ def list_servers():
 def add_server():
     """添加 MCP Server 配置"""
     try:
-        data = get_mcp_service().add_server(request.get_json(silent=True) or {})
+        data = get_mcp_service().add_server(
+            request.get_json(silent=True) or {},
+            request_id=ensure_request_id(request.headers.get('X-Request-ID')),
+        )
         return _ok(data, message="MCP Server 添加成功")
     except MCPServiceError as error:
         return _err(error.message, error.status_code)
@@ -96,7 +100,11 @@ def add_server():
 def update_server(server_name: str):
     """Update MCP server config and refresh runtime state."""
     try:
-        status = get_mcp_service().update_server(server_name, request.get_json(silent=True) or {})
+        status = get_mcp_service().update_server(
+            server_name,
+            request.get_json(silent=True) or {},
+            request_id=ensure_request_id(request.headers.get('X-Request-ID')),
+        )
     except MCPServiceError as error:
         return _err(error.message, error.status_code)
 
@@ -111,7 +119,7 @@ def update_server(server_name: str):
 def delete_server(server_name: str):
     """删除 MCP Server 配置（先断开连接）"""
     try:
-        get_mcp_service().delete_server(server_name)
+        get_mcp_service().delete_server(server_name, request_id=ensure_request_id(request.headers.get('X-Request-ID')))
     except MCPServiceError as error:
         return _err(error.message, error.status_code)
     return _ok(message="MCP Server 已删除")
@@ -123,7 +131,7 @@ def delete_server(server_name: str):
 def connect_server(server_name: str):
     """连接到指定 MCP Server"""
     try:
-        status = get_mcp_service().connect_server(server_name)
+        status = get_mcp_service().connect_server(server_name, request_id=ensure_request_id(request.headers.get('X-Request-ID')))
         return _ok(status, message="连接成功")
     except MCPServiceError as error:
         return _err(error.message, error.status_code)
@@ -132,7 +140,7 @@ def connect_server(server_name: str):
 @mcp_bp.route('/servers/<server_name>/disconnect', methods=['POST'])
 def disconnect_server(server_name: str):
     """断开指定 MCP Server"""
-    get_mcp_service().disconnect_server(server_name)
+    get_mcp_service().disconnect_server(server_name, request_id=ensure_request_id(request.headers.get('X-Request-ID')))
     return _ok(message="已断开连接")
 
 
@@ -140,7 +148,7 @@ def disconnect_server(server_name: str):
 def test_server(server_name: str):
     """测试连接（断开并重连）"""
     try:
-        result = get_mcp_service().test_server(server_name)
+        result = get_mcp_service().test_server(server_name, request_id=ensure_request_id(request.headers.get('X-Request-ID')))
         return _ok(result, message=result["message"])
     except MCPServiceError as error:
         return _err(error.message, error.status_code)

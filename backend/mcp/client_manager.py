@@ -11,9 +11,16 @@ import inspect
 import logging
 import threading
 from typing import Any, Dict, List, Optional
+
+from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from runtime.dependencies import get_runtime_dependency
 
 logger = logging.getLogger(__name__)
+
+
+def _obs_suffix() -> str:
+    suffix = format_observability_for_log(get_current_execution_observability_fields())
+    return f' [{suffix}]' if suffix else ''
 
 
 def _default_config_store_getter():
@@ -173,7 +180,7 @@ class MCPClientManager:
             conn.config = srv_cfg
 
         if conn.is_connected():
-            logger.info(f"MCP Server {server_name} 已连接，跳过")
+            logger.info(f"MCP Server {server_name} 已连接，跳过{_obs_suffix()}")
             return True
 
         timeout = srv_cfg.get("timeout", 30)
@@ -192,12 +199,12 @@ class MCPClientManager:
                 risk_level=srv_cfg.get("risk_level", "medium"),
                 requires_approval=srv_cfg.get("requires_approval", False)
             )
-            logger.info(f"✓ MCP Server {server_name} 连接成功，发现 {len(conn.tools)} 个工具")
+            logger.info(f"✓ MCP Server {server_name} 连接成功，发现 {len(conn.tools)} 个工具{_obs_suffix()}")
             return True
         except Exception as e:
             conn.status = "error"
             conn.error_message = self._format_exception_message(e)
-            logger.exception("✗ MCP Server %s 连接失败: %s", server_name, conn.error_message)
+            logger.exception("✗ MCP Server %s 连接失败: %s%s", server_name, conn.error_message, _obs_suffix())
             return False
 
     async def _async_connect(self, conn: MCPConnection, srv_cfg: dict):
@@ -385,7 +392,7 @@ class MCPClientManager:
         try:
             self._run_async(self._async_disconnect(conn), timeout=10)
         except Exception as e:
-            logger.warning(f"Error disconnecting MCP Server {server_name}: {e}")
+            logger.warning(f"Error disconnecting MCP Server {server_name}: {e}{_obs_suffix()}")
         finally:
             conn.status = "disconnected"
             conn.tools = []
@@ -506,15 +513,17 @@ class MCPClientManager:
         timeout = srv_cfg.get("timeout", 30)
 
         try:
+            logger.info('MCP 工具调用开始 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
             result = self._run_async(
                 self._async_call_tool(conn, tool_name, arguments),
                 timeout=timeout
             )
+            logger.info('MCP 工具调用完成 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
             return result
         except TimeoutError:
             return error_response(f"MCP 工具调用超时: {server_name}/{tool_name}")
         except Exception as e:
-            logger.error(f"MCP 工具调用失败 ({server_name}/{tool_name}): {e}")
+            logger.error(f"MCP 工具调用失败 ({server_name}/{tool_name}): {e}{_obs_suffix()}")
             return error_response(f"MCP 工具调用失败: {e}")
 
     async def _async_call_tool(self, conn: MCPConnection, tool_name: str, arguments: dict) -> dict:

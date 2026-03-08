@@ -12,8 +12,9 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from agents.task_registry import TaskRegistry
-from execution import InProcessExecutionRunner
+from execution import ExecutionRequest, InProcessExecutionRunner
 from execution.adapters.mcp_execution import MCPExecutionAdapter
+from execution.observability import get_current_execution_observability_fields
 from services.execution_service import ExecutionService
 
 
@@ -28,6 +29,7 @@ class _FakeSessionManager:
 class _FakeManager:
     def __init__(self):
         self.calls = []
+        self.observability = []
 
     def connect_server(self, server_name: str):
         self.calls.append(('connect', server_name))
@@ -50,6 +52,7 @@ class _FakeManager:
 
     def call_tool(self, server_name: str, tool_name: str, arguments: dict):
         self.calls.append(('call_tool', server_name, tool_name, arguments))
+        self.observability.append(get_current_execution_observability_fields())
         return {'success': True, 'data': {'results': arguments}, 'summary': tool_name}
 
 
@@ -102,11 +105,51 @@ class MCPExecutionAdapterTest(unittest.TestCase):
         adapter = self._build_adapter()
         manager = _FakeManager()
 
-        result = adapter.call_tool('demo', 'search', {'q': 'test'}, manager=manager, session_id='session-1')
+        result = adapter.call_tool(
+            'demo',
+            'search',
+            {'q': 'test'},
+            manager=manager,
+            session_id='session-1',
+            run_id='run-1',
+            request_id='req-1',
+        )
 
         self.assertTrue(result['success'])
         self.assertEqual(result['data']['results'], {'q': 'test'})
         self.assertIn(('call_tool', 'demo', 'search', {'q': 'test'}), manager.calls)
+        self.assertEqual(manager.observability[0]['session_id'], 'session-1')
+        self.assertEqual(manager.observability[0]['run_id'], 'run-1')
+        self.assertEqual(manager.observability[0]['request_id'], 'req-1')
+
+    def test_call_tool_inherits_parent_run_and_request_ids(self) -> None:
+        registry = TaskRegistry()
+        service = ExecutionService(
+            task_registry=registry,
+            session_manager=_FakeSessionManager(),
+            runner=InProcessExecutionRunner(),
+        )
+        adapter = MCPExecutionAdapter(execution_service=service)
+        manager = _FakeManager()
+
+        def outer_target(_context):
+            return adapter.call_tool('demo', 'search', {'q': 'nested'}, manager=manager, session_id='session-outer')
+
+        result = service.run(
+            ExecutionRequest(
+                execution_kind='agent_stream',
+                session_id='session-outer',
+                run_id='run-outer',
+                request_id='req-outer',
+            ),
+            outer_target,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(manager.observability[0]['session_id'], 'session-outer')
+        self.assertEqual(manager.observability[0]['run_id'], 'run-outer')
+        self.assertEqual(manager.observability[0]['request_id'], 'req-outer')
+        self.assertEqual(manager.observability[0]['execution_kind'], 'mcp_tool_call')
 
 
 if __name__ == '__main__':

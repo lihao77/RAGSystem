@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 from .models import ExecutionContext, ExecutionHandle, ExecutionResult, ExecutionStatus
+from .observability import ExecutionObservabilityContext, execution_observability_scope
 
 logger = logging.getLogger(__name__)
 
@@ -126,13 +127,14 @@ class _ExecutionState:
             self.done_event.set()
             return True
 
-    def snapshot(self, *, thread, task_id: str, execution_kind: str, session_id: Optional[str], run_id: Optional[str], timeout_seconds: Optional[float]) -> Dict[str, Any]:
+    def snapshot(self, *, thread, task_id: str, execution_kind: str, session_id: Optional[str], run_id: Optional[str], request_id: Optional[str], timeout_seconds: Optional[float]) -> Dict[str, Any]:
         with self.lock:
             return {
                 'task_id': task_id,
                 'execution_kind': execution_kind,
                 'session_id': session_id,
                 'run_id': run_id,
+                'request_id': request_id,
                 'status': self.status.value,
                 'started_at': self.started_at,
                 'finished_at': self.finished_at,
@@ -156,32 +158,41 @@ class InProcessExecutionRunner:
         started_at = time.time()
         state = _ExecutionState(status=ExecutionStatus.STARTING, started_at=started_at)
         thread_holder: Dict[str, Optional[threading.Thread]] = {'thread': None}
+        observability = ExecutionObservabilityContext(
+            task_id=context.task_id,
+            session_id=context.session_id,
+            run_id=context.run_id,
+            execution_kind=context.execution_kind,
+            request_id=context.request_id,
+        )
 
         def run_target() -> None:
-            state.mark_running()
-            try:
-                result = target(context)
-            except Exception as error:
-                logger.error('执行任务失败 task_id=%s kind=%s: %s', context.task_id, context.execution_kind, error, exc_info=True)
-                state.mark_failed(error)
-                return
+            with execution_observability_scope(observability):
+                state.mark_running()
+                try:
+                    result = target(context)
+                except Exception as error:
+                    logger.error('执行任务失败 task_id=%s kind=%s: %s', context.task_id, context.execution_kind, error, exc_info=True)
+                    state.mark_failed(error)
+                    return
 
-            if isinstance(result, ExecutionResult):
-                state.set_result(result)
-                return
+                if isinstance(result, ExecutionResult):
+                    state.set_result(result)
+                    return
 
-            snapshot = state.snapshot(
-                thread=thread_holder['thread'],
-                task_id=context.task_id,
-                execution_kind=context.execution_kind,
-                session_id=context.session_id,
-                run_id=context.run_id,
-                timeout_seconds=context.timeout_seconds,
-            )
-            if context.cancel_event.is_set() or snapshot['status'] == ExecutionStatus.CANCEL_REQUESTED.value:
-                state.mark_interrupted(result)
-                return
-            state.mark_completed(result)
+                snapshot = state.snapshot(
+                    thread=thread_holder['thread'],
+                    task_id=context.task_id,
+                    execution_kind=context.execution_kind,
+                    session_id=context.session_id,
+                    run_id=context.run_id,
+                    request_id=context.request_id,
+                    timeout_seconds=context.timeout_seconds,
+                )
+                if context.cancel_event.is_set() or snapshot['status'] == ExecutionStatus.CANCEL_REQUESTED.value:
+                    state.mark_interrupted(result)
+                    return
+                state.mark_completed(result)
 
         worker = threading.Thread(
             target=run_target,
@@ -205,6 +216,7 @@ class InProcessExecutionRunner:
             execution_kind=context.execution_kind,
             session_id=context.session_id,
             run_id=context.run_id,
+            request_id=context.request_id,
             timeout_seconds=context.timeout_seconds,
             started_at=started_at,
             thread=worker,
@@ -214,6 +226,7 @@ class InProcessExecutionRunner:
                 execution_kind=context.execution_kind,
                 session_id=context.session_id,
                 run_id=context.run_id,
+                request_id=context.request_id,
                 timeout_seconds=context.timeout_seconds,
             ),
             result_getter=lambda: state.result,

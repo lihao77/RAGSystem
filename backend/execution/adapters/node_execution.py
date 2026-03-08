@@ -17,15 +17,28 @@ class NodeExecutionAdapter:
     def __init__(self, execution_service: Optional[ExecutionService] = None):
         self._execution_service = execution_service or get_execution_service()
 
-    def execute(self, payload: Optional[Dict[str, Any]], *, node_service) -> Dict[str, Any]:
+    def execute(
+        self,
+        payload: Optional[Dict[str, Any]],
+        *,
+        node_service,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         request_payload = payload or {}
         node_type = request_payload.get('node_type') or 'unknown'
         timeout_seconds = self._resolve_timeout_seconds(request_payload)
+        resolved_session_id = session_id or request_payload.get('session_id')
+        resolved_run_id = run_id or request_payload.get('run_id')
 
         result = self._execution_service.run(
             ExecutionRequest(
                 execution_kind='node_execute',
                 payload=request_payload,
+                session_id=resolved_session_id,
+                run_id=resolved_run_id,
+                request_id=request_id,
                 timeout_seconds=timeout_seconds,
                 metadata={'node_type': node_type},
             ),

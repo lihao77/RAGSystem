@@ -7,6 +7,8 @@ import logging
 from typing import Optional, Dict, Any
 from contextvars import ContextVar
 
+from execution.observability import attach_execution_metadata, get_current_execution_observability
+
 from .bus import (
     EventBus, Event, EventType, EventPriority,
     get_current_event_bus
@@ -66,9 +68,13 @@ class EventPublisher:
         override_parent_call_id: Optional[str] = None  # ✨ 允许覆盖 parent_call_id
     ):
         """内部发布方法"""
+        event_data = attach_execution_metadata(
+            data,
+            observability=get_current_execution_observability(),
+        )
         event = Event(
             type=event_type,
-            data=data,
+            data=event_data,
             priority=priority,
             session_id=self.session_id,
             trace_id=self.trace_id,

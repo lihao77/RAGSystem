@@ -12,8 +12,9 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from agents.core.models import AgentResponse
-from agents.events.bus import EventBus
+from agents.events.bus import Event, EventBus, EventType
 from agents.task_registry import TaskRegistry
+from execution import attach_execution_metadata
 from execution import InProcessExecutionRunner, ExecutionStatus
 from execution.adapters.agent_execution import AgentExecutionAdapter
 from services.execution_service import ExecutionService
@@ -108,12 +109,14 @@ class AgentExecutionAdapterTest(unittest.TestCase):
             session_id='session-success',
             user_id='user-1',
             llm_override=None,
+            request_id='req-success',
             conversation_store=store,
             orchestrator=orchestrator,
             history_loader=_noop_history_loader,
         )
         self.assertTrue(started.started)
         self.assertIsNotNone(started.handle)
+        self.assertEqual(started.request_id, 'req-success')
 
         result = started.handle.join(timeout=1)
         started.sse_adapter.stop()
@@ -140,6 +143,7 @@ class AgentExecutionAdapterTest(unittest.TestCase):
             session_id='session-busy',
             user_id='user-2',
             llm_override=None,
+            request_id='req-busy',
             conversation_store=_FakeStore(),
             orchestrator=_FakeOrchestrator(_FakeMasterAgent(AgentResponse(success=True, content='ok'))),
             history_loader=_noop_history_loader,
@@ -167,6 +171,7 @@ class AgentExecutionAdapterTest(unittest.TestCase):
             session_id='session-interrupted',
             user_id='user-3',
             llm_override=None,
+            request_id='req-stop',
             conversation_store=store,
             orchestrator=orchestrator,
             history_loader=_noop_history_loader,
@@ -179,6 +184,28 @@ class AgentExecutionAdapterTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.status, ExecutionStatus.INTERRUPTED)
         self.assertEqual(registry.get_status('session-interrupted')['raw_status'], 'interrupted')
+
+    def test_event_to_payload_flattens_execution_fields(self) -> None:
+        event = Event(
+            type=EventType.RUN_START,
+            data=attach_execution_metadata(
+                {'run_id': 'run-1'},
+                task_id='task-1',
+                session_id='session-1',
+                run_id='run-1',
+                execution_kind='agent_stream',
+                request_id='req-1',
+            ),
+            session_id='session-1',
+            agent_name='master_agent_v2',
+        )
+
+        payload = AgentExecutionAdapter._event_to_payload(event)
+
+        self.assertEqual(payload['task_id'], 'task-1')
+        self.assertEqual(payload['run_id'], 'run-1')
+        self.assertEqual(payload['execution_kind'], 'agent_stream')
+        self.assertEqual(payload['request_id'], 'req-1')
 
 
 if __name__ == '__main__':

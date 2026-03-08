@@ -30,6 +30,7 @@ class TaskInfo:
     task_id: str
     session_id: Optional[str]
     run_id: str
+    request_id: Optional[str]
     task: str
     started_at: float
     thread: Optional[threading.Thread] = None
@@ -82,6 +83,7 @@ class TaskRegistry:
         *,
         session_id: Optional[str] = None,
         run_id: str = '',
+        request_id: Optional[str] = None,
         task: str = '',
         thread: Optional[threading.Thread] = None,
         cancel_event: Optional[threading.Event] = None,
@@ -115,6 +117,7 @@ class TaskRegistry:
                 task_id=resolved_task_id,
                 session_id=session_id,
                 run_id=run_id,
+                request_id=request_id,
                 task=task,
                 started_at=time.time(),
                 thread=thread,
@@ -130,10 +133,11 @@ class TaskRegistry:
             self._sync_concurrency_index_locked(info)
 
         logger.info(
-            'TaskRegistry: 注册任务 task_id=%s session=%s run_id=%s kind=%s status=%s',
+            'TaskRegistry: 注册任务 task_id=%s session=%s run_id=%s request_id=%s kind=%s status=%s',
             resolved_task_id,
             session_id,
             run_id,
+            request_id,
             execution_kind,
             status,
         )
@@ -489,6 +493,7 @@ class TaskRegistry:
             'status': display_status,
             'raw_status': info.status,
             'run_id': info.run_id,
+            'request_id': info.request_id,
             'task': info.task,
             'execution_kind': info.execution_kind,
             'session_id': info.session_id,

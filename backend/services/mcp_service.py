@@ -108,17 +108,17 @@ class MCPService:
             result.append({**config, **status_info})
         return result
 
-    def add_server(self, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def add_server(self, payload: Optional[Dict[str, Any]], *, request_id: Optional[str] = None) -> Dict[str, Any]:
         body = payload or {}
         try:
             config = MCPServerConfig(**body)
         except Exception as error:
             raise MCPServiceError(f'配置验证失败: {error}', status_code=400) from error
 
-        self._save_and_connect_if_needed(config)
+        self._save_and_connect_if_needed(config, request_id=request_id)
         return {'name': config.name}
 
-    def update_server(self, server_name: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def update_server(self, server_name: str, payload: Optional[Dict[str, Any]], *, request_id: Optional[str] = None) -> Dict[str, Any]:
         body = dict(payload or {})
         body.pop('name', None)
 
@@ -135,19 +135,19 @@ class MCPService:
         persisted = config.model_dump(exclude_none=False)
         persisted.pop('name', None)
         self._store.update_server(server_name, persisted)
-        return self._execution_adapter.refresh_server(server_name, manager=self._manager)
+        return self._execution_adapter.refresh_server(server_name, manager=self._manager, request_id=request_id)
 
-    def delete_server(self, server_name: str) -> None:
-        self._execution_adapter.disconnect_server(server_name, manager=self._manager)
+    def delete_server(self, server_name: str, *, request_id: Optional[str] = None) -> None:
+        self._execution_adapter.disconnect_server(server_name, manager=self._manager, request_id=request_id)
         self._permission_unregistrar(server_name)
         try:
             self._store.remove_server(server_name)
         except ValueError as error:
             raise MCPServiceError(str(error), status_code=404) from error
 
-    def connect_server(self, server_name: str) -> Dict[str, Any]:
+    def connect_server(self, server_name: str, *, request_id: Optional[str] = None) -> Dict[str, Any]:
         try:
-            result = self._execution_adapter.connect_server(server_name, manager=self._manager)
+            result = self._execution_adapter.connect_server(server_name, manager=self._manager, request_id=request_id)
             success = result.get('success', False)
         except ValueError as error:
             raise MCPServiceError(str(error), status_code=404) from error
@@ -157,22 +157,33 @@ class MCPService:
             raise MCPServiceError(status.get('error_message', '连接失败'), status_code=400)
         return status
 
-    def disconnect_server(self, server_name: str) -> None:
-        self._execution_adapter.disconnect_server(server_name, manager=self._manager)
+    def disconnect_server(self, server_name: str, *, request_id: Optional[str] = None) -> None:
+        self._execution_adapter.disconnect_server(server_name, manager=self._manager, request_id=request_id)
 
-    def test_server(self, server_name: str) -> Dict[str, Any]:
-        result = self._execution_adapter.test_server(server_name, manager=self._manager)
+    def test_server(self, server_name: str, *, request_id: Optional[str] = None) -> Dict[str, Any]:
+        result = self._execution_adapter.test_server(server_name, manager=self._manager, request_id=request_id)
         if not result.get('success'):
             raise MCPServiceError(result.get('message', '连接失败'), status_code=400)
         return result
 
-    def call_tool(self, server_name: str, tool_name: str, arguments: dict, *, session_id: Optional[str] = None) -> dict:
+    def call_tool(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict,
+        *,
+        session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> dict:
         return self._execution_adapter.call_tool(
             server_name,
             tool_name,
             arguments,
             manager=self._manager,
             session_id=session_id,
+            run_id=run_id,
+            request_id=request_id,
         )
 
     def list_server_tools(self, server_name: str) -> Dict[str, Any]:
@@ -190,14 +201,14 @@ class MCPService:
             'tools': tools,
         }
 
-    def _save_and_connect_if_needed(self, config: MCPServerConfig) -> None:
+    def _save_and_connect_if_needed(self, config: MCPServerConfig, *, request_id: Optional[str] = None) -> None:
         try:
             self._store.add_server(config)
         except ValueError as error:
             raise MCPServiceError(str(error), status_code=400) from error
 
         if config.auto_connect and config.enabled:
-            self._execution_adapter.connect_server(config.name, manager=self._manager)
+            self._execution_adapter.connect_server(config.name, manager=self._manager, request_id=request_id)
 
 
 _mcp_service: Optional[MCPService] = None

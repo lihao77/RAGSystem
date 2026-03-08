@@ -580,6 +580,46 @@ P3 第一阶段完成后，应至少满足以下结果：
 - 是否需要让 `MCPClientManager` 暴露可取消 future handle。
 - 是否需要在 P4 中补统一的 `task_id` / `run_id` / `session_id` 全链路观测字段。
 
+### 12.3 P4 首步落地（execution observability context）
+
+P4 的第一步已经按“轻量、兼容、复用 execution layer”落地，目标不是重写协议，而是把现有执行平面变成可追踪的统一观测链路。
+
+本轮落地原则：
+
+- 以 `ExecutionService` 为唯一规范化入口。
+- 不引入 tracing 平台、消息队列等新基础设施。
+- 不重写现有 SSE 协议，仅附加兼容字段。
+- 不改变前端调用方式，优先在后端补齐默认值与继承语义。
+
+本轮统一字段：
+
+- `task_id`
+- `session_id`
+- `run_id`
+- `execution_kind`
+- `request_id`（可选；HTTP 入口有则透传，无则生成）
+
+落地要点：
+
+- 新增 `ExecutionObservabilityContext`，并通过 `contextvars` 在 execution 线程内自动绑定。
+- `ExecutionService.build_context(...)` 统一规范化字段来源：显式传入 > 当前 execution 上下文继承 > execution layer 默认兜底。
+- `TaskRegistry` 状态快照补充 `request_id`，使重连/状态查询可返回同一组观测字段。
+- Agent SSE、事件总线、run_steps 在保持兼容的前提下，统一附带 execution 字段。
+- Node 与 MCP 不共享 Agent 语义，但共享 execution observability 语义。
+
+实现位置：
+
+- `backend/execution/observability.py`
+- `backend/services/execution_service.py`
+- `backend/execution/in_process_runner.py`
+- `backend/execution/adapters/agent_execution.py`
+- `backend/routes/agent_api/stream_run.py`
+- `backend/routes/agent_api/stream_control.py`
+- `backend/execution/adapters/node_execution.py`
+- `backend/execution/adapters/mcp_execution.py`
+- `backend/services/mcp_service.py`
+- `backend/mcp/client_manager.py`
+
 ## 13. 最终建议
 
 P3 的正确切法不是直接“大重构执行系统”，而是：
