@@ -6,6 +6,7 @@
 from flask import Blueprint, request
 import logging
 
+from execution.adapters.node_execution import NodeExecutionAdapter
 from services.node_service import NodeServiceError, get_node_service
 from utils.response_helpers import error_response, success_response
 
@@ -131,10 +132,12 @@ def delete_config(config_id):
 def execute_node():
     """执行节点。"""
     try:
-        outputs = get_node_service().execute_node(request.get_json(silent=True))
+        outputs = NodeExecutionAdapter().execute(request.get_json(silent=True), node_service=get_node_service())
         return success_response(data=outputs, outputs=outputs, message='执行成功')
     except NodeServiceError as error:
         return error_response(message=error.message, error=error.message, status_code=error.status_code, **error.payload)
+    except TimeoutError as error:
+        return error_response(message=str(error), error=str(error), status_code=504)
     except Exception as error:
         logger.error('执行节点失败: %s', error, exc_info=True)
         return error_response(message=str(error), error=str(error), status_code=500)

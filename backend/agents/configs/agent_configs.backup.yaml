@@ -131,7 +131,8 @@ agents:
       - generate_map
       - execute_code
     skills:
-      enabled_skills: []
+      enabled_skills:
+      - kg-advanced-query
       auto_inject: true
     mcp:
       enabled_servers: []
@@ -201,11 +202,12 @@ agents:
       - read_file
     skills:
       enabled_skills:
-      - flood-extraction
+      - kg-advanced-query
       auto_inject: true
     mcp:
       enabled_servers:
       - io_github_dgahagan_weather-mcp
+      - io_github_seey215_tavily-mcp
     custom_params:
       behavior:
         compression_trigger_ratio: 0.85
@@ -222,5 +224,5 @@ agents:
           '
       type: master_v2
 metadata:
-  updated_at: '2026-03-07T16:07:46.661667'
+  updated_at: '2026-03-08T14:24:53.066885'
   version: '1.0'

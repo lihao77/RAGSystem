@@ -8,6 +8,7 @@ from __future__ import annotations
 from runtime.dependencies import get_runtime_dependency
 from typing import Any, Dict, Optional
 
+from execution.adapters.mcp_execution import MCPExecutionAdapter
 from mcp import get_mcp_manager
 from mcp.config import MCPServerConfig
 from mcp.config_store import get_mcp_config_store
@@ -38,6 +39,7 @@ class MCPService:
         registry_searcher=None,
         registry_installer=None,
         permission_unregistrar=None,
+        execution_adapter=None,
     ):
         self._store = store or get_mcp_config_store()
         self._manager = manager or get_mcp_manager()
@@ -46,6 +48,7 @@ class MCPService:
         self._registry_searcher = registry_searcher or search_registry_servers
         self._registry_installer = registry_installer or build_server_config_from_registry_install
         self._permission_unregistrar = permission_unregistrar or unregister_mcp_tool_permissions
+        self._execution_adapter = execution_adapter or MCPExecutionAdapter()
 
     def list_templates(self) -> list[Dict[str, Any]]:
         return self._template_lister()
@@ -132,10 +135,10 @@ class MCPService:
         persisted = config.model_dump(exclude_none=False)
         persisted.pop('name', None)
         self._store.update_server(server_name, persisted)
-        return self._manager.refresh_server(server_name)
+        return self._execution_adapter.refresh_server(server_name, manager=self._manager)
 
     def delete_server(self, server_name: str) -> None:
-        self._manager.disconnect_server(server_name)
+        self._execution_adapter.disconnect_server(server_name, manager=self._manager)
         self._permission_unregistrar(server_name)
         try:
             self._store.remove_server(server_name)
@@ -144,23 +147,33 @@ class MCPService:
 
     def connect_server(self, server_name: str) -> Dict[str, Any]:
         try:
-            success = self._manager.connect_server(server_name)
+            result = self._execution_adapter.connect_server(server_name, manager=self._manager)
+            success = result.get('success', False)
         except ValueError as error:
             raise MCPServiceError(str(error), status_code=404) from error
 
-        status = self._manager.get_server_status(server_name)
+        status = result.get('status') if 'result' in locals() else self._manager.get_server_status(server_name)
         if not success:
             raise MCPServiceError(status.get('error_message', '连接失败'), status_code=400)
         return status
 
     def disconnect_server(self, server_name: str) -> None:
-        self._manager.disconnect_server(server_name)
+        self._execution_adapter.disconnect_server(server_name, manager=self._manager)
 
     def test_server(self, server_name: str) -> Dict[str, Any]:
-        result = self._manager.test_connection(server_name)
+        result = self._execution_adapter.test_server(server_name, manager=self._manager)
         if not result.get('success'):
             raise MCPServiceError(result.get('message', '连接失败'), status_code=400)
         return result
+
+    def call_tool(self, server_name: str, tool_name: str, arguments: dict, *, session_id: Optional[str] = None) -> dict:
+        return self._execution_adapter.call_tool(
+            server_name,
+            tool_name,
+            arguments,
+            manager=self._manager,
+            session_id=session_id,
+        )
 
     def list_server_tools(self, server_name: str) -> Dict[str, Any]:
         tools = self._manager.get_tools_openai_format(server_name)
@@ -184,7 +197,7 @@ class MCPService:
             raise MCPServiceError(str(error), status_code=400) from error
 
         if config.auto_connect and config.enabled:
-            self._manager.connect_server(config.name)
+            self._execution_adapter.connect_server(config.name, manager=self._manager)
 
 
 _mcp_service: Optional[MCPService] = None

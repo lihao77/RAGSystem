@@ -72,6 +72,20 @@ class RuntimeContainer:
                 self._instances['mcp_manager'] = instance
             return instance
 
+    def get_mcp_execution_adapter(self):
+        from execution.adapters.mcp_execution import MCPExecutionAdapter
+
+        instance = self.get_instance('mcp_execution_adapter')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('mcp_execution_adapter')
+            if instance is None:
+                instance = MCPExecutionAdapter(execution_service=self.get_execution_service())
+                self._instances['mcp_execution_adapter'] = instance
+            return instance
+
     def get_mcp_service(self):
         from services.mcp_service import MCPService
 
@@ -85,8 +99,32 @@ class RuntimeContainer:
                 instance = MCPService(
                     store=self.get_mcp_config_store(),
                     manager=self.get_mcp_manager(),
+                    execution_adapter=self.get_mcp_execution_adapter(),
                 )
                 self._instances['mcp_service'] = instance
+            return instance
+
+    def get_in_process_execution_runner(self):
+        from execution.in_process_runner import InProcessExecutionRunner
+
+        return self._get_or_create('in_process_execution_runner', InProcessExecutionRunner)
+
+    def get_execution_service(self):
+        from services.execution_service import ExecutionService
+
+        instance = self.get_instance('execution_service')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('execution_service')
+            if instance is None:
+                instance = ExecutionService(
+                    task_registry=self.get_task_registry(),
+                    session_manager=self.get_session_manager(),
+                    runner=self.get_in_process_execution_runner(),
+                )
+                self._instances['execution_service'] = instance
             return instance
 
     def get_model_adapter_service(self):

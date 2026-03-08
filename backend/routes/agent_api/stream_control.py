@@ -4,7 +4,6 @@ Agent 流式控制与重连路由。
 """
 
 from .shared import (
-    EventType,
     Response,
     SSEAdapter,
     agent_bp,
@@ -17,6 +16,7 @@ from .shared import (
     stream_with_context,
     success_response,
 )
+from services.execution_service import get_execution_service
 from .stream_helpers import build_stream_response, format_event_to_sse
 
 @agent_bp.route('/sessions/<session_id>/approvals/<approval_id>/respond', methods=['POST'])
@@ -76,17 +76,9 @@ def stream_stop():
         if not session_id:
             return error_response(message='session_id 不能为空', status_code=400)
 
-        event_bus = get_session_event_bus(session_id)
-        from agents.events.bus import Event
-        event_bus.publish(Event(
-            type=EventType.USER_INTERRUPT,
-            data={"reason": "user_stop"},
-            session_id=session_id
-        ))
-
-        # ── 双重保障：直接设置 cancel_event ──
-        registry = get_task_registry()
-        registry.cancel(session_id)
+        interrupted = get_execution_service().cancel_session(session_id, reason='user_stop')
+        if not interrupted:
+            return error_response(message='该会话没有正在执行的任务', status_code=404)
 
         logger.info(f"已发送用户中断事件: session_id={session_id}")
         return success_response(data={"interrupted": True})
@@ -121,8 +113,7 @@ def stream_reconnect():
     if not session_id:
         return error_response(message='session_id 不能为空', status_code=400)
 
-    registry = get_task_registry()
-    status = registry.get_status(session_id)
+    status = get_execution_service().get_status_by_session(session_id)
     if not status or status["status"] != "running":
         return error_response(message='该会话没有正在执行的任务', status_code=404)
 

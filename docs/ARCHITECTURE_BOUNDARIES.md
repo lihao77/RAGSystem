@@ -194,10 +194,30 @@
 - `backend/nodes/config_store.py`（已接入）
 - `backend/workflows/store.py`（已接入）
 - `backend/mcp/config_store.py`（已接入）
-- `backend/agents/config/manager.py`（已接入）
+- `backend/agents/config/manager.py`（文件存储已接入；YAML/JSON 文本导入导出已与文件语义拆分）
 - `backend/vector_store/vectorizer_config.py`（已接入）
 - `backend/file_index/store.py`（已接入）
-- `backend/services/config_service.py`（写入路径已接入）
+- `backend/services/config_service.py`（文件写入已接入；原始 YAML 文本读取与文本解析已拆分）
+- `backend/config/base.py`（共享 YAML 读取已接入）
+- `backend/config/schemas.py`（共享 YAML 读取已接入）
+- `backend/utils/migrate_file_index.py`（迁移读取路径已接入）
+
+### 当前进展（已执行）
+
+- `backend/config/base.py`
+  - 已改为复用 `utils.yaml_store.load_yaml_file(...)`，不再直接打开 YAML 文件。
+- `backend/config/schemas.py`
+  - `ProvidersConfig.load(...)` / `VectorizersConfig.load(...)` 已统一走共享 YAML 读取 helper。
+- `backend/services/config_service.py`
+  - 文件写入继续通过 `utils.versioned_yaml_store.save_versioned_yaml_file(...)`。
+  - 原始配置读取已拆为“文件文本读取”与“YAML 字符串解析”两个 helper，避免把文件语义与文本语义混在一起。
+- `backend/agents/config/manager.py`
+  - 文件装载/持久化继续通过 `versioned_yaml_store`。
+  - `export_config(...)` / `import_config(...)` 已拆为独立的 YAML/JSON 文本渲染与解析 helper。
+- `backend/utils/migrate_file_index.py`
+  - YAML 迁移脚本已复用共享读取 helper，避免再维护独立文件读取逻辑。
+- `backend/tests/storage_refactor_guards_test.py`
+  - 已新增一组 P2 静态守卫，确保上述模块继续沿用共享存储基座，而不是回退到散落的 YAML 文件操作。
 
 ### 统一能力
 
@@ -217,6 +237,8 @@
 ## P3：建立执行平面
 
 当前部分重任务仍在 Web 进程请求路径中执行。下一阶段应先抽统一执行层，再决定是否上更重的基础设施。
+
+详细设计草案见：`docs/P3_EXECUTION_LAYER_DESIGN.md`
 
 ### 当前风险点
 

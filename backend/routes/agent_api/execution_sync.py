@@ -7,7 +7,6 @@ from .shared import (
     AgentContext,
     agent_bp,
     error_response,
-    get_task_registry,
     logger,
     request,
     success_response,
@@ -15,6 +14,7 @@ from .shared import (
     _get_orchestrator,
     _load_history_into_context,
 )
+from services.execution_service import get_execution_service
 
 @agent_bp.route('/execute', methods=['POST'])
 def execute():
@@ -109,8 +109,7 @@ def get_session_task_status(session_id):
             "task_info": { status, run_id, task, elapsed_seconds, thread_alive } | null
         }
     """
-    registry = get_task_registry()
-    status = registry.get_status(session_id)
+    status = get_execution_service().get_status_by_session(session_id)
     return success_response(data={
         "session_id": session_id,
         "has_running_task": status is not None and status["status"] == "running",

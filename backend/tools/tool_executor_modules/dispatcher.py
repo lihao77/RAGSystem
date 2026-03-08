@@ -123,15 +123,15 @@ def _execute_document_tool(tool_name, arguments):
     return None
 
 
-def _execute_mcp_tool(tool_name, arguments):
-    from mcp import get_mcp_manager
+def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
     from mcp.converter import parse_mcp_tool_name
+    from services.mcp_service import get_mcp_service
 
     parsed = parse_mcp_tool_name(tool_name)
     if not parsed:
         return error_response(f'无效的 MCP 工具名: {tool_name}')
     server_name, original_tool = parsed
-    return get_mcp_manager().call_tool(server_name, original_tool, arguments)
+    return get_mcp_service().call_tool(server_name, original_tool, arguments, session_id=session_id)
 
 
 TOOL_HANDLERS = {
@@ -198,7 +198,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _execute_document_tool(tool_name, arguments)
         elif tool_name.startswith('mcp__'):
-            result = _execute_mcp_tool(tool_name, arguments)
+            result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)
         else:
             result = error_response(f'未知的工具: {tool_name}')
 

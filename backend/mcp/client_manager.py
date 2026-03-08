@@ -196,8 +196,8 @@ class MCPClientManager:
             return True
         except Exception as e:
             conn.status = "error"
-            conn.error_message = str(e)
-            logger.error(f"✗ MCP Server {server_name} 连接失败: {e}")
+            conn.error_message = self._format_exception_message(e)
+            logger.exception("✗ MCP Server %s 连接失败: %s", server_name, conn.error_message)
             return False
 
     async def _async_connect(self, conn: MCPConnection, srv_cfg: dict):
@@ -219,7 +219,7 @@ class MCPClientManager:
 
         except Exception as e:
             conn.status = "error"
-            conn.error_message = str(e)
+            conn.error_message = self._format_exception_message(e)
             raise
 
     async def _connect_stdio(self, conn: MCPConnection, srv_cfg: dict):
@@ -318,7 +318,7 @@ class MCPClientManager:
             kwargs = self._build_http_client_kwargs(streamablehttp_client, headers)
             cm = streamablehttp_client(url, **kwargs)
 
-        read, write = await cm.__aenter__()
+        read, write = self._extract_transport_streams(await cm.__aenter__())
         conn._cm = cm
         conn._read = read
         conn._write = write
@@ -342,6 +342,35 @@ class MCPClientManager:
             return {"headers": headers}
 
         raise ValueError("当前 MCP SDK 版本不支持为远程连接传递 headers")
+
+    @staticmethod
+    def _extract_transport_streams(transport_result):
+        if not isinstance(transport_result, tuple):
+            raise TypeError("MCP transport 返回值格式无效，应为 tuple")
+
+        if len(transport_result) < 2:
+            raise ValueError("MCP transport 返回值不完整，至少需要 read/write 两项")
+
+        read, write = transport_result[:2]
+        return read, write
+
+    @staticmethod
+    def _format_exception_message(error: Exception) -> str:
+        primary = str(error).strip()
+        if not primary:
+            primary = error.__class__.__name__
+
+        related = []
+        for linked_error in (getattr(error, '__cause__', None), getattr(error, '__context__', None)):
+            if linked_error is None:
+                continue
+            linked_message = str(linked_error).strip() or linked_error.__class__.__name__
+            if linked_message and linked_message != primary and linked_message not in related:
+                related.append(linked_message)
+
+        if related:
+            return f"{primary} | caused by: {' | '.join(related)}"
+        return primary
 
     def disconnect_server(self, server_name: str):
         """Disconnect the specified MCP server."""
@@ -557,7 +586,11 @@ class MCPClientManager:
                 err = conn.error_message if conn else "未知错误"
                 return {"success": False, "message": err, "tool_count": 0}
         except Exception as e:
-            return {"success": False, "message": str(e), "tool_count": 0}
+            return {
+                "success": False,
+                "message": self._format_exception_message(e),
+                "tool_count": 0,
+            }
 
 
 # ─── 单例 ─────────────────────────────────────────────────────────────────────

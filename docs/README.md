@@ -19,6 +19,8 @@
 
 ### 后端开发
 - **[架构边界与路线图](ARCHITECTURE_BOUNDARIES.md)** - 分层规则、运行时入口和重构优先级
+- **[P3 执行平面设计](P3_EXECUTION_LAYER_DESIGN.md)** - 进程内最小 execution layer 设计草案
+- **[P3 执行平面实施清单](P3_EXECUTION_LAYER_CHECKLIST.md)** - 按阶段推进的实施与验收 checklist
 - **[节点配置UI使用指南](../backend/nodes/CONFIG_UI_GUIDE.md)** - 详细的节点开发指南
 - **[UI元数据快速参考](../backend/nodes/UI_METADATA_REFERENCE.md)** - 节点配置元数据速查
 
@@ -54,6 +56,8 @@ docs/
 ├── DOCUMENTATION_MAP.md         # 文档地图
 ├── configuration-guide.md       # 配置系统指南
 ├── ARCHITECTURE_BOUNDARIES.md   # 架构边界与演进路线图
+├── P3_EXECUTION_LAYER_DESIGN.md # P3 执行平面设计文档
+├── P3_EXECUTION_LAYER_CHECKLIST.md # P3 执行平面实施清单
 ├── BACKEND_CONFIG_SURVEY.md    # 后端配置调查报告
 ├── FILE_SYSTEM_INTEGRATION.md   # 文件系统集成
 ├── migration/                  # 迁移指南
