@@ -5,6 +5,7 @@ Tool executor 分发入口。
 
 import logging
 
+from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from tools.response_builder import error_response
 
 from .data_tools import process_data_file, transform_data
@@ -30,6 +31,11 @@ from .visualization_tools import generate_chart, generate_map
 logger = logging.getLogger(__name__)
 
 
+def _obs_suffix() -> str:
+    suffix = format_observability_for_log(get_current_execution_observability_fields())
+    return f' [{suffix}]' if suffix else ''
+
+
 def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None):
     from tools.permissions import check_tool_permission, get_tool_permission
 
@@ -40,7 +46,7 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
         caller=caller,
     )
     if not allowed:
-        logger.warning(f'工具权限检查失败: {error_msg}')
+        logger.warning(f'工具权限检查失败: {error_msg}{_obs_suffix()}')
         return False, error_response(error_msg), ''
 
     approval_message = ''
@@ -48,9 +54,9 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
     if not (permission and permission.requires_approval):
         return True, None, approval_message
 
-    logger.info(f'工具 {tool_name} 需要用户审批')
+    logger.info(f'工具 {tool_name} 需要用户审批{_obs_suffix()}')
     if not event_bus:
-        logger.warning(f'工具 {tool_name} 需要审批但无事件总线，拒绝执行')
+        logger.warning(f'工具 {tool_name} 需要审批但无事件总线，拒绝执行{_obs_suffix()}')
         return False, error_response(f'工具 {tool_name} 需要用户授权，但当前上下文不支持审批'), ''
 
     try:
@@ -73,26 +79,26 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
                 'description': permission.description,
             }
         ))
-        logger.info(f'已发布工具 {tool_name} 的审批请求事件 approval_id={approval_id}')
+        logger.info(f'已发布工具 {tool_name} 的审批请求事件 approval_id={approval_id}{_obs_suffix()}')
 
         if wait_evt is None:
-            logger.warning(f'工具 {tool_name} 需要审批但缺少 session_id，拒绝执行')
+            logger.warning(f'工具 {tool_name} 需要审批但缺少 session_id，拒绝执行{_obs_suffix()}')
             return False, error_response(f'工具 {tool_name} 需要用户授权，但当前上下文无法等待审批'), ''
 
         wait_evt.wait()
         approved, approval_note = registry.get_approval_result(session_id, approval_id)
         if not approved:
-            logger.info(f'工具 {tool_name} 审批被拒绝或任务已停止')
+            logger.info(f'工具 {tool_name} 审批被拒绝或任务已停止{_obs_suffix()}')
             deny_reason = approval_note if approval_note else '用户拒绝执行此操作'
             return False, error_response(f'工具 {tool_name} 执行已被拒绝：{deny_reason}'), ''
 
-        logger.info(f'工具 {tool_name} 审批通过，继续执行')
+        logger.info(f'工具 {tool_name} 审批通过，继续执行{_obs_suffix()}')
         if approval_note:
             approval_message = approval_note
-            logger.info(f'用户审批附言: {approval_note}')
+            logger.info(f'用户审批附言: {approval_note}{_obs_suffix()}')
         return True, None, approval_message
     except Exception as error:
-        logger.error(f'审批流程异常: {error}')
+        logger.error(f'审批流程异常: {error}{_obs_suffix()}')
         return False, error_response(f'审批流程异常: {error}'), ''
 
 
@@ -131,7 +137,24 @@ def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
     if not parsed:
         return error_response(f'无效的 MCP 工具名: {tool_name}')
     server_name, original_tool = parsed
-    return get_mcp_service().call_tool(server_name, original_tool, arguments, session_id=session_id)
+    current_fields = get_current_execution_observability_fields()
+    logger.info(
+        '分发 MCP 工具 tool_name=%s server_name=%s original_tool=%s session_id=%s run_id=%s request_id=%s',
+        tool_name,
+        server_name,
+        original_tool,
+        session_id or current_fields.get('session_id'),
+        current_fields.get('run_id'),
+        current_fields.get('request_id'),
+    )
+    return get_mcp_service().call_tool(
+        server_name,
+        original_tool,
+        arguments,
+        session_id=session_id,
+        run_id=current_fields.get('run_id'),
+        request_id=current_fields.get('request_id'),
+    )
 
 
 TOOL_HANDLERS = {
@@ -206,7 +229,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             result['approval_message'] = approval_message
         return result
     except Exception as error:
-        logger.error(f'执行工具 {tool_name} 失败: {error}')
+        logger.error(f'执行工具 {tool_name} 失败: {error}{_obs_suffix()}')
         import traceback
         traceback.print_exc()
         return error_response(str(error))

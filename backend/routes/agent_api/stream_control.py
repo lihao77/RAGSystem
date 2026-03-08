@@ -119,6 +119,13 @@ def stream_reconnect():
     status = get_execution_service().get_status_by_session(session_id)
     if not status or status["status"] != "running":
         return error_response(message='该会话没有正在执行的任务', status_code=404)
+    logger.info(
+        '建立流式重连: session_id=%s task_id=%s run_id=%s request_id=%s',
+        session_id,
+        status.get('task_id'),
+        status.get('run_id'),
+        status.get('request_id') or request_id,
+    )
 
     # 当前 run 的启动时间，用于过滤历史事件（只回放本次 run 的事件）
     run_started_at = status.get("started_at", 0)

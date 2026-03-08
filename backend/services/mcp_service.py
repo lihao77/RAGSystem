@@ -5,6 +5,7 @@ MCP 服务层。
 
 from __future__ import annotations
 
+import logging
 from runtime.dependencies import get_runtime_dependency
 from typing import Any, Dict, Optional
 
@@ -15,6 +16,8 @@ from mcp.config_store import get_mcp_config_store
 from mcp.registry import MCPRegistryError, build_server_config_from_registry_install, search_registry_servers
 from mcp.templates import build_server_config, list_templates
 from tools.permissions import unregister_mcp_tool_permissions
+
+logger = logging.getLogger(__name__)
 
 
 class MCPServiceError(Exception):
@@ -146,6 +149,7 @@ class MCPService:
             raise MCPServiceError(str(error), status_code=404) from error
 
     def connect_server(self, server_name: str, *, request_id: Optional[str] = None) -> Dict[str, Any]:
+        logger.info('MCPService: 连接服务 server_name=%s request_id=%s', server_name, request_id)
         try:
             result = self._execution_adapter.connect_server(server_name, manager=self._manager, request_id=request_id)
             success = result.get('success', False)
@@ -158,9 +162,11 @@ class MCPService:
         return status
 
     def disconnect_server(self, server_name: str, *, request_id: Optional[str] = None) -> None:
+        logger.info('MCPService: 断开服务 server_name=%s request_id=%s', server_name, request_id)
         self._execution_adapter.disconnect_server(server_name, manager=self._manager, request_id=request_id)
 
     def test_server(self, server_name: str, *, request_id: Optional[str] = None) -> Dict[str, Any]:
+        logger.info('MCPService: 测试连接 server_name=%s request_id=%s', server_name, request_id)
         result = self._execution_adapter.test_server(server_name, manager=self._manager, request_id=request_id)
         if not result.get('success'):
             raise MCPServiceError(result.get('message', '连接失败'), status_code=400)
@@ -176,6 +182,14 @@ class MCPService:
         run_id: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> dict:
+        logger.info(
+            'MCPService: 调用工具 server_name=%s tool_name=%s session_id=%s run_id=%s request_id=%s',
+            server_name,
+            tool_name,
+            session_id,
+            run_id,
+            request_id,
+        )
         return self._execution_adapter.call_tool(
             server_name,
             tool_name,

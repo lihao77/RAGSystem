@@ -13,7 +13,10 @@ class MCPDispatcherGuardTest(unittest.TestCase):
         content = dispatcher_path.read_text(encoding='utf-8')
 
         self.assertIn("from services.mcp_service import get_mcp_service", content)
-        self.assertIn("get_mcp_service().call_tool(server_name, original_tool, arguments, session_id=session_id)", content)
+        self.assertIn("get_mcp_service().call_tool(", content)
+        self.assertIn("session_id=session_id", content)
+        self.assertIn("run_id=current_fields.get('run_id')", content)
+        self.assertIn("request_id=current_fields.get('request_id')", content)
         self.assertIn("result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)", content)
 
 

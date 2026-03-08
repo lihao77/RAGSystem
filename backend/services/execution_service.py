@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Callable, Dict, Optional
 
@@ -20,6 +21,8 @@ from runtime.dependencies import get_runtime_dependency
 
 from agents.events.session_manager import get_session_manager
 from agents.task_registry import get_task_registry
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionService:
@@ -40,6 +43,16 @@ class ExecutionService:
 
     def get_runner(self):
         return self._runner
+
+    @staticmethod
+    def _log_fields(context: ExecutionContext) -> Dict[str, Any]:
+        return {
+            'task_id': context.task_id,
+            'session_id': context.session_id,
+            'run_id': context.run_id,
+            'execution_kind': context.execution_kind,
+            'request_id': context.request_id,
+        }
 
     def build_context(
         self,
@@ -115,6 +128,7 @@ class ExecutionService:
             event_bus=event_bus,
             metadata=metadata,
         )
+        logger.info('ExecutionService: 提交执行任务 %s', self._log_fields(context))
         self._ensure_task_registered(context)
         wrapped_target = self._wrap_target(context, target)
         handle = self._runner.submit(context=context, target=wrapped_target, thread_name=thread_name)
@@ -161,11 +175,13 @@ class ExecutionService:
             handle = self._handles.get(task_id)
         if handle is not None:
             cancelled = handle.cancel() or cancelled
+        logger.info('ExecutionService: 取消任务 task_id=%s cancelled=%s', task_id, cancelled)
         return cancelled
 
     def cancel_session(self, session_id: str, *, publish_interrupt: bool = True, reason: str = 'user_stop') -> bool:
         status = self.get_status_by_session(session_id)
         if status is None:
+            logger.info('ExecutionService: 取消会话失败 session_id=%s reason=%s status=missing', session_id, reason)
             return False
 
         if publish_interrupt:
@@ -191,6 +207,14 @@ class ExecutionService:
         task_id = status.get('task_id')
         if not task_id:
             return False
+        logger.info(
+            'ExecutionService: 取消会话 session_id=%s task_id=%s run_id=%s request_id=%s reason=%s',
+            session_id,
+            task_id,
+            status.get('run_id'),
+            status.get('request_id'),
+            reason,
+        )
         return self.cancel(task_id)
 
     def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -232,17 +256,25 @@ class ExecutionService:
 
     def _wrap_target(self, context: ExecutionContext, target: Callable[[ExecutionContext], Any]) -> Callable[[ExecutionContext], Any]:
         def wrapped(current_context: ExecutionContext) -> Any:
+            logger.info('ExecutionService: 开始执行 %s', self._log_fields(current_context))
             try:
                 result = target(current_context)
             except Exception:
                 self._task_registry.finish_task(current_context.task_id, status='failed')
+                logger.exception('ExecutionService: 执行失败 %s', self._log_fields(current_context))
                 raise
 
             if isinstance(result, ExecutionResult):
                 self._task_registry.finish_task(current_context.task_id, status=result.status.value)
+                logger.info(
+                    'ExecutionService: 执行完成 %s status=%s',
+                    self._log_fields(current_context),
+                    result.status.value,
+                )
                 return result
 
             self._task_registry.finish_task(current_context.task_id, status='completed')
+            logger.info('ExecutionService: 执行完成 %s status=completed', self._log_fields(current_context))
             return result
 
         return wrapped

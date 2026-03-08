@@ -47,9 +47,14 @@ def stream_execute():
     selected_llm = (data.get('selected_llm') or data.get('selectedLLM') or '').strip()
     llm_override = parse_selected_llm(selected_llm)
     if llm_override:
-        logger.info(f'流式请求使用前端选择 LLM: selected_llm={selected_llm!r} -> llm_override={llm_override}')
+        logger.info(
+            '流式请求使用前端选择 LLM: selected_llm=%r -> llm_override=%s request_id=%s',
+            selected_llm,
+            llm_override,
+            request_id,
+        )
     else:
-        logger.info('流式请求未携带 selected_llm，将使用系统/智能体默认 LLM')
+        logger.info('流式请求未携带 selected_llm，将使用系统/智能体默认 LLM request_id=%s', request_id)
 
     if not task:
         return error_response(message='任务描述不能为空', status_code=400)
@@ -59,7 +64,7 @@ def stream_execute():
         import uuid
         session_id = str(uuid.uuid4())
 
-    logger.info(f'流式执行任务: {task} (session_id: {session_id})')
+    logger.info('流式执行任务: session_id=%s request_id=%s task=%s', session_id, request_id, task)
 
     def generate():
         try:
@@ -107,7 +112,7 @@ def stream_execute():
             yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            logger.error(f"流式执行异常: {e}", exc_info=True)
+            logger.error('流式执行异常: session_id=%s request_id=%s error=%s', session_id, request_id, e, exc_info=True)
             error_payload = {'type': 'error', 'content': str(e), 'session_id': session_id}
             apply_observability_fields(error_payload, {
                 'session_id': session_id,
