@@ -1,0 +1,6 @@
+# 智能体配置文件（包含用户自定义配置，不提交到 git）
+agent_configs.yaml
+
+# 配置备份文件
+*.yaml.bak
+*.yaml.backup

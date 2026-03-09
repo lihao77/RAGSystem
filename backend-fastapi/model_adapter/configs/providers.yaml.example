@@ -1,0 +1,41 @@
+# Model Adapter Provider 配置示例（与当前实现一致）
+# 使用说明：
+# 1. 复制此文件为 providers.yaml（providers.yaml 已加入 .gitignore）
+# 2. 填入真实 api_key，或使用 ${ENV_VAR} 从环境变量读取
+# 顶层键为复合键：{name}_{provider_type}，如 my_deepseek、my_openrouter
+
+my_deepseek:
+  name: my
+  provider_type: deepseek
+  api_key: "${DEEPSEEK_API_KEY}"
+  api_endpoint: ""
+  max_completion_tokens: 4096      # 单次输出的最大 token 数
+  max_context_tokens: 128000       # 模型支持的最大上下文窗口（DeepSeek V3: 128K）
+  temperature: 0.7
+  timeout: 30
+  retry_attempts: 3
+  retry_delay: 1.0
+  supports_function_calling: true
+  model_map:
+    chat: deepseek-chat
+  models: []
+
+my_openrouter:
+  name: my
+  provider_type: openrouter
+  api_key: "${OPENROUTER_API_KEY}"
+  api_endpoint: ""
+  max_completion_tokens: 4096
+  max_context_tokens: 128000       # 根据实际使用的模型配置（如 GPT-4 Turbo: 128K）
+  temperature: 0.7
+  timeout: 30
+  retry_attempts: 3
+  retry_delay: 1.0
+  supports_function_calling: true
+  model_map:
+    chat: []
+    embedding:
+      - openai/text-embedding-3-small
+    reasoning: []
+  models:
+    - openai/text-embedding-3-small

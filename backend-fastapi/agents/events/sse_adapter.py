@@ -1,0 +1,352 @@
+# -*- coding: utf-8 -*-
+"""
+SSE适配器 - 将事件总线的事件转换为Server-Sent Events流
+
+职责：
+1. 订阅事件总线的事件
+2. 将事件格式化为SSE格式
+3. 通过生成器函数流式输出
+"""
+
+import asyncio
+import json
+import logging
+from typing import AsyncGenerator, Optional, List, Generator
+from queue import Queue, Empty
+import time
+import threading
+
+from .bus import EventBus, Event, EventType
+
+logger = logging.getLogger(__name__)
+
+
+class SSEAdapter:
+    """
+    SSE适配器 - 将事件总线桥接到前端
+
+    使用方式:
+        adapter = SSEAdapter(event_bus, session_id="abc123")
+        async for sse_data in adapter.stream():
+            yield sse_data
+    """
+
+    def __init__(
+        self,
+        event_bus: EventBus,
+        session_id: str,
+        buffer_size: int = 100,
+        heartbeat_interval: float = 15.0,
+    ):
+        """
+        初始化SSE适配器（纯转发管道，不含业务逻辑）
+
+        Args:
+            event_bus: 事件总线实例
+            session_id: 会话ID（仅接收该会话的事件）
+            buffer_size: 事件缓冲区大小
+            heartbeat_interval: 心跳间隔（秒）
+        """
+        self.event_bus = event_bus
+        self.session_id = session_id
+        self.buffer_size = buffer_size
+        self.heartbeat_interval = heartbeat_interval
+
+        # 事件队列（异步）- 无界队列，避免事件丢失
+        self._event_queue: asyncio.Queue = asyncio.Queue()
+
+        # 事件队列（同步）- 无界队列，避免事件丢失
+        self._sync_event_queue: Queue = Queue()
+
+        # 订阅ID
+        self._subscription_id: Optional[str] = None
+
+        # 是否已停止
+        self._stopped = False
+        self._primary_agent_name: Optional[str] = None
+
+    def start(self):
+        """开始监听事件"""
+        if self._subscription_id:
+            logger.warning(f"[SSEAdapter] 已经启动，跳过重复启动")
+            return
+
+        # 订阅所有事件类型
+        self._subscription_id = self.event_bus.subscribe(
+            event_types=list(EventType),
+            handler=self._handle_event,
+            filter_func=self._filter_event
+        )
+
+        logger.info(f"[SSEAdapter] 已启动 (session: {self.session_id})")
+
+    def stop(self):
+        """停止监听事件"""
+        if self._subscription_id:
+            self.event_bus.unsubscribe(self._subscription_id)
+            self._subscription_id = None
+
+        self._stopped = True
+        logger.info(f"[SSEAdapter] 已停止 (session: {self.session_id})")
+
+    def _filter_event(self, event: Event) -> bool:
+        """
+        事件过滤器：仅接收当前会话的事件
+
+        Args:
+            event: 事件对象
+
+        Returns:
+            bool: True=接收事件, False=忽略事件
+        """
+        # 如果事件没有session_id，接收所有
+        if not event.session_id:
+            return True
+
+        # 只接收当前会话的事件
+        return event.session_id == self.session_id
+
+    def _handle_event(self, event: Event):
+        """
+        事件处理器（同步版本）
+
+        Args:
+            event: 事件对象
+        """
+        try:
+            # 放入异步队列
+            try:
+                self._event_queue.put_nowait(event)
+            except Exception:
+                logger.warning(f"[SSEAdapter] 异步队列放入失败: {event.type.value}")
+
+            # 放入同步队列（用于非async环境）
+            try:
+                self._sync_event_queue.put_nowait(event)
+            except Exception:
+                logger.warning(f"[SSEAdapter] 同步事件队列放入失败: {event.type.value}")
+
+        except Exception as e:
+            logger.error(f"[SSEAdapter] 处理事件失败: {e}")
+
+    async def stream(self) -> AsyncGenerator[str, None]:
+        """
+        SSE流式输出生成器
+
+        Yields:
+            str: SSE格式的数据（"data: {...}\\n\\n"）
+        """
+        self.start()
+
+        try:
+            last_heartbeat = time.time()
+
+            while not self._stopped:
+                try:
+                    # 从队列获取事件（带超时）
+                    event = await asyncio.wait_for(
+                        self._event_queue.get(),
+                        timeout=1.0
+                    )
+
+                    # 所有事件直接转发，无假流式处理
+                    sse_data = self._format_sse(event)
+                    yield sse_data
+
+                    last_heartbeat = time.time()
+
+                    # ✨ 检测结束事件，自动停止流
+                    # 优先级 0: 用户中断
+                    if event.type == EventType.USER_INTERRUPT:
+                        logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
+                        break
+
+                    # 优先级 1: Run 结束 (Master V2)
+                    if event.type == EventType.RUN_END:
+                        logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                    # 优先级 2: Session 结束 (通用)
+                    if event.type == EventType.SESSION_END:
+                        logger.info(f"[SSEAdapter] 检测到 Session 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                    # 优先级 3: 主 Agent 结束 (兼容旧模式)
+                    if event.type == EventType.AGENT_START and self._primary_agent_name is None:
+                        self._primary_agent_name = event.agent_name
+
+                    if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
+                         # 只有在没有 Run 事件时才通过 Agent 结束来停止
+                         # 如果是 Master V2，通常会有 RUN_END，所以这里主要是为了兼容 V1 或单 Agent 模式
+                        logger.info(f"[SSEAdapter] 检测到主 Agent 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                except asyncio.TimeoutError:
+                    # 超时：发送心跳
+                    now = time.time()
+                    if now - last_heartbeat >= self.heartbeat_interval:
+                        yield self._heartbeat()
+                        last_heartbeat = now
+
+                except Exception as e:
+                    logger.error(f"[SSEAdapter] 流式输出错误: {e}", exc_info=True)
+
+        finally:
+            self.stop()
+
+    def stream_sync(self) -> Generator[str, None, None]:
+        """
+        SSE流式输出生成器（同步版本，用于Flask等非async环境）
+
+        Yields:
+            str: SSE格式的数据（"data: {...}\\n\\n"）
+        """
+        self.start()
+
+        try:
+            last_heartbeat = time.time()
+
+            while not self._stopped:
+                try:
+                    # 从同步队列获取事件（带超时）
+                    event = self._sync_event_queue.get(timeout=1.0)
+
+                    # 所有事件直接转发，无假流式处理
+                    sse_data = self._format_sse(event)
+                    yield sse_data
+
+                    last_heartbeat = time.time()
+
+                    # ✨ 检测结束事件，自动停止流
+                    # 优先级 0: 用户中断
+                    if event.type == EventType.USER_INTERRUPT:
+                        logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
+                        break
+
+                    # 优先级 1: Run 结束 (Master V2)
+                    if event.type == EventType.RUN_END:
+                        logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                    # 优先级 2: Session 结束 (通用)
+                    if event.type == EventType.SESSION_END:
+                        logger.info(f"[SSEAdapter] 检测到 Session 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                    # 优先级 3: 主 Agent 结束 (兼容旧模式)
+                    if event.type == EventType.AGENT_START and self._primary_agent_name is None:
+                        self._primary_agent_name = event.agent_name
+
+                    if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
+                        logger.info(f"[SSEAdapter] 检测到主 Agent 结束事件 ({event.type.value})，停止流式输出")
+                        break
+
+                except Empty:
+                    # 超时：发送心跳
+                    now = time.time()
+                    if now - last_heartbeat >= self.heartbeat_interval:
+                        yield self._heartbeat()
+                        last_heartbeat = now
+
+                except Exception as e:
+                    logger.error(f"[SSEAdapter] 同步流式输出错误: {e}", exc_info=True)
+
+        finally:
+            self.stop()
+
+    def _format_sse(self, event: Event) -> str:
+        """将事件格式化为SSE格式（纯序列化，不含业务逻辑）"""
+        full_event = self._to_full_event_dict(event)
+        json_data = json.dumps(full_event, ensure_ascii=False)
+        return f"data: {json_data}\n\n"
+
+    def _to_full_event_dict(self, event: Event) -> dict:
+        """
+        将 Event 对象转换为完整的字典格式（保留所有信息）
+
+        完整格式（新版）：
+            {
+                "type": "agent_start",
+                "event_id": "uuid...",
+                "timestamp": 123456.789,
+                "priority": "normal",
+                "session_id": "abc123",
+                "trace_id": "xyz789",
+                "span_id": "span123",
+                "agent_name": "master_agent_v2",
+                "data": {
+                    "task": "...",
+                    "metadata": {}
+                },
+                "requires_user_action": false,
+                "user_action_timeout": null
+            }
+
+        Args:
+            event: Event 对象
+
+        Returns:
+            dict: 完整的事件字典
+        """
+        return {
+            # 事件类型（使用 EventType 的 value）
+            "type": event.type.value,
+
+            # 事件元数据
+            "event_id": event.event_id,
+            "timestamp": event.timestamp,
+            "priority": event.priority.value,
+
+            # 会话和追踪信息
+            "session_id": event.session_id,
+            "trace_id": event.trace_id,
+            "span_id": event.span_id,
+
+            # Agent 信息
+            "agent_name": event.agent_name,
+            "call_id": event.call_id,
+            "parent_call_id": event.parent_call_id,
+
+            # 事件数据（完整保留）
+            "data": event.data or {},
+
+            # 用户交互
+            "requires_user_action": event.requires_user_action,
+            "user_action_timeout": event.user_action_timeout
+        }
+
+    def _heartbeat(self) -> str:
+        """
+        生成心跳SSE
+
+        Returns:
+            str: 心跳SSE数据
+        """
+        heartbeat_data = {
+            "type": "heartbeat",
+            "timestamp": time.time()
+        }
+        json_data = json.dumps(heartbeat_data, ensure_ascii=False)
+        return f"data: {json_data}\n\n"
+
+
+# ==================== 便捷函数 ====================
+
+async def stream_events_to_sse(
+    event_bus: EventBus,
+    session_id: str
+) -> AsyncGenerator[str, None]:
+    """
+    便捷函数：将事件总线流式输出为SSE
+
+    Args:
+        event_bus: 事件总线实例
+        session_id: 会话ID
+
+    Yields:
+        str: SSE格式的数据
+    """
+    adapter = SSEAdapter(event_bus=event_bus, session_id=session_id)
+
+    async for sse_data in adapter.stream():
+        yield sse_data

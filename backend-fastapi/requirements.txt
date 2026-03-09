@@ -1,0 +1,21 @@
+# FastAPI 及 ASGI 服务器
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sse-starlette>=2.1.0
+python-multipart>=0.0.9
+
+# Pydantic V2（与现有代码兼容）
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# 复用 backend 的依赖
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+
+# 与 Flask 版相同的业务依赖（通过共享 backend/ 目录复用）
+# 以下依赖需要与 backend/requirements.txt 保持一致
+requests>=2.32.0
+tiktoken>=0.12.0
+numpy>=1.26.0
+json-repair>=0.54.0
+mcp>=1.0.0

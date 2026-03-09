@@ -1,0 +1,23 @@
+# 系统配置示例（与 config/models.py 一致）
+# 可选：不存在时使用 models.py 默认值。复制为 config.yaml 后按需修改。
+
+vector_store:
+  backend: sqlite_vec
+  sqlite_vec:
+    database_path: data/vector_store.db
+    vector_dimension: 0
+    distance_metric: cosine
+
+llm:
+  provider: ""
+  provider_type: ""
+  model_name: ""
+
+embedding:
+  provider: ""
+  provider_type: ""
+  model_name: ""
+  batch_size: 100
+
+system:
+  max_content_length: 104857600
