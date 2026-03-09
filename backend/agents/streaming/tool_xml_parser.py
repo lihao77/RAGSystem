@@ -2,13 +2,13 @@
 parse_tools_xml - 解析 <tools> 标签内容为 actions 列表。
 
 输入格式:
-    <tool name="search_knowledge_graph">{"keyword":"南宁"}</tool>
-    <tool name="get_entity_relations">{"entity":"南宁市"}</tool>
+    <tool name="read_document">{"file_path":"report.pdf"}</tool>
+    <tool name="generate_chart">{"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}</tool>
 
 输出格式（与现有 JSON actions 完全一致）:
     [
-        {"tool": "search_knowledge_graph", "arguments": {"keyword": "南宁"}},
-        {"tool": "get_entity_relations", "arguments": {"entity": "南宁市"}}
+        {"tool": "read_document", "arguments": {"file_path": "report.pdf"}},
+        {"tool": "generate_chart", "arguments": {"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}}
     ]
 """
 

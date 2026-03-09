@@ -1,11 +1,6 @@
 # 系统配置示例（与 config/models.py 一致）
 # 可选：不存在时使用 models.py 默认值。复制为 config.yaml 后按需修改。
 
-neo4j:
-  uri: "bolt://localhost:7687"
-  user: neo4j
-  password: "${NEO4J__PASSWORD}"
-
 vector_store:
   backend: sqlite_vec
   sqlite_vec:
@@ -26,7 +21,3 @@ embedding:
 
 system:
   max_content_length: 104857600
-
-external_libs:
-  llmjson: {}
-  json2graph: {}

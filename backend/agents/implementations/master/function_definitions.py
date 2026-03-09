@@ -118,15 +118,14 @@ AGENT_TOOLS_EXAMPLE = [
         "type": "function",
         "function": {
             "name": "invoke_agent_qa_agent",
-            "description": """**知识图谱问答智能体**
-**能力**: 专门处理知识图谱相关的查询和分析任务，包括实体搜索、关系查询、时序分析、因果追踪等
-**可用工具**: query_knowledge_graph_with_nl, search_knowledge_graph, get_entity_relations, find_causal_chain, analyze_temporal_pattern
+            "description": """**通用文档问答智能体**
+**能力**: 处理文档读取、结构化抽取、数据整理、图表生成等通用任务
+**可用工具**: read_document, extract_structured_data, transform_data, generate_chart, execute_code
 **适用场景**:
-- 查询知识图谱中的实体、关系、属性
-- 分析时间序列数据和趋势
-- 追踪因果关系链
-- 对比多个实体
-- 生成统计聚合结果
+- 读取和总结文档
+- 提取结构化信息
+- 清洗和转换数据
+- 生成图表和报告
 """,
             "parameters": {
                 "type": "object",
@@ -147,13 +146,13 @@ AGENT_TOOLS_EXAMPLE = [
     {
         "type": "function",
         "function": {
-            "name": "invoke_agent_workflow_agent",
-            "description": """**工作流执行智能体**
-**能力**: 执行预定义的工作流，支持节点化数据处理流程
+            "name": "invoke_agent_automation_agent",
+            "description": """**自动化执行智能体**
+**能力**: 执行多步骤工具编排和数据处理任务
 **适用场景**:
-- 需要执行复杂的数据处理流程
-- 需要使用预设的工作流模板
-- 多步骤数据转换和分析
+- 复杂的数据整理与转换
+- 多步骤工具编排
+- 需要代码执行辅助的分析任务
 """,
             "parameters": {
                 "type": "object",

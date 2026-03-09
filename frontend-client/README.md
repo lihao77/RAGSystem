@@ -1,6 +1,11 @@
 # 对话与监控前端
 
-`frontend-client/` 是面向聊天、执行监控和 Agent/MCP 管理的轻量前端，基于 Vue 3 + Vite。
+`frontend-client/` 是当前系统唯一保留的前端，负责：
+
+- 聊天
+- 流式执行监控
+- Agent 配置
+- MCP 管理
 
 ## 启动
 

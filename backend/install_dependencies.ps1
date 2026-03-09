@@ -78,7 +78,6 @@ import sys
 checks = [
     ("flask", "Flask"),
     ("flask_cors", "Flask-CORS"),
-    ("neo4j", "neo4j"),
     ("requests", "requests"),
     ("dotenv", "python-dotenv"),
     ("pydantic", "pydantic"),
@@ -94,8 +93,6 @@ checks = [
     ("pandas", "pandas"),
     ("shapely", "shapely"),
     ("mcp", "mcp"),
-    ("llmjson", "llmjson"),
-    ("json2graph", "json2graph"),
 ]
 
 missing = []

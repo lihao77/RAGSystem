@@ -8,14 +8,15 @@ from __future__ import annotations
 from runtime.dependencies import get_runtime_dependency
 from typing import Optional
 
-from agents import AgentContext, get_config_manager as get_agent_config_manager
+from application import (
+    AgentChatApplication,
+    AgentCollaborationApplication,
+    AgentSessionApplication,
+)
+from agents import AgentContext
 from agents.events import get_session_manager
 from agents.task_registry import get_task_registry
-from config import get_config
-from model_adapter import get_default_adapter
 from conversation_store import ConversationStore
-
-from .agent_runtime_service import get_agent_runtime_service
 
 
 class AgentApiRuntimeService:
@@ -24,45 +25,39 @@ class AgentApiRuntimeService:
     def __init__(
         self,
         conversation_store: Optional[ConversationStore] = None,
-        runtime_service=None,
-        config_getter=None,
-        config_manager_getter=None,
         task_registry_getter=None,
         session_manager_getter=None,
-        default_adapter_getter=None,
+        chat_application=None,
+        session_application=None,
+        collaboration_application=None,
     ):
         self._conversation_store = conversation_store or ConversationStore()
-        self._runtime_service = runtime_service or get_agent_runtime_service()
-        self._config_getter = config_getter or get_config
-        self._config_manager_getter = config_manager_getter or get_agent_config_manager
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
-        self._default_adapter_getter = default_adapter_getter or get_default_adapter
+        self._chat_application = chat_application or AgentChatApplication(conversation_store=self._conversation_store)
+        self._session_application = session_application or AgentSessionApplication(conversation_store=self._conversation_store)
+        self._collaboration_application = collaboration_application or AgentCollaborationApplication(
+            chat_application=self._chat_application,
+            session_application=self._session_application,
+        )
 
     def get_conversation_store(self) -> ConversationStore:
-        return self._conversation_store
+        return self._chat_application.get_conversation_store()
 
     def load_history_into_context(self, context: AgentContext, session_id: str, limit: int = 50) -> None:
-        raw_messages = self._conversation_store.get_recent_messages(session_id=session_id, limit=limit)
-
-        for item in raw_messages:
-            if item.get('role') in ['user', 'assistant', 'system']:
-                metadata = dict(item.get('metadata') or {})
-                if item.get('seq') is not None:
-                    metadata['seq'] = item['seq']
-                context.add_message(role=item['role'], content=item['content'], metadata=metadata)
+        self._chat_application.load_history_into_context(context, session_id=session_id, limit=limit)
 
     def get_orchestrator(self):
-        return self._runtime_service.get_orchestrator()
+        return self._chat_application.get_orchestrator()
 
     def reload_agents(self):
-        return self._runtime_service.reload_agents()
+        return self._chat_application.reload_agents()
 
     def get_system_config(self):
-        return self._config_getter()
+        return self._chat_application.get_system_config()
 
     def get_config_manager(self):
-        return self._config_manager_getter()
+        return self._chat_application.get_config_manager()
 
     def get_task_registry(self):
         return self._task_registry_getter()
@@ -74,7 +69,16 @@ class AgentApiRuntimeService:
         return self.get_session_manager().get_or_create(session_id)
 
     def get_default_adapter(self):
-        return self._default_adapter_getter()
+        return self._chat_application.get_default_adapter()
+
+    def get_chat_application(self):
+        return self._chat_application
+
+    def get_session_application(self):
+        return self._session_application
+
+    def get_collaboration_application(self):
+        return self._collaboration_application
 
 
 _agent_api_runtime_service: Optional[AgentApiRuntimeService] = None

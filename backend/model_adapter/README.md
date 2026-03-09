@@ -40,13 +40,11 @@ test_deepseek:
 
 ## 与其他子系统的关系
 
-- `backend/config/` 只保存默认 provider 指针和模型名
-- Agent 和向量子系统通过 provider key 使用这里的配置
-- 前端管理端的 `/model-adapter` 页面直接操作这些接口
+- Agent 与向量能力通过 provider key 使用这里的配置
+- `frontend-client` 通过 `/api/model-adapter` 管理 Provider
 
 ## 验证
 
 ```powershell
-cd backend
-python -m pytest tests\model_adapter_config_store_test.py
+python -m unittest backend.tests.runtime_strict_audit_test
 ```

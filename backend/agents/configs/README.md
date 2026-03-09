@@ -45,7 +45,10 @@ agents:
       model_name: deepseek-chat
     tools:
       enabled_tools:
-        - query_knowledge_graph_with_nl
+        - read_document
+        - extract_structured_data
+        - generate_chart
+        - execute_code
     skills:
       enabled_skills: []
       auto_inject: true

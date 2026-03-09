@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-知识图谱系统 Flask 后端入口。
-"""
+"""智能体系统 Flask 后端入口。"""
 
 import atexit
 import logging
@@ -18,24 +16,6 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from config import get_config
 from config.health_check import run_health_check
-from db import close_driver
-from routes.agent import agent_bp
-from routes.agent_config import agent_config_bp
-from routes.config_refactored import config_bp
-from routes.embedding_models import embedding_models_bp
-from routes.evaluation import evaluation_bp
-from routes.files import files_bp
-from routes.function_call import function_call_bp
-from routes.graphrag_refactored import graphrag_bp
-from routes.home import home_bp
-from routes.mcp import mcp_bp
-from routes.model_adapter import model_adapter_bp
-from routes.nodes import nodes_bp
-from routes.search_refactored import search_bp
-from routes.vector_library import vector_library_bp
-from routes.vector_management import vector_management_bp
-from routes.visualization_refactored import visualization_bp
-from routes.workflows import workflow_bp
 from runtime.container import create_runtime_container
 
 logging.basicConfig(level=logging.INFO)
@@ -44,7 +24,7 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BACKEND_DIR, '..'))
 DEFAULT_UPLOAD_FOLDER = os.path.join(BACKEND_DIR, 'uploads')
-DEFAULT_FRONTEND_DIST = os.path.join(PROJECT_ROOT, 'frontend', 'dist')
+DEFAULT_FRONTEND_DIST = os.path.join(PROJECT_ROOT, 'frontend-client', 'dist')
 DEFAULT_CORS_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -119,24 +99,28 @@ def _patch_windows_werkzeug_shutdown_race() -> None:
     BaseWSGIServer._ragsystem_win10038_patched = True
 
 
-def register_blueprints(app: Flask) -> None:
-    app.register_blueprint(home_bp, url_prefix='/api/home')
-    app.register_blueprint(search_bp, url_prefix='/api/search')
-    app.register_blueprint(visualization_bp, url_prefix='/api/visualization')
-    app.register_blueprint(evaluation_bp, url_prefix='/api/evaluation')
-    app.register_blueprint(graphrag_bp, url_prefix='/api/graphrag')
-    app.register_blueprint(function_call_bp, url_prefix='/api/function-call')
-    app.register_blueprint(config_bp, url_prefix='/api/config')
-    app.register_blueprint(nodes_bp)
-    app.register_blueprint(workflow_bp)
+def register_core_blueprints(app: Flask) -> None:
+    """注册智能体主链与保留的运营/能力蓝图。"""
+    from routes.agent import agent_bp
+    from routes.agent_config import agent_config_bp
+    from routes.embedding_models import embedding_models_bp
+    from routes.files import files_bp
+    from routes.mcp import mcp_bp
+    from routes.model_adapter import model_adapter_bp
+    from routes.vector_library import vector_library_bp
+
     app.register_blueprint(files_bp)
-    app.register_blueprint(vector_management_bp)
     app.register_blueprint(model_adapter_bp, url_prefix='/api/model-adapter')
     app.register_blueprint(agent_bp, url_prefix='/api/agent')
     app.register_blueprint(agent_config_bp, url_prefix='/api/agent-config')
     app.register_blueprint(embedding_models_bp, url_prefix='/api/embedding-models')
     app.register_blueprint(vector_library_bp, url_prefix='/api/vector-library')
     app.register_blueprint(mcp_bp, url_prefix='/api/mcp')
+
+
+def register_blueprints(app: Flask) -> None:
+    register_core_blueprints(app)
+    logger.info('已注册智能体主链蓝图')
 
 
 def register_static_routes(app: Flask) -> None:
@@ -187,7 +171,7 @@ def create_app() -> Flask:
     frontend_dist = _resolve_backend_path(os.environ.get('FRONTEND_DIST', ''), DEFAULT_FRONTEND_DIST)
     cors_origins = _get_cors_origins()
 
-    logger.info('配置加载完成: Neo4j URI = %s', config.neo4j.uri)
+    logger.info('配置加载完成')
     logger.info('CORS 白名单: %s', ', '.join(cors_origins))
 
     app.config['MAX_CONTENT_LENGTH'] = config.system.max_content_length
@@ -208,29 +192,6 @@ def create_app() -> Flask:
     register_static_routes(app)
     register_error_handlers(app)
     return app
-
-
-def test_db_connection() -> bool:
-    """测试数据库连接（仅在已配置时执行）"""
-    from db import get_neo4j_connection, is_neo4j_configured
-
-    if not is_neo4j_configured():
-        logger.info('⚠ Neo4j 未配置，将在配置完成后初始化')
-        return False
-
-    try:
-        driver = get_neo4j_connection().connect()
-        if driver:
-            with driver.session() as session:
-                session.run('RETURN 1')
-            logger.info('✓ Neo4j 数据库连接成功')
-            return True
-        logger.warning('✗ Neo4j 连接失败')
-        return False
-    except Exception as error:
-        logger.error('✗ Neo4j 数据库连接失败: %s', error)
-        return False
-
 
 def init_vector_database() -> bool:
     """初始化向量数据库（仅在已配置时执行）"""
@@ -258,15 +219,13 @@ def initialize_runtime_services(app: Flask) -> None:
 
     with app.app_context():
         logger.info('=' * 70)
-        logger.info('开始检查和初始化数据库连接...')
+        logger.info('开始初始化运行时能力...')
         logger.info('=' * 70)
 
-        neo4j_ok = test_db_connection()
         vector_ok = init_vector_database()
 
         logger.info('=' * 70)
-        logger.info('数据库初始化完成')
-        logger.info('  %s Neo4j: %s', '✓' if neo4j_ok else '✗', '已连接' if neo4j_ok else '未配置或连接失败')
+        logger.info('运行时初始化完成')
         logger.info('  %s 向量数据库: %s', '✓' if vector_ok else '✗', '已初始化' if vector_ok else '未配置或初始化失败')
         logger.info('=' * 70)
 
@@ -294,8 +253,6 @@ def register_shutdown_hooks(app: Flask) -> None:
                 return
         except Exception:
             pass
-
-        close_driver()
 
     atexit.register(_shutdown_runtime)
     _shutdown_hooks_registered = True

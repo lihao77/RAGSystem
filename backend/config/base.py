@@ -77,20 +77,6 @@ class ConfigManager:
         """从环境变量获取配置覆盖"""
         overrides: Dict[str, Any] = {}
 
-        # Neo4j 相关环境变量
-        neo4j_uri = os.getenv('NEO4J_URI')
-        neo4j_user = os.getenv('NEO4J_USER')
-        neo4j_password = os.getenv('NEO4J_PASSWORD')
-
-        if neo4j_uri or neo4j_user or neo4j_password:
-            overrides['neo4j'] = {}
-            if neo4j_uri:
-                overrides['neo4j']['uri'] = neo4j_uri
-            if neo4j_user:
-                overrides['neo4j']['user'] = neo4j_user
-            if neo4j_password:
-                overrides['neo4j']['password'] = neo4j_password
-
         # LLM 相关环境变量
         llm_api_endpoint = os.getenv('LLM_API_ENDPOINT')
         llm_api_key = os.getenv('LLM_API_KEY')

@@ -7,7 +7,8 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from services.vector_library_service import VectorLibraryServiceError, get_vector_library_service
+from capabilities.vector_retrieval import get_vector_retrieval_capability
+from services.vector_library_service import VectorLibraryServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ vector_library_bp = Blueprint('vector_library', __name__)
 @vector_library_bp.route('/file-status', methods=['GET'])
 def file_status():
     try:
-        data = get_vector_library_service().file_status()
+        data = get_vector_retrieval_capability().file_status()
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -29,7 +30,7 @@ def file_status():
 @vector_library_bp.route('/index-file', methods=['POST'])
 def index_file_with_vectorizer():
     try:
-        data = get_vector_library_service().index_file(request.get_json(silent=True) or {})
+        data = get_vector_retrieval_capability().index_file(request.get_json(silent=True) or {})
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -41,7 +42,7 @@ def index_file_with_vectorizer():
 @vector_library_bp.route('/delete-file', methods=['POST'])
 def delete_file():
     try:
-        data = get_vector_library_service().delete_file(request.get_json(silent=True) or {})
+        data = get_vector_retrieval_capability().delete_file(request.get_json(silent=True) or {})
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -53,7 +54,7 @@ def delete_file():
 @vector_library_bp.route('/vectorizers', methods=['GET'])
 def list_vectorizers():
     try:
-        data = get_vector_library_service().list_vectorizers()
+        data = get_vector_retrieval_capability().list_vectorizers()
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -65,7 +66,7 @@ def list_vectorizers():
 @vector_library_bp.route('/vectorizers', methods=['POST'])
 def add_vectorizer():
     try:
-        data = get_vector_library_service().add_vectorizer(request.get_json(silent=True) or {})
+        data = get_vector_retrieval_capability().add_vectorizer(request.get_json(silent=True) or {})
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -77,7 +78,7 @@ def add_vectorizer():
 @vector_library_bp.route('/vectorizers/<key>/activate', methods=['POST'])
 def activate_vectorizer(key: str):
     try:
-        data = get_vector_library_service().activate_vectorizer(key)
+        data = get_vector_retrieval_capability().activate_vectorizer(key)
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -89,7 +90,7 @@ def activate_vectorizer(key: str):
 @vector_library_bp.route('/vectorizers/<key>/docs', methods=['GET'])
 def list_docs_by_vectorizer(key: str):
     try:
-        data = get_vector_library_service().list_docs_by_vectorizer(key, request.args.get('collection'))
+        data = get_vector_retrieval_capability().list_docs_by_vectorizer(key, request.args.get('collection'))
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -101,7 +102,7 @@ def list_docs_by_vectorizer(key: str):
 @vector_library_bp.route('/migrate', methods=['POST'])
 def migrate():
     try:
-        data = get_vector_library_service().migrate(request.get_json(silent=True) or {})
+        data = get_vector_retrieval_capability().migrate(request.get_json(silent=True) or {})
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code
@@ -113,7 +114,7 @@ def migrate():
 @vector_library_bp.route('/vectorizers/<key>', methods=['DELETE'])
 def delete_vectorizer(key: str):
     try:
-        data = get_vector_library_service().delete_vectorizer(key)
+        data = get_vector_retrieval_capability().delete_vectorizer(key)
         return jsonify({'success': True, 'data': data})
     except VectorLibraryServiceError as error:
         return jsonify({'success': False, 'message': error.message}), error.status_code

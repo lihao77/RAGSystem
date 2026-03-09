@@ -26,82 +26,6 @@ class ToolPermission(BaseModel):
 
 # 工具权限配置表
 TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
-    # 知识图谱查询工具（低风险）
-    "query_knowledge_graph_with_nl": ToolPermission(
-        tool_name="query_knowledge_graph_with_nl",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="自然语言查询知识图谱（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "search_knowledge_graph": ToolPermission(
-        tool_name="search_knowledge_graph",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="搜索知识图谱实体（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "get_entity_relations": ToolPermission(
-        tool_name="get_entity_relations",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="获取实体关系（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "get_graph_schema": ToolPermission(
-        tool_name="get_graph_schema",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="获取图谱结构（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "compare_entities": ToolPermission(
-        tool_name="compare_entities",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="比较实体（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "aggregate_statistics": ToolPermission(
-        tool_name="aggregate_statistics",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="聚合统计（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-
-    # 时序/因果/空间分析（中风险）
-    "analyze_temporal_pattern": ToolPermission(
-        tool_name="analyze_temporal_pattern",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="时序模式分析（可能耗时）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "find_causal_chain": ToolPermission(
-        tool_name="find_causal_chain",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="因果链分析（可能耗时）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "get_spatial_neighbors": ToolPermission(
-        tool_name="get_spatial_neighbors",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="空间邻近分析（可能耗时）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-
-    # Cypher 查询（高风险）
-    "execute_cypher_query": ToolPermission(
-        tool_name="execute_cypher_query",
-        risk_level=RiskLevel.HIGH,
-        requires_approval=True,
-        description="执行 Cypher 查询（可能修改数据）",
-        allowed_callers=["direct"]  # 禁止代码调用
-    ),
-
     # 数据处理（高风险）
     "process_data_file": ToolPermission(
         tool_name="process_data_file",
@@ -131,24 +55,6 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.LOW,
         requires_approval=False,
         description="生成地图（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-
-    # 向量检索（低风险）
-    "query_emergency_plan": ToolPermission(
-        tool_name="query_emergency_plan",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="查询应急预案（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-
-    # 几何数据（低风险）
-    "get_entity_geometry": ToolPermission(
-        tool_name="get_entity_geometry",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="获取实体几何数据（只读）",
         allowed_callers=["direct", "code_execution"]
     ),
 

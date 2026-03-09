@@ -13,11 +13,10 @@
 
 ## 当前工具类别
 
-- 图谱查询：`query_knowledge_graph_with_nl`、`search_knowledge_graph`、`get_entity_relations`
-- 图谱分析：`analyze_temporal_pattern`、`find_causal_chain`、`compare_entities`
-- 统计与可视化：`aggregate_statistics`、`generate_chart`、`generate_map`
+- 文档处理：`read_document`、`chunk_document`、`extract_structured_data`、`merge_extracted_data`
+- 文件读写：`write_file`、`read_file`
 - 数据处理：`process_data_file`、`transform_data`、`execute_code`
-- 文档处理：`read_document`、`chunk_document`、`extract_structured_data`
+- 可视化：`generate_chart`、`generate_map`
 - Skills 系统工具：由 AgentLoader 在启用 Skill 时追加
 - MCP 工具：运行时根据 MCP Server 动态注册
 
@@ -39,9 +38,3 @@
 
 - Agent 可用工具列表由 `backend/agents/config/loader.py` 组装
 - Skills 和 MCP 工具不会直接写在 `function_definitions.py` 里，而是运行时注入
-
-## 验证
-
-- 通过聊天页触发工具调用
-- 查看对话端审批交互
-- 查看 `backend/routes/agent_api/stream_control.py`

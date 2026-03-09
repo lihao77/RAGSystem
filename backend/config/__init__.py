@@ -4,7 +4,7 @@
 """
 
 from .base import ConfigManager
-from .models import AppConfig, Neo4jConfig, LLMConfig, SystemConfig, ExternalLibsConfig
+from .models import AppConfig, LLMConfig, SystemConfig
 from runtime.dependencies import get_runtime_dependency
 
 _config_manager: ConfigManager = None
@@ -38,10 +38,8 @@ def reload_config() -> AppConfig:
 __all__ = [
     'ConfigManager',
     'AppConfig',
-    'Neo4jConfig',
     'LLMConfig',
     'SystemConfig',
-    'ExternalLibsConfig',
     'get_config',
     'reload_config',
     'get_manager',

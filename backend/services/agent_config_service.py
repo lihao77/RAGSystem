@@ -205,21 +205,24 @@ class AgentConfigService:
     @staticmethod
     def _get_tool_category(tool_name: str) -> str:
         if tool_name in [
-            'query_knowledge_graph_with_nl',
-            'search_knowledge_graph',
-            'get_entity_relations',
-            'execute_cypher_query',
-            'get_graph_schema',
+            'read_document',
+            'chunk_document',
+            'extract_structured_data',
+            'merge_extracted_data',
+            'read_file',
+            'write_file',
+            'save_json_file',
         ]:
-            return 'search'
+            return 'document'
 
-        if tool_name in [
-            'analyze_temporal_pattern',
-            'find_causal_chain',
-            'compare_entities',
-            'aggregate_statistics',
-        ]:
-            return 'analysis'
+        if tool_name in ['process_data_file', 'transform_data']:
+            return 'data'
+
+        if tool_name in ['generate_chart', 'generate_map']:
+            return 'visualization'
+
+        if tool_name in ['execute_code']:
+            return 'execution'
 
         return 'other'
 

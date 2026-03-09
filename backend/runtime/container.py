@@ -142,30 +142,40 @@ class RuntimeContainer:
 
         return self._get_or_create('agent_config_service', AgentConfigService)
 
-    def get_node_registry(self):
-        from nodes.registry import create_initialized_registry
+    def get_agent_chat_application(self):
+        from application.agent_chat import AgentChatApplication
 
-        return self._get_or_create('node_registry', create_initialized_registry)
+        return self._get_or_create('agent_chat_application', AgentChatApplication)
 
-    def get_node_config_store(self):
-        from nodes.config_store import NodeConfigStore
+    def get_agent_session_application(self):
+        from application.agent_session import AgentSessionApplication
 
-        return self._get_or_create('node_config_store', NodeConfigStore)
+        return self._get_or_create('agent_session_application', AgentSessionApplication)
 
-    def get_node_service(self):
-        from services.node_service import NodeService
+    def get_agent_collaboration_application(self):
+        from application.agent_collaboration import AgentCollaborationApplication
 
-        return self._get_or_create('node_service', NodeService)
-
-    def get_workflow_service(self):
-        from services.workflow_service import WorkflowService
-
-        return self._get_or_create('workflow_service', WorkflowService)
+        return self._get_or_create('agent_collaboration_application', AgentCollaborationApplication)
 
     def get_vector_library_service(self):
         from services.vector_library_service import VectorLibraryService
 
         return self._get_or_create('vector_library_service', VectorLibraryService)
+
+    def get_document_retrieval_capability(self):
+        from capabilities.document_retrieval import DocumentRetrievalCapability
+
+        return self._get_or_create('document_retrieval_capability', DocumentRetrievalCapability)
+
+    def get_vector_retrieval_capability(self):
+        from capabilities.vector_retrieval import VectorRetrievalCapability
+
+        return self._get_or_create('vector_retrieval_capability', VectorRetrievalCapability)
+
+    def get_mcp_tools_capability(self):
+        from capabilities.mcp_tools import MCPToolsCapability
+
+        return self._get_or_create('mcp_tools_capability', MCPToolsCapability)
 
     def get_agent_api_runtime_service(self):
         from services.agent_api_runtime_service import AgentApiRuntimeService
@@ -181,51 +191,6 @@ class RuntimeContainer:
         from services.vector_management_service import VectorManagementService
 
         return self._get_or_create('vector_management_service', VectorManagementService)
-
-    def get_graphrag_api_service(self):
-        from services.graphrag_api_service import GraphRAGApiService
-
-        return self._get_or_create('graphrag_api_service', GraphRAGApiService)
-
-    def get_function_call_service(self):
-        from services.function_call_service import FunctionCallService
-
-        return self._get_or_create('function_call_service', FunctionCallService)
-
-    def get_home_service(self):
-        from services.home_service import HomeService
-
-        return self._get_or_create('home_service', HomeService)
-
-    def get_query_service(self):
-        from services.query_service import QueryService
-
-        return self._get_or_create('query_service', QueryService)
-
-    def get_search_service(self):
-        from services.search_service import SearchService
-
-        return self._get_or_create('search_service', SearchService)
-
-    def get_config_service(self):
-        from services.config_service import ConfigService
-
-        return self._get_or_create('config_service', ConfigService)
-
-    def get_visualization_service(self):
-        from services.visualization_service import VisualizationService
-
-        return self._get_or_create('visualization_service', VisualizationService)
-
-    def get_graphrag_service(self):
-        from services.graphrag_service import GraphRAGService
-
-        return self._get_or_create('graphrag_service', GraphRAGService)
-
-    def get_neo4j_connection(self):
-        from db import Neo4jConnection
-
-        return self._get_or_create('neo4j_connection', Neo4jConnection)
 
     def get_task_registry(self):
         from agents.task_registry import TaskRegistry
@@ -301,12 +266,6 @@ class RuntimeContainer:
             except Exception as error:
                 logger.warning('关闭 MCP 管理器失败: %s', error)
 
-        neo4j_connection = self._instances.get('neo4j_connection')
-        if neo4j_connection is not None:
-            try:
-                neo4j_connection.close()
-            except Exception as error:
-                logger.warning('关闭 Neo4j 连接失败: %s', error)
 
     def set_instance(self, key: str, instance: Any) -> Any:
         with self._lock:

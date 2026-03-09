@@ -18,19 +18,6 @@ python backend\scripts\runtime_strict_audit.py --format json
 python backend\scripts\runtime_strict_audit.py --check-container-only
 ```
 
-## init_emergency_plans.py
-
-用途：
-
-- 初始化应急预案相关向量索引
-
-运行：
-
-```powershell
-cd backend
-python scripts\init_emergency_plans.py
-```
-
 ## 约定
 
 - 脚本默认从仓库根或 `backend/` 运行

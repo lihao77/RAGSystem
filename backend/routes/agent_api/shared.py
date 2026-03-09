@@ -25,6 +25,15 @@ agent_bp = Blueprint('agent', __name__)
 def _get_conversation_store():
     return get_agent_api_runtime_service().get_conversation_store()
 
+def get_chat_application():
+    return get_agent_api_runtime_service().get_chat_application()
+
+def get_session_application():
+    return get_agent_api_runtime_service().get_session_application()
+
+def get_collaboration_application():
+    return get_agent_api_runtime_service().get_collaboration_application()
+
 
 def _load_history_into_context(context: AgentContext, session_id: str, limit: int = 50):
     """
@@ -66,4 +75,4 @@ def get_session_event_bus(session_id: str):
 def get_default_adapter():
     return get_agent_api_runtime_service().get_default_adapter()
 
-__all__ = ['agent_bp', 'reload_agents', 'logger', 'request', 'Response', 'stream_with_context', 'json', 'asyncio', 'uuid_module', 'AgentContext', 'ContextManager', 'Message', 'EventType', 'get_session_event_bus', 'SSEAdapter', 'Event', 'get_config_manager', 'get_default_adapter', 'get_config', 'success_response', 'error_response', 'get_task_registry', '_get_conversation_store', '_load_history_into_context', '_get_orchestrator']
+__all__ = ['agent_bp', 'reload_agents', 'logger', 'request', 'Response', 'stream_with_context', 'json', 'asyncio', 'uuid_module', 'AgentContext', 'ContextManager', 'Message', 'EventType', 'get_session_event_bus', 'SSEAdapter', 'Event', 'get_config_manager', 'get_default_adapter', 'get_config', 'success_response', 'error_response', 'get_task_registry', 'get_chat_application', 'get_session_application', 'get_collaboration_application', '_get_conversation_store', '_load_history_into_context', '_get_orchestrator']

@@ -29,19 +29,16 @@ if Flask is not None:
         from routes.agent_api.shared import agent_bp
         from routes.agent_api.stream_helpers import format_event_to_sse
         from routes.mcp import mcp_bp
-        from routes.nodes import nodes_bp
         _ROUTE_IMPORTS_READY = True
     except Exception:  # pragma: no cover - 测试环境缺依赖时跳过
         agent_bp = None
         format_event_to_sse = None
         mcp_bp = None
-        nodes_bp = None
         _ROUTE_IMPORTS_READY = False
 else:  # pragma: no cover - 测试环境缺依赖时跳过
     agent_bp = None
     format_event_to_sse = None
     mcp_bp = None
-    nodes_bp = None
     _ROUTE_IMPORTS_READY = False
 
 
@@ -52,20 +49,6 @@ class _FakeMCPService:
     def connect_server(self, server_name: str, *, request_id=None):
         self.calls.append((server_name, request_id))
         return {'server_name': server_name, 'status': 'connected', 'tool_count': 0, 'error_message': ''}
-
-
-class _FakeNodeExecutionAdapter:
-    calls = []
-
-    def execute(self, payload, *, node_service, session_id=None, run_id=None, request_id=None):
-        self.__class__.calls.append({
-            'payload': payload,
-            'node_service': node_service,
-            'session_id': session_id,
-            'run_id': run_id,
-            'request_id': request_id,
-        })
-        return {'ok': True, 'node_type': payload.get('node_type')}
 
 
 class _FakeEventBus:
@@ -103,31 +86,12 @@ class RouteObservabilityContractTest(unittest.TestCase):
         app.register_blueprint(mcp_bp, url_prefix='/api/mcp')
         service = _FakeMCPService()
 
-        with patch('routes.mcp.get_mcp_service', return_value=service):
+        with patch('routes.mcp.get_mcp_tools_capability', return_value=service):
             with app.test_client() as client:
                 response = client.post('/api/mcp/servers/demo/connect', headers={'X-Request-ID': 'req-mcp-1'})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(service.calls, [('demo', 'req-mcp-1')])
-
-    @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
-    def test_nodes_route_passes_request_id_run_id_and_session_id(self) -> None:
-        app = Flask(__name__)
-        app.register_blueprint(nodes_bp)
-        payload = {'node_type': 'demo', 'session_id': 'session-node', 'run_id': 'run-node'}
-        _FakeNodeExecutionAdapter.calls = []
-
-        with patch('routes.nodes.NodeExecutionAdapter', return_value=_FakeNodeExecutionAdapter()):
-            with patch('routes.nodes.get_node_service', return_value='node-service'):
-                with app.test_client() as client:
-                    response = client.post('/api/nodes/execute', json=payload, headers={'X-Request-ID': 'req-node-1'})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(_FakeNodeExecutionAdapter.calls), 1)
-        call = _FakeNodeExecutionAdapter.calls[0]
-        self.assertEqual(call['session_id'], 'session-node')
-        self.assertEqual(call['run_id'], 'run-node')
-        self.assertEqual(call['request_id'], 'req-node-1')
 
     @unittest.skipIf(Flask is None or not _ROUTE_IMPORTS_READY, 'flask 或 agent routes 未就绪')
     def test_format_event_to_sse_flattens_execution_fields(self) -> None:

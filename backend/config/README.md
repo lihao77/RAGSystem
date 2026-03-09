@@ -25,9 +25,6 @@
 
 代码里显式支持的覆盖项：
 
-- `NEO4J_URI`
-- `NEO4J_USER`
-- `NEO4J_PASSWORD`
 - `LLM_API_ENDPOINT`
 - `LLM_API_KEY`
 - `LLM_MODEL_NAME`
@@ -47,21 +44,14 @@
 
 `models.py` 当前定义：
 
-- `neo4j`
 - `vector_store`
 - `llm`
 - `system`
 - `embedding`
-- `external_libs`
 
 示例：
 
 ```yaml
-neo4j:
-  uri: bolt://localhost:7687
-  user: neo4j
-  password: your-password
-
 llm:
   provider: test
   provider_type: deepseek

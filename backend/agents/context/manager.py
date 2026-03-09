@@ -247,9 +247,6 @@ class ObservationFormatter:
         if is_skills_tool:
             return self._format_skills_result(result)
 
-        if tool_name == "query_emergency_plan":
-            return result.get('data', '无数据返回')
-
         # 3. 处理标准化工具响应
         if isinstance(result, dict) and result.get('success'):
             return self._format_standard_response(result, tool_name)

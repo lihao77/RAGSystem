@@ -46,21 +46,6 @@ class StorageRefactorGuardsTestCase(unittest.TestCase):
         self.assertIn('utils.yaml_store', imported_modules)
         self.assertNotIn('yaml', imported_modules)
 
-    def test_config_service_separates_file_access_and_yaml_text_parsing(self):
-        tree = self._parse('backend/services/config_service.py')
-        function_names = {
-            node.name
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-        }
-        self.assertIn('_read_yaml_text', function_names)
-        self.assertIn('_parse_yaml_text', function_names)
-
-        imported_modules = self._imported_modules('backend/services/config_service.py')
-        self.assertIn('utils.yaml_store', imported_modules)
-        self.assertIn('utils.versioned_yaml_store', imported_modules)
-        self.assertIn('yaml', imported_modules)
-
     def test_agent_config_manager_separates_file_storage_and_text_import_export(self):
         tree = self._parse('backend/agents/config/manager.py')
         function_names = {

@@ -1,24 +1,9 @@
-# ============================================
-# RAGSystem Requirements (完整安装)
-# 版本: v3.0 (SQLite + sqlite-vec)
-# 更新日期: 2026-01-24
-# Python版本: 3.10+
-# ============================================
-#
-# 重大更新：
-# - 使用 SQLite + sqlite-vec 替代 ChromaDB
-# - 使用远程 Embedding API 替代本地模型
-# - 体积减少 ~500MB (移除 PyTorch/sentence-transformers)
-#
-# ============================================
+# RAGSystem Requirements
 
 # Flask核心框架
 Flask==2.3.3
 Flask-CORS==4.0.0
 Werkzeug==2.3.7
-
-# Neo4j数据库驱动
-neo4j==6.0.3
 
 # HTTP请求库
 requests==2.32.5
@@ -50,13 +35,8 @@ jieba==0.42.1
 numpy>=1.26.0
 pandas==2.3.3
 
-# 空间数据处理，搭配neo4j使用
+# 空间数据处理
 shapely==2.1.2
 
 # MCP (Model Context Protocol) Client
-# 让智能体连接外部 MCP Server，调用第三方工具
 mcp>=1.0.0
-
-# 自定义依赖（需源码安装）
-# llmjson: git+https://github.com/lihao77/llmjson.git
-# json2graph: git+https://github.com/lihao77/json2graph-for-review.git
