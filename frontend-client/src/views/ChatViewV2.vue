@@ -275,9 +275,8 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="input-area-wrapper">
-          <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-bar">
-            <!-- 把点击事件和 cursor 移到这个内层容器 -->
-            <div class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
+          <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="context-usage-bar">
+            <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
               <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
                 <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
                 <circle
@@ -295,6 +294,19 @@
               </svg>
               <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
             </div>
+
+            <button
+              v-if="showExecutionPill"
+              type="button"
+              class="execution-pill"
+              :class="executionStatusClass"
+              :title="executionStatusTooltip"
+              @click="openExecutionDrawer"
+            >
+              <span class="execution-pill-dot"></span>
+              <span class="execution-pill-text">{{ executionStatusText }}</span>
+              <span class="execution-pill-kind">{{ executionKindLabel }}</span>
+            </button>
           </div>
           <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" @stop="handleStop" />
         </div>
@@ -310,6 +322,19 @@
       :visible="ctxDrawerVisible"
       :session-id="currentSessionId"
       @close="ctxDrawerVisible = false"
+    />
+
+    <!-- 执行诊断抽屉 -->
+    <ExecutionDiagnosticsDrawer
+      :visible="execDrawerVisible"
+      :loading="execDiagnosticsLoading"
+      :error-msg="execDiagnosticsError"
+      :task-info="sessionTaskInfo"
+      :observability="sessionExecutionObservability"
+      :diagnostics="sessionExecutionDiagnostics"
+      :session-id="currentSessionId"
+      :is-executing="isLoading"
+      @close="closeExecutionDrawer"
     />
 
     <!-- 确认对话框 -->
@@ -341,6 +366,7 @@ import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
+import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
 
 // ── 可视化注册表 ─────────────────────────────────────────────────────
 // 新增可视化类型只需在此注册一行，无需改动 processSSEStream / extractMultimodalFromSteps
@@ -388,6 +414,7 @@ import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
+import { getTaskExecutionDiagnostics, getTaskStatus } from '../api/monitoring';
 
 // Props
 const props = defineProps({
@@ -438,6 +465,12 @@ const confirmDialog = ref({
 const currentStreamController = ref(null);
 const contextUsage = ref({ used: 0, max: 0 });
 const ctxDrawerVisible = ref(false);
+const execDrawerVisible = ref(false);
+const execDiagnosticsLoading = ref(false);
+const execDiagnosticsError = ref('');
+const sessionTaskInfo = ref(null);
+const sessionExecutionObservability = ref(null);
+const sessionExecutionDiagnostics = ref(null);
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
@@ -450,10 +483,12 @@ const handlePopState = () => {
   const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
   const sessionId = match ? decodeURIComponent(match[1]) : null;
   if (sessionId && sessionId !== currentSessionId.value) {
+    clearExecutionState();
     currentSessionId.value = sessionId;
     loadSessionMessages(sessionId);
   }
   if (!sessionId) {
+    clearExecutionState();
     currentSessionId.value = null;
     messages.value = [];
   }
@@ -553,6 +588,7 @@ const handleTouchEnd = (e) => {
 };
 
 const startNewChat = () => {
+  clearExecutionState();
   messages.value = [];
   inputMessage.value = '';
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
@@ -949,6 +985,108 @@ const loadContextSnapshot = async (sessionId) => {
   }
 };
 
+const buildObservabilityFromTaskInfo = (taskInfo) => {
+  if (!taskInfo) return null;
+  return {
+    task_id: taskInfo.task_id,
+    session_id: taskInfo.session_id,
+    run_id: taskInfo.run_id,
+    execution_kind: taskInfo.execution_kind,
+    request_id: taskInfo.request_id,
+  };
+};
+
+const mergeExecutionObservability = (payload = {}) => {
+  const current = sessionExecutionObservability.value || {};
+  sessionExecutionObservability.value = {
+    task_id: payload.task_id ?? current.task_id ?? null,
+    session_id: payload.session_id ?? current.session_id ?? currentSessionId.value ?? null,
+    run_id: payload.run_id ?? current.run_id ?? null,
+    execution_kind: payload.execution_kind ?? current.execution_kind ?? null,
+    request_id: payload.request_id ?? current.request_id ?? null,
+  };
+};
+
+const refreshSessionExecutionDiagnostics = async (sessionId, { silent = true } = {}) => {
+  if (!sessionId) return null;
+  if (!silent) {
+    execDiagnosticsLoading.value = true;
+    execDiagnosticsError.value = '';
+  }
+  try {
+    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/execution-diagnostics`);
+    if (!resp.ok) return null;
+    const result = await resp.json();
+    const diagnostics = result.data?.diagnostics || null;
+    sessionExecutionDiagnostics.value = diagnostics;
+    if (diagnostics?.observability) {
+      mergeExecutionObservability(diagnostics.observability);
+    }
+    return diagnostics;
+  } catch (error) {
+    if (!silent) {
+      execDiagnosticsError.value = error.message || '加载执行诊断失败';
+    }
+    return null;
+  } finally {
+    if (!silent) execDiagnosticsLoading.value = false;
+  }
+};
+
+const refreshSessionExecutionState = async (sessionId, { silent = true } = {}) => {
+  if (!sessionId) return;
+  try {
+    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
+    if (resp.ok) {
+      const result = await resp.json();
+      if (result.data?.task_info) {
+        sessionTaskInfo.value = result.data.task_info;
+      }
+      if (result.data?.observability) {
+        mergeExecutionObservability(result.data.observability);
+      }
+    }
+  } catch (_) {
+    if (!silent) {
+      execDiagnosticsError.value = '同步执行状态失败';
+    }
+  }
+  await refreshSessionExecutionDiagnostics(sessionId, { silent });
+};
+
+const clearExecutionState = () => {
+  sessionTaskInfo.value = null;
+  sessionExecutionObservability.value = null;
+  sessionExecutionDiagnostics.value = null;
+  execDiagnosticsError.value = '';
+  execDrawerVisible.value = false;
+};
+
+const beginOptimisticExecutionState = (sessionId) => {
+  sessionTaskInfo.value = {
+    ...(sessionTaskInfo.value || {}),
+    task_id: null,
+    session_id: sessionId,
+    run_id: null,
+    execution_kind: 'agent_stream',
+    request_id: null,
+    elapsed_seconds: null,
+    started_at: null,
+    finished_at: null,
+    thread_alive: true,
+    status: 'running',
+  };
+  sessionExecutionDiagnostics.value = null;
+  execDiagnosticsError.value = '';
+  mergeExecutionObservability({
+    task_id: null,
+    session_id: sessionId,
+    run_id: null,
+    execution_kind: 'agent_stream',
+    request_id: null,
+  });
+};
+
 /** 检查会话是否有正在执行的任务，若有则恢复 loading 状态并重连 SSE */
 const checkSessionTaskStatus = async (sessionId) => {
   if (!sessionId) return;
@@ -956,6 +1094,14 @@ const checkSessionTaskStatus = async (sessionId) => {
     const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
     if (!resp.ok) return;
     const result = await resp.json();
+    if (result.data?.task_info) {
+      sessionTaskInfo.value = result.data.task_info;
+    }
+    if (result.data?.observability) {
+      mergeExecutionObservability(result.data.observability);
+    } else if (result.data?.task_info) {
+      mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
+    }
     if (result.data?.has_running_task) {
       isLoading.value = true;
       showToast('正在恢复执行中的任务...', 'warning');
@@ -976,6 +1122,8 @@ const checkSessionTaskStatus = async (sessionId) => {
       }
       // 重连 SSE（不 await，避免阻塞 loadSessionMessages 的 finally 导致 messagesLoading 一直为 true）
       reconnectToRunningTask(sessionId);
+    } else if (!isLoading.value) {
+      await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     }
   } catch (e) {
     // 查询失败不影响主流程
@@ -1008,6 +1156,7 @@ const reconnectToRunningTask = async (sessionId) => {
   } finally {
     isLoading.value = false;
     currentStreamController.value = null;
+    await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     scrollToBottom();
   }
 };
@@ -1151,6 +1300,60 @@ const contextUsageClass = computed(() => {
   if (pct >= 90) return 'danger';
   if (pct >= 70) return 'warning';
   return '';
+});
+
+const executionStatusText = computed(() => {
+  const status = sessionTaskInfo.value?.status;
+  if (status === 'cancel_requested') return '停止中';
+  if (status === 'running' || isLoading.value) return '运行中';
+  if (status === 'interrupted') return '已中断';
+  if (status === 'failed') return '失败';
+  if (status === 'completed') return '已完成';
+  return '空闲';
+});
+
+const executionStatusClass = computed(() => {
+  const status = sessionTaskInfo.value?.status;
+  if (status === 'cancel_requested') return 'is-warning';
+  if (isLoading.value || status === 'running') return 'is-running';
+  if (status === 'failed') return 'is-error';
+  if (status === 'interrupted') return 'is-warning';
+  if (status === 'completed') return 'is-success';
+  return 'is-running';
+});
+
+/** pill 常驻显示当前会话最近一次 execution 快照；运行中优先，其次保留完成态 */
+const showExecutionPill = computed(() => {
+  if (!currentSessionId.value) return false;
+  if (isLoading.value) return true;
+  if (sessionExecutionObservability.value?.task_id || sessionExecutionObservability.value?.run_id) return true;
+  const status = sessionTaskInfo.value?.status;
+  return status === 'running' || status === 'cancel_requested'
+    || status === 'interrupted' || status === 'failed' || status === 'completed';
+});
+
+const executionKindLabel = computed(() => {
+  const kind = sessionExecutionObservability.value?.execution_kind || 'agent_stream';
+  const labels = {
+    agent_stream: 'Agent Stream',
+    node_execute: 'Node Execute',
+    mcp_tool_call: 'MCP Tool',
+    mcp_connect: 'MCP Connect',
+    mcp_disconnect: 'MCP Disconnect',
+    mcp_refresh: 'MCP Refresh',
+    mcp_test: 'MCP Test'
+  };
+  return labels[kind] || kind;
+});
+
+const executionStatusTooltip = computed(() => {
+  const obs = sessionExecutionObservability.value || {};
+  return [
+    `状态: ${executionStatusText.value}`,
+    obs.execution_kind ? `类型: ${obs.execution_kind}` : null,
+    obs.task_id ? `task_id: ${obs.task_id}` : null,
+    obs.run_id ? `run_id: ${obs.run_id}` : null,
+  ].filter(Boolean).join('\n');
 });
 
 function parseMessageParts(msg) {
@@ -1427,6 +1630,10 @@ const handleStop = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: currentSessionId.value })
     });
+    sessionTaskInfo.value = {
+      ...(sessionTaskInfo.value || {}),
+      status: 'cancel_requested'
+    };
   } catch (e) {
     console.warn('停止请求发送失败:', e);
   }
@@ -1445,6 +1652,18 @@ const handleStop = async () => {
   }
 
   isLoading.value = false;
+};
+
+const openExecutionDrawer = async () => {
+  execDrawerVisible.value = true;
+  execDiagnosticsError.value = '';
+  if (currentSessionId.value) {
+    await refreshSessionExecutionDiagnostics(currentSessionId.value, { silent: false });
+  }
+};
+
+const closeExecutionDrawer = () => {
+  execDrawerVisible.value = false;
 };
 
 /**
@@ -1486,9 +1705,19 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
           try {
             const event = JSON.parse(line.substring(6));
             const currentMsg = messages.value[assistantMsgIndex];
+            mergeExecutionObservability(event);
 
             // ── 重连协议：reconnect_start / reconnect_end ──
             if (event.type === 'reconnect_start') {
+              sessionTaskInfo.value = {
+                ...(sessionTaskInfo.value || {}),
+                task_id: event.task_id || sessionTaskInfo.value?.task_id,
+                session_id: event.session_id || sessionTaskInfo.value?.session_id || sessionId,
+                run_id: event.run_id || sessionTaskInfo.value?.run_id,
+                execution_kind: event.execution_kind || sessionTaskInfo.value?.execution_kind,
+                request_id: event.request_id || sessionTaskInfo.value?.request_id,
+                status: 'running'
+              };
               isReplaying = true;
               continue;
             }
@@ -1508,27 +1737,45 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
             const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);
             if ((eventType === 'subtask.start' || eventType === 'call.agent.start') && calledAgentForStart !== 'master_agent_v2') {
-              // 折叠之前的 Agent 调用
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
 
-              currentMsg.subtasks.push({
-                order: eventData.order,
-                task_id: event.call_id,
-                parent_call_id: event.parent_call_id,
-                round: eventData.round,
-                round_index: eventData.round_index,
-                agent_name: calledAgentForStart,
-                agent_display_name: displayNameForStart,
-                description: eventData.subtask_description || eventData.description,
-                react_steps: [],
-                tool_calls: [],
-                result_summary: '',
-                status: 'running',
-                expanded: true,
-                currentStep: null
-              });
+              const existingSubtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+              if (existingSubtask) {
+                existingSubtask.order = eventData.order;
+                existingSubtask.parent_call_id = event.parent_call_id;
+                existingSubtask.round = eventData.round;
+                existingSubtask.round_index = eventData.round_index;
+                existingSubtask.agent_name = calledAgentForStart;
+                existingSubtask.agent_display_name = displayNameForStart;
+                existingSubtask.description = eventData.subtask_description || eventData.description;
+                existingSubtask.status = existingSubtask.status === 'success' || existingSubtask.status === 'error'
+                  ? existingSubtask.status
+                  : 'running';
+                existingSubtask.expanded = true;
+                if (!Array.isArray(existingSubtask.react_steps)) existingSubtask.react_steps = [];
+                if (!Array.isArray(existingSubtask.tool_calls)) existingSubtask.tool_calls = [];
+                if (typeof existingSubtask.result_summary !== 'string') existingSubtask.result_summary = '';
+                if (!Object.prototype.hasOwnProperty.call(existingSubtask, 'currentStep')) existingSubtask.currentStep = null;
+              } else {
+                currentMsg.subtasks.push({
+                  order: eventData.order,
+                  task_id: event.call_id,
+                  parent_call_id: event.parent_call_id,
+                  round: eventData.round,
+                  round_index: eventData.round_index,
+                  agent_name: calledAgentForStart,
+                  agent_display_name: displayNameForStart,
+                  description: eventData.subtask_description || eventData.description,
+                  react_steps: [],
+                  tool_calls: [],
+                  result_summary: '',
+                  status: 'running',
+                  expanded: true,
+                  currentStep: null
+                });
+              }
             }
             // 🎯 Master V2 的 thinking（流式增量）
             else if (eventType === 'agent.thinking_delta') {
@@ -1758,6 +2005,18 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             else if (eventType === 'agent.error') {
               currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
             }
+            else if (eventType === 'done') {
+              sessionTaskInfo.value = {
+                ...(sessionTaskInfo.value || {}),
+                task_id: event.task_id || sessionTaskInfo.value?.task_id,
+                session_id: event.session_id || sessionTaskInfo.value?.session_id || sessionId,
+                run_id: event.run_id || sessionTaskInfo.value?.run_id,
+                execution_kind: event.execution_kind || sessionTaskInfo.value?.execution_kind,
+                request_id: event.request_id || sessionTaskInfo.value?.request_id,
+                thread_alive: false,
+                status: 'completed'
+              };
+            }
             // 上下文用量
             else if (eventType === 'context.usage') {
               const agentName = event.agent_name;
@@ -1856,6 +2115,10 @@ const handleSend = async () => {
     const statusResp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
     if (statusResp.ok) {
       const result = await statusResp.json();
+      sessionTaskInfo.value = result.data?.task_info || null;
+      if (result.data?.observability) {
+        mergeExecutionObservability(result.data.observability);
+      }
       if (result.data?.has_running_task) {
         showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
         return;
@@ -1882,6 +2145,7 @@ const handleSend = async () => {
     finished: false
   }) - 1;
 
+  beginOptimisticExecutionState(sessionId);
   isLoading.value = true;
   contextUsage.value = { used: 0, max: 0 };
 
@@ -1911,10 +2175,20 @@ const handleSend = async () => {
   } catch (error) {
     if (error.name === 'AbortError') {
       console.log('Stream aborted by user');
+      if (!sessionTaskInfo.value?.status || sessionTaskInfo.value.status === 'running') {
+        sessionTaskInfo.value = {
+          ...(sessionTaskInfo.value || {}),
+          status: 'interrupted'
+        };
+      }
     } else {
       console.error('Error sending message:', error);
       messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
       messages.value[assistantMsgIndex].finished = true;
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
+        status: 'failed'
+      };
       showToast('消息发送失败', async () => {
         if (lastFailedSendContent.value) {
           inputMessage.value = lastFailedSendContent.value;
@@ -1925,6 +2199,10 @@ const handleSend = async () => {
     }
   } finally {
     isLoading.value = false;
+    await refreshSessionExecutionState(sessionId, { silent: true });
+    window.setTimeout(() => {
+      refreshSessionExecutionState(sessionId, { silent: true });
+    }, 600);
     scrollToBottom();
     currentStreamController.value = null;
   }
@@ -2014,6 +2292,7 @@ onUnmounted(() => {
 .context-usage-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   max-width: 800px;
   margin: 0 auto 6px;
@@ -2021,6 +2300,84 @@ onUnmounted(() => {
   width: 100%;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
+}
+
+.execution-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 3px 10px 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.execution-pill:hover {
+  background: var(--color-hover-overlay);
+}
+
+.execution-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-muted);
+}
+
+.execution-pill-text {
+  font-weight: 600;
+  line-height: 1;
+}
+
+.execution-pill-kind {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.execution-pill.is-running {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.3);
+}
+
+.execution-pill.is-running .execution-pill-dot {
+  background: var(--color-brand-accent-light);
+}
+
+.execution-pill.is-running .execution-pill-text {
+  color: var(--color-brand-accent-light);
+}
+
+.execution-pill.is-warning {
+  border-color: rgba(var(--color-warning-rgb), 0.3);
+}
+
+.execution-pill.is-warning .execution-pill-dot {
+  background: var(--color-warning);
+}
+
+.execution-pill.is-warning .execution-pill-text {
+  color: var(--color-warning);
+}
+
+.execution-pill.is-error {
+  border-color: rgba(var(--color-error-rgb), 0.3);
+}
+
+.execution-pill.is-error .execution-pill-dot {
+  background: var(--color-error);
+}
+
+.execution-pill.is-error .execution-pill-text {
+  color: var(--color-error);
+}
+
+.execution-pill.is-success .execution-pill-dot {
+  background: var(--color-success);
 }
 /* .context-usage-bar:hover {
   background: var(--color-bg-secondary);
@@ -2046,6 +2403,17 @@ onUnmounted(() => {
 .inline-chart-wrapper {
   margin: 12px 0;
   width: 100%;
+}
+
+@media (max-width: 600px) {
+  .context-usage-bar {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .execution-pill {
+    margin-left: 0;
+  }
 }
 
 

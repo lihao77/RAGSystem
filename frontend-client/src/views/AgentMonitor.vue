@@ -8,6 +8,10 @@
           <div class="header-meta">
             <h1 class="page-title">智能体性能监控</h1>
             <p class="page-subtitle">实时查看调用次数、耗时、成功率与工具使用统计</p>
+            <p class="page-hint">
+              <span>自动刷新：{{ autoRefreshSeconds }}s</span>
+              <span v-if="lastUpdatedAt">最近更新：{{ formatRefreshTime(lastUpdatedAt) }}</span>
+            </p>
           </div>
         </div>
         <div class="header-actions">
@@ -292,7 +296,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import {
   getExecutionOverview,
   getMetrics,
@@ -316,6 +320,10 @@ const selectedTaskStatus = ref(null);
 const selectedTaskDiagnostics = ref(null);
 const taskDetailLoading = ref(false);
 const taskDetailError = ref('');
+const lastUpdatedAt = ref(null);
+
+const autoRefreshSeconds = 10;
+let refreshTimer = null;
 
 const systemMetrics = computed(() => {
   if (!metricsData.value) return null;
@@ -340,9 +348,13 @@ const agentList = computed(() => {
   return Object.keys(agents);
 });
 
-const loadMetrics = async () => {
-  loading.value = true;
-  error.value = '';
+const loadMetrics = async ({ silent = false } = {}) => {
+  if (!silent) {
+    loading.value = true;
+  }
+  if (!silent) {
+    error.value = '';
+  }
 
   try {
     const data = await getMetrics(selectedAgent.value || null);
@@ -355,15 +367,21 @@ const loadMetrics = async () => {
       ]);
       executionOverview.value = overview;
       runningTasks.value = running?.items || [];
+      if (selectedTaskId.value) {
+        await selectTask(selectedTaskId.value, { silent: true, force: true });
+      }
     } else {
       executionOverview.value = null;
       runningTasks.value = [];
       clearSelectedTask();
     }
+    lastUpdatedAt.value = new Date();
   } catch (err) {
     error.value = err.message || '加载指标失败';
   } finally {
-    loading.value = false;
+    if (!silent) {
+      loading.value = false;
+    }
   }
 };
 
@@ -375,15 +393,17 @@ const clearSelectedTask = () => {
   taskDetailError.value = '';
 };
 
-const selectTask = async (taskId) => {
+const selectTask = async (taskId, { silent = false, force = false } = {}) => {
   if (!taskId) return;
-  if (selectedTaskId.value === taskId) return;
+  if (!force && selectedTaskId.value === taskId) return;
 
   selectedTaskId.value = taskId;
-  selectedTaskStatus.value = null;
-  selectedTaskDiagnostics.value = null;
-  taskDetailLoading.value = true;
-  taskDetailError.value = '';
+  if (!silent) {
+    selectedTaskStatus.value = null;
+    selectedTaskDiagnostics.value = null;
+    taskDetailLoading.value = true;
+    taskDetailError.value = '';
+  }
 
   try {
     const [statusData, diagnosticsData] = await Promise.all([
@@ -436,6 +456,16 @@ const formatTime = (timeStr) => {
   });
 };
 
+const formatRefreshTime = (value) => {
+  if (!value) return '-';
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
 const getToolPercentage = (count, toolUsage) => {
   const total = Object.values(toolUsage).reduce((sum, c) => sum + c, 0);
   return total > 0 ? (count / total) * 100 : 0;
@@ -453,8 +483,27 @@ const navigateToChat = () => {
   emit('navigate', '/');
 };
 
+const startAutoRefresh = () => {
+  if (refreshTimer) return;
+  refreshTimer = window.setInterval(() => {
+    loadMetrics({ silent: true });
+  }, autoRefreshSeconds * 1000);
+};
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+};
+
 onMounted(() => {
   loadMetrics();
+  startAutoRefresh();
+});
+
+onUnmounted(() => {
+  stopAutoRefresh();
 });
 </script>
 
@@ -511,6 +560,15 @@ onMounted(() => {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+.page-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .header-actions {
