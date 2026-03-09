@@ -14,7 +14,7 @@
 
 ### 实现位置
 
-**自动注入逻辑** 在 `backend/agents/agent_loader.py` 的 `_create_agent_instance()` 方法中：
+**自动注入逻辑** 在 `backend/agents/config/loader.py` 中：
 
 ```python
 # 加载 Skills（根据配置过滤）

@@ -51,7 +51,7 @@ skills:
   auto_inject: false
 ```
 
-### 3. 修改 AgentLoader (`agent_loader.py`)
+### 3. 修改 AgentLoader (`config/loader.py`)
 
 在 `_create_agent_instance` 方法中添加 Skills 过滤逻辑：
 
@@ -166,7 +166,7 @@ System Prompt (注入 Skills 列表)
 ```
 backend/agents/
 ├── agent_config.py                    # ✅ 新增 AgentSkillConfig
-├── agent_loader.py                    # ✅ 新增 Skills 过滤逻辑
+├── config/loader.py                  # ✅ Skills 过滤逻辑
 ├── react_agent.py                     # ✅ 新增 Skills 支持
 ├── configs/
 │   └── agent_configs.yaml             # ✅ 新增 skills 配置

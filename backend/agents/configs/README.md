@@ -1,78 +1,58 @@
-# 智能体配置目录
+# Agent 配置文件
 
-## 概述
+当前 Agent 配置保存在：
 
-此目录存储智能体的配置文件，用于为每个智能体配置独立的 LLM 参数、工具设置和自定义参数。
+- `backend/agents/configs/agent_configs.yaml`
 
-## 文件说明
+示例文件：
 
-- **agent_configs.yaml** - 实际使用的配置文件（自动生成，不提交到 git）
-- **agent_configs.yaml.example** - 配置示例文件（提交到 git，供参考）
-- **.gitignore** - Git 忽略配置
+- `backend/agents/configs/agent_configs.yaml.example`
 
-## 配置文件位置
+## 当前行为
 
+- 文件不存在时，`AgentConfigManager` 会创建一个空配置文件框架
+- 用户自定义 Agent 从这里加载
+- `master_agent_v2` 仍由系统强制装载，但如果这里存在同名配置，会优先使用其中字段
+
+## 管理方式
+
+推荐通过 API 或前端页面管理：
+
+- 页面：管理端 `/agent-config`
+- `GET /api/agent-config/configs`
+- `GET /api/agent-config/configs/<agent_name>`
+- `PUT /api/agent-config/configs/<agent_name>`
+- `PATCH /api/agent-config/configs/<agent_name>`
+- `DELETE /api/agent-config/configs/<agent_name>`
+- `GET /api/agent-config/presets`
+- `GET /api/agent-config/tools`
+- `GET /api/agent-config/skills`
+- `GET /api/agent-config/mcp-servers`
+
+## 结构
+
+顶层结构：
+
+```yaml
+agents:
+  qa_agent:
+    agent_name: qa_agent
+    display_name: QA Agent
+    enabled: true
+    llm:
+      provider: test
+      provider_type: deepseek
+      model_name: deepseek-chat
+    tools:
+      enabled_tools:
+        - query_knowledge_graph_with_nl
+    skills:
+      enabled_skills: []
+      auto_inject: true
+    mcp:
+      enabled_servers: []
+    custom_params:
+      type: react
+metadata:
+  version: "1.0"
 ```
-backend/agents/configs/agent_configs.yaml
-```
-
-## 自动生成
-
-首次运行系统时，如果 `agent_configs.yaml` 不存在，系统会自动创建默认配置。
-
-默认配置包括：
-- `qa_agent` - 问答智能体配置
-- `master_agent` - 主协调智能体配置
-
-## 配置管理
-
-### 1. 通过 API 管理（推荐）
-
-访问前端页面：`/agent-config`
-
-或使用 API：
-```bash
-# 查看所有配置
-GET /api/agent-config/configs
-
-# 更新配置
-PATCH /api/agent-config/configs/qa_agent
-```
-
-### 2. 直接编辑文件
-
-可以直接编辑 `agent_configs.yaml` 文件，系统会在下次启动时加载新配置。
-
-参考 `agent_configs.yaml.example` 了解配置格式。
-
-## 配置优先级
-
-```
-智能体独立配置 (agent_configs.yaml)
-  ↓
-系统全局配置 (backend/config/yaml/config.yaml)
-  ↓
-默认配置
-```
-
-## 注意事项
-
-1. **不要提交 agent_configs.yaml 到 git**
-   - 此文件包含用户自定义配置
-   - 已通过 .gitignore 忽略
-
-2. **配置验证**
-   - 修改配置后建议通过 API 验证：
-     ```bash
-     GET /api/agent-config/configs/{agent_name}/validate
-     ```
-
-3. **备份配置**
-   - 重要配置建议导出备份：
-     ```bash
-     GET /api/agent-config/configs/{agent_name}/export?format=yaml
-     ```
-
-## 完整文档
-
-详细使用说明请参考：`backend/agents/AGENT_CONFIG_GUIDE.md`

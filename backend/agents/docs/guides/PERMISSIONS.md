@@ -387,4 +387,4 @@ logger.info("tool_execution",
 
 - [可观测性指南](OBSERVABILITY.md)
 - [错误处理指南](ERROR_HANDLING.md)
-- [智能体配置指南](../AGENT_CONFIG_GUIDE.md)
+- [Agent 总览](../../README.md)

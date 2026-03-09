@@ -1,111 +1,89 @@
-# 后端服务
+# 后端
 
-RAGSystem 后端基于 Flask，负责知识图谱查询、向量检索、节点/流程编排、Model Adapter 和多 Agent 运行时。
+`backend/` 是 Flask 服务端，负责配置加载、节点系统、工作流、Model Adapter、Agent、MCP、图谱和向量相关 API。
 
-## 快速开始
+## 启动
 
-### 1. 安装依赖
-
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-Windows PowerShell：
 ```powershell
 cd backend
-.\install_dependencies.ps1
-```
-
-Windows CMD：
-```bat
-cd backend
-install_dependencies.bat
-```
-
-### 2. 准备配置
-
-#### 必需配置
-
-```bash
-cd backend
-cp .env.example .env
-cp model_adapter/configs/providers.yaml.example model_adapter/configs/providers.yaml
-```
-
-然后编辑：
-
-- `.env`：Neo4j、Flask 端口、CORS 白名单、上传目录等运行时参数
-- `model_adapter/configs/providers.yaml`：模型供应商与 API 密钥
-
-#### 可选配置
-
-- `config/yaml/config.yaml`：系统默认配置
-- `agents/configs/agent_configs.yaml`：智能体列表与行为配置
-- `mcp/configs/mcp_servers.yaml`：MCP 服务配置
-
-### 3. 启动服务
-
-```bash
-cd backend
+pip install -r requirements.txt
 python app.py
 ```
 
-默认运行在 `http://localhost:5000`
+默认地址：`http://localhost:5000`
 
-## 运行时环境变量
+## 启动前配置
 
-- `FLASK_HOST` / `FLASK_PORT`：后端监听地址与端口
-- `FLASK_DEBUG` / `FLASK_USE_RELOADER`：开发模式与自动重载
-- `CORS_ORIGINS`：逗号分隔的跨域白名单
-- `UPLOAD_FOLDER`：上传目录，默认 `backend/uploads`
-- `FRONTEND_DIST`：静态前端产物目录，默认 `../frontend/dist`
+建议至少准备：
 
-## 开发检查
-
-在项目根目录可运行：
-
-```bash
-make runtime-strict-audit
-make runtime-strict-check
-python3 backend/scripts/runtime_strict_audit.py
-python3 backend/scripts/runtime_strict_audit.py --check-container-only
+```powershell
+Copy-Item .env.example .env
+Copy-Item model_adapter\configs\providers.yaml.example model_adapter\configs\providers.yaml
 ```
 
-Windows CMD：
-```bat
-runtime_strict_check.bat
+按需准备：
+
+```powershell
+Copy-Item config\yaml\config.yaml.example config\yaml\config.yaml
+Copy-Item agents\configs\agent_configs.yaml.example agents\configs\agent_configs.yaml
+Copy-Item mcp\configs\mcp_servers.yaml.example mcp\configs\mcp_servers.yaml
 ```
 
-其中 `make runtime-strict-check`、`python3 backend/scripts/runtime_strict_audit.py --check-container-only` 和 `runtime_strict_check.bat` 都会执行 runtime strict 审计门禁，只要存在非 `container_only` 站点就返回非 0。
+## 当前入口
 
-## 当前结构
+- `app.py`：应用工厂、blueprint 注册、静态路由、启动检查
+- `config/`：系统配置模型与健康检查
+- `routes/`：HTTP API
+- `model_adapter/`：Provider 适配与配置存储
+- `agents/`：Agent 加载、执行、事件和监控
+- `nodes/`：节点定义、配置 Schema 与配置存储
+- `tools/`：工具定义、执行器与权限控制
+- `scripts/`：维护脚本
+- `tests/`：后端测试
 
-```text
-backend/
-├── app.py
-├── agents/
-├── config/
-├── mcp/
-├── model_adapter/
-├── nodes/
-├── routes/
-├── services/
-├── tools/
-├── vector_store/
-└── workflows/
+## 已注册的主要 API 前缀
+
+- `/api/home`
+- `/api/search`
+- `/api/visualization`
+- `/api/evaluation`
+- `/api/graphrag`
+- `/api/function-call`
+- `/api/config`
+- `/api/nodes`
+- `/api/workflows`
+- `/api/files`
+- `/api/vector`
+- `/api/vector-library`
+- `/api/model-adapter`
+- `/api/agent`
+- `/api/agent-config`
+- `/api/embedding-models`
+- `/api/mcp`
+
+## 运行时行为
+
+- 启动前执行 `config.health_check.run_health_check()`
+- 通过 `.env` 读取 `FLASK_HOST`、`FLASK_PORT`、`FLASK_DEBUG`、`CORS_ORIGINS`
+- 默认上传目录为 `backend/uploads`
+- 默认静态目录为 `../frontend/dist`
+- 启动时按配置尝试初始化 Neo4j、向量库和 MCP Client Manager
+
+## 常用检查
+
+```powershell
+python -m pytest tests\config_schema_test.py
+python -m pytest tests\execution_service_test.py
+python -m pytest tests\route_observability_contract_test.py
+python -m pytest tests\model_adapter_config_store_test.py
+python scripts\runtime_strict_audit.py --format table
 ```
 
-## 建议开发方式
+## 子系统文档
 
-- 通过 `python app.py` 启动，应用会先执行配置检查，再初始化 Neo4j / 向量库 / MCP 运行时
-- 前端开发时，将 `frontend/.env` 或 `frontend-client/.env` 的代理地址指向本服务
-- 不要把真实密钥提交到仓库；`.env`、`providers.yaml`、`agent_configs.yaml` 应保持本地化
-
-## 相关文档
-
-- `docs/configuration-guide.md`
-- `docs/BACKEND_CONFIG_SURVEY.md`
-- `docs/migration/VECTOR_STORE_MIGRATION.md`
-- `backend/model_adapter/README.md`
-- `backend/agents/README.md`
+- [config/README.md](config/README.md)
+- [model_adapter/README.md](model_adapter/README.md)
+- [tools/README.md](tools/README.md)
+- [scripts/README.md](scripts/README.md)
+- [agents/README.md](agents/README.md)
+- [nodes/CONFIG_UI_GUIDE.md](nodes/CONFIG_UI_GUIDE.md)

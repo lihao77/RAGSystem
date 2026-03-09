@@ -8,7 +8,7 @@ Master Agent V2 已经默认启用了**智能上下文管理**，无需额外配
 
 ### Master Agent V2（默认启用）
 
-**位置：** `backend/agents/agent_loader.py` → `_load_system_master_agent_v2()`
+**位置：** `backend/agents/config/loader.py` → `_load_system_master_agent_v2()`
 
 **默认配置：**
 ```python
@@ -37,7 +37,7 @@ Master V1 主要负责任务分解和编排，**不使用 ContextManager**，因
 
 ### 步骤 1：编辑配置文件
 
-打开 `backend/agents/agent_loader.py`，找到 `_load_system_master_agent_v2()` 方法（约第 223 行）：
+打开 `backend/agents/config/loader.py`，找到 `_load_system_master_agent_v2()` 方法：
 
 ```python
 custom_params={

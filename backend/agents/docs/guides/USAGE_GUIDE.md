@@ -413,7 +413,7 @@ print(agent.get_info())
 
 ## 文档索引
 
-- **设计文档**: `backend/agents/AGENT_SYSTEM_DESIGN.md`
+- **当前入口**: `backend/agents/README.md`
 - **使用指南**: 本文件
 - **API 文档**: 见本文 "API 使用指南" 部分
 - **测试脚本**: `backend/test_react_agent.py`

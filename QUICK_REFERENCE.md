@@ -1,154 +1,96 @@
 # RAGSystem 快速参考
 
-## 🚀 快速启动
+## 默认端口
 
-```bash
-# 启动后端
-cd backend && python app.py
+- 后端：`http://localhost:5000`
+- 管理端：`http://localhost:8080`
+- 对话端：`http://localhost:5174`
 
-# 启动前端（新终端）
-cd frontend && npm run dev
+后端默认允许的开发源包含 `5173`、`5174`、`8080`、`8081`，但当前两个前端默认端口是 `8080` 和 `5174`。
 
-# 访问系统
-http://localhost:5173
-```
+## 启动命令
 
-## 📚 文档快速链接
-
-| 需求 | 文档 | 时间 |
-|------|------|------|
-| 了解项目 | [README.md](README.md) | 5分钟 |
-| 查看结构 | [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | 10分钟 |
-| 快速上手节点配置 | [QUICK_START](docs/node-config-ui/QUICK_START_CONFIG_UI.md) | 5分钟 |
-| 开发节点 | [CONFIG_UI_GUIDE](backend/nodes/CONFIG_UI_GUIDE.md) | 30分钟 |
-| 查阅配置选项 | [UI_METADATA_REFERENCE](backend/nodes/UI_METADATA_REFERENCE.md) | 随时 |
-| 浏览所有文档 | [文档中心](docs/README.md) | - |
-
-## 🎯 常见任务
-
-### 查看节点配置UI
-1. 启动服务
-2. 访问 http://localhost:5173
-3. 点击"节点系统"
-4. 选择节点类型
-
-### 为节点添加UI元数据
-```python
-from pydantic import Field
-from nodes.base import NodeConfigBase
-
-class MyConfig(NodeConfigBase):
-    field: str = Field(
-        default="",
-        description="说明",
-        json_schema_extra={
-            'group': 'api',
-            'format': 'password'
-        }
-    )
-```
-
-### 测试节点配置
-```bash
+```powershell
 cd backend
-python test_all_node_configs.py
+python app.py
 ```
 
-## 📁 重要文件位置
-
-### 后端
-- 节点基类: `backend/nodes/base.py`
-- Schema生成器: `backend/nodes/schema_generator.py`
-- 节点API: `backend/routes/nodes.py`
-- 配置示例: `backend/nodes/llmjson_v2/config.py`
-
-### 前端
-- 配置编辑器: `frontend/src/components/workflow/NodeConfigEditor.vue`
-- 节点视图: `frontend/src/views/NodesView.vue`
-- API服务: `frontend/src/api/nodeService.js`
-
-### 文档
-- 文档中心: `docs/README.md`
-- 节点配置UI: `docs/node-config-ui/README.md`
-- 开发指南: `backend/nodes/CONFIG_UI_GUIDE.md`
-
-## 🔧 配置选项速查
-
-### 通用选项
-```python
-json_schema_extra={
-    'group': 'api',              # 分组
-    'order': 1,                  # 排序
-    'format': 'password',        # 格式
-    'placeholder': '提示文本'     # 占位符
-}
+```powershell
+cd frontend
+npm run dev
 ```
 
-### 下拉选择
-```python
-json_schema_extra={
-    'options': [
-        {'label': '显示名', 'value': '值'}
-    ]
-}
+```powershell
+cd frontend-client
+npm run dev
 ```
 
-### 数字范围
-```python
-json_schema_extra={
-    'minimum': 0,
-    'maximum': 100,
-    'multipleOf': 10
-}
+## 首次配置
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+Copy-Item model_adapter\configs\providers.yaml.example model_adapter\configs\providers.yaml
 ```
 
-## 🎨 预定义分组
+可选：
 
-| 分组 | 用途 | 排序 |
-|------|------|------|
-| `default` | 基础配置 | 0 |
-| `api` | API配置 | 1 |
-| `database` | 数据库配置 | 1 |
-| `model` | 模型配置 | 2 |
-| `template` | 模板配置 | 3 |
-| `processing` | 处理配置 | 4 |
-| `metadata` | 元数据配置 | 5 |
-| `output` | 输出设置 | 6 |
-| `advanced` | 高级配置 | 7 |
+```powershell
+Copy-Item config\yaml\config.yaml.example config\yaml\config.yaml
+Copy-Item agents\configs\agent_configs.yaml.example agents\configs\agent_configs.yaml
+Copy-Item mcp\configs\mcp_servers.yaml.example mcp\configs\mcp_servers.yaml
+```
 
-## 🐛 故障排除
+## 管理端页面
 
-### 节点显示JSON编辑器
-- 检查后端日志
-- 运行测试脚本
-- 查看浏览器控制台
+- `/`：首页
+- `/split`：综合视图
+- `/search`：实体查询
+- `/settings`：系统配置
+- `/nodes`：节点系统
+- `/workflow`：工作流编排
+- `/files`：文件管理
+- `/graphrag`：GraphRAG
+- `/vector-service`：向量相关页面入口
+- `/model-adapter`：Provider 管理
+- `/mcp`：MCP 管理
+- `/agent-config`：Agent 配置
 
-### 字段显示不正确
-- 检查 `json_schema_extra` 配置
-- 参考 UI_METADATA_REFERENCE.md
-- 查看示例配置
+## 对话端页面
 
-### 验证失败
-- 查看错误提示
-- 检查必填字段
-- 确认数值范围
+- `/` 或 `/chat`：聊天
+- `/monitor` 或 `/agent-monitor`：执行监控
+- `/agent-config`：Agent 配置
+- `/mcp`：MCP 管理
 
-## 📞 获取帮助
+## 常用后端接口
 
-1. **查看文档** - [文档中心](docs/README.md)
-2. **运行测试** - `python test_all_node_configs.py`
-3. **查看示例** - `backend/nodes/llmjson_v2/config.py`
+- `GET /api/nodes/types`
+- `GET /api/nodes/types/<node_type>/config-schema`
+- `GET /api/workflows`
+- `GET /api/model-adapter/providers`
+- `GET /api/agent/agents`
+- `POST /api/agent/execute`
+- `POST /api/agent/stream`
+- `GET /api/agent/execution/overview`
+- `GET /api/agent/metrics`
+- `POST /api/agent/metrics/reset`
 
-## 🎉 已适配节点
+## 常用文件
 
-- ✅ LLMJson V2 (11字段, 5分组)
-- ✅ LLMJson (15字段, 5分组)
-- ✅ Json2Graph (6字段, 3分组)
-- ✅ VectorIndexer (8字段, 4分组)
+- `backend/app.py`
+- `backend/agents/config/loader.py`
+- `backend/config/models.py`
+- `backend/model_adapter/configs/providers.yaml`
+- `backend/agents/configs/agent_configs.yaml`
+- `frontend/src/router/index.js`
+- `frontend-client/src/App.vue`
 
----
+## 常用检查
 
-**版本**: v1.0  
-**更新**: 2025-12-26  
-
-💡 **保存此页面，快速查阅常用信息！**
+```powershell
+python -m pytest backend\tests\config_schema_test.py
+python -m pytest backend\tests\model_adapter_config_store_test.py
+python -m pytest backend\tests\route_observability_contract_test.py
+python backend\scripts\runtime_strict_audit.py --check-container-only
+```

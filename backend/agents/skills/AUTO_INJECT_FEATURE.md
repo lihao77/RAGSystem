@@ -45,7 +45,7 @@ qa_agent:
 
 ### 1. 自动注入逻辑
 
-位置：`backend/agents/agent_loader.py:288-360`
+位置：`backend/agents/config/loader.py`
 
 ```python
 if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
@@ -72,7 +72,7 @@ if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
 - 作为全局工具，所有 agent 都能看到
 
 **现在**：
-- 工具定义在 `backend/agents/agent_loader.py` 中动态生成
+- 工具由 `backend/agents/config/loader.py` 在运行时注入
 - 只有启用 Skills 的 agent 才会获得这两个工具
 - `function_definitions.py` 中添加注释说明
 
@@ -124,7 +124,7 @@ python test_auto_inject_skills_tools.py
 
 ## 修改文件清单
 
-1. ✅ `backend/agents/agent_loader.py` - 添加自动注入逻辑
+1. `backend/agents/config/loader.py` - 自动注入逻辑
 2. ✅ `backend/agents/configs/agent_configs.yaml` - 移除手动配置的工具
 3. ✅ `backend/tools/function_definitions.py` - 移除工具定义，添加说明注释
 4. ✅ `backend/agents/skills/HOW_AI_USES_SKILLS.md` - 更新文档

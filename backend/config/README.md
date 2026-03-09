@@ -1,47 +1,82 @@
-# RAGSystem 配置
+# 配置系统
 
-配置由 **Pydantic 模型**（`models.py`）定义，默认值在代码里。无需示例或默认 YAML 即可运行。
+`backend/config/` 定义系统级配置模型、加载逻辑和启动前健康检查。
 
-## 结构
+## 当前文件
 
-```
-backend/config/
-├── __init__.py
-├── base.py       # 加载与合并逻辑
-├── models.py     # 配置项与默认值（唯一真相源）
-├── README.md
-└── yaml/
-    └── config.yaml   # 可选，只写需要覆盖的项（勿提交，.gitignore）
-```
+- `models.py`：`AppConfig` 及子模型默认值
+- `base.py`：配置加载器
+- `health_check.py`：启动前检查
+- `schemas.py`：跨配置校验
+- `yaml/config.yaml.example`：示例覆盖文件
 
-## 使用
+## 当前加载顺序
 
-- **不创建 config.yaml**：全部使用 `models.py` 中的默认值（如 `neo4j.uri=bolt://localhost:7687`、`vector_store.backend=sqlite_vec` 等）。
-- **需要覆盖时**：在 `yaml/config.yaml` 中只写要改的键，与 Pydantic 模型结构一致即可。例如：
+`ConfigManager.load()` 的顺序是：
+
+1. 可选的 `config/yaml/config.default.yaml`
+2. 可选的 `config/yaml/config.yaml`
+3. 环境变量覆盖
+4. `AppConfig` 默认值补齐
+
+`.env` 会在加载前从 `backend/.env` 读取。
+
+## 当前环境变量覆盖
+
+代码里显式支持的覆盖项：
+
+- `NEO4J_URI`
+- `NEO4J_USER`
+- `NEO4J_PASSWORD`
+- `LLM_API_ENDPOINT`
+- `LLM_API_KEY`
+- `LLM_MODEL_NAME`
+
+运行服务本身还会读取：
+
+- `FLASK_HOST`
+- `FLASK_PORT`
+- `PORT`
+- `FLASK_DEBUG`
+- `FLASK_USE_RELOADER`
+- `CORS_ORIGINS`
+- `UPLOAD_FOLDER`
+- `FRONTEND_DIST`
+
+## 主要配置结构
+
+`models.py` 当前定义：
+
+- `neo4j`
+- `vector_store`
+- `llm`
+- `system`
+- `embedding`
+- `external_libs`
+
+示例：
 
 ```yaml
 neo4j:
-  password: "your_password"
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: your-password
+
 llm:
   provider: test
   provider_type: deepseek
   model_name: deepseek-chat
 ```
 
-## 优先级（从高到低）
+## 健康检查
 
-1. 环境变量（如 `NEO4J__PASSWORD`）
-2. `yaml/config.yaml`
-3. `models.py` 中的默认值
+`health_check.py` 会：
 
-## 配置项来源
+- 检查敏感文件是否已加入 `.gitignore`
+- 检查 `providers.yaml` 是否存在
+- 如果 `providers.yaml` 存在，则继续做跨配置校验
 
-所有字段与默认值见 **`models.py`**（`AppConfig`、`Neo4jConfig`、`VectorStoreConfig`、`LLMConfig`、`EmbeddingConfig` 等）。  
-LLM/Embedding 的 API Key 等在「Model Adapter」中配置，本配置仅可指定 provider、provider_type、model_name。
+说明：
 
-## 热重载
-
-```python
-from config import reload_config
-config = reload_config()
-```
+- 缺少 `providers.yaml` 只会给出警告，不阻止后端启动
+- 这意味着可以先启动服务，再通过管理端创建 Provider

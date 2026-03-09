@@ -265,4 +265,4 @@ pip install -r requirements.txt
 
 - [错误处理指南](ERROR_HANDLING.md)
 - [权限控制指南](PERMISSIONS.md)
-- [智能体系统设计](AGENT_SYSTEM_DESIGN.md)
+- [Agent 总览](../../README.md)

@@ -256,23 +256,13 @@ MasterAgent (call_abc123)
 
 ## 测试
 
-运行测试脚本验证调用树构建：
+可以通过现有前端监控页面和 Agent 流式接口验证调用树构建：
 
-```bash
-cd backend
-python test_call_tree.py
-```
+建议结合以下入口：
 
-预期输出：
-
-```
-✅ 所有验证通过！
-
-调用树构建成功：
-  - MasterAgent (call_16c...)
-    └─ ReActAgent (call_96e...)
-       └─ Tool (tool_55c...)
-```
+- `frontend-client/src/views/ChatViewV2.vue`
+- `frontend-client/src/components/HierarchicalExecutionTree.vue`
+- `POST /api/agent/stream`
 
 ## 优势
 
@@ -295,6 +285,5 @@ python test_call_tree.py
 - `backend/agents/events/publisher.py` - 事件发布器
 - `backend/agents/implementations/react/agent.py` - ReActAgent 实现
 - `backend/agents/implementations/master/agent.py` - MasterAgent 实现
-- `backend/test_call_tree.py` - 调用树测试脚本
 - `frontend-client/src/views/ChatViewV2.vue` - 前端调用树构建
 - `frontend-client/src/components/HierarchicalExecutionTree.vue` - 前端调用树展示组件

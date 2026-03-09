@@ -1,32 +1,64 @@
-# 后台管理前端
+# 管理端前端
 
-基于 Vue 3 + Vite + Element Plus 的后台管理端，负责系统配置、图谱查询、流程编排、向量库和模型管理。
+`frontend/` 是后台管理端，基于 Vue 3、Vite、Element Plus 和 `vue-router`。
 
-## 快速开始
+## 启动
 
-```bash
+```powershell
 cd frontend
-cp .env.example .env
+Copy-Item .env.example .env
 npm install
 npm run dev
 ```
 
-默认启动地址：`http://localhost:8080`
+默认地址：`http://localhost:8080`
 
 ## 环境变量
 
 - `VITE_DEV_PORT`：开发端口，默认 `8080`
-- `VITE_API_PROXY_TARGET`：后端 API 地址，默认 `http://localhost:5000`
-- `VITE_NEO4J_PROXY_TARGET`：Neo4j Browser / HTTP 代理地址，默认 `http://localhost:7474`
+- `VITE_API_PROXY_TARGET`：后端地址，默认 `http://localhost:5000`
+- `VITE_NEO4J_PROXY_TARGET`：Neo4j HTTP 地址，默认 `http://localhost:7474`
 
-## 目录结构
+## 当前路由
 
-- `src/views`：页面视图
-- `src/components`：复用组件
-- `src/api`：接口封装
-- `src/router`：路由配置
-- `src/composables`：组合式逻辑
+定义文件：`src/router/index.js`
 
-## 备注
+- `/`
+- `/split`
+- `/search`
+- `/settings`
+- `/nodes`
+- `/workflow`
+- `/files`
+- `/graphrag`
+- `/vector-service`
+- `/model-adapter`
+- `/mcp`
+- `/agent-config`
 
-如果你仍在使用 `src/config.example.js` / `src/config.js` 方式配置，请优先迁移到 `.env`，避免端口和代理信息分散在多个文件里。
+## 运行方式
+
+- 通过 `vue-router` 使用 `createWebHistory()`
+- 路由守卫会根据 `meta.requiresConfig` 调用配置检查逻辑
+- `/api` 代理到后端
+- `/neo4j` 代理到 Neo4j HTTP 服务
+
+## 主要目录
+
+- `src/views/`：页面
+- `src/router/`：路由
+- `src/api/`：接口封装
+- `src/composables/`：复用状态与逻辑
+- `src/components/`：通用组件
+
+## 对接后端
+
+- 页面配置：`/api/config`
+- 节点：`/api/nodes`
+- 工作流：`/api/workflows`
+- 文件：`/api/files`
+- 图谱 / GraphRAG：`/api/search`、`/api/graphrag`、`/api/visualization`
+- 向量：`/api/vector`、`/api/vector-library`
+- Model Adapter：`/api/model-adapter`
+- MCP：`/api/mcp`
+- Agent 配置：`/api/agent-config`
