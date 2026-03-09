@@ -1,6 +1,6 @@
-# P4 Execution Observability Routes
+# Execution Observability Routes
 
-状态：P4 第一阶段已落地（查询面 / diagnostics / overview）
+本文件集中说明当前的 execution observability 查询接口、统一字段和响应契约。
 
 关联文档：
 
@@ -10,9 +10,7 @@
 
 ## 1. 目标
 
-本文件用于集中说明 P4 第一阶段已经落地的 execution observability 查询接口、统一字段和响应契约。
-
-这一阶段的目标不是重写执行协议，而是：
+当前目标：
 
 - 让 `Agent` / `Node` / `MCP` 共享统一 execution 观测字段
 - 让状态查询、排障查询、运行概览有稳定的 HTTP 查询面
@@ -211,7 +209,7 @@ diagnostics 接口统一返回：
 
 ## 6. 当前边界
 
-本阶段刻意保持以下边界：
+当前实现保持以下边界：
 
 - 不重写 SSE 协议
 - 不引入 tracing 平台
@@ -223,9 +221,9 @@ diagnostics 接口统一返回：
 - `Node` / `MCP` 共享 execution observability 语义
 - 但它们不因此变成 Agent 子系统的一部分
 
-## 7. 后续建议
+## 7. 开发建议
 
-P4 下一阶段可优先考虑：
+后续可优先考虑：
 
 - 将更多 `services/`、`tools/`、`integrations/` 日志接到 execution context
 - 为这些查询接口补更正式的 API contract tests

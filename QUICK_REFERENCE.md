@@ -88,6 +88,12 @@ Copy-Item mcp\configs\mcp_servers.yaml.example mcp\configs\mcp_servers.yaml
 
 ## 常用检查
 
+说明：以下测试命令依赖 `pytest`。如果你只安装了 `backend/requirements.txt`，还需要额外执行：
+
+```powershell
+pip install pytest
+```
+
 ```powershell
 python -m pytest backend\tests\config_schema_test.py
 python -m pytest backend\tests\model_adapter_config_store_test.py

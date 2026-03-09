@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,12 +12,13 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from file_index.store import FileIndex
+from tests._tempdir import repo_temp_dir
 
 
 class FileIndexStoreTest(unittest.TestCase):
     def test_add_and_delete_file_record(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'files.yaml'
+        with repo_temp_dir(prefix='file-index-') as tmp:
+            path = tmp / 'files.yaml'
             index = FileIndex(index_path=path)
 
             record = index.add(

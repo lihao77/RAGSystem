@@ -1,11 +1,10 @@
 # 文档地图
 
-## 当前主入口
+## 主入口
 
 - `README.md`：项目总览
 - `QUICK_REFERENCE.md`：命令、端口、路由速查
 - `PROJECT_STRUCTURE.md`：仓库结构
-- `FRONTEND_USAGE_GUIDE.md`：两个前端的定位与使用
 - `docs/README.md`：文档中心
 
 ## 按目录查看
@@ -32,6 +31,14 @@
 - `backend/nodes/CONFIG_UI_GUIDE.md`
 - `backend/nodes/UI_METADATA_REFERENCE.md`
 
+### `docs/`
+
+- `docs/ARCHITECTURE_BOUNDARIES.md`
+- `docs/P3_EXECUTION_LAYER_DESIGN.md`
+- `docs/P3_EXECUTION_LAYER_CHECKLIST.md`
+- `docs/P4_OBSERVABILITY_ROUTES.md`
+- `docs/FILE_SYSTEM_INTEGRATION.md`
+
 ## 按任务查看
 
 ### 启动项目
@@ -52,6 +59,13 @@
 1. `backend/nodes/CONFIG_UI_GUIDE.md`
 2. `backend/nodes/UI_METADATA_REFERENCE.md`
 
+### 开发执行平面
+
+1. `docs/ARCHITECTURE_BOUNDARIES.md`
+2. `docs/P3_EXECUTION_LAYER_DESIGN.md`
+3. `docs/P3_EXECUTION_LAYER_CHECKLIST.md`
+4. `docs/P4_OBSERVABILITY_ROUTES.md`
+
 ### 开发或排查 Agent
 
 1. `backend/agents/README.md`
@@ -59,16 +73,7 @@
 
 ## 归档位置
 
-- `docs/archive/`：历史迁移、交付总结、升级记录
-- `backend/agents/docs/archive/`：旧版 Agent 设计与上下文管理资料
+- `docs/archive/`
+- `backend/agents/docs/archive/`
 
-## 不再作为当前入口的内容
-
-- `migration`
-- `summary`
-- `checklist`
-- `comparison`
-- `changelog`
-- `upgrade`
-
-这些内容如果仍保留，只作为归档材料阅读。
+归档目录不作为当前开发主入口使用。

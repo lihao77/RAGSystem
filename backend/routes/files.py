@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""文件管理 API（本地 uploads + YAML 索引）"""
+"""文件管理 API（本地 uploads + 文件索引，默认 SQLite）"""
 
 import os
 from pathlib import Path

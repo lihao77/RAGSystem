@@ -177,10 +177,11 @@ class RouteObservabilityContractTest(unittest.TestCase):
                                 '/api/agent/stream',
                                 json={'task': 'hello', 'session_id': 'session-stream'},
                                 headers={'X-Request-ID': 'req-stream'},
+                                buffered=True,
                             )
+                            body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
         done_payload = json.loads(body.strip().split('data: ')[-1])
         self.assertEqual(done_payload['type'], 'done')
         self.assertEqual(done_payload['task_id'], 'task-stream')
@@ -224,10 +225,12 @@ class RouteObservabilityContractTest(unittest.TestCase):
                             '/api/agent/stream/reconnect',
                             json={'session_id': 'session-reconnect'},
                             headers={'X-Request-ID': 'req-reconnect'},
+                            buffered=True,
                         )
+                        response_body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
-        data_lines = [line.removeprefix('data: ') for line in response.get_data(as_text=True).splitlines() if line.startswith('data: ')]
+        data_lines = [line.removeprefix('data: ') for line in response_body.splitlines() if line.startswith('data: ')]
         reconnect_start = json.loads(data_lines[0])
         replay_event = json.loads(data_lines[1])
         done_payload = json.loads(data_lines[-1])

@@ -71,6 +71,12 @@ Copy-Item mcp\configs\mcp_servers.yaml.example mcp\configs\mcp_servers.yaml
 
 ## 常用检查
 
+说明：以下测试命令依赖 `pytest`。当前 `requirements.txt` 不会安装它，如未安装请先执行：
+
+```powershell
+pip install pytest
+```
+
 ```powershell
 python -m pytest tests\config_schema_test.py
 python -m pytest tests\execution_service_test.py

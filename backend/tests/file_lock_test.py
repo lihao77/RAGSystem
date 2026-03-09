@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,14 +11,15 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
+from tests._tempdir import repo_temp_dir
 from utils.file_lock import FileLock
 
 
 class FileLockTest(unittest.TestCase):
     def test_lock_file_created_and_removed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'config.yaml'
-            lock_path = Path(tmp) / '.config.yaml.lock'
+        with repo_temp_dir(prefix='file-lock-') as tmp:
+            path = tmp / 'config.yaml'
+            lock_path = tmp / '.config.yaml.lock'
 
             with FileLock(path):
                 self.assertTrue(lock_path.exists())
@@ -27,9 +27,9 @@ class FileLockTest(unittest.TestCase):
             self.assertFalse(lock_path.exists())
 
     def test_lock_is_reentrant_in_same_thread(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'config.yaml'
-            lock_path = Path(tmp) / '.config.yaml.lock'
+        with repo_temp_dir(prefix='file-lock-') as tmp:
+            path = tmp / 'config.yaml'
+            lock_path = tmp / '.config.yaml.lock'
 
             with FileLock(path):
                 with FileLock(path):
