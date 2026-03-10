@@ -6,7 +6,7 @@ Agent 模块 - 智能体系统
 - core: 核心基础设施（BaseAgent, AgentContext, Registry, Orchestrator）
 - implementations: 智能体实现（ReActAgent, MasterAgentV2）
 - config: 配置系统（AgentConfig, AgentConfigManager, AgentLoader）
-- context: 上下文管理（ContextManager）
+- context: 上下文管理（ContextPipeline）
 - events: 事件系统（EventBus, EventPublisher, SSEAdapter）
 - skills: Skills 系统
 """

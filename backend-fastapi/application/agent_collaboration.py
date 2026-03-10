@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from agents.recovery import CheckpointManager
 from runtime.dependencies import get_runtime_dependency
 
-from .agent_chat import AgentChatApplication, get_agent_chat_application
 from .agent_session import AgentSessionApplication, get_agent_session_application
+
+if TYPE_CHECKING:
+    from services.agent_api_runtime_service import AgentApiRuntimeService
 
 
 class AgentCollaborationApplication:
@@ -19,11 +21,15 @@ class AgentCollaborationApplication:
         self,
         *,
         checkpoint_manager: Optional[CheckpointManager] = None,
-        chat_application: Optional[AgentChatApplication] = None,
+        runtime_service: Optional['AgentApiRuntimeService'] = None,
         session_application: Optional[AgentSessionApplication] = None,
     ):
         self._checkpoint_manager = checkpoint_manager or CheckpointManager()
-        self._chat_application = chat_application or get_agent_chat_application()
+        if runtime_service is not None:
+            self._runtime_service = runtime_service
+        else:
+            from services.agent_api_runtime_service import get_agent_api_runtime_service
+            self._runtime_service = get_agent_api_runtime_service()
         self._session_application = session_application or get_agent_session_application()
 
     def recover_session(self, session_id: str, payload: Optional[dict]) -> dict:
@@ -39,7 +45,7 @@ class AgentCollaborationApplication:
         if not checkpoint:
             raise LookupError('未找到可用的检查点')
 
-        context = self._chat_application.build_context(
+        context = self._runtime_service.build_context(
             session_id=session_id,
             user_id=body.get('user_id'),
             limit=0,
@@ -49,6 +55,7 @@ class AgentCollaborationApplication:
                 role=msg['role'],
                 content=msg['content'],
                 metadata=msg.get('metadata', {}),
+                seq=msg.get('seq'),
             )
 
         user_messages = [item for item in checkpoint['messages'] if item['role'] == 'user']
@@ -56,7 +63,7 @@ class AgentCollaborationApplication:
             raise ValueError('检查点中没有用户消息')
 
         task = user_messages[-1]['content']
-        response = self._chat_application.get_orchestrator().execute(
+        response = self._runtime_service.get_orchestrator().execute(
             task=task,
             context=context,
             agent_name=checkpoint['agent_name'],
@@ -98,11 +105,11 @@ class AgentCollaborationApplication:
             after_seq=after_seq,
             modify_user_message=body.get('modify_user_message'),
         )
-        context = self._chat_application.build_context(
+        context = self._runtime_service.build_context(
             session_id=session_id,
             user_id=body.get('user_id'),
         )
-        response = self._chat_application.get_orchestrator().execute(task=prepared['task'], context=context)
+        response = self._runtime_service.get_orchestrator().execute(task=prepared['task'], context=context)
 
         if response.success and response.content:
             self._session_application.add_assistant_message(

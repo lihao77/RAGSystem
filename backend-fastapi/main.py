@@ -115,12 +115,6 @@ if __name__ == '__main__':
     host = os.environ.get('FASTAPI_HOST', '0.0.0.0')
     reload = os.environ.get('FASTAPI_RELOAD', 'true').lower() == 'true'
 
-    logger.info('=' * 70)
-    logger.info('启动 FastAPI 服务器')
-    logger.info('  地址: http://%s:%d', host, port)
-    logger.info('  文档: http://%s:%d/docs', host, port)
-    logger.info('=' * 70)
-
     uvicorn.run(
         'main:app',
         host=host,

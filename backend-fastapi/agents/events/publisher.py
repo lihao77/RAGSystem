@@ -24,7 +24,7 @@ class EventPublisher:
     使用方式:
         publisher = EventPublisher(agent_name="kgqa_agent", session_id="abc123")
         publisher.thought("我需要查询知识图谱")
-        publisher.tool_start("query_knowledge_graph", {...})
+        publisher.tool_call_start(call_id, "query_knowledge_graph", {...})
     """
 
     def __init__(
@@ -328,46 +328,7 @@ class EventPublisher:
             override_parent_call_id=parent_call_id
         )
 
-    # ==================== 兼容旧 API（重定向到新事件或保留别名） ====================
-    # 注意：旧 subtask_* 和 tool_* 方法可保留以兼容未迁移的代码，
-    # 但建议在内部重定向到新事件，或逐步废弃。此处暂保留 tool_* 兼容性。
-
-    def tool_start(
-        self,
-        tool_name: str,
-        arguments: Dict,
-        task_id: Optional[str] = None
-    ):
-        """[兼容] 工具开始执行"""
-        # 尽量映射到新事件，若无 call_id 则生成临时的
-        import uuid
-        call_id = str(uuid.uuid4())
-        self.tool_call_start(
-            call_id=call_id,
-            tool_name=tool_name,
-            arguments=arguments,
-            parent_call_id=task_id  # 旧 task_id 对应 parent_call_id
-        )
-
-    def tool_end(
-        self,
-        tool_name: str,
-        result: Any,
-        execution_time: Optional[float] = None,
-        task_id: Optional[str] = None
-    ):
-        """[兼容] 工具执行完成"""
-        # 由于无法获知 start 时的 call_id，此处仅做简单转发，或忽略 call_id
-        # 更好的做法是修改调用方。此处为保持接口签名不变：
-        self._publish(
-            EventType.TOOL_END,
-            {
-                "tool_name": tool_name,
-                "result": str(result)[:500],
-                "execution_time": execution_time,
-                "task_id": task_id
-            }
-        )
+    # ==================== 兼容旧 API ====================
 
     def tool_error(
         self,
@@ -528,16 +489,6 @@ class EventPublisher:
         )
 
     # ==================== 会话事件 ====================
-
-    def session_start(self, metadata: Optional[Dict] = None):
-        """会话开始"""
-        self._publish(
-            EventType.SESSION_START,
-            {
-                "session_id": self.session_id,
-                "metadata": metadata or {}
-            }
-        )
 
     def session_end(self, summary: Optional[str] = None):
         """会话结束"""

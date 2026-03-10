@@ -770,18 +770,17 @@ class ConversationStore:
         """
         清理过期的临时数据文件（内存优化）
 
-        策略：删除 static/temp_data/ 目录下超过 1 天的 JSON 文件
+        策略：删除项目根目录 static/temp_data/ 下超过 1 天的 JSON 文件
         这些文件由 ObservationFormatter 生成，用于存储大数据工具结果
         """
         import logging
-        import os
         import time
 
         logger = logging.getLogger(__name__)
 
         try:
-            # 临时数据目录（与 ObservationFormatter 保持一致）
-            temp_data_dir = Path(__file__).parent / "static" / "temp_data"
+            # 默认 ObservationFormatter 使用 ./static/temp_data，相对于项目根目录。
+            temp_data_dir = Path(__file__).resolve().parent.parent / "static" / "temp_data"
 
             if not temp_data_dir.exists():
                 return

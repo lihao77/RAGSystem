@@ -121,20 +121,10 @@ class RuntimeContainer:
 
         return self._get_or_create('model_adapter_service', ModelAdapterService)
 
-    def get_agent_runtime_service(self):
-        from services.agent_runtime_service import AgentRuntimeService
-
-        return self._get_or_create('agent_runtime_service', AgentRuntimeService)
-
     def get_agent_config_service(self):
         from services.agent_config_service import AgentConfigService
 
         return self._get_or_create('agent_config_service', AgentConfigService)
-
-    def get_agent_chat_application(self):
-        from application.agent_chat import AgentChatApplication
-
-        return self._get_or_create('agent_chat_application', AgentChatApplication)
 
     def get_agent_session_application(self):
         from application.agent_session import AgentSessionApplication

@@ -5,11 +5,14 @@ ContextPipeline - 统一上下文压缩管道
 单一入口，每轮调用一次，LLM 摘要优先，滑动窗口降级。
 完全替代两套旧机制：
   - compress_context_if_needed()（循环外，base.py）
-  - manage_messages()（循环内，manager.py）
+  - manage_messages()（旧的循环内上下文管理逻辑）
 """
 
 import logging
 from typing import List, Dict, Any, Optional, Callable
+
+from .compression_view import resolve_compression_view
+from .config import ContextConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ class ContextPipeline:
 
     def __init__(
         self,
-        config,  # ContextConfig
+        config: ContextConfig,
         model_adapter,
         get_llm_config_fn: Callable[[Optional[str]], Dict[str, Any]],  # 支持 task_type 参数
         logger: Optional[logging.Logger] = None,
@@ -64,13 +67,11 @@ class ContextPipeline:
         Returns:
             [system_msg] + history_resolved + current_session（经过必要截断）
         """
-        from .manager import ContextManager
-
         # 1. 转换历史
         history_raw = self._get_history_raw(context)
 
         # 2. 解析压缩视图
-        history_resolved = ContextManager.resolve_compression_view(history_raw)
+        history_resolved = resolve_compression_view(history_raw)
 
         # 3. 检查是否触发压缩
         history_tokens = self._token_counter.count_messages(history_resolved)
@@ -134,7 +135,7 @@ class ContextPipeline:
                     "role": msg.role,
                     "content": msg.content,
                     "metadata": msg.metadata or {},
-                    "seq": getattr(msg, "seq", None),
+                    "seq": msg.seq,
                 }
             )
         return result
@@ -261,8 +262,6 @@ class ContextPipeline:
         publisher=None,
     ) -> List[Dict[str, Any]]:
         """应用 LLM 摘要压缩，写回 context，发布事件，返回新的 history_resolved。"""
-        from .manager import ContextManager
-
         summary_message = {
             "role": "system",
             "content": summary_content,
@@ -297,7 +296,7 @@ class ContextPipeline:
         if publisher:
             publisher.compression_summary(summary_content, replaces_up_to_seq=replaces_up_to_seq)
 
-        resolved = ContextManager.resolve_compression_view(updated_raw)
+        resolved = resolve_compression_view(updated_raw)
         self.logger.info(
             f"LLM 压缩完成: {len(history_raw)} -> {len(updated_raw)} 条原始消息, "
             f"{len(resolved)} 条解析后消息"
@@ -311,8 +310,6 @@ class ContextPipeline:
         publisher=None,
     ) -> List[Dict[str, Any]]:
         """滑动窗口降级：保留最近 preserve_recent_turns 轮对话。"""
-        from .manager import ContextManager
-
         max_messages = self.config.preserve_recent_turns * 2
 
         non_system = [m for m in history_raw if m.get("role") != "system"]
@@ -340,7 +337,7 @@ class ContextPipeline:
         if publisher:
             publisher.compression_summary(rule_summary)
 
-        resolved = ContextManager.resolve_compression_view(updated_raw)
+        resolved = resolve_compression_view(updated_raw)
         self.logger.info(
             f"滑动窗口降级完成: {len(history_raw)} -> {len(updated_raw)} 条原始消息, "
             f"{len(resolved)} 条解析后消息"
@@ -356,6 +353,7 @@ class ContextPipeline:
                 role=m.get("role", "user"),
                 content=m.get("content", ""),
                 metadata=m.get("metadata") or {},
+                seq=m.get("seq"),
             )
             for m in updated_raw
             if m.get("role") in ("user", "assistant", "system")

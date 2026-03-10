@@ -20,7 +20,7 @@ from agents.config import (
     get_config_manager,
 )
 
-from .agent_runtime_service import get_agent_runtime_service
+from .agent_api_runtime_service import get_agent_api_runtime_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class AgentConfigService:
 
     def __init__(self):
         self._config_manager = get_config_manager()
-        self._runtime_service = get_agent_runtime_service()
+        self._runtime_service = get_agent_api_runtime_service()
 
     def list_configs(self) -> Dict[str, Dict[str, Any]]:
         configs = self._config_manager.get_all_configs()

@@ -15,6 +15,7 @@ from starlette.responses import StreamingResponse
 from dependencies import get_execution_service, get_session_event_bus
 from schemas.execution import StreamExecuteRequest, StreamReconnectRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
 from schemas.common import ok
+from .stream_utils import sync_to_async_sse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -116,33 +117,19 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
             queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_event_loop()
 
-            def _run_sync_stream():
+            def _cleanup():
                 try:
-                    for sse_data in started.sse_adapter.stream_sync():
-                        loop.call_soon_threadsafe(queue.put_nowait, ('data', sse_data))
-                except Exception as e:
-                    loop.call_soon_threadsafe(queue.put_nowait, ('error', str(e)))
-                finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, ('done', None))
-                    try:
-                        from services.execution_service import get_execution_service as _get_exec
-                        _get_exec().cleanup_finished()
-                    except Exception:
-                        pass
+                    from services.execution_service import get_execution_service as _get_exec
+                    _get_exec().cleanup_finished()
+                except Exception:
+                    pass
 
-            import threading
-            threading.Thread(target=_run_sync_stream, daemon=True).start()
-
-            while True:
-                kind, value = await queue.get()
-                if kind == 'done':
-                    break
-                elif kind == 'error':
-                    yield _sse_line({'type': 'error', 'content': value, 'session_id': session_id})
-                    break
-                else:
-                    # value 已经是 "data: {json}\n\n" 格式，直接透传
-                    yield value
+            async for sse_line in sync_to_async_sse(
+                sync_stream=started.sse_adapter.stream_sync,
+                session_id=session_id,
+                cleanup_callback=_cleanup,
+            ):
+                yield sse_line
 
             done_payload = {'type': 'done', 'session_id': session_id}
             _apply_observability(done_payload, {
@@ -254,27 +241,11 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_event_loop()
 
-            def _run_sync_stream():
-                try:
-                    for sse_data in adapter.stream_sync():
-                        loop.call_soon_threadsafe(queue.put_nowait, ('data', sse_data))
-                except Exception as e:
-                    loop.call_soon_threadsafe(queue.put_nowait, ('error', str(e)))
-                finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, ('done', None))
-
-            import threading
-            threading.Thread(target=_run_sync_stream, daemon=True).start()
-
-            while True:
-                kind, value = await queue.get()
-                if kind == 'done':
-                    break
-                elif kind == 'error':
-                    yield _sse_line({'type': 'error', 'content': value, 'session_id': session_id})
-                    break
-                else:
-                    yield value
+            async for sse_line in sync_to_async_sse(
+                sync_stream=adapter.stream_sync,
+                session_id=session_id,
+            ):
+                yield sse_line
 
             done_payload = {'type': 'done', 'session_id': session_id}
             _apply_observability(done_payload, {**status, 'request_id': status.get('request_id') or request_id})

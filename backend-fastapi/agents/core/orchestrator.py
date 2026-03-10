@@ -47,7 +47,7 @@ class AgentOrchestrator:
             if agent and agent.can_handle(task, context):
                 self.logger.info(f"使用指定智能体: {agent.name}")
                 return agent
-            self.logger.warning(f"指定的智能体 '{preferred_agent}' 不可用")
+            raise AgentExecutionError(f"指定的智能体 '{preferred_agent}' 不可用或无法处理此任务")
 
         master_agent = self.registry.get('master_agent_v2')
         if master_agent:
@@ -75,7 +75,16 @@ class AgentOrchestrator:
             context = AgentContext(session_id=str(uuid.uuid4()))
 
         context.add_message(role='user', content=task)
-        agent = self.route_task(task, context, preferred_agent)
+
+        try:
+            agent = self.route_task(task, context, preferred_agent)
+        except AgentExecutionError as e:
+            self.logger.warning(f"路由失败: {e}")
+            return AgentResponse(
+                success=False,
+                error=str(e),
+                agent_name="orchestrator"
+            )
 
         if agent is None:
             return AgentResponse(
@@ -150,5 +159,5 @@ class AgentOrchestrator:
 def get_orchestrator(model_adapter=None) -> AgentOrchestrator:
     del model_adapter
     return get_runtime_dependency(
-        container_resolver=lambda c: c.get_agent_runtime_service().get_orchestrator(),
+        container_resolver=lambda c: c.get_agent_api_runtime_service().get_orchestrator(),
     )

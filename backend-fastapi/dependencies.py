@@ -48,7 +48,9 @@ def get_collaboration_application(runtime=Depends(get_agent_runtime_service)):
     return runtime.get_collaboration_application()
 
 
-def get_task_registry(runtime=Depends(get_agent_runtime_service)):
+def get_task_registry(runtime=None):
+    if runtime is None:
+        runtime = get_agent_runtime_service()
     return runtime.get_task_registry()
 
 

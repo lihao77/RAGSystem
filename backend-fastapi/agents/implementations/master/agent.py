@@ -6,7 +6,9 @@ Master Agent V2 - 动态智能体编排器。
 import logging
 from typing import Any, Dict, Optional
 
-from agents.context import ContextConfig, ContextPipeline, ObservationFormatter
+from agents.context.config import ContextConfig
+from agents.context.observation_formatter import ObservationFormatter
+from agents.context.pipeline import ContextPipeline
 from agents.core import AgentContext, AgentResponse, BaseAgent
 
 from .executor import AgentExecutor
@@ -94,7 +96,7 @@ class MasterAgentV2(BaseAgent):
             fallback_multiplier=MASTER_FALLBACK_MULTIPLIER,
         )
 
-        # 初始化上下文管理器 (使用 ContextPipeline 统一入口)
+        # 初始化上下文组件（使用 ContextPipeline 统一入口）
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
             model_name=llm_config.get('model_name'),

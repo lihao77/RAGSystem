@@ -42,10 +42,8 @@ class EventType(str, Enum):
     AGENT_ERROR = "agent.error"
 
     # 思考过程事件
-    THOUGHT = "agent.thought"                       # 兼容旧代码
-    THOUGHT_STRUCTURED = "agent.thought_structured"  # 兼容旧代码
-    THINKING = "agent.thinking"                      # 新名称（等同 THOUGHT）
-    THINKING_STRUCTURED = "agent.thinking_structured" # 新名称（等同 THOUGHT_STRUCTURED）
+    THINKING = "agent.thinking"
+    THINKING_STRUCTURED = "agent.thinking_structured"
 
     # 流式思考事件（新增）
     THINKING_DELTA = "agent.thinking_delta"          # thinking 增量内容
@@ -58,11 +56,6 @@ class EventType(str, Enum):
     # 调用生命周期（Tool）
     CALL_TOOL_START = "call.tool.start"
     CALL_TOOL_END = "call.tool.end"
-    
-    # 兼容旧 Tool 事件（可选，若不需要可移除）
-    TOOL_START = "tool.start"
-    TOOL_END = "tool.end"
-    TOOL_ERROR = "tool.error"
 
     # 流式输出事件
     CHUNK = "output.chunk"
@@ -78,7 +71,6 @@ class EventType(str, Enum):
     USER_APPROVAL_GRANTED = "user.approval_granted"
     USER_APPROVAL_DENIED = "user.approval_denied"
     USER_INPUT_REQUIRED = "user.input_required"
-    USER_INPUT_RECEIVED = "user.input_received"
     USER_INTERRUPT = "user.interrupt"
     USER_FEEDBACK = "user.feedback"
 
@@ -96,7 +88,6 @@ class EventType(str, Enum):
     CODE_EXECUTION_END = "code.execution.end"
 
     # 系统事件
-    SESSION_START = "session.start"
     SESSION_END = "session.end"
     ERROR = "system.error"
 

@@ -17,8 +17,10 @@ from typing import Optional, Dict, Any, List
 import uuid
 from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError
 from agents.streaming import StreamExecutor
+from agents.context.config import ContextConfig
+from agents.context.observation_formatter import ObservationFormatter
+from agents.context.pipeline import ContextPipeline
 from tools.tool_executor import execute_tool
-from agents.context import ContextConfig, ObservationFormatter, ContextPipeline
 from agents.events import get_session_event_bus, EventPublisher
 
 logger = logging.getLogger(__name__)
@@ -84,7 +86,7 @@ class ReActAgent(BaseAgent):
             fallback_multiplier=REACT_FALLBACK_MULTIPLIER,
         )
 
-        # 初始化上下文管理器
+        # 初始化上下文组件
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
             model_name=llm_config.get('model_name'),

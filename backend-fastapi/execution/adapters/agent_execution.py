@@ -18,6 +18,7 @@ from agents.events import EventPublisher, EventType, SSEAdapter
 from agents.events.bus import Event
 from execution import ExecutionRequest, ExecutionResult, ExecutionStatus
 from execution.observability import apply_observability_fields, attach_execution_metadata
+from execution.persistence import StreamPersistenceHandler
 from services.execution_service import ExecutionService, get_execution_service
 
 logger = logging.getLogger(__name__)
@@ -128,18 +129,17 @@ class AgentExecutionAdapter:
                 heartbeat_interval=15.0,
             )
 
-            final_answer_saved = threading.Event()
-            message_id_for_run = [None]
-            subscriptions = self._create_stream_subscriptions(
+            # 创建持久化处理器并订阅事件
+            persistence_handler = StreamPersistenceHandler(
                 event_bus=event_bus,
                 store=conversation_store,
-                registry=registry,
                 session_id=session_id,
                 run_id=run_id,
                 cancel_event=cancel_event,
-                final_answer_saved=final_answer_saved,
-                message_id_for_run=message_id_for_run,
             )
+            subscriptions = persistence_handler.subscribe_all()
+            final_answer_saved = persistence_handler.final_answer_saved
+            message_id_for_run = persistence_handler.message_id_for_run
 
             user_msg = conversation_store.add_message(
                 session_id=session_id,
@@ -267,161 +267,6 @@ class AgentExecutionAdapter:
             if called is not None:
                 payload['agent_name'] = called
         return payload
-
-    @classmethod
-    def _create_stream_subscriptions(
-        cls,
-        *,
-        event_bus,
-        store,
-        registry,
-        session_id: str,
-        run_id: str,
-        cancel_event,
-        final_answer_saved,
-        message_id_for_run: List[Optional[int]],
-    ) -> Dict[str, str]:
-        def handle_user_interrupt(event):
-            logger.info('收到用户中断事件: session_id=%s', session_id)
-            cancel_event.set()
-
-        interrupt_subscription_id = event_bus.subscribe(
-            event_types=[EventType.USER_INTERRUPT],
-            handler=handle_user_interrupt,
-            filter_func=lambda event: event.session_id == session_id,
-        )
-
-        def handle_compression_summary(event):
-            try:
-                data = event.data or {}
-                content = data.get('content')
-                event_session_id = data.get('session_id') or event.session_id
-                replaces_up_to_seq = data.get('replaces_up_to_seq')
-                if content and event_session_id:
-                    store.insert_compression_message(
-                        session_id=event_session_id,
-                        summary_content=content,
-                        replaces_up_to_seq=replaces_up_to_seq,
-                    )
-                    logger.info('已保存压缩摘要到 DB: session_id=%s, replaces_up_to_seq=%s', event_session_id, replaces_up_to_seq)
-            except Exception as error:
-                logger.warning('保存压缩摘要失败: %s', error, exc_info=True)
-
-        compression_subscription_id = event_bus.subscribe(
-            event_types=[EventType.COMPRESSION_SUMMARY],
-            handler=handle_compression_summary,
-            filter_func=lambda event: event.session_id == session_id,
-        )
-
-        def handle_react_intermediate(event):
-            try:
-                data = event.data or {}
-                store.add_message(
-                    session_id=session_id,
-                    role=data.get('role', 'assistant'),
-                    content=data.get('content', ''),
-                    metadata={
-                        'react_intermediate': True,
-                        'msg_type': data.get('msg_type'),
-                        'round': data.get('round'),
-                        'run_id': run_id,
-                        'agent': 'master_agent_v2',
-                    },
-                )
-            except Exception as error:
-                logger.warning('写入 react_intermediate 消息失败: %s', error, exc_info=True)
-
-        react_intermediate_subscription_id = event_bus.subscribe(
-            event_types=[EventType.REACT_INTERMEDIATE],
-            handler=handle_react_intermediate,
-            filter_func=lambda event: event.session_id == session_id,
-        )
-
-        def handle_final_answer_persist(event):
-            if event.agent_name and event.agent_name != 'master_agent_v2':
-                return
-            if final_answer_saved.is_set():
-                return
-            content = (event.data or {}).get('content')
-            if content is None:
-                return
-            try:
-                message = store.add_message(
-                    session_id=session_id,
-                    role='assistant',
-                    content=content if isinstance(content, str) else str(content),
-                    metadata={'agent': event.agent_name, 'run_id': run_id},
-                )
-                message_id_for_run[0] = message['id']
-                store.update_run_steps_message_id(session_id, run_id, message['id'])
-                final_answer_saved.set()
-                event_bus.publish(Event(
-                    type=EventType.MESSAGE_SAVED,
-                    data=attach_execution_metadata(
-                        {'id': message['id'], 'seq': message.get('seq'), 'role': 'assistant'},
-                        task_id=(event.data or {}).get('task_id'),
-                        session_id=session_id,
-                        run_id=run_id,
-                        execution_kind='agent_stream',
-                        request_id=(event.data or {}).get('request_id'),
-                    ),
-                    session_id=session_id,
-                    agent_name=event.agent_name,
-                ))
-            except Exception as error:
-                logger.warning('写入 assistant 消息失败: %s', error, exc_info=True)
-
-        persist_subscription_id = event_bus.subscribe(
-            event_types=[EventType.FINAL_ANSWER],
-            handler=handle_final_answer_persist,
-            filter_func=lambda event: event.session_id == session_id,
-            priority=10,
-        )
-
-        step_event_types = [
-            EventType.RUN_START,
-            EventType.AGENT_START,
-            EventType.THINKING_COMPLETE,
-            EventType.CALL_AGENT_START,
-            EventType.CALL_AGENT_END,
-            EventType.CALL_TOOL_START,
-            EventType.CALL_TOOL_END,
-            EventType.CHART_GENERATED,
-            EventType.MAP_GENERATED,
-            EventType.RUN_END,
-        ]
-
-        def handle_step_and_final_answer(event):
-            payload = cls._event_to_payload(event)
-            try:
-                store.add_run_step(
-                    session_id=session_id,
-                    run_id=run_id,
-                    step_type=event.type.value,
-                    payload=payload,
-                    message_id=None,
-                )
-            except Exception as error:
-                logger.warning('写入 run_step 失败: %s', error, exc_info=True)
-            if event.type == EventType.RUN_END and message_id_for_run[0]:
-                try:
-                    store.update_run_steps_message_id(session_id, run_id, message_id_for_run[0])
-                except Exception as error:
-                    logger.warning('RUN_END 时更新 run_steps message_id 失败: %s', error, exc_info=True)
-
-        run_step_subscription_id = event_bus.subscribe(
-            event_types=step_event_types,
-            handler=handle_step_and_final_answer,
-            filter_func=lambda event: event.session_id == session_id,
-        )
-
-        return {
-            'interrupt': interrupt_subscription_id,
-            'compression': compression_subscription_id,
-            'react_intermediate': react_intermediate_subscription_id,
-            'persist_final_answer': persist_subscription_id,
-            'run_steps': run_step_subscription_id,
-        }
 
     @staticmethod
     def _create_agent_task_target(

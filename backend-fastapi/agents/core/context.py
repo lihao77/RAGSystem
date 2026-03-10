@@ -100,12 +100,19 @@ class AgentContext:
 
     # --- Original Methods ---
 
-    def add_message(self, role: str, content: str, metadata: Optional[Dict] = None):
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        metadata: Optional[Dict] = None,
+        seq: Optional[int] = None,
+    ):
         """添加消息到对话历史"""
         message = Message(
             role=role,
             content=content,
-            metadata=metadata or {}
+            metadata=metadata or {},
+            seq=seq,
         )
         self.conversation_history.append(message)
 
@@ -116,7 +123,9 @@ class AgentContext:
             {
                 'role': msg.role,
                 'content': msg.content,
-                'timestamp': msg.timestamp.isoformat()
+                'timestamp': msg.timestamp.isoformat(),
+                'metadata': msg.metadata,
+                'seq': msg.seq,
             }
             for msg in recent_messages
         ]

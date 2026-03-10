@@ -10,6 +10,7 @@ from agents.events import EventPublisher, get_session_event_bus
 from agents.streaming import StreamExecutor
 
 from .executor import parse_agent_invocation
+from .tool_router import route_user_input_request, route_agent_delegation, route_direct_tool
 
 def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
     """
@@ -250,22 +251,18 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
 
                     # ─── 路由0：内置伪工具 request_user_input ─────────────
                     if tool_name == 'request_user_input':
-                        tool_call_id = action.get('tool_call_id') or f"call_{run_id}_{rounds}_{idx}_input"
-                        user_value = agent._handle_user_input_request(
-                            arguments=arguments,
+                        route_result = route_user_input_request(
+                            agent=agent,
+                            action=action,
+                            context=context,
                             event_bus=event_bus,
-                            session_id=context.session_id,
-                            tool_call_id=tool_call_id,
-                            publisher=agent._publisher,
-                            parent_call_id=master_call_id,
+                            run_id=run_id,
+                            rounds=rounds,
+                            idx=idx,
+                            master_call_id=master_call_id,
                         )
-                        if user_value is None:
-                            # 被取消（cancel_event 已设置），下一次检查中断时会退出
-                            agent._check_interrupt(context)
-                            user_value = ""
-                        observation = f"**工具 {idx}: request_user_input**\n用户输入: {user_value}"
-                        observations.append(observation)
-                        agent_results[idx] = {"success": True, "data": {"results": user_value}}
+                        observations.append(route_result['observation'])
+                        agent_results[idx] = route_result['result']
                         continue
 
                     # 解析出 Agent 名称
@@ -276,205 +273,57 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
                         global_agent_order += 1
                         current_order = global_agent_order
 
-                        # 提取参数
-                        agent_task = arguments.get('task', '')
-                        context_hint = arguments.get('context_hint')
-
-                        agent.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 调用 Agent: {agent_name} (全局顺序: {current_order}, 轮次: {rounds}-{idx})")
-                        agent.logger.info(f"{log_prefix} 任务: {agent_task[:100]}...")
-
-                        # 🎯 使用新版 call_id（原 task_id）
-                        call_id = f"call_{run_id}_{rounds}_{idx}"
-                        agent_display_name = agent._get_agent_display_name(agent_name)
-
-                        # ✨ 发布 AgentCall 开始事件（parent_call_id 指向 MasterAgent 的 call_id）
-                        agent._publisher.agent_call_start(
-                            call_id=call_id,
-                            agent_name=agent_name,
-                            description=agent_task,
-                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
-                            order=current_order,
-                            round=rounds,
-                            round_index=idx
-                        )
-
-                        # 🎯 派生子上下文 (Context Forking)
-                        # 为子 Agent 创建独立的执行环境，避免污染 Master 的上下文
-                        child_context = context.fork()
-                        agent.logger.info(f"{log_prefix} 已派生子上下文 (Level {child_context.level})")
-
-                        # ✨ 将 call_id 传递到子 Agent 的 context
-                        if not hasattr(child_context, 'metadata'):
-                            child_context.metadata = {}
-                        child_context.metadata['call_id'] = call_id  # 子 Agent 应使用此 call_id（与 call.agent.start 一致）
-                        child_context.metadata['parent_call_id'] = master_call_id  # 父调用指向 Master
-                        child_context.metadata['run_id'] = run_id
-                        child_context.metadata['task_order'] = current_order
-                        # 传播 cancel_event 到子上下文
-                        cancel_event = context.metadata.get('cancel_event')
-                        if cancel_event:
-                            child_context.metadata['cancel_event'] = cancel_event
-
-                        # 执行 Agent（不再流式yield，但仍需收集结果）
-                        agent_start = time.time()
-
-                        # 🎯 调用子Agent执行（子Agent会自己发布事件到事件总线）
-                        agent_result = agent.agent_executor.execute_agent(
-                            agent_name=agent_name,
-                            task=agent_task,
-                            context=child_context,  # 使用子上下文
-                            context_hint=context_hint
-                        )
-
-                        elapsed_time = time.time() - agent_start
-
-                        # 使用收集到的最终结果
-                        if agent_result is None:
-                            agent_result = {
-                                "success": False,
-                                "error": "Agent 未返回结果"
-                            }
-
-                        # 🎯 合并子上下文 (Context Merging)
-                        # 将子 Agent 的关键结果合并回 Master 上下文
-                        try:
-                            response_obj = AgentResponse(
-                                success=agent_result.get('success', False),
-                                content=agent_result.get('data', {}).get('results', ''),
-                                metadata=agent_result.get('data', {}).get('metadata', {}),
-                                error=agent_result.get('error'),
-                                agent_name=agent_name
-                            )
-                            context.merge(child_context, response_obj)
-                            agent.logger.info(f"{log_prefix} 子上下文已合并")
-                        except Exception as e:
-                            agent.logger.warning(f"{log_prefix} 合并上下文失败: {e}")
-
-                        result = agent_result
-
-                        # ✨ 发布 AgentCall 结束事件
-                        agent._publisher.agent_call_end(
-                            call_id=call_id,
-                            agent_name=agent_name,
-                            result=result.get('data', {}).get('results', ''),
-                            success=result.get('success', False),
-                            parent_call_id=master_call_id,  # ✨ 关联到 MasterAgent 的调用
-                            order=current_order
+                        route_result = route_agent_delegation(
+                            agent=agent,
+                            action=action,
+                            context=context,
+                            event_bus=event_bus,
+                            run_id=run_id,
+                            rounds=rounds,
+                            idx=idx,
+                            master_call_id=master_call_id,
+                            global_agent_order=current_order,
+                            log_prefix=log_prefix,
                         )
 
                         # 记录调用历史
-                        agent_calls_history.append({
-                            'agent_name': agent_name,
-                            'task': agent_task,
-                            'result': result
-                        })
-
+                        agent_calls_history.append(route_result['call_history'])
                         # 存储结果供后续引用
-                        agent_results[idx] = result
-
-                        # 格式化观察结果
-                        observation = agent.observation_formatter.format(
-                            result,
-                            tool_name=agent_name,
-                            is_skills_tool=False
-                        )
-                        observations.append(f"**Agent {idx} ({agent_name})**:\n{observation}")
+                        agent_results[idx] = route_result['result']
+                        # 添加观察结果
+                        observations.append(route_result['observation'])
 
                     else:
                         # ─── 路由2/3：直接工具或 Skills 工具 ─────────────────
-                        from agents.tools.builtin import SKILLS_TOOL_NAMES, BUILTIN_TOOL_NAMES
-                        available_tool_names = {
-                            t.get('function', {}).get('name') for t in agent.available_tools
-                        } - BUILTIN_TOOL_NAMES  # 排除内置工具（已在路由0处理）
-                        is_skills_tool = tool_name in SKILLS_TOOL_NAMES
+                        route_result = route_direct_tool(
+                            agent=agent,
+                            action=action,
+                            context=context,
+                            event_bus=event_bus,
+                            run_id=run_id,
+                            rounds=rounds,
+                            idx=idx,
+                            master_call_id=master_call_id,
+                            log_prefix=log_prefix,
+                        )
 
-                        if is_skills_tool or tool_name in available_tool_names:
-                            # 路由2（Skills 工具）或路由3（普通直接工具）
-                            agent.logger.info(
-                                f"{log_prefix} [{idx}/{len(actions)}] 直接执行工具: {tool_name} "
-                                f"({'Skills工具' if is_skills_tool else '直接工具'})"
-                            )
-
-                            # ✨ 发布工具调用开始事件（parent_call_id 指向 MasterAgent 自身）
-                            tool_call_id = f"call_{run_id}_{rounds}_{idx}_tool"
-                            agent._publisher.tool_call_start(
-                                call_id=tool_call_id,
-                                tool_name=tool_name,
-                                arguments=arguments,
-                                parent_call_id=master_call_id,
-                            )
-
-                            tool_start_time = time.time()
-                            try:
-                                from tools.tool_executor import execute_tool as _execute_tool
-                                result = _execute_tool(
-                                    tool_name,
-                                    arguments,
-                                    agent_config=agent.agent_config,
-                                    event_bus=event_bus,
-                                    session_id=context.session_id,
-                                )
-                            except Exception as tool_exc:
-                                agent.logger.error(
-                                    f"{log_prefix} 直接工具 {tool_name} 执行异常: {tool_exc}",
-                                    exc_info=True
-                                )
-                                result = {
-                                    "success": False,
-                                    "error": str(tool_exc)
-                                }
-
-                            tool_elapsed = time.time() - tool_start_time
-
-                            # ✨ 发布工具调用结束事件
-                            tool_result_for_event = result.get('data', result) if isinstance(result, dict) else result
-                            agent._publisher.tool_call_end(
-                                call_id=tool_call_id,
-                                tool_name=tool_name,
-                                result=tool_result_for_event,
-                                execution_time=tool_elapsed,
-                                parent_call_id=master_call_id,
-                            )
-
-                            # ✨ 发布可视化事件（如果是图表/地图工具）
-                            if tool_name == 'generate_chart' and result.get('success'):
-                                results = result.get('data', {}).get('results', {})
-                                chart_config = results.get('echarts_config')
-                                chart_type = results.get('chart_type', 'bar')
-                                if chart_config:
-                                    visualization_counter += 1
-                                    agent._publisher.chart_generated(
-                                        chart_config=chart_config,
-                                        chart_type=chart_type
-                                    )
-                            elif tool_name == 'generate_map' and result.get('success'):
-                                results = result.get('data', {}).get('results', {})
-                                map_type = results.get('map_type', 'marker')
-                                if results:
-                                    visualization_counter += 1
-                                    agent._publisher.map_generated(
-                                        map_data=results,
-                                        map_type=map_type
-                                    )
-
-                            # 存储结果供后续占位符引用
-                            agent_results[idx] = result
-
-                            # 格式化观察结果
-                            observation = agent.observation_formatter.format(
-                                result,
-                                tool_name=tool_name,
-                                is_skills_tool=is_skills_tool
-                            )
-                            observations.append(f"**工具 {idx} ({tool_name})**:\n{observation}")
-
-                        else:
-                            # 未知工具名
+                        if route_result is None:
+                            # 未知工具
+                            tool_name = action.get('tool')
                             error_msg = (
                                 f"无效的工具名称: {tool_name}（既不是 Agent 工具也不是已配置的直接工具）"
                             )
                             agent.logger.warning(f"{log_prefix} {error_msg}")
                             observations.append(f"**工具 {idx}**: 失败\n错误: {error_msg}")
+                        else:
+                            # 存储结果供后续占位符引用
+                            agent_results[idx] = route_result['result']
+                            # 添加观察结果
+                            observations.append(route_result['observation'])
+                            # 处理可视化事件
+                            viz_event = route_result.get('visualization_event')
+                            if viz_event:
+                                visualization_counter += 1
 
                 # 将所有结果作为 user 消息添加
                 combined_observations = "\n\n".join(observations)
@@ -522,6 +371,11 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
         )
 
         agent._publisher.agent_end(final_content, execution_time=time.time() - start_time)
+        agent._publisher.run_end(
+            run_id=run_id,
+            status="max_rounds",
+            summary=f"达到最大轮数 {agent.max_rounds}"
+        )
         agent._publisher.session_end(summary=f"达到最大轮数 {agent.max_rounds}")
 
         return AgentResponse(
