@@ -23,6 +23,12 @@
 2. 上下文化决策属于 `agents/context/`
 3. artifact 存储属于独立域，不放在 `context/`
 
+这份计划基于当前实际代码补充三条硬约束：
+
+1. Phase A 的 normalizer 必须显式覆盖当前已知工具返回形态，不能只依赖通用字段探测。
+2. Phase B 的 artifact 路径规则必须与当前 `./static/temp_data/data_{uuid}.json` 保持兼容。
+3. Phase B 与 Phase C 之间必须加入观察窗口，先收集真实分布，再配置 policy。
+
 ---
 
 ## 2. 目标架构
@@ -69,6 +75,15 @@ class ToolExecutionResult:
     llm_hint: Optional[str] = None
 ```
 
+字段约束：
+
+1. `answer`
+   Phase A 仅从 `data.answer` 映射。
+2. `llm_hint`
+   Phase A 先统一置为 `None`，暂不做来源推断。
+3. `output_type`
+   必须在 Phase A 就固化推断规则，不能拖到 Phase C。
+
 ### 2.2 Artifact Store
 
 职责：
@@ -87,7 +102,14 @@ class ToolExecutionResult:
 class ArtifactStore:
     def save_json(self, *, session_id: str | None, tool_name: str, data: Any) -> ArtifactRef: ...
     def save_text(self, *, session_id: str | None, tool_name: str, content: str) -> ArtifactRef: ...
+    def cleanup(self, max_age_seconds: int) -> int: ...
 ```
+
+兼容要求：
+
+1. 默认目录保持 `./static/temp_data`
+2. 文件名格式保持 `data_{uuid}.json`
+3. observation 文本中的文件路径格式不变
 
 ### 2.3 Observation Policy
 
@@ -175,6 +197,7 @@ class PromptMaterializer:
 2. 新增 `tools/result_normalizer.py`
 3. 把当前 `ObservationFormatter.format()` 的输入先统一转成 `ToolExecutionResult`
 4. 保留 `ObservationFormatter`，但内部第一步改为 `normalize(raw_result)`
+5. 按工具名分组，显式覆盖当前已知返回形态，不靠模糊字段探测兜底
 
 建议文件：
 
@@ -193,6 +216,67 @@ class PromptMaterializer:
 1. Phase A 不动 Agent 主流程结构。
 2. 不修改工具返回协议，只做内部适配。
 
+### Phase A 必须固化的归一化规则
+
+当前工具返回至少分为四类：
+
+1. 标准格式
+   形态：`{success, data: {results, summary, metadata}}`
+2. 直接 dict
+   形态：`{success, content/chunks/data, ...}`，没有 `data` 包装层
+3. 混合格式
+   形态：`{success, data: {results, summary}}`，有 `data` 层但字段不完整
+4. 特殊格式
+   形态：`approval_message` 在外层，而不是 `data` 内部
+
+因此 normalizer 应遵循：
+
+1. 先按工具名命中分组
+2. 再走该分组对应的 normalize 方法
+3. 最后才允许极小范围兜底
+
+### Phase A 的 output_type 推断规则
+
+建议按工具名优先映射：
+
+```python
+TOOL_OUTPUT_TYPE_MAP = {
+    "generate_chart": "chart",
+    "generate_map": "map",
+    "activate_skill": "markdown",
+    "load_skill_resource": "markdown",
+    "execute_skill_script": "text",
+    "read_document": "text",
+    "chunk_document": "json",
+    "write_file": "text",
+    "read_file": "text",
+}
+```
+
+工具名命中不到时，再按内容兜底：
+
+1. `str` -> `text`
+2. `list/dict` -> `json`
+3. error -> `error`
+
+### Phase A 的文档工具单独处理
+
+`document_executor.py` 中以下工具返回扁平 dict，而不是标准 `data.results` 结构：
+
+1. `read_document`
+2. `chunk_document`
+3. `extract_structured_data`
+4. `merge_extracted_data`
+
+建议 normalizer 中单独提供私有方法：
+
+1. `_normalize_document_result()`
+2. `_normalize_document_chunk_result()`
+3. `_normalize_document_extract_result()`
+4. `_normalize_document_merge_result()`
+
+需要把这类扁平 dict 提升成统一协议，而不是混到通用兜底分支。
+
 ## Phase B：抽离 ArtifactStore
 
 目标：
@@ -205,7 +289,7 @@ class PromptMaterializer:
 1. 新增 `agents/artifacts/artifact_store.py`
 2. 把当前 `ObservationFormatter` 中的 `os.makedirs + open/json.dump` 迁移到 `ArtifactStore`
 3. `ToolResultNormalizer` 或 `ObservationPolicy` 只生成“需要 artifact”的决策
-4. `conversation_store.py` 中的临时文件清理逻辑改成对 `ArtifactStore` 目录负责
+4. `conversation_store.py` 中的临时文件清理逻辑改成调用 `ArtifactStore.cleanup()`
 
 建议文件：
 
@@ -218,6 +302,44 @@ class PromptMaterializer:
 1. formatter 中不再直接写文件。
 2. artifact 路径规则统一。
 3. 大结果 observation 仍与当前功能一致。
+4. 前端和 LLM 看到的文件路径格式保持兼容。
+
+### Phase B 的兼容要求
+
+迁移到 `ArtifactStore` 后，不改变以下外部可见行为：
+
+1. 路径前缀仍然是 `./static/temp_data/`
+2. 文件名仍然是 `data_{uuid}.json`
+3. observation 文本中的文件引用格式不变
+
+### Phase B 的清理改造方式
+
+迁移后建议改成：
+
+1. `ArtifactStore.cleanup(max_age_seconds)` 负责目录扫描和命名规则
+2. `ConversationStore._cleanup_temp_data_files()` 不再自己 `glob`
+3. `ConversationStore` 只调用 `ArtifactStore.cleanup()`
+
+这样后续如果路径规则调整，只改 `ArtifactStore` 一处。
+
+## Observation Window：B 与 C 之间的观察窗口
+
+目标：
+
+1. 让 Phase C 的 policy 阈值基于真实数据，而不是拍脑袋配置。
+
+观察项：
+
+1. `output_type` 实际命中分布
+2. 8000 字符阈值的触发频率
+3. artifact 文件平均大小分布
+4. 各工具命中的 normalize 分支分布
+
+产出：
+
+1. 一版真实工具结果类型覆盖率报告
+2. 一版建议的 `snippet_limit`
+3. 一版是否需要分级 artifact 存储的结论
 
 ## Phase C：引入 ObservationPolicy
 
@@ -248,6 +370,7 @@ class PromptMaterializer:
 
 1. policy 可单测。
 2. 是否落盘不再写死在 formatter 内部条件分支中。
+3. `snippet_limit` 和 artifact 阈值来自观察窗口结果，而不是固定猜测。
 
 ## Phase D：引入 PromptMaterializer
 
@@ -273,6 +396,7 @@ class PromptMaterializer:
 
 1. 渲染器不再关心原始工具返回结构。
 2. 所有原始 result 都先被协议化。
+3. `PromptMaterializer` 的输入只接受 `ToolExecutionResult + ObservationDecision`，不直接接受任何原始 `dict`。
 
 ## Phase E：删除 ObservationFormatter
 
@@ -289,6 +413,7 @@ class PromptMaterializer:
    - `PromptMaterializer`
    - `ArtifactStore`
 3. 调整 `agents/context/__init__.py` 导出
+4. 删除 `ObservationFormatter` 的导出，并确认仓库内不存在 `from agents.context import ObservationFormatter` 的残留引用
 
 验收标准：
 
@@ -328,6 +453,9 @@ class PromptMaterializer:
 2. 非标准字符串返回
 3. skills 结果
 4. error dict
+5. 文档工具扁平返回提升
+6. approval_message 外层映射
+7. `output_type` 映射规则
 
 ### Phase B 测试
 
@@ -341,6 +469,7 @@ class PromptMaterializer:
 2. 文本落盘
 3. 路径命名
 4. TTL/清理目录一致性
+5. 与当前 `./static/temp_data/data_{uuid}.json` 兼容
 
 ### Phase C 测试
 
@@ -387,12 +516,14 @@ class PromptMaterializer:
 2. `ToolResultNormalizer`
 3. `ArtifactStore`
 4. 让 `ObservationFormatter` 内部使用这两个组件
+5. 加入一个短观察窗口再进入 Phase C
 
 这样收益已经很明显：
 
 1. 输入协议统一了。
 2. 副作用隔离了。
 3. 后续再做 policy 和 materializer 时，不需要推翻前面的工作。
+4. Phase C 的策略阈值可以基于真实数据而不是猜测。
 
 ---
 
@@ -444,14 +575,15 @@ agents/artifacts/
 
 1. 先协议化。
 2. 再拆副作用。
-3. 再拆决策。
-4. 最后拆渲染。
+3. 先观察真实分布。
+4. 再拆决策。
+5. 最后拆渲染。
 
 也就是：
 
 1. 先做 Phase A
 2. 紧接着做 Phase B
-3. 观察一轮实际工具结果类型分布
+3. 进入 Observation Window
 4. 再推进 Phase C / D / E
 
 这条路线实现成本低，风险可控，而且每一步都能独立验收。
