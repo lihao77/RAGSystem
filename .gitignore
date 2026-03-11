@@ -125,3 +125,5 @@ backend/config/yaml/config.yaml
 
 notify.ps1
 pytest.ini
+
+frontend/

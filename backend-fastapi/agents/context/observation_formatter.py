@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import uuid
 from typing import Any, Dict
+
+from agents.artifacts import ArtifactStore
+from agents.monitoring.observation_window import ObservationWindowCollector
+from tools.result_normalizer import ToolResultNormalizer
+from tools.result_schema import ToolExecutionResult
 
 
 class ObservationFormatter:
@@ -18,8 +21,22 @@ class ObservationFormatter:
     LARGE_DATA_THRESHOLD = 8000
     SUMMARY_MAX_LENGTH = 300
 
-    def __init__(self, data_save_dir: str = "./static/temp_data"):
+    def __init__(
+        self,
+        data_save_dir: str = "./static/temp_data",
+        artifact_store: ArtifactStore | None = None,
+        result_normalizer: ToolResultNormalizer | None = None,
+        observation_window: ObservationWindowCollector | None = None,
+    ):
         self.data_save_dir = data_save_dir
+        self.observation_window = observation_window or ObservationWindowCollector()
+        self.artifact_store = artifact_store or ArtifactStore(
+            base_dir=data_save_dir,
+            observation_window=self.observation_window,
+        )
+        self.result_normalizer = result_normalizer or ToolResultNormalizer(
+            observation_window=self.observation_window,
+        )
         self.logger = logging.getLogger(f"{__name__}.ObservationFormatter")
 
     def format(
@@ -29,26 +46,32 @@ class ObservationFormatter:
         is_skills_tool: bool = False,
         no_truncate: bool = False,
     ) -> str:
-        del tool_name, no_truncate
+        del no_truncate
 
-        if isinstance(result, dict) and not result.get("success"):
-            return f"❌ 错误: {result.get('error', '未知错误')}"
+        normalized = self.result_normalizer.normalize(result, tool_name=tool_name)
+        if not normalized.success:
+            return f"❌ 错误: {normalized.content or '未知错误'}"
 
         if is_skills_tool:
-            return self._format_skills_result(result)
+            self._record_materialization(result=normalized, estimated_size=self._estimate_size_fast(normalized.content), used_artifact=False)
+            return self._format_skills_result(normalized)
 
-        if isinstance(result, dict) and result.get("success"):
-            return self._format_standard_response(result)
+        if normalized.metadata.get("source_shape") == "primitive":
+            self._record_materialization(result=normalized, estimated_size=self._estimate_size_fast(normalized.content), used_artifact=False)
+            return str(normalized.content)
 
-        return str(result)
+        return self._format_standard_response(normalized)
 
-    def _format_skills_result(self, result: Dict[str, Any]) -> str:
-        if not isinstance(result, dict):
-            return str(result)
-
-        data = result.get("data", {})
-        pure_data = data.get("results", data)
-        summary = data.get("summary", "")
+    def _format_skills_result(self, result: ToolExecutionResult) -> str:
+        pure_data = result.content
+        summary = result.summary
+        data: Dict[str, Any] = {"results": pure_data}
+        if result.metadata:
+            data["metadata"] = result.metadata
+        if summary:
+            data["summary"] = summary
+        if result.answer:
+            data["answer"] = result.answer
 
         if isinstance(pure_data, dict):
             skill_content = pure_data.get("main_content") or pure_data.get("content")
@@ -83,13 +106,12 @@ class ObservationFormatter:
 
         return len(str(data))
 
-    def _format_standard_response(self, result: Dict[str, Any]) -> str:
-        data = result.get("data", {})
-        pure_data = data.get("results", data)
-        summary = data.get("summary", "")
-        metadata = data.get("metadata", {})
-        answer = data.get("answer")
-        approval_message = result.get("approval_message", "")
+    def _format_standard_response(self, result: ToolExecutionResult) -> str:
+        pure_data = result.content
+        summary = result.summary
+        metadata = result.metadata or {}
+        answer = result.answer
+        approval_message = metadata.get("approval_message", "")
 
         estimated_size = self._estimate_size_fast(pure_data)
         self.logger.debug(
@@ -102,6 +124,7 @@ class ObservationFormatter:
             prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
             if approval_message:
                 prefix += f"👤 用户批注: {approval_message}\n\n"
+            self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
             return f"{prefix}{pure_data}"
 
         if estimated_size < self.LARGE_DATA_THRESHOLD:
@@ -115,22 +138,22 @@ class ObservationFormatter:
                 prefix = f"✅ {answer}\n\n"
                 if approval_message:
                     prefix += f"👤 用户批注: {approval_message}\n\n"
+                self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
                 return f"{prefix}📊 数据详情:\n```json\n{content_str[:2000]}\n```"
 
             prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
             if approval_message:
                 prefix += f"👤 用户批注: {approval_message}\n\n"
+            self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
             return f"{prefix}```json\n{content_str}\n```"
 
-        file_name = f"data_{uuid.uuid4().hex[:8]}.json"
-        os.makedirs(self.data_save_dir, exist_ok=True)
-        file_path = os.path.join(self.data_save_dir, file_name)
-
-        with open(file_path, "w", encoding="utf-8") as file_obj:
-            if isinstance(pure_data, str):
-                file_obj.write(pure_data)
-            else:
-                json.dump(pure_data, file_obj, ensure_ascii=False, indent=2)
+        self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=True)
+        artifact = self.artifact_store.save_json(
+            session_id=None,
+            tool_name=result.tool_name,
+            data=pure_data,
+        )
+        result.artifacts.append(artifact)
 
         meta_info_parts = []
         if summary:
@@ -159,7 +182,7 @@ class ObservationFormatter:
         if approval_message:
             parts.append(f"👤 用户批注: {approval_message}\n")
 
-        parts.append(f"📁 数据已存储: {file_path}")
+        parts.append(f"📁 数据已存储: {artifact.path}")
         parts.append(f"📊 {meta_info}")
         parts.append("💡 后续工具可直接使用此文件路径作为参数")
 
@@ -171,3 +194,18 @@ class ObservationFormatter:
             parts.append(f"📝 样本: {sample_str}")
 
         return "\n".join(parts)
+
+    def _record_materialization(
+        self,
+        *,
+        result: ToolExecutionResult,
+        estimated_size: int,
+        used_artifact: bool,
+    ) -> None:
+        self.observation_window.record_materialization(
+            tool_name=result.tool_name,
+            output_type=result.output_type,
+            estimated_size=estimated_size,
+            threshold=self.LARGE_DATA_THRESHOLD,
+            used_artifact=used_artifact,
+        )

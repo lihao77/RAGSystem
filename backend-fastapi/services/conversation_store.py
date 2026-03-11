@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agents.artifacts import ArtifactStore
 from config import get_config
 from utils.backup_database import backup_database as _backup_database
 from utils.backup_database import restore_database as _restore_database
@@ -19,7 +20,8 @@ class ConversationStore:
         cleanup_interval_seconds: int = 300,
         session_ttl_days: int = 30,
         enable_archive: bool = True,
-        start_cleanup_thread: bool = True
+        start_cleanup_thread: bool = True,
+        artifact_store: Optional[ArtifactStore] = None,
     ):
         if db_path is None:
             config = get_config()
@@ -35,6 +37,7 @@ class ConversationStore:
         self.cleanup_interval_seconds = cleanup_interval_seconds
         self.session_ttl_days = session_ttl_days
         self.enable_archive = enable_archive
+        self.artifact_store = artifact_store or ArtifactStore()
 
         # ✨ 改进：使用 session 级别的锁，避免全局锁成为瓶颈
         self._session_locks: Dict[str, threading.RLock] = {}
@@ -770,35 +773,14 @@ class ConversationStore:
         """
         清理过期的临时数据文件（内存优化）
 
-        策略：删除项目根目录 static/temp_data/ 下超过 1 天的 JSON 文件
-        这些文件由 ObservationFormatter 生成，用于存储大数据工具结果
+        策略：删除超过 1 天的 observation artifact 文件
         """
         import logging
-        import time
 
         logger = logging.getLogger(__name__)
 
         try:
-            # 默认 ObservationFormatter 使用 ./static/temp_data，相对于项目根目录。
-            temp_data_dir = Path(__file__).resolve().parent.parent / "static" / "temp_data"
-
-            if not temp_data_dir.exists():
-                return
-
-            # 1 天前的时间戳
-            cutoff_time = time.time() - (24 * 60 * 60)
-            deleted_count = 0
-
-            # 遍历目录中的所有 JSON 文件
-            for file_path in temp_data_dir.glob("data_*.json"):
-                try:
-                    # 检查文件修改时间
-                    if file_path.stat().st_mtime < cutoff_time:
-                        file_path.unlink()
-                        deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"删除临时文件失败 {file_path}: {e}")
-
+            deleted_count = self.artifact_store.cleanup(24 * 60 * 60)
             if deleted_count > 0:
                 logger.info(f"清理了 {deleted_count} 个过期临时数据文件")
 
