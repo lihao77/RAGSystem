@@ -20,6 +20,7 @@ import ChatViewV2 from './views/ChatViewV2.vue';
 import AgentMonitor from './views/AgentMonitor.vue';
 import AgentConfig from './views/AgentConfig.vue';
 import MCPManager from './views/MCPManager.vue';
+import VectorLibraryManager from './views/VectorLibraryManager.vue';
 // highlight.js 主题随亮暗模式动态切换，避免固定主题在反色模式下产生行级色差
 import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
 import hljsLightUrl from 'highlight.js/styles/github.css?url';
@@ -37,6 +38,7 @@ const routeDepth = {
   '/agent-monitor': 1,
   '/agent-config': 1,
   '/mcp': 1,
+  '/vector-library': 1,
 };
 
 const getDepth = (path) => {
@@ -50,7 +52,8 @@ const routes = {
   '/monitor': AgentMonitor,
   '/agent-monitor': AgentMonitor,
   '/agent-config': AgentConfig,
-  '/mcp': MCPManager
+  '/mcp': MCPManager,
+  '/vector-library': VectorLibraryManager,
 };
 
 const currentView = computed(() => {
