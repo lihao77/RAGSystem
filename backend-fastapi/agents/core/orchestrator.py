@@ -11,6 +11,7 @@ from runtime.dependencies import get_runtime_dependency
 
 from .base import BaseAgent, AgentExecutionError
 from .context import AgentContext
+from .default_entry import DefaultEntryAgentProvider
 from .models import AgentResponse
 from .registry import AgentRegistry, get_registry
 
@@ -25,11 +26,13 @@ class AgentOrchestrator:
     def __init__(
         self,
         model_adapter=None,
-        registry: Optional[AgentRegistry] = None
+        registry: Optional[AgentRegistry] = None,
+        default_entry_provider: Optional[DefaultEntryAgentProvider] = None,
     ):
         self.model_adapter = model_adapter
         self.llm_adapter = model_adapter
         self.registry = registry or get_registry()
+        self.default_entry_provider = default_entry_provider or DefaultEntryAgentProvider()
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def register_agent(self, agent: BaseAgent):
@@ -49,12 +52,14 @@ class AgentOrchestrator:
                 return agent
             raise AgentExecutionError(f"指定的智能体 '{preferred_agent}' 不可用或无法处理此任务")
 
-        master_agent = self.registry.get('master_agent_v2')
-        if master_agent:
-            self.logger.info("使用 MasterAgent V2 作为统一入口")
-            return master_agent
+        default_agent_name = self.default_entry_provider.resolve_name(self.registry)
+        if default_agent_name:
+            default_agent = self.registry.get(default_agent_name)
+            if default_agent and default_agent.can_handle(task, context):
+                self.logger.info("使用默认入口智能体: %s", default_agent.name)
+                return default_agent
 
-        self.logger.warning("MasterAgent V2 未注册，使用降级路由")
+        self.logger.warning("默认入口智能体不可用，使用降级路由")
         capable_agents = self.registry.find_capable_agents(task, context)
         if capable_agents:
             agent = capable_agents[0]
@@ -150,6 +155,22 @@ class AgentOrchestrator:
 
     def list_agents(self) -> List[Dict[str, Any]]:
         return self.registry.list_agents()
+
+    def set_default_entry_agent(self, agent_name: Optional[str]) -> None:
+        self.default_entry_provider.set_default_agent_name(agent_name)
+
+    def get_default_entry_agent_name(self) -> Optional[str]:
+        return self.default_entry_provider.get_default_agent_name()
+
+    def get_fallback_entry_agent_name(self) -> Optional[str]:
+        return self.default_entry_provider.get_fallback_agent_name()
+
+    def resolve_default_entry_agent_name(self) -> Optional[str]:
+        return self.default_entry_provider.resolve_name(self.registry)
+
+    def resolve_default_entry_agent(self) -> Optional[BaseAgent]:
+        agent_name = self.resolve_default_entry_agent_name()
+        return self.registry.get(agent_name) if agent_name else None
 
     @property
     def agents(self) -> Dict[str, BaseAgent]:

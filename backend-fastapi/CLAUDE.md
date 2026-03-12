@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-这是一个基于 FastAPI 的多智能体（Multi-Agent）协作后端系统，采用 ReAct 模式的 MasterAgentV2 动态编排多个子 Agent，支持 MCP（Model Context Protocol）、SSE 流式执行、向量数据库检索和 Skills 系统。
+这是一个基于 FastAPI 的多智能体（Multi-Agent）协作后端系统，采用 ReAct 模式的 OrchestratorAgent 动态编排多个子 Agent，支持 MCP（Model Context Protocol）、SSE 流式执行、向量数据库检索和 Skills 系统。
 
 ## 启动和运行
 
@@ -48,7 +48,7 @@ HTTP 请求 → FastAPI 路由 (api/v1/)
   → FastAPI Depends() 注入 (runtime/dependencies.py)
   → RuntimeContainer 单例 (runtime/container.py)
   → AgentOrchestrator (agents/core/orchestrator.py)
-  → MasterAgentV2 编排 (agents/implementations/master/agent.py)
+  → OrchestratorAgent 编排 (agents/implementations/orchestrator/agent.py)
   → 子 Agent / Tools / Skills / MCP 工具
   → SSE 流式或同步 JSON 响应
 ```
@@ -65,7 +65,7 @@ HTTP 请求 → FastAPI 路由 (api/v1/)
 - `context.py`：`AgentContext`，支持 `fork()`/`merge()` 的分层上下文和共享黑板（`shared_data`/`blackboard`）
 - `registry.py`：Agent 注册表
 
-**`agents/implementations/master/agent.py`** — `MasterAgentV2` 是主编排器，采用 ReAct 模式，将其他子 Agent 作为工具调用，输出 XML 格式的流式响应。
+**`agents/implementations/orchestrator/agent.py`** — `OrchestratorAgent` 是主编排器，采用 ReAct 模式，将其他子 Agent 作为工具调用，输出 XML 格式的流式响应。
 
 **`model_adapter/adapter.py`** — `ModelAdapter` 统一多 LLM Provider 接口（OpenAI、DeepSeek、ModelScope、OpenRouter 等），Provider 实例配置在 `model_adapter/configs/providers.yaml`。
 

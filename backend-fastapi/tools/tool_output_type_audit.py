@@ -58,7 +58,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "<agent_name>",
         "category": "agent_delegation",
-        "source": "agents/implementations/master/executor.py",
+        "source": "agents/implementations/orchestrator/executor.py",
         "raw_shape": "tool_execution_result",
         "content_field": "content",
         "content_kind": "agent_defined",

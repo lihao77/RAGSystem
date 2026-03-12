@@ -12,8 +12,8 @@
   - Agent 基础模型、注册表、编排器
 - `implementations/react/`
   - `ReActAgent`
-- `implementations/master/`
-  - `MasterAgentV2`
+- `implementations/orchestrator/`
+  - `OrchestratorAgent`
 - `context/`
   - 上下文预算、压缩和 token 管理
 - `events/`
@@ -28,7 +28,8 @@
 ## 当前行为
 
 - 用户 Agent 从 `configs/agent_configs.yaml` 加载
-- `master_agent_v2` 作为系统 Agent 始终装载
+- `orchestrator_agent` 作为系统兜底入口 Agent 始终装载
+- 默认入口 Agent 可通过配置中的 `default_entry: true` 指定；显式请求的 `preferred_agent` 优先级更高
 - Agent 可用工具由 `AgentLoader` 统一组装
 - 默认工具定义来自 `backend/tools/catalog/`，统一通过 `backend/tools/tool_registry.py` 暴露
 - MCP 工具和 Skills 系统工具在运行时注入

@@ -93,7 +93,7 @@ class AgentApiRuntimeService:
         return self._orchestrator
 
     def _init_orchestrator(self):
-        from agents import load_agents_from_config
+        from agents.config.loader import AgentLoader
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
         from mcp import get_mcp_manager
@@ -107,13 +107,15 @@ class AgentApiRuntimeService:
                 registry=AgentRegistry(),
             )
 
-            agents = load_agents_from_config(
+            loader = AgentLoader(
                 model_adapter=adapter,
                 system_config=system_config,
                 orchestrator=self._orchestrator,
                 config_manager=self._config_manager_getter(),
                 mcp_manager_getter=get_mcp_manager,
             )
+            agents = loader.load_all_agents()
+            self._orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
 
             for agent_name, agent in agents.items():
                 self._orchestrator.register_agent(agent)
@@ -150,7 +152,7 @@ class AgentApiRuntimeService:
             return False
 
         try:
-            from agents import load_agents_from_config
+            from agents.config.loader import AgentLoader
             from mcp import get_mcp_manager
 
             self._orchestrator.registry.clear()
@@ -159,13 +161,15 @@ class AgentApiRuntimeService:
             system_config = self._config_getter()
             adapter = self._default_adapter_getter()
 
-            agents = load_agents_from_config(
+            loader = AgentLoader(
                 model_adapter=adapter,
                 system_config=system_config,
                 orchestrator=self._orchestrator,
                 config_manager=self._config_manager_getter(),
                 mcp_manager_getter=get_mcp_manager,
             )
+            agents = loader.load_all_agents()
+            self._orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
 
             for agent_name, agent in agents.items():
                 self._orchestrator.register_agent(agent)

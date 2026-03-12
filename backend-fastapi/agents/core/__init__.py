@@ -11,6 +11,7 @@ from .base import (
 )
 from .models import AgentResponse, Message
 from .context import AgentContext
+from .default_entry import DefaultEntryAgentProvider
 from .registry import AgentRegistry, get_registry, register_agent
 from .orchestrator import AgentOrchestrator, get_orchestrator
 
@@ -22,6 +23,7 @@ __all__ = [
     'AgentResponse',
     'Message',
     'AgentContext',
+    'DefaultEntryAgentProvider',
     'AgentRegistry',
     'get_registry',
     'register_agent',

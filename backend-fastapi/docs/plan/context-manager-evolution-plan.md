@@ -90,7 +90,7 @@
 当前运行链路大致如下：
 
 1. Agent 初始化时创建 `ContextConfig`。
-2. `ReActAgent` / `MasterAgentV2` 调用 `ContextPipeline.prepare_messages()`。
+2. `ReActAgent` / `OrchestratorAgent` 调用 `ContextPipeline.prepare_messages()`。
 3. `ContextPipeline` 内部调用 `ContextManager.resolve_compression_view()` 解析历史。
 4. 工具执行后，Agent 调用 `ObservationFormatter.format()` 把结果转成下一轮输入。
 

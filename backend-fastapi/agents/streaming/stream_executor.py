@@ -1,5 +1,5 @@
 """
-StreamExecutor - ReActAgent 和 MasterAgentV2 共用的流式 LLM 执行逻辑。
+StreamExecutor - ReActAgent 和 OrchestratorAgent 共用的流式 LLM 执行逻辑。
 
 将 LLM 流式输出 → XML 解析 → 事件发布串联起来，
 返回结构化的 StreamResult 供 Agent 使用。

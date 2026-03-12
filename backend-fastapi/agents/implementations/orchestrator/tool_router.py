@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-MasterAgent 工具路由器。
+OrchestratorAgent 工具路由器。
 
 将工具调用路由到三个目标:
 - 路由0: 内置伪工具 (request_user_input)
@@ -41,7 +41,7 @@ def route_user_input_request(
     run_id: str,
     rounds: int,
     idx: int,
-    master_call_id: str,
+    orchestrator_call_id: str,
 ) -> Dict[str, Any]:
     """
     路由0: 处理 request_user_input 伪工具。
@@ -57,7 +57,7 @@ def route_user_input_request(
         session_id=context.session_id,
         tool_call_id=tool_call_id,
         publisher=agent._publisher,
-        parent_call_id=master_call_id,
+        parent_call_id=orchestrator_call_id,
     )
 
     if user_value is None:
@@ -87,7 +87,7 @@ def route_agent_delegation(
     run_id: str,
     rounds: int,
     idx: int,
-    master_call_id: str,
+    orchestrator_call_id: str,
     global_agent_order: int,
     log_prefix: str,
 ) -> Dict[str, Any]:
@@ -122,7 +122,7 @@ def route_agent_delegation(
         call_id=call_id,
         agent_name=agent_name,
         description=agent_task,
-        parent_call_id=master_call_id,
+        parent_call_id=orchestrator_call_id,
         order=global_agent_order,
         round=rounds,
         round_index=idx
@@ -136,9 +136,10 @@ def route_agent_delegation(
     if not hasattr(child_context, 'metadata'):
         child_context.metadata = {}
     child_context.metadata['call_id'] = call_id
-    child_context.metadata['parent_call_id'] = master_call_id
+    child_context.metadata['parent_call_id'] = orchestrator_call_id
     child_context.metadata['run_id'] = run_id
     child_context.metadata['task_order'] = global_agent_order
+    child_context.metadata['event_bus'] = event_bus
 
     # 传播 cancel_event
     cancel_event = context.metadata.get('cancel_event')
@@ -185,7 +186,7 @@ def route_agent_delegation(
         agent_name=agent_name,
         result=result_display_text(agent_result),
         success=agent_succeeded,
-        parent_call_id=master_call_id,
+        parent_call_id=orchestrator_call_id,
         order=global_agent_order
     )
 
@@ -219,7 +220,7 @@ def route_direct_tool(
     run_id: str,
     rounds: int,
     idx: int,
-    master_call_id: str,
+    orchestrator_call_id: str,
     log_prefix: str,
 ) -> Dict[str, Any]:
     """
@@ -263,7 +264,7 @@ def route_direct_tool(
         call_id=tool_call_id,
         tool_name=tool_name,
         arguments=arguments,
-        parent_call_id=master_call_id,
+        parent_call_id=orchestrator_call_id,
     )
 
     # 执行工具
@@ -292,7 +293,7 @@ def route_direct_tool(
         tool_name=tool_name,
         result=result_event_payload(result),
         execution_time=tool_elapsed,
-        parent_call_id=master_call_id,
+        parent_call_id=orchestrator_call_id,
     )
 
     # 处理可视化事件

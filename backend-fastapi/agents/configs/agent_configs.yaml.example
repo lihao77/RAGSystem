@@ -8,6 +8,7 @@ agents:
     display_name: "问答助手"
     description: "示例智能体"
     enabled: true
+    default_entry: false
     llm:
       provider: my
       provider_type: deepseek
@@ -71,11 +72,12 @@ agents:
         # preserve_recent_turns: 3            # 可选：保留最近 N 轮对话不压缩（默认 3）
 
   # 系统级智能体，始终加载（与其他 Agent 不同，enabled 字段无效）
-  master_agent_v2:
-    agent_name: master_agent_v2
-    display_name: Master Agent V2 (动态编排)
+  orchestrator_agent:
+    agent_name: orchestrator_agent
+    display_name: Orchestrator Agent
     description: 动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策
     enabled: true
+    default_entry: true
     llm:
       provider: my
       provider_type: deepseek
@@ -97,7 +99,7 @@ agents:
       enabled_skills: []
       auto_inject: false
     custom_params:
-      type: master_v2
+      type: orchestrator
       behavior:
         system_prompt: "你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。"
         max_rounds: 15

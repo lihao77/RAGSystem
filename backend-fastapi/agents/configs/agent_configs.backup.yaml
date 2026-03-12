@@ -179,9 +179,9 @@ agents:
         max_rounds: 10
         system_prompt: 你是一个应急预案助手，负责提供相关预案
       type: react
-  master_agent_v2:
-    agent_name: master_agent_v2
-    display_name: Master Agent V2 (动态编排)
+  orchestrator_agent:
+    agent_name: orchestrator_agent
+    display_name: Orchestrator Agent
     description: 动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策
     enabled: true
     llm:
@@ -222,7 +222,7 @@ agents:
           子Agent无对话历史，task字段必须包含所有必要信息。
 
           '
-      type: master_v2
+      type: orchestrator
 metadata:
   updated_at: '2026-03-08T14:25:16.433922'
   version: '1.0'

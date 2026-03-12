@@ -166,7 +166,7 @@ class PromptMaterializer:
 
 当前对应点：
 
-1. 工具执行入口在 [react/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\react\agent.py) 和 [master/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\master\agent.py)。
+1. 工具执行入口在 [react/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\react\agent.py) 和 [orchestrator/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\orchestrator\agent.py)。
 2. 当前 observation 文本生成由 [observation_formatter.py](E:\Python\RAGSystem\backend-fastapi\agents\context\observation_formatter.py) 完成。
 3. 大结果文件清理由 [conversation_store.py](E:\Python\RAGSystem\backend-fastapi\services\conversation_store.py) 负责。
 
@@ -390,7 +390,7 @@ TOOL_OUTPUT_TYPE_MAP = {
 
 1. 新增 `agents/context/prompt_materializer.py`
 2. 修改 [observation_formatter.py](E:\Python\RAGSystem\backend-fastapi\agents\context\observation_formatter.py)
-3. 修改 Agent 调用点：[react/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\react\agent.py)、[master/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\master\agent.py)
+3. 修改 Agent 调用点：[react/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\react\agent.py)、[orchestrator/agent.py](E:\Python\RAGSystem\backend-fastapi\agents\implementations\orchestrator\agent.py)
 
 验收标准：
 

@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-MasterAgentV2 提示构建与工具辅助函数。
-"""
+"""OrchestratorAgent 提示构建与工具辅助函数。"""
 
 import json
 from typing import Any, Dict
@@ -179,87 +177,6 @@ def get_available_agent_tools(agent):
     延迟到执行时获取，确保其他 Agent 已经注册
     """
     return get_agent_tools(agent.orchestrator.agents)
-
-def handle_user_input_request(
-    agent,
-    arguments: dict,
-    event_bus,
-    session_id: str,
-    tool_call_id: str,
-    publisher=None,
-    parent_call_id: str = None,
-):
-    """
-    处理 request_user_input 伪工具调用：发布 tool_call_start → USER_INPUT_REQUIRED 事件，
-    阻塞等待用户回复，收到输入后发布 tool_call_end（result = 用户输入），让执行树可见。
-    被取消时返回 None。
-    """
-    import uuid as _uuid
-    import time as _time
-    from agents.task_registry import get_task_registry
-    from agents.events.bus import Event, EventType
-
-    prompt = arguments.get('prompt', '')
-    input_type = arguments.get('input_type', 'text')
-    options = arguments.get('options', [])
-
-    input_id = str(_uuid.uuid4())
-    registry = get_task_registry()
-    wait_evt = registry.add_pending_input(session_id, input_id) if session_id else None
-
-    # 发布 tool_call_start，让执行树显示「等待用户输入」节点
-    if publisher:
-        publisher.tool_call_start(
-            call_id=tool_call_id,
-            tool_name='request_user_input',
-            arguments=arguments,
-            parent_call_id=parent_call_id,
-        )
-
-    if event_bus:
-        event_bus.publish(Event(
-            type=EventType.USER_INPUT_REQUIRED,
-            session_id=session_id,
-            agent_name=agent.name,
-            data={
-                "input_id": input_id,
-                "tool_call_id": tool_call_id,
-                "prompt": prompt,
-                "input_type": input_type,
-                "options": options,
-            }
-        ))
-
-    agent.logger.info(
-        f"[MasterV2] 等待用户输入 input_id={input_id} prompt={prompt[:60]!r}"
-    )
-
-    if wait_evt is None:
-        if publisher:
-            publisher.tool_call_end(
-                call_id=tool_call_id,
-                tool_name='request_user_input',
-                result='（无 session，跳过）',
-                parent_call_id=parent_call_id,
-            )
-        return ""
-
-    _t0 = _time.time()
-    wait_evt.wait()  # 无超时，直到 resolve_input() 或 cancel() 触发
-    result = registry.get_input_result(session_id, input_id)
-
-    # 发布 tool_call_end，result 展示用户输入内容
-    if publisher:
-        publisher.tool_call_end(
-            call_id=tool_call_id,
-            tool_name='request_user_input',
-            result=result if result else '（已取消）',
-            execution_time=_time.time() - _t0,
-            parent_call_id=parent_call_id,
-        )
-
-    agent.logger.info(f"[MasterV2] 用户输入已接收 input_id={input_id}")
-    return result if result != "" else None
 
 def build_system_prompt(agent) -> str:
         """构建系统提示词"""

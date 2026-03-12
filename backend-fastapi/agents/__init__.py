@@ -4,7 +4,7 @@ Agent 模块 - 智能体系统
 
 重组后的模块结构：
 - core: 核心基础设施（BaseAgent, AgentContext, Registry, Orchestrator）
-- implementations: 智能体实现（ReActAgent, MasterAgentV2）
+- implementations: 智能体实现（ReActAgent, OrchestratorAgent）
 - config: 配置系统（AgentConfig, AgentConfigManager, AgentLoader）
 - context: 上下文管理（ContextPipeline）
 - events: 事件系统（EventBus, EventPublisher, SSEAdapter）
@@ -32,7 +32,7 @@ _CONFIG_ATTRS = {
     'AgentLoader', 'load_agents_from_config', 'register_agent_type',
     'AgentSkillConfig', 'PRESET_CONFIGS',
 }
-_IMPL_ATTRS = {'ReActAgent'}
+_IMPL_ATTRS = {'ReActAgent', 'OrchestratorAgent'}
 
 
 def __getattr__(name):
@@ -40,8 +40,11 @@ def __getattr__(name):
         from . import config
         return getattr(config, name)
     if name in _IMPL_ATTRS:
-        from .implementations.react import ReActAgent
-        return ReActAgent
+        if name == 'ReActAgent':
+            from .implementations.react import ReActAgent
+            return ReActAgent
+        from .implementations.orchestrator import OrchestratorAgent
+        return OrchestratorAgent
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -70,4 +73,5 @@ __all__ = [
     'register_agent_type',
     # 智能体实现
     'ReActAgent',
+    'OrchestratorAgent',
 ]

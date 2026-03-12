@@ -699,42 +699,60 @@ const getCalledAgentAndDisplayName = (eventOrStep) => {
   return { calledAgent, displayName };
 };
 
-// 🎯 将持久化的 steps 还原为 subtasks 与 master_steps（基于 call_id 和 parent_call_id 构建调用树）
-function stepsToSubtasks(steps) {
-  if (!Array.isArray(steps) || steps.length === 0) return { subtasks: [], master_steps: [] };
+const ORCHESTRATOR_AGENT_NAMES = new Set(['orchestrator_agent']);
+
+const isOrchestratorAgentName = (agentName) => !agentName || ORCHESTRATOR_AGENT_NAMES.has(agentName);
+
+const isSubtaskStartEvent = (eventType, calledAgent, parentCallId) => {
+  if (eventType === 'subtask.start' || eventType === 'call.agent.start') return !isOrchestratorAgentName(calledAgent);
+  if (eventType === 'agent.start') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
+  return false;
+};
+
+const isSubtaskEndEvent = (eventType, calledAgent, parentCallId) => {
+  if (eventType === 'subtask.end' || eventType === 'call.agent.end') return !isOrchestratorAgentName(calledAgent);
+  if (eventType === 'agent.end') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
+  return false;
+};
+
+// 将规范化后的 run_steps 还原为 subtasks 与 orchestrator_steps
+function runStepsToExecutionState(runSteps) {
+  if (!Array.isArray(runSteps) || runSteps.length === 0) return { subtasks: [], orchestrator_steps: [] };
 
   const callNodes = new Map();
   const toolCalls = new Map();
-  const master_steps = [];
+  const orchestrator_steps = [];
 
-  const getData = (s) => (s && s.payload && s.payload.data) ? s.payload.data : {};
-  const getAgentName = (s) => (s && s.payload && s.payload.agent_name) ? s.payload.agent_name : null;
+  const ensureOrchestratorStep = (round = null, thinking = '') => {
+    let step = orchestrator_steps[orchestrator_steps.length - 1];
+    if (!step || step._closed) {
+      step = { round, thinking: thinking || '', toolCalls: [], expanded: true };
+      orchestrator_steps.push(step);
+    } else if (thinking) {
+      step.thinking = thinking;
+    }
+    return step;
+  };
 
-  // 第一遍：收集所有节点
-  for (const step of steps) {
-    const eventType = step.step_type || (step.payload && step.payload.type);
-    const eventData = getData(step);
-    const agentName = getAgentName(step);
-    const callId = step.payload?.call_id;
-    const parentCallId = step.payload?.parent_call_id;
+  for (const step of runSteps) {
+    const kind = step.kind;
+    const callId = step.call_id;
+    const parentCallId = step.parent_call_id;
 
-    // Agent 调用开始
-    if (eventType === 'call.agent.start' || eventType === 'subtask.start') {
-      const { calledAgent, displayName } = getCalledAgentAndDisplayName(step);
-
-      // 跳过 MasterAgent（它不显示在 subtasks 中）
-      if (calledAgent === 'master_agent_v2') continue;
-
+    if (kind === 'subtask_start') {
+      if (isOrchestratorAgentName(step.agent_name)) {
+        continue;
+      }
       callNodes.set(callId, {
         call_id: callId,
         parent_call_id: parentCallId,
-        order: eventData.order,
+        order: step.order,
         task_id: callId,
-        round: eventData.round,
-        round_index: eventData.round_index,
-        agent_name: calledAgent,
-        agent_display_name: displayName,
-        description: eventData.description || eventData.subtask_description,
+        round: step.round,
+        round_index: step.round_index,
+        agent_name: step.agent_name,
+        agent_display_name: step.agent_display_name || step.agent_name,
+        description: step.description || step.task || '',
         react_steps: [],
         tool_calls: [],
         result_summary: '',
@@ -742,91 +760,97 @@ function stepsToSubtasks(steps) {
         expanded: true,
         currentStep: null
       });
+      continue;
     }
 
-    // Agent 调用结束
-    else if (eventType === 'call.agent.end' || eventType === 'subtask.end') {
-      const node = callNodes.get(callId);
-      if (node) {
-        node.status = eventData.success === false ? 'error' : 'success';
-        node.result_summary = eventData.result_summary || eventData.result || '';
-        node.expanded = false;
-      }
-    }
-
-    // 思考过程
-    else if (eventType === 'agent.thinking_complete') {
-      const agentCallId = step.payload?.call_id;
-      const isMasterThought = (step.payload?.agent_name || eventData.agent_name) === 'master_agent_v2';
-      if (isMasterThought) {
-        master_steps.push({ round: eventData.round, thinking: eventData.content || '', toolCalls: [], expanded: true });
+    if (kind === 'subtask_end') {
+      if (isOrchestratorAgentName(step.agent_name)) {
         continue;
       }
-      const node = callNodes.get(agentCallId);
+      const node = callNodes.get(callId);
       if (node) {
-        const newStep = {
-          round: eventData.round,
-          thinking: eventData.content || '',
+        node.status = step.status || 'success';
+        node.result_summary = step.result_summary || '';
+        node.expanded = false;
+      }
+      continue;
+    }
+
+    if (kind === 'agent_thought') {
+      ensureOrchestratorStep(step.round, step.content || '');
+      continue;
+    }
+
+    if (kind === 'subtask_thought') {
+      const node = callNodes.get(callId);
+      if (node) {
+        const reactStep = {
+          round: step.round,
+          thinking: step.content || '',
           toolCalls: [],
           expanded: true
         };
-        node.react_steps.push(newStep);
-        node.currentStep = newStep;
+        node.react_steps.push(reactStep);
+        node.currentStep = reactStep;
       }
+      continue;
     }
 
-    // 工具调用开始
-    else if (eventType === 'call.tool.start' || eventType === 'tool.start') {
-      const parentNode = callNodes.get(parentCallId);
+    if (kind === 'tool_start') {
       const toolCall = {
         call_id: callId,
         parent_call_id: parentCallId,
-        tool_name: eventData.tool_name,
-        arguments: eventData.arguments,
+        tool_name: step.tool_name,
+        arguments: step.arguments,
         status: 'running',
         showResult: false,
         showArgs: false
       };
       toolCalls.set(callId, toolCall);
+
+      const parentNode = callNodes.get(parentCallId);
       if (parentNode) {
-        // 子 Agent 的工具调用：挂到对应 react_step
         parentNode.tool_calls.push(toolCall);
         if (parentNode.currentStep) {
           parentNode.currentStep.toolCalls.push(toolCall);
-        } else if (parentNode.react_steps.length > 0) {
-          parentNode.react_steps[parentNode.react_steps.length - 1].toolCalls.push(toolCall);
+        } else {
+          const reactStep = { round: parentNode.round, thinking: '', toolCalls: [toolCall], expanded: true };
+          parentNode.react_steps.push(reactStep);
+          parentNode.currentStep = reactStep;
         }
       } else {
-        // Master 直接调用工具：挂到 master_steps 最后一个 step
-        if (master_steps.length > 0) {
-          master_steps[master_steps.length - 1].toolCalls.push(toolCall);
-        }
+        ensureOrchestratorStep(step.round).toolCalls.push(toolCall);
       }
+      continue;
     }
 
-    // 工具调用结束
-    else if (eventType === 'call.tool.end' || eventType === 'tool.end') {
+    if (kind === 'tool_end') {
       const toolCall = toolCalls.get(callId);
       if (toolCall) {
         toolCall.status = 'success';
-        toolCall.result = eventData.result;
-        toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
+        toolCall.result = step.result;
+        toolCall.elapsed_time = step.elapsed_time;
       }
+      continue;
     }
   }
 
-  const subtasks = Array.from(callNodes.values());
-  return { subtasks, master_steps };
+  return {
+    subtasks: Array.from(callNodes.values()),
+    orchestrator_steps,
+  };
 }
 
-function extractMultimodalFromSteps(steps) {
-  if (!Array.isArray(steps)) return [];
+function extractMultimodalFromRunSteps(runSteps) {
+  if (!Array.isArray(runSteps)) return [];
   const contents = [];
-  for (const step of steps) {
-    const reg = VISUALIZATION_REGISTRY[step.step_type];
-    if (reg) {
-      const data = step.payload?.data || {};
-      contents.push(reg.extract(data));
+  for (const step of runSteps) {
+    if (step.kind === 'visualization') {
+      const eventType = step.visualization_type === 'chart' ? 'visualization.chart' : 'visualization.map';
+      const reg = VISUALIZATION_REGISTRY[eventType];
+      if (reg) {
+        contents.push(reg.extract(step.data || {}));
+      }
     }
   }
   return contents;
@@ -834,7 +858,7 @@ function extractMultimodalFromSteps(steps) {
 
 const isMasterEvent = (event) => {
   const agentName = event.agent_name || event.data?.agent_name;
-  return !agentName || agentName === 'master_agent_v2';
+  return isOrchestratorAgentName(agentName);
 };
 
 const findSubtaskByCallId = (subtasks, callId) => {
@@ -1200,8 +1224,8 @@ const loadSessionMessages = async (sessionId) => {
     const items = result.data?.items || [];
     const mapped = items.map(item => {
       if (item.role === 'assistant') {
-        const steps = item.steps || item.metadata?.steps;
-        const parsed = Array.isArray(steps) ? stepsToSubtasks(steps) : { subtasks: [], master_steps: [] };
+        const runSteps = item.run_steps || [];
+        const parsed = Array.isArray(runSteps) ? runStepsToExecutionState(runSteps) : { subtasks: [], orchestrator_steps: [] };
         const subtasks = parsed.subtasks || [];
         return {
           role: 'assistant',
@@ -1209,11 +1233,11 @@ const loadSessionMessages = async (sessionId) => {
           seq: item.seq,
           content: item.content || '',
           subtasks,
-          master_steps: parsed.master_steps || [],
+          master_steps: parsed.orchestrator_steps || [],
           showFullSubtasks: false,
           multimodalContents: (item.multimodalContents?.length > 0)
             ? item.multimodalContents
-            : extractMultimodalFromSteps(item.steps),
+            : extractMultimodalFromRunSteps(runSteps),
           status: item.status || [],
           finished: true
         };
@@ -1748,7 +1772,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
 
             // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
             const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);
-            if ((eventType === 'subtask.start' || eventType === 'call.agent.start') && calledAgentForStart !== 'master_agent_v2') {
+            if (isSubtaskStartEvent(eventType, calledAgentForStart, event.parent_call_id)) {
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
@@ -1761,7 +1785,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 existingSubtask.round_index = eventData.round_index;
                 existingSubtask.agent_name = calledAgentForStart;
                 existingSubtask.agent_display_name = displayNameForStart;
-                existingSubtask.description = eventData.subtask_description || eventData.description;
+                existingSubtask.description = eventData.subtask_description || eventData.description || eventData.task;
                 existingSubtask.status = existingSubtask.status === 'success' || existingSubtask.status === 'error'
                   ? existingSubtask.status
                   : 'running';
@@ -1779,7 +1803,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                   round_index: eventData.round_index,
                   agent_name: calledAgentForStart,
                   agent_display_name: displayNameForStart,
-                  description: eventData.subtask_description || eventData.description,
+                  description: eventData.subtask_description || eventData.description || eventData.task,
                   react_steps: [],
                   tool_calls: [],
                   result_summary: '',
@@ -1789,7 +1813,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 });
               }
             }
-            // 🎯 Master V2 的 thinking（流式增量）
+            // 🎯 编排器的 thinking（流式增量）
             else if (eventType === 'agent.thinking_delta') {
               if (isMasterEvent(event)) {
                 if (!currentMsg.master_steps) currentMsg.master_steps = [];
@@ -1883,7 +1907,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                   currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
                 }
               } else {
-                // Master 直接调用工具：挂到 master_steps 最后一个 step 的 toolCalls
+                // 编排器直接调用工具：挂到 master_steps 最后一个 step 的 toolCalls
                 const masterSteps = currentMsg.master_steps;
                 const masterStep = masterSteps && masterSteps.length > 0
                   ? masterSteps[masterSteps.length - 1]
@@ -1946,12 +1970,10 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             // - output.final_answer：最终答案内容 + 标记本条消息完成（finished）
             // - agent.end：主 Agent 整体结束，仅作兜底（若尚未 finished 则标记完成），不重复处理内容
 
-            // 子任务/子 Agent 调用结束：只更新对应卡片（用 data.agent_name 判断，Master 自身的 end 跳过）
-            else if (eventType === 'subtask.end' || eventType === 'call.agent.end') {
-              // call.agent.end 由 MasterAgent publisher 发布，event.agent_name 是 master
-              // 需要用 eventData.agent_name 判断被调用的子 agent
-              const calledAgent = eventData.agent_name;
-              if (calledAgent && calledAgent !== 'master_agent_v2') {
+            // 子任务/子 Agent 调用结束：只更新对应卡片（用 data.agent_name 判断，编排器自身的 end 跳过）
+            else if (isSubtaskEndEvent(eventType, eventData.agent_name != null ? eventData.agent_name : event.agent_name, event.parent_call_id)) {
+              const calledAgent = eventData.agent_name != null ? eventData.agent_name : event.agent_name;
+              if (calledAgent && !isOrchestratorAgentName(calledAgent)) {
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
                   subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
@@ -1999,7 +2021,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
               cacheMessages(sessionId, messages.value);
             }
             // 主 Agent 结束：仅兜底标记完成（若未在 output.final_answer 中标记）
-            else if (eventType === 'agent.end') {
+            else if (eventType === 'agent.end' && isMasterEvent(event)) {
               if (!currentMsg.finished) {
                 currentMsg.finished = true;
                 if (currentMsg.content) {
@@ -2033,7 +2055,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             else if (eventType === 'context.usage') {
               const agentName = event.agent_name;
               const ctx = { used: eventData.used_tokens, max: eventData.max_tokens };
-              if (!agentName || agentName === 'master_agent_v2') {
+              if (isOrchestratorAgentName(agentName)) {
                 contextUsage.value = ctx;
               } else {
                 // 写入对应 subtask

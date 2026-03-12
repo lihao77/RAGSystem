@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class AgentExecutor:
     """
-    Agent 执行器：将 Master 的 Agent 调用请求路由到具体 Agent，处理输入输出格式，错误处理与日志。
+    Agent 执行器：将编排器的 Agent 调用请求路由到具体 Agent，处理输入输出格式，错误处理与日志。
     """
 
     def __init__(self, orchestrator):

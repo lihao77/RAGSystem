@@ -21,6 +21,7 @@ class CreateAgentRequest(BaseModel):
     agent_name: str = Field(..., description='智能体名称')
     display_name: Optional[str] = None
     description: Optional[str] = None
+    default_entry: Optional[bool] = None
     custom_params: Optional[Dict[str, Any]] = None
     llm: Optional[Dict[str, Any]] = None
 
@@ -30,5 +31,6 @@ class AgentConfigResponse(BaseModel):
     agent_name: str
     display_name: Optional[str] = None
     description: Optional[str] = None
+    default_entry: Optional[bool] = None
     custom_params: Optional[Dict[str, Any]] = None
     llm: Optional[Dict[str, Any]] = None

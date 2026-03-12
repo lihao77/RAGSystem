@@ -29,12 +29,14 @@ class StreamPersistenceHandler:
         session_id: str,
         run_id: str,
         cancel_event: ThreadingEvent,
+        entry_agent_name: str = 'orchestrator_agent',
     ):
         self.event_bus = event_bus
         self.store = store
         self.session_id = session_id
         self.run_id = run_id
         self.cancel_event = cancel_event
+        self.entry_agent_name = entry_agent_name
 
         # 状态标志
         self.final_answer_saved = ThreadingEvent()
@@ -120,7 +122,7 @@ class StreamPersistenceHandler:
                         'msg_type': data.get('msg_type'),
                         'round': data.get('round'),
                         'run_id': self.run_id,
-                        'agent': 'master_agent_v2',
+                        'agent': self.entry_agent_name,
                     },
                 )
             except Exception as error:
@@ -135,8 +137,8 @@ class StreamPersistenceHandler:
     def _subscribe_final_answer(self) -> str:
         """订阅最终答案事件。"""
         def handle_final_answer_persist(event):
-            # 只处理 master_agent_v2 的最终答案
-            if event.agent_name and event.agent_name != 'master_agent_v2':
+            # 只处理默认入口智能体的最终答案
+            if event.agent_name and event.agent_name != self.entry_agent_name:
                 return
             if self.final_answer_saved.is_set():
                 return
@@ -182,6 +184,7 @@ class StreamPersistenceHandler:
             EventType.RUN_START,
             EventType.AGENT_START,
             EventType.THINKING_COMPLETE,
+            EventType.REACT_INTERMEDIATE,
             EventType.CALL_AGENT_START,
             EventType.CALL_AGENT_END,
             EventType.CALL_TOOL_START,

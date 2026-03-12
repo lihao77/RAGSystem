@@ -183,6 +183,7 @@ class AgentConfig(BaseModel):
                 "display_name": "自定义智能体",
                 "description": "通过配置定义的智能体",
                 "enabled": True,
+                "default_entry": False,
                 "llm": {
                     "provider": "deepseek",
                     "model_name": "deepseek-chat",
@@ -228,6 +229,11 @@ class AgentConfig(BaseModel):
     enabled: bool = Field(
         default=True,
         description="是否启用该智能体"
+    )
+
+    default_entry: bool = Field(
+        default=False,
+        description="是否作为默认入口智能体。显式指定的 preferred_agent 优先级更高"
     )
 
     llm: AgentLLMConfig = Field(

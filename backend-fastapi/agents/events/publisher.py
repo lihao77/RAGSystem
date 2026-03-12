@@ -100,6 +100,7 @@ class EventPublisher:
             {
                 "agent_name": self.agent_name,
                 "task": task,
+                "description": task,
                 "metadata": metadata or {}
             }
         )
@@ -111,6 +112,7 @@ class EventPublisher:
             {
                 "agent_name": self.agent_name,
                 "result": str(result)[:500],  # 截断过长的结果
+                "result_summary": str(result)[:500],
                 "execution_time": execution_time
             }
         )
@@ -322,7 +324,8 @@ class EventPublisher:
             {
                 "tool_name": tool_name,
                 "result": result_str,
-                "execution_time": execution_time
+                "execution_time": execution_time,
+                "elapsed_time": execution_time,
             },
             override_call_id=call_id,
             override_parent_call_id=parent_call_id

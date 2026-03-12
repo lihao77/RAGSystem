@@ -71,25 +71,28 @@ async def reset_metrics(agent_name: Optional[str] = None):
 
 @router.get('/context-snapshot')
 async def get_context_snapshot(session_id: Optional[str] = Query(None)):
-    """获取 MasterAgent V2 的上下文快照，用于调试和可视化。"""
+    """获取当前默认入口智能体的上下文快照，用于调试和可视化。"""
     try:
         orchestrator = _get_orchestrator()
-        master = orchestrator.agents.get('master_agent_v2')
-        if not master:
-            raise HTTPException(status_code=503, detail='MasterAgentV2 未加载')
+        entry_agent = orchestrator.resolve_default_entry_agent() if hasattr(orchestrator, 'resolve_default_entry_agent') else None
+        if not entry_agent:
+            raise HTTPException(status_code=503, detail='默认入口智能体未加载')
 
         def _get_snapshot():
             from agents.context.token_counter import TokenCounter
 
-            system_prompt = master._build_system_prompt()
-            agent_tools = [
-                {'name': t['function']['name'], 'description': t['function']['description']}
-                for t in master._get_available_agent_tools()
-            ]
+            system_prompt = entry_agent._build_system_prompt()
+            agent_tools = []
+            get_agent_tools = getattr(entry_agent, '_get_available_agent_tools', None)
+            if callable(get_agent_tools):
+                agent_tools = [
+                    {'name': t['function']['name'], 'description': t['function']['description']}
+                    for t in get_agent_tools()
+                ]
 
-            master_tools = getattr(master, 'available_tools', []) or []
+            entry_tools = getattr(entry_agent, 'available_tools', []) or []
             direct_tools = []
-            for t in master_tools:
+            for t in entry_tools:
                 if isinstance(t, dict) and t.get('function'):
                     func = t.get('function') or {}
                     direct_tools.append({
@@ -97,9 +100,9 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                         'description': func.get('description'),
                     })
 
-            master_skills_raw = getattr(master, 'available_skills', []) or []
+            entry_skills_raw = getattr(entry_agent, 'available_skills', []) or []
             skills = []
-            for s in master_skills_raw:
+            for s in entry_skills_raw:
                 if hasattr(s, 'to_dict'):
                     skills.append(s.to_dict())
                 else:
@@ -108,7 +111,7 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                         'description': getattr(s, 'description', None),
                     })
 
-            llm_cfg = master.get_llm_config()
+            llm_cfg = entry_agent.get_llm_config()
             counter = TokenCounter(model_name=llm_cfg.get('model_name'))
             sp_tokens = counter.count_text(system_prompt)
 
@@ -133,12 +136,14 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                             'round': meta.get('round'),
                         })
 
-            max_tokens = master.context_pipeline.config.max_tokens
+            max_tokens = entry_agent.context_pipeline.config.max_tokens
             total = sp_tokens + history_tokens
 
-            cfg = master.context_pipeline.config
+            cfg = entry_agent.context_pipeline.config
             config_info = {
-                'max_rounds': master.max_rounds,
+                'agent_name': entry_agent.name,
+                'display_name': getattr(entry_agent, 'display_name', entry_agent.name),
+                'max_rounds': entry_agent.max_rounds,
                 'compression': {
                     'strategy': 'llm_summarize_with_fallback',
                     'trigger_ratio': cfg.compression_trigger_ratio,

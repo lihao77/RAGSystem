@@ -273,7 +273,7 @@ class SSEAdapter:
                 "session_id": "abc123",
                 "trace_id": "xyz789",
                 "span_id": "span123",
-                "agent_name": "master_agent_v2",
+                "agent_name": "orchestrator_agent",
                 "data": {
                     "task": "...",
                     "metadata": {}

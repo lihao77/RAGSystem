@@ -67,16 +67,17 @@ class AgentExecutionAdapter:
         cancel_event = threading.Event()
         context.metadata['cancel_event'] = cancel_event
 
-        master_agent = orchestrator.agents.get('master_agent_v2')
-        if not master_agent:
+        entry_agent = orchestrator.resolve_default_entry_agent() if hasattr(orchestrator, 'resolve_default_entry_agent') else None
+        if not entry_agent:
             return AgentStreamStartResult(
                 started=False,
                 session_id=session_id,
                 request_id=request_id,
-                error_message='MasterAgent 未找到，请确认已正确加载',
+                error_message='默认入口智能体未找到，请确认已正确加载',
             )
 
         event_bus = session_manager.get_or_create(session_id)
+        context.metadata['event_bus'] = event_bus
         concurrency_key = f'session:{session_id}'
         task_id = registry.register_task(
             session_id=session_id,
@@ -136,6 +137,7 @@ class AgentExecutionAdapter:
                 session_id=session_id,
                 run_id=run_id,
                 cancel_event=cancel_event,
+                entry_agent_name=getattr(entry_agent, 'name', 'orchestrator_agent'),
             )
             subscriptions = persistence_handler.subscribe_all()
             final_answer_saved = persistence_handler.final_answer_saved
@@ -145,14 +147,14 @@ class AgentExecutionAdapter:
                 session_id=session_id,
                 role='user',
                 content=task,
-                metadata={'agent': 'master_agent_v2'},
+                metadata={'agent': getattr(entry_agent, 'name', None)},
             )
 
             target = self._create_agent_task_target(
                 task_id=task_id,
                 event_bus=event_bus,
                 final_answer_saved=final_answer_saved,
-                master_agent=master_agent,
+                entry_agent=entry_agent,
                 registry=registry,
                 run_id=run_id,
                 session_id=session_id,
@@ -274,7 +276,7 @@ class AgentExecutionAdapter:
         task_id: str,
         event_bus,
         final_answer_saved,
-        master_agent,
+        entry_agent,
         registry,
         run_id: str,
         session_id: str,
@@ -296,10 +298,10 @@ class AgentExecutionAdapter:
                         request_id=context.metadata.get('request_id'),
                     ),
                     session_id=session_id,
-                    agent_name='master_agent_v2',
+                    agent_name=getattr(entry_agent, 'name', None),
                 ))
                 logger.info('后台执行 Agent 任务: %s', task)
-                response = master_agent.execute(task, context)
+                response = entry_agent.execute(task, context)
                 if response and getattr(response, 'content', None) and not final_answer_saved.is_set():
                     message = store.add_message(
                         session_id=session_id,

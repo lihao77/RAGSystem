@@ -22,6 +22,8 @@
 import { computed, defineProps } from 'vue';
 import ExecutionNode from './ExecutionNode.vue';
 
+const ORCHESTRATOR_AGENT_NAME = 'orchestrator_agent';
+
 const props = defineProps({
   masterSteps: {
     type: Array,
@@ -37,7 +39,7 @@ const props = defineProps({
  * 将 master_steps 和 subtasks 合并为层次化的执行树
  *
  * 核心逻辑：
- * 1. Master 的每个 thought 作为根节点（按 round）
+ * 1. 编排器的每个 thought 作为根节点（按 round）
  * 2. 同一 round 的 subtasks 作为该 thought 的子节点
  * 3. subtask 内部的 react_steps 递归嵌套
  */
@@ -76,17 +78,17 @@ const executionTree = computed(() => {
     const masterStep = masterByRound[round];
     const subtasksInRound = subtasksByRound[round] || [];
 
-    // 创建 Master thought 节点
+    // 创建编排器 thought 节点
     const node = {
       type: 'thought',
-      agent: 'master_agent_v2',
-      agent_display_name: 'Master Agent',
+      agent: ORCHESTRATOR_AGENT_NAME,
+      agent_display_name: 'Orchestrator Agent',
       round: round,
       thought: masterStep ? (masterStep.thinking || masterStep.thought || '') : '',
       children: []
     };
 
-    // 添加 Master 的工具调用
+    // 添加编排器的工具调用
     if (masterStep && masterStep.toolCalls && masterStep.toolCalls.length > 0) {
       masterStep.toolCalls.forEach(tool => {
         node.children.push({

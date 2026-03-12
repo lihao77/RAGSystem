@@ -96,7 +96,10 @@ async def delete_agent(
         if not agent_name:
             raise HTTPException(status_code=400, detail='智能体名称不能为空')
 
-        if agent_name == 'master_agent_v2':
+        reserved_entry_agent = None
+        if hasattr(orchestrator, 'get_fallback_entry_agent_name'):
+            reserved_entry_agent = orchestrator.get_fallback_entry_agent_name()
+        if agent_name and reserved_entry_agent and agent_name == reserved_entry_agent:
             raise HTTPException(status_code=403, detail='系统核心智能体禁止删除')
 
         if not config_manager.get_config(agent_name):

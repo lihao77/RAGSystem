@@ -18,7 +18,7 @@
 
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="thinking" class="ticker-item active">
-             <span class="agent-badge">Master Agent</span>
+             <span class="agent-badge">Orchestrator Agent</span>
              <span class="action-text">正在推理中</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
@@ -101,14 +101,14 @@ const currentActivity = computed(() => {
     };
   }
 
-  // 2. 找 Master 直接调用的正在运行的工具（在 masterSteps 里）
+  // 2. 找编排器直接调用的正在运行的工具
   const masterSteps = props.masterSteps || [];
   for (const step of masterSteps) {
     if (step.toolCalls) {
       const activeTool = step.toolCalls.find(t => t.status === 'running');
       if (activeTool) {
         return {
-          agent_display_name: 'Master Agent',
+          agent_display_name: 'Orchestrator Agent',
           description: null,
           tool_name: activeTool.tool_name
         };
@@ -126,7 +126,7 @@ const lastCompletedTask = computed(() => {
   if (completedTasks.length > 0) {
     return completedTasks[completedTasks.length - 1];
   }
-  // 再找 Master 直接完成的工具
+  // 再找编排器直接完成的工具
   const masterSteps = props.masterSteps || [];
   for (let i = masterSteps.length - 1; i >= 0; i--) {
     const step = masterSteps[i];
@@ -134,16 +134,16 @@ const lastCompletedTask = computed(() => {
       const lastTool = step.toolCalls[step.toolCalls.length - 1];
       if (lastTool.status === 'success') {
         return {
-          agent_display_name: 'Master Agent',
+          agent_display_name: 'Orchestrator Agent',
           description: lastTool.tool_name,
           status: 'success'
         };
       }
     }
   }
-  // 兜底：任务已结束（running=false）且有 master_steps（纯推理直接回答的情况）
+  // 兜底：任务已结束（running=false）且有 orchestrator steps（纯推理直接回答的情况）
   if (!props.running && masterSteps.length > 0) {
-    return { agent_display_name: 'Master Agent', status: 'success' };
+    return { agent_display_name: 'Orchestrator Agent', status: 'success' };
   }
   return null;
 });

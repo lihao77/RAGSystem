@@ -12,7 +12,9 @@
 
 - 文件不存在时，`AgentConfigManager` 会创建一个空配置文件框架
 - 用户自定义 Agent 从这里加载
-- `master_agent_v2` 仍由系统强制装载，但如果这里存在同名配置，会优先使用其中字段
+- `orchestrator_agent` 仍作为默认兜底入口装载，但如果这里存在同名配置，会优先使用其中字段
+- 可以通过 `default_entry: true` 指定其他默认入口 Agent；`custom_params.default_entry: true` 仍兼容旧配置
+- 显式传入的 `preferred_agent` 优先级更高
 
 ## 管理方式
 
@@ -39,6 +41,7 @@ agents:
     agent_name: qa_agent
     display_name: QA Agent
     enabled: true
+    default_entry: false
     llm:
       provider: test
       provider_type: deepseek

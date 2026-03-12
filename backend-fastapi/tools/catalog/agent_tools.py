@@ -10,7 +10,7 @@ def get_agent_tools(agents_dict):
     """Build tool definitions for delegate-able agents."""
     agent_tools = []
     for agent_name, agent in agents_dict.items():
-        if agent_name.startswith("master_agent"):
+        if agent_name == "orchestrator_agent":
             continue
 
         agent_config = agent.agent_config if hasattr(agent, "agent_config") else None

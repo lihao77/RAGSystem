@@ -4,9 +4,11 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Callable, Dict, List, Any, Optional, Tuple
 import json
 import logging
+import time
+import uuid
 
 from .models import AgentResponse
 from .context import AgentContext
@@ -108,11 +110,28 @@ class BaseAgent(ABC):
         self.agent_config = agent_config
         self.system_config = system_config
         self.tools: List[Dict[str, Any]] = []
+        self.available_tools: List[Dict[str, Any]] = []
+        self.available_skills: List[Any] = []
+        self.event_bus = None
+        self._publisher = None
+        self.context_pipeline = None
+        self.observation_formatter = None
+        self.max_rounds = 10
+        self.base_prompt = ""
+        self.display_name = name
 
     @abstractmethod
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """执行任务（子类必须实现）"""
         pass
+
+    def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
+        """向后兼容的流式入口；默认复用 execute。"""
+        return self.execute(task, context)
+
+    def stream_execute(self, task: str, context: AgentContext) -> AgentResponse:
+        """向后兼容别名。"""
+        return self.execute(task, context)
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         """判断是否能处理该任务（子类可以重写）"""
@@ -137,7 +156,7 @@ class BaseAgent(ABC):
             'name': self.name,
             'description': self.description,
             'capabilities': self.capabilities,
-            'tools': [tool.get('function', {}).get('name') for tool in self.tools]
+            'tools': [tool.get('function', {}).get('name') for tool in (self.available_tools or self.tools)]
         }
         if self.agent_config:
             info['config'] = {
@@ -262,6 +281,735 @@ class BaseAgent(ABC):
             enabled_tools = self.agent_config.tools.enabled_tools
             return not enabled_tools or tool_name in enabled_tools
         return True
+
+    def _setup_react_runtime(
+        self,
+        *,
+        available_tools: Optional[List[Dict[str, Any]]] = None,
+        available_skills: Optional[List[Any]] = None,
+        event_bus = None,
+        builtin_tool_getter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+        max_rounds_default: int = 10,
+        fallback_multiplier: float = 1.0,
+        runtime_label: Optional[str] = None,
+    ) -> None:
+        """初始化 ReAct 运行时的公共组件。"""
+        from agents.context.budget import compute_context_budget, DEFAULT_MAX_COMPLETION_TOKENS
+        from agents.context.config import ContextConfig
+        from agents.context.observation_formatter import ObservationFormatter
+        from agents.context.pipeline import ContextPipeline
+        from agents.monitoring.observation_window import ObservationWindowCollector
+
+        base_tools = list(available_tools or [])
+        if builtin_tool_getter:
+            base_tools = builtin_tool_getter(base_tools)
+
+        self.available_tools = base_tools
+        self.available_skills = list(available_skills or [])
+        self.event_bus = event_bus
+
+        behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
+        self.max_rounds = behavior_config.get('max_rounds', max_rounds_default)
+        self.base_prompt = behavior_config.get('system_prompt', '')
+
+        llm_config = self.get_llm_config()
+        model_max_completion_tokens = (
+            llm_config.get('max_completion_tokens')
+            or llm_config.get('max_tokens', DEFAULT_MAX_COMPLETION_TOKENS)
+        )
+        model_context_window = llm_config.get('max_context_tokens')
+
+        max_context_tokens = compute_context_budget(
+            model_context_window=model_context_window,
+            max_completion_tokens=model_max_completion_tokens,
+            explicit_budget=behavior_config.get('max_context_tokens'),
+            fallback_multiplier=fallback_multiplier,
+        )
+
+        context_config = ContextConfig(
+            max_tokens=max_context_tokens,
+            model_name=llm_config.get('model_name'),
+            compression_trigger_ratio=behavior_config.get('compression_trigger_ratio', 0.85),
+            summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
+            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
+        )
+        observation_window = ObservationWindowCollector()
+        self.context_pipeline = ContextPipeline(
+            config=context_config,
+            model_adapter=self.model_adapter,
+            get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
+            logger=self.logger,
+            observation_window=observation_window,
+        )
+        self.observation_formatter = ObservationFormatter(
+            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data'),
+            observation_window=observation_window,
+        )
+
+        label = runtime_label or self.__class__.__name__
+        self.logger.info(
+            "%s '%s' 运行时初始化完成，可用工具: %s，可用 Skills: %s，模型输出限制: %s tokens，上下文窗口: %s，上下文预算: %s tokens",
+            label,
+            self.name,
+            len(self.available_tools),
+            len(self.available_skills),
+            model_max_completion_tokens,
+            model_context_window or '未配置',
+            max_context_tokens,
+        )
+
+    def _resolve_event_bus(self, context: AgentContext, event_bus = None):
+        """获取会话级事件总线。"""
+        if event_bus is not None:
+            return event_bus
+        if hasattr(context, 'metadata'):
+            context_event_bus = context.metadata.get('event_bus')
+            if context_event_bus is not None:
+                return context_event_bus
+        if self.event_bus is not None:
+            return self.event_bus
+        if hasattr(context, 'session_id') and context.session_id:
+            from agents.events import get_session_event_bus
+            return get_session_event_bus(context.session_id)
+        return None
+
+    def _ensure_publisher(
+        self,
+        context: AgentContext,
+        *,
+        event_bus = None,
+        call_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
+        force_new: bool = False,
+    ):
+        """初始化或复用 EventPublisher。"""
+        from agents.events import EventPublisher
+
+        resolved_event_bus = self._resolve_event_bus(context, event_bus=event_bus)
+        current_session_id = getattr(context, 'session_id', None)
+        if call_id is None:
+            call_id = f"call_{uuid.uuid4()}"
+        if parent_call_id is None and hasattr(context, 'metadata'):
+            parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
+
+        should_create = (
+            force_new
+            or self._publisher is None
+            or self._publisher.session_id != current_session_id
+            or self._publisher.event_bus is not resolved_event_bus
+        )
+        if should_create:
+            if resolved_event_bus is None:
+                self._publisher = None
+                return None
+            self._publisher = EventPublisher(
+                agent_name=self.name,
+                session_id=current_session_id,
+                trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
+                span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                event_bus=resolved_event_bus,
+            )
+        else:
+            self._publisher.call_id = call_id
+            self._publisher.parent_call_id = parent_call_id
+
+        self.event_bus = resolved_event_bus
+        return self._publisher
+
+    def _handle_user_input_request(
+        self,
+        arguments: Dict[str, Any],
+        event_bus,
+        session_id: Optional[str],
+        tool_call_id: str,
+        publisher=None,
+        parent_call_id: Optional[str] = None,
+        log_label: Optional[str] = None,
+    ) -> Optional[str]:
+        """处理 request_user_input 伪工具调用。"""
+        from agents.events import EventType
+        from agents.events.bus import Event
+        from agents.task_registry import get_task_registry
+
+        prompt = arguments.get('prompt', '请提供额外信息')
+        input_type = arguments.get('input_type', 'text')
+        options = arguments.get('options', [])
+
+        input_id = str(uuid.uuid4())
+        registry = get_task_registry()
+        wait_evt = registry.add_pending_input(session_id, input_id) if session_id else None
+
+        if publisher:
+            publisher.tool_call_start(
+                call_id=tool_call_id,
+                tool_name='request_user_input',
+                arguments=arguments,
+                parent_call_id=parent_call_id,
+            )
+
+        if event_bus:
+            event_bus.publish(Event(
+                type=EventType.USER_INPUT_REQUIRED,
+                session_id=session_id,
+                agent_name=self.name,
+                data={
+                    "input_id": input_id,
+                    "tool_call_id": tool_call_id,
+                    "prompt": prompt,
+                    "input_type": input_type,
+                    "options": options,
+                }
+            ))
+
+        prefix = log_label or self.display_name or self.name
+        self.logger.info("[%s] 等待用户输入 input_id=%s prompt=%r", prefix, input_id, prompt[:60])
+
+        if wait_evt is None:
+            self.logger.warning("request_user_input: 缺少 session_id，无法等待用户输入")
+            if publisher:
+                publisher.tool_call_end(
+                    call_id=tool_call_id,
+                    tool_name='request_user_input',
+                    result='（无 session，跳过）',
+                    parent_call_id=parent_call_id,
+                )
+            return ""
+
+        started_at = time.time()
+        wait_evt.wait()
+        value = registry.get_input_result(session_id, input_id)
+
+        if publisher:
+            publisher.tool_call_end(
+                call_id=tool_call_id,
+                tool_name='request_user_input',
+                result=value if value else '（已取消）',
+                execution_time=time.time() - started_at,
+                parent_call_id=parent_call_id,
+            )
+
+        self.logger.info("[%s] 用户输入已接收 input_id=%s", prefix, input_id)
+        return value if value != "" else None
+
+    def _publish_visualization_candidate(self, candidate: Dict[str, Any]) -> None:
+        """在最终答案就绪后再发布图表或地图。"""
+        if not self._publisher or not isinstance(candidate, dict):
+            return
+
+        candidate_type = candidate.get('type')
+        if candidate_type == 'chart':
+            chart_config = candidate.get('chart_config')
+            if chart_config:
+                self._publisher.chart_generated(
+                    chart_config=chart_config,
+                    chart_type=candidate.get('chart_type', 'bar'),
+                )
+                candidate_id = candidate.get('candidate_id')
+                if candidate_id:
+                    try:
+                        from tools.presentation_store import get_presentation_store
+                        get_presentation_store().mark_published(candidate_id)
+                    except Exception:
+                        logger.debug("标记图表候选已发布失败 agent=%s candidate_id=%s", self.name, candidate_id, exc_info=True)
+        elif candidate_type == 'map':
+            map_data = candidate.get('map_data')
+            if map_data:
+                self._publisher.map_generated(
+                    map_data=map_data,
+                    map_type=candidate.get('map_type', 'marker'),
+                )
+
+    def _publish_deferred_visualizations(self, candidates: Optional[List[Dict[str, Any]]]) -> None:
+        """批量发布延迟可视化结果。"""
+        for candidate in candidates or []:
+            self._publish_visualization_candidate(candidate)
+
+    def _get_runtime_log_label(self) -> str:
+        """返回运行时日志展示名。"""
+        return "ReAct"
+
+    def _prepare_execution_state(
+        self,
+        task: str,
+        context: AgentContext,
+        start_time: float,
+    ) -> Dict[str, Any]:
+        """准备一次标准 ReAct 执行的初始状态。"""
+        event_bus = self._resolve_event_bus(context)
+        current_call_id = None
+        parent_call_id = None
+        if hasattr(context, 'metadata'):
+            current_call_id = context.metadata.get('call_id')
+            parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
+        if not current_call_id:
+            current_call_id = f"call_{uuid.uuid4()}"
+
+        self._ensure_publisher(
+            context,
+            event_bus=event_bus,
+            call_id=current_call_id,
+            parent_call_id=parent_call_id,
+        )
+        if self._publisher:
+            self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
+
+        self._current_call_id = current_call_id
+        self._parent_call_id = parent_call_id
+        self._current_task_id = current_call_id
+
+        return {
+            'start_time': start_time,
+            'event_bus': event_bus,
+            'call_id': current_call_id,
+            'parent_call_id': parent_call_id,
+            'current_session': [{"role": "user", "content": task}],
+            'pending_visualizations': [],
+            'visualization_counter': 0,
+            'tool_calls_history': [],
+            'rounds': 0,
+        }
+
+    def _publish_context_usage(self, managed_messages, rounds: int) -> None:
+        """发布上下文用量事件。"""
+        if not self._publisher:
+            return
+        from agents.events.bus import EventType
+
+        current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
+        self._publisher._publish(EventType.CONTEXT_USAGE, {
+            'used_tokens': current_tokens,
+            'max_tokens': self.context_pipeline.config.max_tokens,
+            'round': rounds,
+        })
+
+    def _on_assistant_message(
+        self,
+        thought: str,
+        full_response: str,
+        final_answer: str,
+        rounds: int,
+        state: Dict[str, Any],
+    ) -> None:
+        """处理一轮模型返回后的 assistant 消息。默认不做额外动作。"""
+        del thought, full_response, final_answer, rounds, state
+
+    def _record_visualization_result(
+        self,
+        tool_name: str,
+        result: Any,
+        state: Dict[str, Any],
+    ) -> None:
+        """提取并保存工具返回的可视化候选。"""
+        from tools.result_references import result_success, result_visualization_payload
+
+        payload = result_visualization_payload(result) or {}
+        if tool_name == 'present_chart' and result_success(result):
+            results = payload if isinstance(payload, dict) else {}
+            chart_config = results.get('echarts_config')
+            chart_type = results.get('chart_type', 'bar')
+            if chart_config:
+                state['visualization_counter'] = state.get('visualization_counter', 0) + 1
+                state.setdefault('pending_visualizations', []).append({
+                    'type': 'chart',
+                    'chart_config': chart_config,
+                    'chart_type': chart_type,
+                    'candidate_id': results.get('candidate_id'),
+                })
+        elif tool_name == 'generate_map' and result_success(result):
+            results = payload if isinstance(payload, dict) else {}
+            map_type = results.get('map_type', 'marker')
+            if results:
+                state['visualization_counter'] = state.get('visualization_counter', 0) + 1
+                state.setdefault('pending_visualizations', []).append({
+                    'type': 'map',
+                    'map_data': results,
+                    'map_type': map_type,
+                })
+
+    def _handle_actions(
+        self,
+        actions: List[Dict[str, Any]],
+        context: AgentContext,
+        state: Dict[str, Any],
+        rounds: int,
+        log_prefix: str,
+    ) -> None:
+        """默认动作处理：直接工具执行。"""
+        from tools.result_references import result_event_payload
+        from tools.tool_executor import execute_tool
+        from tools.tool_registry import get_tool_registry
+
+        tool_registry = get_tool_registry()
+        event_bus = state.get('event_bus')
+        current_session_id = getattr(context, 'session_id', None)
+        observations: List[str] = []
+        emit_event = getattr(self, '_emit_event', None)
+
+        for idx, action in enumerate(actions, 1):
+            self._check_interrupt(context)
+
+            tool_name = action.get('tool')
+            arguments = action.get('arguments', {})
+            if not tool_name:
+                continue
+
+            self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
+            tool_call_id = f"tool_{uuid.uuid4()}"
+
+            if tool_name == 'request_user_input':
+                user_value = self._handle_user_input_request(
+                    arguments=arguments,
+                    event_bus=event_bus,
+                    session_id=current_session_id,
+                    tool_call_id=tool_call_id,
+                    publisher=self._publisher,
+                    parent_call_id=state.get('call_id'),
+                )
+                if user_value is None:
+                    self._check_interrupt(context)
+                    user_value = ""
+                observations.append(f"**工具 {idx}: {tool_name}**\n用户输入: {user_value}")
+                state.setdefault('tool_calls_history', []).append({
+                    'tool_name': tool_name,
+                    'arguments': arguments,
+                    'result': {'success': True, 'user_input': user_value},
+                })
+                continue
+
+            if callable(emit_event):
+                emit_event('tool_start', {
+                    'tool_call_id': tool_call_id,
+                    'tool_name': tool_name,
+                    'arguments': arguments,
+                    'index': idx,
+                    'total': len(actions),
+                })
+            elif self._publisher:
+                self._publisher.tool_call_start(
+                    call_id=tool_call_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    parent_call_id=state.get('call_id'),
+                )
+
+            tool_started_at = time.time()
+            result = execute_tool(
+                tool_name,
+                arguments,
+                agent_config=self.agent_config,
+                event_bus=event_bus,
+                session_id=current_session_id,
+            )
+            elapsed_time = time.time() - tool_started_at
+
+            if callable(emit_event):
+                emit_event('tool_end', {
+                    'tool_call_id': tool_call_id,
+                    'tool_name': tool_name,
+                    'result': result,
+                    'elapsed_time': elapsed_time,
+                    'index': idx,
+                    'total': len(actions),
+                })
+            elif self._publisher:
+                self._publisher.tool_call_end(
+                    call_id=tool_call_id,
+                    tool_name=tool_name,
+                    result=result_event_payload(result),
+                    execution_time=elapsed_time,
+                    parent_call_id=state.get('call_id'),
+                )
+
+            self._record_visualization_result(tool_name, result, state)
+            state.setdefault('tool_calls_history', []).append({
+                'tool_name': tool_name,
+                'arguments': arguments,
+                'result': result,
+            })
+
+            is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
+            observation = self.observation_formatter.format(
+                result,
+                tool_name=tool_name,
+                is_skills_tool=is_skills_tool,
+            )
+            observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
+
+        combined_observations = "\n\n".join(observations)
+        state['current_session'].append({
+            "role": "user",
+            "content": f"工具执行结果：\n\n{combined_observations}",
+        })
+
+    def _handle_no_action(
+        self,
+        llm_result: Any,
+        context: AgentContext,
+        state: Dict[str, Any],
+        rounds: int,
+        log_prefix: str,
+    ) -> None:
+        """处理既无 action 也无最终答案的场景。"""
+        del context, rounds
+        parse_fail_hint = f"（工具参数解析失败: {llm_result.error}）" if llm_result.error else ""
+        self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案{parse_fail_hint}")
+        state['current_session'].append({
+            "role": "user",
+            "content": (
+                f"工具参数解析失败{parse_fail_hint}，请检查参数格式。"
+                "Windows 文件路径中的反斜杠 \\ 在 JSON 中需要转义为 \\\\，"
+                "或直接使用正斜杠 / 代替。请重新输出 <tools>。"
+            ) if llm_result.error else "请直接输出 <answer> 或 <tools>。"
+        })
+
+    def _handle_llm_error(
+        self,
+        error_message: str,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        """处理 LLM 调用错误。"""
+        del context, state
+        if self._publisher:
+            self._publisher.agent_error(error=error_message, error_type="LLMError")
+        return AgentResponse(
+            success=False,
+            content="",
+            error=error_message,
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+        )
+
+    def _handle_final_answer(
+        self,
+        final_answer: str,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        """处理最终答案。"""
+        del context
+        if state.get('visualization_counter', 0) > 0:
+            from agents.utils.visualization_postprocess import ensure_chart_placeholders
+            final_answer = ensure_chart_placeholders(final_answer, state['visualization_counter'])
+
+        if self._publisher:
+            self._publisher.final_answer(final_answer)
+            self._publish_deferred_visualizations(state.get('pending_visualizations'))
+            self._publisher.agent_end(
+                result=final_answer,
+                execution_time=time.time() - start_time,
+            )
+
+        return AgentResponse(
+            success=True,
+            content=final_answer,
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+            tool_calls=state.get('tool_calls_history', []),
+            metadata={
+                'rounds': state.get('rounds', 0),
+                'reasoning_steps': [
+                    msg for msg in state.get('current_session', [])
+                    if msg.get('role') == 'assistant'
+                ],
+            },
+        )
+
+    def _handle_max_rounds(
+        self,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        """处理达到最大轮数的情况。"""
+        del context
+        self.logger.warning(f"{self._log_prefix(None, self._get_runtime_log_label())} 达到最大轮数 {self.max_rounds}")
+        final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
+        if self._publisher:
+            self._publisher.final_answer(final_content)
+            self._publisher.agent_end(
+                result=final_content,
+                execution_time=time.time() - start_time,
+            )
+        return AgentResponse(
+            success=True,
+            content=final_content,
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+            tool_calls=state.get('tool_calls_history', []),
+            metadata={
+                'rounds': state.get('rounds', 0),
+                'max_rounds_reached': True,
+            },
+        )
+
+    def _handle_interrupted(
+        self,
+        error: InterruptedError,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        """处理中断。"""
+        del context, state
+        self.logger.info(f"任务被用户中断: {error}")
+        if self._publisher:
+            self._publisher.agent_error(error=str(error), error_type="InterruptedError")
+            self._publisher.agent_end(
+                result="[已停止生成]",
+                execution_time=time.time() - start_time,
+            )
+        return AgentResponse(
+            success=False,
+            content="[已停止生成]",
+            error="interrupted",
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+        )
+
+    def _handle_execution_error(
+        self,
+        error: Exception,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        """处理未捕获异常。"""
+        del context, state
+        self.logger.error(f"执行任务失败: {error}", exc_info=True)
+        if self._publisher:
+            self._publisher.agent_error(error=str(error), error_type="ExecutionError")
+        return AgentResponse(
+            success=False,
+            content="",
+            error=str(error),
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+        )
+
+    def _cleanup_execution(
+        self,
+        context: AgentContext,
+        state: Dict[str, Any],
+    ) -> None:
+        """清理执行态资源。默认无操作。"""
+        del context, state
+
+    def _execute_react_task(self, task: str, context: AgentContext) -> AgentResponse:
+        """统一的 ReAct 主循环。"""
+        from agents.streaming import StreamExecutor
+
+        start_time = time.time()
+        state: Dict[str, Any] = {}
+        try:
+            state = self._prepare_execution_state(task, context, start_time)
+            current_session = state['current_session']
+
+            while state['rounds'] < self.max_rounds:
+                state['rounds'] += 1
+                rounds = state['rounds']
+
+                self._check_interrupt(context)
+                llm_config = self.get_llm_config(context)
+                log_prefix = self._log_prefix(llm_config, self._get_runtime_log_label())
+                self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
+
+                managed_messages = self.context_pipeline.prepare_messages(
+                    system_prompt=self._build_system_prompt(),
+                    context=context,
+                    current_session=current_session,
+                    publisher=self._publisher,
+                )
+                self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
+                self._publish_context_usage(managed_messages, rounds)
+
+                stream_executor = StreamExecutor(
+                    model_adapter=self.model_adapter,
+                    publisher=self._publisher,
+                    agent_logger=self.logger,
+                )
+                result = stream_executor.execute_llm_stream(
+                    messages=managed_messages,
+                    llm_config=llm_config,
+                    round_num=rounds,
+                    cancel_event=context.metadata.get('cancel_event'),
+                )
+
+                self._check_interrupt(context)
+
+                if result.error:
+                    if result.error == 'interrupted':
+                        raise InterruptedError("LLM 调用被中断")
+                    return self._handle_llm_error(
+                        f"LLM 调用失败: {result.error}",
+                        context,
+                        state,
+                        start_time,
+                    )
+
+                thought = result.thought
+                actions = result.actions or []
+                final_answer = result.answer
+                full_response = result.full_response
+
+                if thought:
+                    self.logger.info(f"{log_prefix} Thinking: {thought[:100]}...")
+                elif actions:
+                    self.logger.info(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name', '?') for a in actions]}")
+                elif final_answer:
+                    self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
+
+                current_session.append({
+                    "role": "assistant",
+                    "content": full_response,
+                })
+                self._on_assistant_message(thought, full_response, final_answer, rounds, state)
+
+                if final_answer:
+                    return self._handle_final_answer(final_answer, context, state, start_time)
+
+                if actions:
+                    self.logger.info(f"{log_prefix} 执行 {len(actions)} 个动作")
+                    self._handle_actions(actions, context, state, rounds, log_prefix)
+                    continue
+
+                self._handle_no_action(result, context, state, rounds, log_prefix)
+
+            return self._handle_max_rounds(context, state, start_time)
+
+        except InterruptedError as error:
+            try:
+                return self._handle_interrupted(error, context, state, start_time)
+            except Exception as handler_error:
+                self.logger.error("处理中断收尾失败: %s", handler_error, exc_info=True)
+                return AgentResponse(
+                    success=False,
+                    content="[已停止生成]",
+                    error="interrupted",
+                    agent_name=self.name,
+                    execution_time=time.time() - start_time,
+                )
+        except Exception as error:
+            try:
+                return self._handle_execution_error(error, context, state, start_time)
+            except Exception as handler_error:
+                self.logger.error("处理执行异常收尾失败: %s", handler_error, exc_info=True)
+                return AgentResponse(
+                    success=False,
+                    content="",
+                    error=str(error),
+                    agent_name=self.name,
+                    execution_time=time.time() - start_time,
+                )
+        finally:
+            try:
+                self._cleanup_execution(context, state)
+            except Exception as cleanup_error:
+                self.logger.warning("清理执行态资源失败: %s", cleanup_error, exc_info=True)
 
     def _check_interrupt(self, context: AgentContext):
         """检查是否被用户中断"""

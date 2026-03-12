@@ -8,7 +8,7 @@
 import logging
 from typing import Dict, Optional, Type
 from agents.core import BaseAgent
-from agents.implementations import ReActAgent
+from agents.implementations import ReActAgent, OrchestratorAgent
 from .manager import get_config_manager
 from tools.tool_registry import get_tool_registry
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'react': ReActAgent,
+    'orchestrator': OrchestratorAgent,
 }
 
 
@@ -47,7 +48,7 @@ class AgentLoader:
         Args:
             model_adapter: Model 适配器
             system_config: 系统配置
-            orchestrator: 编排器（MasterAgent V2 需要）
+            orchestrator: 编排器（Orchestrator Agent 需要）
         """
         self.model_adapter = model_adapter
         self.system_config = system_config
@@ -56,7 +57,13 @@ class AgentLoader:
         self._mcp_manager_getter = mcp_manager_getter
         self._tool_registry = get_tool_registry()
 
-    def load_agent(self, agent_name: str) -> Optional[BaseAgent]:
+    def load_agent(
+        self,
+        agent_name: str,
+        *,
+        agent_config=None,
+        ignore_enabled: bool = False,
+    ) -> Optional[BaseAgent]:
         """
         加载单个智能体
 
@@ -68,15 +75,18 @@ class AgentLoader:
         """
         try:
             # 获取智能体配置
-            agent_config = self.config_manager.get_config(agent_name)
+            if agent_config is None:
+                agent_config = self.config_manager.get_config(agent_name)
             if agent_config is None:
                 logger.warning(f"智能体 '{agent_name}' 配置不存在")
                 return None
 
             # 检查是否启用
-            if not agent_config.enabled:
+            if not ignore_enabled and not agent_config.enabled:
                 logger.info(f"智能体 '{agent_name}' 已禁用")
                 return None
+            if ignore_enabled and not agent_config.enabled:
+                logger.info(f"智能体 '{agent_name}' 作为系统入口加载，忽略 enabled=false")
 
             # 确定智能体类型
             agent_type = self._get_agent_type(agent_name, agent_config)
@@ -111,104 +121,104 @@ class AgentLoader:
         agents = {}
         all_configs = self.config_manager.get_all_configs()
 
-        # 1. 加载用户配置的智能体
+        # 1. 加载配置中的智能体
         for agent_name, agent_config in all_configs.items():
-            # 跳过 MasterAgent V2（由系统单独加载）
-            if agent_name == 'master_agent_v2':
-                logger.info(f"跳过 {agent_name}（系统智能体，不从配置加载）")
-                continue
-
-            agent = self.load_agent(agent_name)
+            agent = self.load_agent(
+                agent_name,
+                agent_config=agent_config,
+                ignore_enabled=(agent_name == 'orchestrator_agent'),
+            )
             if agent is not None:
                 agents[agent_name] = agent
 
-        # 2. 强制加载 MasterAgent V2（系统级智能体）
-        master_agent_v2 = self._load_system_master_agent_v2()
-        if master_agent_v2 is not None:
-            agents['master_agent_v2'] = master_agent_v2
-            logger.info(f"✅ 已加载系统智能体: master_agent_v2（支持通过 agent_configs.yaml 配置）")
+        # 2. 确保系统入口 Orchestrator Agent 存在
+        if 'orchestrator_agent' not in agents:
+            orchestrator_agent = self._load_system_orchestrator_agent()
+            if orchestrator_agent is not None:
+                agents['orchestrator_agent'] = orchestrator_agent
+                logger.info("✅ 已加载系统智能体: orchestrator_agent（默认配置兜底）")
 
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
 
-    def _load_system_master_agent_v2(self) -> Optional[BaseAgent]:
-        """
-        加载系统级 MasterAgent V2
+    def resolve_default_entry_agent_name(self) -> Optional[str]:
+        """解析默认入口智能体名称。"""
+        all_configs = self.config_manager.get_all_configs()
+        explicit_defaults = []
+        for agent_name, agent_config in all_configs.items():
+            custom_params = getattr(agent_config, 'custom_params', {}) or {}
+            if getattr(agent_config, 'default_entry', False) is True or custom_params.get('default_entry') is True:
+                explicit_defaults.append(agent_name)
 
-        优先从 agent_configs.yaml 读取 master_agent_v2 配置；
+        if explicit_defaults:
+            if len(explicit_defaults) > 1:
+                logger.warning("检测到多个 default_entry=true，使用第一个: %s", explicit_defaults[0])
+            return explicit_defaults[0]
+
+        return 'orchestrator_agent'
+
+    def _load_system_orchestrator_agent(self) -> Optional[BaseAgent]:
+        """
+        加载系统级 Orchestrator Agent
+
+        优先从 agent_configs.yaml 读取 orchestrator_agent 配置；
         如果用户未配置，则使用硬编码默认值兜底。
 
         Returns:
-            MasterAgent V2 实例
+            Orchestrator Agent 实例
         """
         try:
             if self.orchestrator is None:
-                logger.warning("orchestrator 未提供，无法加载 MasterAgent V2")
+                logger.warning("orchestrator 未提供，无法加载 Orchestrator Agent")
                 return None
 
-            from .models import AgentConfig, AgentLLMConfig
-
-            # 尝试从 YAML 读取用户配置
-            yaml_config = self.config_manager.get_config('master_agent_v2')
-            if yaml_config is not None:
-                # 用户有配置：直接使用（Pydantic 已验证字段默认值）
-                # 注意：忽略 enabled 字段，Master Agent 作为系统级智能体始终加载
-                master_v2_config = yaml_config
-                logger.info("MasterAgent V2：使用 agent_configs.yaml 中的用户配置")
-            else:
-                # 用户无配置：使用硬编码默认值兜底
-                master_v2_config = AgentConfig(
-                    agent_name='master_agent_v2',
-                    display_name='Master Agent V2 (动态编排)',
-                    description='动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策',
-                    enabled=True,
-                    llm=AgentLLMConfig(
-                        provider=None,  # 使用系统配置
-                        model_name=None,  # 使用系统配置
-                        temperature=0.3,
-                        max_tokens=4096,
-                        timeout=60,
-                        retry_attempts=3
-                    ),
-                    custom_params={
-                        'type': 'master_v2',
-                        'behavior': {
-                            'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
-                            'max_rounds': 15,
-                            'compression_trigger_ratio': 0.85,
-                            'summarize_max_tokens': 300,
-                            'preserve_recent_turns': 3,
-                            'data_save_dir': './static/temp_data'
-                        }
-                    }
-                )
-                logger.info("MasterAgent V2：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
-
-            # 解析工具与 Skills 配置（复用公共方法）
-            available_tools, available_skills = self._resolve_tools_and_skills(master_v2_config)
-
-            from agents.implementations.master import MasterAgentV2
-            master_agent_v2 = MasterAgentV2(
-                orchestrator=self.orchestrator,
-                model_adapter=self.model_adapter,
-                agent_config=master_v2_config,
-                system_config=self.system_config,
-                available_tools=available_tools,
-                available_skills=available_skills,
-            )
-            logger.info(
-                f"MasterAgent V2 已创建（新版动态编排架构），"
-                f"直接工具: {len(available_tools)} 个，Skills: {len(available_skills)} 个"
+            orchestrator_config = self._build_default_orchestrator_agent_config()
+            orchestrator_agent = self.load_agent(
+                'orchestrator_agent',
+                agent_config=orchestrator_config,
+                ignore_enabled=True,
             )
 
-            return master_agent_v2
+            return orchestrator_agent
 
         except ImportError as e:
-            logger.error(f"MasterAgent V2 模块未找到，请确认已正确安装: {e}")
+            logger.error(f"Orchestrator Agent 模块未找到，请确认已正确安装: {e}")
             return None
         except Exception as e:
-            logger.error(f"加载 MasterAgent V2 失败: {e}", exc_info=True)
+            logger.error(f"加载 Orchestrator Agent 失败: {e}", exc_info=True)
             return None
+
+    def _build_default_orchestrator_agent_config(self):
+        """构建 orchestrator_agent 的默认配置。"""
+        from .models import AgentConfig, AgentLLMConfig
+
+        logger.info("Orchestrator Agent：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
+        return AgentConfig(
+            agent_name='orchestrator_agent',
+            display_name='Orchestrator Agent',
+            description='动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策',
+            enabled=True,
+            default_entry=True,
+            llm=AgentLLMConfig(
+                provider=None,
+                model_name=None,
+                temperature=0.3,
+                max_tokens=4096,
+                timeout=60,
+                retry_attempts=3
+            ),
+            custom_params={
+                'type': 'orchestrator',
+                'behavior': {
+                    'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
+                    'max_rounds': 15,
+                    'compression_trigger_ratio': 0.85,
+                    'summarize_max_tokens': 300,
+                    'preserve_recent_turns': 3,
+                    'data_save_dir': './static/temp_data'
+                }
+            }
+        )
 
     def _get_agent_type(self, agent_name: str, agent_config) -> str:
         """
@@ -336,16 +346,23 @@ class AgentLoader:
         }
 
         # 根据不同类型添加特殊参数
-        if agent_class == ReActAgent:
-            # ReActAgent 需要额外参数：使用公共方法解析工具与 Skills
-            filtered_tools, filtered_skills = self._resolve_tools_and_skills(agent_config)
+        filtered_tools, filtered_skills = self._resolve_tools_and_skills(agent_config)
 
+        if agent_class == ReActAgent:
             common_kwargs.update({
                 'agent_name': agent_config.agent_name,
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
                 'available_tools': filtered_tools,
                 'available_skills': filtered_skills
+            })
+        elif agent_class == OrchestratorAgent:
+            if self.orchestrator is None:
+                raise ValueError("orchestrator 未提供，无法创建 Orchestrator Agent")
+            common_kwargs.update({
+                'orchestrator': self.orchestrator,
+                'available_tools': filtered_tools,
+                'available_skills': filtered_skills,
             })
 
         # 创建实例

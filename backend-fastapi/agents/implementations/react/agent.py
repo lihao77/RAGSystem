@@ -11,52 +11,12 @@ ReAct Agent - 使用 XML 标签格式 + 流式输出
 
 import logging
 import json
-import os
-import time
 from typing import Optional, Dict, Any, List
-import uuid
-from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError
-from agents.streaming import StreamExecutor
-from agents.context.config import ContextConfig
-from agents.context.observation_formatter import ObservationFormatter
-from agents.monitoring.observation_window import ObservationWindowCollector
-from agents.context.pipeline import ContextPipeline
-from tools.tool_executor import execute_tool
-from tools.result_references import result_success, result_visualization_payload
+from agents.core import BaseAgent, AgentContext, AgentResponse
 from tools.tool_registry import get_tool_registry
-from agents.events import get_session_event_bus, EventPublisher
 
 logger = logging.getLogger(__name__)
 _TOOL_REGISTRY = get_tool_registry()
-
-
-def _publish_visualization_candidate(publisher, candidate: Dict[str, Any]) -> None:
-    """Publish a deferred chart/map payload once the agent has finalized its answer."""
-    if not publisher or not isinstance(candidate, dict):
-        return
-
-    candidate_type = candidate.get('type')
-    if candidate_type == 'chart':
-        chart_config = candidate.get('chart_config')
-        if chart_config:
-            publisher.chart_generated(
-                chart_config=chart_config,
-                chart_type=candidate.get('chart_type', 'bar'),
-            )
-            candidate_id = candidate.get('candidate_id')
-            if candidate_id:
-                try:
-                    from tools.presentation_store import get_presentation_store
-                    get_presentation_store().mark_published(candidate_id)
-                except Exception:
-                    logger.debug("标记图表候选已发布失败: %s", candidate_id, exc_info=True)
-    elif candidate_type == 'map':
-        map_data = candidate.get('map_data')
-        if map_data:
-            publisher.map_generated(
-                map_data=map_data,
-                map_type=candidate.get('map_type', 'marker'),
-            )
 
 
 def _format_tool_contract(tool: Dict[str, Any]) -> List[str]:
@@ -119,65 +79,16 @@ class ReActAgent(BaseAgent):
         )
 
         self.display_name = display_name or agent_name
-        self.available_skills = available_skills or []  # 新增：保存 Skills
         self.event_callback = event_callback  # 保存回调函数（向后兼容）
-        self.event_bus = event_bus  # 保存事件总线实例
-        self._publisher = None  # EventPublisher 实例（延迟创建）
-
-        # 自动注入内置工具（Human-in-the-Loop：request_user_input）
-        self.available_tools = _TOOL_REGISTRY.get_builtin_tools_for_react(available_tools or [])
-
-        # 从配置获取行为参数
-        behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
-        self.max_rounds = behavior_config.get('max_rounds', 10)
-        self.base_prompt = behavior_config.get('system_prompt', '')
-
-        # 获取模型配置
-        llm_config = self.get_llm_config()
-
-        # 计算上下文预算
-        from agents.context.budget import compute_context_budget, DEFAULT_MAX_COMPLETION_TOKENS, REACT_FALLBACK_MULTIPLIER
-        # 兼容新旧字段名：优先使用 max_completion_tokens，回退到 max_tokens
-        model_max_completion_tokens = llm_config.get('max_completion_tokens') or llm_config.get('max_tokens', DEFAULT_MAX_COMPLETION_TOKENS)
-        model_context_window = llm_config.get('max_context_tokens')
-
-        max_context_tokens = compute_context_budget(
-            model_context_window=model_context_window,
-            max_completion_tokens=model_max_completion_tokens,
-            explicit_budget=behavior_config.get('max_context_tokens'),
+        from agents.context.budget import REACT_FALLBACK_MULTIPLIER
+        self._setup_react_runtime(
+            available_tools=available_tools,
+            available_skills=available_skills,
+            event_bus=event_bus,
+            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_react,
+            max_rounds_default=10,
             fallback_multiplier=REACT_FALLBACK_MULTIPLIER,
-        )
-
-        # 初始化上下文组件
-        context_config = ContextConfig(
-            max_tokens=max_context_tokens,
-            model_name=llm_config.get('model_name'),
-            compression_trigger_ratio=behavior_config.get('compression_trigger_ratio', 0.85),
-            summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
-            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
-        )
-        observation_window = ObservationWindowCollector()
-        self.context_pipeline = ContextPipeline(
-            config=context_config,
-            model_adapter=self.model_adapter,
-            get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
-            logger=self.logger,
-            observation_window=observation_window,
-        )
-
-        # 初始化观察结果格式化器
-        self.observation_formatter = ObservationFormatter(
-            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data'),
-            observation_window=observation_window,
-        )
-
-        logger.info(
-            f"ReActAgent '{self.name}' 初始化完成，"
-            f"可用工具: {len(self.available_tools)}，"
-            f"可用 Skills: {len(self.available_skills)}，"
-            f"模型输出限制: {model_max_completion_tokens} tokens, "
-            f"上下文窗口: {model_context_window or '未配置'}, "
-            f"上下文预算: {max_context_tokens} tokens"
+            runtime_label="ReActAgent",
         )
 
     def _handle_user_input_request(
@@ -189,83 +100,15 @@ class ReActAgent(BaseAgent):
         publisher=None,
         parent_call_id: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        处理 request_user_input 伪工具调用。
-        发布 tool_call_start → USER_INPUT_REQUIRED 事件，阻塞等待用户输入，
-        收到输入后发布 tool_call_end（result = 用户输入），让执行树可见。
-
-        Returns:
-            用户输入的字符串；任务被取消时返回 None。
-        """
-        from agents.events import EventType
-        from agents.events.bus import Event
-        from agents.task_registry import get_task_registry
-        import time as _time
-
-        prompt = arguments.get('prompt', '请提供额外信息')
-        input_type = arguments.get('input_type', 'text')
-        options = arguments.get('options', [])
-
-        input_id = str(uuid.uuid4())
-        registry = get_task_registry()
-
-        wait_evt = None
-        if session_id:
-            wait_evt = registry.add_pending_input(session_id, input_id)
-
-        # 发布 tool_call_start，让执行树显示「等待用户输入」节点
-        if publisher:
-            publisher.tool_call_start(
-                call_id=tool_call_id,
-                tool_name='request_user_input',
-                arguments=arguments,
-                parent_call_id=parent_call_id,
-            )
-
-        if event_bus:
-            event_bus.publish(Event(
-                type=EventType.USER_INPUT_REQUIRED,
-                session_id=session_id,
-                data={
-                    "input_id": input_id,
-                    "tool_call_id": tool_call_id,
-                    "prompt": prompt,
-                    "input_type": input_type,
-                    "options": options,
-                }
-            ))
-            self.logger.info(f"已发布用户输入请求 input_id={input_id} prompt={prompt!r}")
-
-        if wait_evt is None:
-            self.logger.warning("request_user_input: 缺少 session_id，无法等待用户输入")
-            if publisher:
-                publisher.tool_call_end(
-                    call_id=tool_call_id,
-                    tool_name='request_user_input',
-                    result='（无 session，跳过）',
-                    parent_call_id=parent_call_id,
-                )
-            return ""
-
-        _t0 = _time.time()
-        # 真正无限等待：由 resolve_input() 或 cancel() 唤醒
-        wait_evt.wait()
-        value = registry.get_input_result(session_id, input_id)
-
-        # 发布 tool_call_end，result 展示用户输入内容
-        if publisher:
-            publisher.tool_call_end(
-                call_id=tool_call_id,
-                tool_name='request_user_input',
-                result=value if value else '（已取消）',
-                execution_time=_time.time() - _t0,
-                parent_call_id=parent_call_id,
-            )
-
-        # cancel() 唤醒时 cancel_event 也被 set，上层 _check_interrupt 会抛出
-        # 这里直接返回 value（空字符串），调用方判断
-        self.logger.info(f"用户输入已收到 input_id={input_id} value={value!r}")
-        return value
+        return super()._handle_user_input_request(
+            arguments=arguments,
+            event_bus=event_bus,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            publisher=publisher,
+            parent_call_id=parent_call_id,
+            log_label="ReAct",
+        )
 
     def _emit_event(self, event_type: str, data: Dict[str, Any]):
         """
@@ -450,364 +293,13 @@ class ReActAgent(BaseAgent):
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         """执行任务（非流式版本，兼容旧接口）"""
-        start_time = time.time()
-
-        try:
-            # ✨ 初始化事件总线和 EventPublisher
-            event_bus = self.event_bus
-            if not event_bus and hasattr(context, 'session_id') and context.session_id:
-                event_bus = get_session_event_bus(context.session_id)
-
-            current_session_id = getattr(context, 'session_id', None)
-
-            # ✨ 从 context 读取 call_id 和 parent_call_id（如果是被 MasterAgent V2 调用）
-            import uuid
-            parent_call_id = None
-            current_call_id = None
-            if hasattr(context, 'metadata'):
-                current_call_id = context.metadata.get('call_id')  # MasterAgent 传来的 call_id（与 call.agent.start 一致）
-                parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
-
-            if not current_call_id:
-                current_call_id = f"call_{uuid.uuid4()}"
-
-            if (
-                self._publisher is None
-                or self._publisher.session_id != current_session_id
-                or self._publisher.event_bus is not event_bus
-            ):
-                if event_bus:
-                    self._publisher = EventPublisher(
-                        agent_name=self.name,
-                        session_id=current_session_id,
-                        trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
-                        span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
-                        call_id=current_call_id,
-                        parent_call_id=parent_call_id,
-                        event_bus=event_bus
-                    )
-            elif self._publisher:
-                # publisher 被复用时，必须更新 call_id 和 parent_call_id（每次调用不同）
-                self._publisher.call_id = current_call_id
-                self._publisher.parent_call_id = parent_call_id
-
-            # ✨ 发布 agent_start 事件
-            if self._publisher:
-                self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
-
-            # 保存 call_id 供后续使用
-            self._current_call_id = current_call_id
-            self._parent_call_id = parent_call_id
-
-            # 兼容旧代码
-            self._current_task_id = self._current_call_id
-
-            # 构建当次执行的消息列表（从 task 开始）
-            current_session = [{"role": "user", "content": task}]
-
-            rounds = 0
-            visualization_counter = 0
-            pending_visualizations: List[Dict[str, Any]] = []
-            tool_calls_history = []
-
-            while rounds < self.max_rounds:
-                rounds += 1
-                # 检查中断
-                self._check_interrupt(context)
-
-                # 获取 LLM 配置（含请求级 context.llm_override），用于调用与日志前缀
-                llm_config = self.get_llm_config(context)
-                log_prefix = self._log_prefix(llm_config, "ReAct")
-
-                self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
-
-                #  应用上下文管理（压缩 + 预算控制）
-                managed_messages = self.context_pipeline.prepare_messages(
-                    system_prompt=self._build_system_prompt(),
-                    context=context,
-                    current_session=current_session,
-                    publisher=self._publisher,
-                )
-                self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
-
-                # 发送上下文用量事件
-                if self._publisher:
-                    from agents.events.bus import EventType
-                    current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
-                    self._publisher._publish(EventType.CONTEXT_USAGE, {
-                        'used_tokens': current_tokens,
-                        'max_tokens': self.context_pipeline.config.max_tokens,
-                        'round': rounds
-                    })
-
-                # 调用 LLM（流式 XML 模式）
-                stream_executor = StreamExecutor(
-                    model_adapter=self.model_adapter,
-                    publisher=self._publisher,
-                    agent_logger=self.logger,
-                )
-                result = stream_executor.execute_llm_stream(
-                    messages=managed_messages,
-                    llm_config=llm_config,
-                    round_num=rounds,
-                    cancel_event=context.metadata.get('cancel_event'),
-                )
-
-                # 检查中断
-                self._check_interrupt(context)
-
-                # 检查错误
-                if result.error:
-                    if result.error == 'interrupted':
-                        raise InterruptedError("LLM 调用被中断")
-                    error_msg = f"LLM 调用失败: {result.error}"
-                    if self._publisher:
-                        self._publisher.agent_error(error=error_msg, error_type="LLMError")
-                    return AgentResponse(
-                        success=False,
-                        content="",
-                        error=error_msg,
-                        agent_name=self.name,
-                        execution_time=time.time() - start_time
-                    )
-
-                thought = result.thought
-                actions = result.actions or []
-                final_answer = result.answer
-                full_response = result.full_response
-
-                if thought:
-                    self.logger.info(f"{log_prefix} Thinking: {thought[:100]}...")
-                elif actions:
-                    self.logger.info(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name','?') for a in actions]}")
-                elif final_answer:
-                    self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
-
-                # 添加 assistant 消息（使用完整的 XML 响应文本用于持久化）
-                current_session.append({
-                    "role": "assistant",
-                    "content": full_response
-                })
-
-                # 检查是否有最终答案
-                if final_answer:
-                    self.logger.info(f"{log_prefix} 得到最终答案")
-                    # 后端兜底：确保所有可视化占位符存在
-                    if visualization_counter > 0:
-                        from agents.utils.visualization_postprocess import ensure_chart_placeholders
-                        final_answer = ensure_chart_placeholders(final_answer, visualization_counter)
-                    # ✨ 发布事件
-                    if self._publisher:
-                        self._publisher.final_answer(final_answer)
-                        self._publish_deferred_visualizations(pending_visualizations)
-                        self._publisher.agent_end(
-                            result=final_answer,
-                            execution_time=time.time() - start_time
-                        )
-                    return AgentResponse(
-                        success=True,
-                        content=final_answer,
-                        agent_name=self.name,
-                        execution_time=time.time() - start_time,
-                        tool_calls=tool_calls_history,
-                        metadata={
-                            'rounds': rounds,
-                            'reasoning_steps': [msg for msg in current_session if msg['role'] == 'assistant']
-                        }
-                    )
-
-                # 检查是否需要执行工具（支持多个工具并行）
-                if actions and len(actions) > 0:
-                    self.logger.info(f"{log_prefix} 执行 {len(actions)} 个工具调用")
-
-                    # 收集所有工具的执行结果
-                    observations = []
-
-                    for idx, action in enumerate(actions, 1):
-                        # 每个工具执行前检查中断
-                        self._check_interrupt(context)
-
-                        tool_name = action.get('tool')
-                        arguments = action.get('arguments', {})
-
-                        if not tool_name:
-                            continue
-
-                        self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
-
-                        # 生成 tool_call_id
-                        import uuid
-                        tool_call_id = f"tool_{uuid.uuid4()}"
-
-                        # ── 伪工具：request_user_input（不走 tool_executor）──
-                        if tool_name == 'request_user_input':
-                            user_value = self._handle_user_input_request(
-                                arguments=arguments,
-                                event_bus=event_bus,
-                                session_id=current_session_id,
-                                tool_call_id=tool_call_id,
-                                publisher=self._publisher,
-                                parent_call_id=self._current_call_id,
-                            )
-                            # 用户取消（任务被停止）时 value 为 None，检查中断
-                            if user_value is None:
-                                self._check_interrupt(context)
-                                # 若未抛出则当作空输入处理
-                                user_value = ""
-                            observations.append(f"**工具 {idx}: {tool_name}**\n用户输入: {user_value}")
-                            tool_calls_history.append({
-                                'tool_name': tool_name,
-                                'arguments': arguments,
-                                'result': {'success': True, 'user_input': user_value}
-                            })
-                            continue
-
-                        # 发送工具开始事件
-                        self._emit_event('tool_start', {
-                            'tool_call_id': tool_call_id,  # 传入 ID
-                            'tool_name': tool_name,
-                            'arguments': arguments,
-                            'index': idx,
-                            'total': len(actions)
-                        })
-
-                        # 执行工具（传递 agent_config 以确保 agent 级别的工具权限检查）
-                        start_time = time.time()
-                        result = execute_tool(
-                            tool_name, arguments,
-                            agent_config=self.agent_config,
-                            event_bus=event_bus,
-                            session_id=current_session_id,
-                        )
-                        elapsed_time = time.time() - start_time
-
-                        # 发送工具结束事件
-                        self._emit_event('tool_end', {
-                            'tool_call_id': tool_call_id,  # 传入 ID
-                            'tool_name': tool_name,
-                            'result': result,
-                            'elapsed_time': elapsed_time,
-                            'index': idx,
-                            'total': len(actions)
-                        })
-
-                        # ✨ 发布可视化事件（如果是图表/地图工具）
-                        if self._publisher:
-                            payload = result_visualization_payload(result) or {}
-                            if tool_name == 'present_chart' and result_success(result):
-                                results = payload if isinstance(payload, dict) else {}
-                                chart_config = results.get('echarts_config')
-                                chart_type = results.get('chart_type', 'bar')
-                                if chart_config:
-                                    visualization_counter += 1
-                                    pending_visualizations.append({
-                                        'type': 'chart',
-                                        'chart_config': chart_config,
-                                        'chart_type': chart_type,
-                                        'candidate_id': results.get('candidate_id'),
-                                    })
-                            elif tool_name == 'generate_map' and result_success(result):
-                                results = payload if isinstance(payload, dict) else {}
-                                map_type = results.get('map_type', 'marker')
-                                if results:
-                                    visualization_counter += 1
-                                    pending_visualizations.append({
-                                        'type': 'map',
-                                        'map_data': results,
-                                        'map_type': map_type,
-                                    })
-
-                        # 记录工具调用
-                        tool_calls_history.append({
-                            'tool_name': tool_name,
-                            'arguments': arguments,
-                            'result': result
-                        })
-
-                        # 格式化观察结果（使用新的格式化器）
-                        is_skills_tool = tool_name in _TOOL_REGISTRY.get_skill_tool_names()
-                        observation = self.observation_formatter.format(
-                            result,
-                            tool_name=tool_name,
-                            is_skills_tool=is_skills_tool
-                        )
-                        observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
-
-                    # 将所有结果作为 user 消息添加
-                    combined_observations = "\n\n".join(observations)
-                    current_session.append({
-                        "role": "user",
-                        "content": f"工具执行结果：\n\n{combined_observations}"
-                    })
-
-                    continue
-                else:
-                    # 没有工具调用但也没有最终答案，可能是参数解析失败或 LLM 困惑
-                    parse_fail_hint = f"（工具参数解析失败: {result.error}）" if result.error else ""
-                    self.logger.warning(f"{log_prefix} LLM 既没有调用工具也没有给出最终答案{parse_fail_hint}")
-                    current_session.append({
-                        "role": "user",
-                        "content": (
-                            f"工具参数解析失败{parse_fail_hint}，请检查参数格式。"
-                            "Windows 文件路径中的反斜杠 \\ 在 JSON 中需要转义为 \\\\，"
-                            "或直接使用正斜杠 / 代替。请重新输出 <tools>。"
-                        ) if result.error else "请直接输出 <answer> 或 <tools>。"
-                    })
-                    continue
-
-            # 达到最大轮数
-            self.logger.warning(f"{self._log_prefix(None, 'ReAct')} 达到最大轮数 {self.max_rounds}")
-            final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
-            # ✨ 发布事件
-            if self._publisher:
-                self._publisher.final_answer(final_content)
-                self._publisher.agent_end(
-                    result=final_content,
-                    execution_time=time.time() - start_time
-                )
-            return AgentResponse(
-                success=True,
-                content=final_content,
-                agent_name=self.name,
-                execution_time=time.time() - start_time,
-                tool_calls=tool_calls_history,
-                metadata={'rounds': rounds, 'max_rounds_reached': True}
-            )
-
-        except InterruptedError as e:
-            self.logger.info(f"任务被用户中断: {e}")
-            if self._publisher:
-                self._publisher.agent_error(error=str(e), error_type="InterruptedError")
-                self._publisher.agent_end(
-                    result="[已停止生成]",
-                    execution_time=time.time() - start_time
-                )
-            return AgentResponse(
-                success=False,
-                content="[已停止生成]",
-                error="interrupted",
-                agent_name=self.name,
-                execution_time=time.time() - start_time
-            )
-
-        except Exception as e:
-            self.logger.error(f"执行任务失败: {e}", exc_info=True)
-            # ✨ 发布错误事件
-            if self._publisher:
-                self._publisher.agent_error(error=str(e), error_type="ExecutionError")
-            return AgentResponse(
-                success=False,
-                content="",
-                error=str(e),
-                agent_name=self.name,
-                execution_time=time.time() - start_time
-            )
+        return self._execute_react_task(task, context)
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         """
         判断是否能处理该任务
 
-        ReAct Agent 始终返回 True，让 MasterAgent V2 通过 LLM 智能分析来决定路由
+        ReAct Agent 始终返回 True，让 OrchestratorAgent 通过 LLM 智能分析来决定路由
         """
         return True
 
@@ -839,11 +331,6 @@ class ReActAgent(BaseAgent):
 
         cleaned_obj = clean_value(obj)
         return json.dumps(cleaned_obj, ensure_ascii=False)
-
-    def _publish_deferred_visualizations(self, candidates: List[Dict[str, Any]]) -> None:
-        """Expose collected visualization candidates only after final answer is ready."""
-        for candidate in candidates or []:
-            _publish_visualization_candidate(self._publisher, candidate)
 
     def _resolve_tool_references(self, arguments: dict, tool_results: dict, current_idx: int) -> dict:
         """

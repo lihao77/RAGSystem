@@ -66,6 +66,11 @@
                 <input v-model="configForm.enabled" type="checkbox" />
                 <span class="field-label-text">启用该 Agent</span>
               </label>
+
+              <label class="form-item checkbox-item checkbox-item--inline">
+                <input v-model="configForm.default_entry" type="checkbox" />
+                <span class="field-label-text">设为默认入口 Agent</span>
+              </label>
             </div>
           </section>
 
@@ -468,6 +473,7 @@ function createEmptyForm() {
     display_name: '',
     description: '',
     enabled: true,
+    default_entry: false,
     llm: createEmptyLLM(),
     llm_tiers: { fast: null, powerful: null },
     tools: { enabled_tools: [] },
@@ -497,6 +503,7 @@ function applyConfigToForm(config) {
     display_name: safeConfig.display_name || '',
     description: safeConfig.description || '',
     enabled: safeConfig.enabled ?? true,
+    default_entry: safeConfig.default_entry ?? safeConfig.custom_params?.default_entry ?? false,
     llm: {
       provider: safeConfig.llm?.provider || '',
       provider_type: safeConfig.llm?.provider_type || '',
@@ -535,6 +542,7 @@ function buildPayload() {
   merged.display_name = configForm.value.display_name;
   merged.description = configForm.value.description;
   merged.enabled = configForm.value.enabled;
+  merged.default_entry = !!configForm.value.default_entry;
 
   merged.llm = {
     ...(merged.llm || {}),
@@ -580,6 +588,9 @@ function buildPayload() {
   };
 
   merged.custom_params = configForm.value.custom_params || merged.custom_params || {};
+  if (merged.custom_params && Object.prototype.hasOwnProperty.call(merged.custom_params, 'default_entry')) {
+    delete merged.custom_params.default_entry;
+  }
   return merged;
 }
 

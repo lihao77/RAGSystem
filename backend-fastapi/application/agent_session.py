@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from execution.runstep_normalizer import normalize_run_steps
 from services.conversation_store import ConversationStore
 from runtime.dependencies import get_runtime_dependency
 
@@ -119,10 +120,14 @@ class AgentSessionApplication:
                 run_id = metadata.get('run_id')
                 if item.get('role') != 'assistant' or not run_id:
                     continue
-                item['steps'] = self._conversation_store.list_run_steps(
+                raw_steps = self._conversation_store.list_run_steps(
                     run_id=run_id,
                     session_id=session_id,
                     limit=500,
+                )
+                item['run_steps'] = normalize_run_steps(
+                    raw_steps,
+                    entry_agent_name=(metadata.get('agent') or 'orchestrator_agent'),
                 )
         return data
 
