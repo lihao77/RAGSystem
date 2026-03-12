@@ -9,13 +9,15 @@ import tempfile
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+from tools.response_builder import error_result, success_result
 
-def read_document(file_path: str, encoding: str = "utf-8") -> Dict[str, Any]:
+
+def read_document(file_path: str, encoding: str = "utf-8"):
     """读取文档文件内容"""
     file_path = Path(file_path)
 
     if not file_path.exists():
-        return {"success": False, "error": f"文件不存在: {file_path}"}
+        return error_result(f"文件不存在: {file_path}", tool_name="read_document")
 
     suffix = file_path.suffix.lower()
 
@@ -24,13 +26,17 @@ def read_document(file_path: str, encoding: str = "utf-8") -> Dict[str, Any]:
         if suffix in ['.txt', '.md']:
             with open(file_path, 'r', encoding=encoding) as f:
                 content = f.read()
-            return {
-                "success": True,
-                "content": content,
-                "file_type": suffix[1:],
-                "char_count": len(content),
-                "file_path": str(file_path)
-            }
+            return success_result(
+                content=content,
+                summary=f"文档读取成功: {file_path.name}",
+                output_type="text",
+                metadata={
+                    "file_type": suffix[1:],
+                    "char_count": len(content),
+                    "file_path": str(file_path),
+                },
+                tool_name="read_document",
+            )
 
         # PDF 文件
         elif suffix == '.pdf':
@@ -41,16 +47,20 @@ def read_document(file_path: str, encoding: str = "utf-8") -> Dict[str, Any]:
                     content = ""
                     for page in reader.pages:
                         content += page.extract_text() + "\n"
-                return {
-                    "success": True,
-                    "content": content,
-                    "file_type": "pdf",
-                    "page_count": len(reader.pages),
-                    "char_count": len(content),
-                    "file_path": str(file_path)
-                }
+                return success_result(
+                    content=content,
+                    summary=f"PDF 读取成功: {file_path.name}",
+                    output_type="text",
+                    metadata={
+                        "file_type": "pdf",
+                        "page_count": len(reader.pages),
+                        "char_count": len(content),
+                        "file_path": str(file_path),
+                    },
+                    tool_name="read_document",
+                )
             except ImportError:
-                return {"success": False, "error": "需要安装 PyPDF2: pip install PyPDF2"}
+                return error_result("需要安装 PyPDF2: pip install PyPDF2", tool_name="read_document")
 
         # Word 文件
         elif suffix in ['.docx', '.doc']:
@@ -58,22 +68,26 @@ def read_document(file_path: str, encoding: str = "utf-8") -> Dict[str, Any]:
                 import docx
                 doc = docx.Document(file_path)
                 content = "\n".join([para.text for para in doc.paragraphs])
-                return {
-                    "success": True,
-                    "content": content,
-                    "file_type": "docx",
-                    "paragraph_count": len(doc.paragraphs),
-                    "char_count": len(content),
-                    "file_path": str(file_path)
-                }
+                return success_result(
+                    content=content,
+                    summary=f"Word 文档读取成功: {file_path.name}",
+                    output_type="text",
+                    metadata={
+                        "file_type": "docx",
+                        "paragraph_count": len(doc.paragraphs),
+                        "char_count": len(content),
+                        "file_path": str(file_path),
+                    },
+                    tool_name="read_document",
+                )
             except ImportError:
-                return {"success": False, "error": "需要安装 python-docx: pip install python-docx"}
+                return error_result("需要安装 python-docx: pip install python-docx", tool_name="read_document")
 
         else:
-            return {"success": False, "error": f"不支持的文件格式: {suffix}"}
+            return error_result(f"不支持的文件格式: {suffix}", tool_name="read_document")
 
     except Exception as e:
-        return {"success": False, "error": f"读取文件失败: {str(e)}"}
+        return error_result(f"读取文件失败: {str(e)}", tool_name="read_document")
 
 
 def chunk_document(
@@ -81,7 +95,7 @@ def chunk_document(
     chunk_size: int = 2000,
     chunk_overlap: int = 200,
     strategy: str = "fixed"
-) -> Dict[str, Any]:
+):
     """将长文档分块"""
     try:
         chunks = []
@@ -168,17 +182,21 @@ def chunk_document(
                     "char_count": len(current_chunk)
                 })
 
-        return {
-            "success": True,
-            "chunks": chunks,
-            "total_chunks": len(chunks),
-            "strategy": strategy,
-            "chunk_size": chunk_size,
-            "chunk_overlap": chunk_overlap
-        }
+        return success_result(
+            content=chunks,
+            summary=f"文档分块成功，共 {len(chunks)} 块",
+            output_type="json",
+            metadata={
+                "total_chunks": len(chunks),
+                "strategy": strategy,
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+            },
+            tool_name="chunk_document",
+        )
 
     except Exception as e:
-        return {"success": False, "error": f"分块失败: {str(e)}"}
+        return error_result(f"分块失败: {str(e)}", tool_name="chunk_document")
 
 
 def extract_structured_data(
@@ -186,7 +204,7 @@ def extract_structured_data(
     schema: Dict[str, Any],
     instruction: Optional[str] = None,
     examples: Optional[List[Dict]] = None
-) -> Dict[str, Any]:
+):
     """从文本中提取结构化数据（使用 LLM）"""
     try:
         from model_adapter import get_default_adapter
@@ -218,21 +236,23 @@ JSON Schema:
         result_text = response.get("content", "")
         extracted_data = json.loads(result_text)
 
-        return {
-            "success": True,
-            "data": extracted_data,
-            "text_length": len(text)
-        }
+        return success_result(
+            content=extracted_data,
+            summary="结构化提取成功",
+            output_type="json",
+            metadata={"text_length": len(text)},
+            tool_name="extract_structured_data",
+        )
 
     except Exception as e:
-        return {"success": False, "error": f"提取失败: {str(e)}"}
+        return error_result(f"提取失败: {str(e)}", tool_name="extract_structured_data")
 
 
 def merge_extracted_data(
     data_list: List[Dict],
     merge_strategy: str = "deduplicate",
     unique_key: Optional[str] = None
-) -> Dict[str, Any]:
+):
     """合并多个提取结果"""
     try:
         if merge_strategy == "append":
@@ -247,7 +267,7 @@ def merge_extracted_data(
         elif merge_strategy == "deduplicate":
             # 去重
             if not unique_key:
-                return {"success": False, "error": "去重策略需要指定 unique_key"}
+                return error_result("去重策略需要指定 unique_key", tool_name="merge_extracted_data")
 
             seen = set()
             merged = []
@@ -262,7 +282,7 @@ def merge_extracted_data(
         elif merge_strategy == "merge_by_key":
             # 按键合并（相同键的数据合并）
             if not unique_key:
-                return {"success": False, "error": "按键合并策略需要指定 unique_key"}
+                return error_result("按键合并策略需要指定 unique_key", tool_name="merge_extracted_data")
 
             merged_dict = {}
             for data in data_list:
@@ -277,58 +297,73 @@ def merge_extracted_data(
                             merged_dict[key_value] = item
             merged = list(merged_dict.values())
 
-        return {
-            "success": True,
-            "data": merged,
-            "total_items": len(merged),
-            "merge_strategy": merge_strategy
-        }
+        return success_result(
+            content=merged,
+            summary=f"提取结果合并成功，共 {len(merged)} 项",
+            output_type="json",
+            metadata={
+                "total_items": len(merged),
+                "merge_strategy": merge_strategy,
+                "unique_key": unique_key,
+            },
+            tool_name="merge_extracted_data",
+        )
 
     except Exception as e:
-        return {"success": False, "error": f"合并失败: {str(e)}"}
+        return error_result(f"合并失败: {str(e)}", tool_name="merge_extracted_data")
 
 
 def write_file(
     content: str,
     file_path: Optional[str] = None,
-    encoding: str = "utf-8"
-) -> Dict[str, Any]:
+    encoding: str = "utf-8",
+    mode: str = "text",
+) -> Any:
     """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。"""
     try:
         if not file_path:
             temp_dir = tempfile.gettempdir()
-            file_path = os.path.join(temp_dir, f"output_{os.getpid()}.txt")
+            suffix = ".json" if mode == "json" else ".txt"
+            file_path = os.path.join(temp_dir, f"output_{os.getpid()}{suffix}")
 
         dir_path = os.path.dirname(file_path)
         if dir_path:
             os.makedirs(dir_path, exist_ok=True)
 
         with open(file_path, 'w', encoding=encoding) as f:
-            f.write(content if isinstance(content, str) else str(content))
+            if mode == "json":
+                if isinstance(content, str):
+                    try:
+                        json.dump(json.loads(content), f, ensure_ascii=False, indent=2)
+                    except json.JSONDecodeError:
+                        f.write(content)
+                else:
+                    json.dump(content, f, ensure_ascii=False, indent=2)
+            else:
+                f.write(content if isinstance(content, str) else str(content))
 
         file_size = os.path.getsize(file_path)
-        return {
-            "success": True,
-            "data": {
-                "results": {"file_path": file_path, "file_size": file_size},
-                "summary": f"文件已写入: {file_path}（{file_size} 字节）"
-            }
-        }
+        return success_result(
+            content={"file_path": file_path, "file_size": file_size},
+            summary=f"文件已写入: {file_path}（{file_size} 字节）",
+            output_type="text",
+            tool_name="write_file",
+        )
 
     except Exception as e:
-        return {"success": False, "error": f"写入文件失败: {str(e)}"}
+        return error_result(f"写入文件失败: {str(e)}", tool_name="write_file")
 
 
 def read_file(
     file_path: str,
     encoding: str = "utf-8"
-) -> Dict[str, Any]:
+) -> Any:
     """读取文件内容，以字符串返回。JSON 文件可在收到结果后自行 json.loads 解析。"""
     try:
         file_path_obj = Path(file_path)
 
         if not file_path_obj.exists():
-            return {"success": False, "error": f"文件不存在: {file_path}"}
+            return error_result(f"文件不存在: {file_path}", tool_name="read_file")
 
         with open(file_path_obj, 'r', encoding=encoding) as f:
             content = f.read()
@@ -345,13 +380,12 @@ def read_file(
                 pass
 
         file_size = file_path_obj.stat().st_size
-        return {
-            "success": True,
-            "data": {
-                "results": content,
-                "summary": f"文件读取成功: {file_path}（{file_size} 字节）"
-            }
-        }
+        return success_result(
+            content=content,
+            summary=f"文件读取成功: {file_path}（{file_size} 字节）",
+            output_type="text",
+            tool_name="read_file",
+        )
 
     except Exception as e:
-        return {"success": False, "error": f"读取文件失败: {str(e)}"}
+        return error_result(f"读取文件失败: {str(e)}", tool_name="read_file")

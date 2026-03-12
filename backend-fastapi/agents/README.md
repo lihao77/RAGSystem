@@ -30,7 +30,7 @@
 - 用户 Agent 从 `configs/agent_configs.yaml` 加载
 - `master_agent_v2` 作为系统 Agent 始终装载
 - Agent 可用工具由 `AgentLoader` 统一组装
-- 默认工具来自 `backend/tools/function_definitions.py`
+- 默认工具定义来自 `backend/tools/catalog/`，统一通过 `backend/tools/tool_registry.py` 暴露
 - MCP 工具和 Skills 系统工具在运行时注入
 
 ## 主要接口

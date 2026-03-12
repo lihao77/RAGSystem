@@ -19,11 +19,74 @@ from agents.core import BaseAgent, AgentContext, AgentResponse, InterruptedError
 from agents.streaming import StreamExecutor
 from agents.context.config import ContextConfig
 from agents.context.observation_formatter import ObservationFormatter
+from agents.monitoring.observation_window import ObservationWindowCollector
 from agents.context.pipeline import ContextPipeline
 from tools.tool_executor import execute_tool
+from tools.result_references import result_success, result_visualization_payload
+from tools.tool_registry import get_tool_registry
 from agents.events import get_session_event_bus, EventPublisher
 
 logger = logging.getLogger(__name__)
+_TOOL_REGISTRY = get_tool_registry()
+
+
+def _publish_visualization_candidate(publisher, candidate: Dict[str, Any]) -> None:
+    """Publish a deferred chart/map payload once the agent has finalized its answer."""
+    if not publisher or not isinstance(candidate, dict):
+        return
+
+    candidate_type = candidate.get('type')
+    if candidate_type == 'chart':
+        chart_config = candidate.get('chart_config')
+        if chart_config:
+            publisher.chart_generated(
+                chart_config=chart_config,
+                chart_type=candidate.get('chart_type', 'bar'),
+            )
+            candidate_id = candidate.get('candidate_id')
+            if candidate_id:
+                try:
+                    from tools.presentation_store import get_presentation_store
+                    get_presentation_store().mark_published(candidate_id)
+                except Exception:
+                    logger.debug("标记图表候选已发布失败: %s", candidate_id, exc_info=True)
+    elif candidate_type == 'map':
+        map_data = candidate.get('map_data')
+        if map_data:
+            publisher.map_generated(
+                map_data=map_data,
+                map_type=candidate.get('map_type', 'marker'),
+            )
+
+
+def _format_tool_contract(tool: Dict[str, Any]) -> List[str]:
+    """Render extended tool metadata into prompt lines."""
+    func = tool.get('function', {})
+    lines: List[str] = []
+
+    returns = func.get('returns')
+    if returns:
+        lines.append("**成功返回**:")
+        return_desc = returns.get('description')
+        if return_desc:
+            lines.append(f"  - {return_desc}")
+        return_shape = returns.get('shape')
+        if return_shape is not None:
+            lines.append(f"  ```json\n  {json.dumps(return_shape, ensure_ascii=False, indent=2)}\n  ```")
+
+    usage_contract = func.get('usage_contract') or []
+    if usage_contract:
+        lines.append("**使用约束**:")
+        for item in usage_contract:
+            lines.append(f"  - {item}")
+
+    examples = func.get('examples') or []
+    if examples:
+        lines.append("**示例**:")
+        for example in examples:
+            lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False, indent=2)}\n  ```")
+
+    return lines
 
 
 class ReActAgent(BaseAgent):
@@ -62,8 +125,7 @@ class ReActAgent(BaseAgent):
         self._publisher = None  # EventPublisher 实例（延迟创建）
 
         # 自动注入内置工具（Human-in-the-Loop：request_user_input）
-        from agents.tools.builtin import get_builtin_tools_for_react
-        self.available_tools = get_builtin_tools_for_react(available_tools or [])
+        self.available_tools = _TOOL_REGISTRY.get_builtin_tools_for_react(available_tools or [])
 
         # 从配置获取行为参数
         behavior_config = agent_config.custom_params.get('behavior', {}) if agent_config else {}
@@ -94,16 +156,19 @@ class ReActAgent(BaseAgent):
             summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
             preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
         )
+        observation_window = ObservationWindowCollector()
         self.context_pipeline = ContextPipeline(
             config=context_config,
             model_adapter=self.model_adapter,
             get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
             logger=self.logger,
+            observation_window=observation_window,
         )
 
         # 初始化观察结果格式化器
         self.observation_formatter = ObservationFormatter(
-            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data')
+            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data'),
+            observation_window=observation_window,
         )
 
         logger.info(
@@ -246,10 +311,11 @@ class ReActAgent(BaseAgent):
                         parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
                     )
                 elif event_type == 'tool_end':
+                    from tools.result_references import result_event_payload
                     self._publisher.tool_call_end(
                         call_id=data.get('tool_call_id'),
                         tool_name=data.get('tool_name'),
-                        result=data.get('result'),
+                        result=result_event_payload(data.get('result')),
                         execution_time=data.get('elapsed_time'),
                         parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
                     )
@@ -285,11 +351,7 @@ class ReActAgent(BaseAgent):
                     required_mark = " (必填)" if param_name in required else " (可选)"
                     tools_desc_lines.append(f"  - `{param_name}` ({param_type}){required_mark}: {param_desc}")
 
-            # 示例（如果有）
-            if 'examples' in func:
-                tools_desc_lines.append("**示例**:")
-                for example in func['examples']:
-                    tools_desc_lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False)}\n  ```")
+            tools_desc_lines.extend(_format_tool_contract(tool))
 
         tools_desc = "\n".join(tools_desc_lines)
 
@@ -374,7 +436,7 @@ class ReActAgent(BaseAgent):
 - 内存中小数据格式变换 → `transform_data`
 
 ### 图表引用规则
-使用了 generate_chart / generate_map 后，**必须**在 <answer> 相关段落插入 [CHART:N]（N 从 1 起，独占一行，前后空行）。未生成图表则不插入。
+只有调用了 `present_chart` / `generate_map` 的可视化结果才会真正发送前端。若本轮要展示图表，先用 `generate_chart` 产出草稿，必要时检查或修改配置，再调用 `present_chart`。最终答案中对每个要展示的可视化插入 [CHART:N]（N 从 1 起，独占一行，前后空行）。
 """
 
     def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
@@ -445,6 +507,7 @@ class ReActAgent(BaseAgent):
 
             rounds = 0
             visualization_counter = 0
+            pending_visualizations: List[Dict[str, Any]] = []
             tool_calls_history = []
 
             while rounds < self.max_rounds:
@@ -536,6 +599,7 @@ class ReActAgent(BaseAgent):
                     # ✨ 发布事件
                     if self._publisher:
                         self._publisher.final_answer(final_answer)
+                        self._publish_deferred_visualizations(pending_visualizations)
                         self._publisher.agent_end(
                             result=final_answer,
                             execution_time=time.time() - start_time
@@ -629,25 +693,29 @@ class ReActAgent(BaseAgent):
 
                         # ✨ 发布可视化事件（如果是图表/地图工具）
                         if self._publisher:
-                            if tool_name == 'generate_chart' and result.get('success'):
-                                results = result.get('data', {}).get('results', {})
+                            payload = result_visualization_payload(result) or {}
+                            if tool_name == 'present_chart' and result_success(result):
+                                results = payload if isinstance(payload, dict) else {}
                                 chart_config = results.get('echarts_config')
                                 chart_type = results.get('chart_type', 'bar')
                                 if chart_config:
                                     visualization_counter += 1
-                                    self._publisher.chart_generated(
-                                        chart_config=chart_config,
-                                        chart_type=chart_type
-                                    )
-                            elif tool_name == 'generate_map' and result.get('success'):
-                                results = result.get('data', {}).get('results', {})
+                                    pending_visualizations.append({
+                                        'type': 'chart',
+                                        'chart_config': chart_config,
+                                        'chart_type': chart_type,
+                                        'candidate_id': results.get('candidate_id'),
+                                    })
+                            elif tool_name == 'generate_map' and result_success(result):
+                                results = payload if isinstance(payload, dict) else {}
                                 map_type = results.get('map_type', 'marker')
                                 if results:
                                     visualization_counter += 1
-                                    self._publisher.map_generated(
-                                        map_data=results,
-                                        map_type=map_type
-                                    )
+                                    pending_visualizations.append({
+                                        'type': 'map',
+                                        'map_data': results,
+                                        'map_type': map_type,
+                                    })
 
                         # 记录工具调用
                         tool_calls_history.append({
@@ -657,7 +725,7 @@ class ReActAgent(BaseAgent):
                         })
 
                         # 格式化观察结果（使用新的格式化器）
-                        is_skills_tool = tool_name in ['activate_skill', 'load_skill_resource', 'execute_skill_script']
+                        is_skills_tool = tool_name in _TOOL_REGISTRY.get_skill_tool_names()
                         observation = self.observation_formatter.format(
                             result,
                             tool_name=tool_name,
@@ -772,13 +840,18 @@ class ReActAgent(BaseAgent):
         cleaned_obj = clean_value(obj)
         return json.dumps(cleaned_obj, ensure_ascii=False)
 
+    def _publish_deferred_visualizations(self, candidates: List[Dict[str, Any]]) -> None:
+        """Expose collected visualization candidates only after final answer is ready."""
+        for candidate in candidates or []:
+            _publish_visualization_candidate(self._publisher, candidate)
+
     def _resolve_tool_references(self, arguments: dict, tool_results: dict, current_idx: int) -> dict:
         """
         解析工具参数中的引用占位符，替换为前面工具的实际结果
 
         支持的占位符格式：
         - {result_N}  - 引用第N个工具的完整结果
-        - {result_N.data.results} - 引用第N个工具结果中的特定字段（JSON路径）
+        - {result_N.content.xxx} - 引用第N个工具结果中的特定字段（JSON路径）
         - {result_1} 到 {result_N-1}  - 只能引用当前工具之前的结果
 
         Args:
@@ -790,7 +863,11 @@ class ReActAgent(BaseAgent):
             替换后的参数字典
         """
         import re
-        import json
+        from tools.result_references import (
+            resolve_result_path,
+            result_primary_content,
+            stringify_result_value,
+        )
 
         def replace_placeholder(match):
             """替换单个占位符"""
@@ -833,21 +910,13 @@ class ReActAgent(BaseAgent):
             # 如果有 JSON 路径，提取特定字段
             if json_path:
                 try:
-                    value = result
-                    for key in json_path.split('.'):
-                        if isinstance(value, dict):
-                            value = value.get(key)
-                        else:
-                            self.logger.warning(
-                                f"[链式调用] 无法访问路径 {json_path}，当前值不是字典"
-                            )
-                            return full_match
+                    value = resolve_result_path(result, json_path)
+                    if value is None:
+                        self.logger.warning(f"[链式调用] 无法访问路径 {json_path}")
+                        return full_match
 
                     # 如果提取的值是字符串，直接返回；否则序列化为 JSON
-                    if isinstance(value, str):
-                        return value
-                    else:
-                        return self._safe_json_dumps(value)
+                    return stringify_result_value(value)
                 except Exception as e:
                     self.logger.warning(
                         f"[链式调用] 提取 JSON 路径失败: {json_path}, 错误: {e}"
@@ -855,17 +924,9 @@ class ReActAgent(BaseAgent):
                     return full_match
             else:
                 # 没有 JSON 路径，返回完整结果
-                # 如果结果是标准化响应，提取 data.results
-                if isinstance(result, dict) and result.get('success'):
-                    data = result.get('data', {})
-                    results = data.get('results')
-
-                    # 如果 results 是字符串（JSON字符串），直接返回
-                    if isinstance(results, str):
-                        return results
-                    # 如果 results 是字典或列表，序列化为 JSON
-                    elif results is not None:
-                        return self._safe_json_dumps(results)
+                primary_content = result_primary_content(result)
+                if primary_content is not None:
+                    return stringify_result_value(primary_content)
 
                 # 兜底：返回整个 result 的 JSON 序列化
                 return self._safe_json_dumps(result)

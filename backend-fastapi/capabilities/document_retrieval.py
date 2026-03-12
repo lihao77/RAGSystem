@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from runtime.dependencies import get_runtime_dependency
-from tools.document_tools import DOCUMENT_TOOLS
+from tools.tool_registry import get_tool_registry
 
 from .base import BaseCapability, CapabilityDescriptor
 
@@ -17,7 +17,7 @@ class DocumentRetrievalCapability(BaseCapability):
     )
 
     def list_tool_definitions(self) -> list[dict]:
-        return list(DOCUMENT_TOOLS)
+        return get_tool_registry().get_document_tools()
 
 
 def get_document_retrieval_capability() -> DocumentRetrievalCapability:

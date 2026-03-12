@@ -29,7 +29,7 @@ from typing import Dict, Any, Optional
 from contextlib import redirect_stdout
 import threading
 
-from tools.response_builder import success_response, error_response
+from tools.response_builder import success_result, error_result
 from tools.permissions import check_tool_permission
 
 logger = logging.getLogger(__name__)
@@ -227,12 +227,18 @@ def _make_call_tool_function(agent_config, event_bus, user_role):
             arguments: 工具参数
 
         Returns:
-            工具执行结果的 data.results 部分
+            工具执行结果的主内容（ToolExecutionResult.content）
 
         Raises:
             PermissionError: 工具不允许从代码调用
             RuntimeError: 工具执行失败
         """
+        from tools.result_references import (
+            result_error_message,
+            result_primary_content,
+            result_success,
+        )
+
         # 1. 检查 allowed_callers
         allowed, error_msg = check_tool_permission(
             tool_name=tool_name,
@@ -257,13 +263,11 @@ def _make_call_tool_function(agent_config, event_bus, user_role):
         )
 
         # 3. 检查成功
-        if not result.get('success'):
-            error = result.get('error', '未知错误')
-            raise RuntimeError(f"工具 '{tool_name}' 执行失败: {error}")
+        if not result_success(result):
+            raise RuntimeError(f"工具 '{tool_name}' 执行失败: {result_error_message(result)}")
 
         # 4. 返回实际数据（不是完整响应）
-        data = result.get('data', {})
-        return data.get('results', data)
+        return result_primary_content(result)
 
     return call_tool
 
@@ -329,7 +333,7 @@ def execute_code_sandbox(
     agent_config=None,
     event_bus=None,
     user_role=None
-) -> Dict[str, Any]:
+):
     """
     在受限沙箱中执行 Python 代码
 
@@ -372,7 +376,7 @@ def execute_code_sandbox(
     passed, error_msg = _static_code_check(code)
     if not passed:
         logger.warning(f"静态代码检查失败: {error_msg}")
-        return error_response(f"代码安全检查失败: {error_msg}")
+        return error_result(f"代码安全检查失败: {error_msg}", tool_name="execute_code")
 
     # 2. 准备执行环境
     call_tool_func = _make_call_tool_function(agent_config, event_bus, user_role)
@@ -498,11 +502,11 @@ def execute_code_sandbox(
 
         if not success:
             logger.error(f"代码执行失败: {error_msg}")
-            return error_response(f"代码执行失败: {error_msg}")
+            return error_result(f"代码执行失败: {error_msg}", tool_name="execute_code")
 
         # 5. 获取结果
         if 'result' not in globals_dict:
-            return error_response("代码必须设置 result 变量作为输出")
+            return error_result("代码必须设置 result 变量作为输出", tool_name="execute_code")
 
         result_value = globals_dict['result']
         stdout_text = stdout_capture.getvalue()
@@ -519,19 +523,21 @@ def execute_code_sandbox(
             tool_calls_count=tool_calls_count[0]
         )
 
-        return success_response(
-            results=result_value,
+        return success_result(
+            content=result_value,
             metadata={
                 "stdout": stdout_text,
                 "tool_calls_count": tool_calls_count[0],
                 "execution_time": execution_time
             },
-            summary=f"代码执行成功，工具调用 {tool_calls_count[0]} 次"
+            summary=f"代码执行成功，工具调用 {tool_calls_count[0]} 次",
+            output_type="json" if not isinstance(result_value, str) else "text",
+            tool_name="execute_code",
         )
 
     except Exception as e:
         logger.error(f"代码沙箱异常: {str(e)}", exc_info=True)
-        return error_response(f"代码执行异常: {str(e)}")
+        return error_result(f"代码执行异常: {str(e)}", tool_name="execute_code")
 
 
 def _publish_execution_event(event_bus, phase: str, **kwargs):

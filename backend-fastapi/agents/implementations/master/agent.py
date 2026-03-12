@@ -8,8 +8,10 @@ from typing import Any, Dict, Optional
 
 from agents.context.config import ContextConfig
 from agents.context.observation_formatter import ObservationFormatter
+from agents.monitoring.observation_window import ObservationWindowCollector
 from agents.context.pipeline import ContextPipeline
 from agents.core import AgentContext, AgentResponse, BaseAgent
+from tools.tool_registry import get_tool_registry
 
 from .executor import AgentExecutor
 from .prompting import (
@@ -23,6 +25,7 @@ from .prompting import (
 from .runtime import execute_master
 
 logger = logging.getLogger(__name__)
+_TOOL_REGISTRY = get_tool_registry()
 
 
 class MasterAgentV2(BaseAgent):
@@ -73,8 +76,7 @@ class MasterAgentV2(BaseAgent):
         self._publisher = None  # EventPublisher 实例（延迟创建）
 
         # 自动注入内置工具（Human-in-the-Loop：request_user_input）
-        from agents.tools.builtin import get_builtin_tools_for_master
-        self.available_tools = get_builtin_tools_for_master(available_tools or [])
+        self.available_tools = _TOOL_REGISTRY.get_builtin_tools_for_master(available_tools or [])
         self.available_skills = available_skills or []
 
         # 从配置获取行为参数
@@ -104,16 +106,19 @@ class MasterAgentV2(BaseAgent):
             summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
             preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
         )
+        observation_window = ObservationWindowCollector()
         self.context_pipeline = ContextPipeline(
             config=context_config,
             model_adapter=self.model_adapter,
             get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
             logger=self.logger,
+            observation_window=observation_window,
         )
 
         # 初始化观察结果格式化器
         self.observation_formatter = ObservationFormatter(
-            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data')
+            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data'),
+            observation_window=observation_window,
         )
 
         # 注意：不在初始化时生成 Agent 工具列表

@@ -15,7 +15,7 @@ from tools.result_schema import ArtifactRef
 
 
 class ArtifactStore:
-    """Persist large tool outputs using the legacy temp_data path contract."""
+    """Persist large tool outputs using the shared temp-data artifact path contract."""
 
     def __init__(
         self,
@@ -28,7 +28,7 @@ class ArtifactStore:
     def save_json(self, *, session_id: str | None, tool_name: str, data: Any) -> ArtifactRef:
         del session_id
 
-        file_path = self._allocate_path()
+        file_path = self._allocate_path(suffix=".json")
         with open(file_path, "w", encoding="utf-8") as file_obj:
             json.dump(data, file_obj, ensure_ascii=False, indent=2)
 
@@ -41,10 +41,17 @@ class ArtifactStore:
         self._record_artifact(tool_name=tool_name, artifact=artifact)
         return artifact
 
-    def save_text(self, *, session_id: str | None, tool_name: str, content: str) -> ArtifactRef:
+    def save_text(
+        self,
+        *,
+        session_id: str | None,
+        tool_name: str,
+        content: str,
+        suffix: str = ".json",
+    ) -> ArtifactRef:
         del session_id
 
-        file_path = self._allocate_path()
+        file_path = self._allocate_path(suffix=suffix)
         with open(file_path, "w", encoding="utf-8") as file_obj:
             file_obj.write(content)
 
@@ -65,7 +72,7 @@ class ArtifactStore:
         cutoff_time = time.time() - max_age_seconds
         deleted_count = 0
 
-        for file_path in target_dir.glob("data_*.json"):
+        for file_path in target_dir.glob("data_*.*"):
             try:
                 if file_path.stat().st_mtime < cutoff_time:
                     file_path.unlink()
@@ -75,9 +82,9 @@ class ArtifactStore:
 
         return deleted_count
 
-    def _allocate_path(self) -> str:
+    def _allocate_path(self, *, suffix: str) -> str:
         os.makedirs(self.base_dir, exist_ok=True)
-        file_name = f"data_{uuid.uuid4().hex[:8]}.json"
+        file_name = f"data_{uuid.uuid4().hex[:8]}{suffix}"
         return os.path.join(self.base_dir, file_name)
 
     def _record_artifact(self, *, tool_name: str, artifact: ArtifactRef) -> None:

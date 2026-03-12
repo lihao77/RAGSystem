@@ -13,10 +13,24 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from tools.response_builder import error_result, success_result
+from tools.result_references import (
+    result_display_text,
+    result_error_message,
+    result_metadata,
+    result_primary_text,
+    result_success,
+)
+from tools.result_schema import ToolExecutionResult
+from tools.tool_registry import get_tool_registry
+
 if TYPE_CHECKING:
     from agents.core.context import AgentContext
     from agents.events.bus import EventBus
     from agents.events.publisher import EventPublisher
+
+
+_TOOL_REGISTRY = get_tool_registry()
 
 
 def route_user_input_request(
@@ -52,7 +66,12 @@ def route_user_input_request(
         user_value = ""
 
     observation = f"**工具 {idx}: request_user_input**\n用户输入: {user_value}"
-    result = {"success": True, "data": {"results": user_value}}
+    result = success_result(
+        content=user_value,
+        summary="用户输入已接收",
+        output_type="text",
+        tool_name="request_user_input",
+    )
 
     return {
         "observation": observation,
@@ -75,7 +94,7 @@ def route_agent_delegation(
     """
     路由1: 委派子 Agent 执行。
 
-    返回: {"observation": str, "result": dict, "call_history": dict}
+    返回: {"observation": str, "result": Any, "call_history": dict}
     """
     from .executor import parse_agent_invocation
     from agents.core.models import AgentResponse
@@ -138,18 +157,21 @@ def route_agent_delegation(
 
     # 处理结果
     if agent_result is None:
-        agent_result = {
-            "success": False,
-            "error": "Agent 未返回结果"
-        }
+        agent_result = error_result("Agent 未返回结果", tool_name=agent_name)
+    elif not isinstance(agent_result, ToolExecutionResult):
+        agent_result = error_result(
+            f"Agent 返回了非标准结果类型: {type(agent_result).__name__}",
+            tool_name=agent_name,
+        )
+    agent_succeeded = result_success(agent_result)
 
     # 合并子上下文 (Context Merging)
     try:
         response_obj = AgentResponse(
-            success=agent_result.get('success', False),
-            content=agent_result.get('data', {}).get('results', ''),
-            metadata=agent_result.get('data', {}).get('metadata', {}),
-            error=agent_result.get('error'),
+            success=agent_succeeded,
+            content=result_primary_text(agent_result),
+            metadata=result_metadata(agent_result),
+            error=None if agent_succeeded else result_error_message(agent_result),
             agent_name=agent_name
         )
         context.merge(child_context, response_obj)
@@ -161,8 +183,8 @@ def route_agent_delegation(
     agent._publisher.agent_call_end(
         call_id=call_id,
         agent_name=agent_name,
-        result=agent_result.get('data', {}).get('results', ''),
-        success=agent_result.get('success', False),
+        result=result_display_text(agent_result),
+        success=agent_succeeded,
         parent_call_id=master_call_id,
         order=global_agent_order
     )
@@ -205,7 +227,11 @@ def route_direct_tool(
 
     返回: {"observation": str, "result": dict, "visualization_event": Optional[dict]}
     """
-    from agents.tools.builtin import SKILLS_TOOL_NAMES, BUILTIN_TOOL_NAMES
+    from tools.result_references import (
+        result_event_payload,
+        result_success,
+        result_visualization_payload,
+    )
 
     tool_name = action.get('tool')
     arguments = action.get('arguments', {})
@@ -213,8 +239,8 @@ def route_direct_tool(
     # 判断工具类型
     available_tool_names = {
         t.get('function', {}).get('name') for t in agent.available_tools
-    } - BUILTIN_TOOL_NAMES
-    is_skills_tool = tool_name in SKILLS_TOOL_NAMES
+    } - _TOOL_REGISTRY.get_builtin_tool_names()
+    is_skills_tool = tool_name in _TOOL_REGISTRY.get_skill_tool_names()
 
     if not (is_skills_tool or tool_name in available_tool_names):
         # 未知工具
@@ -222,7 +248,7 @@ def route_direct_tool(
         agent.logger.warning(f"{log_prefix} {error_msg}")
         return {
             "observation": f"**工具 {idx}**: 失败\n错误: {error_msg}",
-            "result": {"success": False, "error": error_msg},
+            "result": error_result(error_msg, tool_name=tool_name),
             "visualization_event": None,
         }
 
@@ -256,27 +282,24 @@ def route_direct_tool(
             f"{log_prefix} 直接工具 {tool_name} 执行异常: {tool_exc}",
             exc_info=True
         )
-        result = {
-            "success": False,
-            "error": str(tool_exc)
-        }
+        result = error_result(str(tool_exc), tool_name=tool_name)
 
     tool_elapsed = time.time() - tool_start_time
 
     # 发布工具调用结束事件
-    tool_result_for_event = result.get('data', result) if isinstance(result, dict) else result
     agent._publisher.tool_call_end(
         call_id=tool_call_id,
         tool_name=tool_name,
-        result=tool_result_for_event,
+        result=result_event_payload(result),
         execution_time=tool_elapsed,
         parent_call_id=master_call_id,
     )
 
     # 处理可视化事件
     visualization_event = None
-    if tool_name == 'generate_chart' and result.get('success'):
-        results = result.get('data', {}).get('results', {})
+    payload = result_visualization_payload(result) or {}
+    if tool_name == 'present_chart' and result_success(result):
+        results = payload if isinstance(payload, dict) else {}
         chart_config = results.get('echarts_config')
         chart_type = results.get('chart_type', 'bar')
         if chart_config:
@@ -284,9 +307,10 @@ def route_direct_tool(
                 'type': 'chart',
                 'chart_config': chart_config,
                 'chart_type': chart_type,
+                'candidate_id': results.get('candidate_id'),
             }
-    elif tool_name == 'generate_map' and result.get('success'):
-        results = result.get('data', {}).get('results', {})
+    elif tool_name == 'generate_map' and result_success(result):
+        results = payload if isinstance(payload, dict) else {}
         map_type = results.get('map_type', 'marker')
         if results:
             visualization_event = {

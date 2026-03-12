@@ -14,8 +14,11 @@ from typing import Any, Dict, List, Optional
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from runtime.dependencies import get_runtime_dependency
+from tools.response_builder import error_result, success_result
+from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
+_TOOL_REGISTRY = get_tool_registry()
 
 
 def _obs_suffix() -> str:
@@ -466,15 +469,13 @@ class MCPClientManager:
         Returns:
             OpenAI function calling 格式的工具列表
         """
-        from .converter import mcp_tools_to_openai_format
-
         if server_name is not None:
             with self._lock:
                 conn = self._connections.get(server_name)
             if conn is None or not conn.is_connected():
                 logger.warning(f"MCP Server {server_name} 未连接，无法获取工具")
                 return []
-            return mcp_tools_to_openai_format(server_name, conn.tools)
+            return _TOOL_REGISTRY.mcp_tools_to_openai_format(server_name, conn.tools)
 
         # 返回所有已连接 Server 的工具
         result = []
@@ -482,7 +483,7 @@ class MCPClientManager:
             connections = dict(self._connections)
         for name, conn in connections.items():
             if conn.is_connected():
-                tools = mcp_tools_to_openai_format(name, conn.tools)
+                tools = _TOOL_REGISTRY.mcp_tools_to_openai_format(name, conn.tools)
                 result.extend(tools)
         return result
 
@@ -500,13 +501,13 @@ class MCPClientManager:
         Returns:
             标准化的工具响应字典
         """
-        from tools.response_builder import success_response, error_response
-
         with self._lock:
             conn = self._connections.get(server_name)
 
+        full_tool_name = f"{_TOOL_REGISTRY.get_mcp_tool_prefix()}{server_name}__{tool_name}"
+
         if conn is None or not conn.is_connected():
-            return error_response(f"MCP Server '{server_name}' 未连接")
+            return error_result(f"MCP Server '{server_name}' 未连接", tool_name=full_tool_name)
 
         # 获取 server 配置中的 timeout
         srv_cfg = self._get_store().get_server(server_name) or {}
@@ -521,16 +522,15 @@ class MCPClientManager:
             logger.info('MCP 工具调用完成 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
             return result
         except TimeoutError:
-            return error_response(f"MCP 工具调用超时: {server_name}/{tool_name}")
+            return error_result(f"MCP 工具调用超时: {server_name}/{tool_name}", tool_name=full_tool_name)
         except Exception as e:
             logger.error(f"MCP 工具调用失败 ({server_name}/{tool_name}): {e}{_obs_suffix()}")
-            return error_response(f"MCP 工具调用失败: {e}")
+            return error_result(f"MCP 工具调用失败: {e}", tool_name=full_tool_name)
 
-    async def _async_call_tool(self, conn: MCPConnection, tool_name: str, arguments: dict) -> dict:
+    async def _async_call_tool(self, conn: MCPConnection, tool_name: str, arguments: dict):
         """异步调用 MCP 工具并将结果标准化"""
-        from tools.response_builder import success_response, error_response
-
         response = await conn._session.call_tool(tool_name, arguments)
+        full_tool_name = f"{_TOOL_REGISTRY.get_mcp_tool_prefix()}{conn.server_name}__{tool_name}"
 
         # 解析 MCP 响应
         # response.content 是 List[TextContent | ImageContent | EmbeddedResource]
@@ -553,7 +553,11 @@ class MCPClientManager:
         text_combined = "\n".join(texts) if texts else ""
 
         if is_error:
-            return error_response(text_combined or "MCP 工具返回错误")
+            return error_result(
+                text_combined or "MCP 工具返回错误",
+                tool_name=full_tool_name,
+                metadata={"server_name": conn.server_name},
+            )
 
         # 构造成功响应
         results = {
@@ -561,9 +565,12 @@ class MCPClientManager:
             "content": other_contents
         } if other_contents else text_combined
 
-        return success_response(
-            results=results,
-            summary=f"MCP 工具 {tool_name} 执行成功"
+        return success_result(
+            content=results,
+            summary=f"MCP 工具 {tool_name} 执行成功",
+            output_type="json" if other_contents else "text",
+            metadata={"server_name": conn.server_name},
+            tool_name=full_tool_name,
         )
 
     # ─── 测试连接 ─────────────────────────────────────────────────────────────

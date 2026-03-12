@@ -6,7 +6,48 @@ MasterAgentV2 提示构建与工具辅助函数。
 import json
 from typing import Any, Dict
 
-from .function_definitions import get_agent_tools
+from tools.result_references import (
+    resolve_result_path,
+    result_error_message,
+    result_summary,
+    result_primary_content,
+    result_success,
+    stringify_result_value,
+)
+from tools.tool_registry import get_tool_registry
+from tools.catalog.agent_tools import get_agent_tools
+
+
+_TOOL_REGISTRY = get_tool_registry()
+
+
+def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
+    """Render extended direct-tool metadata into prompt lines."""
+    lines: list[str] = []
+
+    returns = func.get('returns')
+    if returns:
+        lines.append("**成功返回**:")
+        return_desc = returns.get('description')
+        if return_desc:
+            lines.append(f"  - {return_desc}")
+        return_shape = returns.get('shape')
+        if return_shape is not None:
+            lines.append(f"  ```json\n  {json.dumps(return_shape, ensure_ascii=False, indent=2)}\n  ```")
+
+    usage_contract = func.get('usage_contract') or []
+    if usage_contract:
+        lines.append("**使用约束**:")
+        for item in usage_contract:
+            lines.append(f"  - {item}")
+
+    examples = func.get('examples') or []
+    if examples:
+        lines.append("**示例**:")
+        for example in examples:
+            lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False, indent=2)}\n  ```")
+
+    return lines
 
 def get_agent_display_name(agent, agent_name: str) -> str:
     """
@@ -37,6 +78,7 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
     支持的占位符格式:
     - {result_1}, {result_2}, ... - 引用第N个Agent的完整结果
     - {result1}, {result2}, ...   - 简化格式（兼容）
+    - {result_1.content}, {result_1.content.name}, ... - 路径访问（基于标准结果结构）
 
     优化：
     1. 预检：快速判断是否包含占位符，避免无用递归
@@ -59,31 +101,28 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
 
     if isinstance(data, str):
         # 字符串：查找并替换所有占位符
-        # 匹配 {result_N} 或 {resultN}
-        pattern = r'\{result_?(\d+)\}'
+        # 匹配 {result_N}、{resultN} 及带路径版本
+        pattern = r'\{result_?(\d+)(?:\.([a-zA-Z0-9_\.]+))?\}'
 
         def replace_func(match):
             idx = int(match.group(1))
+            json_path = match.group(2)
             if idx not in agent_results:
                 agent.logger.warning(f"占位符 {match.group(0)} 引用的结果不存在")
                 return match.group(0)  # 保持原样
 
             result = agent_results[idx]
-            if not result.get('success'):
-                return f"[Agent {idx} 执行失败: {result.get('error', '未知错误')}]"
+            if not result_success(result):
+                return f"[Agent {idx} 执行失败: {result_error_message(result)}]"
 
-            # 提取结果内容
-            data_dict = result.get('data', {})
-            results = data_dict.get('results', '')
+            if json_path:
+                value = resolve_result_path(result, json_path)
+                if value is None:
+                    agent.logger.warning(f"占位符 {match.group(0)} 路径不存在")
+                    return match.group(0)
+                return stringify_result_value(value)
 
-            # 如果是字符串，直接返回
-            if isinstance(results, str):
-                return results
-            # 如果是字典或列表，转为 JSON 字符串
-            elif isinstance(results, (dict, list)):
-                return json.dumps(results, ensure_ascii=False, indent=2)
-            else:
-                return str(results)
+            return stringify_result_value(result_primary_content(result))
 
         return re.sub(pattern, replace_func, data)
 
@@ -99,7 +138,7 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
         # 其他类型：直接返回
         return data
 
-def format_agent_result_summary(agent, result: Dict[str, Any]) -> str:
+def format_agent_result_summary(agent, result: Any) -> str:
     """
     格式化 Agent 执行结果为摘要文本
 
@@ -109,13 +148,11 @@ def format_agent_result_summary(agent, result: Dict[str, Any]) -> str:
     Returns:
         str: 结果摘要（完整内容或截断）
     """
-    if not result.get('success'):
-        error = result.get('error', '未知错误')
-        return f"执行失败: {error}"
+    if not result_success(result):
+        return f"执行失败: {result_error_message(result)}"
 
     # 提取结果内容
-    data = result.get('data', {})
-    results = data.get('results', '')
+    results = result_primary_content(result)
 
     # 🎯 优先使用完整的 results（这是子 Agent 的 final_answer）
     if isinstance(results, str) and results:
@@ -132,7 +169,7 @@ def format_agent_result_summary(agent, result: Dict[str, Any]) -> str:
         return f"返回了 {len(results)} 条记录"
     else:
         # 降级：使用 summary
-        summary = data.get('summary', '')
+        summary = result_summary(result)
         return summary if summary else "执行成功"
 
 def get_available_agent_tools(agent):
@@ -247,13 +284,12 @@ def build_system_prompt(agent) -> str:
         # 构建直接工具描述段（仅在有直接工具时追加）
         direct_tools_section = ""
         if agent.available_tools:
-            from agents.tools.builtin import BUILTIN_TOOL_NAMES
             direct_tool_lines = []
             for tool in agent.available_tools:
                 func = tool.get('function', {})
                 t_name = func.get('name', '')
                 # 内置工具（如 request_user_input）不在系统提示的"可直接调用工具"段展示
-                if t_name in BUILTIN_TOOL_NAMES:
+                if t_name in _TOOL_REGISTRY.get_builtin_tool_names():
                     continue
                 t_desc = func.get('description', '')
                 params = func.get('parameters', {})
@@ -271,11 +307,7 @@ def build_system_prompt(agent) -> str:
                         required_mark = " (必填)" if param_name in required else " (可选)"
                         direct_tool_lines.append(f"  - `{param_name}` ({param_type}){required_mark}: {param_desc}")
 
-                # 示例（如果有）
-                if 'examples' in func:
-                    direct_tool_lines.append("**示例**:")
-                    for example in func['examples']:
-                        direct_tool_lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False)}\n  ```")
+                direct_tool_lines.extend(_format_tool_contract(func))
 
             direct_tools_section = (
                 "\n\n## 可直接调用的工具\n\n"
@@ -284,10 +316,9 @@ def build_system_prompt(agent) -> str:
             )
 
         # 决策指南：根据是否有直接工具动态调整（排除内置工具）
-        from agents.tools.builtin import BUILTIN_TOOL_NAMES
         direct_tool_names = [
             t.get('function', {}).get('name', '') for t in agent.available_tools
-            if t.get('function', {}).get('name', '') not in BUILTIN_TOOL_NAMES
+            if t.get('function', {}).get('name', '') not in _TOOL_REGISTRY.get_builtin_tool_names()
         ]
         direct_tools_guide = ""
         if direct_tool_names:
@@ -344,6 +375,6 @@ def build_system_prompt(agent) -> str:
 6. 调用报错时下一轮换策略
 
 ### 图表引用规则
-子Agent或直接工具生成图表后系统自动全局编号。**必须**在 <answer> 按顺序插入 [CHART:N]（独占一行，前后空行）。未生成图表则不插入。
+只有子Agent或直接工具显式选择展示的可视化才会自动全局编号。图表场景下应先 `generate_chart` 生成草稿，必要时检查或修改配置，再调用 `present_chart`；地图仍可直接生成展示。对每个要展示的可视化，必须在 <answer> 按顺序插入 [CHART:N]（独占一行，前后空行）。
 若本次回答没有生成任何图表，则不需要插入 [CHART:N] 标记。
 """

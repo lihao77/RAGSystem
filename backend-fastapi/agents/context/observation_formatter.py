@@ -1,21 +1,41 @@
 # -*- coding: utf-8 -*-
-"""Tool observation formatting helpers."""
+"""Tool observation formatting helpers.
+
+此模块现在使用策略模式，通过 ObservationFormatterRegistry 管理不同输出类型的格式化策略。
+为了向后兼容，保留 ObservationFormatter 类作为外观模式。
+
+新增工具格式化支持：
+1. 在 observation_formatters/ 下创建新的策略类继承 BaseObservationFormatter
+2. 在 get_default_registry() 中注册新策略
+3. 或使用 ObservationFormatter.register_formatter() 动态注册
+
+详见 observation_formatters/__init__.py
+"""
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from agents.artifacts import ArtifactStore
 from agents.monitoring.observation_window import ObservationWindowCollector
 from tools.result_normalizer import ToolResultNormalizer
 from tools.result_schema import ToolExecutionResult
 
+from .observation_formatters import (
+    BaseObservationFormatter,
+    FormatContext,
+    get_default_registry,
+    ObservationFormatterRegistry,
+)
+
 
 class ObservationFormatter:
     """
     Format tool responses into compact observations for the next LLM turn.
+
+    现在作为策略注册表的外观，保持向后兼容。
+    内部使用 ObservationFormatterRegistry 分发到具体策略。
     """
 
     LARGE_DATA_THRESHOLD = 8000
@@ -39,6 +59,9 @@ class ObservationFormatter:
         )
         self.logger = logging.getLogger(f"{__name__}.ObservationFormatter")
 
+        # 使用默认注册表
+        self._registry = get_default_registry()
+
     def format(
         self,
         result: Any,
@@ -46,166 +69,89 @@ class ObservationFormatter:
         is_skills_tool: bool = False,
         no_truncate: bool = False,
     ) -> str:
-        del no_truncate
+        """
+        格式化工具结果为 observation 字符串。
 
+        Args:
+            result: 工具返回结果（任意格式）
+            tool_name: 工具名称
+            is_skills_tool: 是否为 Skills 工具
+            no_truncate: 是否禁用截断
+
+        Returns:
+            格式化后的 observation 字符串
+        """
+        # 归一化为 ToolExecutionResult
         normalized = self.result_normalizer.normalize(result, tool_name=tool_name)
-        if not normalized.success:
+
+        # 构建格式化上下文
+        context = FormatContext(
+            tool_name=tool_name or "",
+            is_skills_tool=is_skills_tool,
+            no_truncate=no_truncate,
+            artifact_store=self.artifact_store,
+            observation_window=self.observation_window,
+            large_data_threshold=self.LARGE_DATA_THRESHOLD,
+        )
+
+        # 使用注册表分发给具体策略
+        try:
+            return self._registry.format(normalized, context)
+        except Exception as e:
+            self.logger.error(f"格式化失败: {e}")
+            # 保底：返回简单的错误信息
+            if normalized.success:
+                return f"✅ 执行成功\n\n{str(normalized.content)}"
             return f"❌ 错误: {normalized.content or '未知错误'}"
 
-        if is_skills_tool:
-            self._record_materialization(result=normalized, estimated_size=self._estimate_size_fast(normalized.content), used_artifact=False)
-            return self._format_skills_result(normalized)
+    def register_formatter(self, formatter: BaseObservationFormatter) -> None:
+        """
+        注册自定义格式化策略。
 
-        if normalized.metadata.get("source_shape") == "primitive":
-            self._record_materialization(result=normalized, estimated_size=self._estimate_size_fast(normalized.content), used_artifact=False)
-            return str(normalized.content)
+        Args:
+            formatter: 自定义格式化策略实例
 
-        return self._format_standard_response(normalized)
+        Example:
+            >>> formatter = ObservationFormatter()
+            >>> formatter.register_formatter(MyCustomFormatter())
+        """
+        self._registry.register(formatter)
+        self.logger.info(f"注册自定义格式化策略: {formatter.name}")
 
-    def _format_skills_result(self, result: ToolExecutionResult) -> str:
-        pure_data = result.content
-        summary = result.summary
-        data: Dict[str, Any] = {"results": pure_data}
-        if result.metadata:
-            data["metadata"] = result.metadata
-        if summary:
-            data["summary"] = summary
-        if result.answer:
-            data["answer"] = result.answer
+    def list_formatters(self) -> list[str]:
+        """
+        列出所有已注册的格式化策略。
 
-        if isinstance(pure_data, dict):
-            skill_content = pure_data.get("main_content") or pure_data.get("content")
-            if skill_content:
-                return f"✅ {summary}\n\n{skill_content}" if summary else skill_content
+        Returns:
+            策略名称列表
+        """
+        return self._registry.list_formatters()
 
-        return json.dumps(data, ensure_ascii=False, indent=2)
 
-    def _estimate_size_fast(self, data: Any) -> int:
-        if isinstance(data, str):
-            return len(data)
+# 保持旧的方法作为内部工具函数（供策略类使用）
+def _estimate_size_fast(data: Any) -> int:
+    """快速估算数据大小（供旧代码兼容）。"""
+    import json
 
-        if isinstance(data, list):
-            if len(data) == 0:
-                return 2
-            if len(data) <= 10:
-                return len(json.dumps(data, ensure_ascii=False))
+    if isinstance(data, str):
+        return len(data)
 
-            sample = data[:10]
-            sample_size = len(json.dumps(sample, ensure_ascii=False))
-            return int(sample_size * (len(data) / len(sample)))
+    if isinstance(data, list):
+        if len(data) == 0:
+            return 2
+        if len(data) <= 10:
+            return len(json.dumps(data, ensure_ascii=False))
+        sample = data[:10]
+        sample_size = len(json.dumps(sample, ensure_ascii=False))
+        return int(sample_size * (len(data) / len(sample)))
 
-        if isinstance(data, dict):
-            if len(data) == 0:
-                return 2
-            if len(data) <= 10:
-                return len(json.dumps(data, ensure_ascii=False))
+    if isinstance(data, dict):
+        if len(data) == 0:
+            return 2
+        if len(data) <= 10:
+            return len(json.dumps(data, ensure_ascii=False))
+        sample = dict(list(data.items())[:10])
+        sample_size = len(json.dumps(sample, ensure_ascii=False))
+        return int(sample_size * (len(data) / len(sample)))
 
-            sample = dict(list(data.items())[:10])
-            sample_size = len(json.dumps(sample, ensure_ascii=False))
-            return int(sample_size * (len(data) / len(sample)))
-
-        return len(str(data))
-
-    def _format_standard_response(self, result: ToolExecutionResult) -> str:
-        pure_data = result.content
-        summary = result.summary
-        metadata = result.metadata or {}
-        answer = result.answer
-        approval_message = metadata.get("approval_message", "")
-
-        estimated_size = self._estimate_size_fast(pure_data)
-        self.logger.debug(
-            "数据大小估算: %s 字符（阈值: %s）",
-            estimated_size,
-            self.LARGE_DATA_THRESHOLD,
-        )
-
-        if isinstance(pure_data, str):
-            prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
-            if approval_message:
-                prefix += f"👤 用户批注: {approval_message}\n\n"
-            self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
-            return f"{prefix}{pure_data}"
-
-        if estimated_size < self.LARGE_DATA_THRESHOLD:
-            content_str = (
-                json.dumps(pure_data, ensure_ascii=False)
-                if isinstance(pure_data, (dict, list))
-                else str(pure_data)
-            )
-
-            if answer:
-                prefix = f"✅ {answer}\n\n"
-                if approval_message:
-                    prefix += f"👤 用户批注: {approval_message}\n\n"
-                self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
-                return f"{prefix}📊 数据详情:\n```json\n{content_str[:2000]}\n```"
-
-            prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
-            if approval_message:
-                prefix += f"👤 用户批注: {approval_message}\n\n"
-            self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=False)
-            return f"{prefix}```json\n{content_str}\n```"
-
-        self._record_materialization(result=result, estimated_size=estimated_size, used_artifact=True)
-        artifact = self.artifact_store.save_json(
-            session_id=None,
-            tool_name=result.tool_name,
-            data=pure_data,
-        )
-        result.artifacts.append(artifact)
-
-        meta_info_parts = []
-        if summary:
-            meta_info_parts.append(summary)
-
-        if metadata:
-            total_count = metadata.get("total_count")
-            data_type = metadata.get("data_type", "List")
-            fields = metadata.get("fields", [])
-
-            if total_count:
-                meta_info_parts.append(f"{data_type}: {total_count} 条记录")
-
-            if fields:
-                field_names = [field["name"] for field in fields[:5]]
-                field_str = ", ".join(field_names)
-                if len(fields) > 5:
-                    field_str += f" 等 {len(fields)} 个字段"
-                meta_info_parts.append(f"字段: {field_str}")
-
-        meta_info = " | ".join(meta_info_parts) if meta_info_parts else "数据量过大"
-
-        parts = []
-        if answer:
-            parts.append(f"✅ {answer}\n")
-        if approval_message:
-            parts.append(f"👤 用户批注: {approval_message}\n")
-
-        parts.append(f"📁 数据已存储: {artifact.path}")
-        parts.append(f"📊 {meta_info}")
-        parts.append("💡 后续工具可直接使用此文件路径作为参数")
-
-        if metadata.get("sample"):
-            sample = metadata["sample"]
-            sample_str = json.dumps(sample, ensure_ascii=False)
-            if len(sample_str) > 200:
-                sample_str = sample_str[:200] + "..."
-            parts.append(f"📝 样本: {sample_str}")
-
-        return "\n".join(parts)
-
-    def _record_materialization(
-        self,
-        *,
-        result: ToolExecutionResult,
-        estimated_size: int,
-        used_artifact: bool,
-    ) -> None:
-        self.observation_window.record_materialization(
-            tool_name=result.tool_name,
-            output_type=result.output_type,
-            estimated_size=estimated_size,
-            threshold=self.LARGE_DATA_THRESHOLD,
-            used_artifact=used_artifact,
-        )
+    return len(str(data))

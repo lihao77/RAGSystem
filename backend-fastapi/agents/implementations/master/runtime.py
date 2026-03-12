@@ -12,6 +12,41 @@ from agents.streaming import StreamExecutor
 from .executor import parse_agent_invocation
 from .tool_router import route_user_input_request, route_agent_delegation, route_direct_tool
 
+
+def _publish_visualization_candidate(publisher, candidate):
+    if not publisher or not isinstance(candidate, dict):
+        return
+
+    candidate_type = candidate.get('type')
+    if candidate_type == 'chart':
+        chart_config = candidate.get('chart_config')
+        if chart_config:
+            publisher.chart_generated(
+                chart_config=chart_config,
+                chart_type=candidate.get('chart_type', 'bar'),
+            )
+            candidate_id = candidate.get('candidate_id')
+            if candidate_id:
+                try:
+                    from tools.presentation_store import get_presentation_store
+                    get_presentation_store().mark_published(candidate_id)
+                except Exception:
+                    agent_logger = getattr(publisher, 'agent_name', 'master')
+                    import logging
+                    logging.getLogger(__name__).debug(
+                        "标记图表候选已发布失败 agent=%s candidate_id=%s",
+                        agent_logger,
+                        candidate_id,
+                        exc_info=True,
+                    )
+    elif candidate_type == 'map':
+        map_data = candidate.get('map_data')
+        if map_data:
+            publisher.map_generated(
+                map_data=map_data,
+                map_type=candidate.get('map_type', 'marker'),
+            )
+
 def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
     """
     执行任务（通过事件总线发布事件，实现真正的解耦）
@@ -83,6 +118,7 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
 
         rounds = 0
         visualization_counter = 0
+        pending_visualizations = []
         agent_calls_history = []
         global_agent_order = 0  # 🎯 全局 Agent 调用计数器
 
@@ -199,6 +235,8 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
 
                 # ✨ 发布最终答案事件（通过事件总线流式输出）
                 agent._publisher.final_answer(final_answer)
+                for candidate in pending_visualizations:
+                    _publish_visualization_candidate(agent._publisher, candidate)
 
                 # ✨ 发布 MasterAgent 自己的 CALL_AGENT_END 事件
                 agent._publisher.agent_call_end(
@@ -324,6 +362,7 @@ def execute_master(agent, task: str, context: AgentContext) -> AgentResponse:
                             viz_event = route_result.get('visualization_event')
                             if viz_event:
                                 visualization_counter += 1
+                                pending_visualizations.append(viz_event)
 
                 # 将所有结果作为 user 消息添加
                 combined_observations = "\n\n".join(observations)

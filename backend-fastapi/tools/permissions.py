@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Dict, Optional
 from pydantic import BaseModel
 
+from tools.tool_registry import get_tool_registry
+
 
 class RiskLevel(str, Enum):
     """工具风险等级"""
@@ -47,8 +49,22 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         tool_name="generate_chart",
         risk_level=RiskLevel.LOW,
         requires_approval=False,
-        description="生成图表（只读）",
+        description="生成图表草稿候选（只读）",
         allowed_callers=["direct", "code_execution"]
+    ),
+    "update_chart_config": ToolPermission(
+        tool_name="update_chart_config",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="更新受管控的图表候选配置",
+        allowed_callers=["direct"]
+    ),
+    "present_chart": ToolPermission(
+        tool_name="present_chart",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="选择图表候选用于最终前端展示",
+        allowed_callers=["direct"]
     ),
     "generate_map": ToolPermission(
         tool_name="generate_map",
@@ -79,6 +95,13 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         requires_approval=False,
         description="执行 Skill 脚本（在隔离虚拟环境中运行）",
         allowed_callers=["direct"]  # 禁止代码调用
+    ),
+    "get_skill_info": ToolPermission(
+        tool_name="get_skill_info",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="查询 Skill 基础信息（只读）",
+        allowed_callers=["direct"]
     ),
 
     # PTC 代码执行（中风险）
@@ -118,14 +141,6 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         requires_approval=False,
         description="合并提取结果（只读）",
         allowed_callers=["direct", "code_execution"]
-    ),
-    # 向后兼容旧工具名
-    "save_json_file": ToolPermission(
-        tool_name="save_json_file",
-        risk_level=RiskLevel.HIGH,
-        requires_approval=True,
-        description="写入 JSON 文件到磁盘（已弃用，请使用 write_file）",
-        allowed_callers=["direct"]
     ),
     "write_file": ToolPermission(
         tool_name="write_file",
@@ -225,7 +240,7 @@ def sync_mcp_tool_permissions(
         )
 
 
-_SKILLS_SYSTEM_TOOLS = {'activate_skill', 'load_skill_resource', 'execute_skill_script'}
+_TOOL_REGISTRY = get_tool_registry()
 
 
 def is_tool_enabled(tool_name: str, agent_config) -> bool:
@@ -244,7 +259,7 @@ def is_tool_enabled(tool_name: str, agent_config) -> bool:
 
     # Skills 系统工具是动态注入的，不在 enabled_tools 列表里
     # 只要智能体启用了任意 Skill，这三个工具就自动可用
-    if tool_name in _SKILLS_SYSTEM_TOOLS:
+    if tool_name in _TOOL_REGISTRY.get_skill_tool_names():
         skills_config = getattr(agent_config, 'skills', None)
         if skills_config:
             enabled_skills = getattr(skills_config, 'enabled_skills', [])
@@ -263,9 +278,7 @@ def is_mcp_server_enabled_for_agent(tool_name: str, agent_config) -> bool:
     if not agent_config:
         return False
 
-    from mcp.converter import parse_mcp_tool_name
-
-    parsed = parse_mcp_tool_name(tool_name)
+    parsed = _TOOL_REGISTRY.parse_mcp_tool_name(tool_name)
     if not parsed:
         return False
 
@@ -284,11 +297,10 @@ def check_tool_permission(
     """Check tool permission."""
     permission = get_tool_permission(tool_name)
     if not permission:
-        from mcp.converter import is_mcp_tool, parse_mcp_tool_name
         from mcp.config_store import get_mcp_config_store
 
-        if is_mcp_tool(tool_name):
-            parsed = parse_mcp_tool_name(tool_name)
+        if _TOOL_REGISTRY.is_mcp_tool(tool_name):
+            parsed = _TOOL_REGISTRY.parse_mcp_tool_name(tool_name)
             if parsed:
                 server_name, _ = parsed
                 srv_cfg = get_mcp_config_store().get_server(server_name)
@@ -307,9 +319,8 @@ def check_tool_permission(
     if caller not in permission.allowed_callers:
         return False, f"Tool {tool_name} is not allowed from caller {caller}"
 
-    from mcp.converter import is_mcp_tool as _is_mcp
     if agent_config:
-        if _is_mcp(tool_name):
+        if _TOOL_REGISTRY.is_mcp_tool(tool_name):
             if not is_mcp_server_enabled_for_agent(tool_name, agent_config):
                 return False, f"MCP tool {tool_name} is not enabled for this agent"
         elif not is_tool_enabled(tool_name, agent_config):

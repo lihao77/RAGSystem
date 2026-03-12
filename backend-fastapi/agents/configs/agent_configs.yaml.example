@@ -47,6 +47,8 @@ agents:
         - chunk_document
         - extract_structured_data
         - generate_chart
+        - update_chart_config
+        - present_chart
         - execute_code
     skills:
       enabled_skills: []

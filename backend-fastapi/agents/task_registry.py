@@ -36,7 +36,7 @@ class TaskInfo:
     thread: Optional[threading.Thread] = None
     cancel_event: Optional[threading.Event] = None
     status: str = 'running'
-    execution_kind: str = 'legacy'
+    execution_kind: str = 'generic'
     concurrency_key: Optional[str] = None
     timeout_seconds: Optional[float] = None
     finished_at: Optional[float] = None

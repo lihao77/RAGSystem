@@ -32,6 +32,7 @@ def _new_state() -> Dict[str, Any]:
         },
         "totals": {
             "normalized_results": 0,
+            "native_results": 0,
             "materialized_results": 0,
             "artifact_saves": 0,
         },
@@ -41,6 +42,21 @@ def _new_state() -> Dict[str, Any]:
             "large_data_threshold": 8000,
             "triggered": 0,
             "not_triggered": 0,
+        },
+        "compression_stats": {
+            "attempts": 0,
+            "successes": 0,
+            "fallbacks": 0,
+            "skipped": 0,
+            "replaced_messages": 0,
+        },
+        "trim_stats": {
+            "events": 0,
+            "trimmed_messages": 0,
+        },
+        "spill_stats": {
+            "count": 0,
+            "bytes": 0,
         },
         "inline_size_samples": [],
         "artifact_size_samples": [],
@@ -73,16 +89,19 @@ class ObservationWindowCollector:
         output_type: str,
         branch: str,
         success: bool,
+        native: bool,
     ) -> None:
         with self._lock:
             state = self._state
             self._touch_window()
             state["totals"]["normalized_results"] += 1
+            state["totals"]["native_results"] += 1
             self._increment(state["output_type_distribution"], output_type)
             self._increment(state["normalize_branch_distribution"], branch)
 
             tool_stats = self._tool_stats(tool_name)
             tool_stats["normalized_results"] += 1
+            tool_stats["native_results"] += 1
             self._increment(tool_stats["output_type_distribution"], output_type)
             self._increment(tool_stats["normalize_branch_distribution"], branch)
             if success:
@@ -134,6 +153,8 @@ class ObservationWindowCollector:
             state = self._state
             self._touch_window()
             state["totals"]["artifact_saves"] += 1
+            state["spill_stats"]["count"] += 1
+            state["spill_stats"]["bytes"] += size
             self._append_sample(state["artifact_size_samples"], size)
             self._increment(state["artifact_type_distribution"], artifact_type)
             self._increment(state["artifact_size_buckets"], self._artifact_bucket(size))
@@ -145,6 +166,36 @@ class ObservationWindowCollector:
 
             self._persist()
 
+    def record_compression(
+        self,
+        *,
+        status: str,
+        replaced_messages: int = 0,
+    ) -> None:
+        with self._lock:
+            state = self._state
+            self._touch_window()
+            state["compression_stats"]["attempts"] += 1
+            if status == "success":
+                state["compression_stats"]["successes"] += 1
+            elif status == "fallback":
+                state["compression_stats"]["fallbacks"] += 1
+            else:
+                state["compression_stats"]["skipped"] += 1
+            state["compression_stats"]["replaced_messages"] += max(0, int(replaced_messages))
+            self._persist()
+
+    def record_trim(self, *, trimmed_messages: int) -> None:
+        if trimmed_messages <= 0:
+            return
+
+        with self._lock:
+            state = self._state
+            self._touch_window()
+            state["trim_stats"]["events"] += 1
+            state["trim_stats"]["trimmed_messages"] += int(trimmed_messages)
+            self._persist()
+
     def build_report(self) -> Dict[str, Any]:
         with self._lock:
             state = json.loads(json.dumps(self._state))
@@ -154,6 +205,7 @@ class ObservationWindowCollector:
         triggered = state["threshold_stats"]["triggered"]
         not_triggered = state["threshold_stats"]["not_triggered"]
         total_threshold = triggered + not_triggered
+        compression_attempts = state["compression_stats"]["attempts"]
 
         suggested_snippet_limit = None
         if inline_samples:
@@ -171,6 +223,7 @@ class ObservationWindowCollector:
                 {
                     "tool_name": tool_name,
                     "normalized_results": stats["normalized_results"],
+                    "native_results": stats["native_results"],
                     "output_type_distribution": stats["output_type_distribution"],
                     "normalize_branch_distribution": stats["normalize_branch_distribution"],
                     "inline_count": stats["inline_count"],
@@ -191,6 +244,14 @@ class ObservationWindowCollector:
                 **state["threshold_stats"],
                 "trigger_rate": (triggered / total_threshold) if total_threshold else 0.0,
             },
+            "compression_stats": {
+                **state["compression_stats"],
+                "hit_rate": (
+                    state["compression_stats"]["successes"] / compression_attempts
+                ) if compression_attempts else 0.0,
+            },
+            "trim_stats": state["trim_stats"],
+            "spill_stats": state["spill_stats"],
             "artifact_stats": {
                 "count": len(artifact_samples),
                 "average_size_bytes": artifact_avg,
@@ -229,7 +290,7 @@ class ObservationWindowCollector:
             with open(self._storage_path, "r", encoding="utf-8") as file_obj:
                 data = json.load(file_obj)
             if isinstance(data, dict):
-                self._state.update(data)
+                self._state = self._merge_defaults(_new_state(), data)
         except Exception as exc:
             logger.warning("ObservationWindowCollector 加载失败: %s", exc)
 
@@ -253,6 +314,7 @@ class ObservationWindowCollector:
         if key not in tools:
             tools[key] = {
                 "normalized_results": 0,
+                "native_results": 0,
                 "success_count": 0,
                 "failure_count": 0,
                 "materialized_results": 0,
@@ -265,6 +327,25 @@ class ObservationWindowCollector:
                 "inline_size_samples": [],
                 "artifact_size_samples": [],
             }
+        else:
+            tools[key] = self._merge_defaults(
+                {
+                    "normalized_results": 0,
+                    "native_results": 0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "materialized_results": 0,
+                    "inline_count": 0,
+                    "artifact_ref_count": 0,
+                    "artifact_saves": 0,
+                    "artifact_bytes": 0,
+                    "output_type_distribution": {},
+                    "normalize_branch_distribution": {},
+                    "inline_size_samples": [],
+                    "artifact_size_samples": [],
+                },
+                tools[key],
+            )
         return tools[key]
 
     @staticmethod
@@ -283,3 +364,17 @@ class ObservationWindowCollector:
             if size < upper_bound:
                 return label
         return ">=10MB"
+
+    @classmethod
+    def _merge_defaults(cls, defaults: Dict[str, Any], loaded: Dict[str, Any]) -> Dict[str, Any]:
+        merged = json.loads(json.dumps(defaults))
+        for key, value in loaded.items():
+            if (
+                key in merged
+                and isinstance(merged[key], dict)
+                and isinstance(value, dict)
+            ):
+                merged[key] = cls._merge_defaults(merged[key], value)
+            else:
+                merged[key] = value
+        return merged

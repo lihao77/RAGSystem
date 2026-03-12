@@ -4,7 +4,7 @@ data_tools 工具模块。
 """
 
 import logging
-from .shared import error_response, success_response
+from .shared import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ for item in raw_data:
 
         # 参数验证
         if not python_code or not python_code.strip():
-            return error_response("参数 python_code 不能为空")
+            return error_result("参数 python_code 不能为空", tool_name="transform_data")
 
         # 准备执行环境
         local_vars = {
@@ -71,7 +71,10 @@ for item in raw_data:
         forbidden_modules = ['os', 'sys', 'subprocess', 'shutil']
         for mod in forbidden_modules:
             if f"import {mod}" in python_code or f"from {mod}" in python_code:
-                return error_response(f"安全警告: 禁止在代码中使用 {mod} 模块")
+                return error_result(
+                    f"安全警告: 禁止在代码中使用 {mod} 模块",
+                    tool_name="transform_data",
+                )
 
         # 执行代码
         logger.info("开始执行转换代码...")
@@ -80,22 +83,24 @@ for item in raw_data:
         # 获取结果
         result_data = local_vars.get('result')
         if result_data is None:
-            return error_response(
+            return error_result(
                 "代码执行成功，但未设置 result 变量。\n"
-                "请在代码末尾添加：result = <转换后的数据>"
+                "请在代码末尾添加：result = <转换后的数据>",
+                tool_name="transform_data",
             )
 
-        # 使用标准化响应（自动生成元数据）
-        return success_response(
-            results=result_data,
-            summary=f"数据转换成功：{description}" if description else "数据转换成功"
+        return success_result(
+            content=result_data,
+            summary=f"数据转换成功：{description}" if description else "数据转换成功",
+            output_type="json",
+            tool_name="transform_data",
         )
 
     except Exception as e:
         logger.error(f"数据转换失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return error_response(f"数据转换失败: {str(e)}")
+        return error_result(f"数据转换失败: {str(e)}", tool_name="transform_data")
 
 def process_data_file(source_path, python_code, description=""):
     """
@@ -137,7 +142,7 @@ def process_data_file(source_path, python_code, description=""):
 
         # 1. 验证源文件存在
         if not os.path.exists(source_path):
-            return error_response(f"源文件不存在: {source_path}")
+            return error_result(f"源文件不存在: {source_path}", tool_name="process_data_file")
 
         # 2. 生成结果文件路径
         result_dir = os.path.dirname(source_path)
@@ -157,7 +162,10 @@ def process_data_file(source_path, python_code, description=""):
         forbidden_modules = ['os', 'sys', 'subprocess', 'shutil']
         for mod in forbidden_modules:
             if f"import {mod}" in python_code or f"from {mod}" in python_code:
-                return error_response(f"安全警告: 禁止在代码中使用 {mod} 模块")
+                return error_result(
+                    f"安全警告: 禁止在代码中使用 {mod} 模块",
+                    tool_name="process_data_file",
+                )
 
         # 5. 执行代码
         logger.info("开始执行 Python 代码...")
@@ -165,7 +173,10 @@ def process_data_file(source_path, python_code, description=""):
 
         # 6. 验证结果文件是否生成
         if not os.path.exists(result_path):
-            return error_response("代码执行成功，但未生成结果文件。请检查代码是否正确写入 result_path。")
+            return error_result(
+                "代码执行成功，但未生成结果文件。请检查代码是否正确写入 result_path。",
+                tool_name="process_data_file",
+            )
 
         # 7. 读取处理后的完整数据
         file_size = os.path.getsize(result_path)
@@ -185,23 +196,28 @@ def process_data_file(source_path, python_code, description=""):
                 with open(result_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                     logger.warning(f"结果文件既不是 JSON 也不是 CSV，返回原始文本（前500字符）")
-                    return error_response(f"结果文件格式不支持。请确保代码将数据保存为 JSON 格式（使用 json.dump）。\n文件内容预览：{content[:500]}")
+                    return error_result(
+                        f"结果文件格式不支持。请确保代码将数据保存为 JSON 格式（使用 json.dump）。\n文件内容预览：{content[:500]}",
+                        tool_name="process_data_file",
+                    )
 
-        # 8. 使用标准化响应，自动生成元数据和摘要
-        # 直接传递处理后的数据，让 success_response 自动分析
+        # 8. 返回标准化结果，并附带产物路径等元数据
         debug_info = {
             "result_path": result_path,
             "source_path": source_path,
             "file_size": f"{file_size / 1024:.2f} KB"
         }
 
-        return success_response(
-            results=processed_data,
-            debug=debug_info
+        return success_result(
+            content=processed_data,
+            summary="数据文件处理成功",
+            output_type="json",
+            metadata=debug_info,
+            tool_name="process_data_file",
         )
 
     except Exception as e:
         logger.error(f"数据处理失败: {e}")
         import traceback
         traceback.print_exc()
-        return error_response(f"代码执行错误: {str(e)}")
+        return error_result(f"代码执行错误: {str(e)}", tool_name="process_data_file")

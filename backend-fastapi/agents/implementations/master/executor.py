@@ -6,9 +6,11 @@ Agent Executor - 执行 Agent 调用
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 from agents.core import AgentContext, AgentResponse
+from tools.response_builder import error_result, success_result
+from tools.result_schema import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +30,11 @@ class AgentExecutor:
         task: str,
         context: AgentContext,
         context_hint: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> ToolExecutionResult:
         try:
             agent = self.orchestrator.agents.get(agent_name)
             if not agent:
-                return self._error_response(f"Agent '{agent_name}' 不存在")
+                return self._error_response(f"Agent '{agent_name}' 不存在", tool_name=agent_name)
 
             enhanced_task = task
             if context_hint:
@@ -44,26 +46,27 @@ class AgentExecutor:
             response = agent.execute(enhanced_task, context)
 
             if response.success:
-                return {
-                    "success": True,
-                    "data": {
-                        "results": response.content,
-                        "metadata": {
-                            "agent_name": agent_name,
-                            "execution_time": response.execution_time,
-                            "tool_calls": len(response.tool_calls) if response.tool_calls else 0
-                        },
-                        "summary": self._generate_summary(response)
-                    }
-                }
+                output_type = "json" if isinstance(response.content, (dict, list)) else "text"
+                return success_result(
+                    content=response.content,
+                    summary=self._generate_summary(response),
+                    output_type=output_type,
+                    metadata={
+                        "agent_name": agent_name,
+                        "execution_time": response.execution_time,
+                        "tool_calls": len(response.tool_calls) if response.tool_calls else 0,
+                    },
+                    tool_name=agent_name,
+                )
             else:
                 return self._error_response(
-                    f"Agent '{agent_name}' 执行失败: {response.error}"
+                    f"Agent '{agent_name}' 执行失败: {response.error}",
+                    tool_name=agent_name,
                 )
 
         except Exception as e:
             self.logger.error(f"执行 Agent '{agent_name}' 时出错: {e}", exc_info=True)
-            return self._error_response(str(e))
+            return self._error_response(str(e), tool_name=agent_name)
 
     def execute_agent_stream(
         self,
@@ -75,7 +78,7 @@ class AgentExecutor:
         try:
             agent = self.orchestrator.agents.get(agent_name)
             if not agent:
-                yield self._error_response(f"Agent '{agent_name}' 不存在")
+                yield self._error_response(f"Agent '{agent_name}' 不存在", tool_name=agent_name)
                 return
 
             enhanced_task = task
@@ -97,18 +100,17 @@ class AgentExecutor:
                 if event.get('type') == 'final_answer':
                     final_content = event.get('content', '')
 
-            yield {
-                "success": True,
-                "data": {
-                    "results": final_content,
-                    "metadata": {"agent_name": agent_name},
-                    "summary": self._generate_summary_from_content(final_content)
-                }
-            }
+            yield success_result(
+                content=final_content,
+                summary=self._generate_summary_from_content(final_content),
+                output_type="text",
+                metadata={"agent_name": agent_name},
+                tool_name=agent_name,
+            )
 
         except Exception as e:
             self.logger.error(f"流式执行 Agent '{agent_name}' 时出错: {e}", exc_info=True)
-            yield self._error_response(str(e))
+            yield self._error_response(str(e), tool_name=agent_name)
 
     def _generate_summary(self, response: AgentResponse) -> str:
         summary_parts = ["Agent 执行成功"]
@@ -129,8 +131,8 @@ class AgentExecutor:
             return content
         return content[:200] + "..."
 
-    def _error_response(self, error_msg: str) -> Dict[str, Any]:
-        return {"success": False, "error": error_msg}
+    def _error_response(self, error_msg: str, tool_name: str = "") -> ToolExecutionResult:
+        return error_result(error_msg, tool_name=tool_name)
 
 
 def parse_agent_invocation(tool_name: str) -> Optional[str]:

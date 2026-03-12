@@ -10,7 +10,7 @@ from typing import Dict, Optional, Type
 from agents.core import BaseAgent
 from agents.implementations import ReActAgent
 from .manager import get_config_manager
-from agents.tools.builtin import SKILLS_SYSTEM_TOOLS as _SKILLS_SYSTEM_TOOLS
+from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class AgentLoader:
         self.orchestrator = orchestrator
         self.config_manager = config_manager or get_config_manager()
         self._mcp_manager_getter = mcp_manager_getter
+        self._tool_registry = get_tool_registry()
 
     def load_agent(self, agent_name: str) -> Optional[BaseAgent]:
         """
@@ -230,10 +231,6 @@ class AgentLoader:
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
         return 'react'
 
-    # ─── Skills 系统工具定义（供 _resolve_tools_and_skills 使用）───────────────
-    # 定义在 agents/tools/builtin.py，顶部已导入为 _SKILLS_SYSTEM_TOOLS
-    _SKILLS_SYSTEM_TOOLS = _SKILLS_SYSTEM_TOOLS
-
     def _resolve_tools_and_skills(self, agent_config):
         """
         根据 agent_config 过滤工具列表并注入 Skills 工具
@@ -241,11 +238,10 @@ class AgentLoader:
         Returns:
             (available_tools, available_skills) 元组
         """
-        from tools.function_definitions import get_tool_definitions
         from agents.skills.skill_loader import get_skill_loader
 
         # 1. 工具过滤
-        all_tools = get_tool_definitions()
+        all_tools = self._tool_registry.get_configurable_tools()
         if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
             enabled_tools = agent_config.tools.enabled_tools
             filtered_tools = [
@@ -274,7 +270,7 @@ class AgentLoader:
             auto_inject = agent_config.skills.auto_inject if agent_config.skills else True
             if auto_inject:
                 existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
-                for skill_tool in self._SKILLS_SYSTEM_TOOLS:
+                for skill_tool in self._tool_registry.get_skill_tools():
                     tool_name = skill_tool.get('function', {}).get('name')
                     if tool_name not in existing_tool_names:
                         filtered_tools.append(skill_tool)

@@ -168,6 +168,62 @@ class SkillLoader:
         logger.info(f"共加载 {len(skills)} 个 Skills")
         return skills
 
+    def find_skill_metadata(self, skill_name: str) -> Optional[Dict]:
+        """
+        轻量查找 Skill 元数据。
+
+        仅解析 SKILL.md 的 YAML front matter，不加载正文内容。
+        """
+        for skill_dir, skill_file in self._iter_skill_files():
+            metadata = self._parse_skill_metadata_file(skill_file)
+            if metadata and metadata.get('name') == skill_name:
+                return {
+                    'name': metadata['name'],
+                    'description': metadata['description'],
+                    'skill_dir': skill_dir,
+                    'metadata': metadata,
+                }
+        return None
+
+    def list_skill_names(self) -> List[str]:
+        """轻量列出所有 Skill 名称。"""
+        names = []
+        for _, skill_file in self._iter_skill_files():
+            metadata = self._parse_skill_metadata_file(skill_file)
+            if metadata and metadata.get('name'):
+                names.append(metadata['name'])
+        return names
+
+    def count_skill_resources(self, skill_dir: Path) -> int:
+        """
+        统计 Additional Resources 文件数量。
+
+        排除 SKILL.md 和 scripts/ 目录下的脚本文件。
+        """
+        count = 0
+        scripts_dir = skill_dir / "scripts"
+        for path in skill_dir.rglob('*'):
+            if not path.is_file():
+                continue
+            if path.name == "SKILL.md":
+                continue
+            if scripts_dir in path.parents:
+                continue
+            count += 1
+        return count
+
+    def _iter_skill_files(self):
+        """遍历所有 Skill 目录及其 SKILL.md 文件。"""
+        if not self.skills_dir.exists():
+            logger.warning(f"Skills 目录不存在: {self.skills_dir}")
+            return
+
+        for skill_dir in self.skills_dir.iterdir():
+            if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
+                skill_file = skill_dir / "SKILL.md"
+                if skill_file.exists():
+                    yield skill_dir, skill_file
+
     def _parse_skill_file(self, file_path: Path, skill_dir: Path) -> Optional[Skill]:
         """
         解析 SKILL.md 文件
@@ -181,36 +237,13 @@ class SkillLoader:
         # Markdown content...
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            # 分离 YAML front matter 和 Markdown 内容
-            if not content.startswith('---'):
-                logger.error(f"SKILL.md 缺少 YAML 前置部分: {file_path}")
+            metadata, markdown_content = self._read_skill_file_parts(file_path)
+            if metadata is None or markdown_content is None:
                 return None
-
-            parts = content.split('---', 2)
-            if len(parts) < 3:
-                logger.error(f"SKILL.md 格式错误: {file_path}")
-                return None
-
-            # 解析 YAML（简单的键值对解析，避免依赖 PyYAML）
-            yaml_content = parts[1].strip()
-            metadata = self._parse_simple_yaml(yaml_content)
-
-            # 提取必需字段
-            name = metadata.get('name')
-            description = metadata.get('description')
-
-            if not name or not description:
-                logger.error(f"SKILL.md 缺少必需字段 (name/description): {file_path}")
-                return None
-
-            markdown_content = parts[2].strip()
 
             return Skill(
-                name=name,
-                description=description,
+                name=metadata['name'],
+                description=metadata['description'],
                 content=markdown_content,
                 skill_dir=skill_dir,
                 metadata=metadata
@@ -219,6 +252,58 @@ class SkillLoader:
         except Exception as e:
             logger.error(f"解析 SKILL.md 失败 {file_path}: {e}", exc_info=True)
             return None
+
+    def _parse_skill_metadata_file(self, file_path: Path) -> Optional[Dict]:
+        """只解析 SKILL.md 的 YAML front matter。"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                first_line = f.readline()
+                if first_line.strip() != '---':
+                    logger.error(f"SKILL.md 缺少 YAML 前置部分: {file_path}")
+                    return None
+
+                yaml_lines = []
+                for line in f:
+                    if line.strip() == '---':
+                        break
+                    yaml_lines.append(line.rstrip('\n'))
+                else:
+                    logger.error(f"SKILL.md 格式错误: {file_path}")
+                    return None
+
+            metadata = self._parse_simple_yaml('\n'.join(yaml_lines))
+            name = metadata.get('name')
+            description = metadata.get('description')
+            if not name or not description:
+                logger.error(f"SKILL.md 缺少必需字段 (name/description): {file_path}")
+                return None
+            return metadata
+        except Exception as e:
+            logger.error(f"解析 Skill 元数据失败 {file_path}: {e}", exc_info=True)
+            return None
+
+    def _read_skill_file_parts(self, file_path: Path) -> Tuple[Optional[Dict], Optional[str]]:
+        """读取完整 Skill 文件，返回 front matter 与 Markdown 正文。"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        if not content.startswith('---'):
+            logger.error(f"SKILL.md 缺少 YAML 前置部分: {file_path}")
+            return None, None
+
+        parts = content.split('---', 2)
+        if len(parts) < 3:
+            logger.error(f"SKILL.md 格式错误: {file_path}")
+            return None, None
+
+        metadata = self._parse_simple_yaml(parts[1].strip())
+        name = metadata.get('name')
+        description = metadata.get('description')
+        if not name or not description:
+            logger.error(f"SKILL.md 缺少必需字段 (name/description): {file_path}")
+            return None, None
+
+        return metadata, parts[2].strip()
 
     def _parse_simple_yaml(self, yaml_str: str) -> Dict:
         """

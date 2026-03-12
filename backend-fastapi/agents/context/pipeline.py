@@ -40,11 +40,13 @@ class ContextPipeline:
         model_adapter,
         get_llm_config_fn: Callable[[Optional[str]], Dict[str, Any]],  # 支持 task_type 参数
         logger: Optional[logging.Logger] = None,
+        observation_window=None,
     ):
         self.config = config
         self.model_adapter = model_adapter
         self.get_llm_config_fn = get_llm_config_fn
         self.logger = logger or logging.getLogger(__name__)
+        self.observation_window = observation_window
         from .token_counter import TokenCounter
         self._token_counter = TokenCounter(model_name=config.model_name)
 
@@ -97,6 +99,7 @@ class ContextPipeline:
                 f"历史消息已超出预算（{base_tokens}/{self.config.max_tokens}），"
                 "将截断 current_session"
             )
+            self._record_trim(len(current_session))
             current_session = []
         else:
             session_tokens = self._token_counter.count_messages(current_session)
@@ -105,9 +108,11 @@ class ContextPipeline:
                     f"总 tokens {base_tokens + session_tokens} 超出预算 "
                     f"{self.config.max_tokens}，对 current_session 做内存截断（不持久化）"
                 )
+                original_len = len(current_session)
                 current_session = self._trim_current_session(
                     current_session, remaining_budget
                 )
+                self._record_trim(original_len - len(current_session))
 
         return base_messages + current_session
 
@@ -160,6 +165,7 @@ class ContextPipeline:
 
         if len(candidates) <= preserve_count:
             # 可压缩消息不足，不触发
+            self._record_compression(status="skipped", replaced_messages=0)
             return history_resolved
 
         segment = candidates[:-preserve_count]
@@ -173,11 +179,16 @@ class ContextPipeline:
         summary = self._try_llm_summary(segment, existing_summary)
 
         if summary:
+            self._record_compression(status="success", replaced_messages=len(segment))
             return self._apply_compression(
                 summary, segment, history_raw, context, publisher
             )
         else:
             self.logger.warning("LLM 摘要失败，降级到滑动窗口")
+            self._record_compression(
+                status="fallback",
+                replaced_messages=max(0, len(history_raw) - (self.config.preserve_recent_turns * 2)),
+            )
             return self._apply_sliding_window(history_raw, context, publisher)
 
     def _try_llm_summary(
@@ -375,3 +386,16 @@ class ContextPipeline:
             else:
                 break
         return trimmed
+
+    def _record_compression(self, *, status: str, replaced_messages: int) -> None:
+        if self.observation_window is None:
+            return
+        self.observation_window.record_compression(
+            status=status,
+            replaced_messages=replaced_messages,
+        )
+
+    def _record_trim(self, trimmed_messages: int) -> None:
+        if self.observation_window is None:
+            return
+        self.observation_window.record_trim(trimmed_messages=trimmed_messages)

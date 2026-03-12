@@ -4,15 +4,19 @@ Tool executor 分发入口。
 """
 
 import logging
+import inspect
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
-from tools.response_builder import error_response
+from tools.response_builder import error_result
+from tools.result_schema import ToolExecutionResult
+from tools.tool_registry import get_tool_registry
 
 from .data_tools import process_data_file, transform_data
-from .skill_tools import activate_skill, execute_skill_script, load_skill_resource
-from .visualization_tools import generate_chart, generate_map
+from .skill_tools import activate_skill, execute_skill_script, get_skill_info, load_skill_resource
+from .visualization_tools import generate_chart, generate_map, present_chart, update_chart_config
 
 logger = logging.getLogger(__name__)
+_TOOL_REGISTRY = get_tool_registry()
 
 
 def _obs_suffix() -> str:
@@ -31,7 +35,7 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
     )
     if not allowed:
         logger.warning(f'工具权限检查失败: {error_msg}{_obs_suffix()}')
-        return False, error_response(error_msg), ''
+        return False, error_result(error_msg, tool_name=tool_name), ''
 
     approval_message = ''
     permission = get_tool_permission(tool_name)
@@ -41,7 +45,10 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
     logger.info(f'工具 {tool_name} 需要用户审批{_obs_suffix()}')
     if not event_bus:
         logger.warning(f'工具 {tool_name} 需要审批但无事件总线，拒绝执行{_obs_suffix()}')
-        return False, error_response(f'工具 {tool_name} 需要用户授权，但当前上下文不支持审批'), ''
+        return False, error_result(
+            f'工具 {tool_name} 需要用户授权，但当前上下文不支持审批',
+            tool_name=tool_name,
+        ), ''
 
     try:
         import uuid as _uuid
@@ -67,14 +74,20 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
 
         if wait_evt is None:
             logger.warning(f'工具 {tool_name} 需要审批但缺少 session_id，拒绝执行{_obs_suffix()}')
-            return False, error_response(f'工具 {tool_name} 需要用户授权，但当前上下文无法等待审批'), ''
+            return False, error_result(
+                f'工具 {tool_name} 需要用户授权，但当前上下文无法等待审批',
+                tool_name=tool_name,
+            ), ''
 
         wait_evt.wait()
         approved, approval_note = registry.get_approval_result(session_id, approval_id)
         if not approved:
             logger.info(f'工具 {tool_name} 审批被拒绝或任务已停止{_obs_suffix()}')
             deny_reason = approval_note if approval_note else '用户拒绝执行此操作'
-            return False, error_response(f'工具 {tool_name} 执行已被拒绝：{deny_reason}'), ''
+            return False, error_result(
+                f'工具 {tool_name} 执行已被拒绝：{deny_reason}',
+                tool_name=tool_name,
+            ), ''
 
         logger.info(f'工具 {tool_name} 审批通过，继续执行{_obs_suffix()}')
         if approval_note:
@@ -83,7 +96,7 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
         return True, None, approval_message
     except Exception as error:
         logger.error(f'审批流程异常: {error}{_obs_suffix()}')
-        return False, error_response(f'审批流程异常: {error}'), ''
+        return False, error_result(f'审批流程异常: {error}', tool_name=tool_name), ''
 
 
 def _execute_document_tool(tool_name, arguments):
@@ -99,11 +112,6 @@ def _execute_document_tool(tool_name, arguments):
     if tool_name == 'merge_extracted_data':
         from tools.document_executor import merge_extracted_data
         return merge_extracted_data(**arguments)
-    if tool_name == 'save_json_file':
-        from tools.document_executor import write_file
-        payload = dict(arguments)
-        data = payload.pop('data', payload)
-        return write_file(content=data, mode='json', **payload)
     if tool_name == 'write_file':
         from tools.document_executor import write_file
         return write_file(**arguments)
@@ -114,12 +122,11 @@ def _execute_document_tool(tool_name, arguments):
 
 
 def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
-    from mcp.converter import parse_mcp_tool_name
     from services.mcp_service import get_mcp_service
 
-    parsed = parse_mcp_tool_name(tool_name)
+    parsed = _TOOL_REGISTRY.parse_mcp_tool_name(tool_name)
     if not parsed:
-        return error_response(f'无效的 MCP 工具名: {tool_name}')
+        return error_result(f'无效的 MCP 工具名: {tool_name}', tool_name=tool_name)
     server_name, original_tool = parsed
     current_fields = get_current_execution_observability_fields()
     logger.info(
@@ -143,12 +150,15 @@ def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
 
 TOOL_HANDLERS = {
     'generate_chart': generate_chart,
+    'update_chart_config': update_chart_config,
+    'present_chart': present_chart,
     'generate_map': generate_map,
     'transform_data': transform_data,
     'process_data_file': process_data_file,
     'activate_skill': activate_skill,
     'load_skill_resource': load_skill_resource,
     'execute_skill_script': execute_skill_script,
+    'get_skill_info': get_skill_info,
 }
 
 
@@ -157,7 +167,6 @@ DOCUMENT_TOOL_NAMES = {
     'chunk_document',
     'extract_structured_data',
     'merge_extracted_data',
-    'save_json_file',
     'write_file',
     'read_file',
 }
@@ -166,7 +175,7 @@ DOCUMENT_TOOL_NAMES = {
 def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None):
     """执行指定工具。"""
     try:
-        allowed, error_result, approval_message = _request_user_approval_if_needed(
+        allowed, approval_error_result, approval_message = _request_user_approval_if_needed(
             tool_name,
             arguments,
             agent_config=agent_config,
@@ -176,7 +185,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             session_id=session_id,
         )
         if not allowed:
-            return error_result
+            return approval_error_result
 
         if tool_name == 'execute_code':
             from tools.code_sandbox import execute_code_sandbox
@@ -189,22 +198,27 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 user_role=user_role,
             )
         elif tool_name in TOOL_HANDLERS:
-            result = TOOL_HANDLERS[tool_name](**arguments)
+            handler = TOOL_HANDLERS[tool_name]
+            call_arguments = dict(arguments)
+            if 'session_id' in inspect.signature(handler).parameters:
+                call_arguments.setdefault('session_id', session_id)
+            result = handler(**call_arguments)
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _execute_document_tool(tool_name, arguments)
-        elif tool_name.startswith('mcp__'):
+        elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
             result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)
         else:
-            result = error_response(f'未知的工具: {tool_name}')
+            result = error_result(f'未知的工具: {tool_name}', tool_name=tool_name)
 
-        if approval_message and isinstance(result, dict) and result.get('success'):
-            result['approval_message'] = approval_message
+        if approval_message:
+            if isinstance(result, ToolExecutionResult) and result.success:
+                result.metadata.setdefault('approval_message', approval_message)
         return result
     except Exception as error:
         logger.error(f'执行工具 {tool_name} 失败: {error}{_obs_suffix()}')
         import traceback
         traceback.print_exc()
-        return error_response(str(error))
+        return error_result(str(error), tool_name=tool_name)
 
 
 __all__ = ['execute_tool', 'TOOL_HANDLERS']

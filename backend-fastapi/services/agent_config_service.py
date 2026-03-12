@@ -21,6 +21,7 @@ from agents.config import (
 )
 
 from .agent_api_runtime_service import get_agent_api_runtime_service
+from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class AgentConfigService:
     def __init__(self):
         self._config_manager = get_config_manager()
         self._runtime_service = get_agent_api_runtime_service()
+        self._tool_registry = get_tool_registry()
 
     def list_configs(self) -> Dict[str, Dict[str, Any]]:
         configs = self._config_manager.get_all_configs()
@@ -152,20 +154,7 @@ class AgentConfigService:
         return PRESET_CONFIGS
 
     def list_available_tools(self):
-        from tools.function_definitions import get_tool_definitions
-
-        tools = get_tool_definitions()
-        tool_list = []
-        for tool in tools:
-            function_def = tool.get('function', {})
-            tool_name = function_def.get('name', '')
-            tool_list.append({
-                'name': tool_name,
-                'display_name': tool_name.replace('_', ' ').title(),
-                'description': function_def.get('description', ''),
-                'category': self._get_tool_category(tool_name),
-            })
-        return tool_list
+        return self._tool_registry.list_configurable_tool_summaries()
 
     def list_available_mcp_servers(self):
         from services.mcp_service import get_mcp_service
@@ -201,30 +190,6 @@ class AgentConfigService:
         if 'json' in (content_type or ''):
             return 'json'
         return 'yaml'
-
-    @staticmethod
-    def _get_tool_category(tool_name: str) -> str:
-        if tool_name in [
-            'read_document',
-            'chunk_document',
-            'extract_structured_data',
-            'merge_extracted_data',
-            'read_file',
-            'write_file',
-            'save_json_file',
-        ]:
-            return 'document'
-
-        if tool_name in ['process_data_file', 'transform_data']:
-            return 'data'
-
-        if tool_name in ['generate_chart', 'generate_map']:
-            return 'visualization'
-
-        if tool_name in ['execute_code']:
-            return 'execution'
-
-        return 'other'
 
     def _reload_agents_safely(self) -> None:
         try:
