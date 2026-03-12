@@ -25,7 +25,7 @@ import ExecutionNode from './ExecutionNode.vue';
 const ORCHESTRATOR_AGENT_NAME = 'orchestrator_agent';
 
 const props = defineProps({
-  masterSteps: {
+  executionSteps: {
     type: Array,
     default: () => []
   },
@@ -36,7 +36,7 @@ const props = defineProps({
 });
 
 /**
- * 将 master_steps 和 subtasks 合并为层次化的执行树
+ * 将 execution_steps 和 subtasks 合并为层次化的执行树
  *
  * 核心逻辑：
  * 1. 编排器的每个 thought 作为根节点（按 round）
@@ -45,15 +45,15 @@ const props = defineProps({
  */
 const executionTree = computed(() => {
   const tree = [];
-  const masterSteps = props.masterSteps || [];
+  const executionSteps = props.executionSteps || [];
   const subtasks = props.subtasks || [];
 
   // 按 round 分组
-  const masterByRound = {};
-  masterSteps.forEach(step => {
+  const executionByRound = {};
+  executionSteps.forEach(step => {
     const round = step.round || 1;
-    if (!masterByRound[round]) {
-      masterByRound[round] = step;
+    if (!executionByRound[round]) {
+      executionByRound[round] = step;
     }
   });
 
@@ -68,14 +68,14 @@ const executionTree = computed(() => {
 
   // 获取所有 round 并排序
   const allRounds = new Set([
-    ...Object.keys(masterByRound).map(Number),
+    ...Object.keys(executionByRound).map(Number),
     ...Object.keys(subtasksByRound).map(Number)
   ]);
   const sortedRounds = Array.from(allRounds).sort((a, b) => a - b);
 
   // 构建树
   sortedRounds.forEach(round => {
-    const masterStep = masterByRound[round];
+    const executionStep = executionByRound[round];
     const subtasksInRound = subtasksByRound[round] || [];
 
     // 创建编排器 thought 节点
@@ -84,13 +84,13 @@ const executionTree = computed(() => {
       agent: ORCHESTRATOR_AGENT_NAME,
       agent_display_name: 'Orchestrator Agent',
       round: round,
-      thought: masterStep ? (masterStep.thinking || masterStep.thought || '') : '',
+      thought: executionStep ? (executionStep.thinking || executionStep.thought || '') : '',
       children: []
     };
 
     // 添加编排器的工具调用
-    if (masterStep && masterStep.toolCalls && masterStep.toolCalls.length > 0) {
-      masterStep.toolCalls.forEach(tool => {
+    if (executionStep && executionStep.toolCalls && executionStep.toolCalls.length > 0) {
+      executionStep.toolCalls.forEach(tool => {
         node.children.push({
           type: 'tool_call',
           tool_name: tool.tool_name,

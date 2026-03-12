@@ -174,10 +174,10 @@
                 <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
               </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
-              <div v-else-if="msg.role === 'assistant' && ((msg.subtasks && msg.subtasks.length > 0) || (msg.master_steps && msg.master_steps.length > 0))"
+              <div v-else-if="msg.role === 'assistant' && ((msg.subtasks && msg.subtasks.length > 0) || (msg.execution_steps && msg.execution_steps.length > 0))"
                 class="subtasks-container-full">
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
-                <SubtaskStatusTicker :subtasks="msg.subtasks" :master-steps="msg.master_steps" :expanded="msg.showFullSubtasks"
+                <SubtaskStatusTicker :subtasks="msg.subtasks" :execution-steps="msg.execution_steps" :expanded="msg.showFullSubtasks"
                   :running="!msg.finished"
                   @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks" />
 
@@ -187,7 +187,7 @@
                   <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
                     <!-- 层次化视图 -->
                     <HierarchicalExecutionTree
-                      :master-steps="msg.master_steps || []"
+                      :execution-steps="msg.execution_steps || []"
                       :subtasks="msg.subtasks || []"
                     />
                   </div>
@@ -715,26 +715,26 @@ const isSubtaskEndEvent = (eventType, calledAgent, parentCallId) => {
   return false;
 };
 
-// 将规范化后的 run_steps 还原为 subtasks 与 orchestrator_steps
-function runStepsToExecutionState(runSteps) {
-  if (!Array.isArray(runSteps) || runSteps.length === 0) return { subtasks: [], orchestrator_steps: [] };
+// 将规范化后的 execution_steps 还原为 subtasks 与 execution_steps
+function executionStepsToExecutionState(executionSteps) {
+  if (!Array.isArray(executionSteps) || executionSteps.length === 0) return { subtasks: [], execution_steps: [] };
 
   const callNodes = new Map();
   const toolCalls = new Map();
-  const orchestrator_steps = [];
+  const execution_steps = [];
 
   const ensureOrchestratorStep = (round = null, thinking = '') => {
-    let step = orchestrator_steps[orchestrator_steps.length - 1];
+    let step = execution_steps[execution_steps.length - 1];
     if (!step || step._closed) {
       step = { round, thinking: thinking || '', toolCalls: [], expanded: true };
-      orchestrator_steps.push(step);
+      execution_steps.push(step);
     } else if (thinking) {
       step.thinking = thinking;
     }
     return step;
   };
 
-  for (const step of runSteps) {
+  for (const step of executionSteps) {
     const kind = step.kind;
     const callId = step.call_id;
     const parentCallId = step.parent_call_id;
@@ -837,14 +837,14 @@ function runStepsToExecutionState(runSteps) {
 
   return {
     subtasks: Array.from(callNodes.values()),
-    orchestrator_steps,
+    execution_steps,
   };
 }
 
-function extractMultimodalFromRunSteps(runSteps) {
-  if (!Array.isArray(runSteps)) return [];
+function extractMultimodalFromExecutionSteps(executionSteps) {
+  if (!Array.isArray(executionSteps)) return [];
   const contents = [];
-  for (const step of runSteps) {
+  for (const step of executionSteps) {
     if (step.kind === 'visualization') {
       const eventType = step.visualization_type === 'chart' ? 'visualization.chart' : 'visualization.map';
       const reg = VISUALIZATION_REGISTRY[eventType];
@@ -974,7 +974,7 @@ const cacheMessages = (sessionId, list) => {
 };
 
 /** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁）
- *  注意：流结束后 subtasks/master_steps 已由 SSE 事件填充完毕，
+ *  注意：流结束后 subtasks/execution_steps 已由 SSE 事件填充完毕，
  *  此处仅补全 id/seq，不重写任何 UI 相关字段，避免引起重渲染闪烁。
  */
 const mergeMessageIdsFromServer = async (sessionId) => {
@@ -1148,7 +1148,7 @@ const checkSessionTaskStatus = async (sessionId) => {
           role: 'assistant',
           content: '',
           subtasks: [],
-          master_steps: [],
+          execution_steps: [],
           showFullSubtasks: false,
           multimodalContents: [],
           status: [],
@@ -1224,8 +1224,8 @@ const loadSessionMessages = async (sessionId) => {
     const items = result.data?.items || [];
     const mapped = items.map(item => {
       if (item.role === 'assistant') {
-        const runSteps = item.run_steps || [];
-        const parsed = Array.isArray(runSteps) ? runStepsToExecutionState(runSteps) : { subtasks: [], orchestrator_steps: [] };
+        const executionSteps = item.execution_steps || [];
+        const parsed = Array.isArray(executionSteps) ? executionStepsToExecutionState(executionSteps) : { subtasks: [], execution_steps: [] };
         const subtasks = parsed.subtasks || [];
         return {
           role: 'assistant',
@@ -1233,11 +1233,11 @@ const loadSessionMessages = async (sessionId) => {
           seq: item.seq,
           content: item.content || '',
           subtasks,
-          master_steps: parsed.orchestrator_steps || [],
+          execution_steps: parsed.execution_steps || [],
           showFullSubtasks: false,
           multimodalContents: (item.multimodalContents?.length > 0)
             ? item.multimodalContents
-            : extractMultimodalFromRunSteps(runSteps),
+            : extractMultimodalFromExecutionSteps(executionSteps),
           status: item.status || [],
           finished: true
         };
@@ -1816,11 +1816,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             // 🎯 编排器的 thinking（流式增量）
             else if (eventType === 'agent.thinking_delta') {
               if (isMasterEvent(event)) {
-                if (!currentMsg.master_steps) currentMsg.master_steps = [];
-                let lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
+                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
+                let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
                 if (!lastStep || lastStep._thinkingComplete) {
                   lastStep = { round: eventData.round, thinking: '', toolCalls: [], expanded: true };
-                  currentMsg.master_steps.push(lastStep);
+                  currentMsg.execution_steps.push(lastStep);
                 }
                 lastStep.thinking += eventData.content;
               } else {
@@ -1839,14 +1839,14 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
             // thinking 完成：携带完整内容，直接用于创建或收尾 step
             else if (eventType === 'agent.thinking_complete') {
               if (isMasterEvent(event)) {
-                if (!currentMsg.master_steps) currentMsg.master_steps = [];
-                const lastStep = currentMsg.master_steps[currentMsg.master_steps.length - 1];
+                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
+                const lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
                 if (lastStep && lastStep.thinking) {
                   // delta 已填充内容，标记完成即可
                   lastStep._thinkingComplete = true;
                 } else {
                   // 未收到 delta（异常情况），用完整内容兜底建 step
-                  currentMsg.master_steps.push({
+                  currentMsg.execution_steps.push({
                     round: eventData.round,
                     thinking: eventData.content || '',
                     toolCalls: [],
@@ -1907,12 +1907,12 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                   currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
                 }
               } else {
-                // 编排器直接调用工具：挂到 master_steps 最后一个 step 的 toolCalls
-                const masterSteps = currentMsg.master_steps;
-                const masterStep = masterSteps && masterSteps.length > 0
-                  ? masterSteps[masterSteps.length - 1]
+                // 编排器直接调用工具：挂到 execution_steps 最后一个 step 的 toolCalls
+                const executionSteps = currentMsg.execution_steps;
+                const executionStep = executionSteps && executionSteps.length > 0
+                  ? executionSteps[executionSteps.length - 1]
                   : null;
-                if (masterStep) {
+                if (executionStep) {
                   const toolCall = {
                     tool_name: eventData.tool_name,
                     arguments: eventData.arguments,
@@ -1922,10 +1922,10 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                     showResult: false,
                     showArgs: false
                   };
-                  masterStep.toolCalls.push(toolCall);
+                  executionStep.toolCalls.push(toolCall);
                   // 注册到 registry，供 tool.end 精确匹配
                   if (event.call_id && currentMsg.toolCallRegistry) {
-                    currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: masterStep });
+                    currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: executionStep });
                   }
                 }
               }
@@ -1949,11 +1949,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                     tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                   }
                 } else {
-                  // fallback：在 master_steps 中查找
-                  const masterSteps = currentMsg.master_steps;
-                  if (masterSteps) {
-                    for (const ms of masterSteps) {
-                      const tc = (ms.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
+                  // fallback：在 execution_steps 中查找
+                  const executionSteps = currentMsg.execution_steps;
+                  if (executionSteps) {
+                    for (const step of executionSteps) {
+                      const tc = (step.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                       if (tc) {
                         tc.status = 'success';
                         tc.result = eventData.result;
@@ -2171,7 +2171,7 @@ const handleSend = async () => {
     role: 'assistant',
     content: '',
     subtasks: [],
-    master_steps: [],
+    execution_steps: [],
     showFullSubtasks: false,
     multimodalContents: [],
     status: [],

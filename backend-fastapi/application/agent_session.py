@@ -125,7 +125,7 @@ class AgentSessionApplication:
                     session_id=session_id,
                     limit=500,
                 )
-                item['run_steps'] = normalize_run_steps(
+                item['execution_steps'] = normalize_run_steps(
                     raw_steps,
                     entry_agent_name=(metadata.get('agent') or 'orchestrator_agent'),
                 )

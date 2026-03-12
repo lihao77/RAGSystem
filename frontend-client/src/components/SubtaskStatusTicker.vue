@@ -60,7 +60,7 @@ const props = defineProps({
     type: Array,
     required: true
   },
-  masterSteps: {
+  executionSteps: {
     type: Array,
     default: () => []
   },
@@ -102,8 +102,8 @@ const currentActivity = computed(() => {
   }
 
   // 2. 找编排器直接调用的正在运行的工具
-  const masterSteps = props.masterSteps || [];
-  for (const step of masterSteps) {
+  const executionSteps = props.executionSteps || [];
+  for (const step of executionSteps) {
     if (step.toolCalls) {
       const activeTool = step.toolCalls.find(t => t.status === 'running');
       if (activeTool) {
@@ -127,9 +127,9 @@ const lastCompletedTask = computed(() => {
     return completedTasks[completedTasks.length - 1];
   }
   // 再找编排器直接完成的工具
-  const masterSteps = props.masterSteps || [];
-  for (let i = masterSteps.length - 1; i >= 0; i--) {
-    const step = masterSteps[i];
+  const executionSteps = props.executionSteps || [];
+  for (let i = executionSteps.length - 1; i >= 0; i--) {
+    const step = executionSteps[i];
     if (step.toolCalls && step.toolCalls.length > 0) {
       const lastTool = step.toolCalls[step.toolCalls.length - 1];
       if (lastTool.status === 'success') {
@@ -142,7 +142,7 @@ const lastCompletedTask = computed(() => {
     }
   }
   // 兜底：任务已结束（running=false）且有 orchestrator steps（纯推理直接回答的情况）
-  if (!props.running && masterSteps.length > 0) {
+  if (!props.running && executionSteps.length > 0) {
     return { agent_display_name: 'Orchestrator Agent', status: 'success' };
   }
   return null;

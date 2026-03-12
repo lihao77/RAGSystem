@@ -1653,13 +1653,13 @@
   color: var(--color-text-primary);
 }
 
-.master-steps-section {
+.execution-steps-section {
   margin-bottom: var(--spacing-lg);
   padding-bottom: var(--spacing-md);
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
 }
 
-.master-steps-label {
+.execution-steps-label {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text-secondary);
@@ -1669,7 +1669,7 @@
   gap: var(--spacing-xs);
 }
 
-.master-steps-label .pulse-icon {
+.execution-steps-label .pulse-icon {
   font-size: 1rem;
 }
 
@@ -2072,12 +2072,12 @@
     padding: 0 var(--spacing-md);
   }
 
-  .master-steps-section {
+  .execution-steps-section {
     margin-bottom: var(--spacing-md);
     padding-bottom: var(--spacing-sm);
   }
 
-  .master-steps-label {
+  .execution-steps-label {
     font-size: 0.8rem;
     margin-bottom: var(--spacing-xs);
   }
@@ -2164,7 +2164,7 @@
     font-size: 0.85rem;
   }
 
-  .master-steps-label {
+  .execution-steps-label {
     font-size: 0.75rem;
   }
 
