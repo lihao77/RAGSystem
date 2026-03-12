@@ -21,7 +21,7 @@ npm run dev
 ## 环境变量
 
 - `VITE_DEV_PORT`：开发端口，默认 `5174`
-- `VITE_API_PROXY_TARGET`：后端地址，默认 `http://localhost:5000`
+- `VITE_API_PROXY_TARGET`：后端地址，默认 `http://localhost:5001`
 
 ## 当前路径
 

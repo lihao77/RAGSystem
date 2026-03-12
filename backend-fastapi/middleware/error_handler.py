@@ -19,6 +19,12 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         if exc.status_code == 404:
+            detail = str(exc.detail or '').strip()
+            if detail and detail.lower() != 'not found':
+                return JSONResponse(
+                    status_code=404,
+                    content={'success': False, 'message': detail},
+                )
             return JSONResponse(
                 status_code=404,
                 content={'success': False, 'message': '接口不存在'},

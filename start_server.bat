@@ -28,12 +28,17 @@ if exist "frontend-client\" (
 
 timeout /t 1 /nobreak >nul
 
-:: 3. 后端服务
-if exist "backend\" (
-    echo [3/3] 启动后端服务...
-    start "后端服务" cmd /k "cd /d "%~dp0backend" && call conda activate ragsystem && python app.py"
+:: 3. 后端服务（优先 FastAPI 版）
+if exist "backend-fastapi\" (
+    echo [3/3] 启动 FastAPI 后端服务...
+    start "FastAPI后端服务" cmd /k "cd /d "%~dp0backend-fastapi" && call conda activate ragsystem && python main.py"
 ) else (
-    echo [错误] 找不到 backend 目录
+    if exist "backend\" (
+        echo [3/3] 启动后端服务...
+        start "后端服务" cmd /k "cd /d "%~dp0backend" && call conda activate ragsystem && python app.py"
+    ) else (
+        echo [错误] 找不到 backend-fastapi 或 backend 目录
+    )
 )
 
 echo 所有服务已尝试启动

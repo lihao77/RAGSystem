@@ -183,6 +183,7 @@ class StreamPersistenceHandler:
         step_event_types = [
             EventType.RUN_START,
             EventType.AGENT_START,
+            EventType.AGENT_END,
             EventType.THINKING_COMPLETE,
             EventType.REACT_INTERMEDIATE,
             EventType.CALL_AGENT_START,

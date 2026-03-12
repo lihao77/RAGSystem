@@ -99,12 +99,9 @@ class SSEAdapter:
         Returns:
             bool: True=接收事件, False=忽略事件
         """
-        # 如果事件没有session_id，接收所有
-        if not event.session_id:
-            return True
-
-        # 只接收当前会话的事件
-        return event.session_id == self.session_id
+        # SSE 连接必须严格按 session 隔离。
+        # 漏带 session_id 的事件不能广播给所有会话，否则多个并发会话会串流。
+        return bool(event.session_id) and event.session_id == self.session_id
 
     def _handle_event(self, event: Event):
         """

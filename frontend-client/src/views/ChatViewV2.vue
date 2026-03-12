@@ -471,6 +471,7 @@ const confirmDialog = ref({
   onCancel: () => {}
 });
 const currentStreamController = ref(null);
+const activeStreamToken = ref(0);
 const contextUsage = ref({ used: 0, max: 0 });
 const ctxDrawerVisible = ref(false);
 const execDrawerVisible = ref(false);
@@ -496,9 +497,18 @@ const handlePopState = () => {
     loadSessionMessages(sessionId);
   }
   if (!sessionId) {
+    invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
     messages.value = [];
+  }
+};
+
+const invalidateActiveStream = () => {
+  activeStreamToken.value += 1;
+  if (currentStreamController.value) {
+    currentStreamController.value.abort();
+    currentStreamController.value = null;
   }
 };
 
@@ -596,6 +606,7 @@ const handleTouchEnd = (e) => {
 };
 
 const startNewChat = () => {
+  invalidateActiveStream();
   clearExecutionState();
   messages.value = [];
   inputMessage.value = '';
@@ -1169,6 +1180,8 @@ const checkSessionTaskStatus = async (sessionId) => {
 /** 重连到正在执行的任务，恢复 SSE 事件流 */
 const reconnectToRunningTask = async (sessionId) => {
   const controller = new AbortController();
+  const streamToken = activeStreamToken.value + 1;
+  activeStreamToken.value = streamToken;
   currentStreamController.value = controller;
 
   const assistantMsgIndex = messages.value.length - 1;
@@ -1186,12 +1199,14 @@ const reconnectToRunningTask = async (sessionId) => {
     }
 
     // 复用与 handleSend 相同的 SSE 读取+事件分发逻辑
-    await processSSEStream(response, assistantMsgIndex, sessionId);
+    await processSSEStream(response, assistantMsgIndex, sessionId, streamToken);
   } catch (e) {
     if (e.name !== 'AbortError') console.warn('重连失败:', e);
   } finally {
     isLoading.value = false;
-    currentStreamController.value = null;
+    if (activeStreamToken.value === streamToken) {
+      currentStreamController.value = null;
+    }
     await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     scrollToBottom();
   }
@@ -1199,10 +1214,7 @@ const reconnectToRunningTask = async (sessionId) => {
 
 const loadSessionMessages = async (sessionId) => {
   if (!sessionId) return;
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-    currentStreamController.value = null;
-  }
+  invalidateActiveStream();
   messagesLoading.value = true;
   historyError.value = '';
   try {
@@ -1710,17 +1722,25 @@ const closeExecutionDrawer = () => {
  * @param {number} assistantMsgIndex - 当前 assistant 消息在 messages 中的索引
  * @param {string} sessionId - 会话 ID
  */
-const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
+const processSSEStream = async (response, assistantMsgIndex, sessionId, streamToken) => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let sseBuffer = '';  // 缓冲跨 chunk 的不完整 SSE 事件
     // 重连模式标记：收到 reconnect_start 后进入回放阶段，收到 reconnect_end 结束
     let isReplaying = false;
+    const isActiveStream = () =>
+      activeStreamToken.value === streamToken && currentSessionId.value === sessionId;
 
     while (true) {
+      if (!isActiveStream()) {
+        try { await reader.cancel(); } catch (_) {}
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) {
+        if (!isActiveStream()) break;
         const currentMsg = messages.value[assistantMsgIndex];
+        if (!currentMsg) break;
         currentMsg.finished = true;
         if (currentMsg.toolCallRegistry) currentMsg.toolCallRegistry.clear();
         const assistantContent = currentMsg.content;
@@ -1739,8 +1759,18 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
       for (const line of parts) {
         if (line.startsWith('data: ')) {
           try {
+            if (!isActiveStream()) {
+              try { await reader.cancel(); } catch (_) {}
+              break;
+            }
             const event = JSON.parse(line.substring(6));
+            if (event.type !== 'heartbeat' && event.session_id !== sessionId) {
+              continue;
+            }
             const currentMsg = messages.value[assistantMsgIndex];
+            if (!currentMsg) {
+              continue;
+            }
             mergeExecutionObservability(event);
 
             // ── 重连协议：reconnect_start / reconnect_end ──
@@ -2004,9 +2034,14 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
                 cacheMessages(sessionId, messages.value);
               } else {
-                // 子 agent 的 final_answer：兜底写入 subtask（不 break）
+                // 子 agent 的 final_answer 足以说明该子任务已完成。
+                // 即使后续 call.agent.end 丢失，也不应继续停留在 running。
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask && !subtask.result_summary) subtask.result_summary = eventData.content || '';
+                if (subtask) {
+                  if (!subtask.result_summary) subtask.result_summary = eventData.content || '';
+                  if (subtask.status === 'running') subtask.status = 'success';
+                  subtask.expanded = false;
+                }
               }
             }
             // 消息持久化完成：补全 id/seq（由后端写库后发布，与 FINAL_ANSWER 解耦）
@@ -2071,7 +2106,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 // onApprove(approvalId, message)
                 async (aid, message) => {
                   try {
-                    await fetch(
+                    const resp = await fetch(
                       `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
                       {
                         method: 'POST',
@@ -2079,14 +2114,19 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                         body: JSON.stringify({ approved: true, message })
                       }
                     );
+                    if (!resp.ok) {
+                      const result = await resp.json().catch(() => ({}));
+                      throw new Error(result.message || `审批提交失败 (${resp.status})`);
+                    }
                   } catch (e) {
                     console.warn('审批响应失败:', e);
+                    showToast(e.message || '审批提交失败', 'warning');
                   }
                 },
                 // onDeny(approvalId, message)
                 async (aid, message) => {
                   try {
-                    await fetch(
+                    const resp = await fetch(
                       `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
                       {
                         method: 'POST',
@@ -2094,8 +2134,13 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                         body: JSON.stringify({ approved: false, message })
                       }
                     );
+                    if (!resp.ok) {
+                      const result = await resp.json().catch(() => ({}));
+                      throw new Error(result.message || `审批拒绝提交失败 (${resp.status})`);
+                    }
                   } catch (e) {
                     console.warn('审批拒绝响应失败:', e);
+                    showToast(e.message || '审批拒绝提交失败', 'warning');
                   }
                 }
               );
@@ -2110,7 +2155,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                 // onSubmit: 用户提交 → POST 到后端
                 async (inputId, value) => {
                   try {
-                    await fetch(
+                    const resp = await fetch(
                       `/api/agent/sessions/${encodeURIComponent(inputSessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
                       {
                         method: 'POST',
@@ -2118,8 +2163,13 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId) => {
                         body: JSON.stringify({ value })
                       }
                     );
+                    if (!resp.ok) {
+                      const result = await resp.json().catch(() => ({}));
+                      throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
+                    }
                   } catch (e) {
                     console.warn('用户输入提交失败:', e);
+                    showToast(e.message || '用户输入提交失败', 'warning');
                   }
                 },
                 // onCancel: 停止任务
@@ -2182,9 +2232,11 @@ const handleSend = async () => {
   beginOptimisticExecutionState(sessionId);
   isLoading.value = true;
   contextUsage.value = { used: 0, max: 0 };
+  const streamToken = activeStreamToken.value + 1;
 
   try {
     const controller = new AbortController();
+    activeStreamToken.value = streamToken;
     currentStreamController.value = controller;
     const body = {
       task: content,
@@ -2205,7 +2257,7 @@ const handleSend = async () => {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    await processSSEStream(response, assistantMsgIndex, sessionId);
+    await processSSEStream(response, assistantMsgIndex, sessionId, streamToken);
   } catch (error) {
     if (error.name === 'AbortError') {
       console.log('Stream aborted by user');
@@ -2238,7 +2290,9 @@ const handleSend = async () => {
       refreshSessionExecutionState(sessionId, { silent: true });
     }, 600);
     scrollToBottom();
-    currentStreamController.value = null;
+    if (activeStreamToken.value === streamToken) {
+      currentStreamController.value = null;
+    }
   }
 };
 
@@ -2269,9 +2323,7 @@ onUnmounted(() => {
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-  }
+  invalidateActiveStream();
 
   // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
   document.body.style.overflow = '';

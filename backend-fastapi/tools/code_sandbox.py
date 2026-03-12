@@ -332,7 +332,8 @@ def execute_code_sandbox(
     timeout: int = 30,
     agent_config=None,
     event_bus=None,
-    user_role=None
+    user_role=None,
+    session_id: Optional[str] = None,
 ):
     """
     在受限沙箱中执行 Python 代码
@@ -361,16 +362,14 @@ def execute_code_sandbox(
 
     start_time = _time.time()
 
-    # 获取 session_id（用于审批事件关联）
-    session_id = None
-    if event_bus:
-        try:
-            session_id = getattr(event_bus, 'session_id', None)
-        except Exception:
-            pass
-
     # 发布代码执行开始事件
-    _publish_execution_event(event_bus, "start", description=description, code_preview=code[:200])
+    _publish_execution_event(
+        event_bus,
+        "start",
+        session_id=session_id,
+        description=description,
+        code_preview=code[:200],
+    )
 
     # 1. 静态代码检查
     passed, error_msg = _static_code_check(code)
@@ -518,6 +517,7 @@ def execute_code_sandbox(
         # 发布代码执行结束事件
         _publish_execution_event(
             event_bus, "end",
+            session_id=session_id,
             result=result_value,
             execution_time=execution_time,
             tool_calls_count=tool_calls_count[0]
@@ -554,6 +554,7 @@ def _publish_execution_event(event_bus, phase: str, **kwargs):
 
     try:
         from agents.events.bus import Event, EventType
+        session_id = kwargs.get("session_id")
 
         if phase == "start":
             event = Event(
@@ -561,7 +562,8 @@ def _publish_execution_event(event_bus, phase: str, **kwargs):
                 data={
                     "description": kwargs.get("description", ""),
                     "code_preview": kwargs.get("code_preview", "")
-                }
+                },
+                session_id=session_id,
             )
         else:
             event = Event(
@@ -570,7 +572,8 @@ def _publish_execution_event(event_bus, phase: str, **kwargs):
                     "result_preview": str(kwargs.get("result", ""))[:500],
                     "execution_time": kwargs.get("execution_time", 0),
                     "tool_calls_count": kwargs.get("tool_calls_count", 0)
-                }
+                },
+                session_id=session_id,
             )
 
         event_bus.publish(event)

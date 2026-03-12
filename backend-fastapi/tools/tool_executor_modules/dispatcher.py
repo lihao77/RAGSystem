@@ -196,6 +196,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 agent_config=agent_config,
                 event_bus=event_bus,
                 user_role=user_role,
+                session_id=session_id,
             )
         elif tool_name in TOOL_HANDLERS:
             handler = TOOL_HANDLERS[tool_name]
