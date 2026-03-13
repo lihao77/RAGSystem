@@ -166,12 +166,17 @@ def get_context_snapshot():
             for msg in raw:
                 if msg.get('role') in ('user', 'assistant', 'system'):
                     content = msg.get('content', '')
+                    preview = content[:200] + ('...' if len(content) > 200 else '')
                     t = counter.count_text(content)
                     history_tokens += t
                     meta = msg.get('metadata') or {}
                     history.append({
+                        'id': msg.get('id'),
                         'role': msg['role'],
-                        'content': content[:200] + ('...' if len(content) > 200 else ''),
+                        'content_preview': preview,
+                        'content_length': len(content),
+                        'is_preview_truncated': len(content) > 200,
+                        'can_load_full_content': bool(session_id and msg.get('seq') is not None),
                         'tokens': t,
                         'seq': msg.get('seq'),
                         'react_intermediate': meta.get('react_intermediate', False),
@@ -212,6 +217,44 @@ def get_context_snapshot():
 
     except Exception as e:
         logger.error(f'获取上下文快照失败: {e}', exc_info=True)
+        return error_response(message=str(e), status_code=500)
+
+@agent_bp.route('/context-snapshot/message-content', methods=['GET'])
+def get_context_snapshot_message_content():
+    """按会话和序号获取上下文快照中某条消息的完整内容"""
+    try:
+        session_id = request.args.get('session_id')
+        seq = request.args.get('seq')
+        if not session_id:
+            return error_response(message='缺少 session_id', status_code=400)
+        if seq is None:
+            return error_response(message='缺少 seq', status_code=400)
+
+        try:
+            seq = int(seq)
+        except (TypeError, ValueError):
+            return error_response(message='seq 须为整数', status_code=400)
+
+        if seq < 1:
+            return error_response(message='seq 须大于 0', status_code=400)
+
+        message = _get_conversation_store().get_message_by_seq(session_id=session_id, seq=seq)
+        if not message:
+            return error_response(message='消息不存在', status_code=404)
+
+        content = message.get('content', '')
+        return success_response(
+            data={
+                'id': message.get('id'),
+                'seq': message.get('seq'),
+                'role': message.get('role'),
+                'content': content,
+                'content_length': len(content),
+            },
+            message='获取消息完整内容成功'
+        )
+    except Exception as e:
+        logger.error(f'获取上下文消息完整内容失败: {e}', exc_info=True)
         return error_response(message=str(e), status_code=500)
 
 @agent_bp.route('/health', methods=['GET'])

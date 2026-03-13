@@ -123,12 +123,17 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                 for msg in raw:
                     if msg.get('role') in ('user', 'assistant', 'system'):
                         content = msg.get('content', '')
+                        preview = content[:200] + ('...' if len(content) > 200 else '')
                         t = counter.count_text(content)
                         history_tokens += t
                         meta = msg.get('metadata') or {}
                         history.append({
+                            'id': msg.get('id'),
                             'role': msg['role'],
-                            'content': content[:200] + ('...' if len(content) > 200 else ''),
+                            'content_preview': preview,
+                            'content_length': len(content),
+                            'is_preview_truncated': len(content) > 200,
+                            'can_load_full_content': bool(session_id and msg.get('seq') is not None),
                             'tokens': t,
                             'seq': msg.get('seq'),
                             'react_intermediate': meta.get('react_intermediate', False),
@@ -176,6 +181,35 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
         raise
     except Exception as e:
         logger.error('获取上下文快照失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/context-snapshot/message-content')
+async def get_context_snapshot_message_content(
+    session_id: str = Query(..., min_length=1),
+    seq: int = Query(..., ge=1),
+):
+    """按会话和序号获取上下文快照中某条消息的完整内容。"""
+    try:
+        store = _get_store()
+        message = await asyncio.to_thread(store.get_message_by_seq, session_id, seq)
+        if not message:
+            raise HTTPException(status_code=404, detail='消息不存在')
+
+        return ok(
+            data={
+                'id': message.get('id'),
+                'seq': message.get('seq'),
+                'role': message.get('role'),
+                'content': message.get('content', ''),
+                'content_length': len(message.get('content', '')),
+            },
+            message='获取消息完整内容成功'
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error('获取上下文消息完整内容失败: %s', e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
