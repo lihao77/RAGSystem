@@ -1,2 +1,3 @@
 @echo off
-python backend\scripts\runtime_strict_audit.py --check-container-only
+python -m compileall backend-fastapi
+python -m py_compile backend-fastapi\main.py

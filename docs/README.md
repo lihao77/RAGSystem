@@ -13,14 +13,12 @@
 
 ## 子系统文档
 
-- [../backend/README.md](../backend/README.md)
-- [../backend/agents/README.md](../backend/agents/README.md)
-- [../backend/agents/configs/README.md](../backend/agents/configs/README.md)
-- [../backend/agents/skills/README.md](../backend/agents/skills/README.md)
-- [../backend/config/README.md](../backend/config/README.md)
-- [../backend/model_adapter/README.md](../backend/model_adapter/README.md)
-- [../backend/tools/README.md](../backend/tools/README.md)
-- [../backend/scripts/README.md](../backend/scripts/README.md)
+- [../backend-fastapi/agents/README.md](../backend-fastapi/agents/README.md)
+- [../backend-fastapi/agents/configs/README.md](../backend-fastapi/agents/configs/README.md)
+- [../backend-fastapi/agents/skills/README.md](../backend-fastapi/agents/skills/README.md)
+- [../backend-fastapi/config/README.md](../backend-fastapi/config/README.md)
+- [../backend-fastapi/model_adapter/README.md](../backend-fastapi/model_adapter/README.md)
+- [../backend-fastapi/tools/README.md](../backend-fastapi/tools/README.md)
 - [../frontend-client/README.md](../frontend-client/README.md)
 
 ## 维护原则

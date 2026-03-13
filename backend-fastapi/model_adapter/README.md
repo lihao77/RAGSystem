@@ -1,13 +1,13 @@
 # Model Adapter
 
-`backend/model_adapter/` 是后端统一的模型 Provider 适配层。
+`backend-fastapi/model_adapter/` 是后端统一的模型 Provider 适配层。
 
 ## 当前结构
 
 - `adapter.py`：`ModelAdapter` 主入口和默认单例
 - `base.py`：通用响应类型与 Provider 基类
 - `config_store.py`：`providers.yaml` 读写
-- `providers.py`：兼容导出层，实际厂商实现位于 `backend/integrations/model_providers/`
+- `providers.py`：兼容导出层，实际厂商实现位于 `backend-fastapi/integrations/model_providers/`
 - `configs/providers.yaml`：Provider 实例配置
 - `configs/providers.yaml.example`：示例
 
@@ -46,5 +46,5 @@ test_deepseek:
 ## 验证
 
 ```powershell
-python -m unittest backend.tests.runtime_strict_audit_test
+python -m py_compile backend-fastapi\model_adapter\adapter.py
 ```

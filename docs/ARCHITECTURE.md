@@ -12,23 +12,23 @@
 
 ## 后端组成
 
-- `backend/agents/`
+- `backend-fastapi/agents/`
   - Agent 配置、加载、编排、上下文、流式执行、事件与监控
-- `backend/execution/`
+- `backend-fastapi/execution/`
   - 统一执行入口、状态查询、取消、超时、观测字段
-- `backend/application/`
+- `backend-fastapi/application/`
   - Agent 会话、恢复、重试等用例编排
-- `backend/capabilities/`
+- `backend-fastapi/capabilities/`
   - 文档、向量、MCP 等能力适配层
-- `backend/model_adapter/`
+- `backend-fastapi/model_adapter/`
   - 多模型 / 多 Provider 统一适配层
-- `backend/mcp/`
+- `backend-fastapi/mcp/`
   - MCP Server 配置、连接管理、工具注入
-- `backend/tools/`
+- `backend-fastapi/tools/`
   - 默认工具定义、执行器、权限与代码沙箱
-- `backend/file_index/` + `backend/vector_store/`
+- `backend-fastapi/file_index/` + `backend-fastapi/vector_store/`
   - 文件索引、向量库与检索相关能力
-- `backend/conversation_store.py`
+- `backend-fastapi/services/conversation_store.py`
   - 会话与消息持久化
 
 ## 默认 API 面
@@ -45,7 +45,7 @@
 
 ## 默认工具面
 
-静态工具定义位于 `backend/tools/function_definitions.py`，当前只保留通用能力：
+静态工具定义位于 `backend-fastapi/tools/catalog/`，当前只保留通用能力：
 
 - 文档读取与抽取
 - 文件读写

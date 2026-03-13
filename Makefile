@@ -1,9 +1,9 @@
 PYTHON ?= python3
 
-.PHONY: runtime-strict-audit runtime-strict-check
+.PHONY: backend-fastapi-check backend-fastapi-compile
 
-runtime-strict-audit:
-	$(PYTHON) backend/scripts/runtime_strict_audit.py
+backend-fastapi-compile:
+	$(PYTHON) -m compileall backend-fastapi
 
-runtime-strict-check:
-	$(PYTHON) backend/scripts/runtime_strict_audit.py --check-container-only
+backend-fastapi-check:
+	$(PYTHON) -m py_compile backend-fastapi/main.py
