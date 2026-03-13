@@ -39,8 +39,8 @@ const props = defineProps({
  * 将 execution_steps 和 subtasks 合并为层次化的执行树
  *
  * 核心逻辑：
- * 1. 编排器的每个 thought 作为根节点（按 round）
- * 2. 同一 round 的 subtasks 作为该 thought 的子节点
+ * 1. 编排器的每个 intent 作为根节点（按 round）
+ * 2. 同一 round 的 subtasks 作为该 intent 的子节点
  * 3. subtask 内部的 react_steps 递归嵌套
  */
 const executionTree = computed(() => {
@@ -78,13 +78,13 @@ const executionTree = computed(() => {
     const executionStep = executionByRound[round];
     const subtasksInRound = subtasksByRound[round] || [];
 
-    // 创建编排器 thought 节点
+    // 创建编排器 intent 节点
     const node = {
       type: 'thought',
       agent: ORCHESTRATOR_AGENT_NAME,
       agent_display_name: 'Orchestrator Agent',
       round: round,
-      thought: executionStep ? (executionStep.thinking || executionStep.thought || '') : '',
+      intent: executionStep ? (executionStep.intent || executionStep.thinking || executionStep.thought || '') : '',
       children: []
     };
 
@@ -128,7 +128,7 @@ const executionTree = computed(() => {
             agent: subtask.agent_name,
             agent_display_name: subtask.agent_display_name,
             round: reactStep.round,
-            thought: reactStep.thinking || reactStep.thought || '',
+            intent: reactStep.intent || reactStep.thinking || reactStep.thought || '',
             children: []
           };
 

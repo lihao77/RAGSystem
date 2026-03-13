@@ -1,6 +1,6 @@
 <template>
   <div class="execution-node" :class="node.type">
-    <!-- 思考节点 -->
+    <!-- 意图节点 -->
     <div v-if="node.type === 'thought'" class="node-thought" :class="{ running: isRunning }">
       <div class="thought-header" v-if="node.round">
         <span class="agent-badge" :class="getAgentClass(node.agent)">
@@ -8,7 +8,7 @@
         </span>
         <span class="round-badge">轮次 {{ node.round }}</span>
       </div>
-      <div class="thought-content">{{ node.thought }}</div>
+      <div class="thought-content">{{ node.intent || node.thought }}</div>
     </div>
 
     <!-- 智能体调用节点 -->

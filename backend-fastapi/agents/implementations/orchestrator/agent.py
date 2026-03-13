@@ -199,7 +199,7 @@ class OrchestratorAgent(BaseAgent):
 
     def _on_assistant_message(
         self,
-        thought: str,
+        intent: str,
         actions: List[Dict[str, Any]],
         full_response: str,
         final_answer: str,
@@ -207,7 +207,7 @@ class OrchestratorAgent(BaseAgent):
         state: Dict[str, Any],
     ) -> None:
         super()._on_assistant_message(
-            thought=thought,
+            intent=intent,
             actions=actions,
             full_response=full_response,
             final_answer=final_answer,

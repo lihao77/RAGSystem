@@ -638,7 +638,7 @@ class BaseAgent(ABC):
 
     def _format_assistant_context_message(
         self,
-        thought: str,
+        intent: str,
         actions: Optional[List[Dict[str, Any]]],
         final_answer: Optional[str],
         full_response: str,
@@ -648,7 +648,7 @@ class BaseAgent(ABC):
 
     def _on_assistant_message(
         self,
-        thought: str,
+        intent: str,
         actions: Optional[List[Dict[str, Any]]],
         full_response: str,
         final_answer: str,
@@ -660,7 +660,7 @@ class BaseAgent(ABC):
         if not self._publisher or final_answer:
             return
         content = self._format_assistant_context_message(
-            thought=thought,
+            intent=intent,
             actions=actions,
             final_answer=final_answer,
             full_response=full_response,
@@ -1071,20 +1071,20 @@ class BaseAgent(ABC):
                         start_time,
                     )
 
-                thought = result.thought
+                intent = result.intent
                 actions = result.actions or []
                 final_answer = result.answer
                 full_response = result.full_response
 
-                if thought:
-                    self.logger.info(f"{log_prefix} Thinking: {thought[:100]}...")
+                if intent:
+                    self.logger.info(f"{log_prefix} Intent: {intent[:100]}...")
                 elif actions:
                     self.logger.info(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name', '?') for a in actions]}")
                 elif final_answer:
                     self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
 
                 assistant_message = self._format_assistant_context_message(
-                    thought=thought,
+                    intent=intent,
                     actions=actions,
                     final_answer=final_answer,
                     full_response=full_response,
@@ -1093,7 +1093,7 @@ class BaseAgent(ABC):
                     "role": "assistant",
                     "content": assistant_message,
                 })
-                self._on_assistant_message(thought, actions, full_response, final_answer, rounds, state)
+                self._on_assistant_message(intent, actions, full_response, final_answer, rounds, state)
 
                 if final_answer:
                     return self._handle_final_answer(final_answer, context, state, start_time)

@@ -16,11 +16,11 @@ _STEP_EVENT_TYPES = [
     EventType.RUN_START,
     EventType.AGENT_START,
     EventType.AGENT_END,
-    # THINKING_COMPLETE 已携带完整思考内容，是历史回放的唯一来源。
+    # INTENT_COMPLETE 已携带完整意图内容，是历史回放的唯一来源。
     # REACT_INTERMEDIATE 不再持久化：它是流结束后的补发事件（历史兼容用途），
-    # 内容与 THINKING_COMPLETE 完全重复，若同时存入 run_steps 会导致同一轮次
-    # 出现两条 subtask_thought 记录，前端回放时产生重复思考块。
-    EventType.THINKING_COMPLETE,
+    # 内容与 INTENT_COMPLETE 完全重复，若同时存入 run_steps 会导致同一轮次
+    # 出现两条 subtask_intent 记录，前端回放时产生重复意图块。
+    EventType.INTENT_COMPLETE,
     EventType.CALL_AGENT_START,
     EventType.CALL_AGENT_END,
     EventType.CALL_TOOL_START,

@@ -41,13 +41,13 @@ class EventType(str, Enum):
     AGENT_END = "agent.end"
     AGENT_ERROR = "agent.error"
 
-    # 思考过程事件
-    THINKING = "agent.thinking"
-    THINKING_STRUCTURED = "agent.thinking_structured"
+    # 意图过程事件
+    INTENT = "agent.intent"
+    INTENT_STRUCTURED = "agent.intent_structured"
 
-    # 流式思考事件（新增）
-    THINKING_DELTA = "agent.thinking_delta"          # thinking 增量内容
-    THINKING_COMPLETE = "agent.thinking_complete"    # thinking 完成
+    # 流式意图事件
+    INTENT_DELTA = "agent.intent_delta"          # intent 增量内容
+    INTENT_COMPLETE = "agent.intent_complete"    # intent 完成
 
     # 调用生命周期（Agent）
     CALL_AGENT_START = "call.agent.start"

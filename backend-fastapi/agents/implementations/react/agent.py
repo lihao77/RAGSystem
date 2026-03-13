@@ -134,9 +134,9 @@ class ReActAgent(BaseAgent):
                     agent_call_id = getattr(self, '_current_task_id', None)
 
                 # 映射事件类型到 EventPublisher 方法
-                if event_type == 'thinking_structured':
-                    self._publisher.thinking_structured(
-                        thinking=data.get('thinking', ''),
+                if event_type in ('intent_structured', 'thinking_structured'):
+                    self._publisher.intent_structured(
+                        intent=data.get('intent', data.get('thinking', '')),
                         actions=data.get('actions', []),
                         reasoning=f"第 {data.get('round', 0)} 轮推理",
                         round=data.get('round'),

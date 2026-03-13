@@ -6,6 +6,39 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+def _merge_into_last_intent_step(
+    normalized: List[Dict[str, Any]],
+    *,
+    kind: str,
+    call_id: Optional[str],
+    parent_call_id: Optional[str],
+    round_value: Optional[int],
+    content: Any,
+    actions: Any,
+    full_response: Any,
+    source_event_type: str,
+) -> bool:
+    if not normalized:
+        return False
+
+    last = normalized[-1]
+    if last.get('kind') != kind:
+        return False
+    if last.get('call_id') != call_id or last.get('parent_call_id') != parent_call_id:
+        return False
+    if last.get('round') != round_value:
+        return False
+
+    if content and not last.get('content'):
+        last['content'] = content
+    if actions:
+        last['actions'] = actions
+    if full_response:
+        last['full_response'] = full_response
+    last['source_event_type'] = source_event_type
+    return True
+
+
 def normalize_run_steps(
     raw_steps: List[Dict[str, Any]],
     *,
@@ -66,9 +99,9 @@ def normalize_run_steps(
                 'execution_time': data.get('execution_time'),
                 'source_event_type': event_type,
             })
-        elif event_type == 'agent.thinking_complete':
+        elif event_type in ('agent.intent_complete', 'agent.thinking_complete'):
             normalized.append({
-                'kind': 'subtask_thought' if parent_call_id else 'agent_thought',
+                'kind': 'subtask_intent' if parent_call_id else 'agent_intent',
                 'step_order': step_order,
                 'agent_name': agent_name,
                 'call_id': call_id,
@@ -84,14 +117,29 @@ def normalize_run_steps(
             # 若将来前端 executionStepsToExecutionState 接收到此 kind，
             # 必须做同 round 去重（不能无条件新建 reactStep），否则会出现重复思考块。
             if role == 'assistant' and msg_type in ('thought', 'assistant_response'):
+                kind = 'subtask_intent' if parent_call_id else 'agent_intent'
+                if _merge_into_last_intent_step(
+                    normalized,
+                    kind=kind,
+                    call_id=call_id,
+                    parent_call_id=parent_call_id,
+                    round_value=data.get('round'),
+                    content=data.get('content'),
+                    actions=data.get('actions'),
+                    full_response=data.get('full_response'),
+                    source_event_type=event_type,
+                ):
+                    continue
                 normalized.append({
-                    'kind': 'subtask_thought' if parent_call_id else 'agent_thought',
+                    'kind': kind,
                     'step_order': step_order,
                     'agent_name': agent_name or entry_agent_name,
                     'call_id': call_id,
                     'parent_call_id': parent_call_id,
                     'round': data.get('round'),
                     'content': data.get('content'),
+                    'actions': data.get('actions'),
+                    'full_response': data.get('full_response'),
                     'source_event_type': event_type,
                 })
         elif event_type == 'call.agent.start':

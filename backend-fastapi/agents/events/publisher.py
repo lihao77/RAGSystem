@@ -23,7 +23,7 @@ class EventPublisher:
 
     使用方式:
         publisher = EventPublisher(agent_name="kgqa_agent", session_id="abc123")
-        publisher.thought("我需要查询知识图谱")
+        publisher.intent("查询知识图谱")
         publisher.tool_call_start(call_id, "query_knowledge_graph", {...})
     """
 
@@ -154,36 +154,25 @@ class EventPublisher:
             priority=EventPriority.HIGH
         )
 
-    # ==================== 思考过程事件 ====================
+    # ==================== 意图过程事件 ====================
 
-    def thought(self, content: str):
-        """简单思考（纯文本）- 兼容旧 API"""
+    def intent(self, content: str):
+        """简单意图（纯文本）"""
         self._publish(
-            EventType.THINKING,
+            EventType.INTENT,
             {"content": content}
         )
 
-    def thinking(self, content: str):
-        """简单思考（纯文本）"""
-        self._publish(
-            EventType.THINKING,
-            {"content": content}
-        )
-
-    def thought_structured(
+    def intent_structured(
         self,
-        thought: str = "",
+        intent: str = "",
         actions: Optional[list] = None,
         reasoning: Optional[str] = None,
         round: Optional[int] = None,
-        thinking: Optional[str] = None,
     ):
-        """结构化思考（ReAct风格）- 兼容旧 API，支持 thinking 参数"""
-        # 优先使用 thinking 参数，向后兼容 thought
-        content = thinking if thinking is not None else thought
+        """结构化意图（ReAct风格）"""
         data: Dict[str, Any] = {
-            "thinking": content,
-            "thought": content,  # 兼容旧前端
+            "intent": intent,
             "actions": actions or [],
             "reasoning": reasoning,
         }
@@ -191,45 +180,23 @@ class EventPublisher:
             data["round"] = round
 
         self._publish(
-            EventType.THINKING_STRUCTURED,
+            EventType.INTENT_STRUCTURED,
             data,
         )
 
-    def thinking_structured(
-        self,
-        thinking: str = "",
-        actions: Optional[list] = None,
-        reasoning: Optional[str] = None,
-        round: Optional[int] = None,
-    ):
-        """结构化思考（ReAct风格）- 新 API"""
-        data: Dict[str, Any] = {
-            "thinking": thinking,
-            "thought": thinking,  # 兼容旧前端
-            "actions": actions or [],
-            "reasoning": reasoning,
-        }
-        if round is not None:
-            data["round"] = round
-
-        self._publish(
-            EventType.THINKING_STRUCTURED,
-            data,
-        )
-
-    def thinking_delta(self, content: str, round: Optional[int] = None):
-        """流式思考增量内容"""
+    def intent_delta(self, content: str, round: Optional[int] = None):
+        """流式意图增量内容"""
         data: Dict[str, Any] = {"content": content}
         if round is not None:
             data["round"] = round
-        self._publish(EventType.THINKING_DELTA, data)
+        self._publish(EventType.INTENT_DELTA, data)
 
-    def thinking_complete(self, full_content: str, round: Optional[int] = None):
-        """思考完成"""
+    def intent_complete(self, full_content: str, round: Optional[int] = None):
+        """意图输出完成"""
         data: Dict[str, Any] = {"content": full_content}
         if round is not None:
             data["round"] = round
-        self._publish(EventType.THINKING_COMPLETE, data)
+        self._publish(EventType.INTENT_COMPLETE, data)
 
     # ==================== 运行生命周期事件 ====================
 

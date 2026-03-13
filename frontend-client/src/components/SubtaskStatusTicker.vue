@@ -17,9 +17,9 @@
            </div>
 
            <!-- 运行中但无活跃工具：正在推理 -->
-           <div v-else-if="running" key="thinking" class="ticker-item active">
+           <div v-else-if="running" key="intent" class="ticker-item active">
              <span class="agent-badge">Orchestrator Agent</span>
-             <span class="action-text">正在推理中</span>
+             <span class="action-text">正在生成意图</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
              </div>

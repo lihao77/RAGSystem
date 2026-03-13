@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StreamResult:
     """流式执行结果。"""
-    thought: str = ""
+    intent: str = ""
     actions: Optional[List[Dict[str, Any]]] = None
     answer: Optional[str] = None
     full_response: str = ""
@@ -31,7 +31,7 @@ class StreamExecutor:
 
     调用 model_adapter.chat_completion_stream()，
     将输出通过 StreamingXMLParser 增量解析，
-    实时发布 thinking_delta / chunk 等事件。
+    实时发布 intent_delta / chunk 等事件。
     """
 
     def __init__(self, model_adapter, publisher, agent_logger=None):
@@ -62,7 +62,7 @@ class StreamExecutor:
             StreamResult: 解析后的结构化结果
         """
         self.parser.reset()
-        thought = ""
+        intent = ""
         answer = ""
 
         kwargs = dict(extra_kwargs or {})
@@ -93,7 +93,7 @@ class StreamExecutor:
                 # 中断处理
                 if chunk_data.get('finish_reason') == 'interrupted':
                     return StreamResult(
-                        thought=thought,
+                        intent=intent,
                         answer=answer or None,
                         full_response=self.parser.get_full_response(),
                         error='interrupted',
@@ -108,12 +108,12 @@ class StreamExecutor:
                 for evt in events:
                     if evt.tag == TagType.INTENT:
                         if evt.type == 'content':
-                            thought += evt.content
+                            intent += evt.content
                             if self.publisher:
-                                self.publisher.thinking_delta(evt.content, round=round_num)
+                                self.publisher.intent_delta(evt.content, round=round_num)
                         elif evt.type == 'tag_close':
                             if self.publisher:
-                                self.publisher.thinking_complete(thought, round=round_num)
+                                self.publisher.intent_complete(intent, round=round_num)
 
                     elif evt.tag == TagType.TOOLS:
                         # tools 内容由 parser 积累，tag_close 时解析
@@ -128,7 +128,7 @@ class StreamExecutor:
         except Exception as e:
             self.logger.error(f"流式 LLM 调用异常: {e}", exc_info=True)
             return StreamResult(
-                thought=thought,
+                intent=intent,
                 full_response=self.parser.get_full_response(),
                 error=str(e),
             )
@@ -151,16 +151,16 @@ class StreamExecutor:
         full_response = self.parser.get_full_response()
 
         # LLM 输出了裸文本（没有任何 XML 标签），解析器会丢弃标签外文本
-        # 此时 thought/actions/answer 全为空，但 full_response 有内容
+        # 此时 intent/actions/answer 全为空，但 full_response 有内容
         # 将 full_response 视为最终答案，并补发 chunk 事件（保证流式完整性）
-        if not thought and not actions and not answer and full_response.strip():
+        if not intent and not actions and not answer and full_response.strip():
             self.logger.warning("LLM 输出了裸文本（无 XML 标签），将其作为最终答案处理")
             answer = full_response.strip()
             if self.publisher:
                 self.publisher.chunk(answer)
 
         return StreamResult(
-            thought=thought,
+            intent=intent,
             actions=actions if actions else None,
             answer=answer or None,
             full_response=full_response,
