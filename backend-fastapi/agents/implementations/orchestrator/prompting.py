@@ -262,7 +262,7 @@ def build_system_prompt(agent) -> str:
 
 ## 输出格式
 
-**直接输出工具调用或答案，禁止在 <thinking> 中写分析过程。**
+**严禁使用 `<thinking>` 标签。直接输出工具调用或答案，不写任何推理、分析、解释。**
 
 调用 Agent：
 <tools>
@@ -272,8 +272,8 @@ def build_system_prompt(agent) -> str:
 给出最终答案：
 <answer>答案内容</answer>
 
-如需意图备注（可选，最多10字）：
-<thinking>查受灾数据</thinking>
+如需一句话说明意图（可选，10字以内，禁止写推理）：
+<intent>查受灾数据</intent>
 <tools>...</tools>
 
 **task 字段**：子Agent无对话历史，必须把所有必要信息写入 task。`context_hint`（可选）补充引导方向。
@@ -285,7 +285,7 @@ def build_system_prompt(agent) -> str:
 
 **规则：**
 {rule1}
-2. 禁止在 <thinking> 写推理、分析、解释——只允许不超过10字的动作标注，或直接省略
+2. 禁止输出 `<thinking>` 标签；`<intent>` 只允许10字以内的动作标注，或直接省略
 3. 互相独立的调用放同一 <tools> 中并行
 4. 链式调用用 {{result_1}}, {{result_2}} 引用同轮前序结果
 5. 数据充足时直接输出 <answer>{direct_tools_guide}

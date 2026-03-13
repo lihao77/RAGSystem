@@ -106,7 +106,7 @@ class StreamExecutor:
                 events = self.parser.feed(content)
 
                 for evt in events:
-                    if evt.tag == TagType.THINKING:
+                    if evt.tag == TagType.INTENT:
                         if evt.type == 'content':
                             thought += evt.content
                             if self.publisher:

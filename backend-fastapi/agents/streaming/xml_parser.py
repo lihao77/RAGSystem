@@ -1,8 +1,8 @@
 """
 StreamingXMLParser - 增量 XML 标签解析器。
 
-支持的标签: <thinking>, <tools>, <answer>
-- thinking: 每个 chunk 产生 content 事件（实时流式）
+支持的标签: <intent>, <tools>, <answer>
+- intent: 每个 chunk 产生 content 事件（实时流式）
 - tools: 只积累不产生 content 事件，tag_close 时一次性可用
 - answer: 每个 chunk 产生 content 事件（实时流式）
 """
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class TagType(Enum):
-    THINKING = "thinking"
+    INTENT = "intent"
     TOOLS = "tools"
     ANSWER = "answer"
 
@@ -143,7 +143,7 @@ class StreamingXMLParser:
             if content_before:
                 self._tag_contents[self._state] += content_before
                 # thinking 和 answer 产生 content 事件，tools 不产生
-                if self._state in (TagType.THINKING, TagType.ANSWER):
+                if self._state in (TagType.INTENT, TagType.ANSWER):
                     events.append(ParseEvent("content", self._state, content_before))
 
             events.append(ParseEvent("tag_close", self._state))
@@ -160,7 +160,7 @@ class StreamingXMLParser:
             content = self._buffer[:safe_len]
             self._tag_contents[self._state] += content
             # thinking 和 answer 产生 content 事件
-            if self._state in (TagType.THINKING, TagType.ANSWER):
+            if self._state in (TagType.INTENT, TagType.ANSWER):
                 events.append(ParseEvent("content", self._state, content))
             self._buffer = self._buffer[safe_len:]
             return True
@@ -180,8 +180,8 @@ class StreamingXMLParser:
             return 0
 
         # 从末尾开始检查可能的不完整结束标签
-        # 结束标签格式: </thinking> </tools> </answer>
-        # 最长的结束标签是 "</thinking>" (11 字符)
+        # 结束标签格式: </intent> </tools> </answer>
+        # 最长的结束标签是 "</answer>" (9 字符)
         max_close_len = 12  # 稍微多留一点
 
         # 检查缓冲区末尾是否以 '<' 或 '</' 开头的不完整标签
