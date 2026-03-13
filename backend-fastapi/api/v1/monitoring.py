@@ -118,28 +118,30 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
             history = []
             history_tokens = 0
             if session_id:
-                store = _get_store()
-                raw = store.get_recent_messages(session_id=session_id, limit=50)
-                for msg in raw:
-                    if msg.get('role') in ('user', 'assistant', 'system'):
-                        content = msg.get('content', '')
-                        preview = content[:200] + ('...' if len(content) > 200 else '')
-                        t = counter.count_text(content)
-                        history_tokens += t
-                        meta = msg.get('metadata') or {}
-                        history.append({
-                            'id': msg.get('id'),
-                            'role': msg['role'],
-                            'content_preview': preview,
-                            'content_length': len(content),
-                            'is_preview_truncated': len(content) > 200,
-                            'can_load_full_content': bool(session_id and msg.get('seq') is not None),
-                            'tokens': t,
-                            'seq': msg.get('seq'),
-                            'react_intermediate': meta.get('react_intermediate', False),
-                            'msg_type': meta.get('msg_type'),
-                            'round': meta.get('round'),
-                        })
+                from dependencies import get_agent_runtime_service
+                runtime_service = get_agent_runtime_service()
+                context = runtime_service.build_context(session_id=session_id)
+                messages = entry_agent.context_pipeline.inspect_messages(system_prompt, context)
+                # 跳过第一条 system prompt（已单独统计）
+                for msg in messages[1:]:
+                    content = msg.get('content', '')
+                    meta = msg.get('metadata') or {}
+                    preview = content[:200] + ('...' if len(content) > 200 else '')
+                    t = counter.count_text(content)
+                    history_tokens += t
+                    history.append({
+                        'seq': msg.get('seq'),
+                        'role': msg['role'],
+                        'content_preview': preview,
+                        'content_length': len(content),
+                        'is_preview_truncated': len(content) > 200,
+                        'can_load_full_content': bool(session_id and msg.get('seq') is not None),
+                        'tokens': t,
+                        'is_compression_summary': bool(meta.get('compression')),
+                        'react_intermediate': meta.get('react_intermediate', False),
+                        'msg_type': meta.get('msg_type'),
+                        'round': meta.get('round'),
+                    })
 
             max_tokens = entry_agent.context_pipeline.config.max_tokens
             total = sp_tokens + history_tokens

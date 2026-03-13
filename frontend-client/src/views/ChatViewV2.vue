@@ -812,14 +812,25 @@ function executionStepsToExecutionState(executionSteps) {
     if (kind === 'subtask_thought') {
       const node = callNodes.get(callId);
       if (node) {
-        const reactStep = {
-          round: step.round,
-          thinking: step.content || '',
-          toolCalls: [],
-          expanded: true
-        };
-        node.react_steps.push(reactStep);
-        node.currentStep = reactStep;
+        // ⚠️ 【禁止随意修改】历史数据去重保护
+        // 后端持久化时，同一轮次会产生两条 subtask_thought 记录：
+        //   1. agent.thinking_complete → runstep_normalizer 转为 subtask_thought（携带完整内容）
+        //   2. react.intermediate (role=assistant) → 同样转为 subtask_thought（补发）
+        // 若直接无条件 push 新 reactStep，同一 round 会出现两个思考块，导致前端显示错位。
+        // 正确做法：同一 round 的第二条直接合并（内容为空时才补填），不新建 step。
+        const existing = node.currentStep;
+        if (existing && existing.round === step.round) {
+          if (!existing.thinking && step.content) existing.thinking = step.content;
+        } else {
+          const reactStep = {
+            round: step.round,
+            thinking: step.content || '',
+            toolCalls: [],
+            expanded: true
+          };
+          node.react_steps.push(reactStep);
+          node.currentStep = reactStep;
+        }
       }
       continue;
     }
@@ -1860,13 +1871,38 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 });
               }
             }
-            // 🎯 编排器的 thinking（流式增量）
+            // ⚠️ ================================================================
+            // ⚠️  【禁止随意修改此块逻辑】react.intermediate 去重保护
+            // ⚠️ ================================================================
+            //
+            // 【背景】后端每轮 LLM 调用后，会按以下顺序连续发出两类事件：
+            //   1. agent.thinking_delta × N  →  agent.thinking_complete
+            //      （流式增量，thinking_complete 时把 _thinkingComplete 置 true）
+            //   2. react.intermediate (role=assistant)
+            //      （流结束后补发，携带完整内容，历史兼容机制，同一轮次、同一 round）
+            //
+            // 【Bug 历史】这个 Bug 反复出现过多次：
+            //   若把 react.intermediate 的新建 step 条件改为 `!step || step._thinkingComplete`，
+            //   会导致 thinking_complete 之后 react.intermediate 到达时，
+            //   因为 _thinkingComplete=true，错误地新建了第二个空 step，
+            //   工具调用（call.tool.start）随后落入这个空 step，
+            //   前端显示就变成：思考1 → 思考2(空) + 工具 → 思考2 的错位顺序。
+            //
+            // 【正确逻辑】
+            //   react.intermediate 新建 step 的条件必须同时满足：
+            //   a) 没有任何 step（!step / !lastStep），或者
+            //   b) 当前 step 已完成（_thinkingComplete）且 round 不同（真正新轮次）
+            //   —— 即：同一 round 的 react.intermediate 永远不新建 step，只做内容兜底补填
+            //
+            // ⚠️  改动此处之前，请确保你完整理解上述事件顺序和 _thinkingComplete 标志的含义。
+            // ⚠️ ================================================================
             else if (eventType === 'react.intermediate' && eventData.role === 'assistant') {
               const parsedIntermediate = parseAssistantIntermediate(eventData.content);
               if (isMasterEvent(event)) {
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (!lastStep || lastStep._thinkingComplete) {
+                // 仅在没有 step，或已完成且是真正新 round 时才新建；同一 round 的补发直接跳过新建
+                if (!lastStep || (lastStep._thinkingComplete && lastStep.round !== eventData.round)) {
                   lastStep = {
                     round: eventData.round,
                     thinking: '',
@@ -1882,7 +1918,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
                   let step = subtask.currentStep;
-                  if (!step || step._thinkingComplete) {
+                  // 仅在没有 step，或已完成且是真正新 round 时才新建；同一 round 的补发直接跳过新建
+                  if (!step || (step._thinkingComplete && step.round !== eventData.round)) {
                     step = {
                       round: eventData.round,
                       thinking: '',
@@ -1992,10 +2029,10 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
                 }
               } else {
-                // 编排器直接调用工具：若尚无 thinking step，也要兜底创建一个 step
+                // 编排器直接调用工具：工具归属于当前轮次的 step，不要因为 _thinkingComplete 就新建
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let executionStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (!executionStep || executionStep._thinkingComplete) {
+                if (!executionStep) {
                   executionStep = {
                     round: eventData.round,
                     thinking: '',

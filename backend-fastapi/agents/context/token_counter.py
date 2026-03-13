@@ -35,6 +35,7 @@ class TokenCounter:
         self._model_name = model_name
         self._encoding = None       # 懒加载
         self._use_tiktoken = True   # 失败后置 False，不再重试
+        self._role_token_cache: Dict[str, int] = {}  # 缓存 role token 数
 
     def _get_encoding(self):
         """懒加载 tiktoken encoding，失败时标记不再重试"""
@@ -83,7 +84,9 @@ class TokenCounter:
                         total += len(enc.encode(str(content)))
                     role = msg.get('role', '')
                     if role:
-                        total += len(enc.encode(role))
+                        if role not in self._role_token_cache:
+                            self._role_token_cache[role] = len(enc.encode(role))
+                        total += self._role_token_cache[role]
                 return total
             except Exception as e:
                 logger.warning(f"TokenCounter: tiktoken 计数失败，降级: {e}")

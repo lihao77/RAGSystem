@@ -16,9 +16,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from tools.response_builder import error_result, success_result
 from tools.result_references import (
     result_display_text,
-    result_error_message,
-    result_metadata,
-    result_primary_text,
     result_success,
 )
 from tools.result_schema import ToolExecutionResult
@@ -113,7 +110,6 @@ def route_agent_delegation(
     返回: {"observation": str, "result": Any, "call_history": dict}
     """
     from .executor import parse_agent_invocation
-    from agents.core.models import AgentResponse
 
     tool_name = action.get('tool')
     arguments = action.get('arguments', {})
@@ -141,7 +137,8 @@ def route_agent_delegation(
         parent_call_id=orchestrator_call_id,
         order=global_agent_order,
         round=rounds,
-        round_index=idx
+        round_index=idx,
+        agent_display_name=agent_display_name,
     )
 
     # 派生子上下文 (Context Forking)
@@ -181,20 +178,6 @@ def route_agent_delegation(
             tool_name=agent_name,
         )
     agent_succeeded = result_success(agent_result)
-
-    # 合并子上下文 (Context Merging)
-    try:
-        response_obj = AgentResponse(
-            success=agent_succeeded,
-            content=result_primary_text(agent_result),
-            metadata=result_metadata(agent_result),
-            error=None if agent_succeeded else result_error_message(agent_result),
-            agent_name=agent_name
-        )
-        context.merge(child_context, response_obj)
-        agent.logger.info(f"{log_prefix} 子上下文已合并")
-    except Exception as e:
-        agent.logger.warning(f"{log_prefix} 合并上下文失败: {e}")
 
     # 发布 AgentCall 结束事件
     agent._publisher.agent_call_end(

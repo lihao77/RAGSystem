@@ -176,7 +176,7 @@
                 <span class="code-tag result-tag">RESULT</span>
               </div>
               <div class="code-wrapper">
-                <pre class="detail-code result-code">{{ JSON.stringify(node.result, null, 2) }}</pre>
+                <pre class="detail-code result-code">{{ formatResultContent(node.result) }}</pre>
               </div>
             </div>
           </template>
@@ -276,6 +276,29 @@ const getStatusText = (status) => {
 // agent_call 折叠/展开，纯 CSS grid-template-rows 动画，无需 JS 测量高度
 const toggleExpanded = () => {
   localExpanded.value = !localExpanded.value;
+};
+
+const formatResultContent = (value) => {
+  if (value == null) return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed !== 'string') {
+          return JSON.stringify(parsed, null, 2);
+        }
+      } catch (_) {
+        // 历史数据可能就是普通文本，保持原样显示。
+      }
+    }
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_) {
+    return String(value);
+  }
 };
 </script>
 

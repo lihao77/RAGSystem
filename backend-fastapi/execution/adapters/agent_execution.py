@@ -53,7 +53,7 @@ class AgentExecutionAdapter:
         conversation_store,
         orchestrator,
         history_loader: Callable[[AgentContext, str, int], None],
-        history_limit: int = 50,
+        history_limit: int = 200,
     ) -> AgentStreamStartResult:
         registry = self._execution_service.get_task_registry()
         session_manager = self._execution_service.get_session_manager()
@@ -185,7 +185,8 @@ class AgentExecutionAdapter:
 
             subscription_ids = [
                 subscriptions['run_steps'],
-                subscriptions['persist_final_answer'],
+                subscriptions['final_answer'],
+                subscriptions['root_call_id'],
                 subscriptions['compression'],
                 subscriptions['react_intermediate'],
                 subscriptions['interrupt'],

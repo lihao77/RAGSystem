@@ -91,6 +91,31 @@ class EventPublisher:
         else:
             logger.warning(f"[{self.agent_name}] 事件总线未初始化，跳过事件: {event_type.value}")
 
+    @staticmethod
+    def _make_event_value_safe(value: Any) -> Any:
+        """尽量保留结构化结果，仅在无法序列化时退化为字符串。"""
+        import math
+        import json
+
+        if value is None or isinstance(value, (str, bool, int)):
+            return value
+        if isinstance(value, float):
+            if math.isnan(value) or math.isinf(value):
+                return None
+            return value
+        if isinstance(value, dict):
+            return {
+                str(key): EventPublisher._make_event_value_safe(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [EventPublisher._make_event_value_safe(item) for item in value]
+        try:
+            json.dumps(value, ensure_ascii=False)
+            return value
+        except (TypeError, ValueError):
+            return str(value)
+
     # ==================== Agent执行事件 ====================
 
     def agent_start(self, task: str, metadata: Optional[Dict] = None):
@@ -312,16 +337,11 @@ class EventPublisher:
         parent_call_id: Optional[str] = None
     ):
         """工具调用结束"""
-        import json as _json
-        if isinstance(result, (dict, list)):
-            result_str = _json.dumps(result, ensure_ascii=False)[:500]
-        else:
-            result_str = str(result)[:500]
         self._publish(
             EventType.CALL_TOOL_END,
             {
                 "tool_name": tool_name,
-                "result": result_str,
+                "result": self._make_event_value_safe(result),
                 "execution_time": execution_time
             },
             override_call_id=call_id,

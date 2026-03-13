@@ -143,11 +143,9 @@ class BaseAgent(ABC):
     def before_execute(self, task: str, context: AgentContext):
         """执行前钩子"""
         self.logger.info(f"[{self.name}] 开始执行任务: {task}")
-        context.push_agent(self.name)
 
     def after_execute(self, task: str, context: AgentContext, result: AgentResponse):
         """执行后钩子"""
-        context.pop_agent()
         self.logger.info(
             f"[{self.name}] 任务完成: success={result.success}, "
             f"time={result.execution_time:.2f}s"
@@ -645,43 +643,8 @@ class BaseAgent(ABC):
         final_answer: Optional[str],
         full_response: str,
     ) -> str:
-        """将一轮 assistant 输出整理为适合上下文存储的纯文本。"""
-        parts: List[str] = []
-
-        thought = (thought or "").strip()
-        if thought:
-            parts.append(f"思考:\n{thought}")
-
-        if actions:
-            action_lines = ["工具调用:"]
-            for idx, action in enumerate(actions, 1):
-                tool_name = action.get("tool") or action.get("tool_name") or "unknown_tool"
-                arguments = action.get("arguments")
-                if arguments in (None, {}, []):
-                    action_lines.append(f"{idx}. {tool_name}")
-                    continue
-                try:
-                    args_text = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
-                except (TypeError, ValueError):
-                    args_text = str(arguments)
-                action_lines.append(f"{idx}. {tool_name} {args_text}")
-            parts.append("\n".join(action_lines))
-
-        if parts:
-            return "\n\n".join(parts)
-
-        final_answer = (final_answer or "").strip()
-        if final_answer:
-            return final_answer
-
-        fallback = (full_response or "").strip()
-        if not fallback:
-            return ""
-
-        fallback = re.sub(r"</?(thinking|tools|answer)\b[^>]*>", "", fallback, flags=re.IGNORECASE)
-        fallback = re.sub(r"</?tool\b[^>]*>", "", fallback, flags=re.IGNORECASE)
-        fallback = re.sub(r"\n{3,}", "\n\n", fallback)
-        return fallback.strip()
+        """返回适合上下文存储的 assistant 消息内容（原始 LLM 输出）。"""
+        return (full_response or "").strip()
 
     def _on_assistant_message(
         self,

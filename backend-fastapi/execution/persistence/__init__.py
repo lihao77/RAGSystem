@@ -4,5 +4,7 @@
 """
 
 from .stream_handler import StreamPersistenceHandler
+from .message_handler import MessagePersistenceHandler
+from .runstep_handler import RunStepPersistenceHandler
 
-__all__ = ['StreamPersistenceHandler']
+__all__ = ['StreamPersistenceHandler', 'MessagePersistenceHandler', 'RunStepPersistenceHandler']

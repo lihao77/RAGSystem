@@ -80,9 +80,12 @@ def normalize_run_steps(
         elif event_type == 'react.intermediate':
             msg_type = data.get('msg_type')
             role = data.get('role')
-            if role == 'assistant' and msg_type == 'thought':
+            # 兼容旧数据库中遗留的历史记录（新版已不再持久化此事件，见 runstep_handler.py）。
+            # 若将来前端 executionStepsToExecutionState 接收到此 kind，
+            # 必须做同 round 去重（不能无条件新建 reactStep），否则会出现重复思考块。
+            if role == 'assistant' and msg_type in ('thought', 'assistant_response'):
                 normalized.append({
-                    'kind': 'agent_thought',
+                    'kind': 'subtask_thought' if parent_call_id else 'agent_thought',
                     'step_order': step_order,
                     'agent_name': agent_name or entry_agent_name,
                     'call_id': call_id,
@@ -96,6 +99,7 @@ def normalize_run_steps(
                 'kind': 'subtask_start',
                 'step_order': step_order,
                 'agent_name': data.get('agent_name') or agent_name,
+                'agent_display_name': data.get('agent_display_name'),
                 'call_id': call_id,
                 'parent_call_id': parent_call_id,
                 'round': data.get('round'),

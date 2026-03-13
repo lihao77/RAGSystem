@@ -87,12 +87,34 @@ class ContextPipeline:
                 f"触发上下文压缩: tokens={history_tokens}/{self.config.max_tokens} "
                 f"({history_tokens / self.config.max_tokens * 100:.1f}%)"
             )
-            history_resolved, _ = self._compress(
+            history_resolved = self._compress(
                 history_raw, history_resolved, context, publisher
             )
 
         system_msg = {"role": "system", "content": system_prompt}
         return [system_msg] + history_resolved + current_session
+
+    def inspect_messages(
+        self,
+        system_prompt: str,
+        context,
+        current_session: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        只读快照：返回 LLM 实际会看到的消息列表，不触发压缩，不修改 context。
+
+        Args:
+            system_prompt: 构建好的 system prompt 字符串
+            context: AgentContext 实例
+            current_session: 当次执行中累积的消息（可选，调试时通常为空）
+
+        Returns:
+            [system_msg] + history_resolved + current_session
+        """
+        history_raw = self._get_history_raw(context)
+        history_resolved = resolve_compression_view(history_raw)
+        system_msg = {"role": "system", "content": system_prompt}
+        return [system_msg] + history_resolved + (current_session or [])
 
     def format_summary(self, messages: List[Dict[str, Any]]) -> str:
         """返回消息列表的简要统计字符串（用于日志）"""
@@ -129,7 +151,7 @@ class ContextPipeline:
         history_resolved: List[Dict[str, Any]],
         context,
         publisher=None,
-    ) -> tuple[List[Dict[str, Any]], bool]:
+    ) -> List[Dict[str, Any]]:
         # 确定被摘要段：压缩「除最近 preserve_recent_turns 轮之外」的所有历史
         # 这样无论消息长短，每次都能尽量多地压缩，token 效率最优。
         start_idx = 0
@@ -144,7 +166,7 @@ class ContextPipeline:
         if len(candidates) <= preserve_count:
             # 可压缩消息不足，不触发
             self._record_compression(status="skipped", replaced_messages=0)
-            return history_resolved, False
+            return history_resolved
 
         segment = candidates[:-preserve_count]
 
@@ -157,7 +179,7 @@ class ContextPipeline:
         self._record_compression(status="success", replaced_messages=len(segment))
         return self._apply_compression(
             summary, segment, history_raw, context, publisher
-        ), True
+        )
 
     def _try_llm_summary(
         self,

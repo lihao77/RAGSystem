@@ -68,19 +68,24 @@ class AgentApiRuntimeService:
 
     # ── 会话历史（原 AgentChatApplication） ───────────────
 
-    def load_history_into_context(self, context: AgentContext, session_id: str, limit: int = 50) -> None:
-        raw_messages = self._conversation_store.get_recent_messages(session_id=session_id, limit=limit)
+    def load_history_into_context(self, context: AgentContext, session_id: str, limit: int = 200) -> None:
+        try:
+            raw_messages = self._conversation_store.get_recent_messages(session_id=session_id, limit=limit)
+        except Exception as e:
+            logger.warning('加载历史失败，使用空历史: %s', e)
+            return
         for item in raw_messages:
             if item.get('role') not in {'user', 'assistant', 'system'}:
                 continue
+            meta = item.get('metadata') or {}
             context.add_message(
                 role=item['role'],
                 content=item['content'],
-                metadata=dict(item.get('metadata') or {}),
+                metadata=dict(meta),
                 seq=item.get('seq'),
             )
 
-    def build_context(self, *, session_id: str, user_id: Optional[str] = None, limit: int = 50) -> AgentContext:
+    def build_context(self, *, session_id: str, user_id: Optional[str] = None, limit: int = 200) -> AgentContext:
         context = AgentContext(session_id=session_id, user_id=user_id)
         self.load_history_into_context(context, session_id=session_id, limit=limit)
         return context
