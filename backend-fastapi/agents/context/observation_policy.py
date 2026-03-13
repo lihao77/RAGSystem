@@ -40,7 +40,6 @@ def _estimate_size_fast(data: Any) -> int:
 class ObservationDecision:
     mode: str
     reason: str = ""
-    snippet_limit: int = 2000
     estimated_size: int = 0
     artifact_ttl_seconds: int | None = None
     budget_bucket: str = "balanced"
@@ -52,7 +51,6 @@ class ObservationBudget:
     inline_text_limit: int
     inline_json_limit: int
     summarize_limit: int
-    snippet_limit: int
     artifact_ttl_seconds: int
 
 
@@ -67,7 +65,6 @@ class ObservationPolicy:
         inline_text_limit: int | None = None,
         inline_json_limit: int | None = None,
         summarize_limit: int | None = None,
-        snippet_limit: int | None = None,
         artifact_ttl_seconds: int | None = None,
     ):
         self.max_context_tokens = max_context_tokens
@@ -78,13 +75,11 @@ class ObservationPolicy:
             inline_text_limit=inline_text_limit,
             inline_json_limit=inline_json_limit,
             summarize_limit=summarize_limit,
-            snippet_limit=snippet_limit,
             artifact_ttl_seconds=artifact_ttl_seconds,
         )
         self.inline_text_limit = budget.inline_text_limit
         self.inline_json_limit = budget.inline_json_limit
         self.summarize_limit = budget.summarize_limit
-        self.snippet_limit = budget.snippet_limit
         self.artifact_ttl_seconds = budget.artifact_ttl_seconds
         self.budget_bucket = budget.bucket_name
         self.large_data_threshold = self.summarize_limit
@@ -94,7 +89,6 @@ class ObservationPolicy:
         result: ToolExecutionResult,
         *,
         is_skills_tool: bool = False,
-        no_truncate: bool = False,
     ) -> ObservationDecision:
         estimated_size = _estimate_size_fast(result.content)
         inline_limit = self._inline_limit_for(result)
@@ -103,16 +97,6 @@ class ObservationPolicy:
             return ObservationDecision(
                 mode="inline",
                 reason="error_inline",
-                snippet_limit=self.snippet_limit,
-                estimated_size=estimated_size,
-                budget_bucket=self.budget_bucket,
-            )
-
-        if no_truncate:
-            return ObservationDecision(
-                mode="inline",
-                reason="no_truncate",
-                snippet_limit=max(self.snippet_limit, estimated_size),
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -121,7 +105,6 @@ class ObservationPolicy:
             return ObservationDecision(
                 mode="inline",
                 reason="skills_inline",
-                snippet_limit=max(self.snippet_limit, estimated_size),
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -130,7 +113,6 @@ class ObservationPolicy:
             return ObservationDecision(
                 mode="inline",
                 reason="visualization_inline",
-                snippet_limit=self.snippet_limit,
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -139,7 +121,6 @@ class ObservationPolicy:
             return ObservationDecision(
                 mode="inline",
                 reason="default_inline",
-                snippet_limit=self.snippet_limit,
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -148,7 +129,6 @@ class ObservationPolicy:
             return ObservationDecision(
                 mode="summarize",
                 reason="budget_summarize",
-                snippet_limit=self.snippet_limit,
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -156,7 +136,6 @@ class ObservationPolicy:
         return ObservationDecision(
             mode="artifact_ref",
             reason="large_payload",
-            snippet_limit=self.snippet_limit,
             estimated_size=estimated_size,
             artifact_ttl_seconds=self.artifact_ttl_seconds,
             budget_bucket=self.budget_bucket,
@@ -175,7 +154,6 @@ class ObservationPolicy:
         inline_text_limit: int | None,
         inline_json_limit: int | None,
         summarize_limit: int | None,
-        snippet_limit: int | None,
         artifact_ttl_seconds: int | None,
     ) -> ObservationBudget:
         if max_context_tokens <= 8000:
@@ -184,7 +162,6 @@ class ObservationPolicy:
                 inline_text_limit=800,
                 inline_json_limit=1200,
                 summarize_limit=4000,
-                snippet_limit=700,
                 artifact_ttl_seconds=6 * 60 * 60,
             )
         elif max_context_tokens <= 32000:
@@ -193,7 +170,6 @@ class ObservationPolicy:
                 inline_text_limit=1600,
                 inline_json_limit=2400,
                 summarize_limit=9000,
-                snippet_limit=1400,
                 artifact_ttl_seconds=12 * 60 * 60,
             )
         else:
@@ -202,7 +178,6 @@ class ObservationPolicy:
                 inline_text_limit=2600,
                 inline_json_limit=3600,
                 summarize_limit=16000,
-                snippet_limit=2200,
                 artifact_ttl_seconds=24 * 60 * 60,
             )
 
@@ -212,7 +187,6 @@ class ObservationPolicy:
                 inline_text_limit=int(budget.inline_text_limit * 0.85),
                 inline_json_limit=int(budget.inline_json_limit * 0.85),
                 summarize_limit=int(budget.summarize_limit * 0.85),
-                snippet_limit=int(budget.snippet_limit * 0.85),
                 artifact_ttl_seconds=max(2 * 60 * 60, int(budget.artifact_ttl_seconds * 0.75)),
             )
 
@@ -221,6 +195,5 @@ class ObservationPolicy:
             inline_text_limit=inline_text_limit or budget.inline_text_limit,
             inline_json_limit=inline_json_limit or budget.inline_json_limit,
             summarize_limit=summarize_limit or budget.summarize_limit,
-            snippet_limit=snippet_limit or budget.snippet_limit,
             artifact_ttl_seconds=artifact_ttl_seconds or budget.artifact_ttl_seconds,
         )

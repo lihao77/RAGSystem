@@ -46,7 +46,6 @@ def _new_state() -> Dict[str, Any]:
         "compression_stats": {
             "attempts": 0,
             "successes": 0,
-            "fallbacks": 0,
             "skipped": 0,
             "replaced_messages": 0,
         },
@@ -178,8 +177,6 @@ class ObservationWindowCollector:
             state["compression_stats"]["attempts"] += 1
             if status == "success":
                 state["compression_stats"]["successes"] += 1
-            elif status == "fallback":
-                state["compression_stats"]["fallbacks"] += 1
             else:
                 state["compression_stats"]["skipped"] += 1
             state["compression_stats"]["replaced_messages"] += max(0, int(replaced_messages))
@@ -206,12 +203,6 @@ class ObservationWindowCollector:
         not_triggered = state["threshold_stats"]["not_triggered"]
         total_threshold = triggered + not_triggered
         compression_attempts = state["compression_stats"]["attempts"]
-
-        suggested_snippet_limit = None
-        if inline_samples:
-            sorted_samples = sorted(inline_samples)
-            index = min(len(sorted_samples) - 1, int(len(sorted_samples) * 0.95))
-            suggested_snippet_limit = sorted_samples[index]
 
         artifact_avg = 0
         if artifact_samples:
@@ -260,7 +251,6 @@ class ObservationWindowCollector:
                 "size_buckets": state["artifact_size_buckets"],
             },
             "recommendations": {
-                "suggested_snippet_limit": suggested_snippet_limit,
                 "artifact_storage_tiering_recommended": artifact_avg >= 1024 * 1024,
             },
             "tool_coverage": tool_report,

@@ -86,7 +86,6 @@ class ReActAgent(BaseAgent):
             available_skills=available_skills,
             event_bus=event_bus,
             builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_worker,
-            max_rounds_default=10,
             budget_profile_name=WORKER_CONTEXT_PROFILE_NAME,
             runtime_label="ReActAgent",
         )

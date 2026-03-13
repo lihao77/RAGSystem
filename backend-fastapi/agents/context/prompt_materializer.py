@@ -55,11 +55,10 @@ class PromptMaterializer:
             tool_name=tool_name or result.tool_name,
             session_id=session_id,
             is_skills_tool=is_skills_tool,
-            no_truncate=decision.mode != "artifact_ref",
+            mode=decision.mode,
             artifact_store=self.artifact_store,
             observation_window=self.observation_window,
             large_data_threshold=self.large_data_threshold,
-            snippet_limit=decision.snippet_limit,
             artifact_ttl_seconds=decision.artifact_ttl_seconds,
         )
 

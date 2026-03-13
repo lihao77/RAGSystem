@@ -143,15 +143,16 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
             config_info = {
                 'agent_name': entry_agent.name,
                 'display_name': getattr(entry_agent, 'display_name', entry_agent.name),
-                'max_rounds': entry_agent.max_rounds,
                 'compression': {
-                    'strategy': 'llm_summarize_with_fallback',
+                    'strategy': 'llm_summarize',
                     'trigger_ratio': cfg.compression_trigger_ratio,
                     'preserve_recent_turns': cfg.preserve_recent_turns,
                     'summarize_max_tokens': cfg.summarize_max_tokens,
                 },
                 'model': llm_cfg.get('model_name', ''),
             }
+            if entry_agent.max_rounds is not None:
+                config_info['max_rounds'] = entry_agent.max_rounds
 
             return {
                 'system_prompt': system_prompt,

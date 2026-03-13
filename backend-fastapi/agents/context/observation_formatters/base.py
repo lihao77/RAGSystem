@@ -25,7 +25,7 @@ class FormatContext:
     Attributes:
         tool_name: 工具名称
         is_skills_tool: 是否为 Skills 工具
-        no_truncate: 是否禁用截断
+        mode: 当前 observation 物化模式
         artifact_store: Artifact 存储服务
         observation_window: 观察窗口收集器
         large_data_threshold: 大数据阈值
@@ -33,11 +33,10 @@ class FormatContext:
     tool_name: str = ""
     session_id: Optional[str] = None
     is_skills_tool: bool = False
-    no_truncate: bool = False
+    mode: str = "inline"
     artifact_store: Optional[Any] = None  # ArtifactStore
     observation_window: Optional[Any] = None  # ObservationWindowCollector
     large_data_threshold: int = 8000
-    snippet_limit: int = 2000
     artifact_ttl_seconds: Optional[int] = None
 
 

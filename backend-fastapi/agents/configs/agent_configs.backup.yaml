@@ -27,7 +27,7 @@ agents:
     custom_params:
       behavior:
         auto_execute_tools: true
-        max_rounds: 10
+        rounds: 10
         system_prompt: '你是广西洪涝灾害知识图谱问答专家。直接执行查询，不解释推理过程。
 
 
@@ -70,7 +70,7 @@ agents:
     custom_params:
       behavior:
         auto_execute_tools: true
-        max_rounds: 15
+        rounds: 15
         system_prompt: '你是洪涝灾害数据提取专家。直接执行提取流程，不解释步骤。
 
           严格按照 flood-disaster-extraction skill 的 schema 提取。时间格式统一 YYYY-MM-DD，数值准确，缺失字段直接省略。
@@ -105,7 +105,7 @@ agents:
     custom_params:
       behavior:
         auto_execute_tools: true
-        max_rounds: 10
+        rounds: 10
         system_prompt: 你是一个用于测试系统环境是否独立的专家，请使用你的skill及其脚本进行测试
       type: react
   chart_agent:
@@ -141,7 +141,7 @@ agents:
     custom_params:
       behavior:
         auto_execute_tools: true
-        max_rounds: 15
+        rounds: 15
         system_prompt: '你是可视化智能体。根据数据直接生成图表，不解释过程。
 
           时序数据→折线图，分类对比→柱状图，占比→饼图，地理分布→地图。数据格式不符时用 execute_code 转换后再生成。
@@ -176,7 +176,7 @@ agents:
     custom_params:
       behavior:
         auto_execute_tools: true
-        max_rounds: 10
+        rounds: 10
         system_prompt: 你是一个应急预案助手，负责提供相关预案
       type: react
   orchestrator_agent:
@@ -212,7 +212,7 @@ agents:
       behavior:
         compression_trigger_ratio: 0.85
         data_save_dir: ./static/temp_data
-        max_rounds: 15
+        rounds: 15
         preserve_recent_turns: 3
         summarize_max_tokens: 300
         system_prompt: '你是广西洪涝灾害系统的主编排器。直接调用合适的 Agent，不解释决策过程。

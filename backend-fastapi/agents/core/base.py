@@ -298,7 +298,6 @@ class BaseAgent(ABC):
         available_skills: Optional[List[Any]] = None,
         event_bus = None,
         builtin_tool_getter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
-        max_rounds_default: int = 10,
         budget_profile_name: str = "worker",
         fallback_multiplier: Optional[float] = None,
         runtime_label: Optional[str] = None,
@@ -326,7 +325,6 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
-        del max_rounds_default
         self.max_rounds = behavior_config.get('rounds')
         self.base_prompt = behavior_config.get('system_prompt', '')
         budget_profile = get_context_budget_profile(
@@ -389,7 +387,6 @@ class BaseAgent(ABC):
             inline_text_limit=behavior_config.get('observation_inline_text_limit'),
             inline_json_limit=behavior_config.get('observation_inline_json_limit'),
             summarize_limit=behavior_config.get('observation_summarize_limit'),
-            snippet_limit=behavior_config.get('observation_snippet_limit'),
             artifact_ttl_seconds=behavior_config.get('observation_artifact_ttl_seconds'),
         )
         self.prompt_materializer = PromptMaterializer(
@@ -691,7 +688,6 @@ class BaseAgent(ABC):
         tool_name: str | None = None,
         session_id: str | None = None,
         is_skills_tool: bool = False,
-        no_truncate: bool = False,
     ) -> str:
         """Format normalized tool results into observation text."""
         if (
@@ -705,7 +701,6 @@ class BaseAgent(ABC):
         decision = self.observation_policy.decide(
             normalized,
             is_skills_tool=is_skills_tool,
-            no_truncate=no_truncate,
         )
         return self.prompt_materializer.materialize_tool_observation(
             normalized,

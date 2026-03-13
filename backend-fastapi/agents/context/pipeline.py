@@ -242,7 +242,7 @@ class ContextPipeline:
         summary_message = {
             "role": "system",
             "content": summary_content,
-            "metadata": {"compression": True, "fallback": False},
+            "metadata": {"compression": True},
         }
 
         # 找到 segment 最后一条消息在 history_raw 中的索引

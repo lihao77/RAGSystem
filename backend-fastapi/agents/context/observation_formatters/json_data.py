@@ -56,7 +56,7 @@ class JsonDataFormatter(BaseObservationFormatter):
             prefix = f"✅ {answer}\n\n"
             if approval_message:
                 prefix += f"👤 用户批注: {approval_message}\n\n"
-            return f"{prefix}📊 数据详情:\n```json\n{content_str[:2000]}\n```"
+            return f"{prefix}📊 数据详情:\n```json\n{content_str}\n```"
 
         # 默认格式
         prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"

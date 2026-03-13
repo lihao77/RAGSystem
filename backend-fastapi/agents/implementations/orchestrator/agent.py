@@ -72,7 +72,6 @@ class OrchestratorAgent(BaseAgent):
             available_tools=available_tools,
             available_skills=available_skills,
             builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_orchestrator,
-            max_rounds_default=15,
             budget_profile_name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
             runtime_label="OrchestratorAgent",
         )

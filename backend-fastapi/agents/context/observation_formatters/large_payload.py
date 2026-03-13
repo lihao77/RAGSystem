@@ -28,7 +28,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
 
     def can_handle(self, result: "ToolExecutionResult", context: FormatContext) -> bool:
         """当数据大小超过阈值时处理。"""
-        if context.no_truncate:
+        if context.mode != "artifact_ref":
             return False
 
         size = self._estimate_size_fast(result.content)

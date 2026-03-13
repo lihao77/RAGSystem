@@ -3,6 +3,13 @@
 > 更新时间：2026-03-12
 > 适用范围：`backend-fastapi/agents/context/*`、相关持久化/监控链路
 
+> 2026-03-13 补充说明：
+>
+> 1. `ContextPipeline` 已不再承担 `current_session` trim 或滑动窗口降级。
+> 2. 历史摘要失败会直接中止当前轮执行，而不是回退到 fallback 压缩路径。
+> 3. `rounds` 已改为可选行为配置；未配置时，不存在默认 `max_rounds` 限制。
+> 4. observation 主链已不再依赖 `snippet_limit` 做正文截断。
+
 ---
 
 ## 1. 当前结论
@@ -41,7 +48,7 @@
 
 1. `agents/context/pipeline.py`
    - 上下文准备主入口
-   - 执行压缩、滑窗降级、session trim、预算兜底
+   - 执行历史视图解析、必要时的 LLM 摘要与 prompt 组装
 2. `agents/context/compression_view.py`
    - 负责解析持久化摘要和压缩视图
 3. `agents/context/config.py`
@@ -85,6 +92,7 @@
    - 当前有 `worker` / `orchestrator` 两个角色 profile
    - 两者共享同一 context budget 基线，角色差异主要留在 observation materialization 策略
    - `BaseAgent` 初始化上下文运行时时统一按 profile 注入默认值
+   - `rounds` 已从默认强制轮数限制降为可选行为配置
 4. `agents/tests/test_core/` 已完成旧编排器测试路径向 `orchestrator` 结构的迁移
    - 当前 `pytest agents/tests/test_core -q` 已通过
 
@@ -102,7 +110,7 @@
 
 1. `ContextConfig` 已拆到 `context/config.py`。
 2. `resolve_compression_view()` 已拆到 `context/compression_view.py`。
-3. `ObservationFormatter` 已拆到 `context/observation_formatter.py`。
+3. observation 物化已收敛到 `observation_formatters/*` + `PromptMaterializer`。
 4. 原 `manager.py` 已不再保留兼容层，而是直接退出实现。
 
 判断：
@@ -152,7 +160,7 @@
 
 1. 已存在 `ObservationFormatterRegistry`。
 2. 已拆分 `Skills`、`Chart`、`Map`、`LargePayload`、`Text`、`Json`、`Fallback` 等 formatter。
-3. `ObservationFormatter` 现在主要作为兼容外观类。
+3. Agent 主链当前直接使用 `ObservationPolicy + PromptMaterializer`，不再依赖兼容外观层。
 
 判断：
 
@@ -190,7 +198,7 @@
 
 1. 已抽出 `compute_context_budget()`。
 2. 已把上下文预算兜底倍数收敛为统一基线，不再按 agent 角色降低总预算。
-3. `ContextPipeline` 已实现压缩阈值、session trim、预算 safety net。
+3. `ContextPipeline` 已实现压缩阈值与摘要写回主链。
 4. 已增加显式 `ContextBudgetProfile`。
 5. `worker` / `orchestrator` 已通过 profile 统一注入预算默认值，而不再依赖调用侧散落常量。
 
@@ -223,7 +231,7 @@
 
 已完成部分：
 
-1. 已记录 compression、trim、spill、artifact 等指标。
+1. 已记录 compression、spill、artifact 等指标。
 2. 已能输出 observation window 报告。
 
 未完成部分：

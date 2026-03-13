@@ -2,6 +2,12 @@
 
 > 状态更新：2026-03-12
 >
+> 2026-03-13 补充说明：
+>
+> 1. 当前运行时仍保留 `inline / summarize / artifact_ref` 三种模式。
+> 2. 但 `summarize` 物化已不再按 `snippet_limit` 对正文做截断。
+> 3. `no_truncate` / `snippet_limit` 已不再是当前主链的有效运行时接口，本文相关内容应视为迁移记录，而不是现行实现约束。
+>
 > 当前真实进度不是“准备开始迁移”，而是：
 >
 > 1. `ToolExecutionResult` / `ToolResultNormalizer` 已落地。
@@ -150,7 +156,6 @@ class ArtifactStore:
 class ObservationDecision:
     mode: str  # inline / summarize / artifact_ref / drop
     reason: str = ""
-    snippet_limit: int = 2000
 
 
 class ObservationPolicy:
@@ -358,7 +363,7 @@ TOOL_OUTPUT_TYPE_MAP = {
 产出：
 
 1. 一版真实工具结果类型覆盖率报告
-2. 一版建议的 `snippet_limit`
+2. 一版建议的 observation bucket 阈值
 3. 一版是否需要分级 artifact 存储的结论
 
 ## Phase C：引入 ObservationPolicy
@@ -390,7 +395,7 @@ TOOL_OUTPUT_TYPE_MAP = {
 
 1. policy 可单测。
 2. 是否落盘不再写死在 formatter 内部条件分支中。
-3. `snippet_limit` 和 artifact 阈值来自观察窗口结果，而不是固定猜测。
+3. observation bucket 阈值和 artifact 阈值来自观察窗口结果，而不是固定猜测。
 
 ## Phase D：引入 PromptMaterializer
 
