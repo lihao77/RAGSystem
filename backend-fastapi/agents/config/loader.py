@@ -211,7 +211,6 @@ class AgentLoader:
                 'type': 'orchestrator',
                 'behavior': {
                     'system_prompt': '你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。',
-                    'max_rounds': 15,
                     'compression_trigger_ratio': 0.85,
                     'summarize_max_tokens': 300,
                     'preserve_recent_turns': 3,

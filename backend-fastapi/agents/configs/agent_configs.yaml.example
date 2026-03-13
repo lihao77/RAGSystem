@@ -66,7 +66,7 @@ agents:
       type: react
       behavior:
         system_prompt: "你是问答助手"
-        max_rounds: 10
+        # rounds: 10                         # 可选：仅配置时才限制最大推理轮数
         auto_execute_tools: true
         # max_context_tokens: 80000           # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
         # 注意：这里的 max_context_tokens 是“对话历史预算”，不是模型原始 context window
@@ -107,7 +107,7 @@ agents:
       type: orchestrator
       behavior:
         system_prompt: "你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。"
-        max_rounds: 15
+        # rounds: 15                         # 可选：仅配置时才限制最大推理轮数
         compression_trigger_ratio: 0.85
         summarize_max_tokens: 300
         preserve_recent_turns: 3

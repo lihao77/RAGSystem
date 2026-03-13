@@ -92,13 +92,11 @@ class PromptMaterializer:
         prefix = self._build_prefix(result)
         if result.output_type == "json" or isinstance(result.content, (dict, list)):
             content = json.dumps(result.content, ensure_ascii=False, indent=2)
-            snippet = self._truncate(content, context.snippet_limit)
             label = "📊 数据详情:\n" if result.answer else ""
-            return f"{prefix}{label}```json\n{snippet}\n```\n（内容已按上下文预算截断）"
+            return f"{prefix}{label}```json\n{content}\n```"
 
         content = result.content if isinstance(result.content, str) else str(result.content)
-        snippet = self._truncate(content, context.snippet_limit)
-        return f"{prefix}{snippet}\n\n（内容已按上下文预算截断）"
+        return f"{prefix}{content}"
 
     def _build_prefix(self, result: ToolExecutionResult) -> str:
         metadata = result.metadata or {}
@@ -110,12 +108,6 @@ class PromptMaterializer:
         if approval_message:
             prefix += f"👤 用户批注: {approval_message}\n\n"
         return prefix
-
-    @staticmethod
-    def _truncate(content: str, limit: int) -> str:
-        if len(content) <= limit:
-            return content
-        return content[:limit] + "..."
 
     def _record_materialization(
         self,

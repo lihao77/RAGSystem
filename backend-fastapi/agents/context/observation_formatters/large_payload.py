@@ -103,8 +103,6 @@ class LargePayloadFormatter(BaseObservationFormatter):
         if metadata.get("sample"):
             sample = metadata["sample"]
             sample_str = json.dumps(sample, ensure_ascii=False)
-            if len(sample_str) > 200:
-                sample_str = sample_str[:200] + "..."
             parts.append(f"📝 样本: {sample_str}")
 
         return "\n".join(parts)

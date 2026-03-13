@@ -157,13 +157,15 @@ class OrchestratorAgent(BaseAgent):
             agent_name=self.name,
             description=task,
         )
-        self._publisher.agent_start(task, metadata={
+        agent_metadata = {
             "agent_name": self.name,
             "display_name": "Orchestrator Agent",
-            "max_rounds": self.max_rounds,
             "run_id": run_id,
             "call_id": orchestrator_call_id,
-        })
+        }
+        if self.max_rounds is not None:
+            agent_metadata["max_rounds"] = self.max_rounds
+        self._publisher.agent_start(task, metadata=agent_metadata)
 
         child_viz_count = [0]
         child_viz_sub_id = None

@@ -118,7 +118,7 @@ class BaseAgent(ABC):
         self.result_normalizer = None
         self.observation_policy = None
         self.prompt_materializer = None
-        self.max_rounds = 10
+        self.max_rounds: Optional[int] = None
         self.base_prompt = ""
         self.display_name = name
 
@@ -326,7 +326,8 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
-        self.max_rounds = behavior_config.get('max_rounds', max_rounds_default)
+        del max_rounds_default
+        self.max_rounds = behavior_config.get('rounds')
         self.base_prompt = behavior_config.get('system_prompt', '')
         budget_profile = get_context_budget_profile(
             behavior_config.get('budget_profile') or budget_profile_name
@@ -605,7 +606,10 @@ class BaseAgent(ABC):
             parent_call_id=parent_call_id,
         )
         if self._publisher:
-            self._publisher.agent_start(task, metadata={'max_rounds': self.max_rounds})
+            metadata = {}
+            if self.max_rounds is not None:
+                metadata['max_rounds'] = self.max_rounds
+            self._publisher.agent_start(task, metadata=metadata)
 
         self._current_call_id = current_call_id
         self._parent_call_id = parent_call_id
@@ -969,7 +973,7 @@ class BaseAgent(ABC):
             self._publisher.agent_error(error=str(error), error_type="ExecutionError")
         return AgentResponse(
             success=False,
-            content="",
+            content=str(error),
             error=str(error),
             agent_name=self.name,
             execution_time=time.time() - start_time,
@@ -993,7 +997,9 @@ class BaseAgent(ABC):
             state = self._prepare_execution_state(task, context, start_time)
             current_session = state['current_session']
 
-            while state['rounds'] < self.max_rounds:
+            while True:
+                if self.max_rounds is not None and state['rounds'] >= self.max_rounds:
+                    return self._handle_max_rounds(context, state, start_time)
                 state['rounds'] += 1
                 rounds = state['rounds']
 
@@ -1062,9 +1068,6 @@ class BaseAgent(ABC):
                     continue
 
                 self._handle_no_action(result, context, state, rounds, log_prefix)
-
-            return self._handle_max_rounds(context, state, start_time)
-
         except InterruptedError as error:
             try:
                 return self._handle_interrupted(error, context, state, start_time)

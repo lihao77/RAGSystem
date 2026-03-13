@@ -246,7 +246,7 @@ class AgentConfig(BaseModel):
                     "type": "react",
                     "behavior": {
                         "system_prompt": "你是一个专门做XX的智能体...",
-                        "max_rounds": 10,
+                        "rounds": 10,
                         "auto_execute_tools": True,
                         "task_patterns": ["查询.*", "分析.*"]
                     }
