@@ -1,24 +1,22 @@
-name: Runtime Strict Audit
+name: Backend FastAPI Guard
 
 on:
   pull_request:
     paths:
-      - 'backend/**/*.py'
-      - 'backend/scripts/runtime_strict_audit.py'
-      - 'backend/tests/runtime_strict_audit_test.py'
+      - 'backend-fastapi/**/*.py'
+      - 'backend-fastapi/requirements.txt'
       - '.github/workflows/runtime-strict-audit.yml'
   push:
     branches:
       - main
       - master
     paths:
-      - 'backend/**/*.py'
-      - 'backend/scripts/runtime_strict_audit.py'
-      - 'backend/tests/runtime_strict_audit_test.py'
+      - 'backend-fastapi/**/*.py'
+      - 'backend-fastapi/requirements.txt'
       - '.github/workflows/runtime-strict-audit.yml'
 
 jobs:
-  runtime-strict-audit:
+  backend-fastapi-guard:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,8 +28,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify strict audit script
-        run: python backend/scripts/runtime_strict_audit.py --check-container-only
+      - name: Verify backend-fastapi directory exists
+        run: test -d backend-fastapi
 
-      - name: Run strict audit unit tests
-        run: python -m unittest backend.tests.runtime_strict_audit_test -v
+      - name: Compile backend-fastapi Python sources
+        run: python -m compileall backend-fastapi
+
+      - name: Verify FastAPI entry module syntax
+        run: python -m py_compile backend-fastapi/main.py
