@@ -200,19 +200,20 @@ class OrchestratorAgent(BaseAgent):
     def _on_assistant_message(
         self,
         thought: str,
+        actions: List[Dict[str, Any]],
         full_response: str,
         final_answer: str,
         rounds: int,
         state: Dict[str, Any],
     ) -> None:
-        del state
-        if not final_answer and thought and self._publisher:
-            self._publisher.react_intermediate(
-                role="assistant",
-                content=thought,
-                round=rounds,
-                msg_type="thought",
-            )
+        super()._on_assistant_message(
+            thought=thought,
+            actions=actions,
+            full_response=full_response,
+            final_answer=final_answer,
+            rounds=rounds,
+            state=state,
+        )
 
     def _handle_actions(
         self,
@@ -300,7 +301,7 @@ class OrchestratorAgent(BaseAgent):
         combined_observations = "\n\n".join(observations)
         state['current_session'].append({
             "role": "user",
-            "content": f"Agent 执行结果：\n\n{combined_observations}",
+            "content": combined_observations,
         })
         self._publisher.react_intermediate(
             role="user",

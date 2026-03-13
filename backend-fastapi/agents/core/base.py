@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Any, Optional, Tuple
 import json
 import logging
+import re
 import time
 import uuid
 
@@ -637,16 +638,78 @@ class BaseAgent(ABC):
             'round': rounds,
         })
 
+    def _format_assistant_context_message(
+        self,
+        thought: str,
+        actions: Optional[List[Dict[str, Any]]],
+        final_answer: Optional[str],
+        full_response: str,
+    ) -> str:
+        """将一轮 assistant 输出整理为适合上下文存储的纯文本。"""
+        parts: List[str] = []
+
+        thought = (thought or "").strip()
+        if thought:
+            parts.append(f"思考:\n{thought}")
+
+        if actions:
+            action_lines = ["工具调用:"]
+            for idx, action in enumerate(actions, 1):
+                tool_name = action.get("tool") or action.get("tool_name") or "unknown_tool"
+                arguments = action.get("arguments")
+                if arguments in (None, {}, []):
+                    action_lines.append(f"{idx}. {tool_name}")
+                    continue
+                try:
+                    args_text = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
+                except (TypeError, ValueError):
+                    args_text = str(arguments)
+                action_lines.append(f"{idx}. {tool_name} {args_text}")
+            parts.append("\n".join(action_lines))
+
+        if parts:
+            return "\n\n".join(parts)
+
+        final_answer = (final_answer or "").strip()
+        if final_answer:
+            return final_answer
+
+        fallback = (full_response or "").strip()
+        if not fallback:
+            return ""
+
+        fallback = re.sub(r"</?(thinking|tools|answer)\b[^>]*>", "", fallback, flags=re.IGNORECASE)
+        fallback = re.sub(r"</?tool\b[^>]*>", "", fallback, flags=re.IGNORECASE)
+        fallback = re.sub(r"\n{3,}", "\n\n", fallback)
+        return fallback.strip()
+
     def _on_assistant_message(
         self,
         thought: str,
+        actions: Optional[List[Dict[str, Any]]],
         full_response: str,
         final_answer: str,
         rounds: int,
         state: Dict[str, Any],
     ) -> None:
-        """处理一轮模型返回后的 assistant 消息。默认不做额外动作。"""
-        del thought, full_response, final_answer, rounds, state
+        """处理一轮模型返回后的 assistant 消息。"""
+        del state
+        if not self._publisher or final_answer:
+            return
+        content = self._format_assistant_context_message(
+            thought=thought,
+            actions=actions,
+            final_answer=final_answer,
+            full_response=full_response,
+        )
+        if not content:
+            return
+        self._publisher.react_intermediate(
+            role="assistant",
+            content=content,
+            round=rounds,
+            msg_type="assistant_response",
+        )
 
     def _record_visualization_result(
         self,
@@ -710,6 +773,14 @@ class BaseAgent(ABC):
             session_id=session_id,
         )
 
+    @staticmethod
+    def _compact_text(value: Any, *, max_chars: int = 220) -> str:
+        text = "" if value is None else str(value)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3].rstrip() + "..."
+
     def _handle_actions(
         self,
         actions: List[Dict[str, Any]],
@@ -752,7 +823,7 @@ class BaseAgent(ABC):
                 if user_value is None:
                     self._check_interrupt(context)
                     user_value = ""
-                observations.append(f"**工具 {idx}: {tool_name}**\n用户输入: {user_value}")
+                observations.append(f"[{tool_name}]\n用户输入: {user_value}")
                 state.setdefault('tool_calls_history', []).append({
                     'tool_name': tool_name,
                     'arguments': arguments,
@@ -818,12 +889,13 @@ class BaseAgent(ABC):
                 session_id=current_session_id,
                 is_skills_tool=is_skills_tool,
             )
-            observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")
+            if observation:
+                observations.append(f"[{tool_name}]\n{observation}")
 
         combined_observations = "\n\n".join(observations)
         state['current_session'].append({
             "role": "user",
-            "content": f"工具执行结果：\n\n{combined_observations}",
+            "content": combined_observations,
         })
 
     def _handle_no_action(
@@ -1048,11 +1120,17 @@ class BaseAgent(ABC):
                 elif final_answer:
                     self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
 
+                assistant_message = self._format_assistant_context_message(
+                    thought=thought,
+                    actions=actions,
+                    final_answer=final_answer,
+                    full_response=full_response,
+                )
                 current_session.append({
                     "role": "assistant",
-                    "content": full_response,
+                    "content": assistant_message,
                 })
-                self._on_assistant_message(thought, full_response, final_answer, rounds, state)
+                self._on_assistant_message(thought, actions, full_response, final_answer, rounds, state)
 
                 if final_answer:
                     return self._handle_final_answer(final_answer, context, state, start_time)

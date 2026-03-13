@@ -81,7 +81,7 @@ def route_user_input_request(
         agent._check_interrupt(context)
         user_value = ""
 
-    observation = f"**工具 {idx}: request_user_input**\n用户输入: {user_value}"
+    observation = f"[request_user_input]\n用户输入: {user_value}"
     result = success_result(
         content=user_value,
         summary="用户输入已接收",
@@ -206,7 +206,6 @@ def route_agent_delegation(
         order=global_agent_order
     )
 
-    # 格式化观察结果
     observation = _format_tool_observation(
         agent,
         agent_result,
@@ -214,7 +213,8 @@ def route_agent_delegation(
         session_id=context.session_id,
         is_skills_tool=False,
     )
-    observation = f"**Agent {idx} ({agent_name})**:\n{observation}"
+    if observation:
+        observation = f"[{agent_name}]\n{observation}"
 
     # 记录调用历史
     call_history = {
@@ -266,7 +266,7 @@ def route_direct_tool(
         error_msg = f"无效的工具名称: {tool_name}（既不是 Agent 工具也不是已配置的直接工具）"
         agent.logger.warning(f"{log_prefix} {error_msg}")
         return {
-            "observation": f"**工具 {idx}**: 失败\n错误: {error_msg}",
+            "observation": f"[{tool_name}]\n错误: {error_msg}",
             "result": error_result(error_msg, tool_name=tool_name),
             "visualization_event": None,
         }
@@ -338,7 +338,6 @@ def route_direct_tool(
                 'map_type': map_type,
             }
 
-    # 格式化观察结果
     observation = _format_tool_observation(
         agent,
         result,
@@ -346,7 +345,8 @@ def route_direct_tool(
         session_id=context.session_id,
         is_skills_tool=is_skills_tool,
     )
-    observation = f"**工具 {idx} ({tool_name})**:\n{observation}"
+    if observation:
+        observation = f"[{tool_name}]\n{observation}"
 
     return {
         "observation": observation,

@@ -726,6 +726,23 @@ const isSubtaskEndEvent = (eventType, calledAgent, parentCallId) => {
   return false;
 };
 
+const parseAssistantIntermediate = (content) => {
+  const text = String(content || '').trim();
+  if (!text) return { thinking: '', hasToolCalls: false };
+  const marker = '\n\n工具调用:';
+  const startsWithTools = text.startsWith('工具调用:');
+  const markerIndex = text.indexOf(marker);
+  let thinking = '';
+  if (text.startsWith('思考:\n')) {
+    const endIndex = markerIndex >= 0 ? markerIndex : text.length;
+    thinking = text.slice('思考:\n'.length, endIndex).trim();
+  }
+  return {
+    thinking,
+    hasToolCalls: startsWithTools || markerIndex >= 0,
+  };
+};
+
 // 将规范化后的 execution_steps 还原为 subtasks 与 execution_steps
 function executionStepsToExecutionState(executionSteps) {
   if (!Array.isArray(executionSteps) || executionSteps.length === 0) return { subtasks: [], execution_steps: [] };
@@ -1844,6 +1861,44 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               }
             }
             // 🎯 编排器的 thinking（流式增量）
+            else if (eventType === 'react.intermediate' && eventData.role === 'assistant') {
+              const parsedIntermediate = parseAssistantIntermediate(eventData.content);
+              if (isMasterEvent(event)) {
+                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
+                let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
+                if (!lastStep || lastStep._thinkingComplete) {
+                  lastStep = {
+                    round: eventData.round,
+                    thinking: '',
+                    toolCalls: [],
+                    expanded: true
+                  };
+                  currentMsg.execution_steps.push(lastStep);
+                }
+                if (parsedIntermediate.thinking && !lastStep.thinking) {
+                  lastStep.thinking = parsedIntermediate.thinking;
+                }
+              } else {
+                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+                if (subtask) {
+                  let step = subtask.currentStep;
+                  if (!step || step._thinkingComplete) {
+                    step = {
+                      round: eventData.round,
+                      thinking: '',
+                      toolCalls: [],
+                      expanded: true
+                    };
+                    subtask.react_steps.push(step);
+                    subtask.currentStep = step;
+                  }
+                  if (parsedIntermediate.thinking && !step.thinking) {
+                    step.thinking = parsedIntermediate.thinking;
+                  }
+                }
+              }
+            }
+            // 🎯 编排器的 thinking（流式增量）
             else if (eventType === 'agent.thinking_delta') {
               if (isMasterEvent(event)) {
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
@@ -1937,26 +1992,31 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
                 }
               } else {
-                // 编排器直接调用工具：挂到 execution_steps 最后一个 step 的 toolCalls
-                const executionSteps = currentMsg.execution_steps;
-                const executionStep = executionSteps && executionSteps.length > 0
-                  ? executionSteps[executionSteps.length - 1]
-                  : null;
-                if (executionStep) {
-                  const toolCall = {
-                    tool_name: eventData.tool_name,
-                    arguments: eventData.arguments,
-                    status: 'running',
-                    index: eventData.index,
-                    total: eventData.total,
-                    showResult: false,
-                    showArgs: false
+                // 编排器直接调用工具：若尚无 thinking step，也要兜底创建一个 step
+                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
+                let executionStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
+                if (!executionStep || executionStep._thinkingComplete) {
+                  executionStep = {
+                    round: eventData.round,
+                    thinking: '',
+                    toolCalls: [],
+                    expanded: true
                   };
-                  executionStep.toolCalls.push(toolCall);
-                  // 注册到 registry，供 tool.end 精确匹配
-                  if (event.call_id && currentMsg.toolCallRegistry) {
-                    currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: executionStep });
-                  }
+                  currentMsg.execution_steps.push(executionStep);
+                }
+                const toolCall = {
+                  tool_name: eventData.tool_name,
+                  arguments: eventData.arguments,
+                  status: 'running',
+                  index: eventData.index,
+                  total: eventData.total,
+                  showResult: false,
+                  showArgs: false
+                };
+                executionStep.toolCalls.push(toolCall);
+                // 注册到 registry，供 tool.end 精确匹配
+                if (event.call_id && currentMsg.toolCallRegistry) {
+                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: executionStep });
                 }
               }
             }
