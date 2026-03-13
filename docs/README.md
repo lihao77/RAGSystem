@@ -7,6 +7,7 @@
 - [../README.md](../README.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [OPERATIONS.md](OPERATIONS.md)
+- [geoplus/README.md](geoplus/README.md)
 - [refactor/README.md](refactor/README.md)
 - [refactor/AGENT_FIRST_REFACTOR_PLAN.md](refactor/AGENT_FIRST_REFACTOR_PLAN.md)
 
