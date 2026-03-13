@@ -158,7 +158,7 @@ class SSEAdapter:
                         logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
                         break
 
-                    # 优先级 1: Run 结束 (Master V2)
+            # 优先级 1: Run 结束 (Orchestrator V2)
                     if event.type == EventType.RUN_END:
                         logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
                         break
@@ -174,7 +174,7 @@ class SSEAdapter:
 
                     if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
                          # 只有在没有 Run 事件时才通过 Agent 结束来停止
-                         # 如果是 Master V2，通常会有 RUN_END，所以这里主要是为了兼容 V1 或单 Agent 模式
+            # 如果是 Orchestrator V2，通常会有 RUN_END，所以这里主要是为了兼容 V1 或单 Agent 模式
                         logger.info(f"[SSEAdapter] 检测到主 Agent 结束事件 ({event.type.value})，停止流式输出")
                         break
 
@@ -220,7 +220,7 @@ class SSEAdapter:
                         logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
                         break
 
-                    # 优先级 1: Run 结束 (Master V2)
+            # 优先级 1: Run 结束 (Orchestrator V2)
                     if event.type == EventType.RUN_END:
                         logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
                         break

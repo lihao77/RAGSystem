@@ -31,11 +31,14 @@ class FormatContext:
         large_data_threshold: 大数据阈值
     """
     tool_name: str = ""
+    session_id: Optional[str] = None
     is_skills_tool: bool = False
     no_truncate: bool = False
     artifact_store: Optional[Any] = None  # ArtifactStore
     observation_window: Optional[Any] = None  # ObservationWindowCollector
     large_data_threshold: int = 8000
+    snippet_limit: int = 2000
+    artifact_ttl_seconds: Optional[int] = None
 
 
 class BaseObservationFormatter(ABC):

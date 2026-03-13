@@ -50,6 +50,15 @@ class AgentLLMConfig(BaseModel):
         ge=1,
         description="模型支持的最大上下文窗口（如 128000），None 表示自动推断或使用系统默认"
     )
+    thinking_budget_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="扩展思考预算 token 数；独立于上下文预算，None 表示使用系统默认或 Provider 默认"
+    )
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description="推理努力级别占位字段，如 low/medium/high；具体语义由 Provider 决定"
+    )
     top_p: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -105,7 +114,12 @@ class AgentLLMConfig(BaseModel):
             except Exception:
                 pass  # 静默失败，使用默认值
 
-        result['max_tokens'] = completion_tokens or getattr(default_llm, 'max_tokens', 4096)
+        default_completion_tokens = (
+            getattr(default_llm, 'max_completion_tokens', None)
+            or getattr(default_llm, 'max_tokens', 4096)
+        )
+        result['max_tokens'] = completion_tokens or default_completion_tokens
+        result['max_completion_tokens'] = result['max_tokens']
 
         # 上下文窗口：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
         context_tokens = self.max_context_tokens
@@ -120,6 +134,34 @@ class AgentLLMConfig(BaseModel):
                 pass  # 静默失败，使用默认值
 
         result['max_context_tokens'] = context_tokens or getattr(default_llm, 'max_context_tokens', None)
+
+        thinking_budget_tokens = self.thinking_budget_tokens
+        if thinking_budget_tokens is None and model_adapter and result['provider'] and result['provider_type']:
+            try:
+                provider_key = f"{result['provider']}_{result['provider_type']}"
+                provider = model_adapter.providers.get(provider_key)
+                if provider and hasattr(provider, 'thinking_budget_tokens'):
+                    thinking_budget_tokens = provider.thinking_budget_tokens
+            except Exception:
+                pass
+        if thinking_budget_tokens is None:
+            thinking_budget_tokens = getattr(default_llm, 'thinking_budget_tokens', None)
+        if thinking_budget_tokens is not None:
+            result['thinking_budget_tokens'] = thinking_budget_tokens
+
+        reasoning_effort = self.reasoning_effort
+        if reasoning_effort is None and model_adapter and result['provider'] and result['provider_type']:
+            try:
+                provider_key = f"{result['provider']}_{result['provider_type']}"
+                provider = model_adapter.providers.get(provider_key)
+                if provider and hasattr(provider, 'reasoning_effort'):
+                    reasoning_effort = provider.reasoning_effort
+            except Exception:
+                pass
+        if reasoning_effort is None:
+            reasoning_effort = getattr(default_llm, 'reasoning_effort', None)
+        if reasoning_effort is not None:
+            result['reasoning_effort'] = reasoning_effort
 
         result['timeout'] = self.timeout or getattr(default_llm, 'timeout', 30)
         result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 3)
@@ -189,7 +231,9 @@ class AgentConfig(BaseModel):
                     "model_name": "deepseek-chat",
                     "temperature": 0.3,
                     "max_completion_tokens": 4096,
-                    "max_context_tokens": 128000
+                    "max_context_tokens": 128000,
+                    "thinking_budget_tokens": 8192,
+                    "reasoning_effort": "medium"
                 },
                 "tools": {
                     "enabled_tools": ["query_kg", "semantic_search"]

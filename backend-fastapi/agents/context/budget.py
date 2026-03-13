@@ -5,22 +5,61 @@ ContextBudget - 统一上下文预算管理
 具名常量替代魔法数字，提供统一的上下文预算计算函数。
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 # ── 具名常量 ──────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT_RESERVE = 2000          # system prompt 预留 token 数
 CONTEXT_WINDOW_SAFETY_FACTOR = 0.9   # 安全系数（预留 10% 防估算误差）
-REACT_FALLBACK_MULTIPLIER = 3        # ReAct 无窗口配置时的兜底倍数
-MASTER_FALLBACK_MULTIPLIER = 0.6     # Master 无窗口配置时的兜底倍数
+DEFAULT_CONTEXT_FALLBACK_MULTIPLIER = 3  # 未知上下文窗口时的统一兜底倍数
 MIN_CONTEXT_BUDGET = 4000            # 最小预算保证
 DEFAULT_MAX_COMPLETION_TOKENS = 4096 # 默认输出 token 上限
+WORKER_CONTEXT_PROFILE_NAME = "worker"
+ORCHESTRATOR_CONTEXT_PROFILE_NAME = "orchestrator"
+
+
+@dataclass(frozen=True)
+class ContextBudgetProfile:
+    """Agent 上下文预算默认档位。"""
+
+    name: str
+    fallback_multiplier: float
+    compression_trigger_ratio: float = 0.85
+    summarize_max_tokens: int = 300
+    preserve_recent_turns: int = 3
+
+
+CONTEXT_BUDGET_PROFILES = {
+    WORKER_CONTEXT_PROFILE_NAME: ContextBudgetProfile(
+        name=WORKER_CONTEXT_PROFILE_NAME,
+        fallback_multiplier=DEFAULT_CONTEXT_FALLBACK_MULTIPLIER,
+        compression_trigger_ratio=0.85,
+        summarize_max_tokens=300,
+        preserve_recent_turns=3,
+    ),
+    ORCHESTRATOR_CONTEXT_PROFILE_NAME: ContextBudgetProfile(
+        name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
+        fallback_multiplier=DEFAULT_CONTEXT_FALLBACK_MULTIPLIER,
+        compression_trigger_ratio=0.85,
+        summarize_max_tokens=300,
+        preserve_recent_turns=3,
+    ),
+}
+
+
+def get_context_budget_profile(profile_name: Optional[str] = None) -> ContextBudgetProfile:
+    """返回显式预算档位，不存在时回退到 worker。"""
+    return CONTEXT_BUDGET_PROFILES.get(
+        profile_name or WORKER_CONTEXT_PROFILE_NAME,
+        CONTEXT_BUDGET_PROFILES[WORKER_CONTEXT_PROFILE_NAME],
+    )
 
 
 def compute_context_budget(
     model_context_window: Optional[int],
     max_completion_tokens: int,
     explicit_budget: Optional[int] = None,
-    fallback_multiplier: float = REACT_FALLBACK_MULTIPLIER,
+    fallback_multiplier: float = DEFAULT_CONTEXT_FALLBACK_MULTIPLIER,
 ) -> int:
     """
     计算上下文预算（对话历史可用的 token 数）。

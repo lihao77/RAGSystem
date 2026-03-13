@@ -247,6 +247,8 @@ class ContextPipeline:
                 provider_type=provider_type,
                 temperature=0.2,
                 max_tokens=self.config.summarize_max_tokens,
+                thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
+                reasoning_effort=llm_config.get('reasoning_effort'),
             )
 
             if getattr(resp, "error", None):

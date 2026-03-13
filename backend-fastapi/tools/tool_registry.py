@@ -10,8 +10,8 @@ from tools.catalog.builtin_tools import (
     BUILTIN_TOOL_NAMES,
     REQUEST_USER_INPUT_CONTRACT,
     REQUEST_USER_INPUT_TOOL,
-    get_builtin_tools_for_master,
-    get_builtin_tools_for_react,
+    get_builtin_tools_for_orchestrator,
+    get_builtin_tools_for_worker,
 )
 from tools.catalog.document_tools import DOCUMENT_TOOL_CONTRACTS, DOCUMENT_TOOLS
 from tools.catalog.mcp_tools import (
@@ -124,11 +124,11 @@ class ToolRegistry:
     def get_skill_tool_names(self):
         return set(SKILLS_TOOL_NAMES)
 
-    def get_builtin_tools_for_react(self, base_tools: list[dict]):
-        return get_builtin_tools_for_react(base_tools)
+    def get_builtin_tools_for_worker(self, base_tools: list[dict]):
+        return get_builtin_tools_for_worker(base_tools)
 
-    def get_builtin_tools_for_master(self, base_tools: list[dict]):
-        return get_builtin_tools_for_master(base_tools)
+    def get_builtin_tools_for_orchestrator(self, base_tools: list[dict]):
+        return get_builtin_tools_for_orchestrator(base_tools)
 
     def get_agent_tools(self, agents_dict):
         return get_agent_tools(agents_dict)

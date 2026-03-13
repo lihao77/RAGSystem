@@ -33,6 +33,22 @@ if TYPE_CHECKING:
 _TOOL_REGISTRY = get_tool_registry()
 
 
+def _format_tool_observation(
+    agent,
+    result: ToolExecutionResult,
+    *,
+    tool_name: str,
+    session_id: str | None,
+    is_skills_tool: bool,
+) -> str:
+    return agent._format_tool_observation(
+        result,
+        tool_name=tool_name,
+        session_id=session_id,
+        is_skills_tool=is_skills_tool,
+    )
+
+
 def route_user_input_request(
     agent,
     action: Dict[str, Any],
@@ -191,10 +207,12 @@ def route_agent_delegation(
     )
 
     # 格式化观察结果
-    observation = agent.observation_formatter.format(
+    observation = _format_tool_observation(
+        agent,
         agent_result,
         tool_name=agent_name,
-        is_skills_tool=False
+        session_id=context.session_id,
+        is_skills_tool=False,
     )
     observation = f"**Agent {idx} ({agent_name})**:\n{observation}"
 
@@ -321,10 +339,12 @@ def route_direct_tool(
             }
 
     # 格式化观察结果
-    observation = agent.observation_formatter.format(
+    observation = _format_tool_observation(
+        agent,
         result,
         tool_name=tool_name,
-        is_skills_tool=is_skills_tool
+        session_id=context.session_id,
+        is_skills_tool=is_skills_tool,
     )
     observation = f"**工具 {idx} ({tool_name})**:\n{observation}"
 

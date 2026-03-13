@@ -52,16 +52,18 @@ class LargePayloadFormatter(BaseObservationFormatter):
         # 保存到文件
         if isinstance(pure_data, str):
             artifact = context.artifact_store.save_text(
-                session_id=None,
+                session_id=context.session_id,
                 tool_name=result.tool_name or context.tool_name,
                 content=pure_data,
                 suffix=".txt",
+                ttl_seconds=context.artifact_ttl_seconds,
             )
         else:
             artifact = context.artifact_store.save_json(
-                session_id=None,
+                session_id=context.session_id,
                 tool_name=result.tool_name or context.tool_name,
                 data=pure_data,
+                ttl_seconds=context.artifact_ttl_seconds,
             )
         result.artifacts.append(artifact)
 

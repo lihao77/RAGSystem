@@ -82,6 +82,8 @@ class AIProvider(ABC):
         self.max_tokens = kwargs.get("max_tokens", 4096)  # 向后兼容
         self.max_completion_tokens = kwargs.get("max_completion_tokens") or self.max_tokens  # 单次输出限制
         self.max_context_tokens = kwargs.get("max_context_tokens")  # 模型上下文窗口
+        self.thinking_budget_tokens = kwargs.get("thinking_budget_tokens")
+        self.reasoning_effort = kwargs.get("reasoning_effort")
 
         self.timeout = kwargs.get("timeout", 30)
         self.retry_attempts = kwargs.get("retry_attempts", 3)

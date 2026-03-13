@@ -4,8 +4,8 @@
 from tools.catalog.builtin_tools import (
     BUILTIN_TOOL_NAMES,
     REQUEST_USER_INPUT_TOOL,
-    get_builtin_tools_for_master,
-    get_builtin_tools_for_react,
+    get_builtin_tools_for_orchestrator,
+    get_builtin_tools_for_worker,
 )
 from tools.catalog.skill_tools import (
     SKILLS_SYSTEM_TOOLS,
@@ -15,14 +15,14 @@ from tools.catalog.skill_tools import (
 __all__ = [
     REQUEST_USER_INPUT_TOOL,
     SKILLS_SYSTEM_TOOLS,
-    get_builtin_tools_for_react,
-    get_builtin_tools_for_master,
+    get_builtin_tools_for_worker,
+    get_builtin_tools_for_orchestrator,
     BUILTIN_TOOL_NAMES,
     SKILLS_TOOL_NAMES,
     "REQUEST_USER_INPUT_TOOL",
     "SKILLS_SYSTEM_TOOLS",
-    "get_builtin_tools_for_react",
-    "get_builtin_tools_for_master",
+    "get_builtin_tools_for_worker",
+    "get_builtin_tools_for_orchestrator",
     "BUILTIN_TOOL_NAMES",
     "SKILLS_TOOL_NAMES",
 ]

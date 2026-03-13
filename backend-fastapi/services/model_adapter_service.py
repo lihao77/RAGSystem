@@ -51,6 +51,8 @@ class ModelAdapterService:
             'max_tokens',
             'max_completion_tokens',
             'max_context_tokens',
+            'thinking_budget_tokens',
+            'reasoning_effort',
             'timeout',
             'retry_attempts',
             'retry_delay',

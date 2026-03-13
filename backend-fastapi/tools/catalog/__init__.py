@@ -6,8 +6,8 @@ from .builtin_tools import (
     BUILTIN_TOOL_NAMES,
     REQUEST_USER_INPUT_CONTRACT,
     REQUEST_USER_INPUT_TOOL,
-    get_builtin_tools_for_master,
-    get_builtin_tools_for_react,
+    get_builtin_tools_for_orchestrator,
+    get_builtin_tools_for_worker,
 )
 from .document_tools import DOCUMENT_TOOL_CONTRACTS, DOCUMENT_TOOLS
 from .mcp_tools import (
@@ -34,8 +34,8 @@ __all__ = [
     "STATIC_TOOL_CONTRACTS",
     "STATIC_TOOLS",
     "get_agent_tools",
-    "get_builtin_tools_for_master",
-    "get_builtin_tools_for_react",
+    "get_builtin_tools_for_orchestrator",
+    "get_builtin_tools_for_worker",
     "is_mcp_tool",
     "mcp_tool_to_openai_format",
     "mcp_tools_to_openai_format",

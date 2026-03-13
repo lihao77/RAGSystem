@@ -80,14 +80,14 @@ class ReActAgent(BaseAgent):
 
         self.display_name = display_name or agent_name
         self.event_callback = event_callback  # 保存回调函数（向后兼容）
-        from agents.context.budget import REACT_FALLBACK_MULTIPLIER
+        from agents.context.budget import WORKER_CONTEXT_PROFILE_NAME
         self._setup_react_runtime(
             available_tools=available_tools,
             available_skills=available_skills,
             event_bus=event_bus,
-            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_react,
+            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_worker,
             max_rounds_default=10,
-            fallback_multiplier=REACT_FALLBACK_MULTIPLIER,
+            budget_profile_name=WORKER_CONTEXT_PROFILE_NAME,
             runtime_label="ReActAgent",
         )
 

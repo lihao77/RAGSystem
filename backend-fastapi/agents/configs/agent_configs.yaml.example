@@ -16,6 +16,8 @@ agents:
       temperature: 0.3
       max_completion_tokens: 4096      # 单次输出的最大 token 数
       max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
+      # thinking_budget_tokens: 8192   # 可选：扩展思考预算，独立于上下文预算
+      # reasoning_effort: medium       # 可选：推理努力级别，占位字段，具体语义由 Provider 决定
       timeout: 30
       retry_attempts: 3
 
@@ -67,6 +69,7 @@ agents:
         max_rounds: 10
         auto_execute_tools: true
         # max_context_tokens: 80000           # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
+        # 注意：这里的 max_context_tokens 是“对话历史预算”，不是模型原始 context window
         # compression_trigger_ratio: 0.85     # 可选：触发压缩的 token 比例（默认 0.85）
         # summarize_max_tokens: 300           # 可选：LLM 摘要的最大 token 数（默认 300）
         # preserve_recent_turns: 3            # 可选：保留最近 N 轮对话不压缩（默认 3）
@@ -85,6 +88,8 @@ agents:
       temperature: 0.3
       max_completion_tokens: 4096
       max_context_tokens: 128000
+      # thinking_budget_tokens: 8192
+      # reasoning_effort: medium
       timeout: 60
       retry_attempts: 3
     # llm_tiers:                              # 可选：多层级 LLM 配置

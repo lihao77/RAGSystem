@@ -1,8 +1,32 @@
 # Tool Observation 协议化迁移步骤
 
+> 状态更新：2026-03-12
+>
+> 当前真实进度不是“准备开始迁移”，而是：
+>
+> 1. `ToolExecutionResult` / `ToolResultNormalizer` 已落地。
+> 2. `ObservationPolicy` / `PromptMaterializer` 已落地，并接入 Agent 主链路。
+> 3. `ArtifactStore` 已独立，并补充了 artifact 元数据索引、`session_id` 跟踪、TTL 清理。
+> 4. `ObservationWindowCollector` 已可输出 materialization / spill / compression / trim 指标。
+> 5. `ObservationFormatter` 已删除，Agent 已直接走 `normalize -> decide -> materialize`。
+> 6. 多桶预算与 artifact 生命周期治理联动已落地保守版本：
+>    - `inline / summarize / artifact_ref`
+>    - session 级 artifact 跟踪
+>    - bucket 驱动的 artifact TTL
+
+建议阅读方式：
+
+1. `Phase A`、`Phase B` 可视为已完成或基本完成的迁移记录。
+2. 当前真正的下一步应优先转向：
+   - 基于真实 observation window 数据微调 bucket 阈值
+   - 如有必要，再引入更细粒度的 summarize / drop 策略
+3. 不应再按本文早期表述，把 `ArtifactStore` 视为“待抽离”组件，也不应再把 `ObservationFormatter` 视为现存运行时入口。
+
 ## 1. 目标
 
-当前系统中，工具执行结果进入上下文主要依赖 [observation_formatter.py](E:\Python\RAGSystem\backend-fastapi\agents\context\observation_formatter.py) 直接把原始 `result` 转成文本。
+当前系统中，工具执行结果进入上下文已经收敛为：
+
+`ToolExecutionResult -> ObservationPolicy -> PromptMaterializer`
 
 这套方式的问题是：
 
@@ -11,11 +35,7 @@
 3. 新工具类型越多，`if/elif` 越膨胀。
 4. token 预算控制只能后置，不能前置决策。
 
-目标架构不是继续扩大 `ObservationFormatter`，而是迁移到：
-
-`ToolExecutionResult -> ObservationPolicy -> PromptMaterializer`
-
-同时把文件落盘、副作用治理抽到独立 `ArtifactStore`。
+同时文件落盘、副作用治理已抽到独立 `ArtifactStore`。
 
 这里的模块归属做如下调整：
 
@@ -172,13 +192,13 @@ class PromptMaterializer:
 
 迁移后的对应关系：
 
-1. Agent 不再直接依赖“大而全”的 formatter。
+1. Agent 不再依赖“大而全”的 formatter。
 2. Agent 只做三步：
    - normalize
    - decide
    - materialize
 3. 落盘由 `ArtifactStore` 负责。
-4. `ObservationFormatter` 最终删除。
+4. `ObservationFormatter` 已删除。
 
 ---
 

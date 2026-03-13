@@ -115,7 +115,9 @@ class BaseAgent(ABC):
         self.event_bus = None
         self._publisher = None
         self.context_pipeline = None
-        self.observation_formatter = None
+        self.result_normalizer = None
+        self.observation_policy = None
+        self.prompt_materializer = None
         self.max_rounds = 10
         self.base_prompt = ""
         self.display_name = name
@@ -239,7 +241,7 @@ class BaseAgent(ABC):
         # 2. 使用主 llm 配置
         config = {}
         if self.agent_config and self.agent_config.llm:
-            # 传递 model_adapter 以支持从 Provider 配置继承 max_context_tokens
+            # 传递 model_adapter 以支持从 Provider 配置继承上下文/思考预算等元数据
             config = self.agent_config.llm.merge_with_default(
                 self.system_config,
                 model_adapter=self.model_adapter
@@ -252,12 +254,19 @@ class BaseAgent(ABC):
                     'provider_type': getattr(llm_config, 'provider_type', None),
                     'model_name': getattr(llm_config, 'model_name', None),
                     'temperature': getattr(llm_config, 'temperature', 0.7),
-                    'max_tokens': getattr(llm_config, 'max_tokens', 4096),
-                    'max_context_tokens': getattr(llm_config, 'max_context_tokens', None)
+                    'max_tokens': getattr(llm_config, 'max_completion_tokens', None) or getattr(llm_config, 'max_tokens', 4096),
+                    'max_completion_tokens': getattr(llm_config, 'max_completion_tokens', None) or getattr(llm_config, 'max_tokens', 4096),
+                    'max_context_tokens': getattr(llm_config, 'max_context_tokens', None),
+                    'thinking_budget_tokens': getattr(llm_config, 'thinking_budget_tokens', None),
+                    'reasoning_effort': getattr(llm_config, 'reasoning_effort', None),
                 }
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
-            config = {'temperature': 0.7, 'max_tokens': 4096}
+            config = {
+                'temperature': 0.7,
+                'max_tokens': 4096,
+                'max_completion_tokens': 4096,
+            }
 
         # 3. 应用请求级覆盖
         override = getattr(context, 'llm_override', None) if context else None
@@ -290,15 +299,23 @@ class BaseAgent(ABC):
         event_bus = None,
         builtin_tool_getter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
         max_rounds_default: int = 10,
-        fallback_multiplier: float = 1.0,
+        budget_profile_name: str = "worker",
+        fallback_multiplier: Optional[float] = None,
         runtime_label: Optional[str] = None,
     ) -> None:
         """初始化 ReAct 运行时的公共组件。"""
-        from agents.context.budget import compute_context_budget, DEFAULT_MAX_COMPLETION_TOKENS
+        from agents.context.budget import (
+            DEFAULT_MAX_COMPLETION_TOKENS,
+            compute_context_budget,
+            get_context_budget_profile,
+        )
+        from agents.artifacts import ArtifactStore
         from agents.context.config import ContextConfig
-        from agents.context.observation_formatter import ObservationFormatter
+        from agents.context.observation_policy import ObservationPolicy
         from agents.context.pipeline import ContextPipeline
+        from agents.context.prompt_materializer import PromptMaterializer
         from agents.monitoring.observation_window import ObservationWindowCollector
+        from tools.result_normalizer import ToolResultNormalizer
 
         base_tools = list(available_tools or [])
         if builtin_tool_getter:
@@ -311,6 +328,9 @@ class BaseAgent(ABC):
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
         self.max_rounds = behavior_config.get('max_rounds', max_rounds_default)
         self.base_prompt = behavior_config.get('system_prompt', '')
+        budget_profile = get_context_budget_profile(
+            behavior_config.get('budget_profile') or budget_profile_name
+        )
 
         llm_config = self.get_llm_config()
         model_max_completion_tokens = (
@@ -323,15 +343,28 @@ class BaseAgent(ABC):
             model_context_window=model_context_window,
             max_completion_tokens=model_max_completion_tokens,
             explicit_budget=behavior_config.get('max_context_tokens'),
-            fallback_multiplier=fallback_multiplier,
+            fallback_multiplier=behavior_config.get(
+                'fallback_multiplier',
+                fallback_multiplier if fallback_multiplier is not None else budget_profile.fallback_multiplier,
+            ),
         )
 
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
+            budget_profile=budget_profile.name,
             model_name=llm_config.get('model_name'),
-            compression_trigger_ratio=behavior_config.get('compression_trigger_ratio', 0.85),
-            summarize_max_tokens=behavior_config.get('summarize_max_tokens', 300),
-            preserve_recent_turns=behavior_config.get('preserve_recent_turns', 3),
+            compression_trigger_ratio=behavior_config.get(
+                'compression_trigger_ratio',
+                budget_profile.compression_trigger_ratio,
+            ),
+            summarize_max_tokens=behavior_config.get(
+                'summarize_max_tokens',
+                budget_profile.summarize_max_tokens,
+            ),
+            preserve_recent_turns=behavior_config.get(
+                'preserve_recent_turns',
+                budget_profile.preserve_recent_turns,
+            ),
         )
         observation_window = ObservationWindowCollector()
         self.context_pipeline = ContextPipeline(
@@ -341,9 +374,27 @@ class BaseAgent(ABC):
             logger=self.logger,
             observation_window=observation_window,
         )
-        self.observation_formatter = ObservationFormatter(
-            data_save_dir=behavior_config.get('data_save_dir', './static/temp_data'),
+        data_save_dir = behavior_config.get('data_save_dir', './static/temp_data')
+        artifact_store = ArtifactStore(
+            base_dir=data_save_dir,
             observation_window=observation_window,
+        )
+        self.result_normalizer = ToolResultNormalizer(
+            observation_window=observation_window,
+        )
+        self.observation_policy = ObservationPolicy(
+            max_context_tokens=context_config.max_tokens,
+            budget_profile=budget_profile.name,
+            inline_text_limit=behavior_config.get('observation_inline_text_limit'),
+            inline_json_limit=behavior_config.get('observation_inline_json_limit'),
+            summarize_limit=behavior_config.get('observation_summarize_limit'),
+            snippet_limit=behavior_config.get('observation_snippet_limit'),
+            artifact_ttl_seconds=behavior_config.get('observation_artifact_ttl_seconds'),
+        )
+        self.prompt_materializer = PromptMaterializer(
+            artifact_store=artifact_store,
+            observation_window=observation_window,
+            large_data_threshold=self.observation_policy.large_data_threshold,
         )
 
         label = runtime_label or self.__class__.__name__
@@ -357,6 +408,7 @@ class BaseAgent(ABC):
             model_context_window or '未配置',
             max_context_tokens,
         )
+        self.logger.info("%s '%s' 使用上下文预算档位: %s", label, self.name, budget_profile.name)
 
     def _resolve_event_bus(self, context: AgentContext, event_bus = None):
         """获取会话级事件总线。"""
@@ -628,6 +680,37 @@ class BaseAgent(ABC):
                     'map_type': map_type,
                 })
 
+    def _format_tool_observation(
+        self,
+        result: Any,
+        *,
+        tool_name: str | None = None,
+        session_id: str | None = None,
+        is_skills_tool: bool = False,
+        no_truncate: bool = False,
+    ) -> str:
+        """Format normalized tool results into observation text."""
+        if (
+            self.result_normalizer is None
+            or self.observation_policy is None
+            or self.prompt_materializer is None
+        ):
+            raise RuntimeError("Observation formatting runtime is not configured")
+
+        normalized = self.result_normalizer.normalize(result, tool_name=tool_name)
+        decision = self.observation_policy.decide(
+            normalized,
+            is_skills_tool=is_skills_tool,
+            no_truncate=no_truncate,
+        )
+        return self.prompt_materializer.materialize_tool_observation(
+            normalized,
+            decision,
+            tool_name=tool_name or "",
+            is_skills_tool=is_skills_tool,
+            session_id=session_id,
+        )
+
     def _handle_actions(
         self,
         actions: List[Dict[str, Any]],
@@ -730,9 +813,10 @@ class BaseAgent(ABC):
             })
 
             is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
-            observation = self.observation_formatter.format(
+            observation = self._format_tool_observation(
                 result,
                 tool_name=tool_name,
+                session_id=current_session_id,
                 is_skills_tool=is_skills_tool,
             )
             observations.append(f"**工具 {idx}: {tool_name}**\n{observation}")

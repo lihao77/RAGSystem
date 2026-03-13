@@ -80,6 +80,8 @@ class StreamExecutor:
                 provider_type=llm_config.get('provider_type'),
                 temperature=llm_config.get('temperature', 0.3),
                 max_tokens=llm_config.get('max_tokens'),
+                thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
+                reasoning_effort=llm_config.get('reasoning_effort'),
                 **kwargs,
             )
 

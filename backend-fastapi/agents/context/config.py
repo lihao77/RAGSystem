@@ -12,6 +12,7 @@ class ContextConfig:
     """上下文管理配置"""
 
     max_tokens: int = 8000
+    budget_profile: str = "worker"
     model_name: Optional[str] = None
     compression_trigger_ratio: float = 0.85
     summarize_max_tokens: int = 300

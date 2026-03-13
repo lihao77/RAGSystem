@@ -4,7 +4,7 @@
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Dict
+from typing import Dict, Optional
 
 
 class LLMConfig(BaseModel):
@@ -21,6 +21,10 @@ class LLMConfig(BaseModel):
     
     temperature: float = 0.7
     max_tokens: int = 4096
+    max_completion_tokens: int = 4096
+    max_context_tokens: Optional[int] = None
+    thinking_budget_tokens: Optional[int] = None
+    reasoning_effort: Optional[str] = None
     timeout: int = 30
     retry_attempts: int = 3
 

@@ -144,7 +144,7 @@ class MetricsCollector:
         """处理 CALL_AGENT_END 事件"""
         event_data = event.data if hasattr(event, 'data') else event
         call_id = event_data.get("call_id")
-        # 优先从 run_info 取 agent_name 和时长；若未收到对应 START（如 master 的 START 与 END 跨线程/顺序），用 END 的 payload 兜底
+        # 优先从 run_info 取 agent_name 和时长；若未收到对应 START（如 orchestrator 的 START 与 END 跨线程/顺序），用 END 的 payload 兜底
         agent_name = None
         duration_ms = 0
         if call_id and call_id in self._active_runs:
@@ -268,7 +268,7 @@ class MetricsCollector:
             metrics.first_call = now
         metrics.last_call = now
 
-        # 每次 agent 结束都强制写盘，避免同一次运行里后结束的 agent（如 master）因节流未写入
+        # 每次 agent 结束都强制写盘，避免同一次运行里后结束的 agent（如 orchestrator）因节流未写入
         self._persist(force=True)
 
     def _update_tool_metrics(

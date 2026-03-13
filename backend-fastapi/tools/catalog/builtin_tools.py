@@ -60,11 +60,11 @@ def _append_builtin_once(base_tools: list[dict], builtin_tool: dict) -> list[dic
     return result
 
 
-def get_builtin_tools_for_react(base_tools: list[dict]) -> list[dict]:
-    """Append builtin pseudo-tools needed by ReAct runtime."""
+def get_builtin_tools_for_worker(base_tools: list[dict]) -> list[dict]:
+    """Append builtin pseudo-tools needed by worker runtime."""
     return _append_builtin_once(base_tools, REQUEST_USER_INPUT_TOOL)
 
 
-def get_builtin_tools_for_master(base_tools: list[dict]) -> list[dict]:
-    """Append builtin pseudo-tools needed by Master runtime."""
+def get_builtin_tools_for_orchestrator(base_tools: list[dict]) -> list[dict]:
+    """Append builtin pseudo-tools needed by orchestrator runtime."""
     return _append_builtin_once(base_tools, REQUEST_USER_INPUT_TOOL)

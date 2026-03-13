@@ -67,13 +67,13 @@ class OrchestratorAgent(BaseAgent):
 
         self.orchestrator = orchestrator
         self.agent_executor = AgentExecutor(orchestrator)
-        from agents.context.budget import MASTER_FALLBACK_MULTIPLIER
+        from agents.context.budget import ORCHESTRATOR_CONTEXT_PROFILE_NAME
         self._setup_react_runtime(
             available_tools=available_tools,
             available_skills=available_skills,
-            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_master,
+            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_orchestrator,
             max_rounds_default=15,
-            fallback_multiplier=MASTER_FALLBACK_MULTIPLIER,
+            budget_profile_name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
             runtime_label="OrchestratorAgent",
         )
 
