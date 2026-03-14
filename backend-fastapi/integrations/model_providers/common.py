@@ -73,6 +73,25 @@ class CancellableRequest:
         return result[0]
 
 
+def _decode_response_text(response: requests.Response) -> str:
+    """按 UTF-8 优先解码响应体，避免上游错误声明 charset 时出现乱码。"""
+    raw = response.content or b""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        logger.warning(
+            "响应体不是有效 UTF-8，回退到 requests 默认解码: content-type=%s, encoding=%s",
+            response.headers.get("content-type"),
+            response.encoding,
+        )
+        return response.text
+
+
+def _load_json_response(response: requests.Response) -> Dict[str, Any]:
+    """使用 UTF-8 优先策略解析 JSON，避免代理站错误声明编码。"""
+    return json.loads(_decode_response_text(response))
+
+
 def _openai_compatible_stream(
     url: str,
     headers: Dict[str, str],
@@ -98,17 +117,26 @@ def _openai_compatible_stream(
         )
         response.raise_for_status()
 
-        for line in response.iter_lines(decode_unicode=True):
+        for line in response.iter_lines(decode_unicode=False):
             # 检查取消信号
             if cancel_event and cancel_event.is_set():
                 response.close()
                 yield {"content": "", "finish_reason": "interrupted"}
                 return
 
-            if not line or not line.startswith("data: "):
+            if not line:
                 continue
 
-            data_str = line[6:]
+            try:
+                line_text = line.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                logger.debug("流式输出遇到非 UTF-8 行，已跳过: %r", line[:100])
+                continue
+
+            if not line_text.startswith("data: "):
+                continue
+
+            data_str = line_text[6:]
             if data_str.strip() == "[DONE]":
                 return
 

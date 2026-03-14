@@ -46,7 +46,7 @@ class ModelAdapterService:
 
         config = existing_config.copy()
         allowed_fields = [
-            'models',
+            'api_key',
             'temperature',
             'max_tokens',
             'max_completion_tokens',
@@ -63,9 +63,11 @@ class ModelAdapterService:
 
         for field in allowed_fields:
             if field in data:
+                if field == 'api_key' and not str(data[field]).strip():
+                    continue
                 config[field] = data[field]
 
-        self._merge_model_map(config)
+        self._rebuild_models_from_model_map(config)
 
         if provider_key in self._adapter.providers:
             self._adapter.remove_provider(provider_key, delete_config=False)
@@ -148,25 +150,32 @@ class ModelAdapterService:
                 raise ModelAdapterServiceError(f'缺少必需字段: {field}', status_code=400)
 
         config = data.copy()
-        self._merge_model_map(config)
+        self._rebuild_models_from_model_map(config)
         return config
 
     @staticmethod
-    def _merge_model_map(config: Dict[str, Any]) -> None:
+    def _rebuild_models_from_model_map(config: Dict[str, Any]) -> None:
         model_map = config.get('model_map')
         if not model_map:
+            config['models'] = []
             return
 
-        current_models = set(config.get('models', []))
+        current_models = []
+        seen = set()
         for model in model_map.values():
             if isinstance(model, list):
                 for item in model:
-                    if item and str(item).strip():
-                        current_models.add(str(item).strip())
-            elif model and str(model).strip():
-                current_models.add(str(model).strip())
+                    normalized = str(item).strip() if item else ''
+                    if normalized and normalized not in seen:
+                        current_models.append(normalized)
+                        seen.add(normalized)
+            else:
+                normalized = str(model).strip() if model else ''
+                if normalized and normalized not in seen:
+                    current_models.append(normalized)
+                    seen.add(normalized)
 
-        config['models'] = list(current_models)
+        config['models'] = current_models
 
 
 def get_model_adapter_service() -> ModelAdapterService:

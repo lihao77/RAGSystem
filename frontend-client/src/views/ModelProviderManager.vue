@@ -218,21 +218,23 @@
               :model-value="form.provider_type"
               :options="providerTypeOptions"
               placeholder="-- 请选择 --"
-              @update:model-value="form.provider_type = $event"
+              @update:model-value="handleProviderTypeChange"
             />
           </div>
-          <div class="form-row" v-if="dialog.mode === 'create'">
-            <label class="form-label">API Key <span class="required">*</span></label>
+          <div class="form-row">
+            <label class="form-label">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
             <input v-model="form.api_key" class="form-control" type="password"
-              placeholder="sk-... 或 ${ENV_VAR}" autocomplete="new-password" />
-            <p class="form-hint">支持 <code>${ENV_VAR}</code> 形式引用环境变量</p>
+              :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
+            <p class="form-hint">
+              {{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量' : '仅在需要替换密钥时填写；留空表示保持当前值' }}
+            </p>
           </div>
 
           <!-- 通用字段 -->
           <div class="form-row">
             <label class="form-label">API Endpoint</label>
             <input v-model="form.api_endpoint" class="form-control"
-              placeholder="https://api.openai.com/v1" />
+              :placeholder="apiEndpointPlaceholder" />
           </div>
           <div class="form-row form-row--half">
             <div>
@@ -258,6 +260,42 @@
                 step="5" min="5" placeholder="60" />
             </div>
           </div>
+
+          <template v-if="activeProviderConfigFields.length > 0">
+            <div class="form-section-title">Provider 扩展配置</div>
+            <div
+              v-for="field in activeProviderConfigFields"
+              :key="field.key"
+              class="form-row"
+            >
+              <label class="form-label">{{ field.label }}</label>
+              <CustomSelect
+                v-if="field.type === 'select'"
+                :model-value="form[field.key] ?? ''"
+                :options="field.options || []"
+                :placeholder="field.placeholder || '-- 请选择 --'"
+                @update:model-value="form[field.key] = $event"
+              />
+              <input
+                v-else-if="field.type === 'number'"
+                v-model.number="form[field.key]"
+                class="form-control"
+                type="number"
+                :step="field.step || 1"
+                :min="field.min"
+                :max="field.max"
+                :placeholder="field.placeholder || ''"
+              />
+              <input
+                v-else
+                v-model="form[field.key]"
+                class="form-control"
+                :type="field.type === 'password' ? 'password' : 'text'"
+                :placeholder="field.placeholder || ''"
+              />
+              <p v-if="field.help" class="form-hint">{{ field.help }}</p>
+            </div>
+          </template>
 
           <!-- model_map -->
           <div class="form-section-title">模型映射 (model_map)</div>
@@ -331,19 +369,64 @@ import {
 const emit = defineEmits(['navigate'])
 
 const providerTypeOptions = ref([])
+const providerTypeMeta = ref({})
+
+const FALLBACK_PROVIDER_TYPES = [
+  {
+    value: 'openai',
+    label: 'OpenAI',
+    default_endpoint: 'https://api.openai.com/v1',
+    config_fields: [
+      {
+        key: 'reasoning_effort',
+        label: '推理强度',
+        type: 'select',
+        default: '',
+        help: '仅对支持 reasoning_effort 的 OpenAI 推理模型生效；留空则使用模型默认值。',
+        options: [
+          { value: '', label: '模型默认' },
+          { value: 'none', label: 'None' },
+          { value: 'minimal', label: 'Minimal' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+          { value: 'xhigh', label: 'XHigh' },
+        ],
+      },
+    ],
+  },
+  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1', config_fields: [] },
+  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1', config_fields: [] },
+  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1', config_fields: [] },
+]
 
 async function loadProviderTypes() {
   try {
     const types = await getProviderTypes()
+    providerTypeMeta.value = Object.fromEntries(
+      types.map(t => [
+        t.value,
+        {
+          label: t.label,
+          default_endpoint: t.default_endpoint || '',
+          config_fields: t.config_fields || [],
+        }
+      ])
+    )
     providerTypeOptions.value = types.map(t => ({ value: t.value, label: t.label }))
   } catch {
     // 加载失败时用兜底静态列表
-    providerTypeOptions.value = [
-      { value: 'openai',     label: 'OpenAI' },
-      { value: 'deepseek',   label: 'DeepSeek' },
-      { value: 'openrouter', label: 'OpenRouter' },
-      { value: 'modelscope', label: 'ModelScope' },
-    ]
+    providerTypeMeta.value = Object.fromEntries(
+      FALLBACK_PROVIDER_TYPES.map(t => [
+        t.value,
+        {
+          label: t.label,
+          default_endpoint: t.default_endpoint,
+          config_fields: t.config_fields || [],
+        }
+      ])
+    )
+    providerTypeOptions.value = FALLBACK_PROVIDER_TYPES.map(t => ({ value: t.value, label: t.label }))
   }
 }
 
@@ -386,7 +469,7 @@ async function quickTest(provider) {
   testResults.value = { ...testResults.value, [key]: null }
   try {
     const chatModel = provider.model_map?.chat || provider.models?.[0] || ''
-    const result = await testProvider(provider.name, chatModel, 'Hi')
+    const result = await testProvider(provider.name, chatModel, 'Hi', provider.provider_type || '')
     if (result.error) throw new Error(result.error)
     testResults.value = {
       ...testResults.value,
@@ -408,6 +491,15 @@ const editingKey = ref('')
 const form = ref({})
 const modelMapEntries = ref([])
 
+const apiEndpointPlaceholder = computed(() => {
+  const providerType = form.value.provider_type
+  return providerTypeMeta.value[providerType]?.default_endpoint || '由后端返回默认 API Endpoint'
+})
+const activeProviderConfigFields = computed(() => {
+  const providerType = form.value.provider_type
+  return providerTypeMeta.value[providerType]?.config_fields || []
+})
+
 function buildFormDefaults() {
   return {
     name: '', provider_type: '', api_key: '', api_endpoint: '',
@@ -427,15 +519,48 @@ function openEditDialog(provider) {
   const mm = provider.model_map || {}
   modelMapEntries.value = Object.entries(mm).map(([task, model]) => ({ task, model: String(model) }))
   if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }]
-  form.value = {
+  const nextForm = {
+    provider_type: provider.provider_type || '',
+    api_key: '',
     api_endpoint: provider.api_endpoint || '',
     temperature: provider.temperature ?? 0.7,
     max_completion_tokens: provider.max_completion_tokens || 4096,
     max_context_tokens: provider.max_context_tokens || 128000,
     timeout: provider.timeout || 60
   }
+  for (const field of getProviderConfigFields(nextForm.provider_type)) {
+    nextForm[field.key] = provider[field.key] ?? field.default ?? ''
+  }
+  form.value = nextForm
   editingKey.value = provider.key || `${provider.name}_${provider.provider_type}`
   dialog.value = { visible: true, mode: 'edit', error: '', saving: false }
+}
+
+function handleProviderTypeChange(providerType) {
+  const previousType = form.value.provider_type
+  const previousDefault = providerTypeMeta.value[previousType]?.default_endpoint || ''
+  const nextDefault = providerTypeMeta.value[providerType]?.default_endpoint || ''
+  const previousFields = getProviderConfigFields(previousType)
+  const nextFields = getProviderConfigFields(providerType)
+
+  form.value.provider_type = providerType
+
+  if (!form.value.api_endpoint || form.value.api_endpoint === previousDefault) {
+    form.value.api_endpoint = nextDefault
+  }
+
+  for (const field of previousFields) {
+    if (!nextFields.some(item => item.key === field.key)) {
+      delete form.value[field.key]
+    }
+  }
+
+  for (const field of nextFields) {
+    const previousFieldDefault = previousFields.find(item => item.key === field.key)?.default
+    if (form.value[field.key] === undefined || form.value[field.key] === previousFieldDefault) {
+      form.value[field.key] = field.default ?? ''
+    }
+  }
 }
 
 function closeDialog() {
@@ -458,6 +583,20 @@ function buildModelMap() {
   return mm
 }
 
+function getProviderConfigFields(providerType) {
+  return providerTypeMeta.value[providerType]?.config_fields || []
+}
+
+function normalizeProviderPayload(payload) {
+  for (const field of getProviderConfigFields(payload.provider_type)) {
+    const value = payload[field.key]
+    if (value === '' || value === null || value === undefined) {
+      delete payload[field.key]
+    }
+  }
+  return payload
+}
+
 async function handleSubmit() {
   dialog.value.error = ''
   if (dialog.value.mode === 'create') {
@@ -469,10 +608,11 @@ async function handleSubmit() {
   try {
     const mm = buildModelMap()
     if (dialog.value.mode === 'create') {
-      const payload = { ...form.value, model_map: mm }
+      const payload = normalizeProviderPayload({ ...form.value, model_map: mm })
       await createProvider(payload)
     } else {
-      const payload = { ...form.value, model_map: mm }
+      const payload = normalizeProviderPayload({ ...form.value, model_map: mm })
+      if (!payload.api_key?.trim()) delete payload.api_key
       await updateProvider(editingKey.value, payload)
     }
     closeDialog()

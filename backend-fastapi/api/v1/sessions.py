@@ -4,10 +4,13 @@
 """
 
 import asyncio
+import json
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from typing import Optional
 
 from schemas.session import (
@@ -120,6 +123,26 @@ async def get_session_messages(
         return ok(data=data, message='获取对话记录成功')
     except Exception as e:
         logger.error('获取对话记录失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/sessions/{session_id}/export')
+async def export_session(session_id: str):
+    """导出指定会话。"""
+    try:
+        payload = await asyncio.to_thread(_get_session_app().export_session, session_id)
+        safe_session_id = re.sub(r'[^A-Za-z0-9._-]+', '_', session_id).strip('._') or 'session'
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, indent=2),
+            media_type='application/json; charset=utf-8',
+            headers={
+                'Content-Disposition': f'attachment; filename="session_{safe_session_id}.json"'
+            },
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error('导出会话失败: %s', e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

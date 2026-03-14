@@ -127,6 +127,20 @@
 
         <!-- 右侧：主题切换 -->
         <div class="right-controls glass-card">
+          <button
+            @click="exportCurrentSession"
+            class="session-export-btn version-btn"
+            :disabled="!currentSessionId || isExportingSession"
+            :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12"></path>
+              <path d="m7 10 5 5 5-5"></path>
+              <path d="M5 21h14"></path>
+            </svg>
+            <span class="version-label">{{ isExportingSession ? '导出中...' : '导出会话' }}</span>
+          </button>
           <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
             <!-- Sun icon for dark mode -->
             <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -480,6 +494,7 @@ const confirmDialog = ref({
 });
 const currentStreamController = ref(null);
 const activeStreamToken = ref(0);
+const isExportingSession = ref(false);
 const contextUsage = ref({ used: 0, max: 0 });
 const ctxDrawerVisible = ref(false);
 const execDrawerVisible = ref(false);
@@ -1013,6 +1028,50 @@ const loadRecentSessions = async (reset = false) => {
 
 const retryLoadHistory = () => {
   loadRecentSessions(true);
+};
+
+const exportCurrentSession = async () => {
+  const sessionId = currentSessionId.value;
+  if (!sessionId) {
+    showToast('当前无会话');
+    return;
+  }
+  if (isExportingSession.value) return;
+
+  isExportingSession.value = true;
+  try {
+    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/export`);
+    if (!response.ok) {
+      let errorMessage = '导出会话失败';
+      try {
+        const result = await response.json();
+        errorMessage = result.detail || result.message || errorMessage;
+      } catch (_) {}
+      throw new Error(errorMessage);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+    const filename = match
+      ? decodeURIComponent(match[1].replace(/"/g, '').trim())
+      : `session_${sessionId}.json`;
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    showToast('会话导出成功', 'success');
+  } catch (error) {
+    showToast(error.message || '导出会话失败');
+  } finally {
+    isExportingSession.value = false;
+  }
 };
 
 const cacheMessages = (sessionId, list) => {

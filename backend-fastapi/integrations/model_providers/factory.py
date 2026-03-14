@@ -23,6 +23,30 @@ _DEFAULT_ENDPOINTS = {
     'modelscope': 'https://api-inference.modelscope.cn/v1',
 }
 
+_PROVIDER_CONFIG_FIELDS = {
+    'openai': [
+        {
+            'key': 'reasoning_effort',
+            'label': '推理强度',
+            'type': 'select',
+            'default': '',
+            'help': '仅对支持 reasoning_effort 的 OpenAI 推理模型生效；留空则使用模型默认值。',
+            'options': [
+                {'value': '', 'label': '模型默认'},
+                {'value': 'none', 'label': 'None'},
+                {'value': 'minimal', 'label': 'Minimal'},
+                {'value': 'low', 'label': 'Low'},
+                {'value': 'medium', 'label': 'Medium'},
+                {'value': 'high', 'label': 'High'},
+                {'value': 'xhigh', 'label': 'XHigh'},
+            ],
+        },
+    ],
+    'deepseek': [],
+    'openrouter': [],
+    'modelscope': [],
+}
+
 _PROVIDER_CLASSES = {
     'openai': OpenAIProvider,
     'deepseek': DeepSeekProvider,

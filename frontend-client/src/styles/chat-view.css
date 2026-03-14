@@ -544,6 +544,23 @@
   box-shadow: none;
 }
 
+.session-export-btn {
+  gap: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.session-export-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-hover);
+}
+
+.session-export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .version-label {
   font-size: 13px;
   font-weight: 600;

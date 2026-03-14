@@ -7,7 +7,12 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 
 from model_adapter.base import AIProvider, EmbeddingResponse, ModelResponse
-from .common import CancellableRequest, InterruptedError, _openai_compatible_stream
+from .common import (
+    CancellableRequest,
+    InterruptedError,
+    _load_json_response,
+    _openai_compatible_stream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +34,20 @@ class OpenAICompatibleProvider(AIProvider):
 
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
-        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        max_token_field = 'max_completion_tokens' if self._prefers_max_completion_tokens() else 'max_tokens'
+        max_token_value = max_tokens if max_tokens is not None else (
+            self.max_completion_tokens if self._prefers_max_completion_tokens() else self.max_tokens
+        )
 
         payload = {
             'model': model,
             'messages': messages,
             'temperature': temperature,
-            'max_tokens': max_tokens,
             **kwargs,
         }
+        payload[max_token_field] = max_token_value
+        if 'reasoning_effort' not in payload and getattr(self, 'reasoning_effort', None):
+            payload['reasoning_effort'] = self.reasoning_effort
 
         if tools and self._should_attach_tools():
             payload['tools'] = tools
@@ -56,7 +66,7 @@ class OpenAICompatibleProvider(AIProvider):
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            response_data = response.json()
+            response_data = _load_json_response(response)
 
             self._validate_response(response_data)
 
@@ -111,16 +121,21 @@ class OpenAICompatibleProvider(AIProvider):
 
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
-        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+        max_token_field = 'max_completion_tokens' if self._prefers_max_completion_tokens() else 'max_tokens'
+        max_token_value = max_tokens if max_tokens is not None else (
+            self.max_completion_tokens if self._prefers_max_completion_tokens() else self.max_tokens
+        )
 
         payload = {
             'model': model,
             'messages': messages,
             'temperature': temperature,
-            'max_tokens': max_tokens,
             'stream': True,
             **kwargs,
         }
+        payload[max_token_field] = max_token_value
+        if 'reasoning_effort' not in payload and getattr(self, 'reasoning_effort', None):
+            payload['reasoning_effort'] = self.reasoning_effort
 
         yield from _openai_compatible_stream(
             url=f'{self.api_endpoint}/chat/completions',
@@ -172,7 +187,7 @@ class OpenAICompatibleProvider(AIProvider):
             )
             response.raise_for_status()
             try:
-                data = response.json()
+                data = _load_json_response(response)
             except ValueError as error:
                 handled = self._handle_embedding_non_json(response, error)
                 if handled is not None:
@@ -213,6 +228,9 @@ class OpenAICompatibleProvider(AIProvider):
 
     def _should_attach_tools(self) -> bool:
         return self.supports_function_calling
+
+    def _prefers_max_completion_tokens(self) -> bool:
+        return False
 
     def _default_embedding_model(self) -> str:
         return 'text-embedding-3-small'

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from execution.runstep_normalizer import normalize_run_steps
@@ -130,6 +131,34 @@ class AgentSessionApplication:
                     entry_agent_name=(metadata.get('agent') or 'orchestrator_agent'),
                 )
         return data
+
+    def export_session(self, session_id: str) -> Dict[str, Any]:
+        session = self.get_session(session_id)
+        if not session:
+            raise LookupError(f'会话不存在: {session_id}')
+
+        messages = self.list_messages(
+            session_id=session_id,
+            limit=1000,
+            offset=0,
+            expand_steps=True,
+        )
+        if messages.get('has_more'):
+            messages = self.list_messages(
+                session_id=session_id,
+                limit=max(int(messages.get('total') or 1000), 1000),
+                offset=0,
+                expand_steps=True,
+            )
+
+        items = messages.get('items') or []
+        return {
+            'version': 1,
+            'exported_at': datetime.now(timezone.utc).isoformat(),
+            'session': session,
+            'messages': items,
+            'message_count': len(items),
+        }
 
     def add_assistant_message(self, *, session_id: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         self._conversation_store.add_message(

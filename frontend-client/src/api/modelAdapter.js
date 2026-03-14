@@ -131,7 +131,7 @@ export async function checkProviderAvailability(providerKey) {
   return json
 }
 
-export async function testProvider(provider, model, prompt = 'Hello') {
+export async function testProvider(provider, model, prompt = 'Hello', providerType = '') {
   try {
     const response = await fetch(`${API_BASE}/test`, {
       method: 'POST',
@@ -140,6 +140,7 @@ export async function testProvider(provider, model, prompt = 'Hello') {
       },
       body: JSON.stringify({
         provider,
+        provider_type: providerType,
         model,
         prompt,
         task: 'chat'

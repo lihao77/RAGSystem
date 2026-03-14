@@ -29,6 +29,9 @@ class OpenAIProvider(OpenAICompatibleProvider):
     def _get_provider_type(self) -> AIProviderType:
         return AIProviderType.OPENAI
 
+    def _prefers_max_completion_tokens(self) -> bool:
+        return True
+
     def get_model_list(self) -> List[str]:
         return [
             'gpt-4-turbo-preview',

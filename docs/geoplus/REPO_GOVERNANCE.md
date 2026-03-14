@@ -88,18 +88,18 @@ GeoPLUS 包含但不限于：
 推荐分支：
 
 - 主线仓库：
-  - `main`
+  - `master`
   - `feature/*`
   - `fix/*`
 - GeoPLUS 仓库：
-  - `main`
+  - `master`
   - `feature/geo-*`
   - `sync/mainline-*`
 
 规则：
 
-- `RAGSystem-GeoPLUS/main` 必须定期同步 `RAGSystem/main`
-- GeoPLUS 功能开发从 GeoPLUS 自己的 `main` 拉分支
+- `RAGSystem-GeoPLUS/master` 必须定期同步 `RAGSystem/master`
+- GeoPLUS 功能开发从 GeoPLUS 自己的 `master` 拉分支
 - 主线兼容性修复优先回主线，再回灌 GeoPLUS
 
 ## 4. 锁步同步机制

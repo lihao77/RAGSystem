@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.artifacts import ArtifactStore
 from config import get_config
+from execution.persistence.session_trace_writer import SessionTraceWriter
 from utils.backup_database import backup_database as _backup_database
 from utils.backup_database import restore_database as _restore_database
 
@@ -38,6 +39,7 @@ class ConversationStore:
         self.session_ttl_days = session_ttl_days
         self.enable_archive = enable_archive
         self.artifact_store = artifact_store or ArtifactStore()
+        self.trace_writer = SessionTraceWriter()
 
         # ✨ 改进：使用 session 级别的锁，避免全局锁成为瓶颈
         self._session_locks: Dict[str, threading.RLock] = {}
@@ -283,6 +285,17 @@ class ConversationStore:
                 ).fetchone()
                 seq = row[0] if row else None
 
+        self.trace_writer.append_message(
+            session_id=session_id,
+            run_id=(metadata or {}).get('run_id', ''),
+            role=role,
+            content=content,
+            metadata=metadata or {},
+            message_id=message_id,
+            seq=seq,
+            source='store',
+        )
+
         return {
             "id": message_id,
             "seq": seq,
@@ -344,6 +357,16 @@ class ConversationStore:
                     """,
                     (run_id, session_id, message_id, next_order, step_type, payload_json)
                 )
+        self.trace_writer.append_run_step(
+            session_id=session_id,
+            run_id=run_id,
+            step_type=step_type,
+            payload={
+                'step_order': next_order,
+                'message_id': message_id,
+                'payload': payload,
+            },
+        )
         return {"run_id": run_id, "step_order": next_order, "step_type": step_type}
 
     def update_run_steps_message_id(self, session_id: str, run_id: str, message_id: str) -> int:
