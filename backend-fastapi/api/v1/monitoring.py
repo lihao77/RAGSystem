@@ -215,6 +215,29 @@ async def get_context_snapshot_message_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get('/tool-call/raw-result')
+async def get_tool_call_raw_result(
+    session_id: str = Query(..., min_length=1),
+    call_id: str = Query(..., min_length=1),
+):
+    """按会话和 call_id 获取工具调用的原始结果。"""
+    try:
+        store = _get_store()
+        item = await asyncio.to_thread(store.get_tool_call_raw_result, session_id, call_id)
+        if not item:
+            raise HTTPException(status_code=404, detail='未找到对应的工具调用原始结果')
+
+        return ok(
+            data=item,
+            message='获取工具调用原始结果成功',
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error('获取工具调用原始结果失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get('/health')
 async def health():
     """健康检查。"""

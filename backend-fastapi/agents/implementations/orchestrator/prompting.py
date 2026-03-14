@@ -276,7 +276,7 @@ def build_system_prompt(agent) -> str:
 <intent>查受灾数据</intent>
 <tools>...</tools>
 
-**task 字段**：子Agent无对话历史，必须把所有必要信息写入 task。`context_hint`（可选）补充引导方向。
+**task/context_hint 约束**：子 Agent 默认不继承此前对话历史。不要写“继续上一步”这类依赖隐式上下文的任务；必须把目标、输入数据、已有结论、用户约束和期望输出格式显式写入 `task` 或 `context_hint`。
 
 **用占位符传递上步数据**：
 <tools>
@@ -295,3 +295,4 @@ def build_system_prompt(agent) -> str:
 只有子Agent或直接工具显式选择展示的可视化才会自动全局编号。图表场景下应先 `generate_chart` 生成草稿，必要时检查或修改配置，再调用 `present_chart`；地图仍可直接生成展示。对每个要展示的可视化，必须在 <answer> 按顺序插入 [CHART:N]（独占一行，前后空行）。
 若本次回答没有生成任何图表，则不需要插入 [CHART:N] 标记。
 """
+

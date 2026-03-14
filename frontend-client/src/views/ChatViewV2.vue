@@ -211,6 +211,7 @@
                     <HierarchicalExecutionTree
                       :execution-steps="msg.execution_steps || []"
                       :subtasks="msg.subtasks || []"
+                      :session-id="currentSessionId || ''"
                     />
                   </div>
                 </transition>
@@ -872,6 +873,8 @@ function executionStepsToExecutionState(executionSteps) {
         tool_name: step.tool_name,
         arguments: step.arguments,
         status: 'running',
+        raw_result_ref: null,
+        raw_result_available: false,
         showResult: false,
         showArgs: false
       };
@@ -898,6 +901,8 @@ function executionStepsToExecutionState(executionSteps) {
       if (toolCall) {
         toolCall.status = 'success';
         toolCall.result = step.result;
+        toolCall.raw_result_ref = step.raw_result_ref || null;
+        toolCall.raw_result_available = Boolean(step.raw_result_available);
         toolCall.elapsed_time = step.elapsed_time;
       }
       continue;
@@ -2088,9 +2093,12 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   subtask.currentStep = newStep;
                 }
                 const toolCall = {
+                  call_id: event.call_id,
                   tool_name: eventData.tool_name,
                   arguments: eventData.arguments,
                   status: 'running',
+                  raw_result_ref: null,
+                  raw_result_available: false,
                   index: eventData.index,
                   total: eventData.total,
                   showResult: false,
@@ -2116,9 +2124,12 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   currentMsg.execution_steps.push(executionStep);
                 }
                 const toolCall = {
+                  call_id: event.call_id,
                   tool_name: eventData.tool_name,
                   arguments: eventData.arguments,
                   status: 'running',
+                  raw_result_ref: null,
+                  raw_result_available: false,
                   index: eventData.index,
                   total: eventData.total,
                   showResult: false,
@@ -2136,7 +2147,9 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
               if (registered) {
                 registered.toolCall.status = 'success';
-                registered.toolCall.result = eventData.result;
+                registered.toolCall.result = eventData.result_preview || eventData.result;
+                registered.toolCall.raw_result_ref = eventData.raw_result_ref || null;
+                registered.toolCall.raw_result_available = Boolean(eventData.raw_result_available);
                 registered.toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                 currentMsg.toolCallRegistry.delete(event.call_id);
               } else {
@@ -2146,7 +2159,9 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   const tc = subtask.tool_calls.find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                   if (tc) {
                     tc.status = 'success';
-                    tc.result = eventData.result;
+                    tc.result = eventData.result_preview || eventData.result;
+                    tc.raw_result_ref = eventData.raw_result_ref || null;
+                    tc.raw_result_available = Boolean(eventData.raw_result_available);
                     tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                   }
                 } else {
@@ -2157,7 +2172,9 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                       const tc = (step.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                       if (tc) {
                         tc.status = 'success';
-                        tc.result = eventData.result;
+                        tc.result = eventData.result_preview || eventData.result;
+                        tc.raw_result_ref = eventData.raw_result_ref || null;
+                        tc.raw_result_available = Boolean(eventData.raw_result_available);
                         tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                         break;
                       }

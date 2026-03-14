@@ -21,6 +21,17 @@ from .bus import EventBus, Event, EventType
 logger = logging.getLogger(__name__)
 
 
+def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
+    """Build a client-facing event payload without eager large raw tool results."""
+    payload = dict(data or {})
+    if event_type == EventType.CALL_TOOL_END.value:
+        preview = payload.get("result_preview")
+        if preview is not None:
+            payload["result"] = preview
+        payload.pop("raw_result", None)
+    return payload
+
+
 class SSEAdapter:
     """
     SSE适配器 - 将事件总线桥接到前端
@@ -305,7 +316,7 @@ class SSEAdapter:
             "parent_call_id": event.parent_call_id,
 
             # 事件数据（完整保留）
-            "data": event.data or {},
+            "data": build_client_event_data(event.type.value, event.data),
 
             # 用户交互
             "requires_user_action": event.requires_user_action,

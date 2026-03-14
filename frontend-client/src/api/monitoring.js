@@ -154,3 +154,15 @@ export async function getTaskExecutionDiagnostics(taskId) {
     throw error;
   }
 }
+
+export async function getToolCallRawResult(sessionId, callId) {
+  try {
+    return await requestJson(
+      `${API_BASE}/tool-call/raw-result?session_id=${encodeURIComponent(sessionId)}&call_id=${encodeURIComponent(callId)}`,
+      { method: 'GET' }
+    );
+  } catch (error) {
+    console.error('Error fetching tool call raw result:', error);
+    throw error;
+  }
+}

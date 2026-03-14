@@ -187,7 +187,10 @@ def normalize_run_steps(
                 'call_id': call_id,
                 'parent_call_id': parent_call_id,
                 'tool_name': data.get('tool_name'),
-                'result': data.get('result'),
+                'result': data.get('result_preview') or data.get('result'),
+                'result_preview': data.get('result_preview') or data.get('result'),
+                'raw_result_ref': data.get('raw_result_ref'),
+                'raw_result_available': data.get('raw_result_available', False),
                 'elapsed_time': data.get('elapsed_time') or data.get('execution_time'),
                 'source_event_type': event_type,
             })

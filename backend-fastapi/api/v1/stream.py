@@ -11,6 +11,7 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import StreamingResponse
+from agents.events.sse_adapter import build_client_event_data
 
 from dependencies import get_execution_service, get_session_event_bus
 from schemas.execution import StreamExecuteRequest, StreamReconnectRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
@@ -219,7 +220,7 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
                     'agent_name': getattr(event, 'agent_name', None),
                     'call_id': getattr(event, 'call_id', None),
                     'parent_call_id': getattr(event, 'parent_call_id', None),
-                    'data': event.data or {},
+                    'data': build_client_event_data(event.type.value, event.data),
                     'requires_user_action': getattr(event, 'requires_user_action', False),
                     'user_action_timeout': getattr(event, 'user_action_timeout', None),
                 }

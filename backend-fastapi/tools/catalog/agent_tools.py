@@ -22,11 +22,11 @@ def get_agent_tools(agents_dict):
                 "properties": {
                     "task": {
                         "type": "string",
-                        "description": "要委托给该 Agent 的具体任务描述"
+                        "description": "要委托给该 Agent 的完整任务描述；子 Agent 默认看不到此前对话历史，必须在这里写入完成任务所需的关键信息"
                     },
                     "context_hint": {
                         "type": "string",
-                        "description": "可选的上下文提示，用于帮助 Agent 更好地理解任务背景"
+                        "description": "可选的补充背景或执行偏好；当任务依赖上文结论、用户约束或输出格式时，应显式写在这里"
                     }
                 },
                 "required": ["task"]
@@ -97,11 +97,11 @@ AGENT_TOOLS_EXAMPLE = [
                 "properties": {
                     "task": {
                         "type": "string",
-                        "description": "要委托给该 Agent 的具体任务描述，例如：'查询南宁市2023年的洪涝灾害数据'"
+                        "description": "要委托给该 Agent 的完整任务描述，例如：'查询南宁市2023年的洪涝灾害数据，并按区县汇总为表格'"
                     },
                     "context_hint": {
                         "type": "string",
-                        "description": "可选的上下文提示，例如：'这是为了生成报告的一部分，需要详细的数值数据'"
+                        "description": "可选的补充背景，例如：'这是报告第三部分，需要沿用上文的统计口径并返回 Markdown 表格'"
                     }
                 },
                 "required": ["task"]
@@ -124,11 +124,11 @@ AGENT_TOOLS_EXAMPLE = [
                 "properties": {
                     "task": {
                         "type": "string",
-                        "description": "要执行的工作流任务描述"
+                        "description": "要执行的完整工作流任务描述，需包含所需输入、约束和目标输出"
                     },
                     "context_hint": {
                         "type": "string",
-                        "description": "可选的上下文提示"
+                        "description": "可选的补充背景或执行要求"
                     }
                 },
                 "required": ["task"]
@@ -137,3 +137,4 @@ AGENT_TOOLS_EXAMPLE = [
         )
     ),
 ]
+

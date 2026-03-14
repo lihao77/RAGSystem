@@ -67,6 +67,8 @@ class StreamExecutor:
         actions = None
         parse_err = None
         stop_after_tools = False
+        answer_streaming_committed = False
+        protocol_violation = False
 
         kwargs = dict(extra_kwargs or {})
         kwargs['cancel_event'] = cancel_event
@@ -119,8 +121,18 @@ class StreamExecutor:
                                 self.publisher.intent_complete(intent, round=round_num)
 
                     elif evt.tag == TagType.TOOLS:
+                        if evt.type == 'tag_open' and answer_streaming_committed:
+                            protocol_violation = True
+                            self.logger.warning(
+                                "检测到协议违规：<answer> 已开始流式输出后又出现 <tools>，将忽略后续工具调用"
+                            )
+                            continue
+
                         # 一旦拿到完整 </tools>，立即解析并停止本轮继续消费后续内容。
                         if evt.type == 'tag_close':
+                            if answer_streaming_committed:
+                                protocol_violation = True
+                                continue
                             tools_content = self.parser.get_tag_content(TagType.TOOLS)
                             if tools_content:
                                 actions, parse_err = parse_tools_xml(tools_content)
@@ -135,8 +147,12 @@ class StreamExecutor:
                             break
 
                     elif evt.tag == TagType.ANSWER:
+                        if evt.type == 'tag_open' and actions is None:
+                            answer_streaming_committed = True
                         if evt.type == 'content':
                             answer += evt.content
+                            if self.publisher and answer_streaming_committed:
+                                self.publisher.chunk(evt.content)
 
                 if stop_after_tools:
                     break
@@ -150,7 +166,7 @@ class StreamExecutor:
             )
 
         # 若流式阶段尚未在 </tools> 处提前解析，则在这里兜底解析。
-        if actions is None:
+        if actions is None and not answer_streaming_committed:
             tools_content = self.parser.get_tag_content(TagType.TOOLS)
             if tools_content:
                 actions, parse_err = parse_tools_xml(tools_content)
@@ -168,11 +184,6 @@ class StreamExecutor:
             preview = full_response if len(full_response) <= 4000 else (full_response[:4000] + '...<truncated>')
             self.logger.info("LLM full_response (round=%s): %s", round_num, preview)
 
-        # answer 只有在本轮没有 tools/actions 时才作为真正的最终输出推送给前端。
-        # 否则它只是模型顺手补的一句占位话，不应污染主回复内容。
-        if answer and not actions and self.publisher:
-            self.publisher.chunk(answer)
-
         # LLM 输出了裸文本（没有任何 XML 标签），解析器会丢弃标签外文本
         # 此时 intent/actions/answer 全为空，但 full_response 有内容
         # 将 full_response 视为最终答案，并补发 chunk 事件（保证流式完整性）
@@ -187,5 +198,5 @@ class StreamExecutor:
             actions=actions if actions else None,
             answer=answer or None,
             full_response=full_response,
-            error=parse_err if (parse_err and not actions) else None,
+            error=parse_err if (parse_err and not actions and not protocol_violation) else None,
         )

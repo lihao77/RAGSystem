@@ -13,6 +13,7 @@
         :key="index"
         :node="node"
         :level="0"
+        :session-id="sessionId"
       />
     </div>
   </div>
@@ -32,6 +33,10 @@ const props = defineProps({
   subtasks: {
     type: Array,
     default: () => []
+  },
+  sessionId: {
+    type: String,
+    default: ''
   }
 });
 
@@ -93,9 +98,12 @@ const executionTree = computed(() => {
       executionStep.toolCalls.forEach(tool => {
         node.children.push({
           type: 'tool_call',
+          call_id: tool.call_id,
           tool_name: tool.tool_name,
           arguments: tool.arguments,
           result: tool.result,
+          raw_result_ref: tool.raw_result_ref,
+          raw_result_available: tool.raw_result_available,
           status: tool.status,
           elapsed_time: tool.elapsed_time,
           expanded: tool.expanded || false
@@ -137,9 +145,12 @@ const executionTree = computed(() => {
             reactStep.toolCalls.forEach(tool => {
               reactNode.children.push({
                 type: 'tool_call',
+                call_id: tool.call_id,
                 tool_name: tool.tool_name,
                 arguments: tool.arguments,
                 result: tool.result,
+                raw_result_ref: tool.raw_result_ref,
+                raw_result_available: tool.raw_result_available,
                 status: tool.status,
                 elapsed_time: tool.elapsed_time,
                 expanded: tool.expanded || false

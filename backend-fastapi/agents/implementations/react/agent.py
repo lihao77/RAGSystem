@@ -154,10 +154,29 @@ class ReActAgent(BaseAgent):
                     )
                 elif event_type == 'tool_end':
                     from tools.result_references import result_event_payload
+                    from tools.tool_registry import get_tool_registry
+                    tool_name = data.get('tool_name')
+                    result = data.get('result')
+                    tool_registry = get_tool_registry()
+                    is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
+                    observation = self._format_tool_observation(
+                        result,
+                        tool_name=tool_name,
+                        session_id=getattr(self._publisher, 'session_id', None),
+                        is_skills_tool=is_skills_tool,
+                    )
+                    preview_text = f"[{tool_name}]\n{observation}" if observation else ""
                     self._publisher.tool_call_end(
                         call_id=data.get('tool_call_id'),
-                        tool_name=data.get('tool_name'),
-                        result=result_event_payload(data.get('result')),
+                        tool_name=tool_name,
+                        result=preview_text,
+                        result_preview=preview_text,
+                        raw_result=result_event_payload(result),
+                        raw_result_ref={
+                            'session_id': getattr(self._publisher, 'session_id', None),
+                            'call_id': data.get('tool_call_id'),
+                            'tool_name': tool_name,
+                        },
                         execution_time=data.get('elapsed_time'),
                         parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
                     )

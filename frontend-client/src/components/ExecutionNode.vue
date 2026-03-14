@@ -69,6 +69,7 @@
               :key="index"
               :node="child"
               :level="level + 1"
+              :session-id="sessionId"
             />
           </div>
 
@@ -173,11 +174,28 @@
             <div v-if="node.result" class="detail-block">
               <div class="detail-header">
                 <span>执行结果</span>
-                <span class="code-tag result-tag">RESULT</span>
+                <div class="detail-header-actions">
+                  <button
+                    v-if="canLoadRawResult || hasLoadedRawResult"
+                    class="result-view-switch"
+                    :class="`is-${resultViewMode}`"
+                    :disabled="rawResultLoading"
+                    @click.stop="handleResultAction"
+                    :title="resultViewMode === 'raw' ? '切回预览' : '切换到原始结果'"
+                  >
+                    <span class="result-view-switch-track">
+                      <span class="result-view-switch-thumb"></span>
+                      <span class="result-view-switch-label is-left">PREVIEW</span>
+                      <span class="result-view-switch-label is-right">RAW</span>
+                    </span>
+                  </button>
+                  <span class="code-tag result-tag">RESULT</span>
+                </div>
               </div>
               <div class="code-wrapper">
-                <pre class="detail-code result-code">{{ formatResultContent(node.result) }}</pre>
+                <pre class="detail-code result-code">{{ displayedResult }}</pre>
               </div>
+              <div v-if="rawResultError" class="tool-result-error">{{ rawResultError }}</div>
             </div>
           </template>
         </div>
@@ -191,6 +209,7 @@
         :key="index"
         :node="child"
         :level="level + 1"
+        :session-id="sessionId"
       />
     </div>
   </div>
@@ -198,6 +217,7 @@
 
 <script setup>
 import { ref, computed, defineProps } from 'vue';
+import { getToolCallRawResult } from '../api/monitoring';
 
 const props = defineProps({
   node: {
@@ -207,6 +227,10 @@ const props = defineProps({
   level: {
     type: Number,
     default: 0
+  },
+  sessionId: {
+    type: String,
+    default: ''
   }
 });
 
@@ -215,6 +239,10 @@ const defaultExpanded = props.node.expanded !== undefined
   ? props.node.expanded
   : props.node.tool_name === 'request_user_input';
 const localExpanded = ref(defaultExpanded);
+const rawResult = ref(null);
+const rawResultLoading = ref(false);
+const rawResultError = ref('');
+const resultViewMode = ref('preview');
 
 // 工具名展示映射
 const TOOL_DISPLAY_NAMES = {
@@ -278,6 +306,57 @@ const toggleExpanded = () => {
   localExpanded.value = !localExpanded.value;
 };
 
+const canLoadRawResult = computed(() => {
+  return Boolean(
+    props.sessionId &&
+    props.node?.call_id &&
+    (props.node?.raw_result_available || props.node?.raw_result_ref)
+  );
+});
+
+const hasLoadedRawResult = computed(() => rawResult.value !== null);
+
+const displayedResult = computed(() => {
+  const value = resultViewMode.value === 'raw' && rawResult.value != null
+    ? rawResult.value
+    : props.node.result;
+  return formatResultContent(value);
+});
+
+const toggleResultView = () => {
+  if (!hasLoadedRawResult.value) return;
+  resultViewMode.value = resultViewMode.value === 'raw' ? 'preview' : 'raw';
+};
+
+const handleResultAction = () => {
+  if (rawResultLoading.value) return;
+  if (!hasLoadedRawResult.value) {
+    loadRawResult();
+    return;
+  }
+  toggleResultView();
+};
+
+const loadRawResult = async () => {
+  if (!canLoadRawResult.value || rawResultLoading.value) return;
+  rawResultLoading.value = true;
+  rawResultError.value = '';
+  try {
+    const data = await getToolCallRawResult(props.sessionId, props.node.call_id);
+    rawResult.value = data?.raw_result ?? null;
+    if (rawResult.value == null) {
+      rawResultError.value = '没有可用的原始结果';
+      resultViewMode.value = 'preview';
+    } else {
+      resultViewMode.value = 'raw';
+    }
+  } catch (error) {
+    rawResultError.value = error?.message || '原始结果加载失败';
+  } finally {
+    rawResultLoading.value = false;
+  }
+};
+
 const formatResultContent = (value) => {
   if (value == null) return '';
   if (typeof value === 'string') {
@@ -305,6 +384,111 @@ const formatResultContent = (value) => {
 <style scoped>
 .execution-node {
   animation: fadeInUp 0.3s ease-out;
+}
+
+.detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.result-view-switch {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.result-view-switch:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.result-view-switch-track {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  width: 125px;
+  height: 26px;
+  padding: 3px;
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.result-view-switch:hover .result-view-switch-track {
+  border-color: var(--color-interactive);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.08),
+    0 0 0 2px var(--color-interactive-subtle);
+}
+
+.result-view-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  height: calc(100% - 6px);
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-bg-primary);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border: 1px solid var(--color-border);
+}
+
+.result-view-switch:hover .result-view-switch-thumb {
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.15),
+    0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.result-view-switch-label {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.result-view-switch.is-preview .result-view-switch-label.is-left {
+  color: var(--color-text-primary);
+  transform: scale(1.05);
+}
+
+.result-view-switch.is-preview .result-view-switch-label.is-right {
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+
+.result-view-switch.is-raw .result-view-switch-thumb {
+  transform: translateX(100%);
+}
+
+.result-view-switch.is-raw .result-view-switch-label.is-left {
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+
+.result-view-switch.is-raw .result-view-switch-label.is-right {
+  color: var(--color-text-primary);
+  transform: scale(1.05);
+}
+
+.tool-result-error {
+  margin-top: 10px;
+  color: #b42318;
+  font-size: 12px;
 }
 
 /* 思考节点 */

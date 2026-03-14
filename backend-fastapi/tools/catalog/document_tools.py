@@ -171,7 +171,10 @@ DOCUMENT_TOOL_CONTRACTS = [
     ),
     ToolContract(
         name="read_file",
-        description="读取文件内容，以字符串返回。若文件是 JSON，可对返回的 content 执行 json.loads 解析。file_path 必须是真实的文件路径字符串，不能是占位符变量名。",
+        description=(
+            "读取文件内容片段，以字符串返回。默认只返回一个安全窗口，避免大文件结果再次被物化成新文件。"
+            "若文件是 JSON，可对返回的 content 执行 json.loads 解析。file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
+        ),
         parameters={
             "type": "object",
             "properties": {
@@ -183,6 +186,23 @@ DOCUMENT_TOOL_CONTRACTS = [
                     "type": "string",
                     "description": "文件编码，默认 utf-8",
                     "default": "utf-8"
+                },
+                "start": {
+                    "type": "integer",
+                    "description": "起始字符偏移（0-based，包含该位置），默认 0",
+                    "default": 0,
+                    "minimum": 0
+                },
+                "end": {
+                    "type": "integer",
+                    "description": "结束字符偏移（0-based，不包含该位置）。若不传，则按 max_chars 读取。",
+                    "minimum": 0
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "单次最多返回的字符数，默认 7000；即使请求更大区间，也会被限制到单次安全窗口内。",
+                    "default": 7000,
+                    "minimum": 1
                 }
             },
             "required": ["file_path"]
@@ -190,13 +210,20 @@ DOCUMENT_TOOL_CONTRACTS = [
         allowed_callers=["direct", "code_execution"],
         returns={
             "type": "object",
-            "description": "成功时返回文件内容字符串",
+            "description": "成功时返回文件内容字符串和当前片段的分页信息",
             "shape": {
                 "content": "string",
+                "metadata": {
+                    "start": "number",
+                    "end": "number",
+                    "next_start": "number|null",
+                    "has_more": "boolean",
+                },
             },
         },
         usage_contract=[
-            "read_file 直接返回文件文本内容",
+            "read_file 默认只返回一个片段；读取大文件时请使用 metadata.next_start 继续分页读取",
+            "可用 start/end 指定字符区间，end 为开区间",
             "若文件内容本身是 JSON，可再在 execute_code 中用 json.loads 解析",
             "file_path 必须是真实路径字符串，不是变量名文本",
         ],
@@ -208,6 +235,20 @@ DOCUMENT_TOOL_CONTRACTS = [
                 "result_hint": {
                     "content": "{\"city\": \"Nanning\"}",
                 },
+            },
+            {
+                "input": {
+                    "file_path": "./data/large.txt",
+                    "start": 7000,
+                    "end": 14000,
+                },
+                "result_hint": {
+                    "content": "第 7000 到 14000 字符之间的文本片段",
+                    "metadata": {
+                        "next_start": 14000,
+                        "has_more": True,
+                    },
+                },
             }
         ],
         source="document",
@@ -216,3 +257,5 @@ DOCUMENT_TOOL_CONTRACTS = [
 
 
 DOCUMENT_TOOLS = build_function_tools(DOCUMENT_TOOL_CONTRACTS)
+
+

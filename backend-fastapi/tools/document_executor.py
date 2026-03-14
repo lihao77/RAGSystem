@@ -12,6 +12,56 @@ from pathlib import Path
 from tools.response_builder import error_result, success_result
 
 
+DEFAULT_READ_MAX_CHARS = 7000
+MAX_SINGLE_READ_CHARS = 7000
+STREAM_READ_CHUNK_SIZE = 1024
+
+
+def _decode_wrapped_json_string(content: str) -> str:
+    """兼容历史上双重编码的纯字符串文件内容。"""
+    stripped = content.strip()
+    if stripped.startswith('"') and stripped.endswith('"'):
+        try:
+            decoded = json.loads(stripped)
+            if isinstance(decoded, str):
+                return decoded
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return content
+
+
+def _skip_text_chars(stream, char_count: int) -> tuple[int, int]:
+    """流式跳过指定字符数，并统计跳过片段内的换行数量。"""
+    skipped = 0
+    newline_count = 0
+
+    while skipped < char_count:
+        chunk = stream.read(min(STREAM_READ_CHUNK_SIZE, char_count - skipped))
+        if not chunk:
+            break
+        skipped += len(chunk)
+        newline_count += chunk.count("\n")
+
+    return skipped, newline_count
+
+
+def _read_text_chars(stream, char_count: int) -> tuple[str, int]:
+    """流式读取最多指定字符数，并统计换行数量。"""
+    parts: list[str] = []
+    read_chars = 0
+    newline_count = 0
+
+    while read_chars < char_count:
+        chunk = stream.read(min(STREAM_READ_CHUNK_SIZE, char_count - read_chars))
+        if not chunk:
+            break
+        parts.append(chunk)
+        read_chars += len(chunk)
+        newline_count += chunk.count("\n")
+
+    return "".join(parts), newline_count
+
+
 def read_document(file_path: str, encoding: str = "utf-8"):
     """读取文档文件内容"""
     file_path = Path(file_path)
@@ -356,36 +406,75 @@ def write_file(
 
 def read_file(
     file_path: str,
-    encoding: str = "utf-8"
+    encoding: str = "utf-8",
+    start: int = 0,
+    end: Optional[int] = None,
+    max_chars: int = DEFAULT_READ_MAX_CHARS,
 ) -> Any:
-    """读取文件内容，以字符串返回。JSON 文件可在收到结果后自行 json.loads 解析。"""
+    """读取文件内容片段，以字符串返回。JSON 文件可在收到结果后自行 json.loads 解析。"""
     try:
         file_path_obj = Path(file_path)
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="read_file")
 
-        with open(file_path_obj, 'r', encoding=encoding) as f:
-            content = f.read()
+        if start < 0:
+            return error_result("start 不能小于 0", tool_name="read_file")
+        if end is not None and end < start:
+            return error_result("end 不能小于 start", tool_name="read_file")
+        if max_chars <= 0:
+            return error_result("max_chars 必须大于 0", tool_name="read_file")
 
-        # 兼容历史上双重编码的文件：若整个内容是一个 JSON 字符串字面量（以 " 开头和结尾），
-        # 自动解包一层，避免 LLM 看到满屏的 \n \\" 转义。
-        stripped = content.strip()
-        if stripped.startswith('"') and stripped.endswith('"'):
-            try:
-                decoded = json.loads(stripped)
-                if isinstance(decoded, str):
-                    content = decoded
-            except (json.JSONDecodeError, ValueError):
-                pass
+        requested_chars = end - start if end is not None else max_chars
+        effective_max_chars = min(requested_chars, max_chars, MAX_SINGLE_READ_CHARS) if end is not None else min(max_chars, MAX_SINGLE_READ_CHARS)
+
+        with open(file_path_obj, 'r', encoding=encoding) as f:
+            actual_start, skipped_newlines = _skip_text_chars(f, start)
+            if actual_start < start:
+                return error_result(
+                    f"起始位置超出文件范围: start={start}",
+                    tool_name="read_file",
+                )
+
+            raw_content, content_newlines = _read_text_chars(f, effective_max_chars)
+            has_more = bool(f.read(1))
+
+        raw_end = start + len(raw_content)
+        content = _decode_wrapped_json_string(raw_content)
+        start_line = skipped_newlines + 1
+        end_line = start_line + content_newlines
 
         file_size = file_path_obj.stat().st_size
+        summary = (
+            f"文件读取成功: {file_path}（字符区间 {start}:{raw_end}，"
+            f"{file_size} 字节）"
+        )
+        if has_more:
+            summary += f"；还有后续内容，可继续调用 read_file(start={raw_end})"
+        else:
+            summary += "；已到文件末尾"
         return success_result(
             content=content,
-            summary=f"文件读取成功: {file_path}（{file_size} 字节）",
+            summary=summary,
             output_type="text",
+            metadata={
+                "file_path": str(file_path_obj),
+                "file_size": file_size,
+                "start": start,
+                "end": raw_end,
+                "requested_end": end,
+                "returned_chars": len(content),
+                "max_chars": effective_max_chars,
+                "has_more": has_more,
+                "next_start": raw_end if has_more else None,
+                "start_line": start_line,
+                "end_line": end_line,
+                "truncated": has_more,
+            },
             tool_name="read_file",
         )
 
     except Exception as e:
         return error_result(f"读取文件失败: {str(e)}", tool_name="read_file")
+
+

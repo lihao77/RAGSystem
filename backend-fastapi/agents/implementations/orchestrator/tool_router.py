@@ -285,14 +285,30 @@ def route_direct_tool(
             exc_info=True
         )
         result = error_result(str(tool_exc), tool_name=tool_name)
-
     tool_elapsed = time.time() - tool_start_time
+
+    observation = _format_tool_observation(
+        agent,
+        result,
+        tool_name=tool_name,
+        session_id=context.session_id,
+        is_skills_tool=is_skills_tool,
+    )
+    if observation:
+        observation = f"[{tool_name}]\n{observation}"
 
     # 发布工具调用结束事件
     agent._publisher.tool_call_end(
         call_id=tool_call_id,
         tool_name=tool_name,
-        result=result_event_payload(result),
+        result=observation or "",
+        result_preview=observation or "",
+        raw_result=result_event_payload(result),
+        raw_result_ref={
+            'session_id': context.session_id,
+            'call_id': tool_call_id,
+            'tool_name': tool_name,
+        },
         execution_time=tool_elapsed,
         parent_call_id=orchestrator_call_id,
     )
@@ -321,18 +337,9 @@ def route_direct_tool(
                 'map_type': map_type,
             }
 
-    observation = _format_tool_observation(
-        agent,
-        result,
-        tool_name=tool_name,
-        session_id=context.session_id,
-        is_skills_tool=is_skills_tool,
-    )
-    if observation:
-        observation = f"[{tool_name}]\n{observation}"
-
     return {
         "observation": observation,
         "result": result,
         "visualization_event": visualization_event,
     }
+

@@ -819,6 +819,13 @@ class BaseAgent(ABC):
                 session_id=current_session_id,
             )
             elapsed_time = time.time() - tool_started_at
+            is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
+            observation = self._format_tool_observation(
+                result,
+                tool_name=tool_name,
+                session_id=current_session_id,
+                is_skills_tool=is_skills_tool,
+            )
 
             if callable(emit_event):
                 emit_event('tool_end', {
@@ -830,10 +837,18 @@ class BaseAgent(ABC):
                     'total': len(actions),
                 })
             elif self._publisher:
+                preview_text = f"[{tool_name}]\n{observation}" if observation else ""
                 self._publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
-                    result=result_event_payload(result),
+                    result=preview_text,
+                    result_preview=preview_text,
+                    raw_result=result_event_payload(result),
+                    raw_result_ref={
+                        'session_id': current_session_id,
+                        'call_id': tool_call_id,
+                        'tool_name': tool_name,
+                    },
                     execution_time=elapsed_time,
                     parent_call_id=state.get('call_id'),
                 )
@@ -844,14 +859,6 @@ class BaseAgent(ABC):
                 'arguments': arguments,
                 'result': result,
             })
-
-            is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
-            observation = self._format_tool_observation(
-                result,
-                tool_name=tool_name,
-                session_id=current_session_id,
-                is_skills_tool=is_skills_tool,
-            )
             if observation:
                 observations.append(f"[{tool_name}]\n{observation}")
 

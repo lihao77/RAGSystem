@@ -305,6 +305,9 @@ class EventPublisher:
         call_id: str,
         tool_name: str,
         result: Any,
+        result_preview: Optional[str] = None,
+        raw_result: Any = None,
+        raw_result_ref: Optional[Dict[str, Any]] = None,
         execution_time: Optional[float] = None,
         parent_call_id: Optional[str] = None
     ):
@@ -314,6 +317,10 @@ class EventPublisher:
             {
                 "tool_name": tool_name,
                 "result": self._make_event_value_safe(result),
+                "result_preview": result_preview or self._make_event_value_safe(result),
+                "raw_result": self._make_event_value_safe(raw_result) if raw_result is not None else None,
+                "raw_result_ref": self._make_event_value_safe(raw_result_ref or {}),
+                "raw_result_available": raw_result is not None,
                 "execution_time": execution_time,
                 "elapsed_time": execution_time,
             },
