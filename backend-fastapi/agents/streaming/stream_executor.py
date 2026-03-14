@@ -124,7 +124,7 @@ class StreamExecutor:
                         if evt.type == 'tag_open' and answer_streaming_committed:
                             protocol_violation = True
                             self.logger.warning(
-                                "检测到协议违规：<answer> 已开始流式输出后又出现 <tools>，将忽略后续工具调用"
+                                "检测到协议违规：<final_answer> 已开始流式输出后又出现 <tools>，将忽略后续工具调用"
                             )
                             continue
 
@@ -146,7 +146,7 @@ class StreamExecutor:
                             stop_after_tools = True
                             break
 
-                    elif evt.tag == TagType.ANSWER:
+                    elif evt.tag == TagType.FINAL_ANSWER:
                         if evt.type == 'tag_open' and actions is None:
                             answer_streaming_committed = True
                         if evt.type == 'content':

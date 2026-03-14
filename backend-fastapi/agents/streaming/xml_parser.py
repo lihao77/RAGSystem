@@ -1,10 +1,11 @@
 """
 StreamingXMLParser - 增量 XML 标签解析器。
 
-支持的标签: <intent>, <tools>, <answer>
+支持的标签: <intent>, <tools>, <final_answer>
+- 兼容旧标签: <answer> -> <final_answer>
 - intent: 每个 chunk 产生 content 事件（实时流式）
 - tools: 只积累不产生 content 事件，tag_close 时一次性可用
-- answer: 每个 chunk 产生 content 事件（实时流式）
+- final_answer: 每个 chunk 产生 content 事件（实时流式）
 """
 
 import logging
@@ -19,10 +20,15 @@ logger = logging.getLogger(__name__)
 class TagType(Enum):
     INTENT = "intent"
     TOOLS = "tools"
-    ANSWER = "answer"
+    FINAL_ANSWER = "final_answer"
 
 
-TAG_NAMES = {t.value for t in TagType}
+TAG_ALIASES = {
+    "intent": TagType.INTENT,
+    "tools": TagType.TOOLS,
+    "final_answer": TagType.FINAL_ANSWER,
+    "answer": TagType.FINAL_ANSWER,
+}
 
 
 class ParseEvent:
@@ -114,11 +120,7 @@ class StreamingXMLParser:
         tag_str = self._buffer[1:gt_pos].strip().lower()
 
         # 检查是否是已知标签
-        matched_tag = None
-        for t in TagType:
-            if tag_str == t.value:
-                matched_tag = t
-                break
+        matched_tag = TAG_ALIASES.get(tag_str)
 
         if matched_tag is None:
             # 不认识的标签，跳过这个 '<'
@@ -134,16 +136,15 @@ class StreamingXMLParser:
 
     def _scan_for_close_tag(self, events: List[ParseEvent]) -> bool:
         """在 IN_TAG 状态扫描结束标签。返回是否消费了缓冲区内容。"""
-        close_tag = f"</{self._state.value}>"
-
-        close_pos = self._buffer.lower().find(close_tag.lower())
-        if close_pos != -1:
+        matched = self._find_close_tag_match()
+        if matched is not None:
             # 找到结束标签
+            close_pos, close_tag = matched
             content_before = self._buffer[:close_pos]
             if content_before:
                 self._tag_contents[self._state] += content_before
-                # thinking 和 answer 产生 content 事件，tools 不产生
-                if self._state in (TagType.INTENT, TagType.ANSWER):
+                # intent 和 final_answer 产生 content 事件，tools 不产生
+                if self._state in (TagType.INTENT, TagType.FINAL_ANSWER):
                     events.append(ParseEvent("content", self._state, content_before))
 
             events.append(ParseEvent("tag_close", self._state))
@@ -159,8 +160,8 @@ class StreamingXMLParser:
         if safe_len > 0:
             content = self._buffer[:safe_len]
             self._tag_contents[self._state] += content
-            # thinking 和 answer 产生 content 事件
-            if self._state in (TagType.INTENT, TagType.ANSWER):
+            # intent 和 final_answer 产生 content 事件
+            if self._state in (TagType.INTENT, TagType.FINAL_ANSWER):
                 events.append(ParseEvent("content", self._state, content))
             self._buffer = self._buffer[safe_len:]
             return True
@@ -180,9 +181,9 @@ class StreamingXMLParser:
             return 0
 
         # 从末尾开始检查可能的不完整结束标签
-        # 结束标签格式: </intent> </tools> </answer>
-        # 最长的结束标签是 "</answer>" (9 字符)
-        max_close_len = 12  # 稍微多留一点
+        # 结束标签格式: </intent> </tools> </final_answer> / </answer>
+        # 最长的结束标签是 "</final_answer>" (15 字符)
+        max_close_len = 18  # 稍微多留一点
 
         # 检查缓冲区末尾是否以 '<' 或 '</' 开头的不完整标签
         check_start = max(0, len(buf) - max_close_len)
@@ -198,8 +199,7 @@ class StreamingXMLParser:
         partial = tail[last_lt:]
 
         # 检查这个 partial 是否可能是某个结束标签的前缀
-        for t in TagType:
-            close_str = f"</{t.value}>"
+        for close_str in self._all_close_tags():
             if close_str.lower().startswith(partial.lower()):
                 # 是结束标签的前缀，保留这部分
                 safe = check_start + last_lt
@@ -220,3 +220,30 @@ class StreamingXMLParser:
     def current_state(self) -> Optional[TagType]:
         """当前解析状态。"""
         return self._state
+
+    def _find_close_tag_match(self) -> Optional[tuple[int, str]]:
+        """Return the earliest matching close tag for the current state."""
+        matches: list[tuple[int, str]] = []
+        for close_tag in self._close_tags_for_state(self._state):
+            close_pos = self._buffer.lower().find(close_tag.lower())
+            if close_pos != -1:
+                matches.append((close_pos, close_tag))
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item[0])
+        return matches[0]
+
+    @staticmethod
+    def _close_tags_for_state(tag: Optional[TagType]) -> list[str]:
+        if tag == TagType.FINAL_ANSWER:
+            return ["</final_answer>", "</answer>"]
+        if tag is None:
+            return []
+        return [f"</{tag.value}>"]
+
+    @classmethod
+    def _all_close_tags(cls) -> list[str]:
+        tags: list[str] = []
+        for tag in TagType:
+            tags.extend(cls._close_tags_for_state(tag))
+        return tags

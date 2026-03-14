@@ -259,7 +259,7 @@ def build_system_prompt(agent) -> str:
 1. 准确理解用户需求
 2. 选择成本最低且成功率最高的执行路径
 3. 只有在必要时才委派子 Agent 或调用直接工具
-4. 信息足够时直接输出 `<answer>`
+4. 信息足够时直接输出 `<final_answer>`
 5. 信息不足且无法通过现有工具补齐时，调用 `request_user_input`
 
 ## 编排原则
@@ -292,10 +292,10 @@ def build_system_prompt(agent) -> str:
 </tools>
 
 给出最终答案：
-<answer>答案内容</answer>
+<final_answer>答案内容</final_answer>
 
-如需一句话说明意图（可选，10字以内，禁止写推理）：
-<intent>查受灾数据</intent>
+如需补充简短意图（可选，建议 1-2 句自然语言，像人在心里判断下一步，不要展开冗长推理）：
+<intent>我先把问题拆成查数和展示两步，先确认数据是否足够再决定是否委派。</intent>
 <tools>...</tools>
 
 **task/context_hint 约束**：子 Agent 默认不继承此前对话历史。不要写“继续上一步”这类依赖隐式上下文的任务；必须把目标、输入数据、已有结论、用户约束和期望输出格式显式写入 `task` 或 `context_hint`。
@@ -311,10 +311,11 @@ def build_system_prompt(agent) -> str:
 
 **规则：**
 {rule1}
-2. 禁止输出 `<thinking>` 标签；`<intent>` 只允许10字以内的动作标注，或直接省略
+2. 禁止输出 `<thinking>` 标签；`<intent>` 应使用 1-2 句自然语言概括当前判断或下一步计划，像人类的简短思考摘要；不要写成长篇推理，也可直接省略
+   不要写成“查数据”“调工具”“生成图表”“调用 chart_agent”这类命令式标签；应写成“我先确认数据是否完整，再决定是直接回答还是委派”这种内心独白
 3. 互相独立的调用放同一 `<tools>` 中并行
 4. 链式调用用 {{result_1}}, {{result_2}} 引用同轮前序结果
-5. 数据充足时直接输出 `<answer>`{direct_tools_guide}
+5. 数据充足时直接输出 `<final_answer>`{direct_tools_guide}
 6. 缺少关键输入且无法自行补齐时，用 `request_user_input`
 7. 调用报错时下一轮换策略，不要原样重复
 
@@ -322,13 +323,17 @@ def build_system_prompt(agent) -> str:
 - 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
 - 工具返回 artifact_id 和预览摘要，据此判断是否满意
 - 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
-- 在 `<answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行），如：
+- 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行），如：
 
 [viz:viz_abc123]
 
 - 不要编造 artifact_id，必须使用工具返回的真实 ID
 - 若本次回答没有生成任何可视化，则不需要插入 `[viz:...]` 标记
 """
+
+
+
+
 
 
 

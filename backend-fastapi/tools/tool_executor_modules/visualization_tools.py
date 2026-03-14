@@ -120,7 +120,7 @@ def create_chart(data, chart_type=None, title="",
     """
     一步完成：生成 ECharts 配置 -> 校验 -> 持久化 -> 返回 artifact_id。
 
-    Agent 在 <answer> 中用 [viz:artifact_id] 展示图表。
+    Agent 在 <final_answer> 中用 [viz:artifact_id] 展示图表。
     """
     import numpy as np
 
@@ -226,7 +226,7 @@ def create_chart(data, chart_type=None, title="",
                     summary=f"图表已生成（兜底PNG）：{final_title}",
                     output_type="chart",
                     tool_name="create_chart",
-                    llm_hint=f"在 <answer> 中插入 [viz:{record.artifact_id}] 来展示此图表",
+                    llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此图表",
                 )
             except Exception as fallback_err:
                 return error_result(
@@ -258,7 +258,7 @@ def create_chart(data, chart_type=None, title="",
             ),
             output_type="chart",
             tool_name="create_chart",
-            llm_hint=f"在 <answer> 中插入 [viz:{record.artifact_id}] 来展示此图表",
+            llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此图表",
         )
 
     except Exception as e:
@@ -270,7 +270,7 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
     """
     一步完成：生成 Leaflet 地图数据 -> 持久化 -> 返回 artifact_id。
 
-    Agent 在 <answer> 中用 [viz:artifact_id] 展示地图。
+    Agent 在 <final_answer> 中用 [viz:artifact_id] 展示地图。
     """
     import pandas as pd
     import re
@@ -406,7 +406,7 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
             summary=f"地图已生成：{title}（{map_type}，{valid_count}个数据点）",
             output_type="map",
             tool_name="create_map",
-            llm_hint=f"在 <answer> 中插入 [viz:{record.artifact_id}] 来展示此地图",
+            llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此地图",
         )
 
     except Exception as e:
@@ -445,3 +445,4 @@ def revise_visualization(artifact_id, config_patch, replace=False):
         )
     except Exception as e:
         return error_result(f"修改可视化失败: {str(e)}", tool_name="revise_visualization")
+

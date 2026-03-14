@@ -51,7 +51,7 @@ STATIC_TOOL_CONTRACTS = [
     ),
     ToolContract(
         name="create_chart",
-        description="一步生成 ECharts 图表：构建配置 -> 校验 -> 持久化 -> 返回 artifact_id。在 <answer> 中用 [viz:artifact_id] 展示。",
+        description="一步生成 ECharts 图表：构建配置 -> 校验 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
         parameters={
             "type": "object",
             "properties": {
@@ -100,7 +100,7 @@ STATIC_TOOL_CONTRACTS = [
         },
         usage_contract=[
             "create_chart 一步完成生成+持久化，不需要额外调用",
-            "返回的 artifact_id 用于在 <answer> 中插入 [viz:artifact_id]",
+            "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
             "不满意时可用 revise_visualization 修改配置",
             "不要编造 artifact_id，必须使用工具返回的真实 ID",
         ],
@@ -123,7 +123,7 @@ STATIC_TOOL_CONTRACTS = [
     ),
     ToolContract(
         name="create_map",
-        description="一步生成 Leaflet 地图：构建数据 -> 持久化 -> 返回 artifact_id。在 <answer> 中用 [viz:artifact_id] 展示。",
+        description="一步生成 Leaflet 地图：构建数据 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
         parameters={
             "type": "object",
             "properties": {
@@ -173,7 +173,7 @@ STATIC_TOOL_CONTRACTS = [
         },
         usage_contract=[
             "create_map 一步完成生成+持久化",
-            "返回的 artifact_id 用于在 <answer> 中插入 [viz:artifact_id]",
+            "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
             "地理点数据必须包含 geometry 字段，格式通常是 POINT (lng lat)",
         ],
         examples=[
@@ -225,7 +225,7 @@ STATIC_TOOL_CONTRACTS = [
         usage_contract=[
             "默认对原配置做深度合并",
             "replace=true 时用 config_patch 整份替换原配置",
-            "artifact_id 不变，<answer> 中占位符无需修改",
+            "artifact_id 不变，<final_answer> 中占位符无需修改",
         ],
         examples=[
             {
@@ -286,3 +286,4 @@ STATIC_TOOL_CONTRACTS = [
 
 
 STATIC_TOOLS = build_function_tools(STATIC_TOOL_CONTRACTS)
+

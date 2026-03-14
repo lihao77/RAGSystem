@@ -25,6 +25,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
 
     name = "large_payload"
     priority = 30
+    _SOURCE_READ_TOOL_NAMES = {"read_file", "read_document"}
 
     def can_handle(self, result: "ToolExecutionResult", context: FormatContext) -> bool:
         """当数据大小超过阈值时处理。"""
@@ -45,8 +46,22 @@ class LargePayloadFormatter(BaseObservationFormatter):
         answer = result.answer
         approval_message = metadata.get("approval_message", "")
 
-        # 记录物化
         estimated_size = self._estimate_size_fast(pure_data)
+        if (
+            (result.tool_name or context.tool_name) in self._SOURCE_READ_TOOL_NAMES
+            and metadata.get("file_path")
+        ):
+            self._record_materialization(result, context, estimated_size, used_artifact=False)
+            return self._format_source_read_reference(
+                result=result,
+                summary=summary,
+                metadata=metadata,
+                answer=answer,
+                approval_message=approval_message,
+                estimated_size=estimated_size,
+            )
+
+        # 记录物化
         self._record_materialization(result, context, estimated_size, used_artifact=True)
 
         # 保存到文件
@@ -104,5 +119,60 @@ class LargePayloadFormatter(BaseObservationFormatter):
             sample = metadata["sample"]
             sample_str = json.dumps(sample, ensure_ascii=False)
             parts.append(f"📝 样本: {sample_str}")
+
+        return "\n".join(parts)
+
+    def _format_source_read_reference(
+        self,
+        *,
+        result: "ToolExecutionResult",
+        summary: str,
+        metadata: dict,
+        answer: str | None,
+        approval_message: str,
+        estimated_size: int,
+    ) -> str:
+        """Avoid re-materializing already-read files into a second temp file."""
+        file_path = str(metadata.get("file_path") or "")
+        preview_limit = 500
+        content = result.content if isinstance(result.content, str) else str(result.content)
+        preview = content[:preview_limit]
+        if len(content) > preview_limit:
+            preview = preview.rstrip() + "..."
+
+        parts = []
+        if answer:
+            parts.append(f"✅ {answer}\n")
+        elif summary:
+            parts.append(f"✅ {summary}\n")
+        if approval_message:
+            parts.append(f"👤 用户批注: {approval_message}\n")
+
+        parts.append(f"📄 原始文件: {file_path}")
+
+        if result.tool_name == "read_file":
+            start = metadata.get("start")
+            end = metadata.get("end")
+            if start is not None and end is not None:
+                parts.append(f"📍 当前片段: 字符区间 {start}:{end}")
+            if metadata.get("has_more"):
+                next_start = metadata.get("next_start")
+                parts.append(f"💡 如需后续内容，请继续调用 read_file(file_path='{file_path}', start={next_start})")
+        else:
+            file_type = metadata.get("file_type")
+            char_count = metadata.get("char_count")
+            meta_parts = []
+            if file_type:
+                meta_parts.append(f"类型: {file_type}")
+            if char_count:
+                meta_parts.append(f"字符数: {char_count}")
+            if estimated_size:
+                meta_parts.append(f"估算大小: {estimated_size}")
+            if meta_parts:
+                parts.append(f"📊 {' | '.join(meta_parts)}")
+            parts.append("💡 后续步骤优先直接使用原始 file_path，避免把读取结果再次落盘")
+
+        if preview:
+            parts.append(f"📝 预览: {preview}")
 
         return "\n".join(parts)

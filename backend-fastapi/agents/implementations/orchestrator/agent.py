@@ -299,7 +299,7 @@ class OrchestratorAgent(BaseAgent):
         self.logger.warning(f"{log_prefix} 既没有调用 Agent 也没有给出最终答案")
         state['current_session'].append({
             "role": "user",
-            "content": "请直接输出 <answer> 或 <tools>。",
+            "content": "请直接输出 <final_answer> 或 <tools>。",
         })
         self._publisher.react_intermediate(
             role="user",
@@ -496,3 +496,4 @@ class OrchestratorAgent(BaseAgent):
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         return True
+

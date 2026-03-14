@@ -859,7 +859,7 @@ class BaseAgent(ABC):
                 f"工具参数解析失败{parse_fail_hint}，请检查参数格式。"
                 "Windows 文件路径中的反斜杠 \\ 在 JSON 中需要转义为 \\\\，"
                 "或直接使用正斜杠 / 代替。请重新输出 <tools>。"
-            ) if llm_result.error else "请直接输出 <answer> 或 <tools>。"
+            ) if llm_result.error else "请直接输出 <final_answer> 或 <tools>。"
         })
 
     def _handle_llm_error(
