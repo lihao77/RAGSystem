@@ -122,7 +122,11 @@ DOCUMENT_TOOL_CONTRACTS = [
     ),
     ToolContract(
         name="write_file",
-        description="将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。不指定路径时自动生成临时文件，返回实际保存的文件路径（在 content.file_path 字段中）。若要在同一 <tools> 块内让下一个工具使用此路径，可用链式引用 {result_N.content.file_path}；若是下一轮调用，请直接从观察结果文本中复制文件路径字符串填入参数。",
+        description=(
+            "将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。"
+            "不指定路径时自动生成临时文件，返回实际保存的文件路径（在 content.file_path 字段中）。"
+            "修改已有文件的部分内容，请优先使用 edit_file 工具。"
+        ),
         parameters={
             "type": "object",
             "properties": {
@@ -155,6 +159,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "content 是最终要写入的文本；JSON 请先序列化成字符串",
             "后续工具需要路径时，优先使用返回的 file_path",
             "若在同一轮链式调用，可引用 {result_N.content.file_path}",
+            "修改已有文件的部分内容时，请优先使用 edit_file 工具进行精准替换",
         ],
         examples=[
             {
@@ -172,8 +177,9 @@ DOCUMENT_TOOL_CONTRACTS = [
     ToolContract(
         name="read_file",
         description=(
-            "读取文件内容片段，以字符串返回。默认只返回一个安全窗口，避免大文件结果再次被物化成新文件。"
-            "若文件是 JSON，可对返回的 content 执行 json.loads 解析。file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
+            "按行号读取文件内容，以带行号的格式返回（类似 cat -n）。"
+            "默认从第 1 行开始，最多读取 2000 行。超过 2000 字符的行会被截断。"
+            "file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
         ),
         parameters={
             "type": "object",
@@ -187,21 +193,16 @@ DOCUMENT_TOOL_CONTRACTS = [
                     "description": "文件编码，默认 utf-8",
                     "default": "utf-8"
                 },
-                "start": {
+                "offset": {
                     "type": "integer",
-                    "description": "起始字符偏移（0-based，包含该位置），默认 0",
-                    "default": 0,
-                    "minimum": 0
+                    "description": "起始行号（1-based），默认 1",
+                    "default": 1,
+                    "minimum": 1
                 },
-                "end": {
+                "limit": {
                     "type": "integer",
-                    "description": "结束字符偏移（0-based，不包含该位置）。若不传，则按 max_chars 读取。",
-                    "minimum": 0
-                },
-                "max_chars": {
-                    "type": "integer",
-                    "description": "单次最多返回的字符数，默认 7000；即使请求更大区间，也会被限制到单次安全窗口内。",
-                    "default": 7000,
+                    "description": "最多读取的行数，默认 2000",
+                    "default": 2000,
                     "minimum": 1
                 }
             },
@@ -210,21 +211,24 @@ DOCUMENT_TOOL_CONTRACTS = [
         allowed_callers=["direct", "code_execution"],
         returns={
             "type": "object",
-            "description": "成功时返回文件内容字符串和当前片段的分页信息",
+            "description": "成功时返回带行号的文件内容和分页元数据",
             "shape": {
                 "content": "string",
                 "metadata": {
-                    "start": "number",
-                    "end": "number",
-                    "next_start": "number|null",
+                    "file_path": "string",
+                    "file_size": "number",
+                    "total_lines": "number",
+                    "start_line": "number",
+                    "end_line": "number",
                     "has_more": "boolean",
+                    "next_offset": "number|null",
                 },
             },
         },
         usage_contract=[
-            "read_file 默认只返回一个片段；读取大文件时请使用 metadata.next_start 继续分页读取",
-            "可用 start/end 指定字符区间，end 为开区间",
-            "若文件内容本身是 JSON，可再在 execute_code 中用 json.loads 解析",
+            "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页",
+            "可用 offset/limit 指定行号区间",
+            "返回内容为 cat -n 格式：行号 + TAB + 行内容",
             "file_path 必须是真实路径字符串，不是变量名文本",
         ],
         examples=[
@@ -233,23 +237,78 @@ DOCUMENT_TOOL_CONTRACTS = [
                     "file_path": "./data/output.json",
                 },
                 "result_hint": {
-                    "content": "{\"city\": \"Nanning\"}",
+                    "content": "     1\t{\"city\": \"Nanning\"}",
                 },
             },
             {
                 "input": {
                     "file_path": "./data/large.txt",
-                    "start": 7000,
-                    "end": 14000,
+                    "offset": 100,
+                    "limit": 50,
                 },
                 "result_hint": {
-                    "content": "第 7000 到 14000 字符之间的文本片段",
+                    "content": "   100\t第100行内容...",
                     "metadata": {
-                        "next_start": 14000,
+                        "start_line": 100,
+                        "end_line": 149,
                         "has_more": True,
+                        "next_offset": 150,
                     },
                 },
             }
+        ],
+        source="document",
+    ),
+    ToolContract(
+        name="edit_file",
+        description=(
+            "精准字符串替换编辑文件。old_string 必须在文件中唯一匹配（除非 replace_all=true）。"
+            "new_string 为空字符串时表示删除匹配内容。返回 diff 预览和替换次数。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "要编辑的文件路径"
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "要被替换的原始字符串，必须精确匹配文件中的内容"
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "替换后的字符串。传空字符串表示删除 old_string"
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "文件编码，默认 utf-8",
+                    "default": "utf-8"
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "是否替换所有匹配。默认 false，仅在唯一匹配时替换",
+                    "default": False
+                }
+            },
+            "required": ["file_path", "old_string", "new_string"]
+        },
+        allowed_callers=["direct", "code_execution"],
+        returns={
+            "type": "object",
+            "description": "成功时返回替换信息和 diff 预览",
+            "shape": {
+                "file_path": "string",
+                "replacements": "number",
+                "file_size": "number",
+                "diff_preview": "string",
+            },
+        },
+        usage_contract=[
+            "old_string 必须精确匹配文件中的内容，包括空格和换行",
+            "默认要求唯一匹配；多处匹配时设 replace_all=true",
+            "new_string 为空字符串表示删除",
+            "建议先用 read_file 确认要编辑的内容再调用",
         ],
         source="document",
     ),

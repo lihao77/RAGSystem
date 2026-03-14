@@ -99,7 +99,7 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
         return False, error_result(f'审批流程异常: {error}', tool_name=tool_name), ''
 
 
-def _execute_document_tool(tool_name, arguments):
+def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None):
     if tool_name == 'read_document':
         from tools.document_executor import read_document
         return read_document(**arguments)
@@ -117,7 +117,10 @@ def _execute_document_tool(tool_name, arguments):
         return write_file(**arguments)
     if tool_name == 'read_file':
         from tools.document_executor import read_file
-        return read_file(**arguments)
+        return read_file(**arguments, caller=caller, event_bus=event_bus, session_id=session_id)
+    if tool_name == 'edit_file':
+        from tools.document_executor import edit_file
+        return edit_file(**arguments)
     return None
 
 
@@ -168,6 +171,7 @@ DOCUMENT_TOOL_NAMES = {
     'merge_extracted_data',
     'write_file',
     'read_file',
+    'edit_file',
 }
 
 
@@ -204,7 +208,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 call_arguments.setdefault('session_id', session_id)
             result = handler(**call_arguments)
         elif tool_name in DOCUMENT_TOOL_NAMES:
-            result = _execute_document_tool(tool_name, arguments)
+            result = _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id)
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
             result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)
         else:

@@ -5,6 +5,7 @@
 """
 import os
 import json
+import difflib
 import tempfile
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -12,54 +13,16 @@ from pathlib import Path
 from tools.response_builder import error_result, success_result
 
 
-DEFAULT_READ_MAX_CHARS = 7000
-MAX_SINGLE_READ_CHARS = 7000
-STREAM_READ_CHUNK_SIZE = 1024
+DEFAULT_READ_MAX_LINES = 2000
+MAX_LINE_CHARS = 2000
+FILE_SIZE_PREVIEW_THRESHOLD = 5 * 1024  # 5KB
 
 
-def _decode_wrapped_json_string(content: str) -> str:
-    """兼容历史上双重编码的纯字符串文件内容。"""
-    stripped = content.strip()
-    if stripped.startswith('"') and stripped.endswith('"'):
-        try:
-            decoded = json.loads(stripped)
-            if isinstance(decoded, str):
-                return decoded
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return content
-
-
-def _skip_text_chars(stream, char_count: int) -> tuple[int, int]:
-    """流式跳过指定字符数，并统计跳过片段内的换行数量。"""
-    skipped = 0
-    newline_count = 0
-
-    while skipped < char_count:
-        chunk = stream.read(min(STREAM_READ_CHUNK_SIZE, char_count - skipped))
-        if not chunk:
-            break
-        skipped += len(chunk)
-        newline_count += chunk.count("\n")
-
-    return skipped, newline_count
-
-
-def _read_text_chars(stream, char_count: int) -> tuple[str, int]:
-    """流式读取最多指定字符数，并统计换行数量。"""
-    parts: list[str] = []
-    read_chars = 0
-    newline_count = 0
-
-    while read_chars < char_count:
-        chunk = stream.read(min(STREAM_READ_CHUNK_SIZE, char_count - read_chars))
-        if not chunk:
-            break
-        parts.append(chunk)
-        read_chars += len(chunk)
-        newline_count += chunk.count("\n")
-
-    return "".join(parts), newline_count
+def _format_line(line_number: int, line_content: str) -> str:
+    """Format a single line in cat -n style: '{line_number:>6}\\t{content}'."""
+    if len(line_content) > MAX_LINE_CHARS:
+        line_content = line_content[:MAX_LINE_CHARS] + " [TRUNCATED]"
+    return f"{line_number:>6}\t{line_content}"
 
 
 def read_document(file_path: str, encoding: str = "utf-8"):
@@ -407,52 +370,130 @@ def write_file(
 def read_file(
     file_path: str,
     encoding: str = "utf-8",
-    start: int = 0,
-    end: Optional[int] = None,
-    max_chars: int = DEFAULT_READ_MAX_CHARS,
+    offset: int = 1,
+    limit: int = DEFAULT_READ_MAX_LINES,
+    *,
+    caller: str = "direct",
+    event_bus=None,
+    session_id: Optional[str] = None,
 ) -> Any:
-    """读取文件内容片段，以字符串返回。JSON 文件可在收到结果后自行 json.loads 解析。"""
+    """按行号读取文件内容，返回 cat -n 格式。支持大文件预览确认（仅 direct 调用）。"""
     try:
         file_path_obj = Path(file_path)
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="read_file")
 
-        if start < 0:
-            return error_result("start 不能小于 0", tool_name="read_file")
-        if end is not None and end < start:
-            return error_result("end 不能小于 start", tool_name="read_file")
-        if max_chars <= 0:
-            return error_result("max_chars 必须大于 0", tool_name="read_file")
-
-        requested_chars = end - start if end is not None else max_chars
-        effective_max_chars = min(requested_chars, max_chars, MAX_SINGLE_READ_CHARS) if end is not None else min(max_chars, MAX_SINGLE_READ_CHARS)
-
-        with open(file_path_obj, 'r', encoding=encoding) as f:
-            actual_start, skipped_newlines = _skip_text_chars(f, start)
-            if actual_start < start:
-                return error_result(
-                    f"起始位置超出文件范围: start={start}",
-                    tool_name="read_file",
-                )
-
-            raw_content, content_newlines = _read_text_chars(f, effective_max_chars)
-            has_more = bool(f.read(1))
-
-        raw_end = start + len(raw_content)
-        content = _decode_wrapped_json_string(raw_content)
-        start_line = skipped_newlines + 1
-        end_line = start_line + content_newlines
+        if offset < 1:
+            return error_result("offset 必须 >= 1", tool_name="read_file")
+        if limit < 1:
+            return error_result("limit 必须 >= 1", tool_name="read_file")
 
         file_size = file_path_obj.stat().st_size
+
+        # 大文件预览确认：仅 caller=="direct" 且有 event_bus/session_id 时触发
+        if (
+            caller == "direct"
+            and file_size > FILE_SIZE_PREVIEW_THRESHOLD
+            and event_bus is not None
+            and session_id is not None
+        ):
+            # 读取前 5KB 作为预览
+            with open(file_path_obj, "r", encoding=encoding, errors="replace") as f:
+                preview_raw = f.read(FILE_SIZE_PREVIEW_THRESHOLD)
+
+            preview_lines = preview_raw.splitlines(keepends=True)
+            preview_formatted = "\n".join(
+                _format_line(i + 1, line.rstrip("\n\r"))
+                for i, line in enumerate(preview_lines)
+            )
+
+            # 复用审批机制发布确认事件
+            import uuid as _uuid
+            from agents.events import Event, EventType
+            from agents.task_registry import get_task_registry
+
+            approval_id = str(_uuid.uuid4())
+            registry = get_task_registry()
+            wait_evt = registry.add_pending_approval(session_id, approval_id)
+
+            event_bus.publish(Event(
+                type=EventType.USER_APPROVAL_REQUIRED,
+                session_id=session_id,
+                data={
+                    "approval_id": approval_id,
+                    "approval_type": "file_read_confirm",
+                    "tool_name": "read_file",
+                    "file_path": str(file_path_obj),
+                    "file_size": file_size,
+                    "preview": preview_formatted,
+                    "description": f"文件 {file_path_obj.name} 较大（{file_size} 字节），是否读取完整内容？",
+                }
+            ))
+
+            if wait_evt is not None:
+                wait_evt.wait()
+                approved, _ = registry.get_approval_result(session_id, approval_id)
+                if not approved:
+                    # 用户拒绝 → 返回预览内容
+                    return success_result(
+                        content=preview_formatted,
+                        summary=f"文件预览: {file_path}（仅前 5KB，{file_size} 字节总计）",
+                        output_type="text",
+                        metadata={
+                            "file_path": str(file_path_obj),
+                            "file_size": file_size,
+                            "preview_only": True,
+                            "preview_lines": len(preview_lines),
+                        },
+                        tool_name="read_file",
+                    )
+
+        # 正式读取
+        with open(file_path_obj, "r", encoding=encoding, errors="replace") as f:
+            all_lines = f.readlines()
+
+        total_lines = len(all_lines)
+        start_idx = offset - 1  # 0-based index
+        end_idx = min(start_idx + limit, total_lines)
+
+        if start_idx >= total_lines:
+            return success_result(
+                content="",
+                summary=f"offset {offset} 超出文件总行数 {total_lines}",
+                output_type="text",
+                metadata={
+                    "file_path": str(file_path_obj),
+                    "file_size": file_size,
+                    "total_lines": total_lines,
+                    "start_line": offset,
+                    "end_line": offset,
+                    "has_more": False,
+                    "next_offset": None,
+                },
+                tool_name="read_file",
+            )
+
+        selected_lines = all_lines[start_idx:end_idx]
+        formatted_lines = [
+            _format_line(start_idx + i + 1, line.rstrip("\n\r"))
+            for i, line in enumerate(selected_lines)
+        ]
+        content = "\n".join(formatted_lines)
+
+        has_more = end_idx < total_lines
+        actual_end_line = start_idx + len(selected_lines)
+        next_offset = actual_end_line + 1 if has_more else None
+
         summary = (
-            f"文件读取成功: {file_path}（字符区间 {start}:{raw_end}，"
-            f"{file_size} 字节）"
+            f"文件读取成功: {file_path}（行 {offset}-{actual_end_line}，"
+            f"共 {total_lines} 行，{file_size} 字节）"
         )
         if has_more:
-            summary += f"；还有后续内容，可继续调用 read_file(start={raw_end})"
+            summary += f"；还有后续内容，可继续调用 read_file(offset={next_offset})"
         else:
             summary += "；已到文件末尾"
+
         return success_result(
             content=content,
             summary=summary,
@@ -460,21 +501,94 @@ def read_file(
             metadata={
                 "file_path": str(file_path_obj),
                 "file_size": file_size,
-                "start": start,
-                "end": raw_end,
-                "requested_end": end,
-                "returned_chars": len(content),
-                "max_chars": effective_max_chars,
+                "total_lines": total_lines,
+                "start_line": offset,
+                "end_line": actual_end_line,
                 "has_more": has_more,
-                "next_start": raw_end if has_more else None,
-                "start_line": start_line,
-                "end_line": end_line,
-                "truncated": has_more,
+                "next_offset": next_offset,
             },
             tool_name="read_file",
         )
 
     except Exception as e:
         return error_result(f"读取文件失败: {str(e)}", tool_name="read_file")
+
+
+def edit_file(
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    encoding: str = "utf-8",
+    replace_all: bool = False,
+) -> Any:
+    """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。"""
+    try:
+        file_path_obj = Path(file_path)
+
+        if not file_path_obj.exists():
+            return error_result(f"文件不存在: {file_path}", tool_name="edit_file")
+
+        with open(file_path_obj, "r", encoding=encoding) as f:
+            content = f.read()
+
+        count = content.count(old_string)
+
+        if count == 0:
+            return error_result(
+                f"未找到匹配内容，请检查 old_string 是否与文件内容完全一致",
+                tool_name="edit_file",
+            )
+
+        if count > 1 and not replace_all:
+            return error_result(
+                f"匹配不唯一（找到 {count} 处匹配）。请提供更多上下文使 old_string 唯一，或设 replace_all=true",
+                tool_name="edit_file",
+            )
+
+        # 执行替换
+        if replace_all:
+            new_content = content.replace(old_string, new_string)
+            replacements = count
+        else:
+            new_content = content.replace(old_string, new_string, 1)
+            replacements = 1
+
+        # 写回文件
+        with open(file_path_obj, "w", encoding=encoding) as f:
+            f.write(new_content)
+
+        # 构建 unified diff 预览
+        old_lines = content.splitlines(keepends=True)
+        new_lines = new_content.splitlines(keepends=True)
+        diff = difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{file_path_obj.name}",
+            tofile=f"b/{file_path_obj.name}",
+        )
+        diff_preview = "".join(diff)
+        if len(diff_preview) > 2000:
+            diff_preview = diff_preview[:2000] + "\n... [DIFF TRUNCATED]"
+
+        new_size = file_path_obj.stat().st_size
+
+        return success_result(
+            content={
+                "file_path": str(file_path_obj),
+                "replacements": replacements,
+                "file_size": new_size,
+                "diff_preview": diff_preview,
+            },
+            summary=f"文件编辑成功: {file_path}（替换 {replacements} 处，{new_size} 字节）",
+            output_type="json",
+            metadata={
+                "file_path": str(file_path_obj),
+                "replacements": replacements,
+                "file_size": new_size,
+            },
+            tool_name="edit_file",
+        )
+
+    except Exception as e:
+        return error_result(f"编辑文件失败: {str(e)}", tool_name="edit_file")
 
 

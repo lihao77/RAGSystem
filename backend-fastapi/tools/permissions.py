@@ -149,6 +149,13 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         description="读取文件内容（只读）",
         allowed_callers=["direct", "code_execution"]
     ),
+    "edit_file": ToolPermission(
+        tool_name="edit_file",
+        risk_level=RiskLevel.HIGH,
+        requires_approval=True,
+        description="编辑文件内容（精准字符串替换）",
+        allowed_callers=["direct", "code_execution"]
+    ),
 }
 
 

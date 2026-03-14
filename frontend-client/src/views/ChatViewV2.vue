@@ -385,6 +385,9 @@
     <!-- 工具审批对话框 -->
     <ApprovalDialog ref="approvalDialogRef" />
 
+    <!-- 文件预览确认对话框 -->
+    <FilePreviewConfirmDialog ref="filePreviewDialogRef" />
+
     <!-- 用户输入对话框 -->
     <UserInputDialog ref="userInputDialogRef" />
   </div>
@@ -445,6 +448,7 @@ const TYPE_TO_PROPS = Object.fromEntries(
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
+import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
@@ -487,6 +491,7 @@ const messagesLoading = ref(false);
 const chatInputRef = ref(null);
 const confirmDialogRef = ref(null);
 const approvalDialogRef = ref(null);
+const filePreviewDialogRef = ref(null);
 const userInputDialogRef = ref(null);
 const toastRef = ref(null);
 const confirmDialog = ref({
@@ -2323,49 +2328,42 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
 
             // 工具审批请求：弹出确认对话框，等待用户操作
             else if (eventType === 'user.approval_required') {
-              approvalDialogRef.value?.show(
-                { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
-                // onApprove(approvalId, message)
-                async (aid, message) => {
-                  try {
-                    const resp = await fetch(
-                      `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-                      {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ approved: true, message })
-                      }
-                    );
-                    if (!resp.ok) {
-                      const result = await resp.json().catch(() => ({}));
-                      throw new Error(result.message || `审批提交失败 (${resp.status})`);
+              // 审批响应回调（复用）
+              const makeApprovalResponder = (approved) => async (aid, message) => {
+                try {
+                  const resp = await fetch(
+                    `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ approved, message })
                     }
-                  } catch (e) {
-                    console.warn('审批响应失败:', e);
-                    showToast(e.message || '审批提交失败', 'warning');
+                  );
+                  if (!resp.ok) {
+                    const result = await resp.json().catch(() => ({}));
+                    throw new Error(result.message || `审批提交失败 (${resp.status})`);
                   }
-                },
-                // onDeny(approvalId, message)
-                async (aid, message) => {
-                  try {
-                    const resp = await fetch(
-                      `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-                      {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ approved: false, message })
-                      }
-                    );
-                    if (!resp.ok) {
-                      const result = await resp.json().catch(() => ({}));
-                      throw new Error(result.message || `审批拒绝提交失败 (${resp.status})`);
-                    }
-                  } catch (e) {
-                    console.warn('审批拒绝响应失败:', e);
-                    showToast(e.message || '审批拒绝提交失败', 'warning');
-                  }
+                } catch (e) {
+                  console.warn('审批响应失败:', e);
+                  showToast(e.message || '审批提交失败', 'warning');
                 }
-              );
+              };
+
+              if (eventData.approval_type === 'file_read_confirm') {
+                // 大文件预览确认对话框
+                filePreviewDialogRef.value?.show(
+                  eventData,
+                  makeApprovalResponder(true),
+                  makeApprovalResponder(false)
+                );
+              } else {
+                // 通用工具审批对话框
+                approvalDialogRef.value?.show(
+                  { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
+                  makeApprovalResponder(true),
+                  makeApprovalResponder(false)
+                );
+              }
             }
 
             // 用户输入请求：弹出遮罩输入对话框
