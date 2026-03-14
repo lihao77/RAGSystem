@@ -115,13 +115,20 @@ class ObservationFormatterRegistry:
         return [f.name for f in self._formatters]
 
 
+_formatter_registry: ObservationFormatterRegistry | None = None
+
+
 def get_default_registry() -> ObservationFormatterRegistry:
     """
-    获取默认的注册表实例，并注册所有内置策略。
+    获取默认的注册表实例（单例），并注册所有内置策略。
 
     Returns:
         配置好的注册表实例
     """
+    global _formatter_registry
+    if _formatter_registry is not None:
+        return _formatter_registry
+
     from .chart import ChartObservationFormatter
     from .fallback import FallbackFormatter
     from .json_data import JsonDataFormatter
@@ -132,28 +139,14 @@ def get_default_registry() -> ObservationFormatterRegistry:
 
     registry = ObservationFormatterRegistry()
 
-    # 如果已经初始化过，直接返回
-    if len(registry._formatters) > 0:
-        return registry
-
-    # 按优先级注册内置策略
-    # 优先级数字越小越先匹配
-
-    # 1. Skills 工具（特殊处理）
+    # 按优先级注册内置策略（数字越小越先匹配）
     registry.register(SkillsObservationFormatter())
-
-    # 2. 可视化类
     registry.register(ChartObservationFormatter())
     registry.register(MapObservationFormatter())
-
-    # 3. 大数据（在普通 JSON 之前检查大小）
     registry.register(LargePayloadFormatter())
-
-    # 4. 文本和 JSON
     registry.register(TextDataFormatter())
     registry.register(JsonDataFormatter())
-
-    # 5. 保底策略（最后）
     registry.register(FallbackFormatter())
 
+    _formatter_registry = registry
     return registry

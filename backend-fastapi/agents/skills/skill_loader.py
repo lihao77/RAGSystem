@@ -137,33 +137,40 @@ class Skill:
 class SkillLoader:
     """Skill 加载器"""
 
-    def __init__(self, skills_dir: str = None):
+    def __init__(self, skills_dir=None):
         if skills_dir is None:
-            # 默认路径：backend/agents/skills/
-            skills_dir = Path(__file__).parent
-        self.skills_dir = Path(skills_dir)
-        logger.info(f"SkillLoader 初始化，Skills 目录: {self.skills_dir}")
+            self.skills_dirs = [Path(__file__).parent]
+        elif isinstance(skills_dir, (str, Path)):
+            self.skills_dirs = [Path(skills_dir)]
+        else:
+            self.skills_dirs = [Path(d) for d in skills_dir]
+        self.skills_dir = self.skills_dirs[0]  # 向下兼容
+        logger.info(f"SkillLoader 初始化，Skills 目录: {self.skills_dirs}")
+
+    def add_skills_dir(self, skills_dir: str) -> None:
+        """动态追加外部 Skills 目录（供扩展在 startup 时调用）。"""
+        p = Path(skills_dir)
+        if p not in self.skills_dirs:
+            self.skills_dirs.append(p)
+            logger.info(f"追加 Skills 目录: {p}")
 
     def load_all_skills(self) -> List[Skill]:
-        """
-        加载所有 Skills
-
-        扫描 skills 目录下的所有子目录，查找 SKILL.md 文件
-        """
+        """扫描所有已注册的 Skills 目录，加载全部 Skills。"""
         skills = []
 
-        if not self.skills_dir.exists():
-            logger.warning(f"Skills 目录不存在: {self.skills_dir}")
-            return skills
+        for base_dir in self.skills_dirs:
+            if not base_dir.exists():
+                logger.warning(f"Skills 目录不存在: {base_dir}")
+                continue
 
-        for skill_dir in self.skills_dir.iterdir():
-            if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
-                skill_file = skill_dir / "SKILL.md"
-                if skill_file.exists():
-                    skill = self._parse_skill_file(skill_file, skill_dir)
-                    if skill:
-                        skills.append(skill)
-                        logger.info(f"✓ 加载 Skill: {skill.name}")
+            for skill_dir in base_dir.iterdir():
+                if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
+                    skill_file = skill_dir / "SKILL.md"
+                    if skill_file.exists():
+                        skill = self._parse_skill_file(skill_file, skill_dir)
+                        if skill:
+                            skills.append(skill)
+                            logger.info(f"✓ 加载 Skill: {skill.name}")
 
         logger.info(f"共加载 {len(skills)} 个 Skills")
         return skills
@@ -213,16 +220,16 @@ class SkillLoader:
         return count
 
     def _iter_skill_files(self):
-        """遍历所有 Skill 目录及其 SKILL.md 文件。"""
-        if not self.skills_dir.exists():
-            logger.warning(f"Skills 目录不存在: {self.skills_dir}")
-            return
-
-        for skill_dir in self.skills_dir.iterdir():
-            if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
-                skill_file = skill_dir / "SKILL.md"
-                if skill_file.exists():
-                    yield skill_dir, skill_file
+        """遍历所有已注册 Skills 目录及其 SKILL.md 文件。"""
+        for base_dir in self.skills_dirs:
+            if not base_dir.exists():
+                logger.warning(f"Skills 目录不存在: {base_dir}")
+                continue
+            for skill_dir in base_dir.iterdir():
+                if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
+                    skill_file = skill_dir / "SKILL.md"
+                    if skill_file.exists():
+                        yield skill_dir, skill_file
 
     def _parse_skill_file(self, file_path: Path, skill_dir: Path) -> Optional[Skill]:
         """

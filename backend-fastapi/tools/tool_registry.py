@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 
 from tools.catalog.agent_tools import AGENT_TOOLS_EXAMPLE, get_agent_tools
@@ -24,15 +25,33 @@ from tools.catalog.mcp_tools import (
 from tools.catalog.skill_tools import SKILLS_SYSTEM_TOOLS, SKILLS_TOOL_NAMES, SKILL_TOOL_CONTRACTS
 from tools.catalog.static_tools import STATIC_TOOL_CONTRACTS, STATIC_TOOLS
 
+logger = logging.getLogger(__name__)
+
 
 class ToolRegistry:
     """Canonical access layer for tool definitions grouped by source."""
 
+    def __init__(self):
+        self._extra_contracts: list = []
+        self._static_tools_cache: list | None = None
+
+    def register_extra_contracts(self, contracts: list) -> None:
+        """注册第三方扩展工具契约。"""
+        if not contracts:
+            return
+        self._extra_contracts.extend(contracts)
+        self._static_tools_cache = None  # 失效缓存
+        logger.info("注册扩展工具: %s", [c.name for c in contracts])
+
     def get_static_contracts(self):
-        return deepcopy(STATIC_TOOL_CONTRACTS)
+        return deepcopy(STATIC_TOOL_CONTRACTS) + deepcopy(self._extra_contracts)
 
     def get_static_tools(self):
-        return deepcopy(STATIC_TOOLS)
+        if self._static_tools_cache is not None:
+            return deepcopy(self._static_tools_cache)
+        from tools.tool_definition_builder import build_function_tools
+        self._static_tools_cache = build_function_tools(self.get_static_contracts())
+        return deepcopy(self._static_tools_cache)
 
     def get_document_contracts(self):
         return deepcopy(DOCUMENT_TOOL_CONTRACTS)
@@ -41,7 +60,7 @@ class ToolRegistry:
         return deepcopy(DOCUMENT_TOOLS)
 
     def get_default_tools(self):
-        return deepcopy(STATIC_TOOLS + DOCUMENT_TOOLS)
+        return self.get_static_tools() + deepcopy(DOCUMENT_TOOLS)
 
     def get_all_base_tools(self):
         return self.get_default_tools()

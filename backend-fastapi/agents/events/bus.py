@@ -105,7 +105,7 @@ class Event:
     """事件数据结构"""
 
     # 基础字段
-    type: EventType
+    type: "str | EventType"
     data: Dict[str, Any]
 
     # 元数据
@@ -131,7 +131,7 @@ class Event:
         """转换为字典（用于序列化）"""
         return {
             "event_id": self.event_id,
-            "type": self.type.value,
+            "type": self.type.value if hasattr(self.type, 'value') else self.type,
             "data": self.data,
             "timestamp": self.timestamp,
             "priority": self.priority.value,
@@ -153,7 +153,7 @@ class Subscription:
     """事件订阅"""
 
     subscription_id: str
-    event_types: List[EventType]
+    event_types: List["str | EventType"]
     handler: Callable[[Event], Any]
     is_async: bool
     filter_func: Optional[Callable[[Event], bool]] = None
@@ -182,7 +182,7 @@ class EventBus:
             enable_persistence: 是否启用事件持久化（用于审计）
             max_history: 最大事件历史数量（防止内存泄漏）
         """
-        self._subscriptions: Dict[EventType, List[Subscription]] = defaultdict(list)
+        self._subscriptions: Dict[str | EventType, List[Subscription]] = defaultdict(list)
         self._event_history: List[Event] = []  # 事件历史（内存中）
         self._enable_persistence = enable_persistence
         self._max_history = max_history  # ✨ 限制历史大小
@@ -204,7 +204,7 @@ class EventBus:
 
     def subscribe(
         self,
-        event_types: List[EventType],
+        event_types: "List[str | EventType]",
         handler: Callable[[Event], Any],
         filter_func: Optional[Callable[[Event], bool]] = None,
         priority: int = 0
@@ -240,7 +240,7 @@ class EventBus:
                 # 按优先级排序（优先级高的先执行）
                 self._subscriptions[event_type].sort(key=lambda s: s.priority, reverse=True)
 
-        logger.info(f"新订阅: {subscription_id} → {[t.value for t in event_types]}")
+        logger.info(f"新订阅: {subscription_id} → {[t.value if hasattr(t, 'value') else t for t in event_types]}")
         return subscription_id
 
     def unsubscribe(self, subscription_id: str):
@@ -285,7 +285,7 @@ class EventBus:
         with self._lock:
             subscriptions = list(self._subscriptions.get(event.type, []))
 
-        logger.debug(f"发布事件: {event.type.value} (订阅者: {len(subscriptions)})")
+        logger.debug(f"发布事件: {event.type.value if hasattr(event.type, 'value') else event.type} (订阅者: {len(subscriptions)})")
 
         # 分发事件（在锁外执行，避免死锁）
         for subscription in subscriptions:
@@ -324,7 +324,7 @@ class EventBus:
         with self._lock:
             subscriptions = list(self._subscriptions.get(event.type, []))
 
-        logger.debug(f"发布事件: {event.type.value} (订阅者: {len(subscriptions)})")
+        logger.debug(f"发布事件: {event.type.value if hasattr(event.type, 'value') else event.type} (订阅者: {len(subscriptions)})")
 
         # 分发事件（在锁外执行，避免死锁）
         tasks = []
@@ -458,7 +458,7 @@ class EventBus:
 
     def get_event_history(
         self,
-        event_types: Optional[List[EventType]] = None,
+        event_types: "Optional[List[str | EventType]]" = None,
         session_id: Optional[str] = None,
         limit: int = 100
     ) -> List[Event]:

@@ -81,7 +81,47 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('Agent API 运行时初始化失败: %s', e)
 
-    # ── 第五步：启动 MCP Client Manager ────────────────────────────────────
+    # ── 第五步（新增）：加载外部扩展 ──────────────────────────────────────
+    loaded_extensions = []
+    try:
+        from extensions.loader import discover_extensions
+        loaded_extensions = discover_extensions()
+        if loaded_extensions:
+            # 5a. 注册扩展工具
+            from tools.tool_registry import get_tool_registry
+            for ext in loaded_extensions:
+                get_tool_registry().register_extra_contracts(ext.get_tool_contracts())
+
+            # 5b. 注册扩展格式化器
+            from agents.context.observation_formatters.registry import get_default_registry
+            fmt_registry = get_default_registry()
+            for ext in loaded_extensions:
+                for fmt in ext.get_observation_formatters():
+                    fmt_registry.register(fmt)
+
+            # 5c. 注册扩展 Skills 目录
+            from agents.skills.skill_loader import get_skill_loader
+            for ext in loaded_extensions:
+                for d in ext.get_skills_dirs():
+                    get_skill_loader().add_skills_dir(d)
+
+            # 5d. 挂载扩展 API 路由
+            from api.v1 import router as v1_router
+            for ext in loaded_extensions:
+                for (router, prefix, tag) in ext.get_api_routers():
+                    v1_router.include_router(router, prefix=prefix, tags=[tag])
+
+            # 5e. 调用扩展 startup 钩子
+            for ext in loaded_extensions:
+                await ext.on_startup(container)
+
+            logger.info('✓ 加载 %d 个外部扩展', len(loaded_extensions))
+    except Exception as e:
+        logger.warning('扩展加载失败（不影响核心功能）: %s', e)
+
+    app.state.loaded_extensions = loaded_extensions
+
+    # ── 第六步：启动 MCP Client Manager ────────────────────────────────────
     try:
         container.startup_mcp()
         logger.info('✓ MCP Client Manager 已启动')
@@ -100,3 +140,9 @@ async def _shutdown(app: FastAPI) -> None:
             logger.info('RuntimeContainer 已关闭')
         except Exception as e:
             logger.warning('关闭 RuntimeContainer 失败: %s', e)
+
+    for ext in getattr(app.state, 'loaded_extensions', []):
+        try:
+            await ext.on_shutdown(container)
+        except Exception as e:
+            logger.warning('扩展 %s.on_shutdown 失败: %s', ext.name, e)
