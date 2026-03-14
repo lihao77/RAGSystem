@@ -126,4 +126,16 @@ backend/config/yaml/config.yaml
 notify.ps1
 pytest.ini
 
+# 备份配置文件
+*.backup.yaml
+*.backup.yml
+
+# 工具测试产物
+test_*.txt
+
+# 启动日志
+backend_start.*.log
+*.out.log
+*.err.log
+
 frontend/
