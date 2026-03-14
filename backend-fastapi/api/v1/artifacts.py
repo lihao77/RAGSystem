@@ -50,3 +50,35 @@ async def list_visualizations(session_id: str = Query(..., description="会话 I
     except Exception as e:
         logger.error(f"列出可视化 artifact 失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete('/visualizations/{artifact_id}')
+async def delete_visualization(artifact_id: str):
+    """删除单个可视化 artifact。"""
+    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+
+    try:
+        manager = get_visualization_artifact_manager()
+        ok = manager.delete_record(artifact_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"未找到可视化 artifact: {artifact_id}")
+        return {"deleted": True, "artifact_id": artifact_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除可视化 artifact 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete('/visualizations')
+async def delete_visualizations_by_session(session_id: str = Query(..., description="会话 ID")):
+    """删除某会话下的所有可视化 artifact。"""
+    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+
+    try:
+        manager = get_visualization_artifact_manager()
+        count = manager.delete_by_session(session_id)
+        return {"deleted_count": count, "session_id": session_id}
+    except Exception as e:
+        logger.error(f"批量删除可视化 artifact 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

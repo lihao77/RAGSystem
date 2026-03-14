@@ -45,6 +45,20 @@ class AgentSessionApplication:
         session = self.get_session(session_id)
         if not session:
             return False
+        # 联动清理该会话的可视化 artifact（磁盘文件 + 内存索引）
+        try:
+            from tools.visualization_artifact_manager import get_visualization_artifact_manager
+            removed = get_visualization_artifact_manager().delete_by_session(session_id)
+            if removed:
+                import logging
+                logging.getLogger(__name__).info(
+                    "delete_session: 已清理 %d 个可视化 artifact (session=%s)", removed, session_id
+                )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "delete_session: 清理可视化 artifact 失败 (session=%s)", session_id, exc_info=True
+            )
         self._conversation_store.delete_session(session_id=session_id)
         return True
 
