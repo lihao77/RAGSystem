@@ -237,6 +237,9 @@
                            class="final-answer">
                         <div class="markdown-body" v-html="renderMarkdown(part.content)"></div>
                       </div>
+                      <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
+                        <VisualizationLoader :artifactId="part.artifactId" />
+                      </div>
                       <div v-else-if="part.type === 'chart'" class="inline-chart-wrapper">
                         <component
                           :is="getChartComponent(msg.multimodalContents[part.index])"
@@ -397,10 +400,11 @@ import ChatInput from '../components/ChatInput.vue';
 import MultimodalContent from '../components/MultimodalContent.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
+import VisualizationLoader from '../components/VisualizationLoader.vue';
 import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
 
-// ── 可视化注册表 ─────────────────────────────────────────────────────
-// 新增可视化类型只需在此注册一行，无需改动 processSSEStream / extractMultimodalFromSteps
+// ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
+// 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
 const VISUALIZATION_REGISTRY = {
   'visualization.chart': {
     type: 'chart',
@@ -774,6 +778,44 @@ const parseAssistantIntermediate = (content) => {
   };
 };
 
+const getLatestRound = (steps = []) => {
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const round = steps[i]?.round;
+    if (typeof round === 'number' && Number.isFinite(round)) {
+      return round;
+    }
+  }
+  return null;
+};
+
+const buildSubtaskState = ({
+  eventData = {},
+  fallbackRound = null,
+  existing = null,
+  calledAgent = '',
+  displayName = '',
+  taskId = null,
+  parentCallId = null
+} = {}) => ({
+  order: eventData.order ?? existing?.order,
+  task_id: taskId ?? existing?.task_id ?? null,
+  parent_call_id: parentCallId ?? existing?.parent_call_id ?? null,
+  round: eventData.round ?? existing?.round ?? fallbackRound,
+  round_index: eventData.round_index ?? existing?.round_index,
+  agent_name: calledAgent || existing?.agent_name || '',
+  agent_display_name: displayName || existing?.agent_display_name || calledAgent || '',
+  description: eventData.subtask_description || eventData.description || eventData.task || existing?.description || '',
+  react_steps: Array.isArray(existing?.react_steps) ? existing.react_steps : [],
+  tool_calls: Array.isArray(existing?.tool_calls) ? existing.tool_calls : [],
+  result_summary: typeof existing?.result_summary === 'string' ? existing.result_summary : '',
+  status: (existing?.status === 'success' || existing?.status === 'error')
+    ? existing.status
+    : 'running',
+  expanded: true,
+  currentStep: Object.prototype.hasOwnProperty.call(existing || {}, 'currentStep') ? existing.currentStep : null
+});
+
 // 将规范化后的 execution_steps 还原为 subtasks 与 execution_steps
 function executionStepsToExecutionState(executionSteps) {
   if (!Array.isArray(executionSteps) || executionSteps.length === 0) return { subtasks: [], execution_steps: [] };
@@ -802,23 +844,16 @@ function executionStepsToExecutionState(executionSteps) {
       if (isOrchestratorAgentName(step.agent_name)) {
         continue;
       }
-      callNodes.set(callId, {
-        call_id: callId,
-        parent_call_id: parentCallId,
-        order: step.order,
-        task_id: callId,
-        round: step.round,
-        round_index: step.round_index,
-        agent_name: step.agent_name,
-        agent_display_name: step.agent_display_name || step.agent_name,
-        description: step.description || step.task || '',
-        react_steps: [],
-        tool_calls: [],
-        result_summary: '',
-        status: 'running',
-        expanded: true,
-        currentStep: null
-      });
+      const existing = callNodes.get(callId);
+      callNodes.set(callId, buildSubtaskState({
+        eventData: step,
+        fallbackRound: getLatestRound(execution_steps),
+        existing,
+        calledAgent: step.agent_name,
+        displayName: step.agent_display_name || step.agent_name,
+        taskId: callId,
+        parentCallId,
+      }));
       continue;
     }
 
@@ -1513,34 +1548,53 @@ const executionStatusTooltip = computed(() => {
 
 function parseMessageParts(msg) {
   const contents = msg.multimodalContents || [];
-  if (!contents.length || !msg.content) {
-    return [{ type: 'text', content: msg.content || '' }];
-  }
+  const content = msg.content || '';
 
+  // 新格式：[viz:artifact_id]
+  const VIZ_RE = /\[viz:(viz_\w+)\]/g;
+  // 旧格式兼容：[CHART:N]
   const CHART_RE = /\[CHART:(\d+)\]/g;
-  if (!CHART_RE.test(msg.content)) {
+
+  const hasViz = VIZ_RE.test(content);
+  VIZ_RE.lastIndex = 0;
+  const hasChart = CHART_RE.test(content);
+  CHART_RE.lastIndex = 0;
+
+  // 无任何占位符
+  if (!hasViz && !hasChart) {
+    if (!contents.length) {
+      return [{ type: 'text', content }];
+    }
+    // 有旧格式 multimodal 但无占位符，追加到末尾
     return [
-      { type: 'text', content: msg.content },
+      { type: 'text', content },
       ...contents.map((c, i) => ({ type: 'chart', index: i }))
     ];
   }
 
+  // 统一正则匹配两种格式
+  const COMBINED_RE = /\[viz:(viz_\w+)\]|\[CHART:(\d+)\]/g;
   const parts = [];
   let lastIndex = 0;
-  CHART_RE.lastIndex = 0;
   let match;
-  while ((match = CHART_RE.exec(msg.content)) !== null) {
+  while ((match = COMBINED_RE.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: msg.content.slice(lastIndex, match.index) });
+      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
     }
-    const chartIdx = parseInt(match[1], 10) - 1;
-    if (chartIdx >= 0 && chartIdx < contents.length) {
-      parts.push({ type: 'chart', index: chartIdx });
+    if (match[1]) {
+      // 新格式 [viz:artifact_id]
+      parts.push({ type: 'viz', artifactId: match[1] });
+    } else if (match[2]) {
+      // 旧格式 [CHART:N] 兼容
+      const chartIdx = parseInt(match[2], 10) - 1;
+      if (chartIdx >= 0 && chartIdx < contents.length) {
+        parts.push({ type: 'chart', index: chartIdx });
+      }
     }
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < msg.content.length) {
-    parts.push({ type: 'text', content: msg.content.slice(lastIndex) });
+  if (lastIndex < content.length) {
+    parts.push({ type: 'text', content: content.slice(lastIndex) });
   }
   return parts;
 }
@@ -1915,39 +1969,19 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               }
 
               const existingSubtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+              const subtaskState = buildSubtaskState({
+                eventData,
+                fallbackRound: getLatestRound(currentMsg.execution_steps),
+                existing: existingSubtask,
+                calledAgent: calledAgentForStart,
+                displayName: displayNameForStart,
+                taskId: event.call_id,
+                parentCallId: event.parent_call_id,
+              });
               if (existingSubtask) {
-                existingSubtask.order = eventData.order;
-                existingSubtask.parent_call_id = event.parent_call_id;
-                existingSubtask.round = eventData.round;
-                existingSubtask.round_index = eventData.round_index;
-                existingSubtask.agent_name = calledAgentForStart;
-                existingSubtask.agent_display_name = displayNameForStart;
-                existingSubtask.description = eventData.subtask_description || eventData.description || eventData.task;
-                existingSubtask.status = existingSubtask.status === 'success' || existingSubtask.status === 'error'
-                  ? existingSubtask.status
-                  : 'running';
-                existingSubtask.expanded = true;
-                if (!Array.isArray(existingSubtask.react_steps)) existingSubtask.react_steps = [];
-                if (!Array.isArray(existingSubtask.tool_calls)) existingSubtask.tool_calls = [];
-                if (typeof existingSubtask.result_summary !== 'string') existingSubtask.result_summary = '';
-                if (!Object.prototype.hasOwnProperty.call(existingSubtask, 'currentStep')) existingSubtask.currentStep = null;
+                Object.assign(existingSubtask, subtaskState);
               } else {
-                currentMsg.subtasks.push({
-                  order: eventData.order,
-                  task_id: event.call_id,
-                  parent_call_id: event.parent_call_id,
-                  round: eventData.round,
-                  round_index: eventData.round_index,
-                  agent_name: calledAgentForStart,
-                  agent_display_name: displayNameForStart,
-                  description: eventData.subtask_description || eventData.description || eventData.task,
-                  react_steps: [],
-                  tool_calls: [],
-                  result_summary: '',
-                  status: 'running',
-                  expanded: true,
-                  currentStep: null
-                });
+                currentMsg.subtasks.push(subtaskState);
               }
             }
             // ⚠️ ================================================================

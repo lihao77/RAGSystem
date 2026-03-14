@@ -381,10 +381,12 @@ class EventPublisher:
             priority=EventPriority.HIGH
         )
 
-    # ==================== 可视化事件 ====================
+    # ==================== 可视化事件（Deprecated） ====================
+    # 新架构下可视化通过 artifact_id 持久化，前端按需 REST 拉取。
+    # 保留这些方法仅供向后兼容。
 
     def chart_generated(self, chart_config: Dict, chart_type: str, title: str = None):
-        """图表生成"""
+        """[Deprecated] 图表生成事件。新架构使用 create_chart + [viz:id] 替代。"""
         # 从 echarts_config 中提取标题（如果没有提供）
         if not title and chart_config:
             title = chart_config.get('title', {}).get('text', 'Data Visualization')
@@ -399,7 +401,7 @@ class EventPublisher:
         )
 
     def map_generated(self, map_data: Dict, map_type: str, title: str = None):
-        """地图生成"""
+        """[Deprecated] 地图生成事件。新架构使用 create_map + [viz:id] 替代。"""
         # 从 map_data 中提取标题（如果没有提供）
         if not title and map_data:
             title = map_data.get('title', 'Map Visualization')

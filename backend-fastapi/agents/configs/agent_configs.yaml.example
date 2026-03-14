@@ -49,9 +49,9 @@ agents:
         - read_document
         - chunk_document
         - extract_structured_data
-        - generate_chart
-        - update_chart_config
-        - present_chart
+        - create_chart
+        - create_map
+        - revise_visualization
         - execute_code
     skills:
       enabled_skills: []
@@ -65,8 +65,8 @@ agents:
     custom_params:
       type: react
       behavior:
-        system_prompt: "你是问答助手"
-        # rounds: 10                         # 可选：仅配置时才限制最大推理轮数
+        system_prompt: "你是问答助手。目标是直接、准确地完成任务。信息足够时直接回答；需要外部信息时再调用工具；缺少关键输入且无法自行补齐时，使用 request_user_input；不编造事实，不输出推理过程。"
+        # max_rounds: 10                     # 可选：仅配置时才限制最大推理轮数（兼容 rounds）
         auto_execute_tools: true
         # max_context_tokens: 80000           # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
         # 注意：这里的 max_context_tokens 是“对话历史预算”，不是模型原始 context window
@@ -106,8 +106,8 @@ agents:
     custom_params:
       type: orchestrator
       behavior:
-        system_prompt: "你是一个智能体编排器，可以动态调用其他 Agent 完成复杂任务。"
-        # rounds: 15                         # 可选：仅配置时才限制最大推理轮数
+        system_prompt: "你是主编排器。目标是用最少必要步骤完成任务：能直接回答就直接回答，能直接工具完成就不要额外委派，只有在需要专业能力时才调用子 Agent；缺少关键输入且无法补齐时使用 request_user_input；不编造事实，不输出推理过程。"
+        # max_rounds: 15                     # 可选：仅配置时才限制最大推理轮数（兼容 rounds）
         compression_trigger_ratio: 0.85
         summarize_max_tokens: 300
         preserve_recent_turns: 3

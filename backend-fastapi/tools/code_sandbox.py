@@ -206,7 +206,7 @@ def _make_request_write_approval(event_bus, approval_granted: list, session_id: 
     return request_write_approval
 
 
-def _make_call_tool_function(agent_config, event_bus, user_role):
+def _make_call_tool_function(agent_config, event_bus, user_role, session_id: Optional[str] = None):
     """
     创建 call_tool 函数供代码调用
 
@@ -259,7 +259,8 @@ def _make_call_tool_function(agent_config, event_bus, user_role):
             agent_config=agent_config,
             event_bus=event_bus,
             user_role=user_role,
-            caller="code_execution"  # 传递调用来源
+            caller="code_execution",  # 传递调用来源
+            session_id=session_id,
         )
 
         # 3. 检查成功
@@ -378,7 +379,12 @@ def execute_code_sandbox(
         return error_result(f"代码安全检查失败: {error_msg}", tool_name="execute_code")
 
     # 2. 准备执行环境
-    call_tool_func = _make_call_tool_function(agent_config, event_bus, user_role)
+    call_tool_func = _make_call_tool_function(
+        agent_config,
+        event_bus,
+        user_role,
+        session_id=session_id,
+    )
 
     # 工具调用计数器
     tool_calls_count = [0]  # 使用列表以便在闭包中修改

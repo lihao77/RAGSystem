@@ -11,10 +11,9 @@ from .result_schema import ToolExecutionResult
 
 
 TOOL_OUTPUT_TYPE_MAP = {
-    "generate_chart": "chart",
-    "update_chart_config": "chart",
-    "present_chart": "chart",
-    "generate_map": "map",
+    "create_chart": "chart",
+    "create_map": "map",
+    "revise_visualization": "chart",
     "activate_skill": "markdown",
     "load_skill_resource": "markdown",
     "execute_skill_script": "text",

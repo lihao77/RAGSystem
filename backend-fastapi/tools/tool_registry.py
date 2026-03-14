@@ -90,7 +90,7 @@ class ToolRegistry:
             return "document"
         if name in {"process_data_file", "transform_data"}:
             return "data"
-        if name in {"generate_chart", "update_chart_config", "present_chart", "generate_map"}:
+        if name in {"create_chart", "create_map", "revise_visualization"}:
             return "visualization"
         if name == "execute_code":
             return "execution"

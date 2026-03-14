@@ -81,7 +81,14 @@ const executionTree = computed(() => {
   // 构建树
   sortedRounds.forEach(round => {
     const executionStep = executionByRound[round];
-    const subtasksInRound = subtasksByRound[round] || [];
+    const subtasksInRound = (subtasksByRound[round] || []).slice().sort((a, b) => {
+      const aIndex = a?.round_index ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = b?.round_index ?? Number.MAX_SAFE_INTEGER;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+      const aOrder = a?.order ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b?.order ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    });
 
     // 创建编排器 intent 节点
     const node = {

@@ -166,21 +166,6 @@ class OrchestratorAgent(BaseAgent):
             agent_metadata["max_rounds"] = self.max_rounds
         self._publisher.agent_start(task, metadata=agent_metadata)
 
-        child_viz_count = [0]
-        child_viz_sub_id = None
-        if event_bus is not None:
-            from agents.events.bus import EventType
-
-            def _on_child_visualization(event):
-                if event.agent_name != self.name:
-                    child_viz_count[0] += 1
-
-            child_viz_sub_id = event_bus.subscribe(
-                event_types=[EventType.CHART_GENERATED, EventType.MAP_GENERATED],
-                handler=_on_child_visualization,
-                filter_func=lambda e: e.session_id == context.session_id,
-            )
-
         return {
             'start_time': start_time,
             'event_bus': event_bus,
@@ -188,12 +173,8 @@ class OrchestratorAgent(BaseAgent):
             'parent_call_id': parent_call_id,
             'run_id': run_id,
             'current_session': [{"role": "user", "content": task}],
-            'pending_visualizations': [],
-            'visualization_counter': 0,
             'agent_calls_history': [],
             'global_agent_order': 0,
-            'child_viz_count': child_viz_count,
-            'child_viz_sub_id': child_viz_sub_id,
             'rounds': 0,
         }
 
@@ -293,10 +274,6 @@ class OrchestratorAgent(BaseAgent):
 
             agent_results[idx] = route_result['result']
             observations.append(route_result['observation'])
-            viz_event = route_result.get('visualization_event')
-            if viz_event:
-                state['visualization_counter'] = state.get('visualization_counter', 0) + 1
-                state.setdefault('pending_visualizations', []).append(viz_event)
 
         combined_observations = "\n\n".join(observations)
         state['current_session'].append({
@@ -372,16 +349,11 @@ class OrchestratorAgent(BaseAgent):
         start_time: float,
     ) -> AgentResponse:
         del context
-        total_viz = state.get('visualization_counter', 0) + state.get('child_viz_count', [0])[0]
-        if total_viz > 0:
-            from agents.utils.visualization_postprocess import ensure_chart_placeholders
-            final_answer = ensure_chart_placeholders(final_answer, total_viz)
 
         call_id = state.get('call_id')
         run_id = state.get('run_id')
         if self._publisher:
             self._publisher.final_answer(final_answer)
-            self._publish_deferred_visualizations(state.get('pending_visualizations'))
             if call_id:
                 self._publisher.agent_call_end(
                     call_id=call_id,
@@ -520,13 +492,6 @@ class OrchestratorAgent(BaseAgent):
         state: Dict[str, Any],
     ) -> None:
         del context
-        event_bus = state.get('event_bus')
-        sub_id = state.get('child_viz_sub_id')
-        if event_bus is not None and sub_id is not None:
-            try:
-                event_bus.unsubscribe(sub_id)
-            except Exception:
-                pass
 
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:

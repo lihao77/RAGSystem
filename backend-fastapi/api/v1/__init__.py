@@ -17,6 +17,7 @@ from .files import router as files_router
 from .vector import router as vector_router
 from .vector_management import router as vector_management_router
 from .embedding_models import router as embedding_models_router
+from .artifacts import router as artifacts_router
 
 router = APIRouter()
 
@@ -55,3 +56,6 @@ router.include_router(vector_management_router, prefix='/vector', tags=['向量�
 
 # Embedding 模型管理
 router.include_router(embedding_models_router, prefix='/embedding-models', tags=['Embedding 模型'])
+
+# Artifact 管理（可视化等）
+router.include_router(artifacts_router, prefix='/artifacts', tags=['Artifact 管理'])

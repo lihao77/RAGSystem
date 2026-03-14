@@ -85,7 +85,7 @@ AGENT_TOOLS_EXAMPLE = [
             name="invoke_agent_qa_agent",
             description="""**通用文档问答智能体**
 **能力**: 处理文档读取、结构化抽取、数据整理、图表生成等通用任务
-**可用工具**: read_document, extract_structured_data, transform_data, generate_chart, present_chart, execute_code
+**可用工具**: read_document, extract_structured_data, transform_data, create_chart, create_map, execute_code
 **适用场景**:
 - 读取和总结文档
 - 提取结构化信息

@@ -108,8 +108,8 @@ def _sample_process_data_file(temp_dir: Path) -> Any:
     )
 
 
-def _sample_generate_chart(_: Path) -> Any:
-    return TOOL_HANDLERS["generate_chart"](
+def _sample_create_chart(_: Path) -> Any:
+    return TOOL_HANDLERS["create_chart"](
         data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
         chart_type="line",
         title="sample",
@@ -118,8 +118,8 @@ def _sample_generate_chart(_: Path) -> Any:
     )
 
 
-def _sample_update_chart_config(_: Path) -> Any:
-    draft = TOOL_HANDLERS["generate_chart"](
+def _sample_revise_visualization(_: Path) -> Any:
+    draft = TOOL_HANDLERS["create_chart"](
         data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
         chart_type="line",
         title="sample",
@@ -127,32 +127,15 @@ def _sample_update_chart_config(_: Path) -> Any:
         y_field="value",
         session_id="audit-session",
     )
-    candidate_id = draft.content["candidate_id"]
-    return TOOL_HANDLERS["update_chart_config"](
-        candidate_id=candidate_id,
+    artifact_id = draft.content["artifact_id"]
+    return TOOL_HANDLERS["revise_visualization"](
+        artifact_id=artifact_id,
         config_patch={"title": {"text": "updated sample"}},
-        session_id="audit-session",
     )
 
 
-def _sample_present_chart(_: Path) -> Any:
-    draft = TOOL_HANDLERS["generate_chart"](
-        data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
-        chart_type="line",
-        title="sample",
-        x_field="year",
-        y_field="value",
-        session_id="audit-session",
-    )
-    candidate_id = draft.content["candidate_id"]
-    return TOOL_HANDLERS["present_chart"](
-        candidate_id=candidate_id,
-        session_id="audit-session",
-    )
-
-
-def _sample_generate_map(_: Path) -> Any:
-    return TOOL_HANDLERS["generate_map"](
+def _sample_create_map(_: Path) -> Any:
+    return TOOL_HANDLERS["create_map"](
         data=[
             {"name": "A", "value": 12, "geometry": "POINT (121.47 31.23)"},
             {"name": "B", "value": 8, "geometry": "POINT (121.50 31.20)"},
@@ -295,10 +278,9 @@ def _sample_read_file(temp_dir: Path) -> Any:
 _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "transform_data": _sample_transform_data,
     "process_data_file": _sample_process_data_file,
-    "generate_chart": _sample_generate_chart,
-    "update_chart_config": _sample_update_chart_config,
-    "present_chart": _sample_present_chart,
-    "generate_map": _sample_generate_map,
+    "create_chart": _sample_create_chart,
+    "revise_visualization": _sample_revise_visualization,
+    "create_map": _sample_create_map,
     "activate_skill": lambda temp_dir: _run_skill_sample("activate_skill", temp_dir),
     "load_skill_resource": lambda temp_dir: _run_skill_sample("load_skill_resource", temp_dir),
     "execute_skill_script": lambda temp_dir: _run_skill_sample("execute_skill_script", temp_dir),

@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Managed visualization candidate store for delayed frontend presentation."""
+"""
+[Deprecated] Managed visualization candidate store for delayed frontend presentation.
+
+新架构使用 tools/visualization_artifact_manager.py 替代此模块。
+此文件保留仅供向后兼容，新代码不应使用。
+"""
 
 from __future__ import annotations
 

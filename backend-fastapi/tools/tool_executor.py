@@ -8,24 +8,22 @@
 
 from tools.tool_executor_modules import (
     activate_skill,
+    create_chart,
+    create_map,
     execute_skill_script,
     execute_tool,
-    generate_chart,
-    generate_map,
     get_skill_info,
     load_skill_resource,
-    present_chart,
     process_data_file,
+    revise_visualization,
     transform_data,
-    update_chart_config,
 )
 
 __all__ = [
     'execute_tool',
-    'generate_chart',
-    'update_chart_config',
-    'present_chart',
-    'generate_map',
+    'create_chart',
+    'create_map',
+    'revise_visualization',
     'transform_data',
     'process_data_file',
     'activate_skill',

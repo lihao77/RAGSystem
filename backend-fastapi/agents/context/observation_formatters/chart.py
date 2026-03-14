@@ -19,7 +19,7 @@ class ChartObservationFormatter(BaseObservationFormatter):
     """
     图表结果格式化器。
 
-    处理 generate_chart 等可视化工具的输出。
+    处理 create_chart 等可视化工具的输出。
     """
 
     name = "chart"
@@ -39,6 +39,24 @@ class ChartObservationFormatter(BaseObservationFormatter):
         estimated_size = self._estimate_size_fast(content)
         self._record_materialization(result, context, estimated_size, used_artifact=False)
 
+        # 新架构：artifact_id 驱动
+        if isinstance(content, dict) and content.get("artifact_id"):
+            artifact_id = content["artifact_id"]
+            viz_type = content.get("viz_type", "chart")
+            title = content.get("title", "未命名图表")
+            preview = content.get("preview", {})
+
+            parts = [f"✅ {summary}"]
+            parts.append(f"artifact_id: {artifact_id}")
+            parts.append(f"类型: {viz_type}")
+            parts.append(f"标题: {title}")
+            if isinstance(preview, dict):
+                for k, v in preview.items():
+                    if k != "title":
+                        parts.append(f"{k}: {v}")
+            return "\n".join(parts)
+
+        # 旧架构兼容：presentation candidate
         if isinstance(content, dict) and presentation:
             candidate_id = presentation.get("candidate_id", "")
             config_path = presentation.get("config_path", content.get("config_path", ""))
@@ -56,10 +74,6 @@ class ChartObservationFormatter(BaseObservationFormatter):
             if config_path:
                 parts.append(f"配置文件: {config_path}")
 
-            if status in {"draft", "revised"}:
-                parts.append("下一步: 可读取或修改配置，确认后调用 present_chart。")
-            elif status in {"selected", "published"}:
-                parts.append("该图表已被选中，将在最终答案生成后发布到前端。")
             return "\n".join(parts)
 
         if isinstance(content, str) and (content.endswith(".html") or content.endswith(".png")):

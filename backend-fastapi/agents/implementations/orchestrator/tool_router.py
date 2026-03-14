@@ -232,7 +232,6 @@ def route_direct_tool(
     from tools.result_references import (
         result_event_payload,
         result_success,
-        result_visualization_payload,
     )
 
     tool_name = action.get('tool')
@@ -313,29 +312,8 @@ def route_direct_tool(
         parent_call_id=orchestrator_call_id,
     )
 
-    # 处理可视化事件
+    # 处理可视化事件（新架构下不再通过 SSE 推送，前端按需拉取）
     visualization_event = None
-    payload = result_visualization_payload(result) or {}
-    if tool_name == 'present_chart' and result_success(result):
-        results = payload if isinstance(payload, dict) else {}
-        chart_config = results.get('echarts_config')
-        chart_type = results.get('chart_type', 'bar')
-        if chart_config:
-            visualization_event = {
-                'type': 'chart',
-                'chart_config': chart_config,
-                'chart_type': chart_type,
-                'candidate_id': results.get('candidate_id'),
-            }
-    elif tool_name == 'generate_map' and result_success(result):
-        results = payload if isinstance(payload, dict) else {}
-        map_type = results.get('map_type', 'marker')
-        if results:
-            visualization_event = {
-                'type': 'map',
-                'map_data': results,
-                'map_type': map_type,
-            }
 
     return {
         "observation": observation,

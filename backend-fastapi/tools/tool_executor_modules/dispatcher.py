@@ -13,7 +13,7 @@ from tools.tool_registry import get_tool_registry
 
 from .data_tools import process_data_file, transform_data
 from .skill_tools import activate_skill, execute_skill_script, get_skill_info, load_skill_resource
-from .visualization_tools import generate_chart, generate_map, present_chart, update_chart_config
+from .visualization_tools import create_chart, create_map, revise_visualization
 
 logger = logging.getLogger(__name__)
 _TOOL_REGISTRY = get_tool_registry()
@@ -149,10 +149,9 @@ def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
 
 
 TOOL_HANDLERS = {
-    'generate_chart': generate_chart,
-    'update_chart_config': update_chart_config,
-    'present_chart': present_chart,
-    'generate_map': generate_map,
+    'create_chart': create_chart,
+    'create_map': create_map,
+    'revise_visualization': revise_visualization,
     'transform_data': transform_data,
     'process_data_file': process_data_file,
     'activate_skill': activate_skill,

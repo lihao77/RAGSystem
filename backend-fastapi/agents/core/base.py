@@ -324,7 +324,7 @@ class BaseAgent(ABC):
         self.event_bus = event_bus
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
-        self.max_rounds = behavior_config.get('rounds')
+        self.max_rounds = behavior_config.get('rounds', behavior_config.get('max_rounds'))
         self.base_prompt = behavior_config.get('system_prompt', '')
         budget_profile = get_context_budget_profile(
             behavior_config.get('budget_profile') or budget_profile_name
@@ -543,37 +543,12 @@ class BaseAgent(ABC):
         return value if value != "" else None
 
     def _publish_visualization_candidate(self, candidate: Dict[str, Any]) -> None:
-        """在最终答案就绪后再发布图表或地图。"""
-        if not self._publisher or not isinstance(candidate, dict):
-            return
-
-        candidate_type = candidate.get('type')
-        if candidate_type == 'chart':
-            chart_config = candidate.get('chart_config')
-            if chart_config:
-                self._publisher.chart_generated(
-                    chart_config=chart_config,
-                    chart_type=candidate.get('chart_type', 'bar'),
-                )
-                candidate_id = candidate.get('candidate_id')
-                if candidate_id:
-                    try:
-                        from tools.presentation_store import get_presentation_store
-                        get_presentation_store().mark_published(candidate_id)
-                    except Exception:
-                        logger.debug("标记图表候选已发布失败 agent=%s candidate_id=%s", self.name, candidate_id, exc_info=True)
-        elif candidate_type == 'map':
-            map_data = candidate.get('map_data')
-            if map_data:
-                self._publisher.map_generated(
-                    map_data=map_data,
-                    map_type=candidate.get('map_type', 'marker'),
-                )
+        """[Deprecated] 新架构下不再通过 SSE 推送可视化数据。"""
+        pass
 
     def _publish_deferred_visualizations(self, candidates: Optional[List[Dict[str, Any]]]) -> None:
-        """批量发布延迟可视化结果。"""
-        for candidate in candidates or []:
-            self._publish_visualization_candidate(candidate)
+        """[Deprecated] 新架构下不再通过 SSE 推送可视化数据。"""
+        pass
 
     def _get_runtime_log_label(self) -> str:
         """返回运行时日志展示名。"""
@@ -617,8 +592,6 @@ class BaseAgent(ABC):
             'call_id': current_call_id,
             'parent_call_id': parent_call_id,
             'current_session': [{"role": "user", "content": task}],
-            'pending_visualizations': [],
-            'visualization_counter': 0,
             'tool_calls_history': [],
             'rounds': 0,
         }
@@ -680,32 +653,8 @@ class BaseAgent(ABC):
         result: Any,
         state: Dict[str, Any],
     ) -> None:
-        """提取并保存工具返回的可视化候选。"""
-        from tools.result_references import result_success, result_visualization_payload
-
-        payload = result_visualization_payload(result) or {}
-        if tool_name == 'present_chart' and result_success(result):
-            results = payload if isinstance(payload, dict) else {}
-            chart_config = results.get('echarts_config')
-            chart_type = results.get('chart_type', 'bar')
-            if chart_config:
-                state['visualization_counter'] = state.get('visualization_counter', 0) + 1
-                state.setdefault('pending_visualizations', []).append({
-                    'type': 'chart',
-                    'chart_config': chart_config,
-                    'chart_type': chart_type,
-                    'candidate_id': results.get('candidate_id'),
-                })
-        elif tool_name == 'generate_map' and result_success(result):
-            results = payload if isinstance(payload, dict) else {}
-            map_type = results.get('map_type', 'marker')
-            if results:
-                state['visualization_counter'] = state.get('visualization_counter', 0) + 1
-                state.setdefault('pending_visualizations', []).append({
-                    'type': 'map',
-                    'map_data': results,
-                    'map_type': map_type,
-                })
+        """[Deprecated] 新架构下可视化通过 artifact_id 持久化，不再收集事件。"""
+        pass
 
     def _format_tool_observation(
         self,
@@ -753,6 +702,7 @@ class BaseAgent(ABC):
         log_prefix: str,
     ) -> None:
         """默认动作处理：直接工具执行。"""
+        from tools.response_builder import success_result
         from tools.result_references import result_event_payload
         from tools.tool_executor import execute_tool
         from tools.tool_registry import get_tool_registry
@@ -762,6 +712,7 @@ class BaseAgent(ABC):
         current_session_id = getattr(context, 'session_id', None)
         observations: List[str] = []
         emit_event = getattr(self, '_emit_event', None)
+        tool_results: Dict[int, Any] = {}
 
         for idx, action in enumerate(actions, 1):
             self._check_interrupt(context)
@@ -770,6 +721,22 @@ class BaseAgent(ABC):
             arguments = action.get('arguments', {})
             if not tool_name:
                 continue
+
+            resolver = getattr(self, '_resolve_tool_references', None)
+            if callable(resolver) and tool_results:
+                original_arguments = arguments
+                try:
+                    arguments = resolver(arguments, tool_results, idx)
+                    if arguments != original_arguments:
+                        self.logger.info(
+                            f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}"
+                        )
+                except Exception as error:
+                    self.logger.warning(
+                        "%s 占位符替换失败，沿用原始参数: %s",
+                        log_prefix,
+                        error,
+                    )
 
             self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
             tool_call_id = f"tool_{uuid.uuid4()}"
@@ -787,6 +754,11 @@ class BaseAgent(ABC):
                     self._check_interrupt(context)
                     user_value = ""
                 observations.append(f"[{tool_name}]\n用户输入: {user_value}")
+                tool_results[idx] = success_result(
+                    content=user_value,
+                    summary="用户输入",
+                    tool_name=tool_name,
+                )
                 state.setdefault('tool_calls_history', []).append({
                     'tool_name': tool_name,
                     'arguments': arguments,
@@ -854,6 +826,7 @@ class BaseAgent(ABC):
                 )
 
             self._record_visualization_result(tool_name, result, state)
+            tool_results[idx] = result
             state.setdefault('tool_calls_history', []).append({
                 'tool_name': tool_name,
                 'arguments': arguments,
@@ -917,13 +890,9 @@ class BaseAgent(ABC):
     ) -> AgentResponse:
         """处理最终答案。"""
         del context
-        if state.get('visualization_counter', 0) > 0:
-            from agents.utils.visualization_postprocess import ensure_chart_placeholders
-            final_answer = ensure_chart_placeholders(final_answer, state['visualization_counter'])
 
         if self._publisher:
             self._publisher.final_answer(final_answer)
-            self._publish_deferred_visualizations(state.get('pending_visualizations'))
             self._publisher.agent_end(
                 result=final_answer,
                 execution_time=time.time() - start_time,

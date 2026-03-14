@@ -45,33 +45,26 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
     ),
 
     # 可视化（低风险）
-    "generate_chart": ToolPermission(
-        tool_name="generate_chart",
+    "create_chart": ToolPermission(
+        tool_name="create_chart",
         risk_level=RiskLevel.LOW,
         requires_approval=False,
-        description="生成图表草稿候选（只读）",
+        description="生成图表并持久化",
         allowed_callers=["direct", "code_execution"]
     ),
-    "update_chart_config": ToolPermission(
-        tool_name="update_chart_config",
+    "create_map": ToolPermission(
+        tool_name="create_map",
         risk_level=RiskLevel.LOW,
         requires_approval=False,
-        description="更新受管控的图表候选配置",
-        allowed_callers=["direct"]
-    ),
-    "present_chart": ToolPermission(
-        tool_name="present_chart",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="选择图表候选用于最终前端展示",
-        allowed_callers=["direct"]
-    ),
-    "generate_map": ToolPermission(
-        tool_name="generate_map",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="生成地图（只读）",
+        description="生成地图并持久化",
         allowed_callers=["direct", "code_execution"]
+    ),
+    "revise_visualization": ToolPermission(
+        tool_name="revise_visualization",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="修改已生成的可视化配置",
+        allowed_callers=["direct"]
     ),
 
     # Skills 系统工具（低/中风险）

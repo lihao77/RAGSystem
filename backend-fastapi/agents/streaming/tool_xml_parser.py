@@ -3,12 +3,12 @@ parse_tools_xml - 解析 <tools> 标签内容为 actions 列表。
 
 输入格式:
     <tool name="read_document">{"file_path":"report.pdf"}</tool>
-    <tool name="generate_chart">{"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}</tool>
+    <tool name="create_chart">{"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}</tool>
 
 输出格式（与现有 JSON actions 完全一致）:
     [
         {"tool": "read_document", "arguments": {"file_path": "report.pdf"}},
-        {"tool": "generate_chart", "arguments": {"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}}
+        {"tool": "create_chart", "arguments": {"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}}
     ]
 """
 
@@ -37,6 +37,16 @@ XML_FIELD_PATTERN = re.compile(
     r'<([^/>\s][^>\s]*)>(.*?)</\1>',
     re.DOTALL
 )
+
+CDATA_PATTERN = re.compile(r'^\s*<!\[CDATA\[(.*)\]\]>\s*$', re.DOTALL)
+
+
+def _unwrap_cdata(s: str) -> str:
+    """移除包裹整个参数体的 CDATA 标记。"""
+    match = CDATA_PATTERN.match(s)
+    if not match:
+        return s
+    return match.group(1).strip()
 
 
 def _extract_json_object(s: str) -> Optional[str]:
@@ -111,7 +121,7 @@ def _fix_backslash_paths(s: str) -> str:
     会被替换为正斜杠，使 JSON 可以正常解析。
     合法转义（\\\\、\\"、\\/、\\n、\\r、\\t、\\b、\\f、\\uXXXX）保持不变。
     """
-    LEGAL_ESCAPES = set('"\\\/bfnrtu')
+    LEGAL_ESCAPES = {'"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'}
     result = []
     i = 0
     while i < len(s):
@@ -155,6 +165,7 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     for tool_name, args_str in matches:
         tool_name = tool_name.strip()
         args_str = args_str.strip()
+        args_str = _unwrap_cdata(args_str)
 
         if not args_str:
             # 无参数工具调用
