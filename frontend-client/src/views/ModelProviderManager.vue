@@ -716,7 +716,7 @@ onMounted(() => {
   padding: 8px 16px;
   border-radius: 8px;
   border: none;
-  background: var(--accent-color, #6366f1);
+  background: var(--color-brand-accent);
   color: #fff;
   font-size: 0.85rem;
   font-weight: 600;
@@ -729,9 +729,9 @@ onMounted(() => {
 .btn-secondary {
   padding: 8px 16px;
   border-radius: 8px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  border: 1px solid var(--color-border);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   font-size: 0.85rem;
   cursor: pointer;
   transition: background .15s;
@@ -758,9 +758,9 @@ onMounted(() => {
   gap: 6px;
   padding: 7px 14px;
   border-radius: 8px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  border: 1px solid var(--color-border);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   font-size: 0.83rem;
   cursor: pointer;
   transition: background .15s;
@@ -774,9 +774,9 @@ onMounted(() => {
   gap: 6px;
   padding: 7px 14px;
   border-radius: 8px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  border: 1px solid var(--color-border);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 0.83rem;
   cursor: pointer;
   transition: background .15s;
@@ -787,16 +787,16 @@ onMounted(() => {
   width: 30px;
   height: 30px;
   border-radius: 6px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.1));
+  border: 1px solid var(--color-border);
   background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: background .15s;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
-.icon-btn:hover { background: rgba(255,255,255,.08); }
+.icon-btn:hover { background: var(--color-interactive-hover); }
 .icon-btn--test:hover  { color: #34d399; border-color: rgba(52,211,153,.3); }
 .icon-btn--edit:hover  { color: #818cf8; border-color: rgba(129,140,248,.3); }
 .icon-btn--delete:hover{ color: #f87171; border-color: rgba(248,113,113,.3); }
@@ -804,8 +804,8 @@ onMounted(() => {
 
 .btn-add-row {
   background: none;
-  border: 1px dashed var(--border-color, rgba(255,255,255,.2));
-  color: var(--text-secondary);
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-muted);
   border-radius: 6px;
   padding: 5px 12px;
   font-size: 0.82rem;
@@ -814,7 +814,7 @@ onMounted(() => {
   width: 100%;
   margin-top: 4px;
 }
-.btn-add-row:hover { border-color: var(--accent-color, #6366f1); color: var(--accent-color, #6366f1); }
+.btn-add-row:hover { border-color: var(--color-brand-accent); color: var(--color-brand-accent); }
 
 /* ── State Panels ─────────────────────────────────── */
 .state-panel {
@@ -824,10 +824,10 @@ onMounted(() => {
   justify-content: center;
   gap: 12px;
   padding: 40px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 0.9rem;
 }
-.state-panel--error { color: #f87171; }
+.state-panel--error { color: var(--color-error, #f87171); }
 .state-panel--empty { min-height: 180px; }
 
 /* ── Dialog ──────────────────────────────────────── */
@@ -863,19 +863,19 @@ onMounted(() => {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
 }
 .dialog-close {
   background: none;
   border: none;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
   display: flex;
   align-items: center;
 }
-.dialog-close:hover { color: var(--text-primary); }
+.dialog-close:hover { color: var(--color-text-primary); }
 
 .dialog-form {
   display: flex;
@@ -902,23 +902,38 @@ onMounted(() => {
 .form-label {
   font-size: 0.83rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
 }
-.required { color: #f87171; }
-.form-input {
-  padding: 8px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.15));
-  background: var(--input-bg, rgba(255,255,255,.05));
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  outline: none;
-  transition: border-color .15s;
+.required { color: var(--color-error, #f87171); }
+.form-control {
   width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: all var(--transition-fast);
+  appearance: none;
+  -webkit-appearance: none;
   box-sizing: border-box;
+  outline: none;
 }
-.form-input:focus { border-color: var(--accent-color, #6366f1); }
-.form-input--sm { max-width: 100px; }
+.form-control:hover { border-color: var(--color-border-hover); }
+.form-control:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
+}
+.form-control:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-bg-secondary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+input[type='number'].form-control { padding-right: 8px; }
+.form-control--sm { max-width: 100px; }
 .form-hint {
   font-size: 0.75rem;
   color: var(--color-text-muted);
@@ -987,7 +1002,7 @@ input[type='number'].form-control { padding-right: 8px; }
 
 .delete-confirm-msg {
   font-size: 0.9rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   line-height: 1.5;
   margin: 0;
 }
@@ -997,7 +1012,7 @@ input[type='number'].form-control { padding-right: 8px; }
   width: 32px;
   height: 32px;
   border: 3px solid rgba(255,255,255,.1);
-  border-top-color: var(--accent-color, #6366f1);
+  border-top-color: var(--color-brand-accent);
   border-radius: 50%;
   animation: spin .7s linear infinite;
 }
@@ -1011,8 +1026,8 @@ input[type='number'].form-control { padding-right: 8px; }
 
 /* ── glass-card fallback ──────────────────────────── */
 .glass-card {
-  background: var(--card-bg, rgba(255,255,255,.04));
-  border: 1px solid var(--border-color, rgba(255,255,255,.08));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   backdrop-filter: blur(10px);
 }
