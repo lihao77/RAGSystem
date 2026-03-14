@@ -64,6 +64,9 @@ class StreamExecutor:
         self.parser.reset()
         intent = ""
         answer = ""
+        actions = None
+        parse_err = None
+        stop_after_tools = False
 
         kwargs = dict(extra_kwargs or {})
         kwargs['cancel_event'] = cancel_event
@@ -116,14 +119,27 @@ class StreamExecutor:
                                 self.publisher.intent_complete(intent, round=round_num)
 
                     elif evt.tag == TagType.TOOLS:
-                        # tools 内容由 parser 积累，tag_close 时解析
-                        pass
+                        # 一旦拿到完整 </tools>，立即解析并停止本轮继续消费后续内容。
+                        if evt.type == 'tag_close':
+                            tools_content = self.parser.get_tag_content(TagType.TOOLS)
+                            if tools_content:
+                                actions, parse_err = parse_tools_xml(tools_content)
+                                if parse_err:
+                                    self.logger.warning(f"工具 XML 解析警告: {parse_err}")
+                                    if self.publisher:
+                                        self.publisher.tool_error(
+                                            tool_name="xml_parser",
+                                            error=f"工具参数解析失败: {parse_err}"
+                                        )
+                            stop_after_tools = True
+                            break
 
                     elif evt.tag == TagType.ANSWER:
                         if evt.type == 'content':
                             answer += evt.content
-                            if self.publisher:
-                                self.publisher.chunk(evt.content)
+
+                if stop_after_tools:
+                    break
 
         except Exception as e:
             self.logger.error(f"流式 LLM 调用异常: {e}", exc_info=True)
@@ -133,22 +149,29 @@ class StreamExecutor:
                 error=str(e),
             )
 
-        # 解析工具调用
-        actions = None
-        parse_err = None
-        tools_content = self.parser.get_tag_content(TagType.TOOLS)
-        if tools_content:
-            actions, parse_err = parse_tools_xml(tools_content)
-            if parse_err:
-                self.logger.warning(f"工具 XML 解析警告: {parse_err}")
-                # 通知前端（无论 actions 是否部分解析成功都发）
-                if self.publisher:
-                    self.publisher.tool_error(
-                        tool_name="xml_parser",
-                        error=f"工具参数解析失败: {parse_err}"
-                    )
+        # 若流式阶段尚未在 </tools> 处提前解析，则在这里兜底解析。
+        if actions is None:
+            tools_content = self.parser.get_tag_content(TagType.TOOLS)
+            if tools_content:
+                actions, parse_err = parse_tools_xml(tools_content)
+                if parse_err:
+                    self.logger.warning(f"工具 XML 解析警告: {parse_err}")
+                    # 通知前端（无论 actions 是否部分解析成功都发）
+                    if self.publisher:
+                        self.publisher.tool_error(
+                            tool_name="xml_parser",
+                            error=f"工具参数解析失败: {parse_err}"
+                        )
 
         full_response = self.parser.get_full_response()
+        if full_response.strip():
+            preview = full_response if len(full_response) <= 4000 else (full_response[:4000] + '...<truncated>')
+            self.logger.info("LLM full_response (round=%s): %s", round_num, preview)
+
+        # answer 只有在本轮没有 tools/actions 时才作为真正的最终输出推送给前端。
+        # 否则它只是模型顺手补的一句占位话，不应污染主回复内容。
+        if answer and not actions and self.publisher:
+            self.publisher.chunk(answer)
 
         # LLM 输出了裸文本（没有任何 XML 标签），解析器会丢弃标签外文本
         # 此时 intent/actions/answer 全为空，但 full_response 有内容

@@ -1075,6 +1075,9 @@ class BaseAgent(ABC):
                 actions = result.actions or []
                 final_answer = result.answer
                 full_response = result.full_response
+                if actions and final_answer:
+                    self.logger.info("%s 同轮同时返回了 actions 与 answer，当前轮先忽略 answer", log_prefix)
+                    final_answer = None
 
                 if intent:
                     self.logger.info(f"{log_prefix} Intent: {intent[:100]}...")
@@ -1095,13 +1098,13 @@ class BaseAgent(ABC):
                 })
                 self._on_assistant_message(intent, actions, full_response, final_answer, rounds, state)
 
-                if final_answer:
-                    return self._handle_final_answer(final_answer, context, state, start_time)
-
                 if actions:
                     self.logger.info(f"{log_prefix} 执行 {len(actions)} 个动作")
                     self._handle_actions(actions, context, state, rounds, log_prefix)
                     continue
+
+                if final_answer:
+                    return self._handle_final_answer(final_answer, context, state, start_time)
 
                 self._handle_no_action(result, context, state, rounds, log_prefix)
         except InterruptedError as error:
