@@ -19,6 +19,17 @@ def _get_service():
     return get_model_adapter_service()
 
 
+@router.get('/provider-types')
+async def get_provider_types():
+    """获取支持的 Provider 类型列表。"""
+    from integrations.model_providers.factory import _PROVIDER_CLASSES, _DEFAULT_ENDPOINTS
+    types = [
+        {'value': k, 'label': k.capitalize(), 'default_endpoint': _DEFAULT_ENDPOINTS.get(k, '')}
+        for k in _PROVIDER_CLASSES
+    ]
+    return ok(data=types, message='获取成功')
+
+
 @router.get('/providers')
 async def get_providers():
     """获取所有 Provider 列表。"""

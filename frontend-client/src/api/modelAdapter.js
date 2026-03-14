@@ -4,6 +4,16 @@
 
 const API_BASE = '/api/model-adapter'
 
+export async function getProviderTypes() {
+  const response = await fetch(`${API_BASE}/provider-types`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.detail || data.message || '获取失败')
+  return data.data || []
+}
+
 export async function getProviders() {
   try {
     const response = await fetch(`${API_BASE}/providers`, {

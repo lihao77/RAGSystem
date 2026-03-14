@@ -209,54 +209,52 @@
           <!-- 基础字段（仅新建时可改） -->
           <div class="form-row" v-if="dialog.mode === 'create'">
             <label class="form-label">名称 <span class="required">*</span></label>
-            <input v-model="form.name" class="form-input" placeholder="例如: my_gpt" required />
+            <input v-model="form.name" class="form-control" placeholder="例如: my_gpt" />
             <p class="form-hint">Provider 实例的唯一名称，不可包含空格</p>
           </div>
           <div class="form-row" v-if="dialog.mode === 'create'">
             <label class="form-label">Provider 类型 <span class="required">*</span></label>
-            <select v-model="form.provider_type" class="form-input" required>
-              <option value="">-- 请选择 --</option>
-              <option value="openai">OpenAI</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="modelscope">ModelScope</option>
-              <option value="custom">Custom</option>
-            </select>
+            <CustomSelect
+              :model-value="form.provider_type"
+              :options="providerTypeOptions"
+              placeholder="-- 请选择 --"
+              @update:model-value="form.provider_type = $event"
+            />
           </div>
           <div class="form-row" v-if="dialog.mode === 'create'">
             <label class="form-label">API Key <span class="required">*</span></label>
-            <input v-model="form.api_key" class="form-input" type="password"
-              placeholder="sk-... 或 ${ENV_VAR}" required autocomplete="new-password" />
+            <input v-model="form.api_key" class="form-control" type="password"
+              placeholder="sk-... 或 ${ENV_VAR}" autocomplete="new-password" />
             <p class="form-hint">支持 <code>${ENV_VAR}</code> 形式引用环境变量</p>
           </div>
 
           <!-- 通用字段 -->
           <div class="form-row">
             <label class="form-label">API Endpoint</label>
-            <input v-model="form.api_endpoint" class="form-input"
+            <input v-model="form.api_endpoint" class="form-control"
               placeholder="https://api.openai.com/v1" />
           </div>
           <div class="form-row form-row--half">
             <div>
               <label class="form-label">温度</label>
-              <input v-model.number="form.temperature" class="form-input" type="number"
+              <input v-model.number="form.temperature" class="form-control" type="number"
                 step="0.1" min="0" max="2" placeholder="0.7" />
             </div>
             <div>
               <label class="form-label">Max Completion Tokens</label>
-              <input v-model.number="form.max_completion_tokens" class="form-input" type="number"
+              <input v-model.number="form.max_completion_tokens" class="form-control" type="number"
                 step="256" min="256" placeholder="4096" />
             </div>
           </div>
           <div class="form-row form-row--half">
             <div>
               <label class="form-label">Max Context Tokens</label>
-              <input v-model.number="form.max_context_tokens" class="form-input" type="number"
+              <input v-model.number="form.max_context_tokens" class="form-control" type="number"
                 step="1024" min="1024" placeholder="128000" />
             </div>
             <div>
               <label class="form-label">Timeout (s)</label>
-              <input v-model.number="form.timeout" class="form-input" type="number"
+              <input v-model.number="form.timeout" class="form-control" type="number"
                 step="5" min="5" placeholder="60" />
             </div>
           </div>
@@ -266,9 +264,9 @@
           <p class="form-hint" style="margin-bottom:8px">按任务类型指定模型名，如 chat / embedding / reasoning</p>
           <div class="model-map-editor">
             <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-              <input v-model="entry.task" class="form-input form-input--sm" placeholder="chat" />
+              <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
               <span class="map-arrow">→</span>
-              <input v-model="entry.model" class="form-input" placeholder="gpt-4o" />
+              <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
               <button type="button" class="icon-btn icon-btn--delete" @click="removeModelMapEntry(idx)">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -320,7 +318,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import CustomSelect from '../components/CustomSelect.vue'
 import {
+  getProviderTypes,
   getProviders,
   createProvider,
   updateProvider,
@@ -329,6 +329,23 @@ import {
 } from '../api/modelAdapter.js'
 
 const emit = defineEmits(['navigate'])
+
+const providerTypeOptions = ref([])
+
+async function loadProviderTypes() {
+  try {
+    const types = await getProviderTypes()
+    providerTypeOptions.value = types.map(t => ({ value: t.value, label: t.label }))
+  } catch {
+    // 加载失败时用兜底静态列表
+    providerTypeOptions.value = [
+      { value: 'openai',     label: 'OpenAI' },
+      { value: 'deepseek',   label: 'DeepSeek' },
+      { value: 'openrouter', label: 'OpenRouter' },
+      { value: 'modelscope', label: 'ModelScope' },
+    ]
+  }
+}
 
 const providers = ref([])
 const loading = ref(false)
@@ -443,6 +460,11 @@ function buildModelMap() {
 
 async function handleSubmit() {
   dialog.value.error = ''
+  if (dialog.value.mode === 'create') {
+    if (!form.value.name?.trim()) { dialog.value.error = '请填写名称'; return }
+    if (!form.value.provider_type) { dialog.value.error = '请选择 Provider 类型'; return }
+    if (!form.value.api_key?.trim()) { dialog.value.error = '请填写 API Key'; return }
+  }
   dialog.value.saving = true
   try {
     const mm = buildModelMap()
@@ -482,7 +504,10 @@ async function doDelete() {
   }
 }
 
-onMounted(loadProviders)
+onMounted(() => {
+  loadProviderTypes()
+  loadProviders()
+})
 </script>
 
 <style scoped>
@@ -491,7 +516,7 @@ onMounted(loadProviders)
   width: 100%;
   height: 100%;
   overflow-y: auto;
-  background: var(--bg-primary);
+  background: var(--color-bg-app);
   padding: 24px;
   box-sizing: border-box;
 }
@@ -516,12 +541,12 @@ onMounted(loadProviders)
   margin: 0 0 4px;
   font-size: 1.3rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
 }
 .page-subtitle {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 .header-actions {
   display: flex;
@@ -559,8 +584,8 @@ onMounted(loadProviders)
 .summary-icon--types    { background: rgba(245,158,11,.15); color: #fbbf24; }
 .summary-icon--embedding{ background: rgba(139,92,246,.15); color: #a78bfa; }
 
-.summary-label { font-size: 0.78rem; color: var(--text-secondary); display: block; }
-.summary-value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+.summary-label { font-size: 0.78rem; color: var(--color-text-secondary); display: block; }
+.summary-value { font-size: 1.5rem; font-weight: 700; color: var(--color-text-primary); }
 .summary-value--connected { color: #34d399; }
 .summary-value--enabled   { color: #fbbf24; }
 .summary-value--tools     { color: #a78bfa; }
@@ -582,8 +607,8 @@ onMounted(loadProviders)
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--border-color, rgba(255,255,255,.08));
-  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 .provider-card-header {
   display: flex;
@@ -601,7 +626,7 @@ onMounted(loadProviders)
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
 }
 .provider-type-badge {
   font-size: 0.7rem;
@@ -610,12 +635,14 @@ onMounted(loadProviders)
   border-radius: 20px;
   text-transform: uppercase;
   letter-spacing: .04em;
+  background: rgba(var(--color-text-muted-rgb, 107,114,128), .15);
+  color: var(--color-text-secondary);
 }
-.badge--openai      { background: rgba(16,185,129,.2); color: #34d399; }
-.badge--deepseek    { background: rgba(99,102,241,.2); color: #818cf8; }
-.badge--openrouter  { background: rgba(245,158,11,.2); color: #fbbf24; }
-.badge--modelscope  { background: rgba(236,72,153,.2); color: #f472b6; }
-.badge--custom      { background: rgba(107,114,128,.2); color: #9ca3af; }
+.badge--openai      { background: rgba(16,185,129,.18); color: #34d399; }
+.badge--deepseek    { background: rgba(var(--color-brand-accent-rgb),.18); color: var(--color-brand-accent-light); }
+.badge--openrouter  { background: rgba(245,158,11,.18); color: #fbbf24; }
+.badge--modelscope  { background: rgba(236,72,153,.18); color: #f472b6; }
+.badge--custom      { background: rgba(var(--color-border-hover, 255,255,255,.12), 1); color: var(--color-text-muted); }
 
 .provider-actions {
   display: flex;
@@ -635,13 +662,13 @@ onMounted(loadProviders)
   flex-wrap: wrap;
 }
 .info-label {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   min-width: 70px;
   flex-shrink: 0;
   font-size: 0.78rem;
 }
 .info-value {
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   word-break: break-all;
 }
 .mono { font-family: monospace; font-size: 0.78rem; }
@@ -894,11 +921,11 @@ onMounted(loadProviders)
 .form-input--sm { max-width: 100px; }
 .form-hint {
   font-size: 0.75rem;
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   margin: 0;
 }
 .form-hint code {
-  background: rgba(255,255,255,.08);
+  background: var(--color-hover-overlay, rgba(255,255,255,.08));
   padding: 1px 4px;
   border-radius: 3px;
   font-family: monospace;
@@ -906,17 +933,41 @@ onMounted(loadProviders)
 .form-section-title {
   font-size: 0.83rem;
   font-weight: 700;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color, rgba(255,255,255,.1));
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 6px;
   margin-top: 4px;
 }
 .form-error {
-  color: #f87171;
+  color: var(--color-error, #f87171);
   font-size: 0.83rem;
   padding: 8px 12px;
   background: rgba(239,68,68,.1);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
+}
+
+/* form-control 补充：sm 宽度变体 */
+.form-control--sm { max-width: 100px; }
+input[type='number'].form-control { padding-right: 8px; }
+
+/* dialog 内 CustomSelect 与 form-control 外观统一 */
+.dialog-panel :deep(.select-trigger) {
+  height: 42px;
+  padding: 0 40px 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+.dialog-panel :deep(.select-trigger:hover) {
+  border-color: var(--color-border-hover);
+}
+.dialog-panel :deep(.select-trigger.open) {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
 }
 
 .model-map-editor {
@@ -930,7 +981,7 @@ onMounted(loadProviders)
   gap: 8px;
 }
 .map-arrow {
-  color: var(--text-secondary);
+  color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
