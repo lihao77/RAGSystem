@@ -117,9 +117,9 @@ temp*/
 论文/
 
 # 敏感配置文件（复制 .example 为正式文件后本地编辑，勿提交）
-backend/model_adapter/configs/providers.yaml
-backend/agents/configs/agent_configs.yaml
-backend/config/yaml/config.yaml
+backend-fastapi/model_adapter/configs/providers.yaml
+backend-fastapi/agents/configs/agent_configs.yaml
+backend-fastapi/config/yaml/config.yaml
 
 .cursor/
 

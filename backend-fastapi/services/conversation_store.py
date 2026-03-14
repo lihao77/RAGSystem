@@ -141,6 +141,9 @@ class ConversationStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_run_steps_message_id ON run_steps(message_id)"
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_run_steps_session_type_id ON run_steps(session_id, step_type, id DESC)"
+            )
 
             if self.enable_archive:
                 conn.execute(
@@ -454,6 +457,46 @@ class ConversationStore:
                     "created_at": row["created_at"]
                 })
             return items
+
+    def get_tool_call_raw_result(
+        self,
+        session_id: str,
+        call_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """按会话和 call_id 获取工具调用结束事件中持久化的原始结果。"""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+                FROM run_steps
+                WHERE session_id=?
+                  AND step_type=?
+                  AND json_extract(payload, '$.call_id')=?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (session_id, "call.tool.end", call_id)
+            ).fetchone()
+
+        if not row:
+            return None
+
+        payload = json.loads(row["payload"] or "{}")
+        data = payload.get("data") or {}
+        return {
+            "id": row["id"],
+            "run_id": row["run_id"],
+            "session_id": row["session_id"],
+            "message_id": row["message_id"],
+            "step_order": row["step_order"],
+            "step_type": row["step_type"],
+            "created_at": row["created_at"],
+            "tool_name": data.get("tool_name"),
+            "result_preview": data.get("result_preview") or data.get("result"),
+            "raw_result": data.get("raw_result"),
+            "raw_result_ref": data.get("raw_result_ref") or {},
+            "raw_result_available": bool(data.get("raw_result") is not None),
+        }
 
     def delete_messages_after(
         self,
