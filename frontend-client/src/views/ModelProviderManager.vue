@@ -1,0 +1,968 @@
+<template>
+  <div class="mp-page">
+    <div class="mp-shell">
+
+      <!-- ── Header ─────────────────────────────────────── -->
+      <header class="mp-header glass-card">
+        <div class="header-meta">
+          <h1 class="page-title">模型 Provider 管理</h1>
+          <p class="page-subtitle">管理 LLM Provider 实例：配置 API Key、模型映射、参数，并测试连通性。</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn-action" :disabled="loading" @click="loadProviders">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              :class="{ spin: loading }">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            {{ loading ? '刷新中...' : '刷新' }}
+          </button>
+          <button class="btn-primary" @click="openCreateDialog">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            添加 Provider
+          </button>
+          <button class="btn-back" @click="emit('navigate', '/')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"/>
+              <polyline points="12 19 5 12 12 5"/>
+            </svg>
+            返回聊天
+          </button>
+        </div>
+      </header>
+
+      <!-- ── 统计卡片 ──────────────────────────────────── -->
+      <section class="summary-grid">
+        <article class="summary-card glass-card">
+          <div class="summary-icon summary-icon--total">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+            </svg>
+          </div>
+          <div class="summary-body">
+            <span class="summary-label">Provider 总数</span>
+            <strong class="summary-value">{{ providers.length }}</strong>
+          </div>
+        </article>
+        <article class="summary-card glass-card">
+          <div class="summary-icon summary-icon--openai">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+          <div class="summary-body">
+            <span class="summary-label">可用模型数</span>
+            <strong class="summary-value summary-value--connected">{{ totalModels }}</strong>
+          </div>
+        </article>
+        <article class="summary-card glass-card">
+          <div class="summary-icon summary-icon--types">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6h16M4 12h16M4 18h7"/>
+            </svg>
+          </div>
+          <div class="summary-body">
+            <span class="summary-label">Provider 类型</span>
+            <strong class="summary-value summary-value--enabled">{{ uniqueTypes }}</strong>
+          </div>
+        </article>
+        <article class="summary-card glass-card">
+          <div class="summary-icon summary-icon--embedding">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/>
+              <circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+            </svg>
+          </div>
+          <div class="summary-body">
+            <span class="summary-label">支持 Embedding</span>
+            <strong class="summary-value summary-value--tools">{{ embeddingCount }}</strong>
+          </div>
+        </article>
+      </section>
+
+      <!-- ── Provider 列表 ──────────────────────────────── -->
+      <section class="provider-list-section glass-card">
+        <div v-if="loading && providers.length === 0" class="state-panel">
+          <div class="spinner"></div>
+          <p>加载中...</p>
+        </div>
+        <div v-else-if="error" class="state-panel state-panel--error">
+          <p>{{ error }}</p>
+          <button class="btn-secondary" @click="loadProviders">重试</button>
+        </div>
+        <div v-else-if="providers.length === 0" class="state-panel state-panel--empty">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+          </svg>
+          <p>暂无 Provider，点击"添加 Provider"开始配置</p>
+        </div>
+        <div v-else class="provider-grid">
+          <article
+            v-for="provider in providers"
+            :key="provider.key || provider.name"
+            class="provider-card glass-card"
+          >
+            <div class="provider-card-header">
+              <div class="provider-info">
+                <span class="provider-type-badge" :class="`badge--${provider.provider_type}`">
+                  {{ provider.provider_type || 'custom' }}
+                </span>
+                <h3 class="provider-name">{{ provider.name || provider.key }}</h3>
+              </div>
+              <div class="provider-actions">
+                <button class="icon-btn icon-btn--test"
+                  :disabled="testingKey === (provider.key || provider.name)"
+                  @click="quickTest(provider)"
+                  title="快速测试">
+                  <svg v-if="testingKey !== (provider.key || provider.name)"
+                    xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  <div v-else class="spinner spinner--sm"></div>
+                </button>
+                <button class="icon-btn icon-btn--edit" @click="openEditDialog(provider)" title="编辑">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button class="icon-btn icon-btn--delete" @click="confirmDelete(provider)" title="删除">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/><path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="provider-card-body">
+              <div class="info-row">
+                <span class="info-label">Key</span>
+                <span class="info-value mono">{{ provider.key || `${provider.name}_${provider.provider_type}` }}</span>
+              </div>
+              <div v-if="provider.api_endpoint" class="info-row">
+                <span class="info-label">Endpoint</span>
+                <span class="info-value mono text-ellipsis">{{ provider.api_endpoint }}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">温度</span>
+                <span class="info-value">{{ provider.temperature ?? '—' }}</span>
+              </div>
+              <div v-if="provider.model_map" class="info-row">
+                <span class="info-label">模型映射</span>
+                <div class="model-map-chips">
+                  <span v-for="(model, task) in provider.model_map" :key="task" class="chip">
+                    {{ task }}: {{ model }}
+                  </span>
+                </div>
+              </div>
+              <div v-if="provider.models && provider.models.length" class="info-row">
+                <span class="info-label">所有模型</span>
+                <div class="model-map-chips">
+                  <span v-for="m in provider.models.slice(0, 4)" :key="m" class="chip chip--model">{{ m }}</span>
+                  <span v-if="provider.models.length > 4" class="chip chip--more">+{{ provider.models.length - 4 }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="testResults[provider.key || provider.name]" class="provider-test-result"
+              :class="testResults[provider.key || provider.name].ok ? 'result--ok' : 'result--err'">
+              <span class="result-icon">{{ testResults[provider.key || provider.name].ok ? '✓' : '✗' }}</span>
+              <span class="result-msg">{{ testResults[provider.key || provider.name].msg }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+    </div><!-- /mp-shell -->
+
+    <!-- ── 新增/编辑 Dialog ──────────────────────────────── -->
+    <div v-if="dialog.visible" class="dialog-backdrop" @click.self="closeDialog">
+      <div class="dialog-panel glass-card">
+        <div class="dialog-header">
+          <h2>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</h2>
+          <button class="dialog-close" @click="closeDialog">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <form class="dialog-form" @submit.prevent="handleSubmit">
+          <!-- 基础字段（仅新建时可改） -->
+          <div class="form-row" v-if="dialog.mode === 'create'">
+            <label class="form-label">名称 <span class="required">*</span></label>
+            <input v-model="form.name" class="form-input" placeholder="例如: my_gpt" required />
+            <p class="form-hint">Provider 实例的唯一名称，不可包含空格</p>
+          </div>
+          <div class="form-row" v-if="dialog.mode === 'create'">
+            <label class="form-label">Provider 类型 <span class="required">*</span></label>
+            <select v-model="form.provider_type" class="form-input" required>
+              <option value="">-- 请选择 --</option>
+              <option value="openai">OpenAI</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="modelscope">ModelScope</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="form-row" v-if="dialog.mode === 'create'">
+            <label class="form-label">API Key <span class="required">*</span></label>
+            <input v-model="form.api_key" class="form-input" type="password"
+              placeholder="sk-... 或 ${ENV_VAR}" required autocomplete="new-password" />
+            <p class="form-hint">支持 <code>${ENV_VAR}</code> 形式引用环境变量</p>
+          </div>
+
+          <!-- 通用字段 -->
+          <div class="form-row">
+            <label class="form-label">API Endpoint</label>
+            <input v-model="form.api_endpoint" class="form-input"
+              placeholder="https://api.openai.com/v1" />
+          </div>
+          <div class="form-row form-row--half">
+            <div>
+              <label class="form-label">温度</label>
+              <input v-model.number="form.temperature" class="form-input" type="number"
+                step="0.1" min="0" max="2" placeholder="0.7" />
+            </div>
+            <div>
+              <label class="form-label">Max Completion Tokens</label>
+              <input v-model.number="form.max_completion_tokens" class="form-input" type="number"
+                step="256" min="256" placeholder="4096" />
+            </div>
+          </div>
+          <div class="form-row form-row--half">
+            <div>
+              <label class="form-label">Max Context Tokens</label>
+              <input v-model.number="form.max_context_tokens" class="form-input" type="number"
+                step="1024" min="1024" placeholder="128000" />
+            </div>
+            <div>
+              <label class="form-label">Timeout (s)</label>
+              <input v-model.number="form.timeout" class="form-input" type="number"
+                step="5" min="5" placeholder="60" />
+            </div>
+          </div>
+
+          <!-- model_map -->
+          <div class="form-section-title">模型映射 (model_map)</div>
+          <p class="form-hint" style="margin-bottom:8px">按任务类型指定模型名，如 chat / embedding / reasoning</p>
+          <div class="model-map-editor">
+            <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
+              <input v-model="entry.task" class="form-input form-input--sm" placeholder="chat" />
+              <span class="map-arrow">→</span>
+              <input v-model="entry.model" class="form-input" placeholder="gpt-4o" />
+              <button type="button" class="icon-btn icon-btn--delete" @click="removeModelMapEntry(idx)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <button type="button" class="btn-add-row" @click="addModelMapEntry">+ 添加映射</button>
+          </div>
+
+          <div v-if="dialog.error" class="form-error">{{ dialog.error }}</div>
+
+          <div class="dialog-footer">
+            <button type="button" class="btn-secondary" @click="closeDialog">取消</button>
+            <button type="submit" class="btn-primary" :disabled="dialog.saving">
+              {{ dialog.saving ? '保存中...' : '保存' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ── 删除确认 Dialog ───────────────────────────────── -->
+    <div v-if="deleteTarget" class="dialog-backdrop" @click.self="deleteTarget = null">
+      <div class="dialog-panel dialog-panel--sm glass-card">
+        <div class="dialog-header">
+          <h2>确认删除</h2>
+          <button class="dialog-close" @click="deleteTarget = null">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <p class="delete-confirm-msg">
+          确定要删除 Provider <strong>{{ deleteTarget.key || deleteTarget.name }}</strong> 吗？此操作不可撤销。
+        </p>
+        <div class="dialog-footer">
+          <button class="btn-secondary" @click="deleteTarget = null">取消</button>
+          <button class="btn-danger" :disabled="deleting" @click="doDelete">
+            {{ deleting ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /mp-page -->
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import {
+  getProviders,
+  createProvider,
+  updateProvider,
+  deleteProvider,
+  testProvider
+} from '../api/modelAdapter.js'
+
+const emit = defineEmits(['navigate'])
+
+const providers = ref([])
+const loading = ref(false)
+const error = ref('')
+const testingKey = ref('')
+const testResults = ref({})
+const deleteTarget = ref(null)
+const deleting = ref(false)
+
+// ── 统计 ──
+const totalModels = computed(() =>
+  providers.value.reduce((acc, p) => acc + (p.models?.length || 0), 0)
+)
+const uniqueTypes = computed(() =>
+  new Set(providers.value.map(p => p.provider_type).filter(Boolean)).size
+)
+const embeddingCount = computed(() =>
+  providers.value.filter(p => p.model_map?.embedding).length
+)
+
+// ── 加载 ──
+async function loadProviders() {
+  loading.value = true
+  error.value = ''
+  try {
+    providers.value = await getProviders()
+  } catch (e) {
+    error.value = e.message || '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+// ── 测试 ──
+async function quickTest(provider) {
+  const key = provider.key || provider.name
+  testingKey.value = key
+  testResults.value = { ...testResults.value, [key]: null }
+  try {
+    const chatModel = provider.model_map?.chat || provider.models?.[0] || ''
+    const result = await testProvider(provider.name, chatModel, 'Hi')
+    if (result.error) throw new Error(result.error)
+    testResults.value = {
+      ...testResults.value,
+      [key]: { ok: true, msg: `响应: ${(result.response?.content || result.content || '').slice(0, 60)}` }
+    }
+  } catch (e) {
+    testResults.value = {
+      ...testResults.value,
+      [key]: { ok: false, msg: e.message || '测试失败' }
+    }
+  } finally {
+    testingKey.value = ''
+  }
+}
+
+// ── Dialog 表单 ──
+const dialog = ref({ visible: false, mode: 'create', error: '', saving: false })
+const editingKey = ref('')
+const form = ref({})
+const modelMapEntries = ref([])
+
+function buildFormDefaults() {
+  return {
+    name: '', provider_type: '', api_key: '', api_endpoint: '',
+    temperature: 0.7, max_completion_tokens: 4096,
+    max_context_tokens: 128000, timeout: 60
+  }
+}
+
+function openCreateDialog() {
+  form.value = buildFormDefaults()
+  modelMapEntries.value = [{ task: 'chat', model: '' }]
+  dialog.value = { visible: true, mode: 'create', error: '', saving: false }
+  editingKey.value = ''
+}
+
+function openEditDialog(provider) {
+  const mm = provider.model_map || {}
+  modelMapEntries.value = Object.entries(mm).map(([task, model]) => ({ task, model: String(model) }))
+  if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }]
+  form.value = {
+    api_endpoint: provider.api_endpoint || '',
+    temperature: provider.temperature ?? 0.7,
+    max_completion_tokens: provider.max_completion_tokens || 4096,
+    max_context_tokens: provider.max_context_tokens || 128000,
+    timeout: provider.timeout || 60
+  }
+  editingKey.value = provider.key || `${provider.name}_${provider.provider_type}`
+  dialog.value = { visible: true, mode: 'edit', error: '', saving: false }
+}
+
+function closeDialog() {
+  dialog.value.visible = false
+}
+
+function addModelMapEntry() {
+  modelMapEntries.value.push({ task: '', model: '' })
+}
+
+function removeModelMapEntry(idx) {
+  modelMapEntries.value.splice(idx, 1)
+}
+
+function buildModelMap() {
+  const mm = {}
+  for (const e of modelMapEntries.value) {
+    if (e.task && e.model) mm[e.task.trim()] = e.model.trim()
+  }
+  return mm
+}
+
+async function handleSubmit() {
+  dialog.value.error = ''
+  dialog.value.saving = true
+  try {
+    const mm = buildModelMap()
+    if (dialog.value.mode === 'create') {
+      const payload = { ...form.value, model_map: mm }
+      await createProvider(payload)
+    } else {
+      const payload = { ...form.value, model_map: mm }
+      await updateProvider(editingKey.value, payload)
+    }
+    closeDialog()
+    await loadProviders()
+  } catch (e) {
+    dialog.value.error = e.message || '操作失败'
+  } finally {
+    dialog.value.saving = false
+  }
+}
+
+// ── 删除 ──
+function confirmDelete(provider) {
+  deleteTarget.value = provider
+}
+
+async function doDelete() {
+  if (!deleteTarget.value) return
+  deleting.value = true
+  try {
+    const key = deleteTarget.value.key || `${deleteTarget.value.name}_${deleteTarget.value.provider_type}`
+    await deleteProvider(key)
+    deleteTarget.value = null
+    await loadProviders()
+  } catch (e) {
+    alert(e.message || '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
+
+onMounted(loadProviders)
+</script>
+
+<style scoped>
+/* ── 页面布局 ───────────────────────────────────────── */
+.mp-page {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  padding: 24px;
+  box-sizing: border-box;
+}
+.mp-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Header ──────────────────────────────────────────── */
+.mp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-title {
+  margin: 0 0 4px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.page-subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ── 统计卡片 ──────────────────────────────────────── */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 900px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .summary-grid { grid-template-columns: 1fr; } }
+
+.summary-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+}
+.summary-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.summary-icon--total    { background: rgba(99,102,241,.15); color: #818cf8; }
+.summary-icon--openai   { background: rgba(16,185,129,.15); color: #34d399; }
+.summary-icon--types    { background: rgba(245,158,11,.15); color: #fbbf24; }
+.summary-icon--embedding{ background: rgba(139,92,246,.15); color: #a78bfa; }
+
+.summary-label { font-size: 0.78rem; color: var(--text-secondary); display: block; }
+.summary-value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+.summary-value--connected { color: #34d399; }
+.summary-value--enabled   { color: #fbbf24; }
+.summary-value--tools     { color: #a78bfa; }
+
+/* ── Provider 列表 ─────────────────────────────────── */
+.provider-list-section {
+  padding: 20px;
+  min-height: 200px;
+}
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+/* ── Provider Card ─────────────────────────────────── */
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.08));
+  border-radius: 12px;
+}
+.provider-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.provider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.provider-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.provider-type-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.badge--openai      { background: rgba(16,185,129,.2); color: #34d399; }
+.badge--deepseek    { background: rgba(99,102,241,.2); color: #818cf8; }
+.badge--openrouter  { background: rgba(245,158,11,.2); color: #fbbf24; }
+.badge--modelscope  { background: rgba(236,72,153,.2); color: #f472b6; }
+.badge--custom      { background: rgba(107,114,128,.2); color: #9ca3af; }
+
+.provider-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.provider-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+}
+.info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.info-label {
+  color: var(--text-secondary);
+  min-width: 70px;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+.info-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.mono { font-family: monospace; font-size: 0.78rem; }
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.model-map-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(99,102,241,.15);
+  color: #818cf8;
+  font-family: monospace;
+}
+.chip--model { background: rgba(16,185,129,.12); color: #34d399; }
+.chip--more  { background: rgba(107,114,128,.15); color: #9ca3af; }
+
+.provider-test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+.result--ok  { background: rgba(16,185,129,.1); color: #34d399; }
+.result--err { background: rgba(239,68,68,.1);  color: #f87171; }
+.result-icon { flex-shrink: 0; font-weight: 700; }
+
+/* ── Buttons ──────────────────────────────────────── */
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-color, #6366f1);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.btn-primary:hover:not(:disabled) { opacity: .85; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-secondary {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-secondary:hover { background: rgba(255,255,255,.06); }
+
+.btn-danger {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.btn-danger:hover:not(:disabled) { opacity: .85; }
+.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-action:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.btn-action:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-back:hover { background: rgba(255,255,255,.06); }
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.1));
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .15s;
+  color: var(--text-secondary);
+}
+.icon-btn:hover { background: rgba(255,255,255,.08); }
+.icon-btn--test:hover  { color: #34d399; border-color: rgba(52,211,153,.3); }
+.icon-btn--edit:hover  { color: #818cf8; border-color: rgba(129,140,248,.3); }
+.icon-btn--delete:hover{ color: #f87171; border-color: rgba(248,113,113,.3); }
+.icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.btn-add-row {
+  background: none;
+  border: 1px dashed var(--border-color, rgba(255,255,255,.2));
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  width: 100%;
+  margin-top: 4px;
+}
+.btn-add-row:hover { border-color: var(--accent-color, #6366f1); color: var(--accent-color, #6366f1); }
+
+/* ── State Panels ─────────────────────────────────── */
+.state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+.state-panel--error { color: #f87171; }
+.state-panel--empty { min-height: 180px; }
+
+/* ── Dialog ──────────────────────────────────────── */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.dialog-panel {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dialog-panel--sm { max-width: 400px; }
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dialog-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.dialog-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.dialog-close:hover { color: var(--text-primary); }
+
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.form-row--half {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.form-label {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.required { color: #f87171; }
+.form-input {
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.15));
+  background: var(--input-bg, rgba(255,255,255,.05));
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color .15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+.form-input:focus { border-color: var(--accent-color, #6366f1); }
+.form-input--sm { max-width: 100px; }
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.form-hint code {
+  background: rgba(255,255,255,.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+.form-section-title {
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color, rgba(255,255,255,.1));
+  padding-bottom: 6px;
+  margin-top: 4px;
+}
+.form-error {
+  color: #f87171;
+  font-size: 0.83rem;
+  padding: 8px 12px;
+  background: rgba(239,68,68,.1);
+  border-radius: 7px;
+}
+
+.model-map-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.model-map-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.map-arrow {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.delete-confirm-msg {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Spinner ──────────────────────────────────────── */
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255,255,255,.1);
+  border-top-color: var(--accent-color, #6366f1);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+.spinner--sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .7s linear infinite; }
+
+/* ── glass-card fallback ──────────────────────────── */
+.glass-card {
+  background: var(--card-bg, rgba(255,255,255,.04));
+  border: 1px solid var(--border-color, rgba(255,255,255,.08));
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+}
+</style>

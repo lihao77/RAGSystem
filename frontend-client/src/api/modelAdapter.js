@@ -79,6 +79,48 @@ export async function getAvailableModels() {
   }
 }
 
+export async function createProvider(data) {
+  const response = await fetch(`${API_BASE}/providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  const json = await response.json()
+  if (!response.ok) throw new Error(json.detail || json.message || '创建失败')
+  return json
+}
+
+export async function updateProvider(providerKey, data) {
+  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  const json = await response.json()
+  if (!response.ok) throw new Error(json.detail || json.message || '更新失败')
+  return json
+}
+
+export async function deleteProvider(providerKey) {
+  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  const json = await response.json()
+  if (!response.ok) throw new Error(json.detail || json.message || '删除失败')
+  return json
+}
+
+export async function checkProviderAvailability(providerKey) {
+  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/check`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  const json = await response.json()
+  if (!response.ok) throw new Error(json.detail || json.message || '检查失败')
+  return json
+}
+
 export async function testProvider(provider, model, prompt = 'Hello') {
   try {
     const response = await fetch(`${API_BASE}/test`, {

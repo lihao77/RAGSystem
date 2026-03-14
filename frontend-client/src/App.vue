@@ -21,6 +21,7 @@ import AgentMonitor from './views/AgentMonitor.vue';
 import AgentConfig from './views/AgentConfig.vue';
 import MCPManager from './views/MCPManager.vue';
 import VectorLibraryManager from './views/VectorLibraryManager.vue';
+import ModelProviderManager from './views/ModelProviderManager.vue';
 // highlight.js 主题随亮暗模式动态切换，避免固定主题在反色模式下产生行级色差
 import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
 import hljsLightUrl from 'highlight.js/styles/github.css?url';
@@ -39,6 +40,7 @@ const routeDepth = {
   '/agent-config': 1,
   '/mcp': 1,
   '/vector-library': 1,
+  '/model-providers': 1,
 };
 
 const getDepth = (path) => {
@@ -54,6 +56,7 @@ const routes = {
   '/agent-config': AgentConfig,
   '/mcp': MCPManager,
   '/vector-library': VectorLibraryManager,
+  '/model-providers': ModelProviderManager,
 };
 
 const currentView = computed(() => {

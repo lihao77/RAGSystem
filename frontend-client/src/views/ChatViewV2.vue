@@ -59,6 +59,14 @@
           </svg>
           <span class="btn-text">知识库</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-secondary" @click="goToModelProviders" title="模型 Provider 管理">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+            <path d="M4.93 4.93a10 10 0 0 0 0 14.14"></path>
+          </svg>
+          <span class="btn-text">模型管理</span>
+        </button>
       </div>
 
       <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
@@ -632,6 +640,10 @@ const goToMCPManager = () => {
 
 const goToVectorLibrary = () => {
   emit('navigate', '/vector-library');
+};
+
+const goToModelProviders = () => {
+  emit('navigate', '/model-providers');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
