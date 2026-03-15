@@ -1,33 +1,30 @@
 <template>
-  <div class="mcp-page">
-  <div class="mcp-shell">
+  <PageLayout
+    title="MCP 服务管理"
+    subtitle="搜索 Registry、安装模板、测试连接，统一管理 MCP 工具服务。"
+    mobile-title="MCP 服务管理"
+    @navigate="emit('navigate', $event)"
+  >
+    <template #header-actions>
+      <button class="pl-btn" :disabled="loadingServers" @click="refreshAll">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        {{ loadingServers ? '刷新中...' : '全局刷新' }}
+      </button>
+    </template>
 
-    <!-- ── 顶部 Header ─────────────────────────────────────── -->
-    <header class="mcp-header glass-card">
-      <div class="header-meta">
-        <h1 class="page-title">MCP 服务管理</h1>
-        <p class="page-subtitle">搜索 Registry、安装模板、测试连接，统一管理 MCP 工具服务。</p>
-      </div>
-      <div class="header-actions">
-        <button class="btn-action" :disabled="loadingServers" @click="refreshAll">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          {{ loadingServers ? '刷新中...' : '全局刷新' }}
-        </button>
-        <button class="btn-back" @click="emit('navigate', '/')">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12"/>
-            <polyline points="12 19 5 12 12 5"/>
-          </svg>
-          返回聊天
-        </button>
-      </div>
-    </header>
+    <template #mobile-menu="{ close }">
+      <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        {{ loadingServers ? '刷新中...' : '全局刷新' }}
+      </button>
+    </template>
 
     <!-- ── 统计卡片 ────────────────────────────────────────── -->
     <section class="summary-grid">
@@ -112,7 +109,7 @@
           <h2 class="section-title">已安装服务</h2>
           <p class="section-desc">管理连接状态、查看工具、修改运行参数。</p>
         </div>
-        <button class="btn-action" :disabled="loadingServers" @click="loadServers">
+        <button class="pl-btn" :disabled="loadingServers" @click="loadServers">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/>
@@ -266,7 +263,7 @@
           <h2 class="section-title">模板安装</h2>
           <p class="section-desc">从预置模板快速安装常用 MCP 服务。</p>
         </div>
-        <button class="btn-action" :disabled="loadingTemplates" @click="loadTemplates">
+        <button class="pl-btn" :disabled="loadingTemplates" @click="loadTemplates">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/>
@@ -392,7 +389,7 @@
 
             <div class="form-actions">
               <button class="btn-ghost" @click="resetInstallForm">重置</button>
-              <button class="btn-primary" :disabled="installing" @click="installSelectedTemplate">
+              <button class="pl-btn pl-btn--primary" :disabled="installing" @click="installSelectedTemplate">
                 <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -438,7 +435,7 @@
           </div>
           <span>仅最新版本</span>
         </label>
-        <button class="btn-action" :disabled="loadingRegistryResults" @click="searchRegistryServers">
+        <button class="pl-btn" :disabled="loadingRegistryResults" @click="searchRegistryServers">
           {{ loadingRegistryResults ? '搜索中...' : '搜索' }}
         </button>
       </div>
@@ -643,7 +640,7 @@
 
           <div class="modal-footer">
             <button class="btn-ghost" @click="closeRegistryInstallDialog">取消</button>
-            <button class="btn-primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
+            <button class="pl-btn pl-btn--primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
               <div v-if="installingRegistry" class="spinner spinner--sm spinner--inline"></div>
               {{ installingRegistry ? '安装中...' : '安装服务' }}
             </button>
@@ -753,7 +750,7 @@
 
           <div class="modal-footer">
             <button class="btn-ghost" @click="closeEditDialog">取消</button>
-            <button class="btn-primary" :disabled="savingEdit" @click="saveEdit">
+            <button class="pl-btn pl-btn--primary" :disabled="savingEdit" @click="saveEdit">
               <div v-if="savingEdit" class="spinner spinner--sm spinner--inline"></div>
               {{ savingEdit ? '保存中...' : '保存更改' }}
             </button>
@@ -800,8 +797,7 @@
     </Teleport>
 
     <AppToast ref="toastRef" />
-  </div><!-- /mcp-shell -->
-  </div>
+  </PageLayout>
 </template>
 
 <script setup>
@@ -809,6 +805,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import AppToast from '../components/AppToast.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
+import PageLayout from '../components/PageLayout.vue';
 import {
   connectMCPServer,
   deleteMCPServer,
@@ -1329,76 +1326,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ─── 页面容器 ──────────────────────────────────────────── */
-.mcp-page {
-  height: 100%;
-  overflow: auto;
-  padding: var(--spacing-xl);
-  background: var(--color-bg-app);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-.mcp-shell {
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-/* ─── Header ────────────────────────────────────────────── */
-.mcp-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--color-glass-border);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
-}
-
-.btn-back {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-.btn-back:hover {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
-}
-.btn-back:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.header-actions { display: flex; align-items: center; gap: var(--spacing-sm); }
-
-.header-meta { display: flex; flex-direction: column; gap: 2px; }
-.page-title { font-size: var(--font-size-xl); font-weight: 700; margin: 0; color: var(--color-text-primary); }
-.page-subtitle { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
 /* ─── 统计卡片 ──────────────────────────────────────────── */
 .summary-grid {
   display: grid;
@@ -1509,90 +1436,7 @@ onMounted(async () => {
 .section-title { font-size: var(--font-size-lg); font-weight: 600; margin: 0; color: var(--color-text-primary); }
 .section-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
 
-/* ─── 按钮系统 ──────────────────────────────────────────── */
-.btn-action,
-.btn-secondary,
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 9px 16px;
-  border-radius: 20px;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-
-.btn-action {
-  height: 40px;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.btn-action:hover:not(:disabled) { background: var(--color-interactive-hover); border-color: var(--color-border-hover); }
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  height: 44px;
-  padding: 0 24px;
-  border-radius: 22px;
-  border: none;
-  background: linear-gradient(135deg,
-    rgba(var(--color-brand-accent-rgb), 0.9) 0%,
-    rgba(var(--color-brand-accent-light-rgb), 0.95) 100%);
-  color: #fff;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow:
-    0 4px 12px rgba(var(--color-brand-accent-rgb), 0.35),
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow:
-    0 6px 20px rgba(var(--color-brand-accent-rgb), 0.45),
-    0 2px 4px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-.btn-primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow:
-    0 2px 8px rgba(var(--color-brand-accent-rgb), 0.35),
-    0 1px 2px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-}
-.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.btn-secondary {
-  height: 40px;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-.btn-secondary:hover:not(:disabled) { background: var(--color-interactive-hover); border-color: var(--color-border-hover); }
-.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.btn-ghost {
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-.btn-ghost:hover { color: var(--color-text-primary); background: var(--color-hover-overlay); }
-
-/* 轻量强调按钮（卡片内操作，无发光） */
+/* ─── 轻量强调按钮（卡片内操作，无发光） */
 .btn-accent {
   display: inline-flex;
   align-items: center;
@@ -1617,39 +1461,6 @@ onMounted(async () => {
 .btn-accent:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-sm { height: 36px !important; padding: 0 14px; font-size: var(--font-size-xs); border-radius: 18px; }
-
-.btn-action:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ─── State panel ───────────────────────────────────────── */
-.state-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-2xl) var(--spacing-lg);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-hover-overlay);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.empty-icon { color: var(--color-text-muted); margin-bottom: var(--spacing-xs); }
-.empty-title { font-size: var(--font-size-base); color: var(--color-text-primary); font-weight: 500; margin: 0; }
-.empty-hint  { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
-/* ─── Spinner ───────────────────────────────────────────── */
-.spinner {
-  width: 28px; height: 28px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-brand-accent-light);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-.spinner--sm { width: 16px; height: 16px; border-width: 2px; }
-.spinner--inline { flex-shrink: 0; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─── 已安装服务卡片网格 ────────────────────────────────── */
 .server-grid {
@@ -2298,9 +2109,6 @@ onMounted(async () => {
 }
 
 @media (max-width: 720px) {
-  .mcp-page { padding: var(--spacing-md); }
-  .mcp-header { flex-direction: column; align-items: flex-start; gap: var(--spacing-sm); }
-  .header-actions { width: 100%; justify-content: flex-end; }
   .summary-grid { grid-template-columns: 1fr 1fr; }
   .server-grid  { grid-template-columns: 1fr; }
   .registry-grid { grid-template-columns: 1fr; }

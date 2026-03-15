@@ -1,33 +1,29 @@
 <template>
-    <div class="vl-page">
-        <div class="vl-shell">
-
-            <!-- ── Header ─────────────────────────────────────── -->
-            <header class="vl-header glass-card">
-                <div class="header-meta">
-                    <h1 class="page-title">知识库管理</h1>
-                    <p class="page-subtitle">管理文件、向量索引、向量化器配置，构建您的专属知识库。</p>
-                </div>
-                <div class="header-actions">
-                    <button class="btn-action btn-icon" :disabled="globalLoading" @click="refreshAll" title="全局刷新">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                            :class="{ 'spin': globalLoading }">
-                            <polyline points="23 4 23 10 17 10" />
-                            <polyline points="1 20 1 14 7 14" />
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                        </svg>
-                    </button>
-                    <button class="btn-back" @click="emit('navigate', '/')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="19" y1="12" x2="5" y2="12" />
-                            <polyline points="12 19 5 12 12 5" />
-                        </svg>
-                        <span class="btn-text-label">返回聊天</span>
-                    </button>
-                </div>
-            </header>
+    <PageLayout
+        title="知识库管理"
+        subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
+        mobile-title="知识库管理"
+        @navigate="emit('navigate', $event)"
+    >
+        <template #header-actions>
+            <button class="pl-btn pl-btn--icon" :disabled="globalLoading" @click="refreshAll" title="全局刷新">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    :class="{ 'spin': globalLoading }">
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+            </button>
+        </template>
+        <template #mobile-menu="{ close }">
+            <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                全局刷新
+            </button>
+        </template>
 
             <!-- ── 统计卡片 ───────────────────────────────────── -->
             <section class="summary-grid">
@@ -126,7 +122,7 @@
                             <p class="section-desc">每行为一个已上传文件，每列为一个向量化器，可逐项建立或查看索引状态。</p>
                         </div>
                         <div class="toolbar-right">
-                            <button class="btn-action btn-icon" :disabled="storeLoading" @click="refreshFileStatus"
+                            <button class="pl-btn pl-btn--icon" :disabled="storeLoading" @click="refreshFileStatus"
                                 title="刷新索引状态">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -407,7 +403,7 @@
                             <p class="section-desc">配置多套向量化器，激活后用于新建索引；支持向量化器间的数据迁移。</p>
                         </div>
                         <div class="toolbar-right">
-                            <button class="btn-action btn-icon" :disabled="vectorizersLoading"
+                            <button class="pl-btn pl-btn--icon" :disabled="vectorizersLoading"
                                 @click="refreshVectorizers" title="刷新向量化器">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -563,7 +559,6 @@
                 </div>
 
             </section>
-        </div>
 
         <!-- ══════════════ 模态框区域 ══════════════════════════ -->
 
@@ -754,12 +749,13 @@
         </Teleport>
 
         <AppToast ref="toastRef" />
-    </div>
+    </PageLayout>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import AppToast from '../components/AppToast.vue';
+import PageLayout from '../components/PageLayout.vue';
 import { getProviders } from '../api/modelAdapter';
 import {
     activateVectorizer,
@@ -1302,66 +1298,6 @@ onMounted(() => refreshAll());
 </script>
 
 <style scoped>
-/* ─── 页面容器 ──────────────────────────────────────────── */
-.vl-page {
-    height: 100%;
-    overflow: auto;
-    padding: var(--spacing-xl);
-    background: var(--color-bg-app);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-lg);
-}
-
-.vl-shell {
-    max-width: 1200px;
-    margin: 0 auto;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-lg);
-}
-
-/* ─── Header ────────────────────────────────────────────── */
-.vl-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--spacing-lg);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    box-shadow: var(--glass-shadow);
-}
-
-.header-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.page-title {
-    font-size: var(--font-size-xl);
-    font-weight: 700;
-    margin: 0;
-    color: var(--color-text-primary);
-}
-
-.page-subtitle {
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
-    margin: 0;
-}
-
-.header-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-}
-
 /* ─── 统计卡片 ──────────────────────────────────────────── */
 .summary-grid {
     display: grid;
@@ -1628,50 +1564,13 @@ onMounted(() => refreshAll());
     font-size: var(--font-size-sm);
 }
 
-/* ─── 按钮系统 ──────────────────────────────────────────── */
-.btn-back,
-.btn-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--spacing-xs);
-    height: 40px;
-    padding: 0 16px;
-    border-radius: 20px;
-    border: 1px solid var(--color-border);
-    background: var(--color-interactive);
-    color: var(--color-text-primary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all var(--transition-fast);
-    user-select: none;
-}
-
-.btn-back:hover:not(:disabled),
-.btn-action:hover:not(:disabled) {
-    background: var(--color-interactive-hover);
-    border-color: var(--color-border-hover);
-}
-
-.btn-action:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-/* 纯图标按钮：正方形，无文字 */
-.btn-icon {
-    width: 40px;
-    padding: 0;
-    justify-content: center;
-}
-
 /* 刷新中旋转动画 */
 .spin {
     animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
 .btn-primary {
@@ -2195,21 +2094,6 @@ onMounted(() => refreshAll());
     min-height: 160px;
 }
 
-.spinner {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: 2px solid var(--color-border);
-    border-top-color: var(--color-brand-accent-light);
-    animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
 .empty-state svg {
     opacity: 0.35;
 }
@@ -2447,53 +2331,10 @@ onMounted(() => refreshAll());
     .summary-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-
-    .vl-shell {
-        max-width: 100%;
-    }
 }
 
 /* ── 手机横屏 / 小平板（≤720px）── */
 @media (max-width: 720px) {
-    .vl-page {
-        padding: var(--spacing-md);
-        gap: var(--spacing-md);
-    }
-
-    /* Header：标题行压缩，按钮只显示图标 */
-    .vl-header {
-        flex-direction: row;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: var(--spacing-sm);
-        padding: var(--spacing-sm) var(--spacing-md);
-    }
-
-    .page-subtitle {
-        display: none;
-    }
-
-    .page-title {
-        font-size: var(--font-size-lg);
-    }
-
-    .header-actions {
-        margin-left: auto;
-    }
-
-    /* Header 返回按钮：仅保留图标 */
-    .btn-back .btn-text-label {
-        display: none;
-    }
-
-    .btn-back {
-        width: 36px;
-        height: 36px;
-        padding: 0;
-        border-radius: 50%;
-        justify-content: center;
-    }
-
     /* 统计卡片：2列，缩小内边距和图标 */
     .summary-grid {
         grid-template-columns: 1fr 1fr;
@@ -2625,10 +2466,6 @@ onMounted(() => refreshAll());
 
 /* ── 手机竖屏（≤480px）── */
 @media (max-width: 480px) {
-    .vl-page {
-        padding: var(--spacing-sm);
-    }
-
     /* 统计卡片：超小屏保持2列但更紧凑 */
     .summary-grid {
         gap: var(--spacing-xs);
@@ -2658,9 +2495,7 @@ onMounted(() => refreshAll());
     }
 
     /* 按钮文字缩减 */
-    .btn-primary,
-    .btn-action,
-    .btn-back {
+    .btn-primary {
         font-size: 12px;
     }
 
@@ -2703,4 +2538,5 @@ onMounted(() => refreshAll());
         gap: var(--spacing-xs);
     }
 }
+
 </style>

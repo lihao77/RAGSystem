@@ -1,0 +1,209 @@
+/* ===================================================================
+   page-layout.css — 管理页面公共原子样式
+   配合 PageLayout.vue 使用，提供按钮、状态面板、移动菜单项等通用 class
+=================================================================== */
+
+/* ===== 通用按钮基类 ===== */
+.pl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-interactive);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.pl-btn:hover:not(:disabled) {
+  background: var(--color-interactive-hover);
+  border-color: var(--color-border-hover);
+}
+
+.pl-btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.pl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 主色按钮（添加、新建） */
+.pl-btn--primary {
+  background: var(--color-brand-accent);
+  border-color: var(--color-brand-accent);
+  color: #fff;
+}
+
+.pl-btn--primary:hover:not(:disabled) {
+  background: var(--color-brand-accent-light);
+  border-color: var(--color-brand-accent-light);
+}
+
+/* 危险按钮（删除、重置） */
+.pl-btn--danger {
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  background: rgba(var(--color-error-rgb), 0.08);
+  color: var(--color-error);
+}
+
+.pl-btn--danger:hover:not(:disabled) {
+  background: rgba(var(--color-error-rgb), 0.16);
+  border-color: rgba(var(--color-error-rgb), 0.55);
+}
+
+/* 仅图标按钮 */
+.pl-btn--icon {
+  width: 40px;
+  padding: 0;
+}
+
+/* ===== 状态面板 ===== */
+.pl-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.pl-state--error {
+  border-color: rgba(var(--color-error-rgb), 0.35);
+  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
+  color: var(--color-error);
+}
+
+/* 加载旋转器 */
+.pl-spinner {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-brand-accent-light);
+  border-radius: 50%;
+  animation: pl-spin 0.8s linear infinite;
+}
+
+@keyframes pl-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 可附加在任意元素上的旋转动画 */
+.pl-spin {
+  animation: pl-spin 0.8s linear infinite;
+}
+
+/* 空状态 */
+.pl-empty {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ===== 移动端菜单项（供 slot="mobile-menu" 使用） ===== */
+.pl-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 11px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pl-menu-item:hover:not(:disabled) {
+  background: var(--color-interactive);
+}
+
+.pl-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pl-menu-item--active {
+  color: var(--color-brand-accent-light);
+  font-weight: 600;
+}
+
+.pl-menu-item--danger {
+  color: var(--color-error);
+}
+
+.pl-menu-item--danger:hover:not(:disabled) {
+  background: rgba(var(--color-error-rgb), 0.1);
+}
+
+.pl-menu-label {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pl-menu-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 8px;
+}
+
+/* ===== 内容卡片 ===== */
+.pl-card {
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+
+.pl-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
+}
+
+.pl-card__head h2 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.pl-card__head span {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.pl-card__body {
+  padding: var(--spacing-lg);
+}

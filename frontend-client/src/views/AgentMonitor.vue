@@ -1,66 +1,86 @@
 <template>
-  <div class="monitor-page">
-    <div class="monitor-shell">
+  <PageLayout
+    title="智能体性能监控"
+    subtitle="实时查看调用次数、耗时、成功率与工具使用统计"
+    mobile-title="性能监控"
+    @navigate="emit('navigate', $event)"
+  >
+    <template #header-hint>
+      <p class="page-hint">
+        <span>自动刷新：{{ autoRefreshSeconds }}s</span>
+        <span v-if="lastUpdatedAt">最近更新：{{ formatRefreshTime(lastUpdatedAt) }}</span>
+      </p>
+    </template>
 
-      <!-- Header -->
-      <header class="monitor-header">
-        <div class="header-left">
-          <div class="header-meta">
-            <h1 class="page-title">智能体性能监控</h1>
-            <p class="page-subtitle">实时查看调用次数、耗时、成功率与工具使用统计</p>
-            <p class="page-hint">
-              <span>自动刷新：{{ autoRefreshSeconds }}s</span>
-              <span v-if="lastUpdatedAt">最近更新：{{ formatRefreshTime(lastUpdatedAt) }}</span>
-            </p>
-          </div>
-        </div>
-        <div class="header-actions">
-          <CustomSelect
-            :model-value="selectedAgent"
-            :options="[{ value: '', label: '全部智能体' }, ...agentList.map(a => ({ value: a, label: a }))]"
-            placeholder="全部智能体"
-            style="width: 200px"
-            @update:model-value="selectedAgent = $event; loadMetrics()"
-          />
-          <button class="btn-action" @click="loadMetrics" :disabled="loading">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <polyline points="1 20 1 14 7 14"></polyline>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-            </svg>
-            刷新
-          </button>
-          <button class="btn-action btn-action--danger" @click="confirmReset">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-            重置指标
-          </button>
-          <button class="btn-back" @click="navigateToChat">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            返回聊天
-          </button>
-        </div>
-      </header>
+    <template #header-actions>
+      <CustomSelect
+        :model-value="selectedAgent"
+        :options="[{ value: '', label: '全部智能体' }, ...agentList.map(a => ({ value: a, label: a }))]"
+        placeholder="全部智能体"
+        style="width: 200px"
+        @update:model-value="selectedAgent = $event; loadMetrics()"
+      />
+      <button class="pl-btn" :disabled="loading" @click="loadMetrics">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        刷新
+      </button>
+      <button class="pl-btn pl-btn--danger" @click="confirmReset">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        重置指标
+      </button>
+    </template>
 
-      <!-- Loading -->
-      <div v-if="loading" class="state-panel">
-        <div class="spinner"></div>
-        <p>加载中...</p>
-      </div>
+    <template #mobile-menu="{ close }">
+      <div class="pl-menu-label">智能体筛选</div>
+      <button
+        v-for="opt in [{ value: '', label: '全部智能体' }, ...agentList.map(a => ({ value: a, label: a }))]"
+        :key="opt.value"
+        class="pl-menu-item"
+        :class="{ 'pl-menu-item--active': selectedAgent === opt.value }"
+        @click="selectedAgent = opt.value; loadMetrics(); close()"
+      >
+        <svg v-if="selectedAgent === opt.value" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span :style="selectedAgent !== opt.value ? 'padding-left: 22px' : ''">{{ opt.label }}</span>
+      </button>
+      <div class="pl-menu-divider"></div>
+      <button class="pl-menu-item" :disabled="loading" @click="loadMetrics(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        刷新
+      </button>
+      <button class="pl-menu-item pl-menu-item--danger" @click="confirmReset(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+        重置指标
+      </button>
+    </template>
 
-      <!-- Error -->
-      <div v-else-if="error" class="state-panel state-panel--error">
-        <p>{{ error }}</p>
-        <button class="btn-action" @click="loadMetrics">重试</button>
-      </div>
+    <!-- Loading -->
+    <div v-if="loading" class="pl-state">
+      <div class="pl-spinner"></div>
+      <p>加载中...</p>
+    </div>
+
+    <!-- Error -->
+    <div v-else-if="error" class="pl-state pl-state--error">
+      <p>{{ error }}</p>
+      <button class="pl-btn" @click="loadMetrics">重试</button>
+    </div>
 
       <template v-else>
         <div v-if="!selectedAgent && executionOverview" class="detail-card">
@@ -291,8 +311,7 @@
         </div>
       </template>
 
-    </div>
-  </div>
+  </PageLayout>
 </template>
 
 <script setup>
@@ -306,6 +325,7 @@ import {
   resetMetrics
 } from '../api/monitoring';
 import CustomSelect from '../components/CustomSelect.vue';
+import PageLayout from '../components/PageLayout.vue';
 
 const emit = defineEmits(['navigate']);
 
@@ -479,10 +499,6 @@ const formatObservability = (value) => {
   return parts.join(' | ') || '—';
 };
 
-const navigateToChat = () => {
-  emit('navigate', '/');
-};
-
 const startAutoRefresh = () => {
   if (refreshTimer) return;
   refreshTimer = window.setInterval(() => {
@@ -509,59 +525,11 @@ onUnmounted(() => {
 
 <style scoped>
 /* ===== Page shell ===== */
-.monitor-page {
-  height: 100vh;
-  overflow-y: auto;
-  background: var(--color-bg-app);
-  padding: var(--spacing-xl);
-}
-
-.monitor-shell {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
 .metrics-grid--compact {
   margin-bottom: var(--spacing-md);
 }
 
-/* ===== Header ===== */
-.monitor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-  flex-wrap: wrap;
-}
-
-.header-left {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-}
-
-.header-meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.page-title {
-  margin: 0;
-  font-size: var(--font-size-3xl);
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.page-subtitle {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
+/* ===== hint in header ===== */
 .page-hint {
   margin: 0;
   color: var(--color-text-secondary);
@@ -569,95 +537,6 @@ onUnmounted(() => {
   display: flex;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-/* ===== Buttons ===== */
-.btn-back,
-.btn-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-  white-space: nowrap;
-}
-
-.btn-back:hover,
-.btn-action:hover:not(:disabled) {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
-}
-
-.btn-action--danger {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: rgba(var(--color-error-rgb), 0.08);
-  color: var(--color-error);
-}
-
-.btn-action--danger:hover {
-  background: rgba(var(--color-error-rgb), 0.16) !important;
-  border-color: rgba(var(--color-error-rgb), 0.55) !important;
-}
-
-.btn-back:focus-visible,
-.btn-action:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.btn-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ===== State panels ===== */
-.state-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xl);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-hover-overlay);
-  color: var(--color-text-secondary);
-}
-
-.state-panel--error {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
-}
-
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-brand-accent-light);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 /* ===== Stat cards (overview) ===== */
@@ -1063,9 +942,6 @@ onUnmounted(() => {
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
-  .monitor-page { padding: var(--spacing-md); }
-  .monitor-header { flex-direction: column; align-items: stretch; }
-  .header-actions { flex-wrap: wrap; justify-content: flex-end; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
 }
 

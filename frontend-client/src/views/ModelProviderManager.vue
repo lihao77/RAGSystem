@@ -1,41 +1,44 @@
 <template>
-  <div class="mp-page">
-    <div class="mp-shell">
+  <PageLayout
+    title="模型 Provider 管理"
+    subtitle="管理 LLM Provider 实例：配置 API Key、模型映射、参数，并测试连通性。"
+    mobile-title="Provider 管理"
+    @navigate="emit('navigate', $event)"
+  >
+    <template #header-actions>
+      <button class="pl-btn" :disabled="loading" @click="loadProviders">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          :class="{ spin: loading }">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        {{ loading ? '刷新中...' : '刷新' }}
+      </button>
+      <button class="pl-btn pl-btn--primary" @click="openCreateDialog">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        添加 Provider
+      </button>
+    </template>
 
-      <!-- ── Header ─────────────────────────────────────── -->
-      <header class="mp-header glass-card">
-        <div class="header-meta">
-          <h1 class="page-title">模型 Provider 管理</h1>
-          <p class="page-subtitle">管理 LLM Provider 实例：配置 API Key、模型映射、参数，并测试连通性。</p>
-        </div>
-        <div class="header-actions">
-          <button class="btn-action" :disabled="loading" @click="loadProviders">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-              :class="{ spin: loading }">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            {{ loading ? '刷新中...' : '刷新' }}
-          </button>
-          <button class="btn-primary" @click="openCreateDialog">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            添加 Provider
-          </button>
-          <button class="btn-back" @click="emit('navigate', '/')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"/>
-              <polyline points="12 19 5 12 12 5"/>
-            </svg>
-            返回聊天
-          </button>
-        </div>
-      </header>
+    <template #mobile-menu="{ close }">
+      <button class="pl-menu-item" @click="openCreateDialog(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        添加 Provider
+      </button>
+      <button class="pl-menu-item" :disabled="loading" @click="loadProviders(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spin: loading }">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        {{ loading ? '刷新中...' : '刷新' }}
+      </button>
+    </template>
 
       <!-- ── 统计卡片 ──────────────────────────────────── -->
       <section class="summary-grid">
@@ -189,8 +192,6 @@
           </article>
         </div>
       </section>
-
-    </div><!-- /mp-shell -->
 
     <!-- ── 新增/编辑 Dialog ──────────────────────────────── -->
     <div v-if="dialog.visible" class="dialog-backdrop" @click.self="closeDialog">
@@ -351,12 +352,13 @@
       </div>
     </div>
 
-  </div><!-- /mp-page -->
+  </PageLayout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import CustomSelect from '../components/CustomSelect.vue'
+import PageLayout from '../components/PageLayout.vue'
 import {
   getProviderTypes,
   getProviders,
@@ -651,50 +653,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* ── 页面布局 ───────────────────────────────────────── */
-.mp-page {
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  background: var(--color-bg-app);
-  padding: 24px;
-  box-sizing: border-box;
-}
-.mp-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-/* ── Header ──────────────────────────────────────────── */
-.mp-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.page-title {
-  margin: 0 0 4px;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-.page-subtitle {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-}
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 /* ── 统计卡片 ──────────────────────────────────────── */
 .summary-grid {
   display: grid;
@@ -849,23 +807,6 @@ onMounted(() => {
 .result-icon { flex-shrink: 0; font-weight: 700; }
 
 /* ── Buttons ──────────────────────────────────────── */
-.btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  background: var(--color-brand-accent);
-  color: #fff;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity .15s;
-}
-.btn-primary:hover:not(:disabled) { opacity: .85; }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-
 .btn-secondary {
   padding: 8px 16px;
   border-radius: 8px;
@@ -891,37 +832,6 @@ onMounted(() => {
 }
 .btn-danger:hover:not(:disabled) { opacity: .85; }
 .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
-
-.btn-action {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: 0.83rem;
-  cursor: pointer;
-  transition: background .15s;
-}
-.btn-action:hover:not(:disabled) { background: rgba(255,255,255,.06); }
-.btn-action:disabled { opacity: .5; cursor: not-allowed; }
-
-.btn-back {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 0.83rem;
-  cursor: pointer;
-  transition: background .15s;
-}
-.btn-back:hover { background: rgba(255,255,255,.06); }
 
 .icon-btn {
   width: 30px;
@@ -955,20 +865,6 @@ onMounted(() => {
   margin-top: 4px;
 }
 .btn-add-row:hover { border-color: var(--color-brand-accent); color: var(--color-brand-accent); }
-
-/* ── State Panels ─────────────────────────────────── */
-.state-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 40px;
-  color: var(--color-text-secondary);
-  font-size: 0.9rem;
-}
-.state-panel--error { color: var(--color-error, #f87171); }
-.state-panel--empty { min-height: 180px; }
 
 /* ── Dialog ──────────────────────────────────────── */
 .dialog-backdrop {
@@ -1148,20 +1044,11 @@ input[type='number'].form-control { padding-right: 8px; }
 }
 
 /* ── Spinner ──────────────────────────────────────── */
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid rgba(255,255,255,.1);
-  border-top-color: var(--color-brand-accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
-}
 .spinner--sm {
   width: 14px;
   height: 14px;
   border-width: 2px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin .7s linear infinite; }
 
 /* ── glass-card fallback ──────────────────────────── */

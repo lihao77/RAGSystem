@@ -103,86 +103,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* ===== Buttons ===== */
-.btn-back,
-.btn-secondary,
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
-  border: 1px solid var(--color-border);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.btn-back,
-.btn-secondary {
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-}
-
-.btn-back:hover,
-.btn-secondary:hover {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
-}
-
-.btn-back:focus-visible,
-.btn-secondary:focus-visible,
-.btn-primary:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.btn-primary {
-  height: 44px;
-  padding: 0 24px;
-  border-radius: 22px;
-  border: none;
-  background: linear-gradient(135deg,
-    rgba(var(--color-brand-accent-rgb), 0.9) 0%,
-    rgba(var(--color-brand-accent-light-rgb), 0.95) 100%);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  box-shadow:
-    0 4px 12px rgba(var(--color-brand-accent-rgb), 0.35),
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.btn-primary:hover {
-  /* transform: translateY(-1px); */
-  box-shadow:
-    0 6px 20px rgba(var(--color-brand-accent-rgb), 0.45),
-    0 2px 4px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-
-.btn-primary:active {
-  transform: translateY(0);
-  box-shadow:
-    0 2px 8px rgba(var(--color-brand-accent-rgb), 0.35),
-    0 1px 2px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-}
-
-.btn-primary:disabled,
-.btn-secondary:disabled,
-.btn-back:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 /* ===== Main Card (legacy - removed) ===== */
 
@@ -455,26 +375,142 @@ input[type='number'].form-control {
   to { transform: rotate(360deg); }
 }
 
+/* ===== Mobile nav bar ===== */
+.mobile-nav {
+  display: none;
+  align-items: center;
+  height: 52px;
+  position: relative;
+}
+
+.mobile-nav__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 var(--spacing-xs);
+}
+
+.mobile-nav__title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.mobile-nav__back,
+.mobile-nav__more {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+
+.mobile-nav__back:hover,
+.mobile-nav__more:hover {
+  background: var(--color-interactive);
+}
+
+/* Agent 切换列表 */
+.mobile-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-dropdown, 200);
+  min-width: 200px;
+  max-width: calc(100vw - 32px);
+}
+
+.mobile-picker__list {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  padding: 4px;
+}
+
+.mobile-picker__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.mobile-picker__item:hover {
+  background: var(--color-interactive);
+}
+
+.mobile-picker__item.active {
+  color: var(--color-brand-accent-light);
+  font-weight: 600;
+}
+
+.mobile-picker__item svg {
+  flex-shrink: 0;
+  color: var(--color-brand-accent-light);
+}
+
+/* 三点菜单容器（定位保留，内部菜单项样式由 page-layout.css 的 pl-menu-item 提供） */
+.mobile-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: var(--z-dropdown, 200);
+  min-width: 180px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  padding: 4px;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .config-top__inner {
     padding-left: var(--spacing-md);
     padding-right: var(--spacing-md);
+    padding-top: 0;
+    padding-bottom: 0;
   }
 
-  .header-left {
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
+  .config-top {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky, 100);
   }
 
-  .header-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .config-subtitle {
-    display: none;
-  }
+  /* 隐藏桌面端头部，显示移动端导航 */
+  .header-left--desktop { display: none; }
+  .mobile-nav { display: flex !important; }
 
   .config-body {
     padding-left: var(--spacing-md);
@@ -485,16 +521,6 @@ input[type='number'].form-control {
   .form-grid,
   .toggle-grid {
     grid-template-columns: 1fr;
-  }
-
-  .form-bottom-actions .btn-primary {
-    width: 100%;
-    height: 48px;
-    justify-content: center;
-  }
-
-  .form-bottom-actions {
-    padding-bottom: calc(var(--spacing-2xl) + env(safe-area-inset-bottom, 0px));
   }
 
   .btn-scroll-bottom {
@@ -711,43 +737,6 @@ input[type='number'].form-control {
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-
-/* ===== Header save button variant ===== */
-.btn-primary--sm {
-  height: 40px;
-  padding: 0 18px;
-  border-radius: 20px;
-  font-size: var(--font-size-sm);
-}
-
-/* ===== Danger button ===== */
-.btn-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
-  border: 1px solid rgba(var(--color-error-rgb), 0.4);
-  background: rgba(var(--color-error-rgb), 0.08);
-  color: var(--color-error);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.btn-danger:hover {
-  background: rgba(var(--color-error-rgb), 0.15);
-  border-color: rgba(var(--color-error-rgb), 0.6);
-}
-
-.btn-danger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* ===== Modal overlay ===== */
