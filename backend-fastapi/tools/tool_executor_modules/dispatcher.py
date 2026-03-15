@@ -12,6 +12,7 @@ from tools.result_schema import ToolExecutionResult
 from tools.tool_registry import get_tool_registry
 
 from .data_tools import process_data_file, transform_data
+from .emergency_tools import assess_flood_risk, match_emergency_response, query_emergency_plan
 from .skill_tools import activate_skill, execute_skill_script, get_skill_info, load_skill_resource
 from .visualization_tools import create_chart, create_map, revise_visualization
 
@@ -161,6 +162,9 @@ TOOL_HANDLERS = {
     'load_skill_resource': load_skill_resource,
     'execute_skill_script': execute_skill_script,
     'get_skill_info': get_skill_info,
+    'query_emergency_plan': query_emergency_plan,
+    'assess_flood_risk': assess_flood_risk,
+    'match_emergency_response': match_emergency_response,
 }
 
 

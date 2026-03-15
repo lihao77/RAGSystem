@@ -5,12 +5,14 @@
 
 import logging
 import os
+from pathlib import Path
 
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 os.environ['CHROMA_TELEMETRY_ENABLED'] = 'False'
 
 BACKEND_FASTAPI_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BACKEND_FASTAPI_DIR, '..'))
+SKILLS_DIR = os.path.join(BACKEND_FASTAPI_DIR, 'agents', 'skills')
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +48,27 @@ def _parse_csv_env(name: str, default: list) -> list:
     if not raw_value:
         return list(default)
     return [item.strip() for item in raw_value.split(',') if item.strip()]
+
+
+def _build_reload_excludes() -> list[str]:
+    """构建 uvicorn 热更新排除项，避免 Skill 目录和虚拟环境触发重载。"""
+    skills_path = Path(SKILLS_DIR)
+    patterns = {
+        str(skills_path),
+        skills_path.as_posix(),
+        "agents/skills",
+        "agents/skills/*",
+        "agents/skills/**",
+        "*/agents/skills/*",
+        "*/agents/skills/**",
+        ".venv",
+        ".venv/*",
+        ".venv/**",
+        "**/.venv",
+        "**/.venv/*",
+        "**/.venv/**",
+    }
+    return sorted(patterns)
 
 
 def create_app() -> FastAPI:
@@ -121,4 +144,5 @@ if __name__ == '__main__':
         port=port,
         reload=reload,
         reload_dirs=[BACKEND_FASTAPI_DIR],
+        reload_excludes=_build_reload_excludes(),
     )

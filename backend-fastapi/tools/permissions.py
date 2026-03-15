@@ -156,6 +156,29 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         description="编辑文件内容（精准字符串替换）",
         allowed_callers=["direct", "code_execution"]
     ),
+
+    # 应急分析工具（低/中风险，只读推理与检索）
+    "query_emergency_plan": ToolPermission(
+        tool_name="query_emergency_plan",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="检索应急预案知识库（只读）",
+        allowed_callers=["direct"]
+    ),
+    "assess_flood_risk": ToolPermission(
+        tool_name="assess_flood_risk",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="根据雨情和水情评估洪涝风险（只读）",
+        allowed_callers=["direct"]
+    ),
+    "match_emergency_response": ToolPermission(
+        tool_name="match_emergency_response",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="根据风险等级匹配应急响应措施（只读）",
+        allowed_callers=["direct"]
+    ),
 }
 
 
@@ -169,7 +192,43 @@ def get_tool_permission(tool_name: str) -> Optional[ToolPermission]:
     Returns:
         ToolPermission: 权限配置，不存在则返回 None
     """
-    return TOOL_PERMISSIONS.get(tool_name)
+    permission = TOOL_PERMISSIONS.get(tool_name)
+    if permission is not None:
+        return permission
+
+    permission = _build_default_permission(tool_name)
+    if permission is not None:
+        TOOL_PERMISSIONS[tool_name] = permission
+    return permission
+
+
+def _build_default_permission(tool_name: str) -> Optional[ToolPermission]:
+    """为已注册但未显式配置的基础工具生成保守默认权限。"""
+    tool = _TOOL_REGISTRY.get_tool_by_name(tool_name)
+    if not tool:
+        return None
+
+    function_def = tool.get("function", {})
+    source = function_def.get("source", "static")
+    category = _TOOL_REGISTRY.get_tool_category(tool_name)
+    risk_level = _infer_default_risk_level(tool_name, source, category)
+
+    return ToolPermission(
+        tool_name=tool_name,
+        risk_level=risk_level,
+        requires_approval=False,
+        description=function_def.get("description", "") or f"Tool {tool_name}",
+        allowed_callers=list(function_def.get("allowed_callers", ["direct"])),
+    )
+
+
+def _infer_default_risk_level(tool_name: str, source: str, category: str) -> RiskLevel:
+    """基于工具来源和类别推断默认风险等级。"""
+    if source == "document" and tool_name in {"write_file", "edit_file"}:
+        return RiskLevel.HIGH
+    if category in {"data", "execution"}:
+        return RiskLevel.MEDIUM
+    return RiskLevel.LOW
 
 
 def register_mcp_tool_permission(

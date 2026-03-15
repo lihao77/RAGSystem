@@ -16,7 +16,7 @@ pip install -r requirements.txt
 python main.py
 
 # 或直接用 uvicorn
-uvicorn main:app --host 0.0.0.0 --port 5001 --reload
+uvicorn main:app --host 0.0.0.0 --port 5001 --reload --reload-exclude agents/skills --reload-exclude **/.venv/**
 ```
 
 环境变量从项目根目录的 `.env` 文件加载，参考 `.env.example`：

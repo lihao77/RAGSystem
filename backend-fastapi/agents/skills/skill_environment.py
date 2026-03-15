@@ -12,11 +12,13 @@ import os
 import sys
 import logging
 import subprocess
-import json
+import hashlib
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_SKILL_VENV_ROOT = PROJECT_ROOT / ".skill_venvs"
 
 
 class SkillEnvironment:
@@ -32,8 +34,18 @@ class SkillEnvironment:
         """
         self.skill_dir = skill_dir
         self.isolation_mode = isolation_mode
-        self.venv_dir = skill_dir / ".venv"
+        self.venv_dir = self._resolve_venv_dir(skill_dir)
         self.requirements_file = skill_dir / "requirements.txt"
+
+    def _resolve_venv_dir(self, skill_dir: Path) -> Path:
+        """将 Skill 虚拟环境放到项目级缓存目录，避免触发后端热更新。"""
+        configured_root = os.environ.get("SKILL_VENV_ROOT", "").strip()
+        venv_root = Path(configured_root) if configured_root else DEFAULT_SKILL_VENV_ROOT
+
+        skill_key = hashlib.sha1(str(skill_dir.resolve()).encode("utf-8")).hexdigest()[:12]
+        safe_name = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in skill_dir.name).strip("-")
+        venv_name = f"{safe_name or 'skill'}-{skill_key}"
+        return venv_root / venv_name
 
     def ensure_environment(self) -> Tuple[bool, str]:
         """
@@ -154,6 +166,7 @@ class SkillEnvironment:
         if not self.venv_dir.exists():
             logger.info(f"创建虚拟环境: {self.venv_dir}")
             try:
+                self.venv_dir.parent.mkdir(parents=True, exist_ok=True)
                 subprocess.run(
                     [sys.executable, "-m", "venv", str(self.venv_dir)],
                     check=True,
@@ -240,6 +253,7 @@ class SkillEnvironment:
         return {
             "skill_dir": str(self.skill_dir),
             "isolation_mode": self.isolation_mode,
+            "venv_dir": str(self.venv_dir),
             "venv_exists": self.venv_dir.exists(),
             "requirements_exists": self.requirements_file.exists(),
             "python_executable": self.get_python_executable()

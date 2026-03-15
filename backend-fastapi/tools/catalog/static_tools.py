@@ -238,6 +238,179 @@ STATIC_TOOL_CONTRACTS = [
         source="static",
     ),
     ToolContract(
+        name="query_emergency_plan",
+        description="检索应急预案知识库，通过向量语义搜索返回最相关的预案内容片段。支持按预案类型过滤。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "查询内容，例如：'三级防汛应急响应启动条件'"
+                },
+                "plan_type": {
+                    "type": "string",
+                    "description": "预案类型过滤（可选），例如：'防汛'、'抗旱'、'台风'",
+                    "enum": ["防汛", "抗旱", "台风", "地质灾害", "综合"]
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "返回结果数量，默认5，最大20",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        },
+        returns={
+            "type": "object",
+            "description": "检索到的预案内容片段列表",
+            "shape": {
+                "query": "string",
+                "plan_type": "string|null",
+                "results": [{"text": "string", "similarity": "number", "metadata": "object"}],
+                "total": "number",
+            },
+        },
+        usage_contract=[
+            "向量库为空时返回友好提示而非报错",
+            "返回结果按相似度从高到低排序",
+            "plan_type 为可选过滤条件，不传则检索全部预案",
+        ],
+        examples=[
+            {
+                "input": {
+                    "query": "广西三级防汛应急响应启动条件",
+                    "top_k": 3,
+                },
+                "result_hint": {
+                    "total": 3,
+                    "results": [{"text": "...", "similarity": 0.85}],
+                },
+            }
+        ],
+        source="static",
+    ),
+    ToolContract(
+        name="assess_flood_risk",
+        description="根据气象/水文数据评估洪涝风险等级（I-IV级）。内置广西防汛四级响应标准阈值，结合降雨量、水位等数据计算风险。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "评估地点，例如：'南宁市'、'桂林市'"
+                },
+                "rainfall_24h": {
+                    "type": "number",
+                    "description": "24小时累计降雨量（mm）"
+                },
+                "water_level": {
+                    "type": "number",
+                    "description": "当前水位（m）"
+                },
+                "warning_level": {
+                    "type": "number",
+                    "description": "警戒水位（m），与 water_level 配合计算超警幅度"
+                },
+                "forecast_rainfall": {
+                    "type": "number",
+                    "description": "未来24小时预报降雨量（mm）"
+                }
+            },
+            "required": ["location"]
+        },
+        returns={
+            "type": "object",
+            "description": "风险评估结果",
+            "shape": {
+                "location": "string",
+                "risk_level": "string|null",
+                "risk_label": "string",
+                "risk_factors": ["string"],
+                "assessment": "string",
+            },
+        },
+        usage_contract=[
+            "至少需要 rainfall_24h、water_level、forecast_rainfall 中的一项",
+            "风险等级从高到低匹配：I > II > III > IV",
+            "未达到任何阈值时 risk_level 为 null",
+        ],
+        examples=[
+            {
+                "input": {
+                    "location": "南宁市",
+                    "rainfall_24h": 150,
+                    "water_level": 78.5,
+                    "warning_level": 77.0,
+                },
+                "result_hint": {
+                    "risk_level": "III",
+                    "risk_label": "较大",
+                },
+            }
+        ],
+        source="static",
+    ),
+    ToolContract(
+        name="match_emergency_response",
+        description="根据风险等级和灾害类型匹配应急响应措施。检索相关预案条款并结合内置模板，输出职责分工、关键行动和时间要求。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "risk_level": {
+                    "type": "string",
+                    "description": "风险等级：I/II/III/IV",
+                    "enum": ["I", "II", "III", "IV"]
+                },
+                "disaster_type": {
+                    "type": "string",
+                    "description": "灾害类型，例如：'洪涝'、'台风'、'内涝'、'山洪'"
+                },
+                "affected_area": {
+                    "type": "string",
+                    "description": "受影响区域（可选），例如：'南宁市西乡塘区'"
+                }
+            },
+            "required": ["risk_level", "disaster_type"]
+        },
+        returns={
+            "type": "object",
+            "description": "匹配到的应急响应措施",
+            "shape": {
+                "risk_level": "string",
+                "disaster_type": "string",
+                "response": {
+                    "name": "string",
+                    "command_authority": "string",
+                    "key_actions": ["string"],
+                    "time_requirements": ["string"],
+                    "resource_mobilization": ["string"],
+                },
+                "plan_references": [{"text": "string", "similarity": "number"}],
+            },
+        },
+        usage_contract=[
+            "会先检索预案库获取相关条款，检索失败时降级使用内置模板",
+            "返回结构化的响应措施：职责分工、关键行动、时间要求、资源调度",
+            "affected_area 为可选参数，提供后会增加检索精度",
+        ],
+        examples=[
+            {
+                "input": {
+                    "risk_level": "III",
+                    "disaster_type": "洪涝",
+                    "affected_area": "南宁市",
+                },
+                "result_hint": {
+                    "response": {
+                        "name": "III级应急响应",
+                        "command_authority": "自治区防汛抗旱指挥部秘书长",
+                    },
+                },
+            }
+        ],
+        source="static",
+    ),
+    ToolContract(
         name="execute_code",
         description="在受限沙箱中执行 Python 代码进行复杂工具编排与数据处理。支持通过 call_tool 调用允许的其他工具，必须设置 result 变量作为输出。",
         parameters={
