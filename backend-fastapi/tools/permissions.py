@@ -28,22 +28,6 @@ class ToolPermission(BaseModel):
 
 # 工具权限配置表
 TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
-    # 数据处理（高风险）
-    "process_data_file": ToolPermission(
-        tool_name="process_data_file",
-        risk_level=RiskLevel.HIGH,
-        requires_approval=True,
-        description="处理数据文件（可能修改文件系统）",
-        allowed_callers=["direct"]  # 禁止代码调用
-    ),
-    "transform_data": ToolPermission(
-        tool_name="transform_data",
-        risk_level=RiskLevel.HIGH,
-        requires_approval=True,
-        description="数据转换（可能修改数据）",
-        allowed_callers=["direct"]  # 禁止代码调用
-    ),
-
     # 可视化（低风险）
     "create_chart": ToolPermission(
         tool_name="create_chart",

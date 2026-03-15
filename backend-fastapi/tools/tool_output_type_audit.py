@@ -82,32 +82,6 @@ def _patched_attr(module: Any, attr_name: str, replacement: Any):
         setattr(module, attr_name, original)
 
 
-def _sample_transform_data(_: Path) -> Any:
-    return TOOL_HANDLERS["transform_data"](
-        python_code="result = [{'city': 'Shanghai', 'value': 12}]",
-        description="sample",
-    )
-
-
-def _sample_process_data_file(temp_dir: Path) -> Any:
-    source_path = temp_dir / "input.json"
-    source_path.write_text(
-        json.dumps([{"city": "Shanghai", "value": 12}], ensure_ascii=False),
-        encoding="utf-8",
-    )
-    python_code = (
-        "with open(source_path, 'r', encoding='utf-8') as src:\n"
-        "    data = json.load(src)\n"
-        "with open(result_path, 'w', encoding='utf-8') as dst:\n"
-        "    json.dump(data, dst, ensure_ascii=False)\n"
-    )
-    return TOOL_HANDLERS["process_data_file"](
-        source_path=str(source_path),
-        python_code=python_code,
-        description="sample",
-    )
-
-
 def _sample_create_chart(_: Path) -> Any:
     return TOOL_HANDLERS["create_chart"](
         data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
@@ -276,8 +250,6 @@ def _sample_read_file(temp_dir: Path) -> Any:
 
 
 _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
-    "transform_data": _sample_transform_data,
-    "process_data_file": _sample_process_data_file,
     "create_chart": _sample_create_chart,
     "revise_visualization": _sample_revise_visualization,
     "create_map": _sample_create_map,

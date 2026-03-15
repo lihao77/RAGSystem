@@ -317,7 +317,7 @@ class ReActAgent(BaseAgent):
 **数据处理：**
 - 批量查多实体或需要循环调用 → `execute_code`
 - 工具返回文件路径 → 直接传给后续数据/图表工具
-- 内存中小数据格式变换 → `transform_data`
+- 内存中数据格式变换 → `execute_code`
 
 ### 可视化规则
 - 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成

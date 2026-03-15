@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-visualization_tools 工具模块（重构版）。
-
-废弃：generate_chart, update_chart_config, present_chart
-新增：create_chart, create_map, revise_visualization
-"""
+"""visualization_tools 工具模块。"""
 
 import logging
 from tools.response_builder import error_result, success_result

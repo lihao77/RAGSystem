@@ -16,6 +16,34 @@
               style="width: 200px"
               @update:model-value="selectedAgent = $event; handleAgentChange()"
             />
+            <button class="btn-secondary" :disabled="saving || agentLoading" title="新建 Agent" @click="openCreateDialog">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              新建
+            </button>
+            <button v-if="selectedAgent" class="btn-danger" :disabled="saving || agentLoading" title="删除当前 Agent" @click="openDeleteDialog">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6"></path>
+                <path d="M14 11v6"></path>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+              </svg>
+              删除
+            </button>
+            <button v-if="selectedAgent" class="btn-secondary" :disabled="agentLoading" title="导出配置" @click="handleExport">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              导出
+            </button>
+            <button v-if="selectedAgent" class="btn-primary btn-primary--sm" :disabled="saving || agentLoading" @click="handleSave">
+              {{ saving ? '保存中...' : '保存配置' }}
+            </button>
             <button class="btn-back" @click="navigateToChat">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -287,11 +315,6 @@
             </div>
           </section>
 
-          <div class="form-bottom-actions">
-            <button type="button" class="btn-primary" :disabled="saving || agentLoading" @click="handleSave">
-              {{ saving ? '保存中...' : '保存配置' }}
-            </button>
-          </div>
         </form>
 
         </template>
@@ -318,6 +341,76 @@
     </nav>
 
     <AppToast ref="toastRef" />
+
+    <!-- 新建 Agent 对话框 -->
+    <Teleport to="body">
+      <div v-if="createDialog.visible" class="modal-overlay" @click.self="closeCreateDialog">
+        <div class="modal-panel">
+          <div class="modal-head">
+            <h3>新建 Agent</h3>
+            <button class="modal-close" @click="closeCreateDialog">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <label class="form-item">
+              <span class="field-label-text">Agent 名称 <em class="required-mark">*</em></span>
+              <input
+                v-model.trim="createDialog.agentName"
+                type="text"
+                class="form-control"
+                placeholder="仅限英文、数字和下划线，如 my_agent"
+                @keydown.enter="handleCreateAgent"
+              />
+              <small class="field-hint">创建后不可修改，将作为唯一标识符</small>
+            </label>
+            <label class="form-item">
+              <span class="field-label-text">显示名称</span>
+              <input v-model.trim="createDialog.displayName" type="text" class="form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
+            </label>
+            <label class="form-item">
+              <span class="field-label-text">描述</span>
+              <input v-model.trim="createDialog.description" type="text" class="form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
+            </label>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-secondary" :disabled="createDialog.loading" @click="closeCreateDialog">取消</button>
+            <button class="btn-primary btn-primary--sm" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
+              {{ createDialog.loading ? '创建中...' : '创建' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 删除 Agent 确认对话框 -->
+    <Teleport to="body">
+      <div v-if="deleteDialog.visible" class="modal-overlay" @click.self="closeDeleteDialog">
+        <div class="modal-panel modal-panel--sm">
+          <div class="modal-head">
+            <h3>删除 Agent</h3>
+            <button class="modal-close" @click="closeDeleteDialog">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-secondary" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</button>
+            <button class="btn-danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
+              {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -327,6 +420,8 @@ import {
   getAllAgentConfigs,
   getAgentConfig,
   updateAgentConfig,
+  createAgent,
+  deleteAgent,
   getAvailableTools,
   getAvailableSkills,
   getAvailableMCPServers
@@ -774,6 +869,101 @@ function handleModelChange() {
 
 function navigateToChat() {
   emit('navigate', '/');
+}
+
+// 新建 Agent 对话框
+const createDialog = ref({ visible: false, loading: false, agentName: '', displayName: '', description: '' });
+
+function openCreateDialog() {
+  createDialog.value = { visible: true, loading: false, agentName: '', displayName: '', description: '' };
+}
+
+function closeCreateDialog() {
+  createDialog.value.visible = false;
+}
+
+async function handleCreateAgent() {
+  const name = createDialog.value.agentName;
+  if (!name) return;
+  if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+    showToast('Agent 名称只能包含英文字母、数字和下划线');
+    return;
+  }
+  createDialog.value.loading = true;
+  try {
+    const payload = { agent_name: name };
+    if (createDialog.value.displayName) payload.display_name = createDialog.value.displayName;
+    if (createDialog.value.description) payload.description = createDialog.value.description;
+    await createAgent(payload);
+    // 刷新 agent 列表并切换到新 agent
+    const configs = await getAllAgentConfigs();
+    agents.value = Object.keys(configs || {});
+    closeCreateDialog();
+    selectedAgent.value = name;
+    await loadAgentDetail(name);
+    showToast(`Agent "${name}" 创建成功`, 'success');
+  } catch (err) {
+    showToast(err.message || '创建 Agent 失败');
+  } finally {
+    createDialog.value.loading = false;
+  }
+}
+
+// 删除 Agent 对话框
+const deleteDialog = ref({ visible: false, loading: false, agentName: '' });
+
+function openDeleteDialog() {
+  deleteDialog.value = { visible: true, loading: false, agentName: selectedAgent.value };
+}
+
+function closeDeleteDialog() {
+  deleteDialog.value.visible = false;
+}
+
+async function handleDeleteAgent() {
+  const name = deleteDialog.value.agentName;
+  if (!name) return;
+  deleteDialog.value.loading = true;
+  try {
+    await deleteAgent(name);
+    const configs = await getAllAgentConfigs();
+    agents.value = Object.keys(configs || {});
+    closeDeleteDialog();
+    // 切换到第一个可用 agent
+    if (agents.value.length > 0) {
+      selectedAgent.value = agents.value[0];
+      await loadAgentDetail(agents.value[0]);
+    } else {
+      selectedAgent.value = '';
+      configForm.value = createEmptyForm();
+      rawConfig.value = createEmptyForm();
+    }
+    showToast(`Agent "${name}" 已删除`, 'success');
+  } catch (err) {
+    showToast(err.message || '删除 Agent 失败');
+  } finally {
+    deleteDialog.value.loading = false;
+  }
+}
+
+async function handleExport() {
+  if (!selectedAgent.value) return;
+  try {
+    const url = `/api/agent-config/configs/${encodeURIComponent(selectedAgent.value)}/export?format=yaml`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.detail || result.message || '导出失败');
+    }
+    const blob = await response.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${selectedAgent.value}.yaml`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    showToast(err.message || '导出配置失败');
+  }
 }
 
 onMounted(() => {

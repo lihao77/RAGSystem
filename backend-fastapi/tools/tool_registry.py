@@ -88,8 +88,6 @@ class ToolRegistry:
         source = self.get_tool_source(name)
         if source == "document":
             return "document"
-        if name in {"process_data_file", "transform_data"}:
-            return "data"
         if name in {"create_chart", "create_map", "revise_visualization"}:
             return "visualization"
         if name == "execute_code":

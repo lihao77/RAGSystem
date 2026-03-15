@@ -87,6 +87,27 @@ export async function updateAgentConfig(agentName, payload) {
 }
 
 /**
+ * 删除智能体
+ * @param {string} agentName - 智能体名称
+ */
+export async function deleteAgent(agentName) {
+  try {
+    const response = await fetch(`/api/agent/agents/delete/${encodeURIComponent(agentName)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.detail || result.message || 'Failed to delete agent');
+    }
+    return result;
+  } catch (error) {
+    console.error('Error deleting agent:', error);
+    throw error;
+  }
+}
+
+/**
  * 获取可用工具列表
  * @returns {Promise<Array>} 工具列表
  */
@@ -134,6 +155,29 @@ export async function getAvailableSkills() {
     return result.data || [];
   } catch (error) {
     console.error('Error fetching available skills:', error);
+    throw error;
+  }
+}
+
+/**
+ * 创建新智能体
+ * @param {Object} payload - { agent_name, display_name?, description? }
+ * @returns {Promise<Object>} 新建的智能体配置
+ */
+export async function createAgent(payload) {
+  try {
+    const response = await fetch('/api/agent/agents/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.detail || result.message || 'Failed to create agent');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error creating agent:', error);
     throw error;
   }
 }

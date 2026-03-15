@@ -8,48 +8,6 @@ from tools.tool_definition_builder import ToolContract, build_function_tools
 
 STATIC_TOOL_CONTRACTS = [
     ToolContract(
-        name="transform_data",
-        description="在内存中执行 Python 代码进行数据格式转换，适合小数据量处理。输入数据直接写在代码里，代码执行后必须设置 result 变量作为输出。",
-        parameters={
-            "type": "object",
-            "properties": {
-                "python_code": {
-                    "type": "string",
-                    "description": "Python 转换代码。必须设置 result 变量，类型为 list 或 dict。可用模块：pd（pandas）、json。"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "操作描述（可选），例如：'提取字段并重命名'"
-                }
-            },
-            "required": ["python_code"]
-        },
-        source="static",
-    ),
-    ToolContract(
-        name="process_data_file",
-        description="对数据文件执行 Python/Pandas 处理。适合大数据量文件转换、过滤、聚合与导出。",
-        parameters={
-            "type": "object",
-            "properties": {
-                "source_path": {
-                    "type": "string",
-                    "description": "源文件路径，通常来自前一个工具的输出"
-                },
-                "python_code": {
-                    "type": "string",
-                    "description": "处理代码。需要读取 source_path，处理后写入 result_path。result_path 由系统自动注入。"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "本次处理的简短描述（可选）"
-                }
-            },
-            "required": ["source_path", "python_code"]
-        },
-        source="static",
-    ),
-    ToolContract(
         name="create_chart",
         description="一步生成 ECharts 图表：构建配置 -> 校验 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
         parameters={
