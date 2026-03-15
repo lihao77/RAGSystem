@@ -461,6 +461,7 @@ const TYPE_TO_PROPS = Object.fromEntries(
 import LLMSelector from '../components/LLMSelector.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
+import { useRouter } from 'vue-router';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
@@ -481,7 +482,9 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['update:selectedLLM', 'toggleTheme', 'navigate']);
+const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
+
+const router = useRouter();
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -666,28 +669,28 @@ const startNewChat = () => {
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
   currentSessionId.value = null;
-  window.history.pushState({}, '', '/');
+  router.replace('/');
   focusInput();
 };
 
 const goToMonitor = () => {
-  emit('navigate', '/monitor');
+  router.push('/monitor');
 };
 
 const goToAgentConfig = () => {
-  emit('navigate', '/agent-config');
+  router.push('/agent-config');
 };
 
 const goToMCPManager = () => {
-  emit('navigate', '/mcp');
+  router.push('/mcp');
 };
 
 const goToVectorLibrary = () => {
-  emit('navigate', '/vector-library');
+  router.push('/vector-library');
 };
 
 const goToModelProviders = () => {
-  emit('navigate', '/model-providers');
+  router.push('/model-providers');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {

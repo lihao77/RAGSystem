@@ -517,8 +517,9 @@ import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';
+import { useRouter } from 'vue-router';
 
-const emit = defineEmits(['navigate']);
+const router = useRouter();
 
 const sections = [
   { id: 'section-basic', label: '基础' },
@@ -955,7 +956,7 @@ function handleModelChange() {
 }
 
 function navigateToChat() {
-  emit('navigate', '/');
+  router.push('/');
 }
 
 // 新建 Agent 对话框

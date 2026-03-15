@@ -1,37 +1,32 @@
 <template>
   <div id="app">
-    <Transition :name="transitionName">
-      <component
-        :key="currentRoute"
-        :is="currentView"
-        :selected-llm="selectedLLM"
-        :is-dark="isDark"
-        @update:selectedLLM="selectedLLM = $event"
-        @toggle-theme="toggleTheme"
-        @navigate="handleNavigate"
-      />
-    </Transition>
+    <RouterView v-slot="{ Component, route }">
+      <Transition :name="transitionName">
+        <component
+          :is="Component"
+          :key="route.path"
+          :selected-llm="selectedLLM"
+          :is-dark="isDark"
+          @update:selectedLLM="selectedLLM = $event"
+          @toggle-theme="toggleTheme"
+        />
+      </Transition>
+    </RouterView>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import ChatViewV2 from './views/ChatViewV2.vue';
-import AgentMonitor from './views/AgentMonitor.vue';
-import AgentConfig from './views/AgentConfig.vue';
-import MCPManager from './views/MCPManager.vue';
-import VectorLibraryManager from './views/VectorLibraryManager.vue';
-import ModelProviderManager from './views/ModelProviderManager.vue';
-// highlight.js 主题随亮暗模式动态切换，避免固定主题在反色模式下产生行级色差
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
 import hljsLightUrl from 'highlight.js/styles/github.css?url';
 
+const router = useRouter();
+
 const isDark = ref(true);
 const selectedLLM = ref('');
-const currentRoute = ref(window.location.pathname);
 const transitionName = ref('slide-forward');
 
-// 路由层级：数值越大越靠右
 const routeDepth = {
   '/': 0,
   '/chat': 0,
@@ -48,37 +43,15 @@ const getDepth = (path) => {
   return routeDepth[path] ?? 0;
 };
 
-// 简单路由映射
-const routes = {
-  '/': ChatViewV2,
-  '/monitor': AgentMonitor,
-  '/agent-monitor': AgentMonitor,
-  '/agent-config': AgentConfig,
-  '/mcp': MCPManager,
-  '/vector-library': VectorLibraryManager,
-  '/model-providers': ModelProviderManager,
-};
-
-const currentView = computed(() => {
-  if (currentRoute.value.startsWith('/chat/')) {
-    return ChatViewV2;
-  }
-  return routes[currentRoute.value] || ChatViewV2;
+router.beforeEach((to, from) => {
+  const fromDepth = getDepth(from.path);
+  const toDepth = getDepth(to.path);
+  transitionName.value = toDepth >= fromDepth ? 'slide-forward' : 'slide-backward';
 });
 
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   updateTheme();
-};
-
-const handleNavigate = (path) => {
-  if (path && path !== currentRoute.value) {
-    const from = getDepth(currentRoute.value);
-    const to = getDepth(path);
-    transitionName.value = to >= from ? 'slide-forward' : 'slide-backward';
-    currentRoute.value = path;
-    window.history.pushState({}, '', path);
-  }
 };
 
 const updateTheme = () => {
@@ -90,7 +63,6 @@ const updateTheme = () => {
   }
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
 
-  // 动态切换 highlight.js 主题，避免固定主题在反色模式下产生行级色差
   const existingLink = document.getElementById('hljs-theme');
   const href = isDark.value ? hljsDarkUrl : hljsLightUrl;
   if (existingLink) {
@@ -104,26 +76,15 @@ const updateTheme = () => {
   }
 };
 
-// 监听浏览器前进后退
-const handlePopState = () => {
-  currentRoute.value = window.location.pathname;
-};
-
 onMounted(() => {
   const savedTheme = localStorage.getItem('theme');
-  if (savedTheme) {
-    isDark.value = savedTheme === 'dark';
-  } else {
-    isDark.value = true;
-  }
+  isDark.value = savedTheme ? savedTheme === 'dark' : true;
   updateTheme();
 
   const savedLLM = localStorage.getItem('selectedLLMModel');
   if (savedLLM) {
     selectedLLM.value = savedLLM;
   }
-
-  window.addEventListener('popstate', handlePopState);
 });
 </script>
 

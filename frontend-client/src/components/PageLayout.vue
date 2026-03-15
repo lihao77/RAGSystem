@@ -11,7 +11,7 @@
         </div>
         <div class="page-header__actions">
           <slot name="header-actions" />
-          <button class="pl-btn pl-btn--back" @click="emit('navigate', '/')">
+          <button class="pl-btn pl-btn--back" @click="router.push('/')">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="19" y1="12" x2="5" y2="12" />
@@ -24,7 +24,7 @@
 
       <!-- 移动端导航栏 -->
       <div class="page-mobile-nav">
-        <button class="page-mobile-nav__back" @click="emit('navigate', '/')">
+        <button class="page-mobile-nav__back" @click="router.push('/')">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
@@ -63,6 +63,7 @@
 
 <script setup>
 import { ref, computed, useSlots } from 'vue';
+import { useRouter } from 'vue-router';
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -71,7 +72,7 @@ const props = defineProps({
   maxWidth: { type: String, default: '1100px' },
 });
 
-const emit = defineEmits(['navigate']);
+const router = useRouter();
 
 const slots = useSlots();
 const hasMobileMenu = computed(() => !!slots['mobile-menu']);

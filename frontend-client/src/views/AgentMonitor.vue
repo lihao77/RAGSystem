@@ -3,7 +3,6 @@
     title="智能体性能监控"
     subtitle="实时查看调用次数、耗时、成功率与工具使用统计"
     mobile-title="性能监控"
-    @navigate="emit('navigate', $event)"
   >
     <template #header-hint>
       <p class="page-hint">
@@ -326,8 +325,6 @@ import {
 } from '../api/monitoring';
 import CustomSelect from '../components/CustomSelect.vue';
 import PageLayout from '../components/PageLayout.vue';
-
-const emit = defineEmits(['navigate']);
 
 const loading = ref(false);
 const error = ref('');

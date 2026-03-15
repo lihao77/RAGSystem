@@ -3,7 +3,6 @@
         title="知识库管理"
         subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
         mobile-title="知识库管理"
-        @navigate="emit('navigate', $event)"
     >
         <template #header-actions>
             <button class="pl-btn pl-btn--icon" :disabled="globalLoading" @click="refreshAll" title="全局刷新">
@@ -773,8 +772,6 @@ import {
     uploadFiles,
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/CustomSelect.vue';
-
-const emit = defineEmits(['navigate']);
 
 // ── Toast ─────────────────────────────────────────────────
 const toastRef = ref(null);

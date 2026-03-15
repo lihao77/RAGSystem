@@ -1208,7 +1208,8 @@ const formatResultContent = (value) => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  /* margin-top: 8px; */
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-sm);
 }
 
 .option-chip {
