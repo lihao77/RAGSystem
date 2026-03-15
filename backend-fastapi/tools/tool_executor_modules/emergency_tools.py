@@ -449,3 +449,199 @@ def match_emergency_response(
     except Exception as e:
         logger.error(f"响应匹配失败: {e}")
         return error_result(f"响应匹配失败: {str(e)}", tool_name="match_emergency_response")
+
+
+def create_risk_map(
+    locations_data,
+    title: str = "",
+    disaster_type: str = "洪涝",
+    session_id=None,
+) -> "ToolExecutionResult":
+    """
+    批量风险评估 + 自动生成风险地图。
+
+    对每个地点调用 assess_flood_risk 获取风险等级，然后自动生成带颜色标记的风险地图。
+
+    Args:
+        locations_data: 含 location/geometry + 气象水文数据的 JSON/文件
+        title: 地图标题
+        disaster_type: 灾害类型（默认"洪涝"）
+        session_id: 会话 ID
+    """
+    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.tool_executor_modules.visualization_tools import _load_dataframe, _parse_geometry
+    import pandas as pd
+
+    RISK_COLORS = {
+        "I": "#d32f2f",
+        "II": "#ff9800",
+        "III": "#fdd835",
+        "IV": "#1976d2",
+    }
+    RISK_LABELS = {
+        "I": "特别重大",
+        "II": "重大",
+        "III": "较大",
+        "IV": "一般",
+    }
+
+    try:
+        if not locations_data:
+            return error_result("缺少必填参数: locations_data", tool_name="create_risk_map")
+
+        df, err = _load_dataframe(locations_data, "create_risk_map")
+        if err:
+            return err
+
+        columns = df.columns.tolist()
+
+        # 校验必要字段
+        if "location" not in columns:
+            return error_result(
+                f"数据缺少 'location' 字段。可用字段: {columns}",
+                tool_name="create_risk_map",
+            )
+
+        geometry_field = "geometry"
+        if geometry_field not in columns:
+            return error_result(
+                f"数据缺少 '{geometry_field}' 字段。可用字段: {columns}\n"
+                "请确保数据包含 geometry 字段（WKT POINT 或 GeoJSON 格式）",
+                tool_name="create_risk_map",
+            )
+
+        # 气象/水文数据字段
+        data_fields = ["rainfall_24h", "water_level", "warning_level", "forecast_rainfall"]
+        has_any_data = any(f in columns for f in data_fields)
+        if not has_any_data:
+            return error_result(
+                f"数据缺少气象/水文字段。需要至少一项: {data_fields}。可用字段: {columns}",
+                tool_name="create_risk_map",
+            )
+
+        markers = []
+        assessment_summary = {"I": 0, "II": 0, "III": 0, "IV": 0}
+        detailed_results = []
+
+        for idx, row in df.iterrows():
+            location = str(row["location"])
+            geom = _parse_geometry(row.get(geometry_field))
+            if geom is None:
+                logger.warning(f"跳过 {location}: 无法解析几何数据")
+                continue
+
+            centroid = geom["centroid"]  # [lat, lng]
+
+            # 构建 assess_flood_risk 参数
+            risk_kwargs = {"location": location}
+            for field in data_fields:
+                if field in columns and pd.notnull(row.get(field)):
+                    risk_kwargs[field] = float(row[field])
+
+            # 调用风险评估
+            risk_result = assess_flood_risk(**risk_kwargs)
+            risk_content = risk_result.content if risk_result.success else {}
+
+            risk_level = risk_content.get("risk_level")
+            risk_label = risk_content.get("risk_label", "未知")
+            risk_factors = risk_content.get("risk_factors", [])
+            assessment = risk_content.get("assessment", "")
+            risk_color = RISK_COLORS.get(risk_level, "#999999")
+
+            if risk_level and risk_level in assessment_summary:
+                assessment_summary[risk_level] += 1
+
+            marker = {
+                "lat": centroid[0],
+                "lng": centroid[1],
+                "name": location,
+                "value": 0,
+                "risk_level": risk_level or "无",
+                "risk_label": risk_label,
+                "risk_color": risk_color,
+                "risk_factors": risk_factors,
+                "assessment": assessment,
+            }
+            markers.append(marker)
+
+            detailed_results.append({
+                "location": location,
+                "risk_level": risk_level,
+                "risk_label": risk_label,
+                "risk_factors": risk_factors,
+                "assessment": assessment,
+            })
+
+        if not markers:
+            return error_result("没有有效的评估数据", tool_name="create_risk_map")
+
+        # 计算 bounds
+        lats = [m["lat"] for m in markers]
+        lngs = [m["lng"] for m in markers]
+        bounds = [[min(lats), min(lngs)], [max(lats), max(lngs)]]
+        center = [(min(lats) + max(lats)) / 2, (min(lngs) + max(lngs)) / 2]
+
+        if not title:
+            title = f"{disaster_type}风险评估地图"
+
+        # 构建风险图例
+        risk_legend = {}
+        for level in ["I", "II", "III", "IV"]:
+            risk_legend[level] = {
+                "color": RISK_COLORS[level],
+                "label": RISK_LABELS[level],
+            }
+
+        map_data = {
+            "map_type": "risk",
+            "markers": markers,
+            "bounds": bounds,
+            "center": center,
+            "title": title,
+            "total_points": len(markers),
+            "risk_legend": risk_legend,
+            "assessment_summary": assessment_summary,
+            "disaster_type": disaster_type,
+        }
+
+        manager = get_visualization_artifact_manager()
+        record = manager.create_map(
+            session_id=session_id,
+            map_data=map_data,
+            map_type="risk",
+            title=title,
+        )
+
+        logger.info(f"风险地图已持久化: artifact_id={record.artifact_id}, points={len(markers)}")
+
+        # 构建评估摘要
+        summary_parts = []
+        for level in ["I", "II", "III", "IV"]:
+            count = assessment_summary[level]
+            if count > 0:
+                summary_parts.append(f"{level}级({RISK_LABELS[level]}):{count}个")
+
+        return success_result(
+            content={
+                "artifact_id": record.artifact_id,
+                "viz_type": "map",
+                "title": title,
+                "preview": {
+                    "map_type": "risk",
+                    "total_points": len(markers),
+                    "center": center,
+                },
+                "assessment_summary": assessment_summary,
+                "detailed_results": detailed_results,
+            },
+            summary=f"风险地图已生成：{title}（{len(markers)}个监测点，{', '.join(summary_parts) or '无风险'}）",
+            output_type="map",
+            tool_name="create_risk_map",
+            llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此风险地图。请结合评估结果给出决策建议。",
+        )
+
+    except Exception as e:
+        logger.error(f"生成风险地图失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return error_result(f"生成风险地图失败: {str(e)}", tool_name="create_risk_map")

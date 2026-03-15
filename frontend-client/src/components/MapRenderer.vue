@@ -9,6 +9,9 @@
         <span class="map-type-badge">{{ mapTypeName }}</span>
       </div>
       <div class="map-actions">
+        <button v-if="!situationMode" @click="emit('enter-situation')" class="action-btn situation-btn" title="进入态势大屏">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        </button>
         <button @click="downloadMap" class="action-btn" title="下载地图截图">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
@@ -52,10 +55,29 @@
         </div>
         <div class="map-fullscreen-content">
           <div ref="fullscreenContainer" style="width:100%;height:100%;"></div>
-          <div class="map-legend" v-if="mapData.value_range">
-            <div class="legend-title">{{ mapData.value_field }}</div>
+          <div class="map-legend" v-if="mapData.value_range || mapData.risk_legend || mapData.map_type === 'choropleth'">
+            <!-- 风险图例 -->
+            <template v-if="mapData.map_type === 'risk' && mapData.risk_legend">
+              <div class="legend-title">风险等级</div>
+              <div v-for="(item, key) in mapData.risk_legend" :key="key" class="risk-legend-item">
+                <span class="risk-legend-color" :style="{ background: item.color }">{{ key }}</span>
+                <span class="risk-legend-label">{{ item.label }}</span>
+              </div>
+            </template>
+            <!-- choropleth 色阶图例 -->
+            <template v-else-if="mapData.map_type === 'choropleth' && mapData.color_scale">
+              <div class="legend-title">{{ mapData.value_field }}</div>
+              <div class="legend-choropleth">
+                <span class="legend-max">{{ formatNumber(mapData.value_range?.max) }}</span>
+                <div class="legend-color-bar">
+                  <div v-for="(c, i) in [...mapData.color_scale.colors].reverse()" :key="i" class="legend-color-step" :style="{ background: c }"></div>
+                </div>
+                <span class="legend-min">{{ formatNumber(mapData.value_range?.min) }}</span>
+              </div>
+            </template>
             <!-- 热力图：彩色渐变条 -->
-            <template v-if="mapData.map_type === 'heatmap'">
+            <template v-else-if="mapData.map_type === 'heatmap' && mapData.value_range">
+              <div class="legend-title">{{ mapData.value_field }}</div>
               <div class="legend-scale">
                 <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
                 <div class="legend-gradient"></div>
@@ -63,7 +85,8 @@
               </div>
             </template>
             <!-- 圆圈标记：橙色圆圈示例；普通标记：蓝色 pin -->
-            <template v-else>
+            <template v-else-if="mapData.value_range">
+              <div class="legend-title">{{ mapData.value_field }}</div>
               <div :class="mapData.map_type === 'circle' ? 'legend-circle-demo' : 'legend-pin-demo'"></div>
               <div class="legend-scale-row">
                 <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
@@ -78,18 +101,38 @@
 
     <div class="map-body" v-show="!isFullscreen">
       <div ref="mapContainer" class="map-container"></div>
-      <div class="map-legend" v-if="mapData.value_range">
-        <div class="legend-title">{{ mapData.value_field }}</div>
-        <!-- 热力图：彩色渐变条 -->
-        <template v-if="mapData.map_type === 'heatmap'">
+      <div class="map-legend" v-if="mapData.value_range || mapData.risk_legend || mapData.map_type === 'choropleth'">
+        <!-- 风险图例 -->
+        <template v-if="mapData.map_type === 'risk' && mapData.risk_legend">
+          <div class="legend-title">风险等级</div>
+          <div v-for="(item, key) in mapData.risk_legend" :key="key" class="risk-legend-item">
+            <span class="risk-legend-color" :style="{ background: item.color }">{{ key }}</span>
+            <span class="risk-legend-label">{{ item.label }}</span>
+          </div>
+        </template>
+        <!-- choropleth 色阶图例 -->
+        <template v-else-if="mapData.map_type === 'choropleth' && mapData.color_scale">
+          <div class="legend-title">{{ mapData.value_field }}</div>
+          <div class="legend-choropleth">
+            <span class="legend-max">{{ formatNumber(mapData.value_range?.max) }}</span>
+            <div class="legend-color-bar">
+              <div v-for="(c, i) in [...mapData.color_scale.colors].reverse()" :key="i" class="legend-color-step" :style="{ background: c }"></div>
+            </div>
+            <span class="legend-min">{{ formatNumber(mapData.value_range?.min) }}</span>
+          </div>
+        </template>
+        <!-- 热力图 -->
+        <template v-else-if="mapData.map_type === 'heatmap' && mapData.value_range">
+          <div class="legend-title">{{ mapData.value_field }}</div>
           <div class="legend-scale">
             <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
             <div class="legend-gradient"></div>
             <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
           </div>
         </template>
-        <!-- 圆圈/标记：橙色圆圈示例 -->
-        <template v-else>
+        <!-- 圆圈/标记 -->
+        <template v-else-if="mapData.value_range">
+          <div class="legend-title">{{ mapData.value_field }}</div>
           <div class="legend-circle-demo"></div>
           <div class="legend-scale-row">
             <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
@@ -99,8 +142,13 @@
         </template>
       </div>
     </div>
-    <div class="map-footer" v-if="!isFullscreen && mapData.value_range && mapData.total_points">
-      <span class="map-stats">数据点：{{ mapData.total_points }}</span>
+    <div class="map-footer" v-if="!isFullscreen && (mapData.total_points || mapData.total_layers)">
+      <span class="map-stats" v-if="mapData.map_type === 'bindmap'">图层：{{ mapData.total_layers }} | 数据点：{{ mapData.total_points }}</span>
+      <span class="map-stats" v-else-if="mapData.map_type === 'risk' && mapData.assessment_summary">
+        监测点：{{ mapData.total_points }}
+        <template v-for="(count, level) in mapData.assessment_summary" :key="level"> | {{ level }}级：{{ count }}</template>
+      </span>
+      <span class="map-stats" v-else>数据点：{{ mapData.total_points }}</span>
     </div>
   </div>
 </template>
@@ -118,9 +166,13 @@ const props = defineProps({
     required: true,
     // Expected format:
     // {
-    //   map_type: 'heatmap' | 'marker' | 'circle',
+    //   map_type: 'heatmap' | 'marker' | 'circle' | 'choropleth' | 'geojson' | 'bindmap' | 'risk',
     //   heat_data: [[lat, lng, intensity], ...],
     //   markers: [{name, lat, lng, value, radius?}, ...],
+    //   geojson: { type: 'FeatureCollection', features: [...] } | null,
+    //   color_scale: { type, colors } | null,
+    //   layers: [...] (bindmap only),
+    //   risk_legend: {...} (risk only),
     //   bounds: [[minLat, minLng], [maxLat, maxLng]],
     //   center: [lat, lng],
     //   title: string,
@@ -132,8 +184,15 @@ const props = defineProps({
   title: {
     type: String,
     default: '地图可视化'
+  },
+  situationMode: {
+    type: Boolean,
+    default: false
   }
 });
+
+// Emits
+const emit = defineEmits(['enter-situation', 'analyze-location']);
 
 // State
 const mapContainer = ref(null);
@@ -141,6 +200,7 @@ const fullscreenContainer = ref(null);
 const mapInstance = ref(null);
 const isFullscreen = ref(false);
 const currentLayers = ref([]);
+const layerControl = ref(null);
 
 // Computed
 const mapTypeName = ref('');
@@ -188,42 +248,52 @@ const renderMapData = () => {
   // 清除现有图层
   clearLayers();
 
-  const { map_type, heat_data, markers } = props.mapData;
+  const { map_type } = props.mapData;
+
+  if (map_type === 'bindmap') {
+    renderBindmap();
+  } else if (map_type === 'risk') {
+    renderRiskMap();
+  } else {
+    renderSingleLayer(props.mapData, mapInstance.value);
+  }
+};
+
+const renderSingleLayer = (layerData, map) => {
+  if (!map) return;
+  const { map_type, heat_data, markers, geojson } = layerData;
 
   if (map_type === 'heatmap' && heat_data && heat_data.length > 0) {
-    // 渲染热力图
     const heatLayer = L.heatLayer(heat_data, {
       radius: 40,
       blur: 25,
       maxZoom: 17,
       max: 1.0,
-      minOpacity: 0.6,    // 增加最小不透明度
+      minOpacity: 0.6,
       gradient: {
-        0.0: 'rgba(0, 0, 255, 0.8)',      // 蓝色，80%不透明
-        0.3: 'rgba(0, 255, 255, 0.9)',    // 青色，90%不透明
-        0.5: 'rgba(0, 255, 0, 1)',        // 绿色，100%不透明
-        0.7: 'rgba(255, 255, 0, 1)',      // 黄色，100%不透明
-        1.0: 'rgba(255, 0, 0, 1)'         // 红色，100%不透明
+        0.0: 'rgba(0, 0, 255, 0.8)',
+        0.3: 'rgba(0, 255, 255, 0.9)',
+        0.5: 'rgba(0, 255, 0, 1)',
+        0.7: 'rgba(255, 255, 0, 1)',
+        1.0: 'rgba(255, 0, 0, 1)'
       }
-    }).addTo(mapInstance.value);
+    }).addTo(map);
     currentLayers.value.push(heatLayer);
   }
   else if (map_type === 'marker' && markers && markers.length > 0) {
-    // 渲染标记点
     markers.forEach(marker => {
       const leafletMarker = L.marker([marker.lat, marker.lng])
-        .addTo(mapInstance.value)
+        .addTo(map)
         .bindPopup(`
           <div class="marker-popup">
             <strong>${marker.name}</strong><br/>
-            <span>${props.mapData.value_field}: ${formatNumber(marker.value)}</span>
+            <span>${layerData.value_field || ''}: ${formatNumber(marker.value)}</span>
           </div>
         `);
       currentLayers.value.push(leafletMarker);
     });
   }
   else if (map_type === 'circle' && markers && markers.length > 0) {
-    // 渲染圆圈标记
     markers.forEach(marker => {
       const circle = L.circle([marker.lat, marker.lng], {
         radius: marker.radius || 1000,
@@ -232,16 +302,234 @@ const renderMapData = () => {
         fillOpacity: 0.5,
         weight: 2
       })
-        .addTo(mapInstance.value)
+        .addTo(map)
         .bindPopup(`
           <div class="marker-popup">
             <strong>${marker.name}</strong><br/>
-            <span>${props.mapData.value_field}: ${formatNumber(marker.value)}</span>
+            <span>${layerData.value_field || ''}: ${formatNumber(marker.value)}</span>
           </div>
         `);
       currentLayers.value.push(circle);
     });
   }
+  else if (map_type === 'choropleth' && geojson && geojson.features && geojson.features.length > 0) {
+    const valueRange = layerData.value_range || { min: 0, max: 100 };
+    const colorScale = layerData.color_scale;
+    const geoLayer = L.geoJSON(geojson, {
+      style: (feature) => {
+        const val = feature.properties?.value ?? 0;
+        return {
+          fillColor: getChoroplethColor(val, valueRange, colorScale),
+          weight: 2,
+          opacity: 1,
+          color: 'rgba(255,255,255,0.5)',
+          fillOpacity: 0.7,
+        };
+      },
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, { radius: 8 });
+      },
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const lines = [`<strong>${p.name || '未命名'}</strong>`];
+        if (p.value !== undefined) lines.push(`${layerData.value_field || '值'}: ${formatNumber(p.value)}`);
+        Object.keys(p).forEach(k => {
+          if (!['name', 'value'].includes(k)) lines.push(`${k}: ${p[k]}`);
+        });
+        layer.bindPopup(`<div class="marker-popup">${lines.join('<br/>')}</div>`);
+      },
+    }).addTo(map);
+    currentLayers.value.push(geoLayer);
+
+    // 同时渲染点标记（如果有）
+    if (markers && markers.length > 0) {
+      markers.forEach(marker => {
+        const m = L.marker([marker.lat, marker.lng])
+          .addTo(map)
+          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${layerData.value_field || ''}: ${formatNumber(marker.value)}</div>`);
+        currentLayers.value.push(m);
+      });
+    }
+  }
+  else if (map_type === 'geojson' && geojson && geojson.features && geojson.features.length > 0) {
+    const geoLayer = L.geoJSON(geojson, {
+      style: () => ({
+        weight: 2,
+        opacity: 0.8,
+        color: '#3388ff',
+        fillColor: '#3388ff',
+        fillOpacity: 0.3,
+      }),
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius: 8, fillColor: '#3388ff', color: '#fff',
+          weight: 2, fillOpacity: 0.8,
+        });
+      },
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const lines = [`<strong>${p.name || '未命名'}</strong>`];
+        if (p.value !== undefined) lines.push(`${layerData.value_field || '值'}: ${formatNumber(p.value)}`);
+        layer.bindPopup(`<div class="marker-popup">${lines.join('<br/>')}</div>`);
+      },
+    }).addTo(map);
+    currentLayers.value.push(geoLayer);
+
+    // 点标记
+    if (markers && markers.length > 0) {
+      markers.forEach(marker => {
+        const m = L.marker([marker.lat, marker.lng])
+          .addTo(map)
+          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${layerData.value_field || ''}: ${formatNumber(marker.value)}</div>`);
+        currentLayers.value.push(m);
+      });
+    }
+  }
+
+  return currentLayers.value;
+};
+
+const renderBindmap = () => {
+  const { layers } = props.mapData;
+  if (!layers || !layers.length) return;
+
+  // 移除旧图层控件
+  if (layerControl.value) {
+    mapInstance.value.removeControl(layerControl.value);
+    layerControl.value = null;
+  }
+
+  const overlayLayers = {};
+
+  layers.forEach((layer) => {
+    const group = L.layerGroup();
+    // 临时替换 currentLayers 收集
+    const savedLayers = currentLayers.value;
+    currentLayers.value = [];
+
+    // 创建虚拟 map 代理，将 addTo 重定向到 group
+    const fakeMap = {
+      addLayer: (l) => group.addLayer(l),
+      removeLayer: (l) => group.removeLayer(l),
+    };
+    // renderSingleLayer 内部用 .addTo(map)，而 addTo 调用 map.addLayer
+    // 因此我们用包装逻辑
+    const tempLayers = [];
+    const origPush = Array.prototype.push;
+
+    // 渲染到 group
+    renderSingleLayerToGroup(layer, group);
+
+    currentLayers.value = savedLayers;
+    currentLayers.value.push(group);
+
+    overlayLayers[layer.label || `图层 ${layer.id}`] = group;
+
+    if (layer.visible !== false) {
+      group.addTo(mapInstance.value);
+    }
+  });
+
+  layerControl.value = L.control.layers(null, overlayLayers, { collapsed: false }).addTo(mapInstance.value);
+};
+
+const renderSingleLayerToGroup = (layerData, group) => {
+  const { map_type, heat_data, markers, geojson, value_field, value_range, color_scale } = layerData;
+
+  if (map_type === 'heatmap' && heat_data && heat_data.length > 0) {
+    const heatLayer = L.heatLayer(heat_data, {
+      radius: 40, blur: 25, maxZoom: 17, max: 1.0, minOpacity: 0.6,
+      gradient: { 0.0: 'rgba(0,0,255,0.8)', 0.3: 'rgba(0,255,255,0.9)', 0.5: 'rgba(0,255,0,1)', 0.7: 'rgba(255,255,0,1)', 1.0: 'rgba(255,0,0,1)' }
+    });
+    group.addLayer(heatLayer);
+  }
+  if ((map_type === 'marker' || map_type === 'circle') && markers && markers.length > 0) {
+    markers.forEach(marker => {
+      if (map_type === 'circle') {
+        group.addLayer(L.circle([marker.lat, marker.lng], {
+          radius: marker.radius || 1000, color: '#ff7800', fillColor: '#ff7800', fillOpacity: 0.5, weight: 2
+        }).bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${value_field || ''}: ${formatNumber(marker.value)}</div>`));
+      } else {
+        group.addLayer(L.marker([marker.lat, marker.lng])
+          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${value_field || ''}: ${formatNumber(marker.value)}</div>`));
+      }
+    });
+  }
+  if ((map_type === 'choropleth' || map_type === 'geojson') && geojson && geojson.features) {
+    const isChoropleth = map_type === 'choropleth';
+    const vr = value_range || { min: 0, max: 100 };
+    group.addLayer(L.geoJSON(geojson, {
+      style: (feature) => isChoropleth ? {
+        fillColor: getChoroplethColor(feature.properties?.value ?? 0, vr, color_scale),
+        weight: 2, opacity: 1, color: 'rgba(255,255,255,0.5)', fillOpacity: 0.7,
+      } : { weight: 2, opacity: 0.8, color: '#3388ff', fillColor: '#3388ff', fillOpacity: 0.3 },
+      pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 8 }),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        layer.bindPopup(`<div class="marker-popup"><strong>${p.name || '未命名'}</strong><br/>${value_field || '值'}: ${formatNumber(p.value)}</div>`);
+      },
+    }));
+  }
+};
+
+const renderRiskMap = () => {
+  const { markers } = props.mapData;
+  if (!markers || !markers.length) return;
+
+  const RISK_COLORS = { 'I': '#d32f2f', 'II': '#ff9800', 'III': '#fdd835', 'IV': '#1976d2' };
+
+  markers.forEach(marker => {
+    const color = marker.risk_color || RISK_COLORS[marker.risk_level] || '#999';
+    const riskLevel = marker.risk_level || '?';
+
+    const icon = L.divIcon({
+      className: 'risk-marker-icon',
+      html: `<div style="background:${color};width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:12px;border:3px solid rgba(255,255,255,0.8);box-shadow:0 2px 8px rgba(0,0,0,0.3);">${riskLevel}</div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+
+    const m = L.marker([marker.lat, marker.lng], { icon })
+      .addTo(mapInstance.value);
+
+    // 构建弹出框
+    const assessment = marker.assessment || '';
+    const factors = marker.risk_factors || [];
+    let popupHtml = `<div class="marker-popup risk-popup">`;
+    popupHtml += `<strong>${marker.name}</strong>`;
+    popupHtml += `<span class="risk-badge" style="background:${color};color:#fff;padding:2px 8px;border-radius:10px;margin-left:6px;font-size:0.75rem;">${riskLevel}级</span><br/>`;
+    if (assessment) popupHtml += `<div style="margin:4px 0;font-size:0.85rem;">${assessment}</div>`;
+    if (factors.length) {
+      popupHtml += `<div style="margin-top:4px;font-size:0.8rem;color:#666;">`;
+      factors.forEach(f => { popupHtml += `<div>· ${f}</div>`; });
+      popupHtml += `</div>`;
+    }
+    popupHtml += `<div style="margin-top:6px;"><button class="risk-analyze-btn" data-location="${marker.name}" style="background:${color};color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">深入分析</button></div>`;
+    popupHtml += `</div>`;
+    m.bindPopup(popupHtml);
+
+    // 绑定点击事件
+    m.on('popupopen', () => {
+      setTimeout(() => {
+        const btn = document.querySelector('.risk-analyze-btn[data-location="' + marker.name + '"]');
+        if (btn) {
+          btn.onclick = () => emit('analyze-location', marker.name);
+        }
+      }, 50);
+    });
+
+    currentLayers.value.push(m);
+  });
+};
+
+const getChoroplethColor = (value, valueRange, colorScale) => {
+  const colors = colorScale?.colors || ['#ffffcc', '#fd8d3c', '#e31a1c', '#800026'];
+  const min = valueRange?.min ?? 0;
+  const max = valueRange?.max ?? 100;
+  if (max <= min) return colors[0];
+  const ratio = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const idx = Math.min(Math.floor(ratio * colors.length), colors.length - 1);
+  return colors[idx];
 };
 
 const clearLayers = () => {
@@ -251,13 +539,21 @@ const clearLayers = () => {
     }
   });
   currentLayers.value = [];
+  if (layerControl.value && mapInstance.value) {
+    mapInstance.value.removeControl(layerControl.value);
+    layerControl.value = null;
+  }
 };
 
 const updateMapTypeName = () => {
   const typeNames = {
     'heatmap': '热力图',
     'marker': '标记点',
-    'circle': '圆圈标记'
+    'circle': '圆圈标记',
+    'choropleth': '区域填色',
+    'geojson': 'GeoJSON',
+    'bindmap': '多图层',
+    'risk': '风险评估'
   };
   mapTypeName.value = typeNames[props.mapData.map_type] || '地图';
 };
@@ -438,6 +734,17 @@ watch(() => props.mapData, () => {
 
 .action-btn:active {
   transform: translateY(0);
+}
+
+.situation-btn {
+  background: rgba(33, 150, 243, 0.1);
+  border-color: rgba(33, 150, 243, 0.3);
+  color: var(--color-brand-accent-light, #64b5f6);
+}
+
+.situation-btn:hover {
+  background: rgba(33, 150, 243, 0.2);
+  border-color: rgba(33, 150, 243, 0.5);
 }
 
 .map-body {
@@ -652,6 +959,82 @@ watch(() => props.mapData, () => {
 
 :deep(.marker-popup span) {
   color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+/* Risk Legend */
+.risk-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.risk-legend-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.risk-legend-label {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+}
+
+/* Choropleth Legend */
+.legend-choropleth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-color-bar {
+  display: flex;
+  flex-direction: column;
+  width: 16px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.legend-color-step {
+  width: 100%;
+  height: 16px;
+}
+
+/* Risk marker icon - prevent leaflet default sizing */
+:deep(.risk-marker-icon) {
+  background: none !important;
+  border: none !important;
+}
+
+/* Risk popup analyze button hover */
+:deep(.risk-analyze-btn:hover) {
+  opacity: 0.85;
+  filter: brightness(1.1);
+}
+
+/* Leaflet 图层控件样式 */
+:deep(.leaflet-control-layers) {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(5px);
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+  color: var(--color-text-primary) !important;
+  padding: var(--spacing-sm) !important;
+}
+
+:deep(.leaflet-control-layers label) {
+  color: var(--color-text-primary) !important;
   font-size: 0.8rem;
 }
 

@@ -133,8 +133,8 @@ STATIC_TOOL_CONTRACTS = [
                 },
                 "map_type": {
                     "type": "string",
-                    "description": "地图类型：heatmap、marker、circle。",
-                    "enum": ["heatmap", "marker", "circle"],
+                    "description": "地图类型：heatmap（热力图）、marker（标记点）、circle（圆圈）、choropleth（区域填色）、geojson（GeoJSON通用）。",
+                    "enum": ["heatmap", "marker", "circle", "choropleth", "geojson"],
                     "default": "heatmap"
                 },
                 "title": {
@@ -174,7 +174,9 @@ STATIC_TOOL_CONTRACTS = [
         usage_contract=[
             "create_map 一步完成生成+持久化",
             "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
-            "地理点数据必须包含 geometry 字段，格式通常是 POINT (lng lat)",
+            "地理点数据必须包含 geometry 字段，格式可以是 WKT POINT (如 'POINT (lng lat)') 或 GeoJSON (如 '{\"type\":\"Polygon\",\"coordinates\":[...]}')",
+            "choropleth 类型用于区域填色，需要面数据（Polygon/MultiPolygon）",
+            "geojson 类型支持任意几何类型混合渲染",
         ],
         examples=[
             {
@@ -184,6 +186,109 @@ STATIC_TOOL_CONTRACTS = [
                     "title": "示例地图",
                     "name_field": "name",
                     "value_field": "value",
+                }
+            },
+            {
+                "input": {
+                    "data": '[{"name":"区域A","value":85,"geometry":"{\\\"type\\\":\\\"Polygon\\\",\\\"coordinates\\\":[[[108.2,22.7],[108.5,22.7],[108.5,23.0],[108.2,23.0],[108.2,22.7]]]}"}]',
+                    "map_type": "choropleth",
+                    "title": "区域风险填色图",
+                    "name_field": "name",
+                    "value_field": "value",
+                }
+            }
+        ],
+        allowed_callers=["direct", "code_execution"],
+        source="static",
+    ),
+    ToolContract(
+        name="create_bindmap",
+        description="多图层叠加地图：将多个数据源/类型叠加在一张地图上，支持图层切换控件。在 <final_answer> 中用 [viz:artifact_id] 展示。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "layers": {
+                    "type": "array",
+                    "description": "图层列表，每个图层包含独立的数据源和渲染配置",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "data": {
+                                "type": "string",
+                                "description": "数据源。JSON 字符串或文件路径。"
+                            },
+                            "map_type": {
+                                "type": "string",
+                                "description": "图层类型",
+                                "enum": ["heatmap", "marker", "circle", "choropleth", "geojson"]
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "图层显示名称"
+                            },
+                            "name_field": {
+                                "type": "string",
+                                "description": "名称字段（可选）"
+                            },
+                            "value_field": {
+                                "type": "string",
+                                "description": "数值字段名"
+                            },
+                            "geometry_field": {
+                                "type": "string",
+                                "description": "几何字段名，默认 geometry",
+                                "default": "geometry"
+                            }
+                        },
+                        "required": ["data", "map_type", "value_field"]
+                    }
+                },
+                "title": {
+                    "type": "string",
+                    "description": "地图标题（可选）"
+                }
+            },
+            "required": ["layers"]
+        },
+        returns={
+            "type": "object",
+            "description": "成功时返回 artifact_id 和预览信息",
+            "shape": {
+                "artifact_id": "string",
+                "viz_type": "string",
+                "title": "string",
+                "preview": {
+                    "map_type": "string",
+                    "total_layers": "number",
+                    "total_points": "number",
+                },
+            },
+        },
+        usage_contract=[
+            "create_bindmap 用于将多种地图数据叠加展示",
+            "每个图层可以是不同的数据源和类型（如热力图+标记点）",
+            "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
+            "前端自动生成图层切换控件",
+        ],
+        examples=[
+            {
+                "input": {
+                    "layers": [
+                        {
+                            "data": '[{"name":"南宁","value":120,"geometry":"POINT (108.32 22.82)"}]',
+                            "map_type": "heatmap",
+                            "label": "降雨量热力图",
+                            "value_field": "value",
+                        },
+                        {
+                            "data": '[{"name":"南宁","value":78.5,"geometry":"POINT (108.32 22.82)"}]',
+                            "map_type": "marker",
+                            "label": "水位监测站",
+                            "name_field": "name",
+                            "value_field": "value",
+                        }
+                    ],
+                    "title": "防汛态势图",
                 }
             }
         ],
@@ -455,8 +560,56 @@ STATIC_TOOL_CONTRACTS = [
         ],
         source="static",
     ),
+    ToolContract(
+        name="create_risk_map",
+        description="批量风险评估+自动生成风险地图：对多个地点批量调用 assess_flood_risk，并自动生成带风险等级颜色标记的地图。在 <final_answer> 中用 [viz:artifact_id] 展示。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "locations_data": {
+                    "type": "string",
+                    "description": "包含多个地点的数据源（JSON 字符串或文件路径）。每条记录必须包含 location、geometry 字段，以及至少一项气象/水文字段（rainfall_24h/water_level/warning_level/forecast_rainfall）。"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "地图标题（可选）"
+                },
+                "disaster_type": {
+                    "type": "string",
+                    "description": "灾害类型，默认'洪涝'",
+                    "default": "洪涝"
+                }
+            },
+            "required": ["locations_data"]
+        },
+        returns={
+            "type": "object",
+            "description": "成功时返回 artifact_id、评估摘要和详细结果",
+            "shape": {
+                "artifact_id": "string",
+                "viz_type": "string",
+                "assessment_summary": {"I": "number", "II": "number", "III": "number", "IV": "number"},
+                "detailed_results": [{"location": "string", "risk_level": "string", "assessment": "string"}],
+            },
+        },
+        usage_contract=[
+            "create_risk_map 内部自动调用 assess_flood_risk，无需手动逐个评估",
+            "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
+            "适合批量监测点数据的快速风险评估和可视化",
+            "风险等级颜色：I=红色, II=橙色, III=黄色, IV=蓝色",
+        ],
+        examples=[
+            {
+                "input": {
+                    "locations_data": '[{"location":"南宁市","geometry":"POINT (108.32 22.82)","rainfall_24h":150,"water_level":78.5,"warning_level":77.0},{"location":"桂林市","geometry":"POINT (110.29 25.27)","rainfall_24h":80}]',
+                    "title": "广西防汛风险评估",
+                    "disaster_type": "洪涝",
+                }
+            }
+        ],
+        source="static",
+    ),
 ]
 
 
 STATIC_TOOLS = build_function_tools(STATIC_TOOL_CONTRACTS)
-

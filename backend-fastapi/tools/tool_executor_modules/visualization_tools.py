@@ -13,6 +13,205 @@ from tools.visualization_artifact_manager import get_visualization_artifact_mana
 logger = logging.getLogger(__name__)
 
 
+def _parse_geometry(raw):
+    """
+    统一解析几何数据，支持 WKT POINT 和 GeoJSON 两种格式。
+
+    输入:
+      - 字符串 "POINT (lng lat)" → WKT 格式
+      - 字符串 '{"type":"Polygon","coordinates":[...]}' → GeoJSON 字符串
+      - dict {"type":"Polygon","coordinates":[...]} → GeoJSON 对象
+
+    返回:
+      {
+        "type": "Point" | "LineString" | "Polygon" | "MultiPolygon",
+        "coordinates": [...],
+        "centroid": [lat, lng],
+      }
+      解析失败返回 None。
+    """
+    import re
+    import json as _json
+
+    if raw is None:
+        return None
+
+    # dict → 直接当 GeoJSON geometry
+    if isinstance(raw, dict):
+        geo_type = raw.get("type")
+        coords = raw.get("coordinates")
+        if geo_type and coords is not None:
+            centroid = _compute_centroid(geo_type, coords)
+            return {"type": geo_type, "coordinates": coords, "centroid": centroid}
+        return None
+
+    if not isinstance(raw, str):
+        return None
+
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    # WKT POINT
+    m = re.search(r'POINT\s*\(\s*([\d.+-]+)\s+([\d.+-]+)\s*\)', raw, re.IGNORECASE)
+    if m:
+        lng, lat = float(m.group(1)), float(m.group(2))
+        return {"type": "Point", "coordinates": [lng, lat], "centroid": [lat, lng]}
+
+    # 尝试按 GeoJSON 字符串解析
+    if raw.startswith("{"):
+        try:
+            obj = _json.loads(raw)
+            geo_type = obj.get("type")
+            coords = obj.get("coordinates")
+            if geo_type and coords is not None:
+                centroid = _compute_centroid(geo_type, coords)
+                return {"type": geo_type, "coordinates": coords, "centroid": centroid}
+        except (_json.JSONDecodeError, TypeError):
+            pass
+
+    return None
+
+
+def _compute_centroid(geo_type, coordinates):
+    """纯 Python 坐标均值计算 centroid，返回 [lat, lng]。"""
+    points = []
+
+    def _collect(coords, depth):
+        if depth == 0:
+            points.append(coords)
+        else:
+            for item in coords:
+                _collect(item, depth - 1)
+
+    depth_map = {"Point": 0, "LineString": 1, "Polygon": 2,
+                 "MultiPoint": 1, "MultiLineString": 2, "MultiPolygon": 3}
+    depth = depth_map.get(geo_type, 0)
+    _collect(coordinates, depth)
+
+    if not points:
+        return [0, 0]
+    avg_lng = sum(p[0] for p in points) / len(points)
+    avg_lat = sum(p[1] for p in points) / len(points)
+    return [avg_lat, avg_lng]
+
+
+def _process_map_layer(data, map_type, name_field, value_field, geometry_field, tool_name):
+    """
+    核心地图数据处理逻辑，供 create_map 和 create_bindmap 复用。
+
+    返回 (layer_data_dict, error_result_or_None)。
+    layer_data_dict 包含: heat_data, markers, geojson, bounds 相关数据等。
+    """
+    import pandas as pd
+
+    df, err = _load_dataframe(data, tool_name)
+    if err:
+        return None, err
+
+    columns = df.columns.tolist()
+    if value_field not in columns:
+        return None, error_result(
+            f"数值字段 '{value_field}' 在数据中不存在。可用字段: {columns}",
+            tool_name=tool_name,
+        )
+    if geometry_field not in columns:
+        return None, error_result(
+            f"几何字段 '{geometry_field}' 在数据中不存在。可用字段: {columns}\n"
+            "请确保数据包含 geometry 字段（WKT POINT 或 GeoJSON 格式）",
+            tool_name=tool_name,
+        )
+
+    heat_data = []
+    markers = []
+    geojson_features = []
+    valid_count = 0
+
+    values = df[value_field].dropna().astype(float)
+    if len(values) == 0:
+        return None, error_result(f"{value_field} 字段没有有效的数值数据", tool_name=tool_name)
+
+    min_value = float(values.min())
+    max_value = float(values.max())
+
+    all_lats = []
+    all_lngs = []
+
+    for idx, row in df.iterrows():
+        geom = _parse_geometry(row[geometry_field])
+        if geom is None:
+            continue
+
+        value = float(row[value_field]) if pd.notnull(row[value_field]) else 0
+        name = ""
+        if name_field and name_field in columns and pd.notnull(row.get(name_field)):
+            name = str(row[name_field])
+        else:
+            name = f"点 {valid_count + 1}"
+
+        centroid = geom["centroid"]  # [lat, lng]
+        all_lats.append(centroid[0])
+        all_lngs.append(centroid[1])
+
+        if geom["type"] == "Point":
+            lat, lng = centroid[0], centroid[1]
+            # 热力图数据
+            if max_value > min_value:
+                normalized_intensity = 0.1 + 0.9 * (value - min_value) / (max_value - min_value)
+            else:
+                normalized_intensity = 0.5
+            heat_data.append([lat, lng, normalized_intensity])
+
+            marker_data = {"lat": lat, "lng": lng, "value": value, "name": name}
+            if map_type == 'circle':
+                if max_value > min_value:
+                    normalized = (value - min_value) / (max_value - min_value)
+                    marker_data["radius"] = int(500 + normalized * 4500)
+                else:
+                    marker_data["radius"] = 2000
+            markers.append(marker_data)
+        else:
+            # 非 Point 类型 → GeoJSON Feature
+            properties = {"name": name, "value": value}
+            # 携带所有列的值作为属性
+            for col in columns:
+                if col not in (geometry_field, value_field, name_field) and pd.notnull(row.get(col)):
+                    properties[col] = row[col] if not isinstance(row[col], float) else round(row[col], 4)
+            feature = {
+                "type": "Feature",
+                "geometry": {"type": geom["type"], "coordinates": geom["coordinates"]},
+                "properties": properties,
+            }
+            geojson_features.append(feature)
+
+        valid_count += 1
+
+    if valid_count == 0:
+        return None, error_result(
+            f"没有有效的地理坐标数据。请检查 {geometry_field} 字段是否包含有效的 WKT POINT 或 GeoJSON 格式。",
+            tool_name=tool_name,
+        )
+
+    bounds = [[min(all_lats), min(all_lngs)], [max(all_lats), max(all_lngs)]]
+    center = [(min(all_lats) + max(all_lats)) / 2, (min(all_lngs) + max(all_lngs)) / 2]
+
+    layer_data = {
+        "heat_data": heat_data,
+        "markers": markers,
+        "geojson": {"type": "FeatureCollection", "features": geojson_features} if geojson_features else None,
+        "bounds": bounds,
+        "center": center,
+        "total_points": valid_count,
+        "value_field": value_field,
+        "value_range": {"min": min_value, "max": max_value},
+        "color_scale": {
+            "type": "sequential",
+            "colors": ["#ffffcc", "#fd8d3c", "#e31a1c", "#800026"],
+        } if map_type == 'choropleth' else None,
+    }
+    return layer_data, None
+
+
 def _dataframe_from_chart_payload(content, pd):
     """Normalize supported chart payload shapes into a DataFrame."""
     if isinstance(content, list):
@@ -272,114 +471,40 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
 
     Agent 在 <final_answer> 中用 [viz:artifact_id] 展示地图。
     """
-    import pandas as pd
-    import re
-
     try:
         if not value_field:
             return error_result("缺少必填参数: value_field。请指定数值字段。", tool_name="create_map")
 
-        supported_types = ['heatmap', 'marker', 'circle']
+        supported_types = ['heatmap', 'marker', 'circle', 'choropleth', 'geojson']
         if map_type not in supported_types:
             return error_result(
                 f"不支持的地图类型: {map_type}。支持的类型: {', '.join(supported_types)}",
                 tool_name="create_map",
             )
 
-        df, err = _load_dataframe(data, "create_map")
+        layer_data, err = _process_map_layer(data, map_type, name_field, value_field, geometry_field, "create_map")
         if err:
             return err
 
-        columns = df.columns.tolist()
-        if value_field not in columns:
-            return error_result(
-                f"数值字段 '{value_field}' 在数据中不存在。可用字段: {columns}",
-                tool_name="create_map",
-            )
-        if geometry_field not in columns:
-            return error_result(
-                f"几何字段 '{geometry_field}' 在数据中不存在。可用字段: {columns}\n"
-                "请确保数据包含 geometry 字段（WKT格式，如 'POINT (lng lat)'）",
-                tool_name="create_map",
-            )
-
-        def parse_wkt_point(wkt_str):
-            if pd.isna(wkt_str) or not isinstance(wkt_str, str):
-                return None
-            match = re.search(r'POINT\s*\(\s*([\d.+-]+)\s+([\d.+-]+)\s*\)', wkt_str, re.IGNORECASE)
-            if match:
-                return (float(match.group(2)), float(match.group(1)))
-            return None
-
-        heat_data = []
-        markers = []
-        valid_count = 0
-
-        values = df[value_field].dropna().astype(float)
-        if len(values) == 0:
-            return error_result(f"{value_field} 字段没有有效的数值数据", tool_name="create_map")
-
-        min_value = float(values.min())
-        max_value = float(values.max())
-
-        for idx, row in df.iterrows():
-            coords = parse_wkt_point(row[geometry_field])
-            if coords is None:
-                continue
-
-            lat, lng = coords
-            value = float(row[value_field]) if pd.notnull(row[value_field]) else 0
-
-            if max_value > min_value:
-                normalized_intensity = 0.1 + 0.9 * (value - min_value) / (max_value - min_value)
-            else:
-                normalized_intensity = 0.5
-
-            heat_data.append([lat, lng, normalized_intensity])
-
-            marker_data = {"lat": lat, "lng": lng, "value": value}
-            if name_field and name_field in columns and pd.notnull(row[name_field]):
-                marker_data["name"] = str(row[name_field])
-            else:
-                marker_data["name"] = f"点 {valid_count + 1}"
-
-            if map_type == 'circle':
-                if max_value > min_value:
-                    normalized = (value - min_value) / (max_value - min_value)
-                    marker_data["radius"] = int(500 + normalized * 4500)
-                else:
-                    marker_data["radius"] = 2000
-
-            markers.append(marker_data)
-            valid_count += 1
-
-        if valid_count == 0:
-            return error_result(
-                f"没有有效的地理坐标数据。请检查 {geometry_field} 字段是否包含有效的 WKT POINT 格式。",
-                tool_name="create_map",
-            )
-
-        lats = [point[0] for point in heat_data]
-        lngs = [point[1] for point in heat_data]
-        bounds = [[min(lats), min(lngs)], [max(lats), max(lngs)]]
-        center = [(min(lats) + max(lats)) / 2, (min(lngs) + max(lngs)) / 2]
-
         if not title:
             map_type_name = {
-                'heatmap': '热力图', 'marker': '标记点地图', 'circle': '圆圈标记地图'
+                'heatmap': '热力图', 'marker': '标记点地图', 'circle': '圆圈标记地图',
+                'choropleth': '区域填色图', 'geojson': 'GeoJSON地图',
             }.get(map_type, '地图')
             title = f"{value_field}分布{map_type_name}"
 
         map_data = {
             "map_type": map_type,
-            "heat_data": heat_data if map_type == 'heatmap' else [],
-            "markers": markers if map_type in ['marker', 'circle'] else [],
-            "bounds": bounds,
-            "center": center,
+            "heat_data": layer_data["heat_data"] if map_type == 'heatmap' else [],
+            "markers": layer_data["markers"] if map_type in ['marker', 'circle', 'choropleth', 'geojson'] else [],
+            "geojson": layer_data["geojson"],
+            "bounds": layer_data["bounds"],
+            "center": layer_data["center"],
             "title": title,
-            "value_field": value_field,
-            "total_points": valid_count,
-            "value_range": {"min": min_value, "max": max_value},
+            "value_field": layer_data["value_field"],
+            "total_points": layer_data["total_points"],
+            "value_range": layer_data["value_range"],
+            "color_scale": layer_data["color_scale"],
         }
 
         manager = get_visualization_artifact_manager()
@@ -399,11 +524,11 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
                 "title": title,
                 "preview": {
                     "map_type": map_type,
-                    "total_points": valid_count,
-                    "center": center,
+                    "total_points": layer_data["total_points"],
+                    "center": layer_data["center"],
                 },
             },
-            summary=f"地图已生成：{title}（{map_type}，{valid_count}个数据点）",
+            summary=f"地图已生成：{title}（{map_type}，{layer_data['total_points']}个数据点）",
             output_type="map",
             tool_name="create_map",
             llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此地图",
@@ -445,4 +570,118 @@ def revise_visualization(artifact_id, config_patch, replace=False):
         )
     except Exception as e:
         return error_result(f"修改可视化失败: {str(e)}", tool_name="revise_visualization")
+
+
+def create_bindmap(layers, title="", session_id=None):
+    """
+    多图层叠加地图：将多个数据源/类型叠加在一张地图上，支持图层切换。
+
+    Args:
+        layers: list[dict], 每个元素包含:
+            - data: 数据源（JSON 字符串/文件路径/列表/字典）
+            - map_type: 图层类型 (heatmap/marker/circle/choropleth/geojson)
+            - label: 图层显示名称
+            - name_field: 名称字段（可选）
+            - value_field: 数值字段
+            - geometry_field: 几何字段（默认 geometry）
+        title: 地图标题
+        session_id: 会话 ID
+    """
+    try:
+        if not layers or not isinstance(layers, list):
+            return error_result("缺少必填参数: layers（图层列表）", tool_name="create_bindmap")
+        if len(layers) == 0:
+            return error_result("layers 不能为空", tool_name="create_bindmap")
+
+        processed_layers = []
+        all_lats = []
+        all_lngs = []
+        total_points = 0
+
+        for i, layer_cfg in enumerate(layers):
+            if not isinstance(layer_cfg, dict):
+                return error_result(f"第 {i+1} 个图层配置无效", tool_name="create_bindmap")
+
+            data = layer_cfg.get("data")
+            map_type = layer_cfg.get("map_type", "marker")
+            label = layer_cfg.get("label", f"图层 {i+1}")
+            name_field = layer_cfg.get("name_field", "")
+            value_field = layer_cfg.get("value_field", "")
+            geometry_field = layer_cfg.get("geometry_field", "geometry")
+
+            if not value_field:
+                return error_result(f"图层 '{label}' 缺少 value_field", tool_name="create_bindmap")
+
+            layer_data, err = _process_map_layer(data, map_type, name_field, value_field, geometry_field, "create_bindmap")
+            if err:
+                return err
+
+            bounds = layer_data["bounds"]
+            all_lats.extend([bounds[0][0], bounds[1][0]])
+            all_lngs.extend([bounds[0][1], bounds[1][1]])
+            total_points += layer_data["total_points"]
+
+            processed_layers.append({
+                "id": f"layer_{i}",
+                "label": label,
+                "map_type": map_type,
+                "heat_data": layer_data["heat_data"] if map_type == 'heatmap' else [],
+                "markers": layer_data["markers"] if map_type in ['marker', 'circle'] else [],
+                "geojson": layer_data["geojson"],
+                "value_field": layer_data["value_field"],
+                "total_points": layer_data["total_points"],
+                "value_range": layer_data["value_range"],
+                "color_scale": layer_data["color_scale"],
+                "visible": True,
+            })
+
+        merged_bounds = [[min(all_lats), min(all_lngs)], [max(all_lats), max(all_lngs)]]
+        merged_center = [(min(all_lats) + max(all_lats)) / 2, (min(all_lngs) + max(all_lngs)) / 2]
+
+        if not title:
+            title = f"多图层地图（{len(processed_layers)}个图层）"
+
+        map_data = {
+            "map_type": "bindmap",
+            "layers": processed_layers,
+            "bounds": merged_bounds,
+            "center": merged_center,
+            "title": title,
+            "total_layers": len(processed_layers),
+            "total_points": total_points,
+        }
+
+        manager = get_visualization_artifact_manager()
+        record = manager.create_map(
+            session_id=session_id,
+            map_data=map_data,
+            map_type="bindmap",
+            title=title,
+        )
+
+        logger.info(f"多图层地图已持久化: artifact_id={record.artifact_id}, layers={len(processed_layers)}")
+
+        return success_result(
+            content={
+                "artifact_id": record.artifact_id,
+                "viz_type": "map",
+                "title": title,
+                "preview": {
+                    "map_type": "bindmap",
+                    "total_layers": len(processed_layers),
+                    "total_points": total_points,
+                    "center": merged_center,
+                },
+            },
+            summary=f"多图层地图已生成：{title}（{len(processed_layers)}个图层，{total_points}个数据点）",
+            output_type="map",
+            tool_name="create_bindmap",
+            llm_hint=f"在 <final_answer> 中插入 [viz:{record.artifact_id}] 来展示此地图",
+        )
+
+    except Exception as e:
+        logger.error(f"生成多图层地图失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return error_result(f"生成多图层地图失败: {str(e)}", tool_name="create_bindmap")
 

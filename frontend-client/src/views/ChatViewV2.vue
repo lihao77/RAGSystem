@@ -238,7 +238,7 @@
                         <div class="markdown-body" v-html="renderMarkdown(part.content)"></div>
                       </div>
                       <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
-                        <VisualizationLoader :artifactId="part.artifactId" />
+                        <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
                       </div>
                       <div v-else-if="part.type === 'chart'" class="inline-chart-wrapper">
                         <component
@@ -390,6 +390,18 @@
 
     <!-- 用户输入对话框 -->
     <UserInputDialog ref="userInputDialogRef" />
+
+    <!-- 态势大屏 -->
+    <SituationScreen
+      v-if="situationScreenActive"
+      :artifact-id="situationArtifactId"
+      :map-data="situationMapData"
+      :messages="messages"
+      :is-streaming="isLoading"
+      :situation-info="situationInfo"
+      @close="situationScreenActive = false"
+      @send-message="handleSituationSendMessage"
+    />
   </div>
 </template>
 
@@ -405,6 +417,7 @@ import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
 import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
+import SituationScreen from '../components/SituationScreen.vue';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
@@ -516,6 +529,12 @@ const sessionExecutionDiagnostics = ref(null);
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
+
+// ── 态势大屏状态 ──────────────────────────────────────────
+const situationScreenActive = ref(false);
+const situationArtifactId = ref(null);
+const situationMapData = ref(null);
+const situationInfo = ref(null);
 const messageActionsVisible = ref(null);
 const editingMessageIndex = ref(null);
 const editingDraft = ref('');
@@ -1914,6 +1933,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
           updateRecentSession(sessionId, assistantContent, new Date().toISOString());
         }
         cacheMessages(sessionId, messages.value);
+        // 检查是否需要触发态势大屏
+        checkSituationScreenTrigger(assistantContent);
         break;
       }
 
@@ -2289,6 +2310,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 if (currentMsg.content) {
                   updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
                 }
+                // 检查是否需要触发态势大屏
+                checkSituationScreenTrigger(currentMsg.content);
               }
             }
             // 图表/地图等可视化事件（注册表驱动）
@@ -2406,6 +2429,56 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
         }
       }
     }
+};
+
+// ── 态势大屏触发逻辑 ─────────────────────────────────────────────
+const checkSituationScreenTrigger = async (content) => {
+  if (!content || situationScreenActive.value) return;
+
+  // 查找 [viz:xxx] 占位符
+  const VIZ_RE = /\[viz:(viz_\w+)\]/g;
+  const matches = [...content.matchAll(VIZ_RE)];
+  if (!matches.length) return;
+
+  // 从后往前找最新的 viz artifact
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const artifactId = matches[i][1];
+    try {
+      const resp = await fetch(`/api/artifacts/visualizations/${encodeURIComponent(artifactId)}`);
+      if (!resp.ok) continue;
+      const result = await resp.json();
+      const vizData = result;
+      if (vizData.viz_type !== 'map') continue;
+
+      const mapData = vizData.config;
+      const mapType = mapData.map_type;
+
+      // 只有 risk 和 bindmap 自动触发
+      if (mapType === 'risk' || mapType === 'bindmap') {
+        situationArtifactId.value = artifactId;
+        situationMapData.value = mapData;
+        situationInfo.value = mapData.assessment_summary || null;
+        situationScreenActive.value = true;
+        return;
+      }
+    } catch (e) {
+      console.warn('检查态势大屏触发失败:', e);
+    }
+  }
+};
+
+const handleSituationSendMessage = (text) => {
+  // 在态势大屏中发送消息：复用主聊天的发送逻辑
+  inputMessage.value = text;
+  nextTick(() => handleSend());
+};
+
+const handleEnterSituation = ({ artifactId, mapData, vizData }) => {
+  // 手动触发态势大屏（从 MapRenderer 的按钮点击）
+  situationArtifactId.value = artifactId;
+  situationMapData.value = mapData;
+  situationInfo.value = mapData?.assessment_summary || null;
+  situationScreenActive.value = true;
 };
 
 const handleSend = async () => {

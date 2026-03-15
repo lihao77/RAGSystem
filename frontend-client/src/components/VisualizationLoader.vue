@@ -29,6 +29,7 @@
         v-else-if="vizData.viz_type === 'map'"
         :mapData="vizData.config"
         :title="vizData.title"
+        @enter-situation="$emit('enter-situation', { artifactId: props.artifactId, mapData: vizData.config, vizData })"
       />
       <div v-else-if="vizData.viz_type === 'image'" class="fallback-image-wrapper">
         <img :src="imageUrl" :alt="vizData.title" class="fallback-image" />
@@ -49,6 +50,8 @@ const props = defineProps({
     required: true,
   },
 });
+
+defineEmits(['enter-situation']);
 
 const loading = ref(true);
 const error = ref(null);

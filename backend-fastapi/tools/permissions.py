@@ -59,6 +59,13 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         description="生成地图并持久化",
         allowed_callers=["direct", "code_execution"]
     ),
+    "create_bindmap": ToolPermission(
+        tool_name="create_bindmap",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="生成多图层叠加地图并持久化",
+        allowed_callers=["direct", "code_execution"]
+    ),
     "revise_visualization": ToolPermission(
         tool_name="revise_visualization",
         risk_level=RiskLevel.LOW,
@@ -178,6 +185,13 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         requires_approval=False,
         description="根据风险等级匹配应急响应措施（只读）",
         allowed_callers=["direct"]
+    ),
+    "create_risk_map": ToolPermission(
+        tool_name="create_risk_map",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="批量风险评估并生成风险地图",
+        allowed_callers=["direct", "code_execution"]
     ),
 }
 
