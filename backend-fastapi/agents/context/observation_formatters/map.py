@@ -38,6 +38,22 @@ class MapObservationFormatter(BaseObservationFormatter):
         estimated_size = self._estimate_size_fast(content)
         self._record_materialization(result, context, estimated_size, used_artifact=False)
 
+        # 新架构：artifact_id 驱动
+        if isinstance(content, dict) and content.get("artifact_id"):
+            artifact_id = content["artifact_id"]
+            viz_type = content.get("viz_type", "map")
+            title = content.get("title", "未命名地图")
+            preview = content.get("preview", {})
+
+            parts = [f"✅ {summary}"]
+            parts.append(f"artifact_id: {artifact_id}")
+            parts.append(f"类型: {viz_type}")
+            parts.append(f"标题: {title}")
+            if isinstance(preview, dict):
+                for k, v in preview.items():
+                    parts.append(f"{k}: {v}")
+            return "\n".join(parts)
+
         # 地图通常是 HTML 文件
         if isinstance(content, str) and content.endswith(".html"):
             return f"✅ {summary}\n\n🗺️ 地图文件: {content}"

@@ -117,18 +117,10 @@ class ObservationPolicy:
                 budget_bucket=self.budget_bucket,
             )
 
-        if estimated_size <= inline_limit:
-            return ObservationDecision(
-                mode="inline",
-                reason="default_inline",
-                estimated_size=estimated_size,
-                budget_bucket=self.budget_bucket,
-            )
-
         if estimated_size <= self.summarize_limit:
             return ObservationDecision(
-                mode="summarize",
-                reason="budget_summarize",
+                mode="inline",
+                reason="within_persist_threshold",
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )

@@ -66,9 +66,9 @@ class PromptMaterializer:
             return self._large_payload_formatter.format(result, context)
 
         if decision.mode == "summarize":
-            return self._materialize_summary(result, context)
+            return self._materialize_inline(result, context)
 
-        return self._registry.format(result, context)
+        return self._materialize_inline(result, context)
 
     def register_formatter(self, formatter: BaseObservationFormatter) -> None:
         """Register a custom formatter used by the materializer."""
@@ -78,7 +78,7 @@ class PromptMaterializer:
         """List registered formatter names."""
         return self._registry.list_formatters()
 
-    def _materialize_summary(self, result: ToolExecutionResult, context: FormatContext) -> str:
+    def _materialize_inline(self, result: ToolExecutionResult, context: FormatContext) -> str:
         estimated_size = self._large_payload_formatter._estimate_size_fast(result.content)
         self._record_materialization(
             tool_name=result.tool_name or context.tool_name,
@@ -89,7 +89,7 @@ class PromptMaterializer:
         )
 
         prefix = self._build_prefix(result)
-        if result.output_type == "json" or isinstance(result.content, (dict, list)):
+        if isinstance(result.content, (dict, list)) or result.output_type in {"json", "chart", "map"}:
             content = json.dumps(result.content, ensure_ascii=False, indent=2)
             label = "📊 数据详情:\n" if result.answer else ""
             return f"{prefix}{label}```json\n{content}\n```"

@@ -29,6 +29,7 @@ from typing import Dict, Any, Optional
 from contextlib import redirect_stdout
 import threading
 
+from agents.task_registry import get_task_registry
 from tools.response_builder import success_result, error_result
 from tools.permissions import check_tool_permission
 
@@ -78,6 +79,102 @@ FORBIDDEN_PATTERNS = [
     'file(', 'globals(', 'locals(', 'getattr(', 'setattr(',
     'delattr(', 'vars('
 ]
+
+
+def _extract_import_code_snippet(code: str, module_name: str, context_lines: int = 2) -> str:
+    """
+    提取与模块导入相关的代码片段，供前端审批展示。
+    """
+    lines = code.splitlines()
+    if not lines:
+        return ""
+
+    module_root = module_name.split('.')[0]
+    matched_indexes = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        if 'import ' not in stripped:
+            continue
+        if module_name in stripped or module_root in stripped:
+            matched_indexes.append(index)
+
+    if not matched_indexes:
+        end = min(len(lines), 8)
+        return "\n".join(f"{line_no + 1}: {lines[line_no]}" for line_no in range(end))
+
+    snippet_lines = []
+    seen = set()
+    for match_index in matched_indexes:
+        start = max(0, match_index - context_lines)
+        end = min(len(lines), match_index + context_lines + 1)
+        for line_no in range(start, end):
+            if line_no in seen:
+                continue
+            seen.add(line_no)
+            snippet_lines.append(f"{line_no + 1}: {lines[line_no]}")
+
+    return "\n".join(snippet_lines)
+
+
+def _request_sandbox_approval(
+    event_bus,
+    session_id: Optional[str],
+    *,
+    approval_type: str,
+    tool_name: str,
+    arguments: dict,
+    risk_level: str,
+    description: str,
+) -> str:
+    """
+    复用通用审批事件，请求前端确认后继续执行。
+
+    Returns:
+        用户审批附言（可能为空字符串）
+    """
+    if not event_bus:
+        raise PermissionError("当前上下文无事件总线，无法发起审批")
+    if not session_id:
+        raise PermissionError("当前上下文缺少 session_id，无法等待用户审批")
+
+    try:
+        import uuid
+        from agents.events import Event, EventType
+
+        approval_id = str(uuid.uuid4())
+        registry = get_task_registry()
+        wait_evt = registry.add_pending_approval(session_id, approval_id)
+        if wait_evt is None:
+            raise PermissionError("当前上下文无法注册审批请求")
+
+        event_bus.publish(Event(
+            type=EventType.USER_APPROVAL_REQUIRED,
+            session_id=session_id,
+            data={
+                "approval_id": approval_id,
+                "approval_type": approval_type,
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "risk_level": risk_level,
+                "description": description,
+            },
+        ))
+
+        wait_evt.wait()
+        approved, approval_message = registry.get_approval_result(session_id, approval_id)
+    except PermissionError:
+        raise
+    except Exception as e:
+        logger.error(f"发起沙箱审批失败: {e}")
+        raise PermissionError(f"审批请求发送失败: {e}")
+
+    if not approved:
+        deny_reason = approval_message or "用户拒绝执行此操作"
+        raise PermissionError(deny_reason)
+
+    return approval_message or ""
 
 
 def _resolve_sandbox_path(path: str) -> Path:
@@ -141,8 +238,6 @@ def _make_request_write_approval(event_bus, approval_granted: list, session_id: 
     创建 request_write_approval 函数，代码调用后发布审批事件并阻塞等待结果（最多60秒）。
     审批通过后设置 approval_granted[0] = True，后续 safe_open 写操作即可放行。
     """
-    import threading
-
     def request_write_approval(path: str, reason: str = ""):
         """
         请求用户审批文件写操作。
@@ -155,49 +250,19 @@ def _make_request_write_approval(event_bus, approval_granted: list, session_id: 
             PermissionError: 用户拒绝或超时
         """
         resolved = _resolve_sandbox_path(str(path))
-        approved_event = threading.Event()
-        result_holder = [None]
-
-        if event_bus:
-            try:
-                from agents.events.bus import Event, EventType
-                import uuid
-                approval_id = str(uuid.uuid4())
-
-                def on_approval(event):
-                    data = event.data or {}
-                    if data.get('approval_id') == approval_id:
-                        result_holder[0] = data.get('approved', False)
-                        approved_event.set()
-
-                sub_id = event_bus.subscribe(
-                    event_types=[EventType.USER_APPROVAL_GRANTED, EventType.USER_APPROVAL_DENIED],
-                    handler=on_approval
-                )
-
-                event_bus.publish(Event(
-                    type=EventType.USER_APPROVAL_REQUIRED,
-                    data={
-                        "approval_id": approval_id,
-                        "tool_name": "sandbox_file_write",
-                        "arguments": {"path": str(resolved), "reason": reason},
-                        "risk_level": "high",
-                        "description": f"沙箱代码请求写入文件: {resolved.name}"
-                            + (f"，原因：{reason}" if reason else ""),
-                    },
-                    session_id=session_id,
-                ))
-
-                approved_event.wait(timeout=60)
-                event_bus.unsubscribe(sub_id)
-            except Exception as e:
-                logger.error(f"发布文件写审批事件失败: {e}")
-                raise PermissionError(f"审批请求发送失败: {e}")
-        else:
-            raise PermissionError("无事件总线，无法发起审批，文件写操作被拒绝")
-
-        if not approved_event.is_set() or not result_holder[0]:
-            raise PermissionError(f"用户拒绝或审批超时，文件写操作已取消: {resolved}")
+        try:
+            _request_sandbox_approval(
+                event_bus,
+                session_id,
+                approval_type="sandbox_file_write",
+                tool_name="sandbox_file_write",
+                arguments={"path": str(resolved), "reason": reason},
+                risk_level="high",
+                description=f"沙箱代码请求写入文件: {resolved.name}"
+                + (f"，原因：{reason}" if reason else ""),
+            )
+        except PermissionError as e:
+            raise PermissionError(f"文件写操作已取消: {resolved}，原因: {e}")
 
         approval_granted[0] = True
         logger.info(f"文件写操作已获批准: {resolved}")
@@ -395,6 +460,7 @@ def execute_code_sandbox(
 
     # 文件写操作审批状态（每次执行独立）
     approval_granted = [False]
+    approved_imports = set(ALLOWED_IMPORT_NAMES)
     safe_open_func = _make_safe_open(event_bus, approval_granted)
     request_write_approval_func = _make_request_write_approval(event_bus, approval_granted, session_id)
 
@@ -403,9 +469,39 @@ def execute_code_sandbox(
 
     def _safe_import(name, *args, **kwargs):
         """安全的 import 函数，只允许导入白名单模块"""
-        if name in ALLOWED_IMPORT_NAMES:
+        module_root = name.split('.')[0]
+        if (
+            name in ALLOWED_IMPORT_NAMES
+            or name in approved_imports
+            or module_root in approved_imports
+        ):
             return _real_import(name, *args, **kwargs)
-        raise ImportError(f"禁止导入模块: {name}")
+
+        snippet = _extract_import_code_snippet(code, name)
+        try:
+            approval_message = _request_sandbox_approval(
+                event_bus,
+                session_id,
+                approval_type="sandbox_module_import",
+                tool_name="sandbox_module_import",
+                arguments={
+                    "module_name": name,
+                    "module_root": module_root,
+                    "code_snippet": snippet,
+                },
+                risk_level="high",
+                description=f"沙箱代码请求导入受限模块: {name}",
+            )
+            approved_imports.add(name)
+            approved_imports.add(module_root)
+            logger.info(
+                "沙箱模块导入已获批准: %s%s",
+                name,
+                f"；用户附言: {approval_message}" if approval_message else "",
+            )
+            return _real_import(name, *args, **kwargs)
+        except PermissionError as e:
+            raise ImportError(f"禁止导入模块: {name}（{e}）")
 
     # 构建全局变量字典
     globals_dict = {
