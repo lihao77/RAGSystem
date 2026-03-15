@@ -1,1 +1,16 @@
-[{"city": "柳州市", "value": 1.86}, {"city": "桂林市", "value": 11.88}, {"city": "梧州市", "value": 4.48}, {"city": "北海市", "value": 31.41}, {"city": "防城港市", "value": 4.41}, {"city": "钦州市", "value": 1.19}, {"city": "贵港市", "value": 0.15}, {"city": "玉林市", "value": 16.17}, {"city": "贺州市", "value": 1.67}, {"city": "河池市", "value": 2.31}, {"city": "来宾市", "value": 0.22}, {"city": "崇左市", "value": 2.58}, {"city": "南宁市", "value": null}, {"city": "百色市", "value": null}]
+[
+  {"city": "柳州市",   "value": 1.86,  "geometry": "POINT (109.4154 24.3265)"},
+  {"city": "桂林市",   "value": 11.88, "geometry": "POINT (110.2907 25.2736)"},
+  {"city": "梧州市",   "value": 4.48,  "geometry": "POINT (111.2791 23.4766)"},
+  {"city": "北海市",   "value": 31.41, "geometry": "POINT (109.1197 21.4733)"},
+  {"city": "防城港市", "value": 4.41,  "geometry": "POINT (108.3538 21.6872)"},
+  {"city": "钦州市",   "value": 1.19,  "geometry": "POINT (108.6547 21.9735)"},
+  {"city": "贵港市",   "value": 0.15,  "geometry": "POINT (109.5989 23.1115)"},
+  {"city": "玉林市",   "value": 16.17, "geometry": "POINT (110.1811 22.6540)"},
+  {"city": "贺州市",   "value": 1.67,  "geometry": "POINT (111.5676 24.4042)"},
+  {"city": "河池市",   "value": 2.31,  "geometry": "POINT (108.0849 24.6994)"},
+  {"city": "来宾市",   "value": 0.22,  "geometry": "POINT (109.2219 23.7517)"},
+  {"city": "崇左市",   "value": 2.58,  "geometry": "POINT (107.3643 22.3764)"},
+  {"city": "南宁市",   "value": null,  "geometry": "POINT (108.3665 22.8170)"},
+  {"city": "百色市",   "value": null,  "geometry": "POINT (106.6186 23.9020)"}
+]

@@ -28,12 +28,8 @@ class LargePayloadFormatter(BaseObservationFormatter):
     _SOURCE_READ_TOOL_NAMES = {"read_file", "read_document"}
 
     def can_handle(self, result: "ToolExecutionResult", context: FormatContext) -> bool:
-        """当数据大小超过阈值时处理。"""
-        if context.mode != "artifact_ref":
-            return False
-
-        size = self._estimate_size_fast(result.content)
-        return size > context.large_data_threshold
+        """当 policy 决定 artifact_ref 模式时处理。"""
+        return context.mode == "artifact_ref"
 
     def format(self, result: "ToolExecutionResult", context: FormatContext) -> str:
         """格式化大数据结果为文件引用。"""
@@ -151,13 +147,13 @@ class LargePayloadFormatter(BaseObservationFormatter):
         parts.append(f"📄 原始文件: {file_path}")
 
         if result.tool_name == "read_file":
-            start = metadata.get("start")
-            end = metadata.get("end")
-            if start is not None and end is not None:
-                parts.append(f"📍 当前片段: 字符区间 {start}:{end}")
+            start_line = metadata.get("start_line")
+            end_line = metadata.get("end_line")
+            if start_line is not None and end_line is not None:
+                parts.append(f"📍 当前片段: 行 {start_line}-{end_line}")
             if metadata.get("has_more"):
-                next_start = metadata.get("next_start")
-                parts.append(f"💡 如需后续内容，请继续调用 read_file(file_path='{file_path}', start={next_start})")
+                next_offset = metadata.get("next_offset")
+                parts.append(f"💡 如需后续内容，请继续调用 read_file(file_path='{file_path}', offset={next_offset})")
         else:
             file_type = metadata.get("file_type")
             char_count = metadata.get("char_count")

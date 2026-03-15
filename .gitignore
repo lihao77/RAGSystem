@@ -139,3 +139,5 @@ backend_start.*.log
 *.err.log
 
 frontend/
+
+.skill_venvs/

@@ -504,11 +504,8 @@ def create_risk_map(
 
         geometry_field = "geometry"
         if geometry_field not in columns:
-            return error_result(
-                f"数据缺少 '{geometry_field}' 字段。可用字段: {columns}\n"
-                "请确保数据包含 geometry 字段（WKT POINT 或 GeoJSON 格式）",
-                tool_name="create_risk_map",
-            )
+            # 无 geometry 字段时，后续逐行通过 geocode 降级获取坐标，不直接报错
+            logger.info(f"数据无 geometry 字段，将通过 geocode 降级解析坐标。可用字段: {columns}")
 
         # 气象/水文数据字段
         data_fields = ["rainfall_24h", "water_level", "warning_level", "forecast_rainfall"]
@@ -527,7 +524,28 @@ def create_risk_map(
             location = str(row["location"])
             geom = _parse_geometry(row.get(geometry_field))
             if geom is None:
-                logger.warning(f"跳过 {location}: 无法解析几何数据")
+                # 降级：尝试通过 guangxi-geodata Skill 内嵌数据解析坐标
+                try:
+                    import subprocess, sys as _sys, json as _json, os as _os
+                    _skill_script = _os.path.join(
+                        _os.path.dirname(__file__), "..", "..", "agents", "skills",
+                        "guangxi-geodata", "scripts", "geocode.py",
+                    )
+                    _skill_script = _os.path.normpath(_skill_script)
+                    if _os.path.exists(_skill_script):
+                        _proc = subprocess.run(
+                            [_sys.executable, _skill_script, "--location", location],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        if _proc.returncode == 0 and _proc.stdout.strip():
+                            _geo_r = _json.loads(_proc.stdout)
+                            if _geo_r.get("found"):
+                                geom = {"centroid": [_geo_r["lat"], _geo_r["lng"]]}
+                                logger.info(f"geocode 降级成功: {location} → ({_geo_r['lat']}, {_geo_r['lng']})")
+                except Exception as _ge:
+                    logger.debug(f"geocode 降级异常 ({location}): {_ge}")
+            if geom is None:
+                logger.warning(f"跳过 {location}: 无法解析几何数据（geocode 降级也失败）")
                 continue
 
             centroid = geom["centroid"]  # [lat, lng]

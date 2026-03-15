@@ -8,15 +8,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from tools.document_executor import (
-    DEFAULT_READ_MAX_LINES,
-    MAX_LINE_CHARS,
     FILE_SIZE_PREVIEW_THRESHOLD,
     read_file,
     edit_file,
 )
 
 
-# ───────────────────── read_file: 行号模式 ─────────────────────
+# ───────────────────── read_file: 原始内容模式 ─────────────────────
 
 def test_read_file_default_reads_all_small_file(tmp_path):
     """小文件默认读取全部内容。"""
@@ -26,9 +24,9 @@ def test_read_file_default_reads_all_small_file(tmp_path):
     result = read_file(str(fp))
 
     assert result.success is True
-    assert "     1\tline1" in result.content
-    assert "     2\tline2" in result.content
-    assert "     3\tline3" in result.content
+    assert "line1" in result.content
+    assert "line2" in result.content
+    assert "line3" in result.content
     assert result.metadata["total_lines"] == 3
     assert result.metadata["start_line"] == 1
     assert result.metadata["end_line"] == 3
@@ -49,39 +47,37 @@ def test_read_file_offset_and_limit(tmp_path):
     assert result.metadata["end_line"] == 6
     assert result.metadata["has_more"] is True
     assert result.metadata["next_offset"] == 7
-    # 应该包含行号 3 到 6
-    assert "     3\tline3" in result.content
-    assert "     6\tline6" in result.content
-    # 不应包含行号 2 或 7
-    assert "     2\t" not in result.content
-    assert "     7\t" not in result.content
+    # 应该包含 line3 到 line6
+    assert "line3" in result.content
+    assert "line6" in result.content
+    # 不应包含 line2 或 line7
+    assert "line2" not in result.content
+    assert "line7" not in result.content
 
 
-def test_read_file_cat_n_format(tmp_path):
-    """输出格式为 cat -n 风格。"""
+def test_read_file_raw_content_format(tmp_path):
+    """输出格式为原始内容（无行号）。"""
     fp = tmp_path / "fmt.txt"
     fp.write_text("alpha\nbeta\n", encoding="utf-8")
 
     result = read_file(str(fp))
 
     lines = result.content.split("\n")
-    assert lines[0] == "     1\talpha"
-    assert lines[1] == "     2\tbeta"
+    assert lines[0] == "alpha"
+    assert lines[1] == "beta"
 
 
-def test_read_file_truncates_long_lines(tmp_path):
-    """超过 MAX_LINE_CHARS 的行会被截断。"""
+def test_read_file_keeps_long_lines(tmp_path):
+    """长行应完整返回，不做单行截断。"""
     fp = tmp_path / "long.txt"
-    long_line = "x" * (MAX_LINE_CHARS + 500)
+    long_line = "x" * 2500
     fp.write_text(long_line + "\nshort\n", encoding="utf-8")
 
     result = read_file(str(fp))
 
     first_line = result.content.split("\n")[0]
-    assert "[TRUNCATED]" in first_line
-    # 截断后行内容部分不超过 MAX_LINE_CHARS + len(" [TRUNCATED]")
-    content_part = first_line.split("\t", 1)[1]
-    assert len(content_part) <= MAX_LINE_CHARS + len(" [TRUNCATED]")
+    assert first_line == long_line
+    assert "[TRUNCATED]" not in first_line
 
 
 def test_read_file_offset_beyond_total_lines(tmp_path):

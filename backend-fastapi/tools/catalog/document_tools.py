@@ -177,8 +177,8 @@ DOCUMENT_TOOL_CONTRACTS = [
     ToolContract(
         name="read_file",
         description=(
-            "按行号读取文件内容，以带行号的格式返回（类似 cat -n）。"
-            "默认从第 1 行开始，最多读取 2000 行。超过 2000 字符的行会被截断。"
+            "按行读取文件内容，返回原始文本内容。"
+            "默认从第 1 行开始，最多读取 2000 行。"
             "file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
         ),
         parameters={
@@ -211,7 +211,7 @@ DOCUMENT_TOOL_CONTRACTS = [
         allowed_callers=["direct", "code_execution"],
         returns={
             "type": "object",
-            "description": "成功时返回带行号的文件内容和分页元数据",
+            "description": "成功时返回文件内容和分页元数据",
             "shape": {
                 "content": "string",
                 "metadata": {
@@ -228,7 +228,7 @@ DOCUMENT_TOOL_CONTRACTS = [
         usage_contract=[
             "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页",
             "可用 offset/limit 指定行号区间",
-            "返回内容为 cat -n 格式：行号 + TAB + 行内容",
+            "返回内容为文件原始文本内容，不附带行号",
             "file_path 必须是真实路径字符串，不是变量名文本",
         ],
         examples=[
@@ -237,7 +237,7 @@ DOCUMENT_TOOL_CONTRACTS = [
                     "file_path": "./data/output.json",
                 },
                 "result_hint": {
-                    "content": "     1\t{\"city\": \"Nanning\"}",
+                    "content": "{\"city\": \"Nanning\"}",
                 },
             },
             {
@@ -247,7 +247,7 @@ DOCUMENT_TOOL_CONTRACTS = [
                     "limit": 50,
                 },
                 "result_hint": {
-                    "content": "   100\t第100行内容...",
+                    "content": "第100行内容...",
                     "metadata": {
                         "start_line": 100,
                         "end_line": 149,

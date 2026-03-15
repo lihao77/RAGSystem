@@ -14,15 +14,7 @@ from tools.response_builder import error_result, success_result
 
 
 DEFAULT_READ_MAX_LINES = 2000
-MAX_LINE_CHARS = 2000
 FILE_SIZE_PREVIEW_THRESHOLD = 5 * 1024  # 5KB
-
-
-def _format_line(line_number: int, line_content: str) -> str:
-    """Format a single line in cat -n style: '{line_number:>6}\\t{content}'."""
-    if len(line_content) > MAX_LINE_CHARS:
-        line_content = line_content[:MAX_LINE_CHARS] + " [TRUNCATED]"
-    return f"{line_number:>6}\t{line_content}"
 
 
 def read_document(file_path: str, encoding: str = "utf-8"):
@@ -403,10 +395,7 @@ def read_file(
                 preview_raw = f.read(FILE_SIZE_PREVIEW_THRESHOLD)
 
             preview_lines = preview_raw.splitlines(keepends=True)
-            preview_formatted = "\n".join(
-                _format_line(i + 1, line.rstrip("\n\r"))
-                for i, line in enumerate(preview_lines)
-            )
+            preview_formatted = preview_raw.rstrip("\n")
 
             # 复用审批机制发布确认事件
             import uuid as _uuid
@@ -475,11 +464,9 @@ def read_file(
             )
 
         selected_lines = all_lines[start_idx:end_idx]
-        formatted_lines = [
-            _format_line(start_idx + i + 1, line.rstrip("\n\r"))
-            for i, line in enumerate(selected_lines)
-        ]
-        content = "\n".join(formatted_lines)
+        # 返回原始内容，不再对单行长度做截断
+        content = "".join(selected_lines)
+        content = content.rstrip("\n")
 
         has_more = end_idx < total_lines
         actual_end_line = start_idx + len(selected_lines)

@@ -91,8 +91,18 @@ class ObservationPolicy:
         is_skills_tool: bool = False,
     ) -> ObservationDecision:
         estimated_size = _estimate_size_fast(result.content)
-        inline_limit = self._inline_limit_for(result)
 
+        # 1. 强制落盘
+        if result.metadata.get("force_artifact"):
+            return ObservationDecision(
+                mode="artifact_ref",
+                reason="force_artifact",
+                estimated_size=estimated_size,
+                artifact_ttl_seconds=self.artifact_ttl_seconds,
+                budget_bucket=self.budget_bucket,
+            )
+
+        # 2. 错误始终 inline
         if not result.success:
             return ObservationDecision(
                 mode="inline",
@@ -101,14 +111,7 @@ class ObservationPolicy:
                 budget_bucket=self.budget_bucket,
             )
 
-        if is_skills_tool or result.output_type == "markdown":
-            return ObservationDecision(
-                mode="inline",
-                reason="skills_inline",
-                estimated_size=estimated_size,
-                budget_bucket=self.budget_bucket,
-            )
-
+        # 3. chart/map 始终 inline（artifact_id 驱动，数据量小）
         if result.output_type in {"chart", "map"}:
             return ObservationDecision(
                 mode="inline",
@@ -117,10 +120,31 @@ class ObservationPolicy:
                 budget_bucket=self.budget_bucket,
             )
 
-        if estimated_size <= self.summarize_limit:
+        # 4. Skills 文档类工具始终 inline（激活文档需完整注入上下文）
+        _SKILLS_DOC_TOOLS = {"activate_skill", "load_skill_resource", "get_skill_info"}
+        if is_skills_tool and result.tool_name in _SKILLS_DOC_TOOLS:
             return ObservationDecision(
                 mode="inline",
-                reason="within_persist_threshold",
+                reason="skills_inline",
+                estimated_size=estimated_size,
+                budget_bucket=self.budget_bucket,
+            )
+
+        # 5. 三级大小决策
+        inline_limit = self._inline_limit_for(result)
+
+        if estimated_size <= inline_limit:
+            return ObservationDecision(
+                mode="inline",
+                reason="size_inline",
+                estimated_size=estimated_size,
+                budget_bucket=self.budget_bucket,
+            )
+
+        if estimated_size <= self.summarize_limit:
+            return ObservationDecision(
+                mode="summarize",
+                reason="size_summarize",
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )

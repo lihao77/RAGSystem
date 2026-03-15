@@ -172,18 +172,22 @@ def execute_skill_script(skill_name, script_name, arguments=None):
 
         logger.info(f"脚本执行完成，返回码: {result['return_code']}")
 
+        # 构建 metadata，大输出自动强制落盘
+        meta = {"success": result['return_code'] == 0}
+        stdout = result['stdout']
+        if len(stdout) > 4000:
+            meta["force_artifact"] = True
+
         return success_result(
             content={
                 "script_name": script_name,
-                "stdout": result['stdout'],
+                "stdout": stdout,
                 "stderr": result['stderr'],
                 "return_code": result['return_code'],
                 "skill": skill_name
             },
             summary=f"脚本 {script_name} 执行完成（返回码: {result['return_code']}）",
-            metadata={
-                "success": result['return_code'] == 0
-            },
+            metadata=meta,
             output_type="text",
             tool_name="execute_skill_script",
         )
