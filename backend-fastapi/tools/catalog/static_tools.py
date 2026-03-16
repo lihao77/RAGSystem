@@ -115,11 +115,11 @@ STATIC_TOOL_CONTRACTS = [
                 },
                 "marker_style": {
                     "type": "object",
-                    "description": "点图层样式（marker/choropleth/geojson 的点要素可用）。支持 icon=pin/dot/ring/square/diamond/triangle/star/flag/badge，另可指定 color、border_color、glyph、glyph_color、size(sm/md/lg/xl 或数字)。",
+                    "description": "点图层样式（marker/choropleth/geojson 的点要素可用）。支持 icon=pin/dot/ring/square/diamond/triangle/star/flag/badge/hospital/shelter/station/warning/rescue/supply/school/bridge/dam/reservoir/pump/cross/hexagon/arrow/shield/drop，另可指定 color、border_color、glyph、glyph_color、size(sm/md/lg/xl 或数字)。此为全局默认样式；若数据行包含 icon 字段，则该行使用行级图标覆盖全局设置。",
                     "properties": {
                         "icon": {
                             "type": "string",
-                            "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge"]
+                            "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge", "hospital", "shelter", "station", "warning", "rescue", "supply", "school", "bridge", "dam", "reservoir", "pump", "cross", "hexagon", "arrow", "shield", "drop"]
                         },
                         "color": {"type": "string"},
                         "border_color": {"type": "string"},
@@ -222,11 +222,11 @@ STATIC_TOOL_CONTRACTS = [
                             },
                             "marker_style": {
                                 "type": "object",
-                                "description": "点图层样式。支持 icon、color、border_color、glyph、glyph_color、size。",
+                                "description": "点图层样式。支持 icon、color、border_color、glyph、glyph_color、size。若数据行包含 icon 字段，则该行使用行级图标覆盖全局设置。",
                                 "properties": {
                                     "icon": {
                                         "type": "string",
-                                        "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge"]
+                                        "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge", "hospital", "shelter", "station", "warning", "rescue", "supply", "school", "bridge", "dam", "reservoir", "pump", "cross", "hexagon", "arrow", "shield", "drop"]
                                     },
                                     "color": {"type": "string"},
                                     "border_color": {"type": "string"},

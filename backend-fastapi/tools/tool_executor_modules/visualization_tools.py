@@ -17,6 +17,22 @@ SUPPORTED_MARKER_ICONS = {
     "star",
     "flag",
     "badge",
+    "hospital",
+    "shelter",
+    "station",
+    "warning",
+    "rescue",
+    "supply",
+    "school",
+    "bridge",
+    "dam",
+    "reservoir",
+    "pump",
+    "cross",
+    "hexagon",
+    "arrow",
+    "shield",
+    "drop",
 }
 SUPPORTED_MARKER_SIZES = {"sm", "md", "lg", "xl"}
 DEFAULT_MARKER_STYLE = {
@@ -214,6 +230,15 @@ def _process_map_layer(data, map_type, name_field, value_field, geometry_field, 
                     marker_data["radius"] = int(500 + normalized * 4500)
                 else:
                     marker_data["radius"] = 2000
+            # 支持每行独立的 marker_style / icon 字段
+            row_icon = row.get("icon") if "icon" in columns else None
+            row_ms = row.get("marker_style") if "marker_style" in columns else None
+            if row_ms and isinstance(row_ms, dict):
+                marker_data["marker_style"] = _normalize_marker_style(row_ms)
+            elif row_icon and isinstance(row_icon, str) and row_icon.strip().lower() in SUPPORTED_MARKER_ICONS:
+                per_style = dict(marker_style or {})
+                per_style["icon"] = row_icon.strip().lower()
+                marker_data["marker_style"] = _normalize_marker_style(per_style)
             markers.append(marker_data)
         else:
             # 非 Point 类型 → GeoJSON Feature

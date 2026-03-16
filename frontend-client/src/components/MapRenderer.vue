@@ -208,7 +208,7 @@ const layerControl = ref(null);
 const mapTypeName = ref('');
 
 const MARKER_SIZE_MAP = { sm: 24, md: 30, lg: 36, xl: 44 };
-const SUPPORTED_MARKER_ICONS = new Set(['pin', 'dot', 'ring', 'square', 'diamond', 'triangle', 'star', 'flag', 'badge']);
+const SUPPORTED_MARKER_ICONS = new Set(['pin', 'dot', 'ring', 'square', 'diamond', 'triangle', 'star', 'flag', 'badge', 'hospital', 'shelter', 'station', 'warning', 'rescue', 'supply', 'school', 'bridge', 'dam', 'reservoir', 'pump', 'cross', 'hexagon', 'arrow', 'shield', 'drop']);
 const DEFAULT_MARKER_STYLE = {
   icon: 'pin',
   color: '#2a81cb',
@@ -301,6 +301,54 @@ const buildMarkerSvg = (rawStyle = {}) => {
     case 'badge':
       shapeMarkup = `<path d="M12 8h24a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H28l-4 8-4-8H12a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
       break;
+    case 'hospital':
+      shapeMarkup = `<rect x="6" y="6" width="36" height="36" rx="6" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" /><path d="M20 14v20M14 24h20" stroke="${style.glyphColor}" stroke-width="5" stroke-linecap="round" />`;
+      break;
+    case 'shelter':
+      shapeMarkup = `<path d="M24 6L4 24h8v16h24V24h8L24 6z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'station':
+      shapeMarkup = `<path d="M24 4C18 4 13 9 13 15c0 4 3 9 7 14 1.5 2 3 3.5 4 5 1-1.5 2.5-3 4-5 4-5 7-10 7-14 0-6-5-11-11-11z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" /><path d="M20 22c0-3 2-6 4-8 2 2 4 5 4 8" fill="none" stroke="${style.glyphColor}" stroke-width="2.5" stroke-linecap="round" />`;
+      break;
+    case 'warning':
+      shapeMarkup = `<polygon points="24,5 44,40 4,40" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" /><line x1="24" y1="18" x2="24" y2="28" stroke="${style.glyphColor}" stroke-width="4" stroke-linecap="round" /><circle cx="24" cy="34" r="2.5" fill="${style.glyphColor}" />`;
+      break;
+    case 'rescue':
+      shapeMarkup = `<circle cx="24" cy="24" r="18" fill="none" stroke="${style.color}" stroke-width="7" /><circle cx="24" cy="24" r="18" fill="none" stroke="${style.borderColor}" stroke-width="2" /><circle cx="24" cy="24" r="8" fill="${style.color}" stroke="${style.borderColor}" stroke-width="2" /><path d="M24 6v10M24 32v10M6 24h10M32 24h10" stroke="${style.color}" stroke-width="6" />`;
+      break;
+    case 'supply':
+      shapeMarkup = `<rect x="8" y="14" width="32" height="24" rx="3" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" /><path d="M8 14l4-6h24l4 6" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" /><line x1="24" y1="14" x2="24" y2="38" stroke="${style.borderColor}" stroke-width="2" />`;
+      break;
+    case 'school':
+      shapeMarkup = `<path d="M24 6L4 18l20 12 20-12L24 6z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" /><path d="M12 24v12l12 6 12-6V24" fill="none" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'bridge':
+      shapeMarkup = `<path d="M4 32c0-10 8-18 20-18s20 8 20 18" fill="none" stroke="${style.color}" stroke-width="6" stroke-linecap="round" /><path d="M4 32c0-10 8-18 20-18s20 8 20 18" fill="none" stroke="${style.borderColor}" stroke-width="2" /><line x1="14" y1="14" x2="14" y2="32" stroke="${style.borderColor}" stroke-width="3" /><line x1="24" y1="14" x2="24" y2="32" stroke="${style.borderColor}" stroke-width="3" /><line x1="34" y1="14" x2="34" y2="32" stroke="${style.borderColor}" stroke-width="3" />`;
+      break;
+    case 'dam':
+      shapeMarkup = `<path d="M6 12l4 28h28l4-28" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" /><path d="M6 20h36M6 28h36" stroke="${style.borderColor}" stroke-width="2" opacity="0.5" />`;
+      break;
+    case 'reservoir':
+      shapeMarkup = `<ellipse cx="24" cy="24" rx="20" ry="14" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" /><path d="M8 20c4 4 8-4 12 0s8-4 12 0" fill="none" stroke="${style.glyphColor}" stroke-width="2.5" opacity="0.7" /><path d="M8 28c4 4 8-4 12 0s8-4 12 0" fill="none" stroke="${style.glyphColor}" stroke-width="2.5" opacity="0.7" />`;
+      break;
+    case 'pump':
+      shapeMarkup = `<circle cx="24" cy="24" r="16" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" /><path d="M24 12v12l8 6" fill="none" stroke="${style.glyphColor}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />`;
+      break;
+    case 'cross':
+      shapeMarkup = `<path d="M18 6h12v12h12v12H30v12H18V30H6V18h12V6z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'hexagon':
+      shapeMarkup = `<polygon points="24,4 43,14 43,34 24,44 5,34 5,14" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'arrow':
+      shapeMarkup = `<path d="M24 4L40 24H30v18H18V24H8L24 4z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'shield':
+      shapeMarkup = `<path d="M24 4L6 12v12c0 10 8 17 18 20 10-3 18-10 18-20V12L24 4z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'drop':
+      shapeMarkup = `<path d="M24 4C20 12 10 20 10 28a14 14 0 0 0 28 0c0-8-10-16-14-24z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
     default:
       shapeMarkup = `<path d="M24 3C14.06 3 6 11.06 6 21c0 14.5 18 36 18 36s18-21.5 18-36C42 11.06 33.94 3 24 3z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
       break;
@@ -355,6 +403,11 @@ const initMap = (container) => {
     zoom: props.mapData.map_type === 'heatmap' ? 7 : 8,
     zoomControl: true,
     attributionControl: false
+  });
+
+  // 缩放时关闭 popup，防止 divIcon 缩放动画导致 popup 偏移
+  mapInstance.value.on('zoomstart', () => {
+    mapInstance.value.closePopup();
   });
 
   // 根据主题选择瓦片源

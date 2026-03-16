@@ -126,6 +126,14 @@ class ToolPermission:
 
 map_type 支持：heatmap / marker / circle / choropleth / geojson / bindmap / risk
 
+marker_style.icon 支持（共 25 种）：
+- 基础形状：pin / dot / ring / square / diamond / triangle / star / flag / badge
+- 应急场景：hospital（医院）/ shelter（避难所）/ station（水文站）/ warning（警告）/ rescue（救援）/ supply（物资）
+- 基础设施：school（学校）/ bridge（桥梁）/ dam（大坝）/ reservoir（水库）/ pump（泵站）
+- 通用形状：cross（十字）/ hexagon（六边形）/ arrow（箭头）/ shield（盾牌）/ drop（水滴）
+
+marker_style 为全局默认样式；若数据行包含 `icon` 字段（值为上述图标名），则该行使用行级图标覆盖全局设置。
+
 data 参数接受：JSON 字符串、文件路径、列表/字典、占位符引用
 
 geometry 参数接受：WKT POINT `POINT (108.32 22.82)` 或 GeoJSON dict/string
