@@ -40,6 +40,13 @@ XML_FIELD_PATTERN = re.compile(
 
 CDATA_PATTERN = re.compile(r'^\s*<!\[CDATA\[(.*)\]\]>\s*$', re.DOTALL)
 
+# 匹配 JSON 值位置的裸占位符：{result_1} 或 {result_1.content.layers}
+# 仅匹配不在引号内、作为 JSON 值出现的占位符
+_BARE_PLACEHOLDER = re.compile(
+    r'(?<=[:,\[])(\s*)\{(result_?\d+(?:\.[a-zA-Z0-9_\.]+)?)\}',
+    re.IGNORECASE,
+)
+
 
 def _unwrap_cdata(s: str) -> str:
     """移除包裹整个参数体的 CDATA 标记。"""
@@ -114,6 +121,15 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
     return result if result else None
 
 
+def _fix_bare_placeholders(s: str) -> str:
+    """
+    修复 JSON 中未加引号的裸占位符。
+    例如 {"layers": {result_1.content.layers}} 中的 {result_1.content.layers}
+    会被替换为 "{result_1.content.layers}"，使 JSON 可以正常解析。
+    """
+    return _BARE_PLACEHOLDER.sub(r'\1"{{\2}}"', s)
+
+
 def _fix_backslash_paths(s: str) -> str:
     """
     修复 JSON 字符串中 Windows 路径反斜杠导致的非法转义。
@@ -181,6 +197,19 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             continue
         except json.JSONDecodeError:
             pass
+
+        # JSON 解析失败：尝试修复裸占位符后再解析
+        placeholder_fixed = _fix_bare_placeholders(args_str)
+        if placeholder_fixed != args_str:
+            try:
+                arguments = json.loads(placeholder_fixed)
+                if not isinstance(arguments, dict):
+                    arguments = {"value": arguments}
+                logger.debug(f"工具 '{tool_name}' 参数经裸占位符修复后解析成功")
+                actions.append({"tool": tool_name, "arguments": arguments})
+                continue
+            except json.JSONDecodeError:
+                pass
 
         # JSON 解析失败：尝试修复反斜杠路径后再解析
         fixed_str = _fix_backslash_paths(args_str)
