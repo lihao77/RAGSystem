@@ -136,10 +136,14 @@ class ToolRegistry:
         return deepcopy(SKILL_TOOL_CONTRACTS)
 
     def get_skill_tools(self):
-        return deepcopy(SKILLS_SYSTEM_TOOLS)
+        """返回所有 source='skill' 的工具定义（含装饰器注册的 skill 工具）。"""
+        return [
+            tool for tool in self.get_static_tools()
+            if tool.get("function", {}).get("source") == "skill"
+        ]
 
     def get_skill_tool_names(self):
-        return set(SKILLS_TOOL_NAMES)
+        return {tool["function"]["name"] for tool in self.get_skill_tools()}
 
     def get_builtin_tools_for_worker(self, base_tools: list[dict]):
         return get_builtin_tools_for_worker(base_tools)

@@ -23,6 +23,7 @@ def _parse_json_stdout(stdout):
 
 @tool(
     name="activate_skill",
+    source="skill",
     description=(
         "激活一个 Skill 并加载其主文件内容（SKILL.md）。\n\n"
         "**使用时机**：\n"
@@ -139,6 +140,7 @@ def activate_skill(skill_name):
 
 @tool(
     name="load_skill_resource",
+    source="skill",
     description=(
         "加载 Skill 的引用文件内容（Additional Resources）。\n\n"
         "**前置条件**：\n"
@@ -252,6 +254,7 @@ def load_skill_resource(skill_name, resource_file):
 
 @tool(
     name="execute_skill_script",
+    source="skill",
     description=(
         "执行 Skill 的实用脚本（零上下文执行）。"
         "只返回脚本的输出结果，不加载代码到上下文。\n\n"
@@ -415,6 +418,7 @@ def execute_skill_script(skill_name, script_name, arguments=None):
 
 @tool(
     name="get_skill_info",
+    source="skill",
     description=(
         "获取某个 Skill 的基础信息，不加载主文件内容。\n\n"
         "**使用场景**：\n"

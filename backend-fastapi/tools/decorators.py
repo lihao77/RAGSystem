@@ -26,6 +26,7 @@ def tool(
     usage_contract: list[str] | None = None,
     examples: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
+    source: str = "decorator",
 ) -> Callable:
     """
     工具注册装饰器。
@@ -56,7 +57,7 @@ def tool(
             usage_contract=usage_contract or [],
             examples=examples or [],
             tags=tags or [],
-            source="decorator",
+            source=source,
         )
 
         permission = ToolPermission(

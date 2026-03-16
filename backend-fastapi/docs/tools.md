@@ -58,12 +58,15 @@ from tools.permissions import RiskLevel
     returns={...},
     usage_contract=[...],
     examples=[...],
+    source="decorator",          # 默认值；Skill 工具用 "skill"
 )
 def my_tool(arguments, **kwargs):
     ...
 ```
 
-启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry → 一致性校验（`consistency_check.py`）。
+启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry（`register_extra_contracts`）→ 一致性校验（`consistency_check.py`）。
+
+`source` 字段决定工具分类：`"skill"` 类型的工具会被 `ToolRegistry.get_skill_tools()` 识别，在 `auto_inject=True` 时自动注入到配置了 Skills 的智能体。
 
 已迁移的工具（14 个）：
 - `visualization_tools.py`: create_chart, create_map, create_bindmap, revise_visualization
