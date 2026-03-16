@@ -17,6 +17,7 @@ tools/
 │   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS
 │   ├── visualization_tools.py        # 可视化（图表、地图）
 │   ├── emergency_tools.py            # 应急决策
+│   ├── report_tools.py               # 应急报告生成
 │   ├── skill_tools.py                # Skill 执行
 │   ├── shared.py                     # 共享依赖
 │   └── __init__.py                   # 导出 + __all__
@@ -139,6 +140,16 @@ geometry 参数接受：WKT POINT `POINT (108.32 22.82)` 或 GeoJSON dict/string
 | `create_risk_map` | locations_data, title, disaster_type, session_id | 批量风险评估+地图 |
 
 风险等级阈值：I(特别重大/250mm) → II(重大/200mm) → III(较大/100mm) → IV(一般/50mm)
+
+### 报告工具（report_tools.py）
+
+| 函数 | 参数 | 说明 |
+|------|------|------|
+| `generate_report` | report_type, title, location, situation_data, risk_data, warning_data, plan_data, action_data, weather_data, extra_sections, report_time | 生成标准格式应急报告 |
+
+报告类型：flood_bulletin（汛情快报）、disaster_report（灾情报告）、situation_report（综合态势报告）
+
+各数据参数接受 JSON 字符串，未提供的章节标注"暂无数据"。返回 output_type=markdown。
 
 ### Skill 工具（skill_tools.py）
 

@@ -184,6 +184,13 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         description="批量风险评估并生成风险地图",
         allowed_callers=["direct", "code_execution"]
     ),
+    "generate_report": ToolPermission(
+        tool_name="generate_report",
+        risk_level=RiskLevel.LOW,
+        requires_approval=False,
+        description="生成标准格式应急报告（只读，无副作用）",
+        allowed_callers=["direct"]
+    ),
 }
 
 

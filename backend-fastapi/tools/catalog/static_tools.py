@@ -612,6 +612,99 @@ STATIC_TOOL_CONTRACTS = [
         ],
         source="static",
     ),
+    ToolContract(
+        name="generate_report",
+        description="生成标准格式应急报告（汛情快报/灾情报告/综合态势报告）。将分析结果汇总为结构化 Markdown 文档，直接在 <final_answer> 中展示。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "report_type": {
+                    "type": "string",
+                    "description": "报告类型",
+                    "enum": ["flood_bulletin", "disaster_report", "situation_report"]
+                },
+                "title": {
+                    "type": "string",
+                    "description": "报告标题（可选，不传则使用默认标题）"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "区域，例如：'南宁市'、'广西全区'"
+                },
+                "situation_data": {
+                    "type": "string",
+                    "description": "态势/灾情数据（JSON 字符串），如 {\"summary\": \"...\", \"affected\": {...}}"
+                },
+                "risk_data": {
+                    "type": "string",
+                    "description": "风险评估数据（JSON 字符串），如 assess_flood_risk 返回结果"
+                },
+                "warning_data": {
+                    "type": "string",
+                    "description": "预警数据（JSON 字符串），如 fetch_warning.py 返回结果"
+                },
+                "plan_data": {
+                    "type": "string",
+                    "description": "预案/建议数据（JSON 字符串），如 match_emergency_response 返回结果"
+                },
+                "action_data": {
+                    "type": "string",
+                    "description": "行动/响应数据（JSON 字符串）"
+                },
+                "weather_data": {
+                    "type": "string",
+                    "description": "气象数据（JSON 字符串），如 fetch_weather.py 返回结果"
+                },
+                "extra_sections": {
+                    "type": "string",
+                    "description": "额外章节（JSON 字符串），格式 {\"章节名\": \"内容\"}"
+                },
+                "report_time": {
+                    "type": "string",
+                    "description": "报告时间（可选），格式 YYYY-MM-DD HH:MM"
+                }
+            },
+            "required": ["report_type"]
+        },
+        returns={
+            "type": "object",
+            "description": "生成的报告对象，含结构化数据和 Markdown 正文",
+            "shape": {
+                "report_type": "string",
+                "title": "string",
+                "location": "string",
+                "report_time": "string",
+                "sections": "object",
+                "markdown": "string",
+            },
+        },
+        usage_contract=[
+            "generate_report 将已有分析结果汇总为标准格式报告",
+            "未提供的数据章节会标注'暂无数据'，不会报错",
+            "返回 output_type=markdown，llm_hint 中包含完整 Markdown 内容",
+            "在 <final_answer> 中直接展示 llm_hint 中的 Markdown 即可",
+            "flood_bulletin: 汛情快报（基本情况→雨情水情→预警→风险→措施→建议）",
+            "disaster_report: 灾情报告（概述→受灾→响应→救援→需求）",
+            "situation_report: 综合态势报告（概览→预警→重点区域→风险→预案→行动）",
+        ],
+        examples=[
+            {
+                "input": {
+                    "report_type": "flood_bulletin",
+                    "title": "南宁市汛情快报",
+                    "location": "南宁市",
+                    "risk_data": '{"risk_level": "III", "risk_label": "较大"}',
+                    "warning_data": '{"warnings": [{"title": "暴雨橙色预警", "warning_level": "橙色"}]}',
+                },
+                "result_hint": {
+                    "report_type": "flood_bulletin",
+                    "title": "南宁市汛情快报",
+                    "markdown": "# 南宁市汛情快报\n...",
+                },
+            }
+        ],
+        source="static",
+    ),
 ]
 
 
