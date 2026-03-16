@@ -2099,7 +2099,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               if (isMasterEvent(event)) {
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (!lastStep || lastStep._intentComplete) {
+                // 新建条件：无 step / 已完成 / 上一轮的空 step（round 不同且 intent 为空）
+                if (!lastStep || lastStep._intentComplete || (lastStep.round !== eventData.round && !lastStep.intent)) {
                   lastStep = { round: eventData.round, intent: '', toolCalls: [], expanded: true };
                   currentMsg.execution_steps.push(lastStep);
                 }
@@ -2108,7 +2109,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
                 if (subtask) {
                   let step = subtask.currentStep;
-                  if (!step || step._intentComplete) {
+                  if (!step || step._intentComplete || (step.round !== eventData.round && !step.intent)) {
                     step = { round: eventData.round, intent: '', toolCalls: [], expanded: true };
                     subtask.react_steps.push(step);
                     subtask.currentStep = step;
@@ -2162,7 +2163,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               // 先尝试找子 Agent subtask（parent_call_id 对应某个 subtask.task_id）
               const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
               if (subtask) {
-                if (!subtask.currentStep) {
+                // 跨轮次时需要新建 step，避免 tool 挂到上一轮的空 step 上
+                if (!subtask.currentStep || (subtask.currentStep.round !== eventData.round && !subtask.currentStep.intent && subtask.currentStep.toolCalls.every(t => t.status !== 'running'))) {
                   const newStep = {
                     round: eventData.round,
                     intent: '',
@@ -2194,10 +2196,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
                 }
               } else {
-                // 编排器直接调用工具：工具归属于当前轮次的 step，不要因为 _intentComplete 就新建
+                // 编排器直接调用工具：工具归属于当前轮次的 step
+                // 跨轮次且上一轮是空 step（无 intent、无运行中工具）时需要新建
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let executionStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (!executionStep) {
+                if (!executionStep || (executionStep.round !== eventData.round && !executionStep.intent && executionStep.toolCalls.every(t => t.status !== 'running'))) {
                   executionStep = {
                     round: eventData.round,
                     intent: '',
