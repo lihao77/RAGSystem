@@ -147,12 +147,12 @@
                 <span v-for="opt in node.arguments.options" :key="opt" class="option-chip">{{ opt }}</span>
               </div>
             </div>
-            <div v-if="node.result && node.result !== '（已取消）'" class="detail-block user-input-answer-block">
+            <div v-if="previewResult && previewResult !== '（已取消）'" class="detail-block user-input-answer-block">
               <div class="detail-header">
                 <span>用户回答</span>
                 <span class="code-tag user-tag">USER</span>
               </div>
-              <div class="user-input-answer">{{ node.result }}</div>
+              <div class="user-input-answer">{{ previewResult }}</div>
             </div>
             <div v-else-if="node.status === 'running'" class="detail-block">
               <div class="user-input-waiting">等待用户输入中…</div>
@@ -171,9 +171,9 @@
               </div>
             </div>
 
-            <div v-if="node.result" class="detail-block">
+            <div v-if="previewResult" class="detail-block">
               <div class="detail-header">
-                <span>执行结果</span>
+                <span>{{ resultViewMode === 'raw' ? '原始结果' : '预览结果' }}</span>
                 <div class="detail-header-actions">
                   <button
                     v-if="canLoadRawResult || hasLoadedRawResult"
@@ -189,7 +189,7 @@
                       <span class="result-view-switch-label is-right">RAW</span>
                     </span>
                   </button>
-                  <span class="code-tag result-tag">RESULT</span>
+                  <span class="code-tag result-tag">{{ resultViewMode === 'raw' ? 'RAW' : 'PREVIEW' }}</span>
                 </div>
               </div>
               <div class="code-wrapper">
@@ -314,12 +314,25 @@ const canLoadRawResult = computed(() => {
   );
 });
 
-const hasLoadedRawResult = computed(() => rawResult.value !== null);
+const previewResult = computed(() => props.node?.result_preview ?? props.node?.result ?? '');
+
+const inlineRawResult = computed(() => {
+  if (!props.node || !Object.prototype.hasOwnProperty.call(props.node, 'raw_result')) {
+    return null;
+  }
+  return props.node.raw_result;
+});
+
+const effectiveRawResult = computed(() => (
+  rawResult.value !== null ? rawResult.value : inlineRawResult.value
+));
+
+const hasLoadedRawResult = computed(() => effectiveRawResult.value !== null);
 
 const displayedResult = computed(() => {
-  const value = resultViewMode.value === 'raw' && rawResult.value != null
-    ? rawResult.value
-    : props.node.result;
+  const value = resultViewMode.value === 'raw' && effectiveRawResult.value != null
+    ? effectiveRawResult.value
+    : previewResult.value;
   return formatResultContent(value);
 });
 

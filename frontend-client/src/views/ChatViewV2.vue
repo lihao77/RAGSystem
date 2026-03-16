@@ -843,6 +843,18 @@ const buildSubtaskState = ({
   currentStep: Object.prototype.hasOwnProperty.call(existing || {}, 'currentStep') ? existing.currentStep : null
 });
 
+const getToolPreviewResult = (toolData = {}) => (
+  toolData.result_preview ?? toolData.result ?? ''
+);
+
+const hasToolRawResult = (toolData = {}) => (
+  Object.prototype.hasOwnProperty.call(toolData, 'raw_result') && toolData.raw_result != null
+);
+
+const getToolRawResultAvailable = (toolData = {}) => (
+  Boolean(toolData.raw_result_available) || hasToolRawResult(toolData)
+);
+
 // 将规范化后的 execution_steps 还原为 subtasks 与 execution_steps
 function executionStepsToExecutionState(executionSteps) {
   if (!Array.isArray(executionSteps) || executionSteps.length === 0) return { subtasks: [], execution_steps: [] };
@@ -935,6 +947,9 @@ function executionStepsToExecutionState(executionSteps) {
         tool_name: step.tool_name,
         arguments: step.arguments,
         status: 'running',
+        result: '',
+        result_preview: '',
+        raw_result: null,
         raw_result_ref: null,
         raw_result_available: false,
         showResult: false,
@@ -962,9 +977,11 @@ function executionStepsToExecutionState(executionSteps) {
       const toolCall = toolCalls.get(callId);
       if (toolCall) {
         toolCall.status = 'success';
-        toolCall.result = step.result;
+        toolCall.result = getToolPreviewResult(step);
+        toolCall.result_preview = getToolPreviewResult(step);
+        toolCall.raw_result = hasToolRawResult(step) ? step.raw_result : null;
         toolCall.raw_result_ref = step.raw_result_ref || null;
-        toolCall.raw_result_available = Boolean(step.raw_result_available);
+        toolCall.raw_result_available = getToolRawResultAvailable(step);
         toolCall.elapsed_time = step.elapsed_time;
       }
       continue;
@@ -2160,6 +2177,9 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   tool_name: eventData.tool_name,
                   arguments: eventData.arguments,
                   status: 'running',
+                  result: '',
+                  result_preview: '',
+                  raw_result: null,
                   raw_result_ref: null,
                   raw_result_available: false,
                   index: eventData.index,
@@ -2191,6 +2211,9 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   tool_name: eventData.tool_name,
                   arguments: eventData.arguments,
                   status: 'running',
+                  result: '',
+                  result_preview: '',
+                  raw_result: null,
                   raw_result_ref: null,
                   raw_result_available: false,
                   index: eventData.index,
@@ -2210,9 +2233,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
               if (registered) {
                 registered.toolCall.status = 'success';
-                registered.toolCall.result = eventData.result_preview || eventData.result;
+                registered.toolCall.result = getToolPreviewResult(eventData);
+                registered.toolCall.result_preview = getToolPreviewResult(eventData);
+                registered.toolCall.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
                 registered.toolCall.raw_result_ref = eventData.raw_result_ref || null;
-                registered.toolCall.raw_result_available = Boolean(eventData.raw_result_available);
+                registered.toolCall.raw_result_available = getToolRawResultAvailable(eventData);
                 registered.toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                 currentMsg.toolCallRegistry.delete(event.call_id);
               } else {
@@ -2222,9 +2247,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                   const tc = subtask.tool_calls.find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                   if (tc) {
                     tc.status = 'success';
-                    tc.result = eventData.result_preview || eventData.result;
+                    tc.result = getToolPreviewResult(eventData);
+                    tc.result_preview = getToolPreviewResult(eventData);
+                    tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
                     tc.raw_result_ref = eventData.raw_result_ref || null;
-                    tc.raw_result_available = Boolean(eventData.raw_result_available);
+                    tc.raw_result_available = getToolRawResultAvailable(eventData);
                     tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                   }
                 } else {
@@ -2235,9 +2262,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                       const tc = (step.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                       if (tc) {
                         tc.status = 'success';
-                        tc.result = eventData.result_preview || eventData.result;
+                        tc.result = getToolPreviewResult(eventData);
+                        tc.result_preview = getToolPreviewResult(eventData);
+                        tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
                         tc.raw_result_ref = eventData.raw_result_ref || null;
-                        tc.raw_result_available = Boolean(eventData.raw_result_available);
+                        tc.raw_result_available = getToolRawResultAvailable(eventData);
                         tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
                         break;
                       }

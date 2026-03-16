@@ -840,6 +840,13 @@ class BaseAgent(ABC):
             "role": "user",
             "content": combined_observations,
         })
+        if self._publisher and combined_observations:
+            self._publisher.react_intermediate(
+                role="user",
+                content=combined_observations,
+                round=rounds,
+                msg_type="observation",
+            )
 
     def _handle_no_action(
         self,

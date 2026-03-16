@@ -22,13 +22,17 @@ logger = logging.getLogger(__name__)
 
 
 def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
-    """Build a client-facing event payload without eager large raw tool results."""
+    """Build a client-facing event payload while preserving tool result semantics."""
     payload = dict(data or {})
     if event_type == EventType.CALL_TOOL_END.value:
         preview = payload.get("result_preview")
+        if preview is None:
+            preview = payload.get("result")
         if preview is not None:
+            payload["result_preview"] = preview
             payload["result"] = preview
-        payload.pop("raw_result", None)
+        if "raw_result_available" not in payload:
+            payload["raw_result_available"] = payload.get("raw_result") is not None
     return payload
 
 
