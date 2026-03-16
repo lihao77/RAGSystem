@@ -7,6 +7,56 @@ from tools.visualization_artifact_manager import get_visualization_artifact_mana
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_MARKER_ICONS = {
+    "pin",
+    "dot",
+    "ring",
+    "square",
+    "diamond",
+    "triangle",
+    "star",
+    "flag",
+    "badge",
+}
+SUPPORTED_MARKER_SIZES = {"sm", "md", "lg", "xl"}
+DEFAULT_MARKER_STYLE = {
+    "icon": "pin",
+    "color": "#2a81cb",
+    "border_color": "#1a6ab5",
+    "glyph": "",
+    "glyph_color": "#ffffff",
+    "size": "md",
+}
+
+
+def _normalize_marker_style(marker_style):
+    """Normalize optional point marker style config."""
+    if not isinstance(marker_style, dict):
+        return dict(DEFAULT_MARKER_STYLE)
+
+    normalized = dict(DEFAULT_MARKER_STYLE)
+
+    icon = marker_style.get("icon")
+    if isinstance(icon, str) and icon.strip().lower() in SUPPORTED_MARKER_ICONS:
+        normalized["icon"] = icon.strip().lower()
+
+    for key in ("color", "border_color", "glyph_color"):
+        value = marker_style.get(key)
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
+
+    glyph = marker_style.get("glyph")
+    if glyph is not None:
+        normalized["glyph"] = str(glyph)[:2]
+
+    size = marker_style.get("size")
+    if isinstance(size, str) and size.strip().lower() in SUPPORTED_MARKER_SIZES:
+        normalized["size"] = size.strip().lower()
+    elif isinstance(size, (int, float)) and size > 0:
+        normalized["size"] = int(size)
+
+    return normalized
+
 
 def _parse_geometry(raw):
     """
@@ -91,7 +141,7 @@ def _compute_centroid(geo_type, coordinates):
     return [avg_lat, avg_lng]
 
 
-def _process_map_layer(data, map_type, name_field, value_field, geometry_field, tool_name):
+def _process_map_layer(data, map_type, name_field, value_field, geometry_field, tool_name, marker_style=None):
     """
     核心地图数据处理逻辑，供 create_map 和 create_bindmap 复用。
 
@@ -203,6 +253,7 @@ def _process_map_layer(data, map_type, name_field, value_field, geometry_field, 
             "type": "sequential",
             "colors": ["#ffffcc", "#fd8d3c", "#e31a1c", "#800026"],
         } if map_type == 'choropleth' else None,
+        "marker_style": _normalize_marker_style(marker_style) if markers else None,
     }
     return layer_data, None
 
@@ -460,7 +511,7 @@ def create_chart(data, chart_type=None, title="",
 
 
 def create_map(data, map_type="heatmap", title="", name_field="", value_field="",
-               geometry_field="geometry", session_id=None):
+               geometry_field="geometry", marker_style=None, session_id=None):
     """
     一步完成：生成 Leaflet 地图数据 -> 持久化 -> 返回 artifact_id。
 
@@ -477,7 +528,15 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
                 tool_name="create_map",
             )
 
-        layer_data, err = _process_map_layer(data, map_type, name_field, value_field, geometry_field, "create_map")
+        layer_data, err = _process_map_layer(
+            data,
+            map_type,
+            name_field,
+            value_field,
+            geometry_field,
+            "create_map",
+            marker_style=marker_style,
+        )
         if err:
             return err
 
@@ -500,6 +559,7 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
             "total_points": layer_data["total_points"],
             "value_range": layer_data["value_range"],
             "color_scale": layer_data["color_scale"],
+            "marker_style": layer_data["marker_style"],
         }
 
         manager = get_visualization_artifact_manager()
@@ -603,11 +663,20 @@ def create_bindmap(layers, title="", session_id=None):
             name_field = layer_cfg.get("name_field", "")
             value_field = layer_cfg.get("value_field", "")
             geometry_field = layer_cfg.get("geometry_field", "geometry")
+            marker_style = layer_cfg.get("marker_style")
 
             if not value_field:
                 return error_result(f"图层 '{label}' 缺少 value_field", tool_name="create_bindmap")
 
-            layer_data, err = _process_map_layer(data, map_type, name_field, value_field, geometry_field, "create_bindmap")
+            layer_data, err = _process_map_layer(
+                data,
+                map_type,
+                name_field,
+                value_field,
+                geometry_field,
+                "create_bindmap",
+                marker_style=marker_style,
+            )
             if err:
                 return err
 
@@ -621,12 +690,13 @@ def create_bindmap(layers, title="", session_id=None):
                 "label": label,
                 "map_type": map_type,
                 "heat_data": layer_data["heat_data"] if map_type == 'heatmap' else [],
-                "markers": layer_data["markers"] if map_type in ['marker', 'circle'] else [],
+                "markers": layer_data["markers"] if map_type in ['marker', 'circle', 'choropleth', 'geojson'] else [],
                 "geojson": layer_data["geojson"],
                 "value_field": layer_data["value_field"],
                 "total_points": layer_data["total_points"],
                 "value_range": layer_data["value_range"],
                 "color_scale": layer_data["color_scale"],
+                "marker_style": layer_data["marker_style"],
                 "visible": True,
             })
 

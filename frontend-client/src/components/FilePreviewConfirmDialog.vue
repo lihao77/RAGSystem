@@ -29,7 +29,7 @@
               </div>
               <div class="fp-meta-item">
                 <span class="fp-meta-label">状态</span>
-                <span class="fp-meta-value fp-meta-warn">超出预览阈值 (5KB)</span>
+                <span class="fp-meta-value fp-meta-warn">超出预览阈值 ({{ formattedThreshold }})</span>
               </div>
             </div>
 
@@ -41,7 +41,7 @@
                   <polyline points="16 18 22 12 16 6"/>
                   <polyline points="8 6 2 12 8 18"/>
                 </svg>
-                前 5KB 预览
+                前 {{ formattedThreshold }} 预览
               </div>
               <pre class="fp-preview-content">{{ preview }}</pre>
             </div>
@@ -68,23 +68,31 @@ const visible = ref(false);
 const filePath = ref('');
 const fileSize = ref(0);
 const preview = ref('');
+const previewThreshold = ref(32 * 1024);
 
 let _approvalId = '';
 let _onApprove = null;
 let _onDeny = null;
 
-const formattedSize = computed(() => {
-  const s = fileSize.value;
+const formatSize = (s) => {
   if (s < 1024) return `${s} B`;
-  if (s < 1024 * 1024) return `${(s / 1024).toFixed(1)} KB`;
-  return `${(s / (1024 * 1024)).toFixed(1)} MB`;
-});
+  if (s < 1024 * 1024) {
+    const value = s / 1024;
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} KB`;
+  }
+  const value = s / (1024 * 1024);
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} MB`;
+};
+
+const formattedSize = computed(() => formatSize(fileSize.value));
+const formattedThreshold = computed(() => formatSize(previewThreshold.value));
 
 const show = (data, onApprove, onDeny) => {
   _approvalId = data.approval_id || '';
   filePath.value = data.file_path || '';
   fileSize.value = data.file_size || 0;
   preview.value = data.preview || '';
+  previewThreshold.value = data.preview_threshold || 32 * 1024;
   _onApprove = onApprove || null;
   _onDeny = onDeny || null;
   visible.value = true;

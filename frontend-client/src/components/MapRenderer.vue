@@ -84,10 +84,11 @@
                 <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
               </div>
             </template>
-            <!-- 圆圈标记：橙色圆圈示例；普通标记：蓝色 pin -->
+            <!-- 圆圈/点图例 -->
             <template v-else-if="mapData.value_range">
               <div class="legend-title">{{ mapData.value_field }}</div>
-              <div :class="mapData.map_type === 'circle' ? 'legend-circle-demo' : 'legend-pin-demo'"></div>
+              <div v-if="mapData.map_type === 'circle'" class="legend-circle-demo"></div>
+              <div v-else class="legend-marker-preview" v-html="getLegendMarkerPreview(mapData)"></div>
               <div class="legend-scale-row">
                 <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
                 <span class="legend-sep">–</span>
@@ -130,10 +131,11 @@
             <span class="legend-min">{{ formatNumber(mapData.value_range.min) }}</span>
           </div>
         </template>
-        <!-- 圆圈/标记 -->
+        <!-- 圆圈/点图例 -->
         <template v-else-if="mapData.value_range">
           <div class="legend-title">{{ mapData.value_field }}</div>
-          <div class="legend-circle-demo"></div>
+          <div v-if="mapData.map_type === 'circle'" class="legend-circle-demo"></div>
+          <div v-else class="legend-marker-preview" v-html="getLegendMarkerPreview(mapData)"></div>
           <div class="legend-scale-row">
             <span class="legend-max">{{ formatNumber(mapData.value_range.max) }}</span>
             <span class="legend-sep">–</span>
@@ -204,6 +206,138 @@ const layerControl = ref(null);
 
 // Computed
 const mapTypeName = ref('');
+
+const MARKER_SIZE_MAP = { sm: 24, md: 30, lg: 36, xl: 44 };
+const SUPPORTED_MARKER_ICONS = new Set(['pin', 'dot', 'ring', 'square', 'diamond', 'triangle', 'star', 'flag', 'badge']);
+const DEFAULT_MARKER_STYLE = {
+  icon: 'pin',
+  color: '#2a81cb',
+  borderColor: '#1a6ab5',
+  glyph: '',
+  glyphColor: '#ffffff',
+  size: 'md'
+};
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const normalizeMarkerStyle = (style = {}) => {
+  const normalized = { ...DEFAULT_MARKER_STYLE };
+  if (!style || typeof style !== 'object') return normalized;
+
+  const icon = typeof style.icon === 'string' ? style.icon.toLowerCase() : '';
+  if (SUPPORTED_MARKER_ICONS.has(icon)) normalized.icon = icon;
+  if (typeof style.color === 'string' && style.color) normalized.color = style.color;
+
+  const borderColor = style.borderColor || style.border_color;
+  if (typeof borderColor === 'string' && borderColor) normalized.borderColor = borderColor;
+
+  const glyphColor = style.glyphColor || style.glyph_color;
+  if (typeof glyphColor === 'string' && glyphColor) normalized.glyphColor = glyphColor;
+
+  if (style.glyph !== undefined && style.glyph !== null) {
+    normalized.glyph = String(style.glyph).slice(0, 2);
+  }
+
+  if (typeof style.size === 'number' && Number.isFinite(style.size) && style.size > 0) {
+    normalized.size = style.size;
+  } else if (typeof style.size === 'string') {
+    const lowerSize = style.size.toLowerCase();
+    if (MARKER_SIZE_MAP[lowerSize]) {
+      normalized.size = lowerSize;
+    } else if (/^\d+(\.\d+)?$/.test(style.size)) {
+      normalized.size = Number(style.size);
+    }
+  }
+
+  return normalized;
+};
+
+const getMarkerPixelSize = (size) => {
+  if (typeof size === 'number' && Number.isFinite(size)) {
+    return Math.max(18, Math.min(64, Math.round(size)));
+  }
+  return MARKER_SIZE_MAP[size] || MARKER_SIZE_MAP.md;
+};
+
+const buildMarkerSvg = (rawStyle = {}) => {
+  const style = normalizeMarkerStyle(rawStyle);
+  const isPin = style.icon === 'pin';
+  const width = getMarkerPixelSize(style.size);
+  const height = isPin ? Math.round(width * 1.3) : width;
+  const viewBox = isPin ? '0 0 48 60' : '0 0 48 48';
+  const glyph = escapeHtml(style.glyph || '');
+  const centerMarkup = glyph
+    ? `<text x="24" y="${isPin ? 24 : 28}" text-anchor="middle" font-size="${isPin ? 15 : 16}" font-weight="700" fill="${style.glyphColor}" font-family="Arial, sans-serif">${glyph}</text>`
+    : `<circle cx="24" cy="${isPin ? 21 : 24}" r="5" fill="${style.glyphColor}" opacity="0.92" />`;
+
+  let shapeMarkup = '';
+  switch (style.icon) {
+    case 'dot':
+      shapeMarkup = `<circle cx="24" cy="24" r="18" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" />`;
+      break;
+    case 'ring':
+      shapeMarkup = `<circle cx="24" cy="24" r="16" fill="rgba(255,255,255,0.1)" stroke="${style.color}" stroke-width="7" /><circle cx="24" cy="24" r="18" fill="none" stroke="${style.borderColor}" stroke-width="2" />`;
+      break;
+    case 'square':
+      shapeMarkup = `<rect x="9" y="9" width="30" height="30" rx="8" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" />`;
+      break;
+    case 'diamond':
+      shapeMarkup = `<rect x="12" y="12" width="24" height="24" rx="4" transform="rotate(45 24 24)" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" />`;
+      break;
+    case 'triangle':
+      shapeMarkup = `<polygon points="24,8 40,38 8,38" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'star':
+      shapeMarkup = `<polygon points="24,5 29.6,17 43,18.2 33,27.2 36.2,40.5 24,33.1 11.8,40.5 15,27.2 5,18.2 18.4,17" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'flag':
+      shapeMarkup = `<path d="M14 6v36" stroke="${style.borderColor}" stroke-width="4" stroke-linecap="round" /><path d="M16 8h18l-4 8 4 8H16z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    case 'badge':
+      shapeMarkup = `<path d="M12 8h24a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H28l-4 8-4-8H12a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+    default:
+      shapeMarkup = `<path d="M24 3C14.06 3 6 11.06 6 21c0 14.5 18 36 18 36s18-21.5 18-36C42 11.06 33.94 3 24 3z" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" stroke-linejoin="round" />`;
+      break;
+  }
+
+  const svg = `<div class="custom-marker-icon" style="width:${width}px;height:${height}px;"><svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}" fill="none" aria-hidden="true">${shapeMarkup}${centerMarkup}</svg></div>`;
+  return {
+    html: svg,
+    iconSize: [width, height],
+    iconAnchor: [Math.round(width / 2), isPin ? height - 1 : Math.round(height / 2)],
+    popupAnchor: [0, isPin ? (-height + 10) : (-Math.round(height / 2))]
+  };
+};
+
+const createStyledMarkerIcon = (style = {}) => {
+  const svg = buildMarkerSvg(style);
+  return L.divIcon({
+    className: 'custom-marker-icon-wrapper',
+    html: svg.html,
+    iconSize: svg.iconSize,
+    iconAnchor: svg.iconAnchor,
+    popupAnchor: svg.popupAnchor,
+  });
+};
+
+const buildMarkerPopup = (marker, valueField = '') => `
+  <div class="marker-popup">
+    <strong>${marker.name}</strong><br/>
+    <span>${valueField || ''}: ${formatNumber(marker.value)}</span>
+  </div>
+`;
+
+const createStyledMarker = (marker, layerData) => L.marker([marker.lat, marker.lng], {
+  icon: createStyledMarkerIcon(marker.marker_style || layerData.marker_style || {})
+}).bindPopup(buildMarkerPopup(marker, layerData.value_field || ''));
+
+const getLegendMarkerPreview = (layerData) => buildMarkerSvg(layerData?.marker_style || {}).html;
 
 // Methods
 const initMap = (container) => {
@@ -282,14 +416,8 @@ const renderSingleLayer = (layerData, map) => {
   }
   else if (map_type === 'marker' && markers && markers.length > 0) {
     markers.forEach(marker => {
-      const leafletMarker = L.marker([marker.lat, marker.lng])
-        .addTo(map)
-        .bindPopup(`
-          <div class="marker-popup">
-            <strong>${marker.name}</strong><br/>
-            <span>${layerData.value_field || ''}: ${formatNumber(marker.value)}</span>
-          </div>
-        `);
+      const leafletMarker = createStyledMarker(marker, layerData)
+        .addTo(map);
       currentLayers.value.push(leafletMarker);
     });
   }
@@ -344,9 +472,8 @@ const renderSingleLayer = (layerData, map) => {
     // 同时渲染点标记（如果有）
     if (markers && markers.length > 0) {
       markers.forEach(marker => {
-        const m = L.marker([marker.lat, marker.lng])
-          .addTo(map)
-          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${layerData.value_field || ''}: ${formatNumber(marker.value)}</div>`);
+        const m = createStyledMarker(marker, layerData)
+          .addTo(map);
         currentLayers.value.push(m);
       });
     }
@@ -378,9 +505,8 @@ const renderSingleLayer = (layerData, map) => {
     // 点标记
     if (markers && markers.length > 0) {
       markers.forEach(marker => {
-        const m = L.marker([marker.lat, marker.lng])
-          .addTo(map)
-          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${layerData.value_field || ''}: ${formatNumber(marker.value)}</div>`);
+        const m = createStyledMarker(marker, layerData)
+          .addTo(map);
         currentLayers.value.push(m);
       });
     }
@@ -450,8 +576,7 @@ const renderSingleLayerToGroup = (layerData, group) => {
           radius: marker.radius || 1000, color: '#ff7800', fillColor: '#ff7800', fillOpacity: 0.5, weight: 2
         }).bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${value_field || ''}: ${formatNumber(marker.value)}</div>`));
       } else {
-        group.addLayer(L.marker([marker.lat, marker.lng])
-          .bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${value_field || ''}: ${formatNumber(marker.value)}</div>`));
+        group.addLayer(createStyledMarker(marker, layerData));
       }
     });
   }
@@ -469,6 +594,12 @@ const renderSingleLayerToGroup = (layerData, group) => {
         layer.bindPopup(`<div class="marker-popup"><strong>${p.name || '未命名'}</strong><br/>${value_field || '值'}: ${formatNumber(p.value)}</div>`);
       },
     }));
+
+    if (markers && markers.length > 0) {
+      markers.forEach(marker => {
+        group.addLayer(createStyledMarker(marker, layerData));
+      });
+    }
   }
 };
 
@@ -822,15 +953,13 @@ watch(() => props.mapData, () => {
   flex-shrink: 0;
 }
 
-.legend-pin-demo {
-  width: 12px;
-  height: 20px;
-  background: #2a81cb;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
+.legend-marker-preview {
+  min-width: 28px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  border: 2px solid #1a6ab5;
-  margin: 4px;
 }
 
 .legend-scale-row {
@@ -1010,10 +1139,22 @@ watch(() => props.mapData, () => {
   height: 16px;
 }
 
-/* Risk marker icon - prevent leaflet default sizing */
+/* Custom marker icon - prevent leaflet default sizing */
+:deep(.custom-marker-icon-wrapper),
 :deep(.risk-marker-icon) {
   background: none !important;
   border: none !important;
+}
+
+:deep(.custom-marker-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.custom-marker-icon svg) {
+  overflow: visible;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.28));
 }
 
 /* Risk popup analyze button hover */
@@ -1067,3 +1208,4 @@ watch(() => props.mapData, () => {
   border: 1px solid var(--color-border) !important;
 }
 </style>
+

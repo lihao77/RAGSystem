@@ -79,6 +79,7 @@ STATIC_TOOL_CONTRACTS = [
         ],
         source="static",
     ),
+
     ToolContract(
         name="create_map",
         description="一步生成 Leaflet 地图：构建数据 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
@@ -111,6 +112,26 @@ STATIC_TOOL_CONTRACTS = [
                     "type": "string",
                     "description": "几何字段名，默认 geometry。",
                     "default": "geometry"
+                },
+                "marker_style": {
+                    "type": "object",
+                    "description": "点图层样式（marker/choropleth/geojson 的点要素可用）。支持 icon=pin/dot/ring/square/diamond/triangle/star/flag/badge，另可指定 color、border_color、glyph、glyph_color、size(sm/md/lg/xl 或数字)。",
+                    "properties": {
+                        "icon": {
+                            "type": "string",
+                            "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge"]
+                        },
+                        "color": {"type": "string"},
+                        "border_color": {"type": "string"},
+                        "glyph": {"type": "string"},
+                        "glyph_color": {"type": "string"},
+                        "size": {
+                            "oneOf": [
+                                {"type": "string", "enum": ["sm", "md", "lg", "xl"]},
+                                {"type": "number"}
+                            ]
+                        }
+                    }
                 }
             },
             "required": ["data", "value_field"]
@@ -144,6 +165,7 @@ STATIC_TOOL_CONTRACTS = [
                     "title": "示例地图",
                     "name_field": "name",
                     "value_field": "value",
+                    "marker_style": {"icon": "star", "color": "#ef4444", "glyph": "A"},
                 }
             },
             {
@@ -159,6 +181,7 @@ STATIC_TOOL_CONTRACTS = [
         allowed_callers=["direct", "code_execution"],
         source="static",
     ),
+
     ToolContract(
         name="create_bindmap",
         description="多图层叠加地图：将多个数据源/类型叠加在一张地图上，支持图层切换控件。在 <final_answer> 中用 [viz:artifact_id] 展示。",
@@ -196,6 +219,26 @@ STATIC_TOOL_CONTRACTS = [
                                 "type": "string",
                                 "description": "几何字段名，默认 geometry",
                                 "default": "geometry"
+                            },
+                            "marker_style": {
+                                "type": "object",
+                                "description": "点图层样式。支持 icon、color、border_color、glyph、glyph_color、size。",
+                                "properties": {
+                                    "icon": {
+                                        "type": "string",
+                                        "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge"]
+                                    },
+                                    "color": {"type": "string"},
+                                    "border_color": {"type": "string"},
+                                    "glyph": {"type": "string"},
+                                    "glyph_color": {"type": "string"},
+                                    "size": {
+                                        "oneOf": [
+                                            {"type": "string", "enum": ["sm", "md", "lg", "xl"]},
+                                            {"type": "number"}
+                                        ]
+                                    }
+                                }
                             }
                         },
                         "required": ["data", "map_type", "value_field"]
@@ -244,6 +287,7 @@ STATIC_TOOL_CONTRACTS = [
                             "label": "水位监测站",
                             "name_field": "name",
                             "value_field": "value",
+                            "marker_style": {"icon": "flag", "color": "#10b981", "glyph": "S"},
                         }
                     ],
                     "title": "防汛态势图",
@@ -571,3 +615,4 @@ STATIC_TOOL_CONTRACTS = [
 
 
 STATIC_TOOLS = build_function_tools(STATIC_TOOL_CONTRACTS)
+

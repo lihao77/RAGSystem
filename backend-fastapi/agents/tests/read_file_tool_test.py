@@ -12,6 +12,7 @@ from tools.document_executor import (
     read_file,
     edit_file,
 )
+from agents.task_registry import TaskRegistry
 
 
 # ───────────────────── read_file: 原始内容模式 ─────────────────────
@@ -109,30 +110,39 @@ def test_read_file_nonexistent():
     assert "不存在" in result.content
 
 
-# ───────────────── read_file: 5KB 大文件确认 ──────────────────
+# ─────────────── read_file: 大文件确认阈值行为 ───────────────
 
-def _make_large_file(tmp_path, size_bytes=6000):
-    """创建超过 5KB 的文件。"""
+def _make_large_file(tmp_path, size_bytes=None):
+    """创建超过预览阈值的文件。"""
     fp = tmp_path / "large.txt"
+    if size_bytes is None:
+        size_bytes = FILE_SIZE_PREVIEW_THRESHOLD + 512
     content = "A" * size_bytes
     fp.write_text(content, encoding="utf-8")
     return fp
 
 
-def test_read_file_large_file_confirm_approved(tmp_path):
+def _prepare_registry(monkeypatch, session_id):
+    registry = TaskRegistry()
+    registry.register_task(session_id=session_id, run_id="test-run", task="read-file-test", status="running")
+
+    monkeypatch.setattr("agents.task_registry.get_task_registry", lambda: registry)
+    return registry
+
+
+def test_read_file_large_file_confirm_approved(tmp_path, monkeypatch):
     """大文件 + direct caller + 用户批准 → 返回完整内容。"""
     fp = _make_large_file(tmp_path)
 
     event_bus = MagicMock()
     session_id = "test-session-1"
+    published_event = {}
 
     # 模拟审批机制：发布事件后立刻在另一个线程批准
-    from agents.task_registry import get_task_registry
-    registry = get_task_registry()
-
-    original_publish = event_bus.publish
+    registry = _prepare_registry(monkeypatch, session_id)
 
     def fake_publish(event):
+        published_event["event"] = event
         approval_id = event.data.get("approval_id")
         # 在另一个线程中批准
         def approve():
@@ -146,17 +156,18 @@ def test_read_file_large_file_confirm_approved(tmp_path):
     assert result.success is True
     # 应该返回完整内容（带行号），而非仅预览
     assert "preview_only" not in result.metadata or result.metadata.get("preview_only") is not True
+    approval_event = published_event["event"]
+    assert approval_event.data["preview_threshold"] == FILE_SIZE_PREVIEW_THRESHOLD
 
 
-def test_read_file_large_file_confirm_denied(tmp_path):
+def test_read_file_large_file_confirm_denied(tmp_path, monkeypatch):
     """大文件 + direct caller + 用户拒绝 → 返回预览。"""
     fp = _make_large_file(tmp_path)
 
     event_bus = MagicMock()
     session_id = "test-session-2"
 
-    from agents.task_registry import get_task_registry
-    registry = get_task_registry()
+    registry = _prepare_registry(monkeypatch, session_id)
 
     def fake_publish(event):
         approval_id = event.data.get("approval_id")
@@ -170,6 +181,7 @@ def test_read_file_large_file_confirm_denied(tmp_path):
 
     assert result.success is True
     assert result.metadata.get("preview_only") is True
+    assert result.metadata["preview_threshold"] == FILE_SIZE_PREVIEW_THRESHOLD
 
 
 def test_read_file_large_file_code_execution_no_confirm(tmp_path):

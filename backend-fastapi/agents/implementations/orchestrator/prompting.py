@@ -321,6 +321,7 @@ def build_system_prompt(agent) -> str:
 
 ### 可视化规则
 - 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
+- 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
 - 工具返回 artifact_id 和预览摘要，据此判断是否满意
 - 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
 - 可视化 artifact 默认持久化在 `./static/temp_data`

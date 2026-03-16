@@ -15,7 +15,7 @@ from tools.response_builder import error_result, success_result
 
 
 DEFAULT_READ_MAX_LINES = 2000
-FILE_SIZE_PREVIEW_THRESHOLD = 5 * 1024  # 5KB
+FILE_SIZE_PREVIEW_THRESHOLD = 32 * 1024  # 32KB
 
 DEFAULT_STRUCTURE_PREVIEW_ROWS = 5
 DEFAULT_STRUCTURE_PREVIEW_DEPTH = 3
@@ -27,6 +27,17 @@ def _truncate_preview_text(value: str, limit: int = 120) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "..."
+
+
+def _format_binary_size(size_bytes: int) -> str:
+    """Return a compact binary size label for UI and summaries."""
+    if size_bytes < 1024:
+        return f"{size_bytes}B"
+    if size_bytes < 1024 * 1024:
+        value = size_bytes / 1024
+        return f"{value:.0f}KB" if value.is_integer() else f"{value:.1f}KB"
+    value = size_bytes / (1024 * 1024)
+    return f"{value:.1f}MB"
 
 
 def _scalar_type_name(value: Any) -> str:
@@ -742,7 +753,7 @@ def read_file(
             and event_bus is not None
             and session_id is not None
         ):
-            # 读取前 5KB 作为预览
+            # 读取前 N KB 作为预览
             with open(file_path_obj, "r", encoding=encoding, errors="replace") as f:
                 preview_raw = f.read(FILE_SIZE_PREVIEW_THRESHOLD)
 
@@ -767,6 +778,7 @@ def read_file(
                     "tool_name": "read_file",
                     "file_path": str(file_path_obj),
                     "file_size": file_size,
+                    "preview_threshold": FILE_SIZE_PREVIEW_THRESHOLD,
                     "preview": preview_formatted,
                     "description": f"文件 {file_path_obj.name} 较大（{file_size} 字节），是否读取完整内容？",
                 }
@@ -779,12 +791,16 @@ def read_file(
                     # 用户拒绝 → 返回预览内容
                     return success_result(
                         content=preview_formatted,
-                        summary=f"文件预览: {file_path}（仅前 5KB，{file_size} 字节总计）",
+                        summary=(
+                            f"文件预览: {file_path}"
+                            f"（仅前 {_format_binary_size(FILE_SIZE_PREVIEW_THRESHOLD)}，{file_size} 字节总计）"
+                        ),
                         output_type="text",
                         metadata={
                             "file_path": str(file_path_obj),
                             "file_size": file_size,
                             "preview_only": True,
+                            "preview_threshold": FILE_SIZE_PREVIEW_THRESHOLD,
                             "preview_lines": len(preview_lines),
                         },
                         tool_name="read_file",
