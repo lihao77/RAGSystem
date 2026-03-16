@@ -24,6 +24,7 @@ class ToolPermission(BaseModel):
     description: str = ""
     allowed_roles: list = []  # 允许的角色列表（空表示所有角色）
     allowed_callers: list = ["direct", "code_execution"]  # 允许的调用来源
+    timeout_seconds: int = 60  # 执行超时秒数，0=不限制
 
 
 # 工具权限配置表
@@ -78,7 +79,8 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.MEDIUM,
         requires_approval=False,
         description="执行 Skill 脚本（在隔离虚拟环境中运行）",
-        allowed_callers=["direct"]  # 禁止代码调用
+        allowed_callers=["direct"],  # 禁止代码调用
+        timeout_seconds=120,
     ),
     "get_skill_info": ToolPermission(
         tool_name="get_skill_info",
@@ -117,7 +119,8 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.MEDIUM,
         requires_approval=False,
         description="从文本提取结构化数据",
-        allowed_callers=["direct", "code_execution"]
+        allowed_callers=["direct", "code_execution"],
+        timeout_seconds=120,
     ),
     "merge_extracted_data": ToolPermission(
         tool_name="merge_extracted_data",
@@ -189,7 +192,8 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.LOW,
         requires_approval=False,
         description="生成标准格式应急报告（只读，无副作用）",
-        allowed_callers=["direct"]
+        allowed_callers=["direct"],
+        timeout_seconds=120,
     ),
 }
 

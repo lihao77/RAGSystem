@@ -57,12 +57,14 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
   │   └─ 如果 requires_approval → 发布事件等待用户确认
-  ├─ 分发
-  │   ├─ tool_name == 'execute_code' → execute_code_sandbox()
-  │   ├─ tool_name in TOOL_HANDLERS → handler(**arguments)
-  │   ├─ tool_name in DOCUMENT_TOOL_NAMES → _execute_document_tool()
-  │   ├─ is_mcp_tool(tool_name) → _execute_mcp_tool()
+  ├─ 获取 timeout_seconds（来自 ToolPermission，默认 60s）
+  ├─ 分发（TOOL_HANDLERS / DOCUMENT_TOOL 分支经 _run_with_timeout 包装）
+  │   ├─ tool_name == 'execute_code' → execute_code_sandbox()（自带超时，不包装）
+  │   ├─ tool_name in TOOL_HANDLERS → _run_with_timeout(handler, timeout)
+  │   ├─ tool_name in DOCUMENT_TOOL_NAMES → _run_with_timeout(_execute_document_tool, timeout)
+  │   ├─ is_mcp_tool(tool_name) → _execute_mcp_tool()（自带超时，不包装）
   │   └─ else → error_result()
+  ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
   └─ 返回 ToolExecutionResult
 ```
 
@@ -109,7 +111,21 @@ class ToolPermission:
     description: str
     allowed_roles: list              # 空=所有角色
     allowed_callers: list            # direct / code_execution
+    timeout_seconds: int             # 执行超时秒数（默认 60，0=不限制）
 ```
+
+慢工具超时配置：`execute_skill_script`、`extract_structured_data`、`generate_report` 设为 120s。
+
+### 结果规范化（dispatcher._normalize_tool_result）
+
+dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `ToolExecutionResult`：
+
+| 工具返回值 | 规范化行为 |
+|-----------|-----------|
+| `ToolExecutionResult` | 直接返回 |
+| `None` | `error_result("工具返回了空结果")` |
+| `dict` | `success_result(content=result)` |
+| 其他类型 | `success_result(content=str(result))` |
 
 ## 工具清单
 

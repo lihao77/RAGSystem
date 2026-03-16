@@ -175,11 +175,52 @@ class ContextPipeline:
         if start_idx == 1:
             existing_summary = history_resolved[0].get("content", "")
 
-        summary = self._try_llm_summary(segment, existing_summary)
+        try:
+            summary = self._try_llm_summary(segment, existing_summary)
+        except ContextCompressionError as e:
+            self.logger.warning(f"LLM 摘要失败，降级为截断: {e}")
+            return self._fallback_truncate(
+                history_raw, history_resolved, context, preserve_count, publisher
+            )
         self._record_compression(status="success", replaced_messages=len(segment))
         return self._apply_compression(
             summary, segment, history_raw, context, publisher
         )
+
+    def _fallback_truncate(
+        self,
+        history_raw: List[Dict[str, Any]],
+        history_resolved: List[Dict[str, Any]],
+        context,
+        preserve_count: int,
+        publisher=None,
+    ) -> List[Dict[str, Any]]:
+        """LLM 摘要不可用时的降级策略：丢弃早期消息，保留最近 preserve_count 条。"""
+        discarded = len(history_resolved) - preserve_count
+        if discarded <= 0:
+            self._record_compression(status="fallback_skipped", replaced_messages=0)
+            return history_resolved
+
+        kept = history_resolved[-preserve_count:]
+        fallback_summary = (
+            f"[历史摘要]\n（LLM 摘要不可用，已丢弃 {discarded} 条早期消息）"
+        )
+        summary_message = {
+            "role": "system",
+            "content": fallback_summary,
+            "metadata": {"compression": True},
+        }
+        updated_raw = [summary_message] + kept
+        self._write_back_context(context, updated_raw)
+
+        if publisher:
+            publisher.compression_summary(fallback_summary, replaces_up_to_seq=None)
+
+        self._record_compression(status="fallback", replaced_messages=discarded)
+        self.logger.info(
+            f"降级截断完成: 丢弃 {discarded} 条消息, 保留 {preserve_count} 条"
+        )
+        return resolve_compression_view(updated_raw)
 
     def _try_llm_summary(
         self,

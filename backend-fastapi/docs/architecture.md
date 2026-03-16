@@ -161,6 +161,8 @@ api/v1/stream.py                             ← HTTP SSE 端点
 
 压缩触发：上下文用量达到 `compression_trigger_ratio`（默认 0.8）时自动摘要早期轮次。
 
+压缩降级策略：当 LLM 摘要失败（`ContextCompressionError`）时，自动降级为截断模式——丢弃最早的消息，保留最近 `preserve_recent_turns` 轮，插入 `[历史摘要]\n（LLM 摘要不可用，已丢弃 N 条消息）` 标记。降级不会终止 ReAct 循环，确保对话可以继续。
+
 ## 配置系统
 
 | 配置文件 | 职责 | 热加载 |

@@ -5,9 +5,10 @@ Tool executor 分发入口。
 
 import logging
 import inspect
+import concurrent.futures
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
-from tools.response_builder import error_result
+from tools.response_builder import error_result, success_result
 from tools.result_schema import ToolExecutionResult
 from tools.tool_registry import get_tool_registry
 
@@ -155,6 +156,36 @@ def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
     )
 
 
+_DEFAULT_TIMEOUT = 60
+
+
+def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
+    """在线程池中执行工具函数，超时返回 error_result。"""
+    if timeout <= 0:
+        return fn()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
+            return error_result(
+                f"工具 {tool_name} 执行超时（{timeout}秒）",
+                tool_name=tool_name,
+            )
+
+
+def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
+    """将工具返回值统一规范化为 ToolExecutionResult。"""
+    if isinstance(result, ToolExecutionResult):
+        return result
+    if result is None:
+        return error_result("工具返回了空结果", tool_name=tool_name)
+    if isinstance(result, dict):
+        return success_result(content=result, tool_name=tool_name)
+    return success_result(content=str(result), tool_name=tool_name)
+
+
 TOOL_HANDLERS = {
     'create_chart': create_chart,
     'create_map': create_map,
@@ -199,6 +230,10 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         if not allowed:
             return approval_error_result
 
+        from tools.permissions import get_tool_permission
+        permission = get_tool_permission(tool_name)
+        timeout = permission.timeout_seconds if permission else _DEFAULT_TIMEOUT
+
         if tool_name == 'execute_code':
             from tools.code_sandbox import execute_code_sandbox
             result = execute_code_sandbox(
@@ -215,17 +250,21 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             call_arguments = dict(arguments)
             if 'session_id' in inspect.signature(handler).parameters:
                 call_arguments.setdefault('session_id', session_id)
-            result = handler(**call_arguments)
+            result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif tool_name in DOCUMENT_TOOL_NAMES:
-            result = _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id)
+            result = _run_with_timeout(
+                lambda: _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id),
+                timeout, tool_name,
+            )
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
             result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)
         else:
             result = error_result(f'未知的工具: {tool_name}', tool_name=tool_name)
 
-        if approval_message:
-            if isinstance(result, ToolExecutionResult) and result.success:
-                result.metadata.setdefault('approval_message', approval_message)
+        result = _normalize_tool_result(result, tool_name)
+
+        if approval_message and result.success:
+            result.metadata.setdefault('approval_message', approval_message)
         return result
     except Exception as error:
         logger.error(f'执行工具 {tool_name} 失败: {error}{_obs_suffix()}')
