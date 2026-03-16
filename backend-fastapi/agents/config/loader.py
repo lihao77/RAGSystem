@@ -230,13 +230,21 @@ class AgentLoader:
         Returns:
             智能体类型字符串
         """
-        # 1. 从 custom_params 中获取 type
-        if hasattr(agent_config, 'custom_params'):
-            agent_type = agent_config.custom_params.get('type')
+        # 从 custom_params 中获取 type（兼容顶层和 behavior 嵌套两种写法）
+        if hasattr(agent_config, 'custom_params') and agent_config.custom_params:
+            cp = agent_config.custom_params
+            # 优先：custom_params.type
+            agent_type = cp.get('type')
             if agent_type:
                 return agent_type
+            # 兼容：custom_params.behavior.type
+            behavior = cp.get('behavior')
+            if isinstance(behavior, dict):
+                agent_type = behavior.get('type')
+                if agent_type:
+                    return agent_type
 
-        # 2. 默认使用 react 类型
+        # 默认使用 react 类型
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
         return 'react'
 
