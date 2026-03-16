@@ -2182,9 +2182,10 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
               if (subtask) {
                 // 跨轮次时需要新建 step，避免 tool 挂到上一轮的空 step 上
-                if (!subtask.currentStep || (subtask.currentStep.round !== eventData.round && !subtask.currentStep.intent && subtask.currentStep.toolCalls.every(t => t.status !== 'running'))) {
+                const subtaskToolRound = eventData.round ?? subtask.currentStep?.round ?? 1;
+                if (!subtask.currentStep || (subtask.currentStep.round !== subtaskToolRound && !subtask.currentStep.intent && subtask.currentStep.toolCalls.every(t => t.status !== 'running'))) {
                   const newStep = {
-                    round: eventData.round,
+                    round: subtaskToolRound,
                     intent: '',
                     toolCalls: [],
                     expanded: true
@@ -2218,9 +2219,12 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 // 跨轮次且上一轮是空 step（无 intent、无运行中工具）时需要新建
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let executionStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (!executionStep || (executionStep.round !== eventData.round && !executionStep.intent && executionStep.toolCalls.every(t => t.status !== 'running'))) {
+                // 当 eventData.round 缺失时（如 LLM 跳过 <intent> 直接输出 <tools>），
+                // fallback 到已有 step 的 round，避免创建 round=undefined 的幽灵 step
+                const toolRound = eventData.round ?? executionStep?.round ?? 1;
+                if (!executionStep || (executionStep.round !== toolRound && !executionStep.intent && executionStep.toolCalls.every(t => t.status !== 'running'))) {
                   executionStep = {
-                    round: eventData.round,
+                    round: toolRound,
                     intent: '',
                     toolCalls: [],
                     expanded: true
