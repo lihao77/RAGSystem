@@ -984,6 +984,10 @@ class BaseAgent(ABC):
         self.logger.error(f"执行任务失败: {error}", exc_info=True)
         if self._publisher:
             self._publisher.agent_error(error=str(error), error_type="ExecutionError")
+            self._publisher.agent_end(
+                result=str(error),
+                execution_time=time.time() - start_time,
+            )
         return AgentResponse(
             success=False,
             content=str(error),
@@ -1095,6 +1099,14 @@ class BaseAgent(ABC):
                 return self._handle_interrupted(error, context, state, start_time)
             except Exception as handler_error:
                 self.logger.error("处理中断收尾失败: %s", handler_error, exc_info=True)
+                if self._publisher:
+                    try:
+                        self._publisher.agent_end(
+                            result="[已停止生成]",
+                            execution_time=time.time() - start_time,
+                        )
+                    except Exception:
+                        pass
                 return AgentResponse(
                     success=False,
                     content="[已停止生成]",
@@ -1107,6 +1119,14 @@ class BaseAgent(ABC):
                 return self._handle_execution_error(error, context, state, start_time)
             except Exception as handler_error:
                 self.logger.error("处理执行异常收尾失败: %s", handler_error, exc_info=True)
+                if self._publisher:
+                    try:
+                        self._publisher.agent_end(
+                            result=str(error),
+                            execution_time=time.time() - start_time,
+                        )
+                    except Exception:
+                        pass
                 return AgentResponse(
                     success=False,
                     content="",

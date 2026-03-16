@@ -141,3 +141,5 @@ backend_start.*.log
 frontend/
 
 .skill_venvs/
+
+tests/

@@ -342,6 +342,12 @@ class AgentExecutionAdapter:
                     event_bus=event_bus,
                 )
                 publisher.agent_error(error=str(error), error_type='ExecutionError')
+                if run_id:
+                    publisher.run_end(
+                        run_id=run_id,
+                        status='error',
+                        summary=f'后台执行失败: {error}',
+                    )
                 raise
             finally:
                 registry.cleanup_task_subscriptions(task_id)
