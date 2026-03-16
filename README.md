@@ -44,7 +44,8 @@ Copy-Item config\yaml\config.yaml.example config\yaml\config.yaml
 
 ## 当前文档
 
-- [docs/README.md](docs/README.md)
-- [backend-fastapi/agents/README.md](backend-fastapi/agents/README.md)
-- [backend-fastapi/model_adapter/README.md](backend-fastapi/model_adapter/README.md)
-- [frontend-client/README.md](frontend-client/README.md)
+- [docs/README.md](docs/README.md) — 文档中心导航
+- [backend-fastapi/docs/architecture.md](backend-fastapi/docs/architecture.md) — 后端架构
+- [backend-fastapi/docs/tools.md](backend-fastapi/docs/tools.md) — 工具系统
+- [frontend-client/docs/architecture.md](frontend-client/docs/architecture.md) — 前端架构
+- [frontend-client/README.md](frontend-client/README.md) — 前端启动指南
