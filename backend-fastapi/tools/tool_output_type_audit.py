@@ -249,6 +249,15 @@ def _sample_read_file(temp_dir: Path) -> Any:
     )
 
 
+def _sample_preview_data_structure(temp_dir: Path) -> Any:
+    path = temp_dir / "sample.json"
+    path.write_text('{"items": [{"id": 1, "name": "Alice"}]}', encoding="utf-8")
+    return _execute_document_tool(
+        "preview_data_structure",
+        {"file_path": str(path)},
+    )
+
+
 _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "create_chart": _sample_create_chart,
     "revise_visualization": _sample_revise_visualization,
@@ -263,6 +272,7 @@ _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "merge_extracted_data": _sample_merge_extracted_data,
     "write_file": _sample_write_file,
     "read_file": _sample_read_file,
+    "preview_data_structure": _sample_preview_data_structure,
 }
 
 

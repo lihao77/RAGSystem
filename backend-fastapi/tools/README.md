@@ -14,7 +14,7 @@
 ## 当前工具类别
 
 - 文档处理：`read_document`、`chunk_document`、`extract_structured_data`、`merge_extracted_data`
-- 文件读写：`write_file`、`read_file`
+- 文件读写：`write_file`、`read_file`、`preview_data_structure`
 - 数据处理：`process_data_file`、`transform_data`、`execute_code`
 - 可视化：`generate_chart`、`generate_map`
 - Skills 系统工具：由 AgentLoader 在启用 Skill 时追加

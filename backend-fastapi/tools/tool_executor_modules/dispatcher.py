@@ -118,6 +118,9 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
     if tool_name == 'read_file':
         from tools.document_executor import read_file
         return read_file(**arguments, caller=caller, event_bus=event_bus, session_id=session_id)
+    if tool_name == 'preview_data_structure':
+        from tools.document_executor import preview_data_structure
+        return preview_data_structure(**arguments)
     if tool_name == 'edit_file':
         from tools.document_executor import edit_file
         return edit_file(**arguments)
@@ -174,6 +177,7 @@ DOCUMENT_TOOL_NAMES = {
     'merge_extracted_data',
     'write_file',
     'read_file',
+    'preview_data_structure',
     'edit_file',
 }
 

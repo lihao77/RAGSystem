@@ -24,6 +24,7 @@ TOOL_OUTPUT_TYPE_MAP = {
     "merge_extracted_data": "json",
     "write_file": "text",
     "read_file": "text",
+    "preview_data_structure": "json",
 }
 
 

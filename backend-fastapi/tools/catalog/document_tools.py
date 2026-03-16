@@ -260,6 +260,92 @@ DOCUMENT_TOOL_CONTRACTS = [
         source="document",
     ),
     ToolContract(
+        name="preview_data_structure",
+        description=(
+            "预览文件的数据结构，帮助 Agent 判断 JSON/YAML 的层级、CSV/TSV 的列结构，"
+            "或文本文件的基本形态，而不必先读取全部内容。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "要预览结构的文件路径"
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "文件编码，默认 utf-8",
+                    "default": "utf-8"
+                },
+                "max_preview_rows": {
+                    "type": "integer",
+                    "description": "最多采样的行数或数组项数，默认 5",
+                    "default": 5,
+                    "minimum": 1
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "结构递归预览的最大深度，默认 3",
+                    "default": 3,
+                    "minimum": 1
+                },
+                "max_fields": {
+                    "type": "integer",
+                    "description": "对象或表结构中最多返回的字段数，默认 20",
+                    "default": 20,
+                    "minimum": 1
+                }
+            },
+            "required": ["file_path"]
+        },
+        allowed_callers=["direct", "code_execution"],
+        returns={
+            "type": "object",
+            "description": "成功时返回文件类型、基础元信息和结构预览结果",
+            "shape": {
+                "content": {
+                    "file_path": "string",
+                    "file_name": "string",
+                    "file_type": "string",
+                    "file_size": "number",
+                    "structure": "object",
+                },
+                "metadata": {
+                    "file_type": "string",
+                    "file_size": "number",
+                    "max_preview_rows": "number",
+                    "max_depth": "number",
+                    "max_fields": "number",
+                },
+            },
+        },
+        usage_contract=[
+            "适合先探索数据结构，再决定是否调用 read_file、read_document 或 extract_structured_data",
+            "JSON/YAML 返回层级结构预览；CSV/TSV 返回列与样例行；文本返回行统计与预览",
+            "想看更深层结构时可提高 max_depth；想看更多列或样例可提高 max_fields/max_preview_rows",
+        ],
+        examples=[
+            {
+                "input": {
+                    "file_path": "./data/sample.json",
+                    "max_depth": 2,
+                },
+                "result_hint": {
+                    "file_type": "json",
+                    "structure": {
+                        "type": "object",
+                        "fields": {
+                            "items": {
+                                "type": "array",
+                            }
+                        },
+                    },
+                },
+            }
+        ],
+        source="document",
+    ),
+    ToolContract(
         name="edit_file",
         description=(
             "精准字符串替换编辑文件。old_string 必须在文件中唯一匹配（除非 replace_all=true）。"

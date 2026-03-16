@@ -49,6 +49,7 @@ agents:
     tools:
       enabled_tools:
         - read_document
+        - preview_data_structure
         - extract_structured_data
         - generate_chart
         - execute_code

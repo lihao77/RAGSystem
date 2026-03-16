@@ -47,6 +47,7 @@ agents:
     tools:
       enabled_tools:
         - read_document
+        - preview_data_structure
         - chunk_document
         - extract_structured_data
         - create_chart
