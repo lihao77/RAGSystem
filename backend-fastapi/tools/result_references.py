@@ -93,23 +93,34 @@ def result_primary_content(result: Any) -> Any:
     return reference
 
 
-def resolve_result_path(result: Any, json_path: str | None) -> Any:
+def resolve_result_path(
+    result: Any,
+    json_path: str | None,
+    *,
+    prefer_primary_content_root: bool = False,
+    case_insensitive: bool = False,
+) -> Any:
     """Resolve a dotted placeholder path against a heterogeneous result."""
     value = materialize_result_reference(result)
     if not json_path:
         return value
 
-    for key in json_path.split('.'):
-        if isinstance(value, dict):
-            value = value.get(key)
-        elif isinstance(value, list):
-            try:
-                value = value[int(key)]
-            except (ValueError, IndexError):
-                return None
-        else:
-            return None
-    return value
+    resolved = _resolve_dotted_path(
+        value,
+        json_path,
+        case_insensitive=case_insensitive,
+    )
+    if resolved is not None:
+        return resolved
+
+    if prefer_primary_content_root and isinstance(value, dict) and "content" in value:
+        return _resolve_dotted_path(
+            value.get("content"),
+            json_path,
+            case_insensitive=case_insensitive,
+        )
+
+    return None
 
 
 def stringify_result_value(value: Any) -> str:
@@ -166,3 +177,41 @@ def _clean_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_clean_value(item) for item in value]
     return value
+
+
+def _resolve_dotted_path(
+    value: Any,
+    json_path: str,
+    *,
+    case_insensitive: bool = False,
+) -> Any:
+    """Resolve a dotted path from dict/list structures."""
+    current = value
+
+    for raw_key in json_path.split('.'):
+        if isinstance(current, dict):
+            if raw_key in current:
+                current = current[raw_key]
+                continue
+
+            if case_insensitive:
+                lowered = raw_key.lower()
+                matched_key = next(
+                    (key for key in current.keys() if isinstance(key, str) and key.lower() == lowered),
+                    None,
+                )
+                if matched_key is not None:
+                    current = current[matched_key]
+                    continue
+            return None
+
+        if isinstance(current, list):
+            try:
+                current = current[int(raw_key)]
+                continue
+            except (ValueError, IndexError):
+                return None
+
+        return None
+
+    return current

@@ -440,14 +440,15 @@ text = call_tool('read_file', {{
             parts = ref_expr.split('.', 1)
             base_ref = parts[0]  # result_N
             json_path = parts[1] if len(parts) > 1 else None  # path.to.field
+            normalized_ref = base_ref.lower()
 
             # 提取索引 N
-            if not base_ref.startswith('result_'):
+            if not normalized_ref.startswith('result'):
                 self.logger.warning(f"[链式调用] 无效的占位符格式: {full_match}")
                 return full_match  # 保持原样
 
             try:
-                ref_idx = int(base_ref.replace('result_', ''))
+                ref_idx = int(normalized_ref.replace('result_', '').replace('result', ''))
             except ValueError:
                 self.logger.warning(f"[链式调用] 无法解析索引: {full_match}")
                 return full_match
@@ -472,7 +473,12 @@ text = call_tool('read_file', {{
             # 如果有 JSON 路径，提取特定字段
             if json_path:
                 try:
-                    value = resolve_result_path(result, json_path)
+                    value = resolve_result_path(
+                        result,
+                        json_path,
+                        prefer_primary_content_root=True,
+                        case_insensitive=True,
+                    )
                     if value is None:
                         self.logger.warning(f"[链式调用] 无法访问路径 {json_path}")
                         return full_match
@@ -498,8 +504,11 @@ text = call_tool('read_file', {{
             if isinstance(value, str):
                 # 查找所有占位符 {result_N} 或 {result_N.path} 并替换
                 # 使用单层花括号，更简洁直观
-                pattern = r'\{(result_\d+(?:\.[a-zA-Z0-9_\.]+)?)\}'
-                return re.sub(pattern, replace_placeholder, value)
+                pattern = re.compile(
+                    r'\{(result_?\d+(?:\.[a-zA-Z0-9_\.]+)?)\}',
+                    re.IGNORECASE,
+                )
+                return pattern.sub(replace_placeholder, value)
             elif isinstance(value, dict):
                 return {k: process_value(v) for k, v in value.items()}
             elif isinstance(value, list):

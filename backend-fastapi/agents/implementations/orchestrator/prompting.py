@@ -91,17 +91,19 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
     """
     import re
 
-    # 🎯 优化 1：预检 - 快速判断是否包含占位符
+    placeholder_pattern = re.compile(
+        r'\{result_?(\d+)(?:\.([a-zA-Z0-9_\.]+))?\}',
+        re.IGNORECASE,
+    )
+
+    # 优化 1：预检 - 快速判断是否包含占位符
     # 避免对不包含占位符的数据进行递归遍历
     data_str = str(data)
-    if '{result' not in data_str:
+    if not placeholder_pattern.search(data_str):
         return data  # 提前返回，节省递归开销
 
     if isinstance(data, str):
         # 字符串：查找并替换所有占位符
-        # 匹配 {result_N}、{resultN} 及带路径版本
-        pattern = r'\{result_?(\d+)(?:\.([a-zA-Z0-9_\.]+))?\}'
-
         def replace_func(match):
             idx = int(match.group(1))
             json_path = match.group(2)
@@ -114,7 +116,12 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
                 return f"[Agent {idx} 执行失败: {result_error_message(result)}]"
 
             if json_path:
-                value = resolve_result_path(result, json_path)
+                value = resolve_result_path(
+                    result,
+                    json_path,
+                    prefer_primary_content_root=True,
+                    case_insensitive=True,
+                )
                 if value is None:
                     agent.logger.warning(f"占位符 {match.group(0)} 路径不存在")
                     return match.group(0)
@@ -122,7 +129,7 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
 
             return stringify_result_value(result_primary_content(result))
 
-        return re.sub(pattern, replace_func, data)
+        return placeholder_pattern.sub(replace_func, data)
 
     elif isinstance(data, dict):
         # 字典：递归处理每个值
@@ -336,11 +343,4 @@ def build_system_prompt(agent) -> str:
 - 不要编造 artifact_id，必须使用工具返回的真实 ID
 - 若本次回答没有生成任何可视化，则不需要插入 `[viz:...]` 标记
 """
-
-
-
-
-
-
-
 
