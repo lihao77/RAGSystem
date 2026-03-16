@@ -4,10 +4,53 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from .result_schema import ToolExecutionResult
+
+# ── 错误标记 ──────────────────────────────────────────────
+
+REF_ERROR_KEY = "__ref_error__"
+
+
+def make_ref_error(reason: str, placeholder: str, available_keys: list | None = None) -> dict:
+    """构造一个路径解析错误标记，供 Agent 感知并重试。"""
+    error: dict[str, Any] = {REF_ERROR_KEY: reason, "placeholder": placeholder}
+    if available_keys is not None:
+        error["available_keys"] = available_keys[:10]
+    return error
+
+
+def is_ref_error(value: Any) -> bool:
+    """判断值是否为路径解析错误标记。"""
+    return isinstance(value, dict) and REF_ERROR_KEY in value
+
+
+# ── 未替换占位符检测 ─────────────────────────────────────
+
+_PLACEHOLDER_PATTERN = re.compile(
+    r'\{result_?\d+(?:\.[a-zA-Z0-9_\.]+)?\}', re.IGNORECASE
+)
+
+
+def detect_unresolved_placeholders(arguments: Any) -> list[str]:
+    """扫描参数中残留的未替换占位符。"""
+    found: list[str] = []
+
+    def _scan(value: Any) -> None:
+        if isinstance(value, str):
+            found.extend(_PLACEHOLDER_PATTERN.findall(value))
+        elif isinstance(value, dict):
+            for v in value.values():
+                _scan(v)
+        elif isinstance(value, list):
+            for item in value:
+                _scan(item)
+
+    _scan(arguments)
+    return found
 
 
 def materialize_result_reference(result: Any) -> Any:
@@ -114,13 +157,17 @@ def resolve_result_path(
         return resolved
 
     if prefer_primary_content_root and isinstance(value, dict) and "content" in value:
-        return _resolve_dotted_path(
+        content_resolved = _resolve_dotted_path(
             value.get("content"),
             json_path,
             case_insensitive=case_insensitive,
         )
+        if content_resolved is not None:
+            return content_resolved
 
-    return None
+    # 收集可用 keys 辅助 Agent 诊断
+    available = _collect_available_keys(value, json_path)
+    return make_ref_error("path_not_found", json_path, available_keys=available)
 
 
 def stringify_result_value(value: Any) -> str:
@@ -215,3 +262,24 @@ def _resolve_dotted_path(
         return None
 
     return current
+
+
+def _collect_available_keys(value: Any, json_path: str) -> list[str]:
+    """沿路径遍历到失败点，返回该层级的可用 keys 或 list 长度信息。"""
+    current = value
+    for raw_key in json_path.split('.'):
+        if isinstance(current, dict):
+            if raw_key in current:
+                current = current[raw_key]
+                continue
+            # 到达失败点，返回当前层级的 keys
+            return list(current.keys())
+        if isinstance(current, list):
+            try:
+                current = current[int(raw_key)]
+                continue
+            except (ValueError, IndexError):
+                return [f"list(len={len(current)})"]
+        return [f"type={type(current).__name__}"]
+    # 路径完全遍历但结果为 None（不应到达此处，但兜底）
+    return []

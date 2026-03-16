@@ -702,7 +702,7 @@ class BaseAgent(ABC):
         log_prefix: str,
     ) -> None:
         """默认动作处理：直接工具执行。"""
-        from tools.response_builder import success_result
+        from tools.response_builder import success_result, error_result
         from tools.result_references import result_event_payload
         from tools.tool_executor import execute_tool
         from tools.tool_registry import get_tool_registry
@@ -740,6 +740,15 @@ class BaseAgent(ABC):
 
             self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
             tool_call_id = f"tool_{uuid.uuid4()}"
+
+            # C6: 拦截未替换的占位符
+            from tools.result_references import detect_unresolved_placeholders
+            unresolved = detect_unresolved_placeholders(arguments)
+            if unresolved:
+                observation = f"[{tool_name}] 参数中包含未替换的占位符: {', '.join(unresolved)}，请检查引用路径是否正确"
+                observations.append(observation)
+                tool_results[idx] = error_result(observation, tool_name=tool_name)
+                continue
 
             if tool_name == 'request_user_input':
                 user_value = self._handle_user_input_request(

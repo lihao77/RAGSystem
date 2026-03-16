@@ -11,6 +11,7 @@ from tools.result_references import (
     result_primary_content,
     result_success,
     stringify_result_value,
+    is_ref_error,
 )
 from tools.tool_registry import get_tool_registry
 from tools.catalog.agent_tools import get_agent_tools
@@ -122,9 +123,10 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
                     prefer_primary_content_root=True,
                     case_insensitive=True,
                 )
-                if value is None:
-                    agent.logger.warning(f"占位符 {match.group(0)} 路径不存在")
-                    return match.group(0)
+                if is_ref_error(value):
+                    available = value.get("available_keys", [])
+                    agent.logger.warning(f"占位符 {match.group(0)} 路径不存在, 可用: {available}")
+                    return f'[引用错误: 路径 "{json_path}" 不存在, 可用: {available}]'
                 return stringify_result_value(value)
 
             return stringify_result_value(result_primary_content(result))

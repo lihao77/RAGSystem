@@ -1933,6 +1933,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
     let sseBuffer = '';  // 缓冲跨 chunk 的不完整 SSE 事件
     // 重连模式标记：收到 reconnect_start 后进入回放阶段，收到 reconnect_end 结束
     let isReplaying = false;
+    let lastSeenSeq = 0;  // 事件序号 gap 检测
     const isActiveStream = () =>
       activeStreamToken.value === streamToken && currentSessionId.value === sessionId;
 
@@ -2006,6 +2007,23 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             // ✨ 提取事件数据（完整Event对象格式）
             const eventData = event.data || {};
             const eventType = event.type;
+
+            // 事件序号 gap 检测
+            if (eventType === 'heartbeat') {
+              const hbLastSeq = event.last_seq || 0;
+              const hbDropped = event.dropped_count || 0;
+              if (hbLastSeq > lastSeenSeq + 1) {
+                console.warn(`[SSE] 心跳检测到事件 gap: lastSeenSeq=${lastSeenSeq}, server.last_seq=${hbLastSeq}, dropped=${hbDropped}`);
+              }
+              lastSeenSeq = Math.max(lastSeenSeq, hbLastSeq);
+              continue;
+            }
+            if (event.seq) {
+              if (lastSeenSeq > 0 && event.seq > lastSeenSeq + 1) {
+                console.warn(`[SSE] 事件序号 gap: expected=${lastSeenSeq + 1}, got=${event.seq}, missed=${event.seq - lastSeenSeq - 1}`);
+              }
+              lastSeenSeq = event.seq;
+            }
 
             // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
             const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);

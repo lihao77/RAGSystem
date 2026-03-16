@@ -110,6 +110,10 @@ POST /api/agent/stream {task, session_id, selected_llm}
 
 核心解析：`tools/result_references.py` → `resolve_result_path()`, `materialize_result_reference()`
 
+路径解析加固：解析失败时返回错误标记（`make_ref_error()`），Agent 在 observation 中看到 `[引用错误: 路径 "xxx" 不存在, 可用: [...]]`，可感知并重试。
+
+未替换占位符拦截：`base.py._handle_actions` 在工具执行前调用 `detect_unresolved_placeholders()` 检测残留占位符，命中则跳过执行并返回错误提示。
+
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
 
 ## 流式输出与事件系统
@@ -143,10 +147,16 @@ EventBus (agents/events/bus.py)
   ↓ publish()
 EventPublisher (agents/events/publisher.py)  ← Agent 使用的简化 API
   ↓
-SSEAdapter (agents/events/sse_adapter.py)    ← 桥接到前端 SSE
+SSEAdapter (agents/events/sse_adapter.py)    ← 桥接到前端 SSE（有界队列 + 背压保护）
   ↓
 api/v1/stream.py                             ← HTTP SSE 端点
 ```
+
+Event 携带全局递增 `sequence_number`（`seq` 字段），前端可检测事件 gap。
+
+关键事件类型（`CRITICAL_EVENT_TYPES`）在队列满时不会被丢弃：RUN_START/END, AGENT_START/END/ERROR, SESSION_END, USER_INTERRUPT, FINAL_ANSWER, MESSAGE_SAVED, USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED。
+
+SSEAdapter 背压策略：有界队列（默认 100），非关键事件队满时丢弃，关键事件队满时驱逐非关键事件腾出空间。心跳携带 `last_seq` 和 `dropped_count`。
 
 ## 上下文管理
 

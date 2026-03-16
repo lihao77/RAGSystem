@@ -61,12 +61,19 @@ handleSend()
   → POST /api/agent/stream             # 发起流式请求
   → processSSEStream()                 # 逐 chunk 解析 SSE 事件
       ├─ reader.read() 循环
+      ├─ 事件序号 gap 检测（lastSeenSeq 追踪）
       ├─ 按事件类型分发处理
       ├─ 更新 messages / subtasks / execution_steps
       └─ scrollToBottom()
   → 流结束 → checkSituationScreenTrigger()
   → cacheMessages()
 ```
+
+### 事件序号 gap 检测
+
+每个 SSE 事件携带 `seq`（全局递增序号），前端维护 `lastSeenSeq`：
+- 普通事件：`event.seq > lastSeenSeq + 1` 时 console.warn 报告 gap
+- 心跳事件：检查 `event.last_seq` 和 `event.dropped_count`，检测服务端丢弃情况
 
 ### SSE 事件类型处理
 

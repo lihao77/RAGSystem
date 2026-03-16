@@ -9,7 +9,7 @@ if str(ROOT_DIR) not in sys.path:
 from agents.implementations.orchestrator.prompting import replace_placeholders
 from agents.implementations.react.agent import ReActAgent
 from tools.response_builder import success_result
-from tools.result_references import resolve_result_path
+from tools.result_references import resolve_result_path, is_ref_error
 
 
 class DummyOrchestratorAgent:
@@ -43,7 +43,7 @@ def _build_result():
 def test_resolve_result_path_falls_back_to_primary_content_root():
     result = _build_result()
 
-    assert resolve_result_path(result, "risk_level") is None
+    assert is_ref_error(resolve_result_path(result, "risk_level"))
     assert resolve_result_path(
         result,
         "risk_level",

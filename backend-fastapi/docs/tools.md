@@ -14,28 +14,33 @@ tools/
 │   ├── builtin_tools.py              # 内置工具（request_user_input）
 │   └── mcp_tools.py                  # MCP 工具适配
 ├── tool_executor_modules/            # 工具实现层
-│   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS
+│   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS + _merge_decorated_handlers()
 │   ├── visualization_tools.py        # 可视化（图表、地图）
 │   ├── emergency_tools.py            # 应急决策
-│   ├── report_tools.py               # 应急报告生成
+│   ├── report_tools.py               # 应急报告生成（@tool 装饰器示范）
 │   ├── skill_tools.py                # Skill 执行
 │   ├── shared.py                     # 共享依赖
 │   └── __init__.py                   # 导出 + __all__
 ├── tool_registry.py                  # ToolRegistry 注册表
 ├── tool_definition_builder.py        # ToolContract → OpenAI 格式
 ├── tool_executor.py                  # 执行公共入口
-├── permissions.py                    # 权限管理 + TOOL_PERMISSIONS
+├── permissions.py                    # 权限管理 + TOOL_PERMISSIONS + _merge_decorated_permissions()
 ├── result_schema.py                  # ToolExecutionResult 数据模型
 ├── response_builder.py              # success_result() / error_result()
-├── result_references.py             # 占位符路径解析
+├── result_references.py             # 占位符路径解析 + 错误标记 + 未替换检测
 ├── result_normalizer.py             # 结果规范化
+├── decorators.py                    # @tool() 装饰器（合并 Contract+Permission+Handler）
+├── auto_discovery.py                # 自动扫描装饰器注册的工具
+├── consistency_check.py             # 工具注册一致性校验
 ├── code_sandbox.py                  # Python 代码沙箱
 ├── document_executor.py             # 文档处理
 ├── visualization_artifact_manager.py # 可视化 artifact 持久化
 └── visualization_fallback.py        # 可视化降级
 ```
 
-## 新增工具 5 步注册链路
+## 新增工具注册
+
+### 方式一：5 步手动注册链路
 
 1. **实现函数** → `tool_executor_modules/<module>.py`
    - 返回 `ToolExecutionResult`（用 `success_result()` / `error_result()` 构建）
@@ -47,6 +52,29 @@ tools/
    - `TOOL_PERMISSIONS` 字典添加权限配置
 5. **导出接口** → `tool_executor_modules/__init__.py`
    - `__all__` 列表添加函数名
+
+### 方式二：@tool() 装饰器（推荐新工具使用）
+
+在工具函数上添加 `@tool()` 装饰器，一处定义 Contract + Permission + Handler：
+
+```python
+from tools.decorators import tool
+from tools.permissions import RiskLevel
+
+@tool(
+    name="my_tool",
+    description="工具描述",
+    parameters={...},
+    risk_level=RiskLevel.LOW,
+    timeout_seconds=60,
+)
+def my_tool(arguments, **kwargs):
+    ...
+```
+
+启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → 一致性校验（`consistency_check.py`）。
+
+装饰器注册不覆盖已有手动注册，两种方式可共存。示范：`report_tools.py` 的 `generate_report`。
 
 完成后更新本文档的「工具清单」章节。
 
@@ -222,8 +250,14 @@ create_chart/create_map 工具
 | 函数 | 说明 |
 |------|------|
 | `materialize_result_reference(result)` | ToolExecutionResult → 可序列化字典 |
-| `resolve_result_path(result, json_path, ...)` | 解析点号路径 `content.layers.0` |
+| `resolve_result_path(result, json_path, ...)` | 解析点号路径 `content.layers.0`，失败返回 `make_ref_error()` |
 | `result_primary_content(result)` | 提取主内容（content 字段） |
 | `stringify_result_value(value)` | 序列化为文本 |
 | `result_success(result)` | 提取成功标志 |
 | `result_event_payload(result)` | 事件总线用的 JSON 对象 |
+| `make_ref_error(reason, placeholder, available_keys)` | 构造路径解析错误标记 |
+| `is_ref_error(value)` | 判断值是否为错误标记 |
+| `detect_unresolved_placeholders(arguments)` | 扫描参数中残留的未替换占位符 |
+
+路径解析失败时返回错误标记（含可用 keys），Agent 在 observation 中看到明确错误信息可重试。
+工具执行前（`base.py._handle_actions`）拦截未替换占位符，跳过执行并返回错误提示。

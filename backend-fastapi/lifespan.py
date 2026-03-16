@@ -81,6 +81,36 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('Agent API 运行时初始化失败: %s', e)
 
+    # ── 第 4.5 步：工具装饰器自动发现与一致性校验 ─────────────────────────
+    try:
+        from tools.auto_discovery import discover_decorated_tools
+        from tools.tool_executor_modules.dispatcher import _merge_decorated_handlers
+        from tools.permissions import _merge_decorated_permissions
+        from tools.consistency_check import check_tool_consistency
+
+        # 1) 扫描模块，触发 @tool() 装饰器注册
+        decorated = discover_decorated_tools()
+
+        # 2) 合并到 TOOL_HANDLERS 和 TOOL_PERMISSIONS
+        _merge_decorated_handlers()
+        _merge_decorated_permissions()
+
+        # 3) 同步新 ToolContract 到 ToolRegistry
+        if decorated:
+            from tools.tool_registry import get_tool_registry
+            registry = get_tool_registry()
+            contracts = [info["contract"] for info in decorated.values()]
+            registry.register_extra_contracts(contracts)
+
+        # 4) 一致性校验
+        warnings = check_tool_consistency()
+        if warnings:
+            logger.warning('工具一致性校验发现 %d 个问题', len(warnings))
+        else:
+            logger.info('✓ 工具一致性校验通过')
+    except Exception as e:
+        logger.warning('工具自动发现失败（不影响核心功能）: %s', e)
+
     # ── 第五步（新增）：加载外部扩展 ──────────────────────────────────────
     loaded_extensions = []
     try:

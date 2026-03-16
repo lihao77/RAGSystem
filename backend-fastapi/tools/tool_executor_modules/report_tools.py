@@ -10,6 +10,10 @@ report_tools.py - 应急报告自动生成工具。
 
 import json
 from datetime import datetime
+
+from tools.response_builder import error_result, success_result
+from tools.decorators import tool
+from tools.permissions import RiskLevel
 from typing import Optional
 
 from tools.response_builder import success_result, error_result
@@ -205,6 +209,35 @@ _DEFAULT_TITLES = {
 }
 
 
+@tool(
+    name="generate_report",
+    description="生成标准格式应急报告（汛情快报/灾情报告/综合态势报告）。将分析结果汇总为结构化 Markdown 文档。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "report_type": {
+                "type": "string",
+                "description": "报告类型",
+                "enum": ["flood_bulletin", "disaster_report", "situation_report"],
+            },
+            "title": {"type": "string", "description": "报告标题（可选）"},
+            "location": {"type": "string", "description": "区域"},
+            "situation_data": {"type": "string", "description": "态势/灾情数据（JSON 字符串）"},
+            "risk_data": {"type": "string", "description": "风险评估数据（JSON 字符串）"},
+            "warning_data": {"type": "string", "description": "预警数据（JSON 字符串）"},
+            "plan_data": {"type": "string", "description": "预案/建议数据（JSON 字符串）"},
+            "action_data": {"type": "string", "description": "行动/响应数据（JSON 字符串）"},
+            "weather_data": {"type": "string", "description": "气象数据（JSON 字符串）"},
+            "extra_sections": {"type": "string", "description": "额外章节（JSON 字符串）"},
+            "report_time": {"type": "string", "description": "报告时间，格式 YYYY-MM-DD HH:MM"},
+        },
+        "required": ["report_type"],
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=120,
+    allowed_callers=["direct"],
+)
 def generate_report(
     report_type: str,
     title: str = None,

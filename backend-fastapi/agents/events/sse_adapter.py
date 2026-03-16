@@ -16,7 +16,7 @@ from queue import Queue, Empty
 import time
 import threading
 
-from .bus import EventBus, Event, EventType
+from .bus import EventBus, Event, EventType, CRITICAL_EVENT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +67,11 @@ class SSEAdapter:
         self.buffer_size = buffer_size
         self.heartbeat_interval = heartbeat_interval
 
-        # 事件队列（异步）- 无界队列，避免事件丢失
-        self._event_queue: asyncio.Queue = asyncio.Queue()
+        # 事件队列（异步）- 有界队列，背压保护
+        self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=buffer_size)
 
-        # 事件队列（同步）- 无界队列，避免事件丢失
-        self._sync_event_queue: Queue = Queue()
+        # 事件队列（同步）- 有界队列，背压保护
+        self._sync_event_queue: Queue = Queue(maxsize=buffer_size)
 
         # 订阅ID
         self._subscription_id: Optional[str] = None
@@ -79,6 +79,10 @@ class SSEAdapter:
         # 是否已停止
         self._stopped = False
         self._primary_agent_name: Optional[str] = None
+
+        # 背压统计
+        self._dropped_count: int = 0
+        self._last_seq: int = 0
 
     def start(self):
         """开始监听事件"""
@@ -120,26 +124,87 @@ class SSEAdapter:
 
     def _handle_event(self, event: Event):
         """
-        事件处理器（同步版本）
-
-        Args:
-            event: 事件对象
+        事件处理器（同步版本）- 分级写入：关键事件保证入队，非关键事件队满时丢弃。
         """
+        is_critical = event.type in CRITICAL_EVENT_TYPES
+
         try:
             # 放入异步队列
             try:
                 self._event_queue.put_nowait(event)
-            except Exception:
-                logger.warning(f"[SSEAdapter] 异步队列放入失败: {event.type.value}")
+            except asyncio.QueueFull:
+                if is_critical:
+                    self._evict_non_critical_async()
+                    try:
+                        self._event_queue.put_nowait(event)
+                    except asyncio.QueueFull:
+                        logger.error(f"[SSEAdapter] 关键事件入队失败（队列全为关键事件）: {event.type.value}")
+                else:
+                    self._dropped_count += 1
+                    logger.warning(f"[SSEAdapter] 非关键事件丢弃 (dropped={self._dropped_count}): {event.type.value}")
 
             # 放入同步队列（用于非async环境）
             try:
                 self._sync_event_queue.put_nowait(event)
             except Exception:
-                logger.warning(f"[SSEAdapter] 同步事件队列放入失败: {event.type.value}")
+                if is_critical:
+                    self._evict_non_critical_sync()
+                    try:
+                        self._sync_event_queue.put_nowait(event)
+                    except Exception:
+                        logger.error(f"[SSEAdapter] 关键事件同步入队失败: {event.type.value}")
+                else:
+                    # 已在异步队列统计过 dropped_count，此处不重复计数
+                    pass
 
         except Exception as e:
             logger.error(f"[SSEAdapter] 处理事件失败: {e}")
+
+    def _evict_non_critical_async(self):
+        """从异步队列头部驱逐非关键事件，腾出空间。"""
+        evicted = 0
+        temp = []
+        while not self._event_queue.empty():
+            try:
+                item = self._event_queue.get_nowait()
+                if item.type in CRITICAL_EVENT_TYPES:
+                    temp.append(item)
+                else:
+                    evicted += 1
+                    self._dropped_count += 1
+                    break  # 只需腾出一个位置
+            except asyncio.QueueEmpty:
+                break
+        # 把取出的关键事件放回
+        for item in temp:
+            try:
+                self._event_queue.put_nowait(item)
+            except asyncio.QueueFull:
+                break
+        if evicted:
+            logger.debug(f"[SSEAdapter] 异步队列驱逐 {evicted} 个非关键事件")
+
+    def _evict_non_critical_sync(self):
+        """从同步队列头部驱逐非关键事件，腾出空间。"""
+        evicted = 0
+        temp = []
+        while not self._sync_event_queue.empty():
+            try:
+                item = self._sync_event_queue.get_nowait()
+                if item.type in CRITICAL_EVENT_TYPES:
+                    temp.append(item)
+                else:
+                    evicted += 1
+                    break
+            except Empty:
+                break
+        for item in temp:
+            try:
+                self._sync_event_queue.put_nowait(item)
+            except Exception:
+                break
+        if evicted:
+            logger.debug(f"[SSEAdapter] 同步队列驱逐 {evicted} 个非关键事件")
 
     async def stream(self) -> AsyncGenerator[str, None]:
         """
@@ -166,6 +231,7 @@ class SSEAdapter:
                     yield sse_data
 
                     last_heartbeat = time.time()
+                    self._last_seq = event.sequence_number
 
                     # ✨ 检测结束事件，自动停止流
                     # 优先级 0: 用户中断
@@ -177,23 +243,6 @@ class SSEAdapter:
                     if event.type == EventType.RUN_END:
                         logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
                         break
-
-                    # 优先级 2: Session 结束 (通用)
-                    if event.type == EventType.SESSION_END:
-                        logger.info(f"[SSEAdapter] 检测到 Session 结束事件 ({event.type.value})，停止流式输出")
-                        break
-
-                    # 优先级 3: 主 Agent 结束 (兼容旧模式)
-                    if event.type == EventType.AGENT_START and self._primary_agent_name is None:
-                        self._primary_agent_name = event.agent_name
-
-                    if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
-                         # 只有在没有 Run 事件时才通过 Agent 结束来停止
-            # 如果是 Orchestrator V2，通常会有 RUN_END，所以这里主要是为了兼容 V1 或单 Agent 模式
-                        logger.info(f"[SSEAdapter] 检测到主 Agent 结束事件 ({event.type.value})，停止流式输出")
-                        break
-
-                except asyncio.TimeoutError:
                     # 超时：发送心跳
                     now = time.time()
                     if now - last_heartbeat >= self.heartbeat_interval:
@@ -228,6 +277,7 @@ class SSEAdapter:
                     yield sse_data
 
                     last_heartbeat = time.time()
+                    self._last_seq = event.sequence_number
 
                     # ✨ 检测结束事件，自动停止流
                     # 优先级 0: 用户中断
@@ -324,7 +374,10 @@ class SSEAdapter:
 
             # 用户交互
             "requires_user_action": event.requires_user_action,
-            "user_action_timeout": event.user_action_timeout
+            "user_action_timeout": event.user_action_timeout,
+
+            # 事件序号
+            "seq": event.sequence_number,
         }
 
     def _heartbeat(self) -> str:
@@ -336,7 +389,9 @@ class SSEAdapter:
         """
         heartbeat_data = {
             "type": "heartbeat",
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "last_seq": self._last_seq,
+            "dropped_count": self._dropped_count,
         }
         json_data = json.dumps(heartbeat_data, ensure_ascii=False)
         return f"data: {json_data}\n\n"

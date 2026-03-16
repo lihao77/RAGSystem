@@ -11,6 +11,7 @@
 """
 
 import asyncio
+import itertools
 import logging
 import time
 import uuid
@@ -100,6 +101,19 @@ class EventPriority(int, Enum):
     CRITICAL = 3
 
 
+# ── 全局事件序号 ──────────────────────────────────────────
+_global_seq_counter = itertools.count(1)
+
+# ── 关键事件类型（背压保护时不可丢弃）────────────────────
+CRITICAL_EVENT_TYPES = frozenset({
+    EventType.RUN_START, EventType.RUN_END,
+    EventType.AGENT_START, EventType.AGENT_END, EventType.AGENT_ERROR,
+    EventType.SESSION_END, EventType.USER_INTERRUPT,
+    EventType.FINAL_ANSWER, EventType.MESSAGE_SAVED,
+    EventType.USER_APPROVAL_REQUIRED, EventType.USER_INPUT_REQUIRED,
+})
+
+
 @dataclass
 class Event:
     """事件数据结构"""
@@ -127,6 +141,9 @@ class Event:
     requires_user_action: bool = False
     user_action_timeout: Optional[float] = None
 
+    # 全局递增序号
+    sequence_number: int = field(default_factory=lambda: next(_global_seq_counter))
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于序列化）"""
         return {
@@ -142,7 +159,8 @@ class Event:
             "call_id": self.call_id,
             "parent_call_id": self.parent_call_id,
             "requires_user_action": self.requires_user_action,
-            "user_action_timeout": self.user_action_timeout
+            "user_action_timeout": self.user_action_timeout,
+            "seq": self.sequence_number,
         }
 
 

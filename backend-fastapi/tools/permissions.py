@@ -198,6 +198,18 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
 }
 
 
+def _merge_decorated_permissions() -> None:
+    """将装饰器注册的权限合并到 TOOL_PERMISSIONS（不覆盖已有手动注册）。"""
+    import logging
+    from tools.decorators import get_decorated_tools
+    _logger = logging.getLogger(__name__)
+    decorated = get_decorated_tools()
+    for tool_name, tool_info in decorated.items():
+        if tool_name not in TOOL_PERMISSIONS:
+            TOOL_PERMISSIONS[tool_name] = tool_info["permission"]
+            _logger.info("合并装饰器工具权限: %s", tool_name)
+
+
 def get_tool_permission(tool_name: str) -> Optional[ToolPermission]:
     """
     获取工具权限配置

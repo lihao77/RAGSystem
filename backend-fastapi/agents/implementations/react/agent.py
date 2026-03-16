@@ -429,6 +429,7 @@ text = call_tool('read_file', {{
             resolve_result_path,
             result_primary_content,
             stringify_result_value,
+            is_ref_error,
         )
 
         def replace_placeholder(match):
@@ -479,9 +480,10 @@ text = call_tool('read_file', {{
                         prefer_primary_content_root=True,
                         case_insensitive=True,
                     )
-                    if value is None:
-                        self.logger.warning(f"[链式调用] 无法访问路径 {json_path}")
-                        return full_match
+                    if is_ref_error(value):
+                        available = value.get("available_keys", [])
+                        self.logger.warning(f"[链式调用] 路径 {json_path} 不存在, 可用: {available}")
+                        return f'[引用错误: 路径 "{json_path}" 不存在, 可用: {available}]'
 
                     # 如果提取的值是字符串，直接返回；否则序列化为 JSON
                     return stringify_result_value(value)
