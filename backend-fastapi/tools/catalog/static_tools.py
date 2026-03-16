@@ -550,6 +550,7 @@ STATIC_TOOL_CONTRACTS = [
             "代码必须设置 result 变量作为最终输出",
             "需要调用工具时使用 call_tool(tool_name, arguments)",
             "call_tool 返回的是工具主内容，不是完整响应壳",
+            "不要对 call_tool(...) 再取 ['content']；read_file 返回字符串时应直接使用该字符串",
             "复杂数据转换优先在 execute_code 内完成，再交给其他工具",
         ],
         examples=[

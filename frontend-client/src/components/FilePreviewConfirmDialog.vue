@@ -303,17 +303,17 @@ defineExpose({ show, hide });
 
 .fp-btn-preview:hover {
   background: var(--color-bg-tertiary, var(--color-bg-secondary));
-  transform: translateY(-1px);
+  /* transform: translateY(-1px); */
 }
 
 .fp-btn-full {
-  background: var(--color-accent);
+  background: var(--color-brand-accent); 
   color: #fff;
 }
 
 .fp-btn-full:hover {
-  box-shadow: 0 0 16px rgba(var(--color-accent-rgb, 99, 102, 241), 0.5);
-  transform: translateY(-1px);
+  box-shadow: 0 0 16px rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.5);
+  /* transform: translateY(-1px); */
 }
 
 .fp-btn:active {

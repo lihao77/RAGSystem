@@ -238,6 +238,30 @@ class ReActAgent(BaseAgent):
 在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，**只能调用以下工具**：
 {tools_list}
 
+`call_tool()` **只返回工具的主内容**，也就是 `ToolExecutionResult.content`，**不是**包含 `content / summary / metadata` 的完整响应对象。
+
+正确示例：
+```python
+text = call_tool('read_file', {{
+    'file_path': './static/temp_data/data_xxx.json',
+    'encoding': 'utf-8'
+}})
+data = json.loads(text)
+result = {{
+    'count': len(data.get('river', []))
+}}
+```
+
+错误示例：
+```python
+text = call_tool('read_file', {{
+    'file_path': './static/temp_data/data_xxx.json',
+    'encoding': 'utf-8'
+}})['content']
+```
+
+如果需要完整工具响应壳，不要假设 `call_tool()` 会返回该结构；当前只能拿到主内容后自行处理。
+
 其他工具（如高风险写操作工具）不允许从代码中调用，只能直接作为 action 使用。"""
 
         # 构建 Skills 说明

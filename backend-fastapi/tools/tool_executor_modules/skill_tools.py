@@ -3,10 +3,21 @@
 skill_tools 工具模块。
 """
 
+import json
 import logging
 from .shared import error_result, success_result
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_json_stdout(stdout):
+    text = (stdout or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
 def activate_skill(skill_name):
     """
@@ -175,14 +186,33 @@ def execute_skill_script(skill_name, script_name, arguments=None):
         # 构建 metadata，大输出自动强制落盘
         meta = {"success": result['return_code'] == 0}
         stdout = result['stdout']
+        stderr = result['stderr']
         if len(stdout) > 4000:
             meta["force_artifact"] = True
+
+        parsed_stdout = None
+        if result['return_code'] == 0:
+            parsed_stdout = _parse_json_stdout(stdout)
+
+        if parsed_stdout is not None:
+            meta["script_name"] = script_name
+            meta["skill"] = skill_name
+            if stderr.strip():
+                meta["stderr"] = stderr
+
+            return success_result(
+                content=parsed_stdout,
+                summary=f"脚本 {script_name} 执行完成（返回结构化 JSON）",
+                metadata=meta,
+                output_type="json",
+                tool_name="execute_skill_script",
+            )
 
         return success_result(
             content={
                 "script_name": script_name,
                 "stdout": stdout,
-                "stderr": result['stderr'],
+                "stderr": stderr,
                 "return_code": result['return_code'],
                 "skill": skill_name
             },
