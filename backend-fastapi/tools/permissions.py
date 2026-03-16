@@ -28,77 +28,8 @@ class ToolPermission(BaseModel):
 
 
 # 工具权限配置表
+# 已迁移到 @tool() 装饰器的工具权限在启动时通过 _merge_decorated_permissions() 注入。
 TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
-    # 可视化（低风险）
-    "create_chart": ToolPermission(
-        tool_name="create_chart",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="生成图表并持久化",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "create_map": ToolPermission(
-        tool_name="create_map",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="生成地图并持久化",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "create_bindmap": ToolPermission(
-        tool_name="create_bindmap",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="生成多图层叠加地图并持久化",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "revise_visualization": ToolPermission(
-        tool_name="revise_visualization",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="修改已生成的可视化配置",
-        allowed_callers=["direct"]
-    ),
-
-    # Skills 系统工具（低/中风险）
-    "activate_skill": ToolPermission(
-        tool_name="activate_skill",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="激活 Skill 并加载主文件（只读）",
-        allowed_callers=["direct"]
-    ),
-    "load_skill_resource": ToolPermission(
-        tool_name="load_skill_resource",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="加载 Skill 资源文件",
-        allowed_callers=["direct"]
-    ),
-    "execute_skill_script": ToolPermission(
-        tool_name="execute_skill_script",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="执行 Skill 脚本（在隔离虚拟环境中运行）",
-        allowed_callers=["direct"],  # 禁止代码调用
-        timeout_seconds=120,
-    ),
-    "get_skill_info": ToolPermission(
-        tool_name="get_skill_info",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="查询 Skill 基础信息（只读）",
-        allowed_callers=["direct"]
-    ),
-
-    # PTC 代码执行（中风险）
-    "execute_code": ToolPermission(
-        tool_name="execute_code",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="执行 Python 代码进行工具编排",
-        allowed_callers=["direct"]  # 防止递归调用
-    ),
-
     # 文档处理工具
     "read_document": ToolPermission(
         tool_name="read_document",
@@ -156,44 +87,6 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         requires_approval=True,
         description="编辑文件内容（精准字符串替换）",
         allowed_callers=["direct", "code_execution"]
-    ),
-
-    # 应急分析工具（低/中风险，只读推理与检索）
-    "query_emergency_plan": ToolPermission(
-        tool_name="query_emergency_plan",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="检索应急预案知识库（只读）",
-        allowed_callers=["direct"]
-    ),
-    "assess_flood_risk": ToolPermission(
-        tool_name="assess_flood_risk",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="根据雨情和水情评估洪涝风险（只读）",
-        allowed_callers=["direct"]
-    ),
-    "match_emergency_response": ToolPermission(
-        tool_name="match_emergency_response",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="根据风险等级匹配应急响应措施（只读）",
-        allowed_callers=["direct"]
-    ),
-    "create_risk_map": ToolPermission(
-        tool_name="create_risk_map",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="批量风险评估并生成风险地图",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "generate_report": ToolPermission(
-        tool_name="generate_report",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="生成标准格式应急报告（只读，无副作用）",
-        allowed_callers=["direct"],
-        timeout_seconds=120,
     ),
 }
 

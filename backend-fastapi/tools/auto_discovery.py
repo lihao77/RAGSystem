@@ -40,6 +40,15 @@ def discover_decorated_tools(package_name: str = "tools.tool_executor_modules") 
         except Exception as e:
             logger.warning("扫描模块 %s 失败: %s", module_name, e)
 
+    # 扫描不在 tool_executor_modules 包内但使用了 @tool() 的模块
+    _extra_modules = ["tools.code_sandbox"]
+    for mod_name in _extra_modules:
+        try:
+            importlib.import_module(mod_name)
+            logger.debug("已扫描额外模块: %s", mod_name)
+        except Exception as e:
+            logger.warning("扫描额外模块 %s 失败: %s", mod_name, e)
+
     decorated = get_decorated_tools()
     if decorated:
         logger.info("自动发现 %d 个装饰器注册的工具: %s", len(decorated), list(decorated.keys()))

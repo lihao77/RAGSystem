@@ -4,6 +4,8 @@
 import logging
 from tools.response_builder import error_result, success_result
 from tools.visualization_artifact_manager import get_visualization_artifact_manager
+from tools.decorators import tool
+from tools.permissions import RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +387,72 @@ def _build_chart_preview(option, chart_type):
     }
 
 
+@tool(
+    name="create_chart",
+    description="一步生成 ECharts 图表：构建配置 -> 校验 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "data": {
+                "type": "string",
+                "description": "数据源。可以是 JSON 字符串，也可以是 JSON/CSV 文件路径。",
+            },
+            "chart_type": {
+                "type": "string",
+                "description": "图表类型：line、bar、pie、scatter。",
+                "enum": ["line", "bar", "pie", "scatter"],
+            },
+            "title": {"type": "string", "description": "图表标题（可选）"},
+            "x_field": {"type": "string", "description": "X 轴字段名"},
+            "y_field": {"type": "string", "description": "Y 轴字段名"},
+            "series_field": {
+                "type": "string",
+                "description": "系列分组字段名（可选）",
+            },
+        },
+        "required": ["data", "chart_type", "x_field", "y_field"],
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct", "code_execution"],
+    returns={
+        "type": "object",
+        "description": "成功时返回 artifact_id 和预览信息",
+        "shape": {
+            "artifact_id": "string",
+            "viz_type": "string",
+            "title": "string",
+            "preview": {
+                "title": "string",
+                "chart_type": "string",
+                "series_count": "number",
+                "data_rows": "number",
+            },
+        },
+    },
+    usage_contract=[
+        "create_chart 一步完成生成+持久化，不需要额外调用",
+        "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
+        "不满意时可用 revise_visualization 修改配置",
+        "不要编造 artifact_id，必须使用工具返回的真实 ID",
+    ],
+    examples=[
+        {
+            "input": {
+                "data": '[{"年份": 2016, "受灾人口": 325.48}, {"年份": 2017, "受灾人口": 429.67}]',
+                "chart_type": "line",
+                "title": "受灾人口趋势",
+                "x_field": "年份",
+                "y_field": "受灾人口",
+            },
+            "result_hint": {
+                "artifact_id": "viz_abc123",
+                "viz_type": "chart",
+            },
+        }
+    ],
+)
 def create_chart(data, chart_type=None, title="",
                  x_field="", y_field="", series_field="", session_id=None):
     """
@@ -535,6 +603,100 @@ def create_chart(data, chart_type=None, title="",
         return error_result(f"生成图表失败: {str(e)}", tool_name="create_chart")
 
 
+@tool(
+    name="create_map",
+    description="一步生成 Leaflet 地图：构建数据 -> 持久化 -> 返回 artifact_id。在 <final_answer> 中用 [viz:artifact_id] 展示。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "data": {
+                "type": "string",
+                "description": "数据源。可以是 JSON 字符串，也可以是 JSON/CSV 文件路径。",
+            },
+            "map_type": {
+                "type": "string",
+                "description": "地图类型：heatmap（热力图）、marker（标记点）、circle（圆圈）、choropleth（区域填色）、geojson（GeoJSON通用）。",
+                "enum": ["heatmap", "marker", "circle", "choropleth", "geojson"],
+                "default": "heatmap",
+            },
+            "title": {"type": "string", "description": "地图标题（可选）"},
+            "name_field": {"type": "string", "description": "名称字段（可选）"},
+            "value_field": {"type": "string", "description": "数值字段名"},
+            "geometry_field": {
+                "type": "string",
+                "description": "几何字段名，默认 geometry。",
+                "default": "geometry",
+            },
+            "marker_style": {
+                "type": "object",
+                "description": "点图层样式（marker/choropleth/geojson 的点要素可用）。支持 icon=pin/dot/ring/square/diamond/triangle/star/flag/badge/hospital/shelter/station/warning/rescue/supply/school/bridge/dam/reservoir/pump/cross/hexagon/arrow/shield/drop，另可指定 color、border_color、glyph、glyph_color、size(sm/md/lg/xl 或数字)。此为全局默认样式；若数据行包含 icon 字段，则该行使用行级图标覆盖全局设置。",
+                "properties": {
+                    "icon": {
+                        "type": "string",
+                        "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge", "hospital", "shelter", "station", "warning", "rescue", "supply", "school", "bridge", "dam", "reservoir", "pump", "cross", "hexagon", "arrow", "shield", "drop"],
+                    },
+                    "color": {"type": "string"},
+                    "border_color": {"type": "string"},
+                    "glyph": {"type": "string"},
+                    "glyph_color": {"type": "string"},
+                    "size": {
+                        "oneOf": [
+                            {"type": "string", "enum": ["sm", "md", "lg", "xl"]},
+                            {"type": "number"},
+                        ]
+                    },
+                },
+            },
+        },
+        "required": ["data", "value_field"],
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct", "code_execution"],
+    returns={
+        "type": "object",
+        "description": "成功时返回 artifact_id 和预览信息",
+        "shape": {
+            "artifact_id": "string",
+            "viz_type": "string",
+            "title": "string",
+            "preview": {
+                "map_type": "string",
+                "total_points": "number",
+                "center": "number[]",
+            },
+        },
+    },
+    usage_contract=[
+        "create_map 一步完成生成+持久化",
+        "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
+        "地理点数据必须包含 geometry 字段，格式可以是 WKT POINT (如 'POINT (lng lat)') 或 GeoJSON (如 '{\"type\":\"Polygon\",\"coordinates\":[...]}')",
+        "choropleth 类型用于区域填色，需要面数据（Polygon/MultiPolygon）",
+        "geojson 类型支持任意几何类型混合渲染",
+    ],
+    examples=[
+        {
+            "input": {
+                "data": '[{"name":"南宁","value":12,"geometry":"POINT (108.32 22.82)"}]',
+                "map_type": "marker",
+                "title": "示例地图",
+                "name_field": "name",
+                "value_field": "value",
+                "marker_style": {"icon": "star", "color": "#ef4444", "glyph": "A"},
+            }
+        },
+        {
+            "input": {
+                "data": '[{"name":"区域A","value":85,"geometry":"{\\\"type\\\":\\\"Polygon\\\",\\\"coordinates\\\":[[[108.2,22.7],[108.5,22.7],[108.5,23.0],[108.2,23.0],[108.2,22.7]]]}"}]',
+                "map_type": "choropleth",
+                "title": "区域风险填色图",
+                "name_field": "name",
+                "value_field": "value",
+            }
+        },
+    ],
+)
 def create_map(data, map_type="heatmap", title="", name_field="", value_field="",
                geometry_field="geometry", marker_style=None, session_id=None):
     """
@@ -621,6 +783,56 @@ def create_map(data, map_type="heatmap", title="", name_field="", value_field=""
         return error_result(f"生成地图失败: {str(e)}", tool_name="create_map")
 
 
+@tool(
+    name="revise_visualization",
+    description="修改已生成的可视化 artifact 配置。同一个 artifact_id，前端拉取时自动拿最新版，无需更改占位符。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "artifact_id": {
+                "type": "string",
+                "description": "create_chart 或 create_map 返回的 artifact_id",
+            },
+            "config_patch": {
+                "type": "object",
+                "description": "要合并或替换的配置补丁",
+            },
+            "replace": {
+                "type": "boolean",
+                "description": "是否用 config_patch 完整替换原配置，默认 false",
+                "default": False,
+            },
+        },
+        "required": ["artifact_id", "config_patch"],
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回更新后的 artifact 信息",
+        "shape": {
+            "artifact_id": "string",
+            "viz_type": "string",
+            "title": "string",
+            "version": "number",
+        },
+    },
+    usage_contract=[
+        "默认对原配置做深度合并",
+        "replace=true 时用 config_patch 整份替换原配置",
+        "artifact_id 不变，<final_answer> 中占位符无需修改",
+    ],
+    examples=[
+        {
+            "input": {
+                "artifact_id": "viz_abc123",
+                "config_patch": {"title": {"text": "更新后的标题"}},
+            }
+        }
+    ],
+)
 def revise_visualization(artifact_id, config_patch, replace=False):
     """
     修改已生成的可视化 artifact 配置。
@@ -652,6 +864,120 @@ def revise_visualization(artifact_id, config_patch, replace=False):
         return error_result(f"修改可视化失败: {str(e)}", tool_name="revise_visualization")
 
 
+@tool(
+    name="create_bindmap",
+    description="多图层叠加地图：将多个数据源/类型叠加在一张地图上，支持图层切换控件。在 <final_answer> 中用 [viz:artifact_id] 展示。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "layers": {
+                "type": "array",
+                "description": "图层列表，每个图层包含独立的数据源和渲染配置",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "string",
+                            "description": "数据源。JSON 字符串或文件路径。",
+                        },
+                        "map_type": {
+                            "type": "string",
+                            "description": "图层类型",
+                            "enum": ["heatmap", "marker", "circle", "choropleth", "geojson"],
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "图层显示名称",
+                        },
+                        "name_field": {
+                            "type": "string",
+                            "description": "名称字段（可选）",
+                        },
+                        "value_field": {
+                            "type": "string",
+                            "description": "数值字段名",
+                        },
+                        "geometry_field": {
+                            "type": "string",
+                            "description": "几何字段名，默认 geometry",
+                            "default": "geometry",
+                        },
+                        "marker_style": {
+                            "type": "object",
+                            "description": "点图层样式。支持 icon、color、border_color、glyph、glyph_color、size。若数据行包含 icon 字段，则该行使用行级图标覆盖全局设置。",
+                            "properties": {
+                                "icon": {
+                                    "type": "string",
+                                    "enum": ["pin", "dot", "ring", "square", "diamond", "triangle", "star", "flag", "badge", "hospital", "shelter", "station", "warning", "rescue", "supply", "school", "bridge", "dam", "reservoir", "pump", "cross", "hexagon", "arrow", "shield", "drop"],
+                                },
+                                "color": {"type": "string"},
+                                "border_color": {"type": "string"},
+                                "glyph": {"type": "string"},
+                                "glyph_color": {"type": "string"},
+                                "size": {
+                                    "oneOf": [
+                                        {"type": "string", "enum": ["sm", "md", "lg", "xl"]},
+                                        {"type": "number"},
+                                    ]
+                                },
+                            },
+                        },
+                    },
+                    "required": ["data", "map_type", "value_field"],
+                },
+            },
+            "title": {"type": "string", "description": "地图标题（可选）"},
+        },
+        "required": ["layers"],
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct", "code_execution"],
+    returns={
+        "type": "object",
+        "description": "成功时返回 artifact_id 和预览信息",
+        "shape": {
+            "artifact_id": "string",
+            "viz_type": "string",
+            "title": "string",
+            "preview": {
+                "map_type": "string",
+                "total_layers": "number",
+                "total_points": "number",
+            },
+        },
+    },
+    usage_contract=[
+        "create_bindmap 用于将多种地图数据叠加展示",
+        "每个图层可以是不同的数据源和类型（如热力图+标记点）",
+        "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
+        "前端自动生成图层切换控件",
+    ],
+    examples=[
+        {
+            "input": {
+                "layers": [
+                    {
+                        "data": '[{"name":"南宁","value":120,"geometry":"POINT (108.32 22.82)"}]',
+                        "map_type": "heatmap",
+                        "label": "降雨量热力图",
+                        "value_field": "value",
+                    },
+                    {
+                        "data": '[{"name":"南宁","value":78.5,"geometry":"POINT (108.32 22.82)"}]',
+                        "map_type": "marker",
+                        "label": "水位监测站",
+                        "name_field": "name",
+                        "value_field": "value",
+                        "marker_style": {"icon": "flag", "color": "#10b981", "glyph": "S"},
+                    },
+                ],
+                "title": "防汛态势图",
+            }
+        }
+    ],
+)
 def create_bindmap(layers, title="", session_id=None):
     """
     多图层叠加地图：将多个数据源/类型叠加在一张地图上，支持图层切换。

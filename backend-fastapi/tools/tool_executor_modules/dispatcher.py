@@ -12,11 +12,6 @@ from tools.response_builder import error_result, success_result
 from tools.result_schema import ToolExecutionResult
 from tools.tool_registry import get_tool_registry
 
-from .emergency_tools import assess_flood_risk, create_risk_map, match_emergency_response, query_emergency_plan
-from .report_tools import generate_report
-from .skill_tools import activate_skill, execute_skill_script, get_skill_info, load_skill_resource
-from .visualization_tools import create_chart, create_map, create_bindmap, revise_visualization
-
 logger = logging.getLogger(__name__)
 _TOOL_REGISTRY = get_tool_registry()
 
@@ -187,19 +182,7 @@ def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
 
 
 TOOL_HANDLERS = {
-    'create_chart': create_chart,
-    'create_map': create_map,
-    'create_bindmap': create_bindmap,
-    'revise_visualization': revise_visualization,
-    'activate_skill': activate_skill,
-    'load_skill_resource': load_skill_resource,
-    'execute_skill_script': execute_skill_script,
-    'get_skill_info': get_skill_info,
-    'query_emergency_plan': query_emergency_plan,
-    'assess_flood_risk': assess_flood_risk,
-    'match_emergency_response': match_emergency_response,
-    'create_risk_map': create_risk_map,
-    'generate_report': generate_report,
+    # 所有工具已迁移到 @tool() 装饰器，启动时通过 _merge_decorated_handlers() 注入。
 }
 
 
@@ -244,22 +227,21 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         permission = get_tool_permission(tool_name)
         timeout = permission.timeout_seconds if permission else _DEFAULT_TIMEOUT
 
-        if tool_name == 'execute_code':
-            from tools.code_sandbox import execute_code_sandbox
-            result = execute_code_sandbox(
-                code=arguments.get('code'),
-                description=arguments.get('description', ''),
-                timeout=arguments.get('timeout', 30),
-                agent_config=agent_config,
-                event_bus=event_bus,
-                user_role=user_role,
-                session_id=session_id,
-            )
-        elif tool_name in TOOL_HANDLERS:
+        if tool_name in TOOL_HANDLERS:
             handler = TOOL_HANDLERS[tool_name]
             call_arguments = dict(arguments)
-            if 'session_id' in inspect.signature(handler).parameters:
-                call_arguments.setdefault('session_id', session_id)
+            sig_params = inspect.signature(handler).parameters
+            # 自动注入 dispatcher 级上下文参数
+            _context = {
+                'session_id': session_id,
+                'agent_config': agent_config,
+                'event_bus': event_bus,
+                'user_role': user_role,
+                'caller': caller,
+            }
+            for key, value in _context.items():
+                if key in sig_params:
+                    call_arguments.setdefault(key, value)
             result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _run_with_timeout(

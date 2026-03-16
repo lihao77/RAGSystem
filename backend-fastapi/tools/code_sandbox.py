@@ -31,7 +31,8 @@ import threading
 
 from agents.task_registry import get_task_registry
 from tools.response_builder import success_result, error_result
-from tools.permissions import check_tool_permission
+from tools.permissions import check_tool_permission, RiskLevel
+from tools.decorators import tool
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +393,55 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
     return True, None
 
 
+@tool(
+    name="execute_code",
+    description="在受限沙箱中执行 Python 代码进行复杂工具编排与数据处理。支持通过 call_tool 调用允许的其他工具，必须设置 result 变量作为输出。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "code": {
+                "type": "string",
+                "description": "Python 代码。必须设置 result 变量作为最终输出。"
+            },
+            "description": {
+                "type": "string",
+                "description": "代码用途说明（可选）"
+            }
+        },
+        "required": ["code"]
+    },
+    risk_level=RiskLevel.MEDIUM,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回代码中 result 变量的值",
+        "shape": {
+            "content": "任意 JSON 值或字符串",
+            "metadata": {
+                "stdout": "string",
+                "tool_calls_count": "number",
+                "execution_time": "number",
+            },
+        },
+    },
+    usage_contract=[
+        "代码必须设置 result 变量作为最终输出",
+        "需要调用工具时使用 call_tool(tool_name, arguments)",
+        "call_tool 返回的是工具主内容，不是完整响应壳",
+        "不要对 call_tool(...) 再取 ['content']；read_file 返回字符串时应直接使用该字符串",
+        "复杂数据转换优先在 execute_code 内完成，再交给其他工具",
+    ],
+    examples=[
+        {
+            "input": {
+                "code": "rows = call_tool('read_file', {'file_path': './data/sample.json'})\nresult = rows",
+                "description": "读取文件并返回内容",
+            }
+        }
+    ],
+)
 def execute_code_sandbox(
     code: str,
     description: str = "",

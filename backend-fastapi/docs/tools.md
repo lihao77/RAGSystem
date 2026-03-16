@@ -40,20 +40,7 @@ tools/
 
 ## 新增工具注册
 
-### 方式一：5 步手动注册链路
-
-1. **实现函数** → `tool_executor_modules/<module>.py`
-   - 返回 `ToolExecutionResult`（用 `success_result()` / `error_result()` 构建）
-2. **定义契约** → `catalog/static_tools.py`
-   - 创建 `ToolContract(name, description, parameters, ...)`
-3. **注册分发** → `tool_executor_modules/dispatcher.py`
-   - `TOOL_HANDLERS` 字典添加 `'tool_name': handler_func`
-4. **配置权限** → `permissions.py`
-   - `TOOL_PERMISSIONS` 字典添加权限配置
-5. **导出接口** → `tool_executor_modules/__init__.py`
-   - `__all__` 列表添加函数名
-
-### 方式二：@tool() 装饰器（推荐新工具使用）
+### 方式一：@tool() 装饰器（推荐，所有业务工具已迁移至此方式）
 
 在工具函数上添加 `@tool()` 装饰器，一处定义 Contract + Permission + Handler：
 
@@ -67,14 +54,31 @@ from tools.permissions import RiskLevel
     parameters={...},
     risk_level=RiskLevel.LOW,
     timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={...},
+    usage_contract=[...],
+    examples=[...],
 )
 def my_tool(arguments, **kwargs):
     ...
 ```
 
-启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → 一致性校验（`consistency_check.py`）。
+启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry → 一致性校验（`consistency_check.py`）。
 
-装饰器注册不覆盖已有手动注册，两种方式可共存。示范：`report_tools.py` 的 `generate_report`。
+已迁移的工具（14 个）：
+- `visualization_tools.py`: create_chart, create_map, create_bindmap, revise_visualization
+- `emergency_tools.py`: query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map
+- `report_tools.py`: generate_report
+- `skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
+- `code_sandbox.py`: execute_code
+
+### 方式二：手动注册链路（扩展保留，当前无工具使用）
+
+所有业务工具已迁移到 @tool() 装饰器，手动注册链路仅作为扩展机制保留。
+
+1. **实现函数** → `tool_executor_modules/<module>.py`
+2. **定义契约** → `catalog/static_tools.py`
+3. **配置权限** → `permissions.py`
 
 完成后更新本文档的「工具清单」章节。
 
@@ -87,8 +91,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   └─ 如果 requires_approval → 发布事件等待用户确认
   ├─ 获取 timeout_seconds（来自 ToolPermission，默认 60s）
   ├─ 分发（TOOL_HANDLERS / DOCUMENT_TOOL 分支经 _run_with_timeout 包装）
-  │   ├─ tool_name == 'execute_code' → execute_code_sandbox()（自带超时，不包装）
-  │   ├─ tool_name in TOOL_HANDLERS → _run_with_timeout(handler, timeout)
+  │   ├─ tool_name in TOOL_HANDLERS → _run_with_timeout(handler, timeout)（自动注入上下文参数）
   │   ├─ tool_name in DOCUMENT_TOOL_NAMES → _run_with_timeout(_execute_document_tool, timeout)
   │   ├─ is_mcp_tool(tool_name) → _execute_mcp_tool()（自带超时，不包装）
   │   └─ else → error_result()
