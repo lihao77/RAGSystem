@@ -9,6 +9,15 @@ from typing import Any
 
 from tools.result_schema import ToolExecutionResult
 
+_GEOJSON_TYPES = {"FeatureCollection", "Feature", "Point", "MultiPoint",
+                  "LineString", "MultiLineString", "Polygon", "MultiPolygon",
+                  "GeometryCollection"}
+
+
+def _is_geojson_like(data: dict) -> bool:
+    """Quick check whether a dict looks like GeoJSON."""
+    return data.get("type") in _GEOJSON_TYPES
+
 
 def _estimate_size_fast(data: Any) -> int:
     """Fast approximate character-size estimator."""
@@ -150,21 +159,13 @@ class ObservationPolicy:
                         budget_bucket=self.budget_bucket,
                     )
 
-        # 5. 三级大小决策
+        # 5. 两阶段决策：inline 或 artifact_ref（不再有 summarize 中间态）
         inline_limit = self._inline_limit_for(result)
 
         if estimated_size <= inline_limit:
             return ObservationDecision(
                 mode="inline",
                 reason="size_inline",
-                estimated_size=estimated_size,
-                budget_bucket=self.budget_bucket,
-            )
-
-        if estimated_size <= self.summarize_limit:
-            return ObservationDecision(
-                mode="summarize",
-                reason="size_summarize",
                 estimated_size=estimated_size,
                 budget_bucket=self.budget_bucket,
             )
@@ -180,6 +181,9 @@ class ObservationPolicy:
     def _inline_limit_for(self, result: ToolExecutionResult) -> int:
         if result.output_type == "text" or isinstance(result.content, str):
             return self.inline_text_limit
+        # GeoJSON 内容 inline 阈值降低（coordinates 占大量 token）
+        if isinstance(result.content, dict) and _is_geojson_like(result.content):
+            return int(self.inline_json_limit * 0.4)
         return self.inline_json_limit
 
     @staticmethod

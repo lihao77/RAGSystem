@@ -115,7 +115,19 @@ def _preview_geojson(value: dict, sample_size: int = 3) -> dict:
             props = f.get("properties") or {}
             if not prop_fields:
                 prop_fields = list(props.keys())[:DEFAULT_STRUCTURE_PREVIEW_FIELDS]
-            sample_props.append({k: props[k] for k in list(props.keys())[:8] if not isinstance(props[k], (dict, list))})
+            sampled = {}
+            for k in list(props.keys())[:8]:
+                v = props[k]
+                if isinstance(v, (dict, list)):
+                    continue
+                # WKT / 长坐标字符串截断
+                if isinstance(v, str) and len(v) > 60:
+                    if _is_wkt_geometry(v):
+                        v = _preview_wkt(v)
+                    else:
+                        v = _truncate_preview_text(v, limit=80)
+                sampled[k] = v
+            sample_props.append(sampled)
 
         result: Dict[str, Any] = {
             "type": "geojson",

@@ -30,8 +30,8 @@ class SkillsObservationFormatter(BaseObservationFormatter):
     priority = 10  # 高优先级
 
     def can_handle(self, result: "ToolExecutionResult", context: FormatContext) -> bool:
-        """当明确标记为 Skills 工具且模式为 inline/summarize 时处理。"""
-        return context.is_skills_tool and context.mode in ("inline", "summarize")
+        """当明确标记为 Skills 工具且模式为 inline 时处理。"""
+        return context.is_skills_tool and context.mode == "inline"
 
     def format(self, result: "ToolExecutionResult", context: FormatContext) -> str:
         """格式化 Skills 结果为 observation 字符串。"""

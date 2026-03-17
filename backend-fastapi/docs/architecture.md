@@ -198,6 +198,7 @@ Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script
 | guangxi-flood-data | `agents/skills/guangxi-flood-data/` | fetch_weather.py, fetch_hydrology.py |
 | guangxi-hydrology-web | `agents/skills/guangxi-hydrology-web/` | fetch_rain.py, fetch_river.py |
 | gis-bindmap | `agents/skills/gis-bindmap/` | spatial_bindmap.py, distance_matrix.py, basin_bindmap.py |
+| geojson-analysis | `agents/skills/geojson-analysis/` | geojson_filter.py, geojson_spatial.py, geojson_stats.py |
 | kg-advanced-query | `agents/skills/kg-advanced-query/` | query.py, entity_detail.py, geo_export.py 等 |
 | emergency-decision-support | `agents/skills/emergency-decision-support/` | assess_flood_risk.py, plan_recommend.py 等 |
 

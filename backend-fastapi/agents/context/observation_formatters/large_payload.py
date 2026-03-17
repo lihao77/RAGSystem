@@ -26,6 +26,13 @@ class LargePayloadFormatter(BaseObservationFormatter):
     name = "large_payload"
     priority = 30
     _SOURCE_READ_TOOL_NAMES = {"read_file", "read_document"}
+    _GEOJSON_TYPES = {"FeatureCollection", "Feature", "Point", "MultiPoint",
+                      "LineString", "MultiLineString", "Polygon", "MultiPolygon",
+                      "GeometryCollection"}
+
+    @staticmethod
+    def _is_geojson(data: dict) -> bool:
+        return data.get("type") in LargePayloadFormatter._GEOJSON_TYPES
 
     def can_handle(self, result: "ToolExecutionResult", context: FormatContext) -> bool:
         """当 policy 决定 artifact_ref 模式时处理。"""
@@ -108,7 +115,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
 
         parts.append(f"📁 数据已存储: {artifact.path}")
         parts.append(f"📊 {meta_info}")
-        parts.append("💡 后续工具可直接使用此文件路径作为参数")
+        parts.append("💡 后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件")
 
         # 添加样本
         if metadata.get("sample"):
@@ -116,8 +123,18 @@ class LargePayloadFormatter(BaseObservationFormatter):
             sample_str = json.dumps(sample, ensure_ascii=False)
             parts.append(f"📝 样本: {sample_str}")
 
-        # 自动生成数据结构预览（仅对 dict/list 类型）
-        if isinstance(pure_data, (dict, list)):
+        # GeoJSON 专用预览（不含 coordinates）
+        if isinstance(pure_data, dict) and self._is_geojson(pure_data):
+            try:
+                from tools.document_executor import _preview_geojson
+                preview = _preview_geojson(pure_data, sample_size=3)
+                preview_str = json.dumps(preview, ensure_ascii=False, indent=2)
+                if len(preview_str) > 1500:
+                    preview_str = preview_str[:1500] + "\n  ..."
+                parts.append(f"🔍 GeoJSON 预览:\n```json\n{preview_str}\n```")
+            except Exception:
+                pass
+        elif isinstance(pure_data, (dict, list)):
             try:
                 from tools.document_executor import _preview_data_value
                 structure = _preview_data_value(
