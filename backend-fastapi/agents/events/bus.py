@@ -41,6 +41,7 @@ class EventType(str, Enum):
     AGENT_START = "agent.start"
     AGENT_END = "agent.end"
     AGENT_ERROR = "agent.error"
+    AGENT_RETRY_SCHEDULED = "agent.retry_scheduled"
 
     # 意图过程事件
     INTENT = "agent.intent"

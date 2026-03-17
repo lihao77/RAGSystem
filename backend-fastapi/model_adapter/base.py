@@ -142,6 +142,35 @@ class AIProvider(ABC):
         time.sleep(wait_time)
         return False
 
+    def _publish_retry_event(
+        self,
+        *,
+        publisher,
+        scope: str,
+        model: Optional[str],
+        failed_attempt: int,
+        next_attempt: int,
+        max_attempts: int,
+        wait_time: float,
+        error: str,
+    ) -> None:
+        """向前端发布 LLM 重试计划。"""
+        if not publisher or not hasattr(publisher, "agent_retry_scheduled"):
+            return
+        try:
+            publisher.agent_retry_scheduled(
+                provider=self.name,
+                model=model,
+                scope=scope,
+                failed_attempt=failed_attempt,
+                next_attempt=next_attempt,
+                max_attempts=max_attempts,
+                wait_seconds=wait_time,
+                error=error,
+            )
+        except Exception:
+            pass
+
     def get_model_for_task(self, task: str) -> Optional[str]:
         """根据任务类型获取模型 ID。model_map 值可为字符串或列表，列表时取第一项为默认。"""
         val = self.model_map.get(task) or self.model
@@ -207,6 +236,7 @@ class AIProvider(ABC):
 
         # 提取 cancel_event（不传给 provider）
         cancel_event = kwargs.pop('cancel_event', None)
+        publisher = kwargs.pop('publisher', None)
 
         for attempt in range(retry_attempts):
             # 每次重试前检查是否被取消
@@ -252,6 +282,16 @@ class AIProvider(ABC):
                 # 指数退避（支持提前唤醒）
                 wait_time = retry_delay * (2 ** attempt)  # 1s, 2s, 4s
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
+                self._publish_retry_event(
+                    publisher=publisher,
+                    scope="chat_completion",
+                    model=model or self.get_model_for_task('chat'),
+                    failed_attempt=attempt + 1,
+                    next_attempt=attempt + 2,
+                    max_attempts=retry_attempts,
+                    wait_time=wait_time,
+                    error=str(last_error),
+                )
                 if self._wait_before_retry(wait_time, cancel_event):
                     return ModelResponse(
                         error="interrupted",
@@ -274,6 +314,16 @@ class AIProvider(ABC):
                 # 指数退避（支持提前唤醒）
                 wait_time = retry_delay * (2 ** attempt)
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
+                self._publish_retry_event(
+                    publisher=publisher,
+                    scope="chat_completion",
+                    model=model or self.get_model_for_task('chat'),
+                    failed_attempt=attempt + 1,
+                    next_attempt=attempt + 2,
+                    max_attempts=retry_attempts,
+                    wait_time=wait_time,
+                    error=str(last_error),
+                )
                 if self._wait_before_retry(wait_time, cancel_event):
                     return ModelResponse(
                         error="interrupted",
@@ -333,6 +383,7 @@ class AIProvider(ABC):
         last_error = None
         retry_attempts, retry_delay = self._resolve_retry_settings(kwargs)
         cancel_event = kwargs.pop('cancel_event', None)
+        publisher = kwargs.pop('publisher', None)
 
         for attempt in range(retry_attempts):
             if cancel_event and cancel_event.is_set():
@@ -387,6 +438,16 @@ class AIProvider(ABC):
 
                 wait_time = retry_delay * (2 ** attempt)
                 logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
+                self._publish_retry_event(
+                    publisher=publisher,
+                    scope="chat_completion_stream",
+                    model=model or self.get_model_for_task('chat'),
+                    failed_attempt=attempt + 1,
+                    next_attempt=attempt + 2,
+                    max_attempts=retry_attempts,
+                    wait_time=wait_time,
+                    error=str(last_error),
+                )
                 if self._wait_before_retry(wait_time, cancel_event):
                     yield {"content": "", "finish_reason": "interrupted"}
                     return
@@ -402,6 +463,16 @@ class AIProvider(ABC):
 
                 wait_time = retry_delay * (2 ** attempt)
                 logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
+                self._publish_retry_event(
+                    publisher=publisher,
+                    scope="chat_completion_stream",
+                    model=model or self.get_model_for_task('chat'),
+                    failed_attempt=attempt + 1,
+                    next_attempt=attempt + 2,
+                    max_attempts=retry_attempts,
+                    wait_time=wait_time,
+                    error=str(last_error),
+                )
                 if self._wait_before_retry(wait_time, cancel_event):
                     yield {"content": "", "finish_reason": "interrupted"}
                     return

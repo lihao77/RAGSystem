@@ -529,6 +529,9 @@ const execDiagnosticsError = ref('');
 const sessionTaskInfo = ref(null);
 const sessionExecutionObservability = ref(null);
 const sessionExecutionDiagnostics = ref(null);
+const llmRetryState = ref(null);
+const retryClockMs = ref(Date.now());
+let llmRetryTimer = null;
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
@@ -1072,6 +1075,91 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   toastRef.value?.show(message, action || type, actionLabel);
 };
 
+const getActiveAssistantMessage = () => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const msg = messages.value[i];
+    if (msg?.role === 'assistant' && !msg.finished) {
+      return msg;
+    }
+  }
+  return null;
+};
+
+const formatRetryCountdown = (state) => {
+  if (!state?.nextRetryAt) return '';
+  const remainingMs = Math.max(0, state.nextRetryAt - retryClockMs.value);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  return remainingSeconds > 0 ? `${remainingSeconds} 秒后重试` : '即将重试';
+};
+
+const buildLlmRetryStatusText = (state) => {
+  if (!state) return '';
+  const countdown = formatRetryCountdown(state);
+  return `模型调用失败，准备第 ${state.nextAttempt}/${state.maxAttempts} 次重试${countdown ? `，${countdown}` : ''}`;
+};
+
+const syncActiveMessageRetryStatus = () => {
+  const currentMsg = getActiveAssistantMessage();
+  if (!currentMsg) return;
+  if (!Array.isArray(currentMsg.status)) currentMsg.status = [];
+  const retryIndex = currentMsg.status.findIndex(item => item.kind === 'llm_retry');
+  if (!llmRetryState.value) {
+    if (retryIndex >= 0) currentMsg.status.splice(retryIndex, 1);
+    return;
+  }
+  const retryStatus = {
+    kind: 'llm_retry',
+    type: 'warning',
+    content: buildLlmRetryStatusText(llmRetryState.value),
+  };
+  if (retryIndex >= 0) {
+    currentMsg.status.splice(retryIndex, 1, retryStatus);
+  } else {
+    currentMsg.status.push(retryStatus);
+  }
+};
+
+const stopRetryTicker = () => {
+  if (llmRetryTimer != null) {
+    clearInterval(llmRetryTimer);
+    llmRetryTimer = null;
+  }
+};
+
+const ensureRetryTicker = () => {
+  if (llmRetryTimer != null) return;
+  llmRetryTimer = window.setInterval(() => {
+    retryClockMs.value = Date.now();
+    if (!llmRetryState.value) {
+      stopRetryTicker();
+      return;
+    }
+    syncActiveMessageRetryStatus();
+  }, 250);
+};
+
+const setLlmRetryState = (retryData) => {
+  llmRetryState.value = retryData ? {
+    ...retryData,
+    nextRetryAt: Date.now() + Math.max(0, retryData.waitMs || 0),
+  } : null;
+  retryClockMs.value = Date.now();
+  if (llmRetryState.value) {
+    ensureRetryTicker();
+  } else {
+    stopRetryTicker();
+  }
+  syncActiveMessageRetryStatus();
+};
+
+const clearLlmRetryState = () => {
+  if (!llmRetryState.value) return;
+  llmRetryState.value = null;
+  retryClockMs.value = Date.now();
+  syncActiveMessageRetryStatus();
+  stopRetryTicker();
+};
+
 const focusInput = async () => {
   if (chatInputRef.value?.focus) {
     await chatInputRef.value.focus();
@@ -1307,6 +1395,7 @@ const refreshSessionExecutionState = async (sessionId, { silent = true } = {}) =
 };
 
 const clearExecutionState = () => {
+  clearLlmRetryState();
   sessionTaskInfo.value = null;
   sessionExecutionObservability.value = null;
   sessionExecutionDiagnostics.value = null;
@@ -1557,6 +1646,9 @@ const contextUsageClass = computed(() => {
 });
 
 const executionStatusText = computed(() => {
+  if (llmRetryState.value && isLoading.value) {
+    return `重试中 · ${formatRetryCountdown(llmRetryState.value)}`;
+  }
   const status = sessionTaskInfo.value?.status;
   if (status === 'cancel_requested') return '停止中';
   if (status === 'running' || isLoading.value) return '运行中';
@@ -1567,6 +1659,7 @@ const executionStatusText = computed(() => {
 });
 
 const executionStatusClass = computed(() => {
+  if (llmRetryState.value && isLoading.value) return 'is-warning';
   const status = sessionTaskInfo.value?.status;
   if (status === 'cancel_requested') return 'is-warning';
   if (isLoading.value || status === 'running') return 'is-running';
@@ -1604,6 +1697,9 @@ const executionStatusTooltip = computed(() => {
   const obs = sessionExecutionObservability.value || {};
   return [
     `状态: ${executionStatusText.value}`,
+    llmRetryState.value ? `重试: 第 ${llmRetryState.value.nextAttempt}/${llmRetryState.value.maxAttempts} 次` : null,
+    llmRetryState.value ? `等待: ${formatRetryCountdown(llmRetryState.value)}` : null,
+    llmRetryState.value?.error ? `原因: ${llmRetryState.value.error}` : null,
     obs.execution_kind ? `类型: ${obs.execution_kind}` : null,
     obs.task_id ? `task_id: ${obs.task_id}` : null,
     obs.run_id ? `run_id: ${obs.run_id}` : null,
@@ -1965,6 +2061,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
       const { done, value } = await reader.read();
       if (done) {
         if (!isActiveStream()) break;
+        clearLlmRetryState();
         const currentMsg = messages.value[assistantMsgIndex];
         if (!currentMsg) break;
         currentMsg.finished = true;
@@ -2028,6 +2125,25 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             const eventData = event.data || {};
             const eventType = event.type;
 
+            if (
+              llmRetryState.value
+              && eventType !== 'agent.retry_scheduled'
+              && (
+                eventType === 'agent.intent_delta'
+                || eventType === 'agent.intent_complete'
+                || eventType === 'react.intermediate'
+                || eventType === 'tool.start'
+                || eventType === 'call.tool.start'
+                || eventType === 'output.chunk'
+                || eventType === 'output.final_answer'
+                || eventType === 'agent.end'
+                || eventType === 'agent.error'
+                || eventType === 'done'
+              )
+            ) {
+              clearLlmRetryState();
+            }
+
             // 事件序号 gap 检测
             if (eventType === 'heartbeat') {
               const hbLastSeq = event.last_seq || 0;
@@ -2047,7 +2163,23 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
 
             // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
             const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);
-            if (isSubtaskStartEvent(eventType, calledAgentForStart, event.parent_call_id)) {
+            if (eventType === 'agent.retry_scheduled') {
+              const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
+              setLlmRetryState({
+                scope: eventData.scope || 'chat_completion_stream',
+                nextAttempt: eventData.next_attempt || ((eventData.failed_attempt || 0) + 1),
+                maxAttempts: eventData.max_attempts || 1,
+                waitMs,
+                error: eventData.error || '',
+                provider: eventData.provider || '',
+                model: eventData.model || '',
+              });
+              sessionTaskInfo.value = {
+                ...(sessionTaskInfo.value || {}),
+                status: 'running',
+              };
+            }
+            else if (isSubtaskStartEvent(eventType, calledAgentForStart, event.parent_call_id)) {
               if (currentMsg.subtasks.length > 0) {
                 currentMsg.subtasks.forEach(st => st.expanded = false);
               }
@@ -2630,6 +2762,7 @@ const handleSend = async () => {
 
     await processSSEStream(response, assistantMsgIndex, sessionId, streamToken);
   } catch (error) {
+    clearLlmRetryState();
     if (error.name === 'AbortError') {
       console.log('Stream aborted by user');
       if (!sessionTaskInfo.value?.status || sessionTaskInfo.value.status === 'running') {
@@ -2655,6 +2788,7 @@ const handleSend = async () => {
       });
     }
   } finally {
+    clearLlmRetryState();
     isLoading.value = false;
     await refreshSessionExecutionState(sessionId, { silent: true });
     window.setTimeout(() => {
@@ -2691,6 +2825,7 @@ onUnmounted(() => {
   // 清理事件监听器
   window.removeEventListener('resize', checkMobile);
   window.removeEventListener('popstate', handlePopState);
+  stopRetryTicker();
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 

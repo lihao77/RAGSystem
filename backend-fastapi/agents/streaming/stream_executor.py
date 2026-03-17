@@ -86,6 +86,7 @@ class StreamExecutor:
                 temperature=llm_config.get('temperature', 0.3),
                 max_tokens=llm_config.get('max_tokens'),
                 retry_attempts=llm_config.get('retry_attempts'),
+                publisher=self.publisher,
                 thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
                 reasoning_effort=llm_config.get('reasoning_effort'),
                 **kwargs,

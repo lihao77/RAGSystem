@@ -154,6 +154,36 @@ class EventPublisher:
             priority=EventPriority.HIGH
         )
 
+    def agent_retry_scheduled(
+        self,
+        *,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        scope: str = "chat_completion",
+        failed_attempt: int,
+        next_attempt: int,
+        max_attempts: int,
+        wait_seconds: float,
+        error: str,
+    ):
+        """模型调用已安排重试。"""
+        self._publish(
+            EventType.AGENT_RETRY_SCHEDULED,
+            {
+                "agent_name": self.agent_name,
+                "provider": provider,
+                "model": model,
+                "scope": scope,
+                "failed_attempt": failed_attempt,
+                "next_attempt": next_attempt,
+                "max_attempts": max_attempts,
+                "wait_seconds": wait_seconds,
+                "wait_ms": int(wait_seconds * 1000),
+                "error": error,
+            },
+            priority=EventPriority.NORMAL,
+        )
+
     # ==================== 意图过程事件 ====================
 
     def intent(self, content: str):
