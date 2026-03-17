@@ -81,6 +81,12 @@ class ContextPipeline:
         # 3. 检查是否触发压缩
         history_tokens = self._token_counter.count_messages(history_resolved)
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
+        self.logger.info(
+            f"压缩检查: history_msgs={len(history_resolved)}, "
+            f"history_tokens={history_tokens}, "
+            f"threshold={trigger_threshold:.0f} "
+            f"(max={self.config.max_tokens}, ratio={self.config.compression_trigger_ratio})"
+        )
 
         if history_tokens >= trigger_threshold:
             self.logger.info(
@@ -176,7 +182,8 @@ class ContextPipeline:
             existing_summary = history_resolved[0].get("content", "")
 
         try:
-            summary = self._try_llm_summary(segment, existing_summary)
+            self.logger.info(f"开始 LLM 摘要: 待压缩 {len(segment)} 条消息, 已有摘要={bool(existing_summary)}")
+            summary = self._try_llm_summary(segment, existing_summary, publisher=publisher)
         except ContextCompressionError as e:
             self.logger.warning(f"LLM 摘要失败，降级为截断: {e}")
             return self._fallback_truncate(
@@ -206,7 +213,7 @@ class ContextPipeline:
             f"[历史摘要]\n（LLM 摘要不可用，已丢弃 {discarded} 条早期消息）"
         )
         summary_message = {
-            "role": "system",
+            "role": "assistant",
             "content": fallback_summary,
             "metadata": {"compression": True},
         }
@@ -226,6 +233,7 @@ class ContextPipeline:
         self,
         segment: List[Dict[str, Any]],
         existing_summary: str = "",
+        publisher=None,
     ) -> str:
         """尝试用 LLM 生成摘要，失败时抛出明确异常。"""
         try:
@@ -237,7 +245,7 @@ class ContextPipeline:
                 raise ContextCompressionError("上下文压缩失败：未配置摘要模型 provider")
 
             model_name = llm_config.get('model_name', 'unknown')
-            self.logger.debug(f"使用 fast 层级模型进行压缩: {model_name}")
+            self.logger.info(f"使用 fast 层级模型进行压缩: provider={provider}, model={model_name}")
 
             lines = []
             for m in segment:
@@ -306,7 +314,7 @@ class ContextPipeline:
     ) -> List[Dict[str, Any]]:
         """应用 LLM 摘要压缩，写回 context，发布事件，返回新的 history_resolved。"""
         summary_message = {
-            "role": "system",
+            "role": "assistant",
             "content": summary_content,
             "metadata": {"compression": True},
         }

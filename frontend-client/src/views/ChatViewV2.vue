@@ -1310,14 +1310,15 @@ const loadContextSnapshot = async (sessionId) => {
     if (!res.ok) return;
     const json = await res.json();
     const tokenStats = json.data?.token_stats;
+    console.log('Loaded context snapshot for session', sessionId, tokenStats);
     if (
       tokenStats &&
       typeof tokenStats.total_tokens === 'number' &&
-      typeof tokenStats.max_tokens === 'number'
+      typeof tokenStats.budget_tokens === 'number'
     ) {
       contextUsage.value = {
         used: tokenStats.total_tokens,
-        max: tokenStats.max_tokens
+        max: tokenStats.budget_tokens
       };
     }
   } catch (_) {
@@ -2549,7 +2550,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             // 上下文用量
             else if (eventType === 'context.usage') {
               const agentName = event.agent_name;
-              const ctx = { used: eventData.used_tokens, max: eventData.max_tokens };
+              const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
               if (isOrchestratorAgentName(agentName)) {
                 contextUsage.value = ctx;
               } else {

@@ -326,7 +326,7 @@ class ConversationStore:
             meta["replaces_up_to_seq"] = replaces_up_to_seq
         return self.add_message(
             session_id=session_id,
-            role="system",
+            role="assistant",
             content=summary_content,
             metadata=meta,
         )

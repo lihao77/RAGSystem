@@ -60,7 +60,7 @@ def resolve_compression_view(messages: List[Dict[str, Any]]) -> List[Dict[str, A
     replaces_up_to_seq = compression_meta.get("replaces_up_to_seq")
 
     output = [{
-        "role": "system",
+        "role": "assistant",
         "content": compression_msg.get("content", ""),
         "metadata": {"compression": True},
         "seq": summary_seq,

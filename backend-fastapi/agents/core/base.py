@@ -613,9 +613,15 @@ class BaseAgent(ABC):
         from agents.events.bus import EventType
 
         current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
+        # 分离 system_prompt tokens，使前端展示口径一致
+        system_tokens = self.context_pipeline._token_counter.count_messages([managed_messages[0]]) if managed_messages else 0
+        session_tokens = current_tokens - system_tokens
+        budget_tokens = self.context_pipeline.config.max_tokens + system_tokens  # 总输入预算
         self._publisher._publish(EventType.CONTEXT_USAGE, {
             'used_tokens': current_tokens,
-            'max_tokens': self.context_pipeline.config.max_tokens,
+            'system_prompt_tokens': system_tokens,
+            'total_tokens': current_tokens,
+            'budget_tokens': budget_tokens,
             'round': rounds,
         })
 

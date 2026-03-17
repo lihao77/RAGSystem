@@ -145,6 +145,7 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
 
             max_tokens = entry_agent.context_pipeline.config.max_tokens
             total = sp_tokens + history_tokens
+            budget_tokens = max_tokens + sp_tokens  # 总输入预算 = 历史预算 + system_prompt
 
             cfg = entry_agent.context_pipeline.config
             config_info = {
@@ -169,7 +170,7 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                     'system_prompt_tokens': sp_tokens,
                     'history_tokens': history_tokens,
                     'total_tokens': total,
-                    'max_tokens': max_tokens,
+                    'budget_tokens': budget_tokens,
                 },
                 'config': config_info,
                 'available_tools': direct_tools,

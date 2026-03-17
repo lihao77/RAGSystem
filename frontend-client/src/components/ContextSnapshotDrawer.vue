@@ -20,7 +20,7 @@
                   <div class="ctx-token-fill" :style="{ width: tokenPct + '%' }"
                     :class="tokenPct >= 90 ? 'danger' : tokenPct >= 70 ? 'warning' : ''"></div>
                 </div>
-                <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.max_tokens.toLocaleString() }}</span>
+                <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.budget_tokens.toLocaleString() }} tokens</span>
               </div>
               <div class="ctx-token-detail">
                 <span>System Prompt: {{ data.token_stats.system_prompt_tokens.toLocaleString() }}</span>
@@ -134,8 +134,8 @@ const loadingMessages = ref({});
 const messageErrors = ref({});
 
 const tokenPct = computed(() => {
-  if (!data.value?.token_stats?.max_tokens) return 0;
-  return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.max_tokens * 100));
+  if (!data.value?.token_stats?.budget_tokens) return 0;
+  return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.budget_tokens * 100));
 });
 
 function msgLabel(msg) {
