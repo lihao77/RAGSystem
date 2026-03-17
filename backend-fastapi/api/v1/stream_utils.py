@@ -25,16 +25,28 @@ async def sync_to_async_sse(
         SSE 数据行 (已格式化为 "data: {json}\\n\\n")
     """
     queue: asyncio.Queue = asyncio.Queue()
+    stop_event = threading.Event()
     loop = asyncio.get_event_loop()
 
-    def _run_sync_stream():
+    def _safe_enqueue(item):
+        """向异步队列投递，忽略 loop 已关闭的情况。"""
         try:
-            for sse_data in sync_stream():
-                loop.call_soon_threadsafe(queue.put_nowait, ('data', sse_data))
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+        except RuntimeError:
+            pass  # event loop 已关闭，无需投递
+
+    def _run_sync_stream():
+        gen = sync_stream()
+        try:
+            for sse_data in gen:
+                if stop_event.is_set():
+                    break
+                _safe_enqueue(('data', sse_data))
         except Exception as e:
-            loop.call_soon_threadsafe(queue.put_nowait, ('error', str(e)))
+            _safe_enqueue(('error', str(e)))
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, ('done', None))
+            gen.close()
+            _safe_enqueue(('done', None))
             if cleanup_callback:
                 try:
                     cleanup_callback()
@@ -43,14 +55,16 @@ async def sync_to_async_sse(
 
     threading.Thread(target=_run_sync_stream, daemon=True).start()
 
-    while True:
-        kind, value = await queue.get()
-        if kind == 'done':
-            break
-        elif kind == 'error':
-            import json
-            yield f"data: {json.dumps({'type': 'error', 'content': value, 'session_id': session_id}, ensure_ascii=False)}\n\n"
-            break
-        else:
-            # value 已经是 "data: {json}\n\n" 格式，直接透传
-            yield value
+    try:
+        while True:
+            kind, value = await queue.get()
+            if kind == 'done':
+                break
+            elif kind == 'error':
+                import json
+                yield f"data: {json.dumps({'type': 'error', 'content': value, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+                break
+            else:
+                yield value
+    finally:
+        stop_event.set()

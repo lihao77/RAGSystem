@@ -106,6 +106,11 @@ class SSEAdapter:
             self._subscription_id = None
 
         self._stopped = True
+        # 放入哨兵值唤醒可能阻塞在 get() 的 stream_sync
+        try:
+            self._sync_event_queue.put_nowait(None)
+        except Exception:
+            pass
         logger.info(f"[SSEAdapter] 已停止 (session: {self.session_id})")
 
     def _filter_event(self, event: Event) -> bool:
@@ -271,6 +276,8 @@ class SSEAdapter:
                 try:
                     # 从同步队列获取事件（带超时）
                     event = self._sync_event_queue.get(timeout=1.0)
+                    if event is None:  # 哨兵值，stop() 被调用
+                        break
 
                     # 所有事件直接转发，无假流式处理
                     sse_data = self._format_sse(event)
