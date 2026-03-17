@@ -116,6 +116,23 @@ class LargePayloadFormatter(BaseObservationFormatter):
             sample_str = json.dumps(sample, ensure_ascii=False)
             parts.append(f"📝 样本: {sample_str}")
 
+        # 自动生成数据结构预览（仅对 dict/list 类型）
+        if isinstance(pure_data, (dict, list)):
+            try:
+                from tools.document_executor import _preview_data_value
+                structure = _preview_data_value(
+                    pure_data,
+                    max_depth=2,
+                    max_fields=10,
+                    sample_size=3,
+                )
+                structure_str = json.dumps(structure, ensure_ascii=False, indent=2)
+                if len(structure_str) > 1500:
+                    structure_str = structure_str[:1500] + "\n  ..."
+                parts.append(f"🔍 数据结构:\n```json\n{structure_str}\n```")
+            except Exception:
+                pass  # 预览失败不影响主流程
+
         return "\n".join(parts)
 
     def _format_source_read_reference(

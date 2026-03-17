@@ -178,7 +178,8 @@ class ReActAgent(BaseAgent):
                             'tool_name': tool_name,
                         },
                         execution_time=data.get('elapsed_time'),
-                        parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
+                        parent_call_id=agent_call_id,  # ✨ 关联到 ReActAgent 的调用
+                        success=getattr(result, 'success', True) if result is not None else True,
                     )
                 elif event_type == 'tool_error':
                     self._publisher.tool_error(

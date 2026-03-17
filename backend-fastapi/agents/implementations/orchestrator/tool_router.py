@@ -310,6 +310,7 @@ def route_direct_tool(
         },
         execution_time=tool_elapsed,
         parent_call_id=orchestrator_call_id,
+        success=result_success(result),
     )
 
     # 处理可视化事件（新架构下不再通过 SSE 推送，前端按需拉取）

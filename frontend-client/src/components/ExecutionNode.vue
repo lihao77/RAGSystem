@@ -247,14 +247,22 @@ const resultViewMode = ref('preview');
 // 工具名展示映射
 const TOOL_DISPLAY_NAMES = {
   'request_user_input': '请求用户输入',
-  'activate_skill': '激活 Skill',
-  'load_skill_resource': '加载 Skill 资源',
-  'execute_skill_script': '执行 Skill 脚本',
+};
+
+// Skill 工具动态名称：从 arguments 中提取 skill_name
+const SKILL_TOOL_TEMPLATES = {
+  'activate_skill': (args) => `激活 ${args?.skill_name || 'Skill'}`,
+  'load_skill_resource': (args) => `加载 ${args?.skill_name || 'Skill'} 资源`,
+  'execute_skill_script': (args) => `执行 ${args?.skill_name || 'Skill'} 脚本`,
+  'get_skill_info': (args) => `查询 ${args?.skill_name || 'Skill'} 信息`,
 };
 
 const toolDisplayName = computed(() => {
   const name = props.node.tool_name || '';
-  return TOOL_DISPLAY_NAMES[name] || name;
+  if (TOOL_DISPLAY_NAMES[name]) return TOOL_DISPLAY_NAMES[name];
+  const tpl = SKILL_TOOL_TEMPLATES[name];
+  if (tpl) return tpl(props.node.arguments);
+  return name;
 });
 
 const isRunning = computed(() => {

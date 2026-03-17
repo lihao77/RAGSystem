@@ -163,8 +163,8 @@
           </button>
         </div>
       </div>
-      <div class="chat-messages-wrapper">
-        <div class="chat-messages" ref="messagesRef" @scroll="handleScroll">
+      <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
+        <div class="chat-messages">
           <!-- Welcome Screen -->
           <div v-if="messagesLoading" class="messages-skeleton">
             <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
@@ -733,16 +733,35 @@ const scrollToBottom = async (force = false) => {
   await nextTick();
   if (!messagesRef.value) return;
   if (force || isUserAtBottom.value) {
+    _isProgrammaticScroll = true;
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
   }
 };
 
+let _isProgrammaticScroll = false;
+let _lastScrollTop = 0;
+
 const handleScroll = () => {
-  isUserAtBottom.value = checkIfAtBottom();
+  const container = messagesRef.value;
+  if (!container) return;
+
+  if (_isProgrammaticScroll) {
+    // 程序触发的滚动，保持 isUserAtBottom 为 true
+    _isProgrammaticScroll = false;
+    _lastScrollTop = container.scrollTop;
+    isUserAtBottom.value = checkIfAtBottom();
+  } else if (isLoading.value && container.scrollTop <= _lastScrollTop && !checkIfAtBottom()) {
+    // 流式中，scrollTop 没增加且不在底部 → DOM 增长导致的被动事件，不改变意图
+    _lastScrollTop = container.scrollTop;
+  } else {
+    // 用户主动滚动
+    _lastScrollTop = container.scrollTop;
+    isUserAtBottom.value = checkIfAtBottom();
+  }
 
   // 控制 top-controls-bar 的边框显示
-  if (messagesRef.value && topControlsBarRef.value) {
-    if (messagesRef.value.scrollTop > 0) {
+  if (topControlsBarRef.value) {
+    if (container.scrollTop > 0) {
       topControlsBarRef.value.classList.add('scrolled');
     } else {
       topControlsBarRef.value.classList.remove('scrolled');
@@ -976,7 +995,7 @@ function executionStepsToExecutionState(executionSteps) {
     if (kind === 'tool_end') {
       const toolCall = toolCalls.get(callId);
       if (toolCall) {
-        toolCall.status = 'success';
+        toolCall.status = step.success === false ? 'error' : 'success';
         toolCall.result = getToolPreviewResult(step);
         toolCall.result_preview = getToolPreviewResult(step);
         toolCall.raw_result = hasToolRawResult(step) ? step.raw_result : null;
@@ -1407,11 +1426,11 @@ const loadSessionMessages = async (sessionId) => {
     const cached = messageCache.value.get(sessionId);
     if (cached) {
       messages.value = cached;
+      messagesLoading.value = false;
       await nextTick();
       await scrollToBottom(true);
       focusInput();
       await loadContextSnapshot(sessionId);
-      messagesLoading.value = false;
       // 缓存命中也需检查是否有运行中任务
       await checkSessionTaskStatus(sessionId);
       return;
@@ -1454,6 +1473,7 @@ const loadSessionMessages = async (sessionId) => {
     messages.value = mapped;
     expandedSummarySeq.value = null;
     cacheMessages(sessionId, mapped);
+    messagesLoading.value = false;
     await nextTick();
     await scrollToBottom(true);
     focusInput();
@@ -2254,10 +2274,11 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               }
             }
             else if (eventType === 'tool.end' || eventType === 'call.tool.end') {
+              const toolEndStatus = eventData.success === false ? 'error' : 'success';
               // 优先通过 registry 精确匹配（同时覆盖 subtask 和 master_step）
               const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
               if (registered) {
-                registered.toolCall.status = 'success';
+                registered.toolCall.status = toolEndStatus;
                 registered.toolCall.result = getToolPreviewResult(eventData);
                 registered.toolCall.result_preview = getToolPreviewResult(eventData);
                 registered.toolCall.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
@@ -2271,7 +2292,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 if (subtask) {
                   const tc = subtask.tool_calls.find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                   if (tc) {
-                    tc.status = 'success';
+                    tc.status = toolEndStatus;
                     tc.result = getToolPreviewResult(eventData);
                     tc.result_preview = getToolPreviewResult(eventData);
                     tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
@@ -2286,7 +2307,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                     for (const step of executionSteps) {
                       const tc = (step.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
                       if (tc) {
-                        tc.status = 'success';
+                        tc.status = toolEndStatus;
                         tc.result = getToolPreviewResult(eventData);
                         tc.result_preview = getToolPreviewResult(eventData);
                         tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;

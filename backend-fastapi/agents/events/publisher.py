@@ -309,13 +309,15 @@ class EventPublisher:
         raw_result: Any = None,
         raw_result_ref: Optional[Dict[str, Any]] = None,
         execution_time: Optional[float] = None,
-        parent_call_id: Optional[str] = None
+        parent_call_id: Optional[str] = None,
+        success: bool = True,
     ):
         """工具调用结束"""
         self._publish(
             EventType.CALL_TOOL_END,
             {
                 "tool_name": tool_name,
+                "success": success,
                 "result": self._make_event_value_safe(result),
                 "result_preview": result_preview or self._make_event_value_safe(result),
                 "raw_result": self._make_event_value_safe(raw_result) if raw_result is not None else None,

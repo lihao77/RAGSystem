@@ -189,6 +189,7 @@ def normalize_run_steps(
                 'call_id': call_id,
                 'parent_call_id': parent_call_id,
                 'tool_name': data.get('tool_name'),
+                'success': data.get('success', True),
                 'result': preview,
                 'result_preview': preview,
                 'raw_result': raw_result,

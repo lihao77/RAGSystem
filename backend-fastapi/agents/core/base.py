@@ -819,6 +819,7 @@ class BaseAgent(ABC):
                 })
             elif self._publisher:
                 preview_text = f"[{tool_name}]\n{observation}" if observation else ""
+                tool_success = getattr(result, 'success', True) if result is not None else True
                 self._publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
@@ -832,6 +833,7 @@ class BaseAgent(ABC):
                     },
                     execution_time=elapsed_time,
                     parent_call_id=state.get('call_id'),
+                    success=tool_success,
                 )
 
             self._record_visualization_result(tool_name, result, state)
