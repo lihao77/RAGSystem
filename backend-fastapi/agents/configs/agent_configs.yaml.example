@@ -19,7 +19,8 @@ agents:
       # thinking_budget_tokens: 8192   # 可选：扩展思考预算，独立于上下文预算
       # reasoning_effort: medium       # 可选：推理努力级别，占位字段，具体语义由 Provider 决定
       timeout: 30
-      retry_attempts: 3
+      retry_attempts: 10
+      retry_backoff_factor: 2.5
 
     # 可选：多层级 LLM 配置（类似 Claude Code 的 sonnet/haiku/opus 设计）
     # 不配置时所有任务都使用上面的默认 llm 配置
@@ -92,7 +93,8 @@ agents:
       # thinking_budget_tokens: 8192
       # reasoning_effort: medium
       timeout: 60
-      retry_attempts: 3
+      retry_attempts: 10
+      retry_backoff_factor: 2.5
     # llm_tiers:                              # 可选：多层级 LLM 配置
     #   fast:
     #     provider: my

@@ -447,6 +447,7 @@ class ModelAdapter:
             "timeout": provider.timeout,
             "retry_attempts": provider.retry_attempts,
             "retry_delay": provider.retry_delay,
+            "retry_backoff_factor": provider.retry_backoff_factor,
             "supports_function_calling": provider.supports_function_calling,
             "is_available": provider.is_available()
         }
@@ -484,6 +485,7 @@ class ModelAdapter:
                         "reasoning_effort": provider.reasoning_effort,
                         "timeout": provider.timeout,
                         "retry_attempts": provider.retry_attempts,
+                        "retry_backoff_factor": provider.retry_backoff_factor,
                         "supports_function_calling": provider.supports_function_calling,
                     }
 

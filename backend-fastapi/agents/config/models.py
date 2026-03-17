@@ -74,8 +74,14 @@ class AgentLLMConfig(BaseModel):
     retry_attempts: Optional[int] = Field(
         default=None,
         ge=0,
-        le=10,
+        le=20,
         description="重试次数，None 表示使用系统默认"
+    )
+    retry_backoff_factor: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=10.0,
+        description="指数退避因子，None 表示使用系统默认"
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -164,7 +170,12 @@ class AgentLLMConfig(BaseModel):
             result['reasoning_effort'] = reasoning_effort
 
         result['timeout'] = self.timeout or getattr(default_llm, 'timeout', 30)
-        result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 3)
+        result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 10)
+        result['retry_backoff_factor'] = (
+            self.retry_backoff_factor
+            if self.retry_backoff_factor is not None
+            else getattr(default_llm, 'retry_backoff_factor', 2.5)
+        )
 
         if self.top_p is not None:
             result['top_p'] = self.top_p
@@ -233,7 +244,9 @@ class AgentConfig(BaseModel):
                     "max_completion_tokens": 4096,
                     "max_context_tokens": 128000,
                     "thinking_budget_tokens": 8192,
-                    "reasoning_effort": "medium"
+                    "reasoning_effort": "medium",
+                    "retry_attempts": 10,
+                    "retry_backoff_factor": 2.5
                 },
                 "tools": {
                     "enabled_tools": ["query_kg", "semantic_search"]
@@ -246,7 +259,6 @@ class AgentConfig(BaseModel):
                     "type": "react",
                     "behavior": {
                         "system_prompt": "你是一个专门做XX的智能体...",
-                        "rounds": 10,
                         "auto_execute_tools": True,
                         "task_patterns": ["查询.*", "分析.*"]
                     }

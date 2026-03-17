@@ -205,7 +205,8 @@ class AgentLoader:
                 temperature=0.3,
                 max_tokens=4096,
                 timeout=60,
-                retry_attempts=3
+                retry_attempts=10,
+                retry_backoff_factor=2.5,
             ),
             custom_params={
                 'type': 'orchestrator',

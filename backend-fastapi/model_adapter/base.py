@@ -87,17 +87,24 @@ class AIProvider(ABC):
         self.reasoning_effort = kwargs.get("reasoning_effort")
 
         self.timeout = kwargs.get("timeout", 30)
-        self.retry_attempts = kwargs.get("retry_attempts", 3)
+        self.retry_attempts = kwargs.get("retry_attempts", 10)
         self.retry_delay = kwargs.get("retry_delay", 1.0)
+        self.retry_backoff_factor = kwargs.get("retry_backoff_factor", 2.5)
         self.supports_function_calling = kwargs.get("supports_function_calling", False)
 
-    def _resolve_retry_settings(self, kwargs: Dict[str, Any]) -> tuple[int, float]:
+    def _resolve_retry_settings(self, kwargs: Dict[str, Any]) -> tuple[int, float, float]:
         """允许调用方临时覆盖重试参数，未指定时回退到 Provider 配置。"""
         retry_attempts = kwargs.pop("retry_attempts", None)
         retry_delay = kwargs.pop("retry_delay", None)
+        retry_backoff_factor = kwargs.pop("retry_backoff_factor", None)
         attempts = self.retry_attempts if retry_attempts is None else int(retry_attempts)
         delay = self.retry_delay if retry_delay is None else float(retry_delay)
-        return max(1, attempts), max(0.0, delay)
+        backoff_factor = (
+            self.retry_backoff_factor
+            if retry_backoff_factor is None
+            else float(retry_backoff_factor)
+        )
+        return max(1, attempts), max(0.0, delay), max(1.0, backoff_factor)
 
     @staticmethod
     def _is_retryable_error(error: Any) -> bool:
@@ -232,7 +239,7 @@ class AIProvider(ABC):
 
         logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         last_error = None
-        retry_attempts, retry_delay = self._resolve_retry_settings(kwargs)
+        retry_attempts, retry_delay, retry_backoff_factor = self._resolve_retry_settings(kwargs)
 
         # 提取 cancel_event（不传给 provider）
         cancel_event = kwargs.pop('cancel_event', None)
@@ -280,7 +287,7 @@ class AIProvider(ABC):
                     return response
 
                 # 指数退避（支持提前唤醒）
-                wait_time = retry_delay * (2 ** attempt)  # 1s, 2s, 4s
+                wait_time = retry_delay * (retry_backoff_factor ** attempt)
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
                 self._publish_retry_event(
                     publisher=publisher,
@@ -312,7 +319,7 @@ class AIProvider(ABC):
                     )
 
                 # 指数退避（支持提前唤醒）
-                wait_time = retry_delay * (2 ** attempt)
+                wait_time = retry_delay * (retry_backoff_factor ** attempt)
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
                 self._publish_retry_event(
                     publisher=publisher,
@@ -381,7 +388,7 @@ class AIProvider(ABC):
 
         logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         last_error = None
-        retry_attempts, retry_delay = self._resolve_retry_settings(kwargs)
+        retry_attempts, retry_delay, retry_backoff_factor = self._resolve_retry_settings(kwargs)
         cancel_event = kwargs.pop('cancel_event', None)
         publisher = kwargs.pop('publisher', None)
 
@@ -436,7 +443,7 @@ class AIProvider(ABC):
                 if not should_retry:
                     return
 
-                wait_time = retry_delay * (2 ** attempt)
+                wait_time = retry_delay * (retry_backoff_factor ** attempt)
                 logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
                 self._publish_retry_event(
                     publisher=publisher,
@@ -461,7 +468,7 @@ class AIProvider(ABC):
                     yield {"content": "", "error": last_error, "finish_reason": "error"}
                     return
 
-                wait_time = retry_delay * (2 ** attempt)
+                wait_time = retry_delay * (retry_backoff_factor ** attempt)
                 logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
                 self._publish_retry_event(
                     publisher=publisher,

@@ -13,8 +13,9 @@ my_deepseek:
   max_context_tokens: 128000       # 模型支持的最大上下文窗口（DeepSeek V3: 128K）
   temperature: 0.7
   timeout: 30
-  retry_attempts: 3
+  retry_attempts: 10
   retry_delay: 1.0
+  retry_backoff_factor: 2.5
   supports_function_calling: true
   model_map:
     chat: deepseek-chat
@@ -29,8 +30,9 @@ my_openrouter:
   max_context_tokens: 128000       # 根据实际使用的模型配置（如 GPT-4 Turbo: 128K）
   temperature: 0.7
   timeout: 30
-  retry_attempts: 3
+  retry_attempts: 10
   retry_delay: 1.0
+  retry_backoff_factor: 2.5
   supports_function_calling: true
   model_map:
     chat: []

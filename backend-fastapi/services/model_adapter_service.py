@@ -56,6 +56,7 @@ class ModelAdapterService:
             'timeout',
             'retry_attempts',
             'retry_delay',
+            'retry_backoff_factor',
             'supports_function_calling',
             'model_map',
             'api_endpoint',

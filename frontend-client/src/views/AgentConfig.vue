@@ -236,6 +236,16 @@
                 <span class="field-label-text">Max Context Tokens</span>
                 <NumberInput :model-value="configForm.llm.max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_context_tokens = $event" />
               </label>
+
+              <label class="form-item">
+                <span class="field-label-text">Retry Attempts</span>
+                <NumberInput :model-value="configForm.llm.retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm.retry_attempts = $event" />
+              </label>
+
+              <label class="form-item">
+                <span class="field-label-text">退避指数</span>
+                <NumberInput :model-value="configForm.llm.retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm.retry_backoff_factor = $event" />
+              </label>
             </div>
           </section>
 
@@ -298,6 +308,14 @@
                   <label class="form-item">
                     <span class="field-label-text">Max Context Tokens</span>
                     <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">Retry Attempts</span>
+                    <NumberInput :model-value="configForm.llm_tiers[tier].retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].retry_attempts = $event" />
+                  </label>
+                  <label class="form-item">
+                    <span class="field-label-text">退避指数</span>
+                    <NumberInput :model-value="configForm.llm_tiers[tier].retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm_tiers[tier].retry_backoff_factor = $event" />
                   </label>
                 </div>
               </div>
@@ -647,7 +665,16 @@ const providerModelOptions = computed(() => {
 });
 
 function createEmptyLLM() {
-  return { provider: '', provider_type: '', model_name: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000 };
+  return {
+    provider: '',
+    provider_type: '',
+    model_name: '',
+    temperature: 0.7,
+    max_completion_tokens: 4096,
+    max_context_tokens: 128000,
+    retry_attempts: 10,
+    retry_backoff_factor: 2.5
+  };
 }
 
 function createEmptyForm() {
@@ -674,7 +701,9 @@ function parseTierLLM(tier) {
     model_name: tier.model_name || '',
     temperature: tier.temperature ?? 0.7,
     max_completion_tokens: tier.max_completion_tokens ?? 4096,
-    max_context_tokens: tier.max_context_tokens ?? 128000
+    max_context_tokens: tier.max_context_tokens ?? 128000,
+    retry_attempts: tier.retry_attempts ?? 10,
+    retry_backoff_factor: tier.retry_backoff_factor ?? 2.5
   };
 }
 
@@ -693,7 +722,9 @@ function applyConfigToForm(config) {
       model_name: safeConfig.llm?.model_name || '',
       temperature: safeConfig.llm?.temperature ?? 0.7,
       max_completion_tokens: safeConfig.llm?.max_completion_tokens ?? 4096,
-      max_context_tokens: safeConfig.llm?.max_context_tokens ?? 128000
+      max_context_tokens: safeConfig.llm?.max_context_tokens ?? 128000,
+      retry_attempts: safeConfig.llm?.retry_attempts ?? 10,
+      retry_backoff_factor: safeConfig.llm?.retry_backoff_factor ?? 2.5
     },
     llm_tiers: {
       fast: parseTierLLM(safeConfig.llm_tiers?.fast),
@@ -734,7 +765,9 @@ function buildPayload() {
     model_name: configForm.value.llm.model_name || null,
     temperature: configForm.value.llm.temperature === '' ? null : Number(configForm.value.llm.temperature),
     max_completion_tokens: configForm.value.llm.max_completion_tokens === '' ? null : Number(configForm.value.llm.max_completion_tokens),
-    max_context_tokens: configForm.value.llm.max_context_tokens === '' ? null : Number(configForm.value.llm.max_context_tokens)
+    max_context_tokens: configForm.value.llm.max_context_tokens === '' ? null : Number(configForm.value.llm.max_context_tokens),
+    retry_attempts: configForm.value.llm.retry_attempts === '' ? null : Number(configForm.value.llm.retry_attempts),
+    retry_backoff_factor: configForm.value.llm.retry_backoff_factor === '' ? null : Number(configForm.value.llm.retry_backoff_factor)
   };
 
   function buildTier(tier) {
@@ -745,7 +778,9 @@ function buildPayload() {
       model_name: tier.model_name || null,
       temperature: tier.temperature === '' ? null : Number(tier.temperature),
       max_completion_tokens: tier.max_completion_tokens === '' ? null : Number(tier.max_completion_tokens),
-      max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens)
+      max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens),
+      retry_attempts: tier.retry_attempts === '' ? null : Number(tier.retry_attempts),
+      retry_backoff_factor: tier.retry_backoff_factor === '' ? null : Number(tier.retry_backoff_factor)
     };
   }
   const tiers = configForm.value.llm_tiers;
@@ -888,6 +923,8 @@ function handleTierProviderChange(tier, key) {
   if (p.temperature != null) t.temperature = Number(p.temperature);
   if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
   if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
+  if (p.retry_attempts != null) t.retry_attempts = Number(p.retry_attempts);
+  if (p.retry_backoff_factor != null) t.retry_backoff_factor = Number(p.retry_backoff_factor);
 }
 
 function toggleTool(name, checked) {
@@ -938,6 +975,12 @@ function syncLLMWithProviderDefaults({ keepCurrentModel = true } = {}) {
   }
   if (provider.max_context_tokens != null) {
     configForm.value.llm.max_context_tokens = Number(provider.max_context_tokens);
+  }
+  if (provider.retry_attempts != null) {
+    configForm.value.llm.retry_attempts = Number(provider.retry_attempts);
+  }
+  if (provider.retry_backoff_factor != null) {
+    configForm.value.llm.retry_backoff_factor = Number(provider.retry_backoff_factor);
   }
 }
 

@@ -258,6 +258,8 @@ class BaseAgent(ABC):
                     'max_context_tokens': getattr(llm_config, 'max_context_tokens', None),
                     'thinking_budget_tokens': getattr(llm_config, 'thinking_budget_tokens', None),
                     'reasoning_effort': getattr(llm_config, 'reasoning_effort', None),
+                    'retry_attempts': getattr(llm_config, 'retry_attempts', 10),
+                    'retry_backoff_factor': getattr(llm_config, 'retry_backoff_factor', 2.5),
                 }
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
@@ -265,6 +267,8 @@ class BaseAgent(ABC):
                 'temperature': 0.7,
                 'max_tokens': 4096,
                 'max_completion_tokens': 4096,
+                'retry_attempts': 10,
+                'retry_backoff_factor': 2.5,
             }
 
         # 3. 应用请求级覆盖

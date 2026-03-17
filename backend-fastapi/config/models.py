@@ -26,7 +26,8 @@ class LLMConfig(BaseModel):
     thinking_budget_tokens: Optional[int] = None
     reasoning_effort: Optional[str] = None
     timeout: int = 30
-    retry_attempts: int = 3
+    retry_attempts: int = 10
+    retry_backoff_factor: float = 2.5
 
     # 旧版配置（向后兼容）
     api_endpoint: str = "https://api.deepseek.com/v1"
