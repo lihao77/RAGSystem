@@ -80,6 +80,7 @@ class EventType(str, Enum):
     REACT_INTERMEDIATE = "react.intermediate"
 
     # 上下文压缩事件
+    COMPRESSION_START = "context.compression_start"
     COMPRESSION_SUMMARY = "context.compression_summary"
 
     # 上下文用量事件

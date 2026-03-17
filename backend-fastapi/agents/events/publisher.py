@@ -488,6 +488,16 @@ class EventPublisher:
 
     # ==================== 上下文压缩事件 ====================
 
+    def compression_start(self, message_count: int, has_existing_summary: bool = False):
+        """上下文压缩开始"""
+        self._publish(
+            EventType.COMPRESSION_START,
+            {
+                "message_count": message_count,
+                "has_existing_summary": has_existing_summary,
+            }
+        )
+
     def compression_summary(self, content: str, replaces_up_to_seq: int | None = None):
         """上下文压缩摘要"""
         self._publish(

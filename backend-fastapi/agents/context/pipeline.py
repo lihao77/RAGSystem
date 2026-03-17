@@ -94,7 +94,8 @@ class ContextPipeline:
                 f"({history_tokens / self.config.max_tokens * 100:.1f}%)"
             )
             history_resolved = self._compress(
-                history_raw, history_resolved, context, publisher
+                history_raw, history_resolved, context, publisher,
+                system_prompt=system_prompt,
             )
 
         system_msg = {"role": "system", "content": system_prompt}
@@ -157,6 +158,7 @@ class ContextPipeline:
         history_resolved: List[Dict[str, Any]],
         context,
         publisher=None,
+        system_prompt: str = "",
     ) -> List[Dict[str, Any]]:
         # 确定被摘要段：压缩「除最近 preserve_recent_turns 轮之外」的所有历史
         # 这样无论消息长短，每次都能尽量多地压缩，token 效率最优。
@@ -183,6 +185,12 @@ class ContextPipeline:
 
         try:
             self.logger.info(f"开始 LLM 摘要: 待压缩 {len(segment)} 条消息, 已有摘要={bool(existing_summary)}")
+            if publisher:
+                publisher.compression_start(
+                    message_count=len(segment),
+                    has_existing_summary=bool(existing_summary),
+                )
+                self._publish_pre_compression_usage(publisher, history_resolved, system_prompt)
             summary = self._try_llm_summary(segment, existing_summary, publisher=publisher)
         except ContextCompressionError as e:
             self.logger.warning(f"LLM 摘要失败，降级为截断: {e}")
@@ -368,6 +376,23 @@ class ContextPipeline:
             for m in updated_raw
             if m.get("role") in ("user", "assistant", "system")
         ]
+
+    def _publish_pre_compression_usage(self, publisher, history_resolved, system_prompt):
+        """发布压缩前的 context-usage，避免前端在压缩期间无数据。"""
+        from agents.events.bus import EventType
+        system_msg = [{"role": "system", "content": system_prompt}]
+        system_tokens = self._token_counter.count_messages(system_msg)
+        history_tokens = self._token_counter.count_messages(history_resolved)
+        current_tokens = system_tokens + history_tokens
+        budget_tokens = self.config.max_tokens + system_tokens
+        publisher._publish(EventType.CONTEXT_USAGE, {
+            'used_tokens': current_tokens,
+            'system_prompt_tokens': system_tokens,
+            'total_tokens': current_tokens,
+            'budget_tokens': budget_tokens,
+            'round': 0,
+            'compressing': True,
+        })
 
     def _record_compression(self, *, status: str, replaced_messages: int) -> None:
         if self.observation_window is None:

@@ -327,6 +327,10 @@
                 />
               </svg>
               <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+              <span v-if="isCompressing" class="compressing-indicator">
+                <span class="compressing-dot"></span>
+                压缩中
+              </span>
             </div>
 
             <button
@@ -522,6 +526,7 @@ const currentStreamController = ref(null);
 const activeStreamToken = ref(0);
 const isExportingSession = ref(false);
 const contextUsage = ref({ used: 0, max: 0 });
+const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const execDrawerVisible = ref(false);
 const execDiagnosticsLoading = ref(false);
@@ -2549,6 +2554,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             }
             // 上下文用量
             else if (eventType === 'context.usage') {
+              if (eventData.compressing) isCompressing.value = true;
               const agentName = event.agent_name;
               const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
               if (isOrchestratorAgentName(agentName)) {
@@ -2558,6 +2564,14 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 const subtask = currentMsg.subtasks.find(s => s.agent_name === agentName && s.status === 'running');
                 if (subtask) subtask.ctx = ctx;
               }
+            }
+            // 上下文压缩开始
+            else if (eventType === 'context.compression_start') {
+              isCompressing.value = true;
+            }
+            // 上下文压缩完成
+            else if (eventType === 'context.compression_summary') {
+              isCompressing.value = false;
             }
 
             // 工具审批请求：弹出确认对话框，等待用户操作
@@ -2790,6 +2804,7 @@ const handleSend = async () => {
     }
   } finally {
     clearLlmRetryState();
+    isCompressing.value = false;
     isLoading.value = false;
     await refreshSessionExecutionState(sessionId, { silent: true });
     window.setTimeout(() => {
@@ -2991,6 +3006,26 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   white-space: nowrap;
   font-weight: 500;
+}
+
+.compressing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-brand-accent-light);
+  margin-left: 6px;
+}
+.compressing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-brand-accent-light);
+  animation: compressing-pulse 1.2s ease-in-out infinite;
+}
+@keyframes compressing-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 .inline-chart-wrapper {
