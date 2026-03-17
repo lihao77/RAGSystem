@@ -813,6 +813,7 @@ class BaseAgent(ABC):
                 arguments,
                 agent_config=self.agent_config,
                 event_bus=event_bus,
+                caller="agent",
                 session_id=current_session_id,
             )
             elapsed_time = time.time() - tool_started_at

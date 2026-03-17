@@ -12,7 +12,9 @@
 
 import logging
 import os
+import platform
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -25,6 +27,22 @@ logger = logging.getLogger(__name__)
 
 _BACKEND_DIR = Path(__file__).parent.parent.parent
 _DEFAULT_WORK_DIR = _BACKEND_DIR / "data"
+
+
+def _find_bash_executable() -> Optional[str]:
+    """在 Windows 上查找 bash 可执行文件路径，非 Windows 返回 None（使用系统默认）。"""
+    if platform.system() != "Windows":
+        return None
+    # 优先 Git Bash
+    git_bash = Path(r"C:\Program Files\Git\bin\bash.exe")
+    if git_bash.exists():
+        return str(git_bash)
+    # fallback: PATH 中查找
+    found = shutil.which("bash")
+    return found
+
+
+_BASH_EXECUTABLE = _find_bash_executable()
 
 # 允许的命令白名单（只读类）
 ALLOWED_COMMANDS = frozenset({
@@ -165,6 +183,7 @@ def execute_bash(
         proc = subprocess.run(
             command,
             shell=True,
+            executable=_BASH_EXECUTABLE,
             cwd=str(cwd),
             capture_output=True,
             text=True,
