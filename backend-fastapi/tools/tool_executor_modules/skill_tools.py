@@ -21,6 +21,37 @@ def _parse_json_stdout(stdout):
     except json.JSONDecodeError:
         return None
 
+
+def _unwrap_script_response(payload):
+    """Unwrap common success/data envelopes emitted by skill scripts."""
+    if not isinstance(payload, dict):
+        return payload, None, {}
+
+    if "success" not in payload or "data" not in payload:
+        return payload, None, {}
+
+    success = payload.get("success")
+    if success is False:
+        error_message = (
+            payload.get("error")
+            or payload.get("message")
+            or payload.get("summary")
+            or "脚本返回失败结果"
+        )
+        return None, str(error_message), {}
+
+    metadata = {}
+    for key in ("message", "summary", "count", "total", "offset", "limit"):
+        value = payload.get(key)
+        if value is not None:
+            metadata[key] = value
+
+    extra_metadata = payload.get("metadata")
+    if isinstance(extra_metadata, dict):
+        metadata.update(extra_metadata)
+
+    return payload.get("data"), None, metadata
+
 @tool(
     name="activate_skill",
     source="skill",
@@ -382,8 +413,13 @@ def execute_skill_script(skill_name, script_name, arguments=None):
             parsed_stdout = _parse_json_stdout(stdout)
 
         if parsed_stdout is not None:
+            parsed_stdout, payload_error, payload_meta = _unwrap_script_response(parsed_stdout)
+            if payload_error:
+                return error_result(payload_error, tool_name="execute_skill_script")
+
             meta["script_name"] = script_name
             meta["skill"] = skill_name
+            meta.update(payload_meta)
             if stderr.strip():
                 meta["stderr"] = stderr
 

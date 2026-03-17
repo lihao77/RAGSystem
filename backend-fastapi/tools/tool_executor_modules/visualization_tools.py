@@ -78,10 +78,10 @@ def _normalize_marker_style(marker_style):
 
 def _parse_geometry(raw):
     """
-    统一解析几何数据，支持 WKT POINT 和 GeoJSON 两种格式。
+    统一解析几何数据，支持常见 WKT 和 GeoJSON 两种格式。
 
     输入:
-      - 字符串 "POINT (lng lat)" → WKT 格式
+      - 字符串 "POINT (lng lat)" / "LINESTRING (...)" → WKT 格式
       - 字符串 '{"type":"Polygon","coordinates":[...]}' → GeoJSON 字符串
       - dict {"type":"Polygon","coordinates":[...]} → GeoJSON 对象
 
@@ -95,6 +95,106 @@ def _parse_geometry(raw):
     """
     import re
     import json as _json
+
+    def _split_top_level(text):
+        parts = []
+        depth = 0
+        start = 0
+        for idx, ch in enumerate(text):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == ',' and depth == 0:
+                parts.append(text[start:idx].strip())
+                start = idx + 1
+        tail = text[start:].strip()
+        if tail:
+            parts.append(tail)
+        return parts
+
+    def _strip_outer_parens(text):
+        text = text.strip()
+        if not (text.startswith('(') and text.endswith(')')):
+            return text
+
+        depth = 0
+        for idx, ch in enumerate(text):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0 and idx != len(text) - 1:
+                    return text
+
+        return text[1:-1].strip()
+
+    def _parse_coord_pair(token):
+        parts = token.strip().split()
+        if len(parts) < 2:
+            raise ValueError("坐标对格式无效")
+        return [float(parts[0]), float(parts[1])]
+
+    def _parse_coord_sequence(text):
+        return [_parse_coord_pair(part) for part in _split_top_level(text)]
+
+    def _parse_wkt_geometry(text):
+        match = re.match(
+            r'^\s*(?:SRID=\d+;\s*)?([A-Z]+)(?:\s+Z|(?:\s+M)|(?:\s+ZM))?\s*(\(.*\))\s*$',
+            text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        geom_type = match.group(1).upper()
+        body = match.group(2).strip()
+
+        try:
+            if geom_type == 'POINT':
+                coords = _parse_coord_pair(_strip_outer_parens(body))
+                return {"type": "Point", "coordinates": coords}
+
+            if geom_type == 'LINESTRING':
+                coords = _parse_coord_sequence(_strip_outer_parens(body))
+                return {"type": "LineString", "coordinates": coords}
+
+            if geom_type == 'POLYGON':
+                rings = [
+                    _parse_coord_sequence(_strip_outer_parens(ring))
+                    for ring in _split_top_level(_strip_outer_parens(body))
+                ]
+                return {"type": "Polygon", "coordinates": rings}
+
+            if geom_type == 'MULTIPOINT':
+                inner = _strip_outer_parens(body)
+                parts = _split_top_level(inner)
+                if parts and all(part.strip().startswith('(') for part in parts):
+                    coords = [_parse_coord_pair(_strip_outer_parens(part)) for part in parts]
+                else:
+                    coords = _parse_coord_sequence(inner)
+                return {"type": "MultiPoint", "coordinates": coords}
+
+            if geom_type == 'MULTILINESTRING':
+                lines = [
+                    _parse_coord_sequence(_strip_outer_parens(line))
+                    for line in _split_top_level(_strip_outer_parens(body))
+                ]
+                return {"type": "MultiLineString", "coordinates": lines}
+
+            if geom_type == 'MULTIPOLYGON':
+                polygons = []
+                for polygon in _split_top_level(_strip_outer_parens(body)):
+                    rings = [
+                        _parse_coord_sequence(_strip_outer_parens(ring))
+                        for ring in _split_top_level(_strip_outer_parens(polygon))
+                    ]
+                    polygons.append(rings)
+                return {"type": "MultiPolygon", "coordinates": polygons}
+        except (TypeError, ValueError):
+            return None
+
+        return None
 
     if raw is None:
         return None
@@ -115,11 +215,15 @@ def _parse_geometry(raw):
     if not raw:
         return None
 
-    # WKT POINT
-    m = re.search(r'POINT\s*\(\s*([\d.+-]+)\s+([\d.+-]+)\s*\)', raw, re.IGNORECASE)
-    if m:
-        lng, lat = float(m.group(1)), float(m.group(2))
-        return {"type": "Point", "coordinates": [lng, lat], "centroid": [lat, lng]}
+    # 常见 WKT
+    wkt_geometry = _parse_wkt_geometry(raw)
+    if wkt_geometry is not None:
+        centroid = _compute_centroid(wkt_geometry["type"], wkt_geometry["coordinates"])
+        return {
+            "type": wkt_geometry["type"],
+            "coordinates": wkt_geometry["coordinates"],
+            "centroid": centroid,
+        }
 
     # 尝试按 GeoJSON 字符串解析
     if raw.startswith("{"):
@@ -181,7 +285,7 @@ def _process_map_layer(data, map_type, name_field, value_field, geometry_field, 
     if geometry_field not in columns:
         return None, error_result(
             f"几何字段 '{geometry_field}' 在数据中不存在。可用字段: {columns}\n"
-            "请确保数据包含 geometry 字段（WKT POINT 或 GeoJSON 格式）",
+            "请确保数据包含 geometry 字段（WKT 或 GeoJSON 格式）",
             tool_name=tool_name,
         )
 
@@ -260,7 +364,7 @@ def _process_map_layer(data, map_type, name_field, value_field, geometry_field, 
 
     if valid_count == 0:
         return None, error_result(
-            f"没有有效的地理坐标数据。请检查 {geometry_field} 字段是否包含有效的 WKT POINT 或 GeoJSON 格式。",
+            f"没有有效的地理坐标数据。请检查 {geometry_field} 字段是否包含有效的 WKT 或 GeoJSON 格式。",
             tool_name=tool_name,
         )
 
@@ -671,7 +775,7 @@ def create_chart(data, chart_type=None, title="",
     usage_contract=[
         "create_map 一步完成生成+持久化",
         "返回的 artifact_id 用于在 <final_answer> 中插入 [viz:artifact_id]",
-        "地理点数据必须包含 geometry 字段，格式可以是 WKT POINT (如 'POINT (lng lat)') 或 GeoJSON (如 '{\"type\":\"Polygon\",\"coordinates\":[...]}')",
+        "地理数据必须包含 geometry 字段，格式可以是 WKT（如 'POINT (lng lat)'、'LINESTRING (...)'）或 GeoJSON（如 '{\"type\":\"Polygon\",\"coordinates\":[...]}')",
         "choropleth 类型用于区域填色，需要面数据（Polygon/MultiPolygon）",
         "geojson 类型支持任意几何类型混合渲染",
     ],
