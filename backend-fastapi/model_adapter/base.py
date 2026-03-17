@@ -3,10 +3,11 @@ AI Provider 抽象基类和数据模型
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field
 from enum import Enum
 import time
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field
 
 
 class AIProviderType(str, Enum):
@@ -90,6 +91,57 @@ class AIProvider(ABC):
         self.retry_delay = kwargs.get("retry_delay", 1.0)
         self.supports_function_calling = kwargs.get("supports_function_calling", False)
 
+    def _resolve_retry_settings(self, kwargs: Dict[str, Any]) -> tuple[int, float]:
+        """允许调用方临时覆盖重试参数，未指定时回退到 Provider 配置。"""
+        retry_attempts = kwargs.pop("retry_attempts", None)
+        retry_delay = kwargs.pop("retry_delay", None)
+        attempts = self.retry_attempts if retry_attempts is None else int(retry_attempts)
+        delay = self.retry_delay if retry_delay is None else float(retry_delay)
+        return max(1, attempts), max(0.0, delay)
+
+    @staticmethod
+    def _is_retryable_error(error: Any) -> bool:
+        """判断是否属于适合自动重试的临时性错误。"""
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return True
+
+        message = str(error or "").lower()
+        if not message:
+            return False
+
+        retryable_markers = (
+            "connection error",
+            "api connection error",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "connect timeout",
+            "read timeout",
+            "timed out",
+            "timeout",
+            "temporarily unavailable",
+            "service unavailable",
+            "server disconnected",
+            "network error",
+            "network is unreachable",
+            "dns",
+            "rate limit",
+            "too many requests",
+            "quota exceeded",
+            "502",
+            "503",
+            "504",
+        )
+        return any(marker in message for marker in retryable_markers)
+
+    @staticmethod
+    def _wait_before_retry(wait_time: float, cancel_event) -> bool:
+        """等待下次重试，返回 True 表示期间被取消。"""
+        if cancel_event:
+            return bool(cancel_event.wait(timeout=wait_time))
+        time.sleep(wait_time)
+        return False
+
     def get_model_for_task(self, task: str) -> Optional[str]:
         """根据任务类型获取模型 ID。model_map 值可为字符串或列表，列表时取第一项为默认。"""
         val = self.model_map.get(task) or self.model
@@ -151,11 +203,12 @@ class AIProvider(ABC):
 
         logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         last_error = None
+        retry_attempts, retry_delay = self._resolve_retry_settings(kwargs)
 
         # 提取 cancel_event（不传给 provider）
         cancel_event = kwargs.pop('cancel_event', None)
 
-        for attempt in range(self.retry_attempts):
+        for attempt in range(retry_attempts):
             # 每次重试前检查是否被取消
             if cancel_event and cancel_event.is_set():
                 return ModelResponse(
@@ -189,50 +242,43 @@ class AIProvider(ABC):
                 # 有错误，记录并准备重试
                 last_error = response.error
                 logger.warning(
-                    f"[{self.name}] LLM 调用失败（尝试 {attempt + 1}/{self.retry_attempts}）: {last_error}"
+                    f"[{self.name}] LLM 调用失败（尝试 {attempt + 1}/{retry_attempts}）: {last_error}"
                 )
 
                 # 如果是最后一次尝试，返回错误响应
-                if attempt == self.retry_attempts - 1:
+                if attempt == retry_attempts - 1:
                     return response
 
                 # 指数退避（支持提前唤醒）
-                wait_time = self.retry_delay * (2 ** attempt)  # 1s, 2s, 4s
+                wait_time = retry_delay * (2 ** attempt)  # 1s, 2s, 4s
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
-                if cancel_event:
-                    # 使用 cancel_event.wait() 支持提前唤醒
-                    if cancel_event.wait(timeout=wait_time):
-                        return ModelResponse(
-                            error="interrupted",
-                            provider=self.name
-                        )
-                else:
-                    time.sleep(wait_time)
+                if self._wait_before_retry(wait_time, cancel_event):
+                    return ModelResponse(
+                        error="interrupted",
+                        provider=self.name
+                    )
 
             except Exception as e:
                 last_error = str(e)
                 logger.error(
-                    f"[{self.name}] LLM 调用异常（尝试 {attempt + 1}/{self.retry_attempts}）: {last_error}"
+                    f"[{self.name}] LLM 调用异常（尝试 {attempt + 1}/{retry_attempts}）: {last_error}"
                 )
 
                 # 如果是最后一次尝试，返回错误响应
-                if attempt == self.retry_attempts - 1:
+                if attempt == retry_attempts - 1:
                     return ModelResponse(
                         error=f"LLM 调用异常: {last_error}",
                         provider=self.name
                     )
 
                 # 指数退避（支持提前唤醒）
-                wait_time = self.retry_delay * (2 ** attempt)
+                wait_time = retry_delay * (2 ** attempt)
                 logger.info(f"[{self.name}] 等待 {wait_time:.1f}s 后重试...")
-                if cancel_event:
-                    if cancel_event.wait(timeout=wait_time):
-                        return ModelResponse(
-                            error="interrupted",
-                            provider=self.name
-                        )
-                else:
-                    time.sleep(wait_time)
+                if self._wait_before_retry(wait_time, cancel_event):
+                    return ModelResponse(
+                        error="interrupted",
+                        provider=self.name
+                    )
 
         # 理论上不会到这里
         return ModelResponse(
@@ -240,7 +286,7 @@ class AIProvider(ABC):
             provider=self.name
         )
 
-    def chat_completion_stream(
+    def _do_chat_completion_stream(
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
@@ -249,10 +295,11 @@ class AIProvider(ABC):
         **kwargs
     ):
         """
-        流式对话补全请求（生成器）
+        单次流式对话补全请求（子类可重写）。
+
+        默认降级为一次非流式请求，再包装成单个 chunk 输出。
         """
-        # 默认实现：降级到非流式
-        response = self.chat_completion(
+        response = self._do_chat_completion(
             messages=messages,
             model=model,
             temperature=temperature,
@@ -268,6 +315,102 @@ class AIProvider(ABC):
                 "finish_reason": response.finish_reason or "stop",
                 "model": response.model
             }
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ):
+        """
+        流式对话补全请求（生成器）
+        """
+        import logging
+
+        logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        last_error = None
+        retry_attempts, retry_delay = self._resolve_retry_settings(kwargs)
+        cancel_event = kwargs.pop('cancel_event', None)
+
+        for attempt in range(retry_attempts):
+            if cancel_event and cancel_event.is_set():
+                yield {"content": "", "finish_reason": "interrupted"}
+                return
+
+            stream_started = False
+            should_retry = False
+
+            try:
+                stream = self._do_chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    cancel_event=cancel_event,
+                    **kwargs
+                )
+
+                for chunk in stream:
+                    if chunk.get('finish_reason') == 'interrupted':
+                        yield chunk
+                        return
+
+                    if chunk.get('error'):
+                        last_error = chunk['error']
+                        retryable = self._is_retryable_error(last_error)
+
+                        if stream_started:
+                            logger.warning(
+                                f"[{self.name}] 流式调用在已输出内容后失败，不自动重试: {last_error}"
+                            )
+                            yield chunk
+                            return
+
+                        logger.warning(
+                            f"[{self.name}] 流式调用失败（尝试 {attempt + 1}/{retry_attempts}）: {last_error}"
+                        )
+                        if not retryable or attempt == retry_attempts - 1:
+                            yield chunk
+                            return
+
+                        should_retry = True
+                        break
+
+                    if chunk.get('content') or chunk.get('finish_reason') or chunk.get('tool_calls'):
+                        stream_started = True
+                    yield chunk
+
+                if not should_retry:
+                    return
+
+                wait_time = retry_delay * (2 ** attempt)
+                logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
+                if self._wait_before_retry(wait_time, cancel_event):
+                    yield {"content": "", "finish_reason": "interrupted"}
+                    return
+
+            except Exception as e:
+                last_error = str(e)
+                logger.error(
+                    f"[{self.name}] 流式调用异常（尝试 {attempt + 1}/{retry_attempts}）: {last_error}"
+                )
+                if attempt == retry_attempts - 1 or not self._is_retryable_error(e):
+                    yield {"content": "", "error": last_error, "finish_reason": "error"}
+                    return
+
+                wait_time = retry_delay * (2 ** attempt)
+                logger.info(f"[{self.name}] 流式调用等待 {wait_time:.1f}s 后重试...")
+                if self._wait_before_retry(wait_time, cancel_event):
+                    yield {"content": "", "finish_reason": "interrupted"}
+                    return
+
+        yield {
+            "content": "",
+            "error": f"LLM 流式调用失败: {last_error}",
+            "finish_reason": "error",
+        }
 
     @abstractmethod
     def generate_text(

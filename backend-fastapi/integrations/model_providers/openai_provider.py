@@ -253,7 +253,7 @@ class OpenAIProvider(OpenAICompatibleProvider):
                 latency=self._after_request(start_time),
             )
 
-    def chat_completion_stream(
+    def _do_chat_completion_stream(
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,

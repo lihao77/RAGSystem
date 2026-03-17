@@ -272,6 +272,7 @@ class ContextPipeline:
                 provider_type=provider_type,
                 temperature=0.2,
                 max_tokens=self.config.summarize_max_tokens,
+                retry_attempts=llm_config.get('retry_attempts'),
                 thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
                 reasoning_effort=llm_config.get('reasoning_effort'),
             )
