@@ -163,7 +163,13 @@ def _request_sandbox_approval(
             },
         ))
 
-        wait_evt.wait()
+        from utils.timeout_pause import pause_current, resume_current
+
+        pause_current()
+        try:
+            wait_evt.wait()
+        finally:
+            resume_current()
         approved, approval_message = registry.get_approval_result(session_id, approval_id)
     except PermissionError:
         raise

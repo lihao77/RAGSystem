@@ -7,6 +7,7 @@ import os
 import json
 import csv
 import difflib
+import re
 import tempfile
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -20,6 +21,149 @@ FILE_SIZE_PREVIEW_THRESHOLD = 32 * 1024  # 32KB
 DEFAULT_STRUCTURE_PREVIEW_ROWS = 5
 DEFAULT_STRUCTURE_PREVIEW_DEPTH = 3
 DEFAULT_STRUCTURE_PREVIEW_FIELDS = 20
+
+_GEOJSON_TYPES = frozenset({
+    "FeatureCollection", "Feature",
+    "Point", "MultiPoint", "LineString", "MultiLineString",
+    "Polygon", "MultiPolygon", "GeometryCollection",
+})
+
+_WKT_PATTERN = re.compile(
+    r"^\s*(?:SRID\s*=\s*\d+\s*;\s*)?"
+    r"(POINT|LINESTRING|POLYGON|MULTIPOINT|MULTILINESTRING|MULTIPOLYGON|GEOMETRYCOLLECTION)"
+    r"\s*\(",
+    re.IGNORECASE,
+)
+
+
+def _is_geojson(value: Any) -> bool:
+    """检测 dict 是否为 GeoJSON 对象。"""
+    return isinstance(value, dict) and value.get("type") in _GEOJSON_TYPES
+
+
+def _count_coords(coords: Any) -> int:
+    """递归统计坐标点数量。"""
+    if not isinstance(coords, list) or len(coords) == 0:
+        return 0
+    if isinstance(coords[0], (int, float)):
+        return 1
+    return sum(_count_coords(c) for c in coords)
+
+
+def _bbox_from_coords(coords: Any) -> Optional[List[float]]:
+    """递归提取坐标的 bbox [min_x, min_y, max_x, max_y]。"""
+    if not isinstance(coords, list) or len(coords) == 0:
+        return None
+    if isinstance(coords[0], (int, float)):
+        x, y = float(coords[0]), float(coords[1]) if len(coords) > 1 else 0.0
+        return [x, y, x, y]
+    bbox = None
+    for c in coords:
+        sub = _bbox_from_coords(c)
+        if sub is None:
+            continue
+        if bbox is None:
+            bbox = list(sub)
+        else:
+            bbox[0] = min(bbox[0], sub[0])
+            bbox[1] = min(bbox[1], sub[1])
+            bbox[2] = max(bbox[2], sub[2])
+            bbox[3] = max(bbox[3], sub[3])
+    return bbox
+
+
+def _preview_geometry(geom: dict) -> dict:
+    """预览单个 GeoJSON 几何体。"""
+    coords = geom.get("coordinates", [])
+    result: Dict[str, Any] = {"geometry_type": geom.get("type", "unknown")}
+    result["coordinate_count"] = _count_coords(coords)
+    bbox = geom.get("bbox") or _bbox_from_coords(coords)
+    if bbox:
+        result["bbox"] = [round(v, 6) for v in bbox]
+    return result
+
+
+def _preview_geojson(value: dict, sample_size: int = 3) -> dict:
+    """为 GeoJSON 对象生成紧凑预览，绝不展开 coordinates。"""
+    geojson_type = value.get("type", "")
+
+    if geojson_type == "FeatureCollection":
+        features = value.get("features", [])
+        # 几何类型分布
+        type_counts: Dict[str, int] = {}
+        total_coords = 0
+        merged_bbox: Optional[List[float]] = None
+        for f in features:
+            geom = f.get("geometry") or {}
+            gt = geom.get("type", "null")
+            type_counts[gt] = type_counts.get(gt, 0) + 1
+            coords = geom.get("coordinates", [])
+            total_coords += _count_coords(coords)
+            fb = _bbox_from_coords(coords)
+            if fb:
+                if merged_bbox is None:
+                    merged_bbox = list(fb)
+                else:
+                    merged_bbox[0] = min(merged_bbox[0], fb[0])
+                    merged_bbox[1] = min(merged_bbox[1], fb[1])
+                    merged_bbox[2] = max(merged_bbox[2], fb[2])
+                    merged_bbox[3] = max(merged_bbox[3], fb[3])
+        # 属性字段采样
+        prop_fields: List[str] = []
+        sample_props: List[dict] = []
+        for f in features[:sample_size]:
+            props = f.get("properties") or {}
+            if not prop_fields:
+                prop_fields = list(props.keys())[:DEFAULT_STRUCTURE_PREVIEW_FIELDS]
+            sample_props.append({k: props[k] for k in list(props.keys())[:8] if not isinstance(props[k], (dict, list))})
+
+        result: Dict[str, Any] = {
+            "type": "geojson",
+            "geojson_type": "FeatureCollection",
+            "feature_count": len(features),
+            "geometry_types": type_counts,
+            "total_coordinates_estimate": total_coords,
+            "properties_fields": prop_fields,
+        }
+        bbox = value.get("bbox") or (merged_bbox if merged_bbox else None)
+        if bbox:
+            result["bbox"] = [round(v, 6) for v in bbox]
+        if sample_props:
+            result["sample_properties"] = sample_props
+        return result
+
+    if geojson_type == "Feature":
+        geom = value.get("geometry") or {}
+        props = value.get("properties") or {}
+        result = {
+            "type": "geojson",
+            "geojson_type": "Feature",
+        }
+        result.update(_preview_geometry(geom))
+        result["properties_fields"] = list(props.keys())[:DEFAULT_STRUCTURE_PREVIEW_FIELDS]
+        return result
+
+    # 裸几何体 (Point / Polygon / ...)
+    result = {"type": "geojson"}
+    result.update(_preview_geometry(value))
+    return result
+
+
+def _is_wkt_geometry(value: str) -> bool:
+    """检测字符串是否为 WKT 几何体。"""
+    return bool(_WKT_PATTERN.match(value))
+
+
+def _preview_wkt(value: str) -> dict:
+    """为 WKT 字符串生成紧凑预览。"""
+    m = _WKT_PATTERN.match(value)
+    geom_type = m.group(1).capitalize() if m else "Unknown"
+    return {
+        "type": "wkt_geometry",
+        "geometry_type": geom_type,
+        "length": len(value),
+        "example": value[:60] + ("..." if len(value) > 60 else ""),
+    }
 
 
 def _truncate_preview_text(value: str, limit: int = 120) -> str:
@@ -57,6 +201,8 @@ def _scalar_type_name(value: Any) -> str:
 
 def _preview_scalar(value: Any) -> Dict[str, Any]:
     """Build a compact preview for scalar values."""
+    if isinstance(value, str) and len(value) > 30 and _is_wkt_geometry(value):
+        return _preview_wkt(value)
     preview = {"type": _scalar_type_name(value)}
     if isinstance(value, str):
         preview["example"] = _truncate_preview_text(value)
@@ -75,6 +221,9 @@ def _preview_data_value(
     sample_size: int = DEFAULT_STRUCTURE_PREVIEW_ROWS,
 ) -> Dict[str, Any]:
     """Infer a compact nested structure preview for JSON/YAML-like data."""
+    if isinstance(value, dict) and _is_geojson(value):
+        return _preview_geojson(value, sample_size=sample_size)
+
     if depth >= max_depth:
         if isinstance(value, dict):
             return {"type": "object", "key_count": len(value), "truncated": True}
@@ -135,14 +284,21 @@ def _preview_data_value(
                     if key not in field_summaries:
                         continue
                     summary = field_summaries[key]
-                    summary["types"].add(
-                        "object" if isinstance(item_value, dict)
-                        else "array" if isinstance(item_value, list)
-                        else _scalar_type_name(item_value)
-                    )
+                    if isinstance(item_value, dict) and _is_geojson(item_value):
+                        summary["types"].add("geojson")
+                    elif isinstance(item_value, dict):
+                        summary["types"].add("object")
+                    elif isinstance(item_value, list):
+                        summary["types"].add("array")
+                    elif isinstance(item_value, str) and len(item_value) > 30 and _is_wkt_geometry(item_value):
+                        summary["types"].add("wkt_geometry")
+                    else:
+                        summary["types"].add(_scalar_type_name(item_value))
                     summary["present_in"] += 1
                     if summary["example"] is None:
-                        if isinstance(item_value, (dict, list)):
+                        if isinstance(item_value, dict) and _is_geojson(item_value):
+                            summary["example"] = _preview_geojson(item_value)
+                        elif isinstance(item_value, (dict, list)):
                             summary["example"] = _preview_data_value(
                                 item_value,
                                 depth=depth + 1,
@@ -151,7 +307,8 @@ def _preview_data_value(
                                 sample_size=sample_size,
                             )
                         else:
-                            summary["example"] = _preview_scalar(item_value).get("example", item_value)
+                            scalar_preview = _preview_scalar(item_value)
+                            summary["example"] = scalar_preview if scalar_preview.get("type") == "wkt_geometry" else scalar_preview.get("example", item_value)
 
             result["item_structure"] = {
                 "type": "object",
@@ -745,11 +902,16 @@ def read_file(
             return error_result("limit 必须 >= 1", tool_name="read_file")
 
         file_size = file_path_obj.stat().st_size
+        _user_approved_full_read = False
 
-        # 大文件预览确认：仅 caller=="direct" 且有 event_bus/session_id 时触发
+        # Agent 显式指定了读取范围 → 按需读取，跳过大文件确认
+        agent_specified_range = (offset != 1 or limit != DEFAULT_READ_MAX_LINES)
+
+        # 大文件预览确认：仅 caller=="direct" 且有 event_bus/session_id 且非按需读取时触发
         if (
             caller == "direct"
             and file_size > FILE_SIZE_PREVIEW_THRESHOLD
+            and not agent_specified_range
             and event_bus is not None
             and session_id is not None
         ):
@@ -785,7 +947,13 @@ def read_file(
             ))
 
             if wait_evt is not None:
-                wait_evt.wait()
+                from utils.timeout_pause import pause_current, resume_current
+
+                pause_current()
+                try:
+                    wait_evt.wait()
+                finally:
+                    resume_current()
                 approved, _ = registry.get_approval_result(session_id, approval_id)
                 if not approved:
                     # 用户拒绝 → 返回预览内容
@@ -805,6 +973,8 @@ def read_file(
                         },
                         tool_name="read_file",
                     )
+                # 用户批准 → 标记，后续 metadata 会携带此标记
+                _user_approved_full_read = True
 
         # 正式读取
         with open(file_path_obj, "r", encoding=encoding, errors="replace") as f:
@@ -861,6 +1031,7 @@ def read_file(
                 "end_line": actual_end_line,
                 "has_more": has_more,
                 "next_offset": next_offset,
+                "user_approved_full_read": _user_approved_full_read,
             },
             tool_name="read_file",
         )

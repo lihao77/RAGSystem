@@ -5,12 +5,14 @@ Tool executor 分发入口。
 
 import logging
 import inspect
+import time
 import concurrent.futures
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from tools.response_builder import error_result, success_result
 from tools.result_schema import ToolExecutionResult
 from tools.tool_registry import get_tool_registry
+from utils.timeout_pause import set_current_timer, get_current_timer, pause_current, resume_current
 
 logger = logging.getLogger(__name__)
 _TOOL_REGISTRY = get_tool_registry()
@@ -76,7 +78,11 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
                 tool_name=tool_name,
             ), ''
 
-        wait_evt.wait()
+        pause_current()
+        try:
+            wait_evt.wait()
+        finally:
+            resume_current()
         approved, approval_note = registry.get_approval_result(session_id, approval_id)
         if not approved:
             logger.info(f'工具 {tool_name} 审批被拒绝或任务已停止{_obs_suffix()}')
@@ -155,19 +161,47 @@ _DEFAULT_TIMEOUT = 60
 
 
 def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
-    """在线程池中执行工具函数，超时返回 error_result。"""
+    """在线程池中执行工具函数，超时返回 error_result。用户等待期间不计入超时。"""
     if timeout <= 0:
         return fn()
+
+    parent_timer = get_current_timer()
+
+    def _wrapped():
+        # 将 timer 传递给工具执行子线程，使 pause_current/resume_current 生效
+        if parent_timer is not None:
+            set_current_timer(parent_timer)
+        return fn()
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(fn)
-        try:
-            return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError:
-            logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
-            return error_result(
-                f"工具 {tool_name} 执行超时（{timeout}秒）",
-                tool_name=tool_name,
-            )
+        future = pool.submit(_wrapped)
+
+        if parent_timer is None:
+            # 不在 InProcessExecutionRunner 管理下，无需暂停感知，直接等待
+            try:
+                return future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
+                return error_result(
+                    f"工具 {tool_name} 执行超时（{timeout}秒）",
+                    tool_name=tool_name,
+                )
+
+        # 有 timer：轮询检查，扣除用户等待时长
+        start = time.monotonic()
+        paused_at_start = parent_timer.paused_duration
+        while True:
+            try:
+                return future.result(timeout=0.5)
+            except concurrent.futures.TimeoutError:
+                pass
+            elapsed = time.monotonic() - start - (parent_timer.paused_duration - paused_at_start)
+            if elapsed >= timeout:
+                logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
+                return error_result(
+                    f"工具 {tool_name} 执行超时（{timeout}秒）",
+                    tool_name=tool_name,
+                )
 
 
 def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:

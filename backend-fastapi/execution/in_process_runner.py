@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Optional
 
 from .models import ExecutionContext, ExecutionHandle, ExecutionResult, ExecutionStatus
 from .observability import ExecutionObservabilityContext, execution_observability_scope
+from utils.timeout_pause import PausableTimer, set_current_timer
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,7 @@ class InProcessExecutionRunner:
     ) -> ExecutionHandle:
         started_at = time.time()
         state = _ExecutionState(status=ExecutionStatus.STARTING, started_at=started_at)
+        timer = PausableTimer()
         thread_holder: Dict[str, Optional[threading.Thread]] = {'thread': None}
         observability = ExecutionObservabilityContext(
             task_id=context.task_id,
@@ -168,6 +170,7 @@ class InProcessExecutionRunner:
 
         def run_target() -> None:
             with execution_observability_scope(observability):
+                set_current_timer(timer)
                 state.mark_running()
                 try:
                     result = target(context)
@@ -205,7 +208,7 @@ class InProcessExecutionRunner:
         if context.timeout_seconds is not None:
             monitor = threading.Thread(
                 target=self._monitor_timeout,
-                args=(context, worker, state),
+                args=(context, worker, state, timer),
                 name=f'execution-timeout-{context.task_id[:8]}',
                 daemon=True,
             )
@@ -236,19 +239,12 @@ class InProcessExecutionRunner:
     def run(self, *, context: ExecutionContext, target: Callable[[ExecutionContext], Any]) -> ExecutionResult:
         handle = self.submit(context=context, target=target, daemon=True)
 
-        deadline = None
-        if context.timeout_seconds is not None:
-            deadline = time.time() + context.timeout_seconds + 0.5
-
         while True:
             result = handle.result
             if result is not None:
                 return result
 
             if handle.thread is not None and not handle.thread.is_alive():
-                break
-
-            if deadline is not None and time.time() >= deadline:
                 break
 
             time.sleep(0.01)
@@ -263,7 +259,15 @@ class InProcessExecutionRunner:
         )
 
     @staticmethod
-    def _monitor_timeout(context: ExecutionContext, worker: threading.Thread, state: _ExecutionState) -> None:
-        worker.join(timeout=context.timeout_seconds)
+    def _monitor_timeout(context: ExecutionContext, worker: threading.Thread, state: _ExecutionState, timer: PausableTimer) -> None:
+        start = time.monotonic()
+        timeout = context.timeout_seconds
+        while worker.is_alive():
+            worker.join(timeout=1.0)
+            if not worker.is_alive():
+                return
+            elapsed = time.monotonic() - start - timer.paused_duration
+            if elapsed >= timeout:
+                break
         if worker.is_alive() and state.mark_timed_out():
             context.cancel_event.set()

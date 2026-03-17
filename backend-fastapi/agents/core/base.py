@@ -531,7 +531,13 @@ class BaseAgent(ABC):
             return ""
 
         started_at = time.time()
-        wait_evt.wait()
+        from utils.timeout_pause import pause_current, resume_current
+
+        pause_current()
+        try:
+            wait_evt.wait()
+        finally:
+            resume_current()
         value = registry.get_input_result(session_id, input_id)
 
         if publisher:
