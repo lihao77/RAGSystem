@@ -139,25 +139,15 @@ class ObservationPolicy:
                 budget_bucket=self.budget_bucket,
             )
 
-        # 4.5 read_file 特殊处理
+        # 4.5 read_file / read_document 始终 inline（不落盘，大文件已有用户确认机制把关）
         if result.tool_name in {"read_file", "read_document"}:
-            # 用户已批准完整读取 → 强制 inline
-            if result.metadata.get("user_approved_full_read"):
-                return ObservationDecision(
-                    mode="inline",
-                    reason="user_approved_read",
-                    estimated_size=estimated_size,
-                    budget_bucket=self.budget_bucket,
-                )
-            # Agent 指定了 offset/limit 按需读取 → 用 summarize_limit 作为 inline 上限
-            if result.metadata.get("start_line") is not None:
-                if estimated_size <= self.summarize_limit:
-                    return ObservationDecision(
-                        mode="inline",
-                        reason="read_file_ranged",
-                        estimated_size=estimated_size,
-                        budget_bucket=self.budget_bucket,
-                    )
+            reason = "user_approved_read" if result.metadata.get("user_approved_full_read") else "read_file_inline"
+            return ObservationDecision(
+                mode="inline",
+                reason=reason,
+                estimated_size=estimated_size,
+                budget_bucket=self.budget_bucket,
+            )
 
         # 5. 两阶段决策：inline 或 artifact_ref（不再有 summarize 中间态）
         inline_limit = self._inline_limit_for(result)

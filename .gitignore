@@ -143,3 +143,7 @@ frontend/
 .skill_venvs/
 
 tests/
+
+*.docx
+unpacked*/
+fix_*.py

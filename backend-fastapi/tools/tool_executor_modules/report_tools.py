@@ -10,17 +10,15 @@ report_tools.py - 应急报告自动生成工具。
 
 import json
 from datetime import datetime
+from typing import Any
 
-from tools.response_builder import error_result, success_result
 from tools.decorators import tool
 from tools.permissions import RiskLevel
-from typing import Optional
-
-from tools.response_builder import success_result, error_result
+from tools.response_builder import error_result, success_result
 
 
-def _safe_parse(value) -> dict:
-    """安全解析 JSON 字符串为 dict/list，已是 dict/list 则直接返回。"""
+def _safe_parse(value) -> Any:
+    """安全解析 JSON 字符串为 dict/list/str，已是 dict/list 则直接返回。"""
     if value is None:
         return {}
     if isinstance(value, (dict, list)):
@@ -31,6 +29,53 @@ def _safe_parse(value) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {}
     return {}
+
+
+def _normalize_report_type(report_type: str) -> str:
+    """支持中文报告类型别名，统一映射为内部枚举值。"""
+    aliases = {
+        "flood_bulletin": "flood_bulletin",
+        "汛情快报": "flood_bulletin",
+        "disaster_report": "disaster_report",
+        "灾情报告": "disaster_report",
+        "situation_report": "situation_report",
+        "综合态势报告": "situation_report",
+    }
+    if not isinstance(report_type, str):
+        return report_type
+    return aliases.get(report_type.strip(), report_type)
+
+
+def _normalize_extra_sections(extra) -> dict:
+    """将额外章节统一为 {标题: 内容} 的映射，兼容列表输入。"""
+    if not extra:
+        return {}
+    if isinstance(extra, dict):
+        return extra
+    if isinstance(extra, list):
+        normalized = {}
+        for idx, item in enumerate(extra, start=1):
+            if isinstance(item, dict):
+                title = (
+                    item.get("title")
+                    or item.get("name")
+                    or item.get("section")
+                    or item.get("header")
+                )
+                content = (
+                    item.get("content")
+                    or item.get("text")
+                    or item.get("body")
+                    or item.get("value")
+                )
+                if title:
+                    normalized[str(title)] = content if content not in (None, "") else item
+                else:
+                    normalized[f"补充信息{idx}"] = item
+            else:
+                normalized[f"补充信息{idx}"] = item
+        return normalized
+    return {"补充信息": extra}
 
 
 def _section(title: str, content) -> str:
@@ -211,24 +256,80 @@ _DEFAULT_TITLES = {
 
 @tool(
     name="generate_report",
-    description="生成标准格式应急报告（汛情快报/灾情报告/综合态势报告）。将分析结果汇总为结构化 Markdown 文档。",
+    description=(
+        "生成标准格式应急报告并返回 Markdown。"
+        "report_type 必须优先使用英文枚举值："
+        "flood_bulletin=汛情快报，disaster_report=灾情报告，"
+        "situation_report=综合态势报告。"
+        "各 data 参数优先传结构化 JSON 对象；extra_sections 必须是“章节名 -> 内容”的对象，"
+        "不要传普通列表。"
+    ),
     parameters={
         "type": "object",
         "properties": {
             "report_type": {
                 "type": "string",
-                "description": "报告类型",
+                "description": (
+                    "报告类型枚举。推荐直接传英文值："
+                    "flood_bulletin（汛情快报）、"
+                    "disaster_report（灾情报告）、"
+                    "situation_report（综合态势报告）。"
+                    "不要把中文名称当作正式枚举值传入。"
+                ),
                 "enum": ["flood_bulletin", "disaster_report", "situation_report"],
             },
             "title": {"type": "string", "description": "报告标题（可选）"},
             "location": {"type": "string", "description": "区域"},
-            "situation_data": {"type": "string", "description": "态势/灾情数据（JSON 字符串）"},
-            "risk_data": {"type": "string", "description": "风险评估数据（JSON 字符串）"},
-            "warning_data": {"type": "string", "description": "预警数据（JSON 字符串）"},
-            "plan_data": {"type": "string", "description": "预案/建议数据（JSON 字符串）"},
-            "action_data": {"type": "string", "description": "行动/响应数据（JSON 字符串）"},
-            "weather_data": {"type": "string", "description": "气象数据（JSON 字符串）"},
-            "extra_sections": {"type": "string", "description": "额外章节（JSON 字符串）"},
+            "situation_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}],
+                "description": (
+                    "态势/灾情主数据。优先传对象，常用字段：summary、description、overview、"
+                    "focus_areas、affected、casualties、damage。"
+                ),
+            },
+            "risk_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}],
+                "description": (
+                    "风险评估数据。优先传对象，常用字段：risk_level、risk_label、"
+                    "risk_factors、assessment。"
+                ),
+            },
+            "warning_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}, {"type": "array"}],
+                "description": (
+                    "预警数据。可传对象或数组。推荐对象形态："
+                    "{warnings:[{title,issued_at}], stat:{...}}。"
+                ),
+            },
+            "plan_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}, {"type": "array"}],
+                "description": (
+                    "预案/建议数据。推荐对象形态，常用字段：suggestions、next_steps、"
+                    "recommendations、matched_plans、plan_references、needs。"
+                ),
+            },
+            "action_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}, {"type": "array"}],
+                "description": (
+                    "行动/响应数据。推荐对象形态，常用字段：key_actions、actions、"
+                    "measures、response、rescue、progress。"
+                ),
+            },
+            "weather_data": {
+                "oneOf": [{"type": "string"}, {"type": "object"}],
+                "description": (
+                    "气象数据。推荐对象形态，常用字段：rainfall_24h_mm、"
+                    "forecast_rainfall_mm、temp_c。"
+                ),
+            },
+            "extra_sections": {
+                "oneOf": [{"type": "string"}, {"type": "object"}, {"type": "array"}],
+                "description": (
+                    "额外章节。推荐传对象，如 "
+                    "{\"七、值班安排\":\"...\",\"八、需协调事项\":[\"...\",\"...\"]}。"
+                    "如果传数组，数组元素应尽量使用 {title, content} 结构。"
+                ),
+            },
             "report_time": {"type": "string", "description": "报告时间，格式 YYYY-MM-DD HH:MM"},
         },
         "required": ["report_type"],
@@ -237,6 +338,91 @@ _DEFAULT_TITLES = {
     requires_approval=False,
     timeout_seconds=120,
     allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "生成后的报告对象",
+        "shape": {
+            "report_type": "string",
+            "title": "string",
+            "location": "string",
+            "report_time": "string",
+            "sections": {
+                "situation": "object|array|string",
+                "risk": "object|array|string",
+                "warning": "object|array|string",
+                "plan": "object|array|string",
+                "action": "object|array|string",
+                "weather": "object|array|string",
+            },
+            "markdown": "string",
+        },
+    },
+    usage_contract=[
+        "report_type 必须优先使用英文枚举值，不要把中文标题直接当 enum 传入",
+        "situation_data、risk_data、weather_data 优先传对象，不建议传列表",
+        "warning_data、plan_data、action_data 可传对象或列表，但对象更稳定",
+        "extra_sections 必须表示为章节映射对象；若只有列表，请改写为 [{title, content}] 或 {章节名: 内容}",
+        "若上游已有结构化结果，直接透传对象即可，不必再拼成长文本",
+        "标题未提供时自动使用默认标题，缺失章节会显示“暂无数据”",
+    ],
+    examples=[
+        {
+            "input": {
+                "report_type": "situation_report",
+                "title": "南宁市防汛综合态势报告",
+                "location": "南宁市",
+                "situation_data": {
+                    "summary": "全市出现持续强降雨，城区低洼点有积水。",
+                    "focus_areas": ["西乡塘区", "良庆区", "邕江沿线"],
+                },
+                "warning_data": {
+                    "warnings": [
+                        {"title": "暴雨橙色预警", "issued_at": "2026-03-18 08:00"}
+                    ]
+                },
+                "risk_data": {
+                    "risk_level": "III",
+                    "risk_label": "较大",
+                    "risk_factors": ["短时强降雨", "河道水位上涨"],
+                    "assessment": "需加强沿江和低洼地带巡查。"
+                },
+                "plan_data": {
+                    "matched_plans": ["启动城区内涝防御预案", "加强排涝泵站值守"]
+                },
+                "action_data": {
+                    "key_actions": ["加密会商研判", "预置抢险力量", "提醒群众避险"]
+                },
+                "weather_data": {
+                    "rainfall_24h_mm": 86,
+                    "forecast_rainfall_mm": 40,
+                    "temp_c": 24
+                },
+                "extra_sections": {
+                    "七、需协调事项": ["协调地铁站口挡水设施", "调拨排涝车辆"]
+                },
+                "report_time": "2026-03-18 09:30"
+            },
+            "result_hint": {
+                "report_type": "situation_report",
+                "markdown": "# 南宁市防汛综合态势报告"
+            },
+        },
+        {
+            "input": {
+                "report_type": "flood_bulletin",
+                "location": "桂林市",
+                "situation_data": "{\"summary\":\"漓江水位上涨，部分乡镇出现积涝。\"}",
+                "warning_data": "[{\"title\":\"暴雨黄色预警\",\"issued_at\":\"2026-03-18 07:20\"}]",
+                "extra_sections": [
+                    {"title": "七、值班安排", "content": "继续执行24小时值班值守。"}
+                ]
+            },
+            "result_hint": {
+                "report_type": "flood_bulletin",
+                "title": "汛情快报"
+            },
+        },
+    ],
 )
 def generate_report(
     report_type: str,
@@ -270,6 +456,7 @@ def generate_report(
     Returns:
         ToolExecutionResult
     """
+    report_type = _normalize_report_type(report_type)
     valid_types = list(_TEMPLATE_BUILDERS.keys())
     if report_type not in valid_types:
         return error_result(
@@ -287,7 +474,7 @@ def generate_report(
     plan = _safe_parse(plan_data)
     action = _safe_parse(action_data)
     weather = _safe_parse(weather_data)
-    extra = _safe_parse(extra_sections)
+    extra = _normalize_extra_sections(_safe_parse(extra_sections))
 
     markdown_content = builder(
         title=report_title, location=location, report_time=rtime,

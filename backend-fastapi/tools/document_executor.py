@@ -900,6 +900,7 @@ def read_file(
     caller: str = "direct",
     event_bus=None,
     session_id: Optional[str] = None,
+    _skip_preview: bool = False,
 ) -> Any:
     """按行号读取文件内容，返回 cat -n 格式。支持大文件预览确认（仅 direct 调用）。"""
     try:
@@ -919,9 +920,10 @@ def read_file(
         # Agent 显式指定了读取范围 → 按需读取，跳过大文件确认
         agent_specified_range = (offset != 1 or limit != DEFAULT_READ_MAX_LINES)
 
-        # 大文件预览确认：仅 caller=="direct" 且有 event_bus/session_id 且非按需读取时触发
+        # 大文件预览确认：仅非代码执行调用、非 _skip_preview、有 event_bus/session_id 且非按需读取时触发
         if (
-            caller == "direct"
+            not _skip_preview
+            and caller != "code_execution"
             and file_size > FILE_SIZE_PREVIEW_THRESHOLD
             and not agent_specified_range
             and event_bus is not None
