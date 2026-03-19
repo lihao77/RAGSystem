@@ -140,6 +140,7 @@ class AIProvider(ABC):
             "dns",
             "rate limit",
             "too many requests",
+            "concurrency limit",
             "quota exceeded",
             "502",
             "503",

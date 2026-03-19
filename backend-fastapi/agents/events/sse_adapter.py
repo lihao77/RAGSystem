@@ -8,13 +8,11 @@ SSE适配器 - 将事件总线的事件转换为Server-Sent Events流
 3. 通过生成器函数流式输出
 """
 
-import asyncio
 import json
 import logging
-from typing import AsyncGenerator, Optional, List, Generator
+from typing import Optional, Generator
 from queue import Queue, Empty
 import time
-import threading
 
 from .bus import EventBus, Event, EventType, CRITICAL_EVENT_TYPES
 
@@ -51,7 +49,7 @@ class SSEAdapter:
 
     使用方式:
         adapter = SSEAdapter(event_bus, session_id="abc123")
-        async for sse_data in adapter.stream():
+        for sse_data in adapter.stream_sync():
             yield sse_data
     """
 
@@ -76,11 +74,8 @@ class SSEAdapter:
         self.buffer_size = buffer_size
         self.heartbeat_interval = heartbeat_interval
 
-        # 事件队列（异步）- 有界队列，背压保护
-        self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=buffer_size)
-
-        # 事件队列（同步）- 有界队列，背压保护
-        self._sync_event_queue: Queue = Queue(maxsize=buffer_size)
+        # 事件队列 - 有界队列，背压保护
+        self._event_queue: Queue = Queue(maxsize=buffer_size)
 
         # 订阅ID
         self._subscription_id: Optional[str] = None
@@ -126,7 +121,7 @@ class SSEAdapter:
         self._stopped = True
         # 放入哨兵值唤醒可能阻塞在 get() 的 stream_sync
         try:
-            self._sync_event_queue.put_nowait(None)
+            self._event_queue.put_nowait(None)
         except Exception:
             pass
         logger.info(f"[SSEAdapter] 已停止 (session: {self.session_id})")
@@ -160,44 +155,29 @@ class SSEAdapter:
 
     def _handle_event(self, event: Event):
         """
-        事件处理器（同步版本）- 分级写入：关键事件保证入队，非关键事件队满时丢弃。
+        事件处理器 - 分级写入：关键事件保证入队，非关键事件队满时丢弃。
         """
         is_critical = is_critical_event_type(event.type)
 
         try:
-            # 放入异步队列
             try:
                 self._event_queue.put_nowait(event)
-            except asyncio.QueueFull:
+            except Exception:
                 if is_critical:
-                    self._evict_non_critical_async()
+                    self._evict_non_critical()
                     try:
                         self._event_queue.put_nowait(event)
-                    except asyncio.QueueFull:
+                    except Exception:
                         logger.error(f"[SSEAdapter] 关键事件入队失败（队列全为关键事件）: {event.type.value}")
                 else:
                     self._dropped_count += 1
                     logger.warning(f"[SSEAdapter] 非关键事件丢弃 (dropped={self._dropped_count}): {event.type.value}")
 
-            # 放入同步队列（用于非async环境）
-            try:
-                self._sync_event_queue.put_nowait(event)
-            except Exception:
-                if is_critical:
-                    self._evict_non_critical_sync()
-                    try:
-                        self._sync_event_queue.put_nowait(event)
-                    except Exception:
-                        logger.error(f"[SSEAdapter] 关键事件同步入队失败: {event.type.value}")
-                else:
-                    # 已在异步队列统计过 dropped_count，此处不重复计数
-                    pass
-
         except Exception as e:
             logger.error(f"[SSEAdapter] 处理事件失败: {e}")
 
-    def _evict_non_critical_async(self):
-        """从异步队列头部驱逐非关键事件，腾出空间。"""
+    def _evict_non_critical(self):
+        """从队列头部驱逐非关键事件，腾出空间。"""
         evicted = 0
         temp = []
         while not self._event_queue.empty():
@@ -209,40 +189,17 @@ class SSEAdapter:
                     evicted += 1
                     self._dropped_count += 1
                     break  # 只需腾出一个位置
-            except asyncio.QueueEmpty:
-                break
-        # 把取出的关键事件放回
-        for item in temp:
-            try:
-                self._event_queue.put_nowait(item)
-            except asyncio.QueueFull:
-                break
-        if evicted:
-            logger.debug(f"[SSEAdapter] 异步队列驱逐 {evicted} 个非关键事件")
-
-    def _evict_non_critical_sync(self):
-        """从同步队列头部驱逐非关键事件，腾出空间。"""
-        evicted = 0
-        temp = []
-        while not self._sync_event_queue.empty():
-            try:
-                item = self._sync_event_queue.get_nowait()
-                if is_critical_event_type(item.type):
-                    temp.append(item)
-                else:
-                    evicted += 1
-                    break
             except Empty:
                 break
         for item in temp:
             try:
-                self._sync_event_queue.put_nowait(item)
+                self._event_queue.put_nowait(item)
             except Exception:
                 break
         if evicted:
-            logger.debug(f"[SSEAdapter] 同步队列驱逐 {evicted} 个非关键事件")
+            logger.debug(f"[SSEAdapter] 队列驱逐 {evicted} 个非关键事件")
 
-    async def stream(self) -> AsyncGenerator[str, None]:
+    def stream_sync(self) -> Generator[str, None, None]:
         """
         SSE流式输出生成器
 
@@ -255,54 +212,7 @@ class SSEAdapter:
 
             while not self._stopped:
                 try:
-                    # 从队列获取事件（带超时）
-                    event = await asyncio.wait_for(
-                        self._event_queue.get(),
-                        timeout=1.0
-                    )
-
-                    terminal_reason = self._terminal_reason(event)
-                    if terminal_reason:
-                        self.completed_normally = True
-                        self.terminal_event_type = terminal_reason
-
-                    # 所有事件直接转发，无假流式处理
-                    sse_data = self._format_sse(event)
-                    yield sse_data
-
-                    last_heartbeat = time.time()
-                    self._last_seq = event.sequence_number
-
-                    if terminal_reason:
-                        logger.info(f"[SSEAdapter] 检测到终止事件 ({terminal_reason})，停止流式输出")
-                        break
-                    # 超时：发送心跳
-                    now = time.time()
-                    if now - last_heartbeat >= self.heartbeat_interval:
-                        yield self._heartbeat()
-                        last_heartbeat = now
-
-                except Exception as e:
-                    logger.error(f"[SSEAdapter] 流式输出错误: {e}", exc_info=True)
-
-        finally:
-            self.stop()
-
-    def stream_sync(self) -> Generator[str, None, None]:
-        """
-        SSE流式输出生成器（同步版本，用于Flask等非async环境）
-
-        Yields:
-            str: SSE格式的数据（"data: {...}\\n\\n"）
-        """
-        try:
-            self.start()
-            last_heartbeat = time.time()
-
-            while not self._stopped:
-                try:
-                    # 从同步队列获取事件（带超时）
-                    event = self._sync_event_queue.get(timeout=1.0)
+                    event = self._event_queue.get(timeout=1.0)
                     if event is None:  # 哨兵值，stop() 被调用
                         break
 
@@ -334,7 +244,7 @@ class SSEAdapter:
                         last_heartbeat = now
 
                 except Exception as e:
-                    logger.error(f"[SSEAdapter] 同步流式输出错误: {e}", exc_info=True)
+                    logger.error(f"[SSEAdapter] 流式输出错误: {e}", exc_info=True)
 
         finally:
             self.stop()
@@ -418,25 +328,3 @@ class SSEAdapter:
         }
         json_data = json.dumps(heartbeat_data, ensure_ascii=False)
         return f"data: {json_data}\n\n"
-
-
-# ==================== 便捷函数 ====================
-
-async def stream_events_to_sse(
-    event_bus: EventBus,
-    session_id: str
-) -> AsyncGenerator[str, None]:
-    """
-    便捷函数：将事件总线流式输出为SSE
-
-    Args:
-        event_bus: 事件总线实例
-        session_id: 会话ID
-
-    Yields:
-        str: SSE格式的数据
-    """
-    adapter = SSEAdapter(event_bus=event_bus, session_id=session_id)
-
-    async for sse_data in adapter.stream():
-        yield sse_data

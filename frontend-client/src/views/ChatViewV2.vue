@@ -1182,7 +1182,8 @@ const formatRetryCountdown = (state) => {
 const buildLlmRetryStatusText = (state) => {
   if (!state) return '';
   const countdown = formatRetryCountdown(state);
-  return `模型调用失败，准备第 ${state.nextAttempt}/${state.maxAttempts} 次重试${countdown ? `，${countdown}` : ''}`;
+  const errorHint = state.error ? `（${state.error}）` : '';
+  return `模型调用失败${errorHint}，准备第 ${state.nextAttempt}/${state.maxAttempts} 次重试${countdown ? `，${countdown}` : ''}`;
 };
 
 const syncActiveMessageRetryStatus = () => {
