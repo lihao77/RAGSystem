@@ -230,6 +230,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "可用 offset/limit 指定行号区间",
             "返回内容为文件原始文本内容，不附带行号",
             "file_path 必须是真实路径字符串，不是变量名文本",
+            "数据文件（JSON/GeoJSON/CSV）已有路径时，优先用 preview_data_structure 确认结构；需要确认数据完整性时可用 read_file（带 limit）检查，但确认后只传递文件路径，不要把内容输出到 final_answer",
         ],
         examples=[
             {

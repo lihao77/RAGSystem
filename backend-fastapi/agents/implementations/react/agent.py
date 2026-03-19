@@ -338,18 +338,40 @@ text = call_tool('read_file', {{
 4. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
 5. 数据足够时直接输出 `<final_answer>`
 6. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
-7. 需要调用工具获取大数据时，必须先落盘后传路径，避免直接传递大文本或复杂数据结构；工具结果中返回的文件路径也应直接传给后续工具或 execute_code 处理，不要试图读取内容到上下文
+7. 工具结果中返回的文件路径应直接传给后续工具或 execute_code 处理，不要试图读取大文件内容到上下文（详见下方「数据文件传递规则」）
 8. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据
-9. 返回给用户的最终答案可以携带数据路径，避免大数据直接传递；如果需要展示可视化，使用 `[viz:artifact_id]` 引用工具返回的 artifact_id 来展示图表/地图，不要编造 ID；如果需要基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在 `./static/temp_data/viz_index.jsonl` 中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容进行处理
+9. 可视化使用 `[viz:artifact_id]` 引用（详见下方「可视化规则」）；数据文件使用 `[data:路径]` 引用（详见下方「数据文件传递规则」）
+10. 如果需要基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在 `./static/temp_data/viz_index.jsonl` 中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容进行处理
+
+### 数据文件传递规则（与可视化同等重要）
+- 数据文件（JSON/GeoJSON/CSV 等）和可视化 artifact 一样，**只传路径，不传内容**
+- 已有文件路径时（如 Skill 返回的路径、工具落盘路径），直接在 `<final_answer>` 中返回路径，不要把完整内容读进上下文再输出
+- 需要确认文件结构时，优先用 `preview_data_structure`；需要确认数据完整性（如记录数、字段是否齐全）时，可以用 `read_file`（带 limit）确认后仍然只传路径
+- 需要处理/转换数据时，用 `execute_code` 读文件处理，结果写入新文件，返回新文件路径
+- `<final_answer>` 中引用数据文件格式：`[data:文件路径]`，如 `[data:./static/temp_data/data_abc123.json]`
+- 禁止在 `<final_answer>` 中输出超过 20 行的原始数据；数据量大时必须用文件路径引用
+
+**正确示例**：
+```
+<final_answer>
+查询到广西14个地级市的行政区划边界数据，共14条记录。
+
+[data:./static/temp_data/gx_boundaries.geojson]
+</final_answer>
+```
+
+**错误示例**：
+```
+<final_answer>
+{{"type": "FeatureCollection", "features": [{{"type": "Feature", "geometry": ...几千行...}}]}}
+</final_answer>
+```
 
 **数据处理：**
 - 工具返回「📁 数据已存储: <path>」→ 数据已落盘，后续用文件路径传给工具或用 execute_code 读取处理
-- 大数据不要用 read_file 读到上下文 → 观察 preview 摘要了解结构即可
 - 需要过滤/转换/聚合大数据 → execute_code 直接读文件处理
 - 批量查多实体或循环调用 → execute_code
-- 工具返回文件路径 → 直接传给后续工具
-- 不要总想着读取被动存储的结果到上下文里，除非是小文本；更推荐直接传路径给后续工具或 execute_code 处理
-- 只有当明确需要读取文件内容到上下文时，才用 read_file，且必须携带limit参数限制读取大小，避免上下文爆炸
+- 只有当明确需要读取小文件内容到上下文时，才用 read_file，且必须携带 limit 参数限制读取大小
 
 ### 可视化规则
 - 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
