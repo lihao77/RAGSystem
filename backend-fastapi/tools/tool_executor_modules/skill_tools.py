@@ -289,10 +289,20 @@ def load_skill_resource(skill_name, resource_file):
     description=(
         "执行 Skill 的实用脚本（零上下文执行）。"
         "只返回脚本的输出结果，不加载代码到上下文。\n\n"
-        "**调用格式**：skill_name、script_name、arguments 必须作为独立的 JSON 字段传入，例如：\n"
-        "{\"skill_name\": \"kg-advanced-query\", \"script_name\": \"query.py\", "
-        "\"arguments\": [\"--cypher\", \"MATCH (n) RETURN n\"]}\n\n"
-        "**错误示例**（禁止）：不要把参数序列化成字符串放进 arguments 数组。"
+        "**调用格式**：使用 XML 子标签传递参数，例如：\n"
+        "<tool name=\"execute_skill_script\">\n"
+        "  <skill_name>kg-advanced-query</skill_name>\n"
+        "  <script_name>query.py</script_name>\n"
+        "  <arguments>\n"
+        "    <item>--cypher</item>\n"
+        "    <item>MATCH (n) RETURN n</item>\n"
+        "    <item>--limit</item>\n"
+        "    <item>100</item>\n"
+        "  </arguments>\n"
+        "</tool>\n\n"
+        "**arguments 格式说明**：\n"
+        "- 每个命令行参数用 `<item>` 包裹，多行/含特殊字符的内容用 CDATA：`<item><![CDATA[...]]></item>`\n"
+        "- arguments 也可直接传入 JSON 数组字符串，系统会自动解析"
     ),
     parameters={
         "type": "object",
@@ -308,8 +318,8 @@ def load_skill_resource(skill_name, resource_file):
             "arguments": {
                 "type": "array",
                 "description": (
-                    "传递给脚本的命令行参数列表，每个参数单独一个字符串元素，"
-                    "例如：[\"--param\", \"值\"]"
+                    "传递给脚本的命令行参数列表，每个参数单独一个元素。"
+                    "在 XML 调用时使用 `<item>` 子标签；在 JSON 调用时使用数组。"
                 ),
                 "items": {"type": "string"},
             },
@@ -349,7 +359,14 @@ def load_skill_resource(skill_name, resource_file):
                     '{"name": "潘厂水库"}',
                 ],
             }
-        }
+        },
+        {
+            "input": {
+                "skill_name": "kg-advanced-query",
+                "script_name": "region_aggregate.py",
+                "arguments": ["--region", "广西", "--attr", "受灾人口", "--start", "2022-01-01", "--end", "2022-12-31"],
+            }
+        },
     ],
 )
 def execute_skill_script(skill_name, script_name, arguments=None):

@@ -247,9 +247,12 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
     result = {}
     for tag, value, is_cdata in fields:
         if is_cdata:
-            result[tag] = value  # CDATA 内容原样保留
+            # arguments 标签的 CDATA 内容尝试按列表解析，其余原样保留
+            if tag == "arguments":
+                result[tag] = _parse_list_value(value)
+            else:
+                result[tag] = value
         elif tag == "arguments":
-            # arguments 标签：检查是否包含 <item> 子标签
             result[tag] = _parse_list_value(value)
         else:
             result[tag] = _coerce_xml_value(value.strip())
@@ -260,7 +263,7 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
 def _parse_list_value(value: str) -> list:
     """
     解析列表类型的标签值。
-    - 如果包含 <item> 子标签，提取每个 <item> 的内容
+    - 如果包含 <item> 子标签，提取每个 <item> 的内容，并对每个值做 JSON 解析或去引号处理
     - 如果是 JSON 数组字符串，直接解析
     - 否则按行分割
     """
@@ -275,7 +278,12 @@ def _parse_list_value(value: str) -> list:
         for cdata_val, plain_val in item_matches:
             v = cdata_val if cdata_val else plain_val.strip()
             if v:
-                items.append(v)
+                # 命令行参数始终是字符串，不做类型推断
+                # 只去掉首尾引号（如 '"广西"' → '广西'，'"--region"' → '--region'）
+                stripped = v.strip()
+                if len(stripped) >= 2 and stripped[0] == '"' and stripped[-1] == '"':
+                    stripped = stripped[1:-1]
+                items.append(stripped)
         return items
 
     # 尝试 JSON 数组解析

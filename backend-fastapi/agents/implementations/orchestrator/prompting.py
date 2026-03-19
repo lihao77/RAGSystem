@@ -47,7 +47,16 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
             # 渲染为 XML 子标签格式
             xml_parts = []
             for k, v in example.items():
-                if isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
+                if isinstance(v, list):
+                    # 数组渲染为 <item> 子标签
+                    item_parts = []
+                    for item in v:
+                        if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
+                            item_parts.append(f"    <item><![CDATA[{item}]]></item>")
+                        else:
+                            item_parts.append(f"    <item>{item}</item>")
+                    xml_parts.append(f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>")
+                elif isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
                     xml_parts.append(f"  <{k}><![CDATA[{v}]]></{k}>")
                 elif isinstance(v, str):
                     xml_parts.append(f"  <{k}>{v}</{k}>")
