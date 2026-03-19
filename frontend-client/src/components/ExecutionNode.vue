@@ -1265,6 +1265,6 @@ const formatResultContent = (value) => {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
   font-style: italic;
-  padding: 4px 0;
+  padding: var(--spacing-md);
 }
 </style>

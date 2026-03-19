@@ -148,16 +148,80 @@ def _coerce_xml_value(value: str) -> Any:
     return value
 
 
+def _extract_toplevel_xml_fields(args_str: str) -> List[Tuple[str, str, bool]]:
+    """
+    提取顶层 XML 子标签，返回 [(tag, value, is_cdata), ...]。
+    单次顺序扫描：按开标签出现顺序提取，外层标签消费整个区间后，
+    内部嵌套标签自然被跳过。
+    """
+    results: List[Tuple[str, str, bool]] = []
+    # 匹配开标签（不含自闭合），捕获标签名
+    open_tag_pattern = re.compile(r'<([^/>\s!][^>\s]*)>')
+    pos = 0
+
+    while pos < len(args_str):
+        m = open_tag_pattern.search(args_str, pos)
+        if not m:
+            break
+
+        tag = m.group(1).strip()
+        content_start = m.end()
+
+        # 尝试找到匹配的闭标签（处理同名嵌套）
+        close_tag = f'</{tag}>'
+        open_tag_re = re.compile(rf'<{re.escape(tag)}[\s>]')
+        search_pos = content_start
+        depth = 1
+        found = False
+
+        while depth > 0 and search_pos < len(args_str):
+            next_close = args_str.find(close_tag, search_pos)
+            if next_close == -1:
+                break
+
+            # 计算 search_pos 到 next_close 之间的同名开标签数
+            check_pos = search_pos
+            while check_pos < next_close:
+                nested = open_tag_re.search(args_str, check_pos)
+                if nested and nested.start() < next_close:
+                    depth += 1
+                    check_pos = nested.end()
+                else:
+                    break
+
+            depth -= 1
+            if depth == 0:
+                value = args_str[content_start:next_close]
+                tag_end = next_close + len(close_tag)
+                # 检查值是否是 CDATA 包裹
+                cdata_m = CDATA_PATTERN.match(value)
+                if cdata_m:
+                    results.append((tag, cdata_m.group(1), True))
+                else:
+                    results.append((tag, value, False))
+                pos = tag_end  # 跳过整个标签区间，内部标签不再扫描
+                found = True
+                break
+            else:
+                search_pos = next_close + len(close_tag)
+
+        if not found:
+            pos = content_start  # 未找到闭标签，跳过这个开标签继续
+
+    return results
+
+
 def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
     """
     尝试将 XML 格式的参数体解析为字典。
 
     解析优先级：
     1. <variable key="xxx">value</variable> 格式（部分 LLM 输出）
-    2. CDATA 包裹的字段：<code><![CDATA[...]]></code>（保持原样，不做类型推断）
-    3. 普通 XML 子标签：<param>value</param>（对值做类型推断）
+    2. 顶层 XML 子标签提取（CDATA 保持原样，普通值做类型推断）
 
-    其中 <arguments> 标签内容解析为字符串列表（按行分割，过滤空行）。
+    其中 <arguments> 标签内容：
+    - 如果包含 <item> 子标签，提取为列表
+    - 否则按行分割为列表
     """
     # 优先尝试 <variable key="xxx"> 格式
     var_fields = VARIABLE_KEY_PATTERN.findall(args_str)
@@ -175,29 +239,57 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
             logger.debug("参数使用 <variable key> 格式解析成功")
             return result
 
-    # 先提取 CDATA 包裹的字段（代码等，保持原样不做类型推断）
+    # 提取顶层字段
+    fields = _extract_toplevel_xml_fields(args_str)
+    if not fields:
+        return None
+
     result = {}
-    cdata_tags = set()
-    for tag, value in XML_CDATA_FIELD_PATTERN.findall(args_str):
-        tag = tag.strip()
-        cdata_tags.add(tag)
-        result[tag] = value  # CDATA 内容原样保留，不 strip
-
-    # 再提取普通 XML 子标签（跳过已由 CDATA 提取的）
-    for tag, value in XML_FIELD_PATTERN.findall(args_str):
-        tag = tag.strip()
-        if tag in cdata_tags:
-            continue
-        value = value.strip()
-
-        # 嵌套 <arguments> 标签：把多行内容拆成列表
-        if tag == "arguments":
-            items = [line.strip() for line in value.splitlines() if line.strip()]
-            result[tag] = items
+    for tag, value, is_cdata in fields:
+        if is_cdata:
+            result[tag] = value  # CDATA 内容原样保留
+        elif tag == "arguments":
+            # arguments 标签：检查是否包含 <item> 子标签
+            result[tag] = _parse_list_value(value)
         else:
-            result[tag] = _coerce_xml_value(value)
+            result[tag] = _coerce_xml_value(value.strip())
 
     return result if result else None
+
+
+def _parse_list_value(value: str) -> list:
+    """
+    解析列表类型的标签值。
+    - 如果包含 <item> 子标签，提取每个 <item> 的内容
+    - 如果是 JSON 数组字符串，直接解析
+    - 否则按行分割
+    """
+    # 检查是否有 <item> 子标签
+    item_pattern = re.compile(
+        r'<item>\s*<!\[CDATA\[(.*?)\]\]>\s*</item>|<item>(.*?)</item>',
+        re.DOTALL
+    )
+    item_matches = item_pattern.findall(value)
+    if item_matches:
+        items = []
+        for cdata_val, plain_val in item_matches:
+            v = cdata_val if cdata_val else plain_val.strip()
+            if v:
+                items.append(v)
+        return items
+
+    # 尝试 JSON 数组解析
+    stripped = value.strip()
+    if stripped.startswith('['):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 无 <item> 子标签，按行分割
+    return [line.strip() for line in value.splitlines() if line.strip()]
 
 
 def _fix_bare_placeholders(s: str) -> str:

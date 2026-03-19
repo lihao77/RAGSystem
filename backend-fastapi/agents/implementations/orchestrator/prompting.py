@@ -332,7 +332,7 @@ def build_system_prompt(agent) -> str:
 **用占位符传递上步数据**：
 <tools>
 <tool name="invoke_agent_chart_agent">
-  <task>生成折线图，数据：{result_1}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'</task>
+  <task>生成折线图，数据：{{result_1}}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'</task>
 </tool>
 </tools>
 
