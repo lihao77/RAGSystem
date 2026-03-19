@@ -804,8 +804,37 @@ onMounted(() => {
 .result-icon { flex-shrink: 0; font-weight: 700; }
 
 /* ── Buttons ──────────────────────────────────────── */
+
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    /* height: 40px; */
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, rgba(var(--color-brand-accent-rgb), 0.9), rgba(var(--color-brand-accent-light-rgb), 0.95));
+    color: #fff;
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.btn-primary:hover:not(:disabled) {
+    /* transform: translateY(-1px); */
+    box-shadow: 0 4px 14px rgba(var(--color-brand-accent-rgb), 0.35);
+}
+
+.btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .btn-secondary {
-  padding: 8px 16px;
+  padding: var(--spacing-sm) var(--spacing-md);
   border-radius: 8px;
   border: 1px solid var(--color-border);
   background: transparent;
