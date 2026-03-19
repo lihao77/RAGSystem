@@ -120,6 +120,10 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
 
             def _cleanup():
                 try:
+                    started.sse_adapter.stop()
+                except Exception:
+                    pass
+                try:
                     from services.execution_service import get_execution_service as _get_exec
                     _get_exec().cleanup_finished()
                 except Exception:
@@ -239,12 +243,16 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             )
             adapter.start()
 
-            queue: asyncio.Queue = asyncio.Queue()
-            loop = asyncio.get_event_loop()
+            def _reconnect_cleanup():
+                try:
+                    adapter.stop()
+                except Exception:
+                    pass
 
             async for sse_line in sync_to_async_sse(
                 sync_stream=adapter.stream_sync,
                 session_id=session_id,
+                cleanup_callback=_reconnect_cleanup,
             ):
                 yield sse_line
 

@@ -1364,6 +1364,8 @@ const refreshSessionExecutionDiagnostics = async (sessionId, { silent = true } =
     if (!resp.ok) return null;
     const result = await resp.json();
     const diagnostics = result.data?.diagnostics || null;
+    // 请求返回时 session 已切换，丢弃过期结果
+    if (currentSessionId.value !== sessionId) return null;
     sessionExecutionDiagnostics.value = diagnostics;
     if (diagnostics?.observability) {
       mergeExecutionObservability(diagnostics.observability);
@@ -1385,6 +1387,8 @@ const refreshSessionExecutionState = async (sessionId, { silent = true } = {}) =
     const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
     if (resp.ok) {
       const result = await resp.json();
+      // 请求返回时 session 已切换，丢弃过期结果
+      if (currentSessionId.value !== sessionId) return;
       if (result.data?.task_info) {
         sessionTaskInfo.value = result.data.task_info;
       }
@@ -2616,7 +2620,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
 
             // 用户输入请求：弹出遮罩输入对话框
             else if (eventType === 'user.input_required') {
-              const inputSessionId = currentSessionId.value;
+              const inputSessionId = sessionId;
 
               userInputDialogRef.value?.show(
                 eventData,

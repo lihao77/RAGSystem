@@ -218,9 +218,8 @@ class SSEAdapter:
         Yields:
             str: SSE格式的数据（"data: {...}\\n\\n"）
         """
-        self.start()
-
         try:
+            self.start()
             last_heartbeat = time.time()
 
             while not self._stopped:
@@ -267,9 +266,8 @@ class SSEAdapter:
         Yields:
             str: SSE格式的数据（"data: {...}\\n\\n"）
         """
-        self.start()
-
         try:
+            self.start()
             last_heartbeat = time.time()
 
             while not self._stopped:

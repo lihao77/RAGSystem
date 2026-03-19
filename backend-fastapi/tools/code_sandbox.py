@@ -24,6 +24,14 @@ import functools
 import statistics
 import logging
 import time as _time
+import string
+import decimal
+import operator
+import copy
+import textwrap
+import hashlib
+import base64
+import struct
 from pathlib import Path
 from typing import Dict, Any, Optional
 from contextlib import redirect_stdout
@@ -54,7 +62,17 @@ ALLOWED_MODULES = {
     'collections': collections,
     'itertools': itertools,
     'functools': functools,
-    'statistics': statistics
+    'statistics': statistics,
+    'time': _time,
+    'io': io,
+    'string': string,
+    'decimal': decimal,
+    'operator': operator,
+    'copy': copy,
+    'textwrap': textwrap,
+    'hashlib': hashlib,
+    'base64': base64,
+    'struct': struct,
 }
 
 # 允许导入的模块名集合（用于安全的 __import__）
@@ -67,19 +85,74 @@ ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
     '_json', 'json.decoder', 'json.encoder', 'json.scanner',
     'time', '_strptime',  # datetime 内部依赖
     '_csv',  # csv 内部依赖
+    # io 内部依赖
+    '_io', 'io',
+    # decimal 内部依赖
+    '_decimal', '_pydecimal', 'numbers',
+    # hashlib 内部依赖
+    '_hashlib', '_blake2', '_sha256', '_sha512', '_sha1', '_sha3', '_md5',
+    # base64 内部依赖
+    'binascii',
+    # copy 内部依赖
+    'copyreg', '_copy',
+    # struct 内部依赖
+    '_struct',
+    # operator 内部依赖
+    '_operator',
+    # textwrap 内部依赖
+    '_textwrap',
+    # string 内部依赖
+    '_string',
 }
 
-# 禁止的模式（静态检查）—— open( 已由 safe_open 替代，不再禁止
-FORBIDDEN_PATTERNS = [
-    'import os', 'from os',
-    'import sys', 'from sys',
-    'import subprocess', 'from subprocess',
-    'import shutil', 'from shutil',
-    'import socket', 'from socket',
-    '__import__', 'eval(', 'exec(', 'compile(',
-    'file(', 'globals(', 'locals(', 'getattr(', 'setattr(',
-    'delattr(', 'vars('
-]
+# 禁止导入的模块（AST 阶段检查）
+_FORBIDDEN_MODULES = {'os', 'sys', 'subprocess', 'shutil', 'socket'}
+
+# 禁止的调用模式（行级检查，跳过注释行）
+_FORBIDDEN_CALL_PATTERNS = ['__import__', 'eval(', 'exec(', 'globals(', 'locals(']
+
+# 禁止的独立函数调用（AST 阶段精确检查，不误杀 re.compile 等属性调用）
+_FORBIDDEN_BARE_CALLS = {'compile'}
+
+
+class SafePathOps:
+    """沙箱内安全路径操作，替代 os.path"""
+    join = staticmethod(os.path.join)
+    basename = staticmethod(os.path.basename)
+    dirname = staticmethod(os.path.dirname)
+    splitext = staticmethod(os.path.splitext)
+    exists = staticmethod(os.path.exists)
+    isfile = staticmethod(os.path.isfile)
+    isdir = staticmethod(os.path.isdir)
+    abspath = staticmethod(os.path.abspath)
+    normpath = staticmethod(os.path.normpath)
+
+
+_safe_path_ops = SafePathOps()
+
+
+def _ensure_serializable(value):
+    """将沙箱结果转换为 JSON 可序列化的类型"""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, set):
+        return [_ensure_serializable(v) for v in value]
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _ensure_serializable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_ensure_serializable(v) for v in value]
+    # 尝试 JSON 序列化，失败则 str()
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _extract_import_code_snippet(code: str, module_name: str, context_lines: int = 2) -> str:
@@ -214,11 +287,8 @@ def _make_safe_open(event_bus, approval_granted: list):
     """
     def safe_open(path, mode='r', encoding=None, **kwargs):
         resolved = _resolve_sandbox_path(str(path))
-        is_write = mode.replace('t', '').replace('b', '').replace('+', '') in ('w', 'a', 'x') \
-                   or '+' in mode and 'r' not in mode
-        # 更简单可靠的写模式判断
         normalized = mode.replace('t', '')
-        is_write = any(c in normalized for c in ('w', 'a', 'x')) or ('+' in normalized)
+        is_write = normalized in _WRITE_MODES
 
         if is_write:
             if not approval_granted[0]:
@@ -347,7 +417,10 @@ def _make_call_tool_function(agent_config, event_bus, user_role, session_id: Opt
 
 def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
     """
-    静态代码检查（检测禁止的模式）
+    静态代码检查（两阶段）
+
+    阶段1：AST 解析，精确检查 import/from...import 中的禁止模块
+    阶段2：逐行检查危险调用模式（跳过注释行）
 
     Args:
         code: 待检查的代码
@@ -355,16 +428,55 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
     Returns:
         (是否通过, 错误消息)
     """
-    for pattern in FORBIDDEN_PATTERNS:
-        if pattern in code:
-            return False, f"禁止使用: {pattern}"
+    import ast
+
+    # 阶段1：AST 检查禁止的 import + 禁止的独立函数调用
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split('.')[0]
+                    if root in _FORBIDDEN_MODULES:
+                        return False, f"禁止导入模块: {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root = node.module.split('.')[0]
+                    if root in _FORBIDDEN_MODULES:
+                        return False, f"禁止导入模块: {node.module}"
+            elif isinstance(node, ast.Call):
+                # 拦截独立的 compile() 调用，但放行 re.compile() 等属性调用
+                func = node.func
+                if isinstance(func, ast.Name) and func.id in _FORBIDDEN_BARE_CALLS:
+                    return False, f"禁止使用: {func.id}()"
+    except SyntaxError:
+        # AST 解析失败时回退到行级检查 import
+        for line in code.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                continue
+            for mod in _FORBIDDEN_MODULES:
+                if f'import {mod}' in stripped or f'from {mod}' in stripped:
+                    return False, f"禁止导入模块: {mod}"
+
+    # 阶段2：逐行检查危险调用模式（跳过注释行）
+    for line in code.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            continue
+        for pattern in _FORBIDDEN_CALL_PATTERNS:
+            if pattern in stripped:
+                return False, f"禁止使用: {pattern}"
 
     return True, None
 
 
 def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_capture: io.StringIO) -> tuple[bool, Optional[str]]:
     """
-    在超时限制下执行代码（Windows 兼容）
+    在超时限制下执行代码（Windows 兼容，感知审批暂停）
+
+    优先复用外层 dispatcher 传入的 PausableTimer，使沙箱内 call_tool 触发审批时
+    pause_current/resume_current 能同时暂停外层超时计时，避免审批等待被算入超时。
 
     Args:
         code: 待执行的代码
@@ -375,9 +487,15 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
     Returns:
         (是否成功, 错误消息)
     """
+    from utils.timeout_pause import PausableTimer, set_current_timer, get_current_timer
+
     result = {'success': False, 'error': None}
+    # 优先复用外层 dispatcher 的 timer，使审批暂停能传播到外层超时
+    timer = get_current_timer() or PausableTimer()
 
     def target():
+        # 绑定 timer 到执行线程，使审批流程中的 pause_current/resume_current 生效
+        set_current_timer(timer)
         try:
             with redirect_stdout(stdout_capture):
                 exec(code, globals_dict)
@@ -387,11 +505,18 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
 
     thread = threading.Thread(target=target)
     thread.daemon = True
+    start = _time.monotonic()
+    paused_at_start = timer.paused_duration
     thread.start()
-    thread.join(timeout)
 
-    if thread.is_alive():
-        return False, f"代码执行超时（超过 {timeout} 秒）"
+    # 轮询等待，扣除暂停时长后判断是否超时
+    while thread.is_alive():
+        thread.join(timeout=1.0)
+        if not thread.is_alive():
+            break
+        elapsed = _time.monotonic() - start - (timer.paused_duration - paused_at_start)
+        if elapsed >= timeout:
+            return False, f"代码执行超时（超过 {timeout} 秒）"
 
     if not result['success']:
         return False, result['error']
@@ -584,6 +709,11 @@ def execute_code_sandbox(
             'isinstance': isinstance,
             'issubclass': issubclass,
             'hasattr': hasattr,
+            'callable': callable,
+            'ascii': ascii,
+            'getattr': getattr,
+            'setattr': setattr,
+            'delattr': delattr,
             'id': id,
             'hash': hash,
             'repr': repr,
@@ -648,6 +778,7 @@ def execute_code_sandbox(
         'open': safe_open_func,                              # 替代内置 open，限制在沙箱目录内
         'request_write_approval': request_write_approval_func,  # 写操作前请求审批
         'SANDBOX_DIR': str(SANDBOX_ROOT),                    # 沙箱目录路径（供代码参考）
+        'path_ops': _safe_path_ops,                            # 安全路径操作（替代 os.path）
     }
 
     # 3. 捕获标准输出
@@ -665,7 +796,7 @@ def execute_code_sandbox(
         if 'result' not in globals_dict:
             return error_result("代码必须设置 result 变量作为输出", tool_name="execute_code")
 
-        result_value = globals_dict['result']
+        result_value = _ensure_serializable(globals_dict['result'])
         stdout_text = stdout_capture.getvalue()
 
         logger.info(f"代码执行成功，工具调用次数: {tool_calls_count[0]}")
