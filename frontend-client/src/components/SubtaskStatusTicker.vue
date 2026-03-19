@@ -18,7 +18,7 @@
 
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="intent" class="ticker-item active">
-             <span class="agent-badge">Orchestrator Agent</span>
+             <span class="agent-badge">编排器</span>
              <span class="action-text">正在生成意图</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
@@ -27,7 +27,10 @@
 
            <!-- 最近完成的任务（仅 running=false 时显示，即任务真正结束后） -->
            <div v-else-if="lastCompletedTask" key="last" class="ticker-item completed">
-             <span class="agent-badge success">✓ {{ lastCompletedTask.agent_display_name }}</span>
+             <span class="agent-badge success">
+               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+               {{ lastCompletedTask.agent_display_name }}
+             </span>
              <span class="action-text">任务已完成</span>
            </div>
 
@@ -108,7 +111,7 @@ const currentActivity = computed(() => {
       const activeTool = step.toolCalls.find(t => t.status === 'running');
       if (activeTool) {
         return {
-          agent_display_name: 'Orchestrator Agent',
+          agent_display_name: '编排器',
           description: null,
           tool_name: activeTool.tool_name
         };
@@ -134,7 +137,7 @@ const lastCompletedTask = computed(() => {
       const lastTool = step.toolCalls[step.toolCalls.length - 1];
       if (lastTool.status === 'success') {
         return {
-          agent_display_name: 'Orchestrator Agent',
+          agent_display_name: '编排器',
           description: lastTool.tool_name,
           status: 'success'
         };
@@ -143,7 +146,7 @@ const lastCompletedTask = computed(() => {
   }
   // 兜底：任务已结束（running=false）且有 orchestrator steps（纯推理直接回答的情况）
   if (!props.running && executionSteps.length > 0) {
-    return { agent_display_name: 'Orchestrator Agent', status: 'success' };
+    return { agent_display_name: '编排器', status: 'success' };
   }
   return null;
 });
@@ -220,6 +223,7 @@ const progressPercentage = computed(() => {
   gap: 10px;
   white-space: nowrap;
   width: 100%;
+  min-width: 0;
 }
 
 .agent-badge {
@@ -230,6 +234,10 @@ const progressPercentage = computed(() => {
   border-radius: 4px;
   font-weight: 600;
   border: 1px solid rgba(var(--color-brand-accent-light-rgb), 0.2);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .agent-badge.success {
@@ -244,12 +252,18 @@ const progressPercentage = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tool-name {
     color: var(--color-warning);
     font-family: var(--font-mono);
     font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
 }
 
 .loading-dots {

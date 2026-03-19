@@ -68,11 +68,24 @@ const unreadCount = ref(0);
 
 const renderContent = (content) => {
   if (!content) return '';
-  // 简化渲染：将 [viz:xxx] 替换为可点击链接文字
+  // [viz:xxx] 替换为可点击链接文字
   const vizRe = /\[viz:(viz_\w+)\]/g;
   let rendered = content.replace(vizRe, '<span class="viz-link">[ 地图可视化 ]</span>');
-  // 基本 markdown 处理
+  // 代码块（```...```）
+  rendered = rendered.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$2</code></pre>');
+  // 行内代码
+  rendered = rendered.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
+  // 标题 (### / ## / #)
+  rendered = rendered.replace(/^### (.+)$/gm, '<div class="chat-h3">$1</div>');
+  rendered = rendered.replace(/^## (.+)$/gm, '<div class="chat-h2">$1</div>');
+  rendered = rendered.replace(/^# (.+)$/gm, '<div class="chat-h1">$1</div>');
+  // 粗体
   rendered = rendered.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // 无序列表
+  rendered = rendered.replace(/^[-*] (.+)$/gm, '<div class="chat-list-item">· $1</div>');
+  // 有序列表
+  rendered = rendered.replace(/^(\d+)\. (.+)$/gm, '<div class="chat-list-item">$1. $2</div>');
+  // 换行
   rendered = rendered.replace(/\n/g, '<br/>');
   return rendered;
 };
@@ -271,6 +284,38 @@ watch(isCollapsed, (val) => {
 
 .msg-content {
   word-break: break-word;
+}
+
+:deep(.chat-code-block) {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+:deep(.chat-code-block code) {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:deep(.chat-inline-code) {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+}
+
+:deep(.chat-h1) { font-size: 1rem; font-weight: 700; margin: 6px 0 4px; }
+:deep(.chat-h2) { font-size: 0.92rem; font-weight: 700; margin: 5px 0 3px; }
+:deep(.chat-h3) { font-size: 0.86rem; font-weight: 600; margin: 4px 0 2px; }
+
+:deep(.chat-list-item) {
+  padding-left: 4px;
+  line-height: 1.6;
 }
 
 :deep(.viz-link) {

@@ -248,6 +248,11 @@
                         />
                       </div>
                     </template>
+                    <!-- 停止生成标记 -->
+                    <div v-if="msg.stopped" class="stopped-badge">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                      <span>已停止生成</span>
+                    </div>
                   </template>
 
                   <!-- User Message -->
@@ -2121,7 +2126,7 @@ const handleStop = async () => {
   // 标记当前助手消息已完成
   const lastMsg = messages.value[messages.value.length - 1];
   if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.finished) {
-    lastMsg.content += '\n\n[已停止生成]';
+    lastMsg.stopped = true;
     lastMsg.finished = true;
   }
 
@@ -3209,6 +3214,25 @@ onUnmounted(() => {
     width: 40px;
     height: 40px;
   }
+}
+
+.stopped-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--spacing-sm);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));
+  color: var(--color-warning, #faad14);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid rgba(250, 173, 20, 0.2);
+  width: fit-content;
+}
+
+.stopped-badge svg {
+  flex-shrink: 0;
 }
 
 

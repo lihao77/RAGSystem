@@ -3,7 +3,7 @@
     <div v-if="loading" class="viz-skeleton">
       <div class="skeleton-bar"></div>
       <div class="skeleton-body">
-        <div class="skeleton-line" v-for="n in 4" :key="n"></div>
+        <div class="skeleton-map-placeholder"></div>
       </div>
     </div>
     <div v-else-if="error" class="viz-error">
@@ -32,8 +32,24 @@
         @enter-situation="$emit('enter-situation', { artifactId: props.artifactId, mapData: vizData.config, vizData })"
       />
       <div v-else-if="vizData.viz_type === 'image'" class="fallback-image-wrapper">
-        <img :src="imageUrl" :alt="vizData.title" class="fallback-image" />
-        <div class="image-caption" v-if="vizData.title">{{ vizData.title }}</div>
+        <img
+          :src="imageUrl"
+          :alt="vizData.title"
+          class="fallback-image"
+          loading="lazy"
+          @error="imageError = true"
+        />
+        <div v-if="imageError" class="viz-error" style="margin-top: 0.5rem;">
+          <span class="error-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="15" x2="15" y2="9"></line>
+            </svg>
+          </span>
+          <span class="error-text">图片加载失败</span>
+        </div>
+        <div class="image-caption" v-if="vizData.title && !imageError">{{ vizData.title }}</div>
       </div>
     </template>
   </div>
@@ -56,6 +72,7 @@ defineEmits(['enter-situation']);
 const loading = ref(true);
 const error = ref(null);
 const vizData = ref(null);
+const imageError = ref(false);
 
 const imageUrl = computed(() => {
   if (!vizData.value) return '';
@@ -73,14 +90,19 @@ const imageUrl = computed(() => {
 async function fetchConfig() {
   loading.value = true;
   error.value = null;
+  imageError.value = false;
   try {
     const resp = await fetch(`/api/artifacts/visualizations/${encodeURIComponent(props.artifactId)}`);
     if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      if (resp.status === 404) throw new Error('可视化内容不存在或已过期');
+      if (resp.status >= 500) throw new Error('服务器暂时不可用，请稍后重试');
+      throw new Error(`请求失败 (${resp.status})`);
     }
     vizData.value = await resp.json();
   } catch (e) {
-    error.value = `加载可视化失败: ${e.message}`;
+    error.value = e.message.startsWith('可视化') || e.message.startsWith('服务器') || e.message.startsWith('请求失败')
+      ? e.message
+      : '加载可视化失败，请检查网络连接';
   } finally {
     loading.value = false;
   }
@@ -116,17 +138,12 @@ onMounted(fetchConfig);
   gap: 0.5rem;
 }
 
-.skeleton-line {
-  height: 12px;
-  border-radius: 4px;
+.skeleton-map-placeholder {
+  height: 260px;
+  border-radius: 8px;
   background: var(--skeleton-bg, #e4e4e7);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
-
-.skeleton-line:nth-child(1) { width: 90%; }
-.skeleton-line:nth-child(2) { width: 75%; }
-.skeleton-line:nth-child(3) { width: 85%; }
-.skeleton-line:nth-child(4) { width: 60%; }
 
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 1; }

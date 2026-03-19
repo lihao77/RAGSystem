@@ -676,30 +676,31 @@ const renderRiskMap = () => {
     const m = L.marker([marker.lat, marker.lng], { icon })
       .addTo(mapInstance.value);
 
-    // 构建弹出框
-    const assessment = marker.assessment || '';
+    // 构建弹出框（所有用户数据经 escapeHtml 转义防 XSS）
+    const safeName = escapeHtml(marker.name);
+    const safeAssessment = escapeHtml(marker.assessment || '');
     const factors = marker.risk_factors || [];
     let popupHtml = `<div class="marker-popup risk-popup">`;
-    popupHtml += `<strong>${marker.name}</strong>`;
+    popupHtml += `<strong>${safeName}</strong>`;
     popupHtml += `<span class="risk-badge" style="background:${color};color:#fff;padding:2px 8px;border-radius:10px;margin-left:6px;font-size:0.75rem;">${riskLevel}级</span><br/>`;
-    if (assessment) popupHtml += `<div style="margin:4px 0;font-size:0.85rem;">${assessment}</div>`;
+    if (safeAssessment) popupHtml += `<div style="margin:4px 0;font-size:0.85rem;">${safeAssessment}</div>`;
     if (factors.length) {
       popupHtml += `<div style="margin-top:4px;font-size:0.8rem;color:#666;">`;
-      factors.forEach(f => { popupHtml += `<div>· ${f}</div>`; });
+      factors.forEach(f => { popupHtml += `<div>· ${escapeHtml(f)}</div>`; });
       popupHtml += `</div>`;
     }
-    popupHtml += `<div style="margin-top:6px;"><button class="risk-analyze-btn" data-location="${marker.name}" style="background:${color};color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">深入分析</button></div>`;
+    popupHtml += `<div style="margin-top:6px;"><button class="risk-analyze-btn" data-location="${safeName}" style="background:${color};color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">深入分析</button></div>`;
     popupHtml += `</div>`;
     m.bindPopup(popupHtml);
 
-    // 绑定点击事件
+    // 绑定点击事件（用 popup DOM 内查找，避免全局 querySelector 匹配错误）
     m.on('popupopen', () => {
-      setTimeout(() => {
-        const btn = document.querySelector('.risk-analyze-btn[data-location="' + marker.name + '"]');
-        if (btn) {
-          btn.onclick = () => emit('analyze-location', marker.name);
-        }
-      }, 50);
+      const popup = m.getPopup();
+      const container = popup?.getElement();
+      const btn = container?.querySelector('.risk-analyze-btn');
+      if (btn) {
+        btn.onclick = () => emit('analyze-location', marker.name);
+      }
     });
 
     currentLayers.value.push(m);
