@@ -127,10 +127,18 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 ```xml
 <intent>思考过程</intent>
 <tools>
-  <tool name="tool_name">{"param": "value"}</tool>
+  <tool name="tool_name">
+    <param>value</param>
+    <code><![CDATA[多行代码或含 < > & 的内容]]></code>
+  </tool>
 </tools>
 <final_answer>最终答案，可含 [viz:artifact_id] 占位符</final_answer>
 ```
+
+参数传递采用 XML 子标签格式（推荐），JSON 格式作为兼容 fallback 仍可使用：
+- XML 子标签：`<param>value</param>`，多行/特殊字符用 CDATA 包裹
+- JSON（兼容）：`<tool name="xxx">{"param": "value"}</tool>`
+- 类型推断：`"true"`/`"false"` → bool，纯数字 → int/float，`[...]`/`{...}` → JSON 解析
 
 ### 事件类型（EventType 枚举）
 

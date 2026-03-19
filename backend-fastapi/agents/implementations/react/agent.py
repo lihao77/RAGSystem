@@ -44,7 +44,17 @@ def _format_tool_contract(tool: Dict[str, Any]) -> List[str]:
     if examples:
         lines.append("**示例**:")
         for example in examples:
-            lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False, indent=2)}\n  ```")
+            # 渲染为 XML 子标签格式
+            xml_parts = []
+            for k, v in example.items():
+                if isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
+                    xml_parts.append(f"  <{k}><![CDATA[{v}]]></{k}>")
+                elif isinstance(v, str):
+                    xml_parts.append(f"  <{k}>{v}</{k}>")
+                else:
+                    xml_parts.append(f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>")
+            xml_block = "\n".join(xml_parts)
+            lines.append(f"  ```xml\n  <tool name=\"...\">\n{xml_block}\n  </tool>\n  ```")
 
     return lines
 
@@ -272,12 +282,12 @@ text = call_tool('read_file', {{
         example_tool_name = self.available_tools[0]['function']['name'] if self.available_tools else "tool_name"
         example_params = self.available_tools[0]['function'].get('parameters', {}).get('properties', {})
 
-        # 构造示例参数
+        # 构造示例参数（XML 子标签格式）
         if example_params:
             first_param = list(example_params.keys())[0]
-            example_arg_json = json.dumps({first_param: "示例值"}, ensure_ascii=False)
+            example_arg_xml = f"  <{first_param}>示例值</{first_param}>"
         else:
-            example_arg_json = "{}"
+            example_arg_xml = ""
 
         return f"""{self.base_prompt}
 
@@ -313,12 +323,16 @@ text = call_tool('read_file', {{
 
 调用工具：
 <tools>
-<tool name="工具名">{{"参数": "值"}}</tool>
+<tool name="{example_tool_name}">
+{example_arg_xml}
+</tool>
 </tools>
 
 向用户追问缺失信息：
 <tools>
-<tool name="request_user_input">{{"prompt": "请提供需要的关键信息"}}</tool>
+<tool name="request_user_input">
+  <prompt>请提供需要的关键信息</prompt>
+</tool>
 </tools>
 
 给出最终答案：
@@ -329,6 +343,11 @@ text = call_tool('read_file', {{
 如需补充一段简短意图（可选，建议 1-2 句自然语言，像人在心里做下一步判断，不要展开冗长推理）：
 <intent>我先激活这个技能，再根据主文件判断是否需要加载额外资源。</intent>
 <tools>...</tools>
+
+**参数格式说明**：
+- 每个参数用 XML 子标签传递：`<参数名>值</参数名>`
+- 多行文本或含 `<` `>` `&` 的参数值用 CDATA 包裹：`<code><![CDATA[内容]]></code>`
+- JSON 格式参数也兼容，但推荐使用 XML 子标签
 
 **规则：**
 1. 只能使用“可用工具”中列出的工具

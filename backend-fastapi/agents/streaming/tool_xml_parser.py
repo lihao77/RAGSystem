@@ -1,14 +1,23 @@
 """
 parse_tools_xml - 解析 <tools> 标签内容为 actions 列表。
 
-输入格式:
+主格式（XML 子标签）:
+    <tool name="read_document">
+      <file_path>report.pdf</file_path>
+    </tool>
+    <tool name="execute_code">
+      <code><![CDATA[import os
+print("<hello>")]]></code>
+      <description>运行示例</description>
+    </tool>
+
+兼容格式（JSON，自动 fallback）:
     <tool name="read_document">{"file_path":"report.pdf"}</tool>
-    <tool name="create_chart">{"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}</tool>
 
 输出格式（与现有 JSON actions 完全一致）:
     [
         {"tool": "read_document", "arguments": {"file_path": "report.pdf"}},
-        {"tool": "create_chart", "arguments": {"data":"[{\"x\":1,\"y\":2}]","chart_type":"bar","x_field":"x","y_field":"y"}}
+        {"tool": "execute_code", "arguments": {"code": "import os\nprint(\"<hello>\")", "description": "运行示例"}}
     ]
 """
 
@@ -38,7 +47,19 @@ XML_FIELD_PATTERN = re.compile(
     re.DOTALL
 )
 
+# 匹配 <variable key="xxx">value</variable> 格式（部分 LLM 输出此格式）
+VARIABLE_KEY_PATTERN = re.compile(
+    r'<variable\s+key\s*=\s*"([^"]+)"\s*>(.*?)</variable>',
+    re.DOTALL
+)
+
 CDATA_PATTERN = re.compile(r'^\s*<!\[CDATA\[(.*)\]\]>\s*$', re.DOTALL)
+
+# 匹配 XML 子标签中 CDATA 包裹的字段：<code><![CDATA[...]]></code>
+XML_CDATA_FIELD_PATTERN = re.compile(
+    r'<([^/>\s][^>\s]*)>\s*<!\[CDATA\[(.*?)\]\]>\s*</\1>',
+    re.DOTALL
+)
 
 # 匹配 JSON 值位置的裸占位符：{result_1} 或 {result_1.content.layers}
 # 仅匹配不在引号内、作为 JSON 值出现的占位符
@@ -88,35 +109,93 @@ def _extract_json_object(s: str) -> Optional[str]:
     return None
 
 
+def _coerce_xml_value(value: str) -> Any:
+    """
+    对 XML 子标签提取的字符串值做类型推断。
+    - "true"/"false" → bool
+    - "null"/"none" → None
+    - 纯数字 → int/float
+    - "[...]" 或 "{...}" → 尝试 json.loads
+    - 其余 → 保持字符串
+    """
+    lower = value.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    if lower in ("null", "none"):
+        return None
+
+    # 尝试 int
+    try:
+        return int(value)
+    except ValueError:
+        pass
+
+    # 尝试 float
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # 尝试 JSON 数组/对象
+    if value.startswith(('[', '{')):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return value
+
+
 def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
     """
     尝试将 XML 格式的参数体解析为字典。
-    处理形如：
-        <skill_name>kg-advanced-query</skill_name>
-        <script_name>query.py</script_name>
-        <arguments>
-        --cypher
-        MATCH ...
-        --params
-        {"name": "x"}
-        </arguments>
-    其中嵌套的 <arguments> 标签内容解析为字符串列表（按行分割，过滤空行）。
-    """
-    fields = XML_FIELD_PATTERN.findall(args_str)
-    if not fields:
-        return None
 
+    解析优先级：
+    1. <variable key="xxx">value</variable> 格式（部分 LLM 输出）
+    2. CDATA 包裹的字段：<code><![CDATA[...]]></code>（保持原样，不做类型推断）
+    3. 普通 XML 子标签：<param>value</param>（对值做类型推断）
+
+    其中 <arguments> 标签内容解析为字符串列表（按行分割，过滤空行）。
+    """
+    # 优先尝试 <variable key="xxx"> 格式
+    var_fields = VARIABLE_KEY_PATTERN.findall(args_str)
+    if var_fields:
+        result = {}
+        for key, value in var_fields:
+            key = key.strip()
+            value = value.strip()
+            if key == "arguments":
+                items = [line.strip() for line in value.splitlines() if line.strip()]
+                result[key] = items
+            else:
+                result[key] = _coerce_xml_value(value)
+        if result:
+            logger.debug("参数使用 <variable key> 格式解析成功")
+            return result
+
+    # 先提取 CDATA 包裹的字段（代码等，保持原样不做类型推断）
     result = {}
-    for tag, value in fields:
-        value = value.strip()
+    cdata_tags = set()
+    for tag, value in XML_CDATA_FIELD_PATTERN.findall(args_str):
         tag = tag.strip()
+        cdata_tags.add(tag)
+        result[tag] = value  # CDATA 内容原样保留，不 strip
+
+    # 再提取普通 XML 子标签（跳过已由 CDATA 提取的）
+    for tag, value in XML_FIELD_PATTERN.findall(args_str):
+        tag = tag.strip()
+        if tag in cdata_tags:
+            continue
+        value = value.strip()
 
         # 嵌套 <arguments> 标签：把多行内容拆成列表
         if tag == "arguments":
             items = [line.strip() for line in value.splitlines() if line.strip()]
             result[tag] = items
         else:
-            result[tag] = value
+            result[tag] = _coerce_xml_value(value)
 
     return result if result else None
 
@@ -188,7 +267,14 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             actions.append({"tool": tool_name, "arguments": {}})
             continue
 
-        # 先尝试直接 JSON 解析
+        # ① XML 子标签优先（纯 JSON 不含 XML 标签，会返回 None，自然 fallback）
+        xml_arguments = _try_parse_xml_arguments(args_str)
+        if xml_arguments:
+            logger.debug(f"工具 '{tool_name}' 参数使用 XML 格式解析成功")
+            actions.append({"tool": tool_name, "arguments": xml_arguments})
+            continue
+
+        # ② JSON 直接解析
         try:
             arguments = json.loads(args_str)
             if not isinstance(arguments, dict):
@@ -198,7 +284,7 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         except json.JSONDecodeError:
             pass
 
-        # JSON 解析失败：尝试修复裸占位符后再解析
+        # ③ JSON 修复：裸占位符
         placeholder_fixed = _fix_bare_placeholders(args_str)
         if placeholder_fixed != args_str:
             try:
@@ -211,7 +297,7 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             except json.JSONDecodeError:
                 pass
 
-        # JSON 解析失败：尝试修复反斜杠路径后再解析
+        # ④ JSON 修复：反斜杠路径
         fixed_str = _fix_backslash_paths(args_str)
         if fixed_str != args_str:
             try:
@@ -224,8 +310,7 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             except json.JSONDecodeError:
                 pass
 
-        # JSON 解析失败：args_str 可能混入了多余内容（残留标签等）
-        # 尝试从中提取第一个完整 JSON 对象
+        # ⑤ JSON 提取：从混杂内容中提取第一个完整 JSON 对象
         json_str = _extract_json_object(args_str)
         if json_str:
             try:
@@ -237,13 +322,6 @@ def parse_tools_xml(content: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                 continue
             except json.JSONDecodeError:
                 pass
-
-        # 尝试 XML 格式解析
-        xml_arguments = _try_parse_xml_arguments(args_str)
-        if xml_arguments:
-            logger.debug(f"工具 '{tool_name}' 参数使用 XML 格式解析成功")
-            actions.append({"tool": tool_name, "arguments": xml_arguments})
-            continue
 
         # 所有解析方式都失败，记录错误并跳过该工具调用
         errors.append(f"工具 '{tool_name}' 参数解析失败，原始内容: {args_str[:100]}")

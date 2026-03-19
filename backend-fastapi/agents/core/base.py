@@ -890,9 +890,9 @@ class BaseAgent(ABC):
         state['current_session'].append({
             "role": "user",
             "content": (
-                f"工具参数解析失败{parse_fail_hint}，请检查参数格式。"
-                "Windows 文件路径中的反斜杠 \\ 在 JSON 中需要转义为 \\\\，"
-                "或直接使用正斜杠 / 代替。请重新输出 <tools>。"
+                f"工具参数解析失败{parse_fail_hint}，请使用 XML 子标签格式传递参数，例如：\n"
+                "<tools>\n<tool name=\"工具名\">\n  <参数名>值</参数名>\n</tool>\n</tools>\n"
+                "多行文本或含特殊字符的参数值用 CDATA 包裹：<参数名><![CDATA[内容]]></参数名>"
             ) if llm_result.error else "请直接输出 <final_answer> 或 <tools>。"
         })
 

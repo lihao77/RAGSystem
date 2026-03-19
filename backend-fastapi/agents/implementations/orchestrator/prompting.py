@@ -44,7 +44,17 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
     if examples:
         lines.append("**示例**:")
         for example in examples:
-            lines.append(f"  ```json\n  {json.dumps(example, ensure_ascii=False, indent=2)}\n  ```")
+            # 渲染为 XML 子标签格式
+            xml_parts = []
+            for k, v in example.items():
+                if isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
+                    xml_parts.append(f"  <{k}><![CDATA[{v}]]></{k}>")
+                elif isinstance(v, str):
+                    xml_parts.append(f"  <{k}>{v}</{k}>")
+                else:
+                    xml_parts.append(f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>")
+            xml_block = "\n".join(xml_parts)
+            lines.append(f"  ```xml\n  <tool name=\"...\">\n{xml_block}\n  </tool>\n  ```")
 
     return lines
 
@@ -294,12 +304,16 @@ def build_system_prompt(agent) -> str:
 
 调用 Agent：
 <tools>
-<tool name="{example_tool_name}">{{"task": "查询2023年广西洪涝灾害受灾人口，需要分市统计"}}</tool>
+<tool name="{example_tool_name}">
+  <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>
+</tool>
 </tools>
 
 向用户追问缺失信息：
 <tools>
-<tool name="request_user_input">{{"prompt": "请补充缺少的关键信息"}}</tool>
+<tool name="request_user_input">
+  <prompt>请补充缺少的关键信息</prompt>
+</tool>
 </tools>
 
 给出最终答案：
@@ -317,7 +331,9 @@ def build_system_prompt(agent) -> str:
 
 **用占位符传递上步数据**：
 <tools>
-<tool name="invoke_agent_chart_agent">{{"task": "生成折线图，数据：{{result_1}}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'"}}</tool>
+<tool name="invoke_agent_chart_agent">
+  <task>生成折线图，数据：{result_1}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'</task>
+</tool>
 </tools>
 
 **规则：**
