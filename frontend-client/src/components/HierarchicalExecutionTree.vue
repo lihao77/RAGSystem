@@ -2,7 +2,6 @@
   <div class="execution-tree">
     <div class="tree-header">
       <span class="tree-title">
-        <span class="pulse-icon">🧠</span>
         <span>执行过程</span>
       </span>
     </div>
@@ -105,7 +104,7 @@ const executionTree = computed(() => {
     const node = {
       type: 'thought',
       agent: ORCHESTRATOR_AGENT_NAME,
-      agent_display_name: 'Orchestrator Agent',
+      agent_display_name: '编排器',
       round: round,
       intent: executionStep ? (executionStep.intent || executionStep.thinking || executionStep.thought || '') : '',
       children: []
@@ -212,15 +211,10 @@ const executionTree = computed(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   letter-spacing: -0.01em;
-}
-
-.pulse-icon {
-  font-size: 1.1rem;
-  opacity: 0.9;
 }
 
 .tree-container {

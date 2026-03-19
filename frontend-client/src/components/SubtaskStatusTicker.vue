@@ -213,6 +213,7 @@ const progressPercentage = computed(() => {
   overflow: hidden;
   position: relative;
   height: 100%;
+  min-height: 28px;
   display: flex;
   align-items: center;
 }

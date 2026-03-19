@@ -4,11 +4,20 @@
     <div v-if="node.type === 'thought'" class="node-thought" :class="{ running: isRunning }">
       <div class="thought-header" v-if="node.round">
         <span class="agent-badge" :class="getAgentClass(node.agent)">
+          <transition name="status-dot-fade">
+            <span v-if="isRunning" class="badge-status-dot running"></span>
+          </transition>
           {{ node.agent_display_name || node.agent }}
         </span>
         <span class="round-badge">轮次 {{ node.round }}</span>
       </div>
-      <div class="thought-content">{{ node.intent || node.thought }}</div>
+      <div class="thought-content" v-if="node.intent || node.thought">{{ node.intent || node.thought }}</div>
+      <div class="thought-thinking" v-else-if="isRunning">
+        <span class="thinking-dot"></span>
+        <span class="thinking-dot"></span>
+        <span class="thinking-dot"></span>
+        <span class="thinking-label">思考中</span>
+      </div>
     </div>
 
     <!-- 智能体调用节点 -->
@@ -75,7 +84,7 @@
 
           <!-- 结果摘要 -->
           <div v-if="node.result_summary" class="result-summary">
-            <div class="section-header">📋 执行结果</div>
+            <div class="section-header">执行结果</div>
             <div class="result-content">{{ node.result_summary }}</div>
           </div>
         </div>
@@ -85,8 +94,11 @@
       <div class="agent-call-preview-wrap">
         <div class="agent-call-preview">
           <div class="description">{{ node.description }}</div>
-          <div v-if="node.result_summary" class="result-preview">
-            {{ node.result_summary }}
+          <div class="preview-meta" v-if="toolCallCount > 0 || node.result_summary">
+            <span v-if="toolCallCount > 0" class="tool-count-badge">{{ toolCallCount }} 个工具调用</span>
+            <span v-if="node.result_summary" class="result-preview">
+              {{ node.result_summary }}
+            </span>
           </div>
         </div>
       </div>
@@ -134,8 +146,8 @@
         </div>
       </div>
 
-      <transition name="slide-fade">
-        <div v-show="localExpanded" class="tool-details">
+      <div class="tool-details-wrap" :class="{ expanded: localExpanded }">
+        <div class="tool-details">
           <!-- request_user_input：专属问答展示 -->
           <template v-if="node.tool_name === 'request_user_input'">
             <div v-if="node.arguments && node.arguments.prompt" class="detail-block user-input-prompt-block">
@@ -199,7 +211,7 @@
             </div>
           </template>
         </div>
-      </transition>
+      </div>
     </div>
 
     <!-- 递归渲染子节点（仅用于 thought 节点） -->
@@ -272,6 +284,21 @@ const isRunning = computed(() => {
   return false;
 });
 
+// agent_call 节点下的工具调用总数（递归统计 children 中 tool_call 类型）
+const toolCallCount = computed(() => {
+  if (props.node.type !== 'agent_call') return 0;
+  let count = 0;
+  const walk = (children) => {
+    if (!children) return;
+    for (const child of children) {
+      if (child.type === 'tool_call') count++;
+      if (child.children) walk(child.children);
+    }
+  };
+  walk(props.node.children);
+  return count;
+});
+
 const getAgentClass = (agentName) => {
   if (!agentName) return '';
   if (agentName.includes('master')) return 'master';
@@ -302,9 +329,9 @@ const getStepLabel = (node) => {
 
 const getStatusText = (status) => {
   const statusMap = {
-    'running': '⏳ 执行中',
-    'success': '✅ 完成',
-    'error': '❌ 失败'
+    'running': '执行中',
+    'success': '完成',
+    'error': '失败'
   };
   return statusMap[status] || status;
 };
@@ -514,19 +541,51 @@ const formatResultContent = (value) => {
 
 /* 思考节点 */
 .node-thought {
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
   background: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  border-left: 3px solid var(--color-success);
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s ease;
   margin-bottom: var(--spacing-md);
-  will-change: background-color, border-color, box-shadow;
 }
 
 .node-thought.running {
   background: var(--color-bg-tertiary);
-  border-left-color: var(--color-warning);
-  box-shadow: -2px 0 20px var(--color-interactive-glow);
+}
+
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.thought-thinking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--spacing-sm);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  animation: dotFade 1.4s infinite ease-in-out both;
+}
+
+.thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+.thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+.thinking-dot:nth-child(3) { animation-delay: 0s; }
+
+.thinking-label {
+  margin-left: 4px;
+  font-style: italic;
+}
+
+@keyframes dotFade {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
 }
 
 .thought-header {
@@ -536,13 +595,43 @@ const formatResultContent = (value) => {
 }
 
 .agent-badge {
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   border: 1px solid var(--color-border);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.badge-status-dot.running {
+  background: var(--color-warning);
+  animation: dot-breathe 1.5s ease-in-out infinite;
+}
+
+.status-dot-fade-enter-active {
+  transition: opacity 0.3s ease, transform 0.3s ease, width 0.3s ease, margin-right 0.3s ease;
+}
+
+.status-dot-fade-leave-active {
+  transition: opacity 0.6s ease, transform 0.6s ease, width 0.6s ease, margin-right 0.6s ease;
+}
+
+.status-dot-fade-enter-from,
+.status-dot-fade-leave-to {
+  opacity: 0;
+  transform: scale(0);
+  width: 0 !important;
+  margin-right: -6px;
 }
 
 .agent-badge.master {
@@ -566,14 +655,13 @@ const formatResultContent = (value) => {
 }
 
 .round-badge {
-  padding: 3px 10px;
-  background: var(--color-interactive-subtle);
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md);
   font-size: 0.7rem;
-  font-weight: 700;
-  border: 1px solid var(--color-glass-border);
-  letter-spacing: 0.03em;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
 }
 
 .thought-content {
@@ -605,12 +693,10 @@ const formatResultContent = (value) => {
   align-items: center;
   gap: var(--spacing-md);
   transition: background-color 0.2s ease;
-  will-change: background-color;
   z-index: 10;
   position: relative;
-  /* padding-left: -4px; */
   overflow: visible;
-} 
+}
 
 .expand-icon {
   width: 16px;
@@ -620,7 +706,6 @@ const formatResultContent = (value) => {
   justify-content: center;
   color: var(--color-text-muted);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
   margin-left: -7px;
   overflow: visible;
 }
@@ -642,32 +727,59 @@ const formatResultContent = (value) => {
 }
 
 .status-badge {
-  font-size: 0.8rem;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .status-badge.running {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-  border-color: var(--color-warning);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+
+.status-badge.running::before {
+  background: var(--color-warning);
+  animation: status-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .status-badge.success {
-  background: var(--color-success-bg);
+  background: var(--color-bg-tertiary);
   color: var(--color-success);
-  border-color: var(--color-success);
+  border-color: var(--color-border);
+}
+
+.status-badge.success::before {
+  background: var(--color-success);
 }
 
 .status-badge.error {
-  background: var(--color-error-bg);
+  background: var(--color-bg-tertiary);
   color: var(--color-error);
-  border-color: var(--color-error);
+  border-color: var(--color-border);
+}
+
+.status-badge.error::before {
+  background: var(--color-error);
 }
 
 .ctx-ring {
@@ -719,7 +831,7 @@ const formatResultContent = (value) => {
 .agent-call-details {
   overflow: hidden;
   box-sizing: border-box;
-  border-left: 2px solid var(--color-border);
+  border-left: 1px dashed var(--color-border);
 }
 
 .agent-call-details > .children-container {
@@ -736,9 +848,30 @@ const formatResultContent = (value) => {
 .result-preview {
   font-size: 0.85rem;
   color: var(--color-text-muted);
-  padding-left: var(--spacing-lg);
-  border-left: 2px solid var(--color-border);
   line-height: 1.7;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.tool-count-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-interactive-subtle);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
 }
 
 /* 移动端优化 */
@@ -894,19 +1027,20 @@ const formatResultContent = (value) => {
 }
 
 .section-header {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin-bottom: var(--spacing-md);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .result-content {
   font-size: 0.85rem;
   color: var(--color-text-secondary);
   line-height: 1.8;
-  padding: var(--spacing-lg);
-  background: var(--color-success-bg);
-  border-left: 3px solid var(--color-success);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-tertiary);
   border-radius: var(--radius-md);
   white-space: pre-wrap;
   font-family: var(--font-mono);
@@ -986,12 +1120,6 @@ const formatResultContent = (value) => {
   overflow: visible;
   transition: background-color 0.2s ease;
   margin-bottom: var(--spacing-sm);
-  will-change: background-color;
-}
-
-.node-tool-call.running {
-  border: 1px solid var(--color-warning);
-  box-shadow: 0 0 0 1px var(--color-warning);
 }
 
 /* .node-tool-call.expanded {
@@ -1051,12 +1179,12 @@ const formatResultContent = (value) => {
 
 .node-tool-call.running .status-dot {
   background: var(--color-warning);
+  animation: dot-breathe 1.5s ease-in-out infinite;
 }
 
 .node-tool-call.running .status-ring {
   border-color: var(--color-warning);
-  border-top-color: transparent;
-  animation: spin 1s linear infinite;
+  animation: dot-breathe 1.5s ease-in-out infinite;
 }
 
 .tool-name {
@@ -1101,9 +1229,25 @@ const formatResultContent = (value) => {
 }
 
 .tool-details {
+  overflow: hidden;
+  box-sizing: border-box;
   border-top: 1px solid var(--color-border);
   background: var(--color-bg-app);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* grid 折叠动画：替代 max-height 方案 */
+.tool-details-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s ease;
+  opacity: 0;
+}
+
+.tool-details-wrap.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
 }
 
 .detail-block {
@@ -1167,7 +1311,7 @@ const formatResultContent = (value) => {
   gap: var(--spacing-sm);
   margin-top: var(--subtasks-padding);
   padding-left: var(--subtasks-padding);
-  border-left: 2px solid var(--color-border);
+  border-left: 1px dashed var(--color-border);
 }
 
 /* 动画 */
@@ -1182,27 +1326,7 @@ const formatResultContent = (value) => {
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-.slide-fade-enter-active,
-.slide-fade-leave-active {
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s ease;
-  max-height: 600px;
-  opacity: 1;
-  will-change: max-height, opacity;
-}
-
-.slide-fade-enter-from,
-.slide-fade-leave-to {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-}
 
 /* ── request_user_input 专属样式 ── */
 .user-input-tool .tool-status-indicator .status-dot {
