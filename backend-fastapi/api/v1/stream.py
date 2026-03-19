@@ -128,6 +128,11 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     _get_exec().cleanup_finished()
                 except Exception:
                     pass
+                try:
+                    from agents.events.session_manager import cleanup_session
+                    cleanup_session(session_id)
+                except Exception:
+                    pass
 
             async for sse_line in sync_to_async_sse(
                 sync_stream=started.sse_adapter.stream_sync,
@@ -259,6 +264,11 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             def _reconnect_cleanup():
                 try:
                     adapter.stop()
+                except Exception:
+                    pass
+                try:
+                    from agents.events.session_manager import cleanup_session
+                    cleanup_session(session_id)
                 except Exception:
                     pass
 

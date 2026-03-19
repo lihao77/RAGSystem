@@ -224,6 +224,20 @@ class RuntimeContainer:
 
     def shutdown(self) -> None:
         """统一关闭容器中已创建的运行时资源。"""
+        # 第一步：取消所有活跃任务，让 SSE 流正常结束
+        task_registry = self._instances.get('task_registry')
+        if task_registry is not None:
+            try:
+                active_tasks = task_registry.list_task_statuses(active_only=True)
+                for task_status in active_tasks:
+                    task_id = task_status.get('task_id')
+                    if task_id:
+                        task_registry.cancel_task(task_id)
+                if active_tasks:
+                    logger.info('已取消 %d 个活跃任务', len(active_tasks))
+            except Exception as error:
+                logger.warning('取消活跃任务失败: %s', error)
+
         session_manager = self._instances.get('session_manager')
         if session_manager is not None:
             try:

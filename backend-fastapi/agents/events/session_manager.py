@@ -143,8 +143,20 @@ class SessionEventBusManager:
         """
         with self._lock:
             if session_id in self._session_buses:
-                # 清理事件总线
                 event_bus = self._session_buses[session_id]
+
+                # 发送 SESSION_END 让 SSEAdapter.stream_sync 正常退出
+                try:
+                    from .bus import Event, EventType
+                    event_bus._publish_sync(Event(
+                        type=EventType.SESSION_END,
+                        data={'reason': 'session_removed'},
+                        session_id=session_id,
+                    ))
+                except Exception:
+                    pass
+
+                # 清理事件总线
                 event_bus.clear_history()
 
                 # 移除
