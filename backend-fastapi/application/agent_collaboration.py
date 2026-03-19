@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Optional
 
 from agents.recovery import CheckpointManager
+from agents.events.session_manager import cleanup_run
 from runtime.dependencies import get_runtime_dependency
 
 from .agent_session import AgentSessionApplication, get_agent_session_application
@@ -49,6 +51,7 @@ class AgentCollaborationApplication:
             session_id=session_id,
             user_id=body.get('user_id'),
             limit=0,
+            run_id=str(uuid.uuid4()),
         )
         for msg in checkpoint['messages']:
             context.add_message(
@@ -63,11 +66,16 @@ class AgentCollaborationApplication:
             raise ValueError('检查点中没有用户消息')
 
         task = user_messages[-1]['content']
-        response = self._runtime_service.get_orchestrator().execute(
-            task=task,
-            context=context,
-            agent_name=checkpoint['agent_name'],
-        )
+        run_id = context.metadata.get('run_id')
+        try:
+            response = self._runtime_service.create_execution_orchestrator().execute(
+                task=task,
+                context=context,
+                preferred_agent=checkpoint['agent_name'],
+            )
+        finally:
+            if run_id:
+                cleanup_run(run_id)
 
         if response.success and response.content:
             self._session_application.add_assistant_message(
@@ -108,8 +116,17 @@ class AgentCollaborationApplication:
         context = self._runtime_service.build_context(
             session_id=session_id,
             user_id=body.get('user_id'),
+            run_id=str(uuid.uuid4()),
         )
-        response = self._runtime_service.get_orchestrator().execute(task=prepared['task'], context=context)
+        run_id = context.metadata.get('run_id')
+        try:
+            response = self._runtime_service.create_execution_orchestrator().execute(
+                task=prepared['task'],
+                context=context,
+            )
+        finally:
+            if run_id:
+                cleanup_run(run_id)
 
         if response.success and response.content:
             self._session_application.add_assistant_message(

@@ -58,6 +58,10 @@ def get_execution_service():
     return _container().get_execution_service()
 
 
+def get_run_event_bus(run_id: str, session_id: str | None = None):
+    return _container().get_agent_api_runtime_service().get_run_event_bus(run_id, session_id=session_id)
+
+
 def get_session_event_bus(session_id: str):
     return _container().get_agent_api_runtime_service().get_session_event_bus(session_id)
 

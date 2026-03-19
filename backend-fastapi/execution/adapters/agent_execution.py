@@ -76,8 +76,6 @@ class AgentExecutionAdapter:
                 error_message='默认入口智能体未找到，请确认已正确加载',
             )
 
-        event_bus = session_manager.get_or_create(session_id)
-        context.metadata['event_bus'] = event_bus
         concurrency_key = f'session:{session_id}'
         task_id = registry.register_task(
             session_id=session_id,
@@ -96,6 +94,9 @@ class AgentExecutionAdapter:
                 request_id=request_id,
                 error_message='该会话正在执行任务，请等待完成或停止当前任务',
             )
+
+        event_bus = session_manager.get_or_create(run_id, session_id=session_id)
+        context.metadata['event_bus'] = event_bus
 
         context.metadata.update({
             'task_id': task_id,
@@ -121,7 +122,7 @@ class AgentExecutionAdapter:
             metrics_collector = getattr(orchestrator, '_metrics_collector', None)
             if metrics_collector:
                 metrics_subscription_id = metrics_collector.subscribe_to_events(event_bus)
-                logger.info('✓ MetricsCollector 已订阅会话 %s 的事件总线', session_id)
+                logger.info('✓ MetricsCollector 已订阅 run=%s session=%s 的事件总线', run_id, session_id)
 
             sse_adapter = SSEAdapter(
                 event_bus=event_bus,

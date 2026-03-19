@@ -139,23 +139,20 @@ class OrchestratorAgent(BaseAgent):
         run_id = context.metadata.get('run_id') or str(uuid.uuid4())
         parent_call_id = context.metadata.get('parent_call_id') if hasattr(context, 'metadata') else None
 
-        self._ensure_publisher(
+        publisher = self._ensure_publisher(
             context,
             event_bus=event_bus,
             call_id=orchestrator_call_id,
             parent_call_id=parent_call_id,
         )
 
-        self._current_call_id = orchestrator_call_id
-        self._parent_call_id = parent_call_id
-        self._current_task_id = orchestrator_call_id
-
-        self._publisher.run_start(run_id=run_id, metadata={"task": task})
-        self._publisher.agent_call_start(
-            call_id=orchestrator_call_id,
-            agent_name=self.name,
-            description=task,
-        )
+        if publisher:
+            publisher.run_start(run_id=run_id, metadata={"task": task})
+            publisher.agent_call_start(
+                call_id=orchestrator_call_id,
+                agent_name=self.name,
+                description=task,
+            )
         agent_metadata = {
             "agent_name": self.name,
             "display_name": "Orchestrator Agent",
@@ -164,11 +161,13 @@ class OrchestratorAgent(BaseAgent):
         }
         if self.max_rounds is not None:
             agent_metadata["max_rounds"] = self.max_rounds
-        self._publisher.agent_start(task, metadata=agent_metadata)
+        if publisher:
+            publisher.agent_start(task, metadata=agent_metadata)
 
         return {
             'start_time': start_time,
             'event_bus': event_bus,
+            'publisher': publisher,
             'call_id': orchestrator_call_id,
             'parent_call_id': parent_call_id,
             'run_id': run_id,
@@ -208,6 +207,7 @@ class OrchestratorAgent(BaseAgent):
         from .tool_router import route_user_input_request, route_agent_delegation, route_direct_tool
 
         event_bus = state.get('event_bus')
+        publisher = state.get('publisher')
         observations = []
         agent_results = {}
 
@@ -231,6 +231,7 @@ class OrchestratorAgent(BaseAgent):
                     action=action,
                     context=context,
                     event_bus=event_bus,
+                    publisher=publisher,
                     run_id=state['run_id'],
                     rounds=rounds,
                     idx=idx,
@@ -248,6 +249,7 @@ class OrchestratorAgent(BaseAgent):
                     action=action,
                     context=context,
                     event_bus=event_bus,
+                    publisher=publisher,
                     run_id=state['run_id'],
                     rounds=rounds,
                     idx=idx,
@@ -265,6 +267,7 @@ class OrchestratorAgent(BaseAgent):
                 action=action,
                 context=context,
                 event_bus=event_bus,
+                publisher=publisher,
                 run_id=state['run_id'],
                 rounds=rounds,
                 idx=idx,
@@ -280,12 +283,13 @@ class OrchestratorAgent(BaseAgent):
             "role": "user",
             "content": combined_observations,
         })
-        self._publisher.react_intermediate(
-            role="user",
-            content=state['current_session'][-1]["content"],
-            round=rounds,
-            msg_type="observation",
-        )
+        if publisher:
+            publisher.react_intermediate(
+                role="user",
+                content=state['current_session'][-1]["content"],
+                round=rounds,
+                msg_type="observation",
+            )
 
     def _handle_no_action(
         self,
@@ -296,17 +300,19 @@ class OrchestratorAgent(BaseAgent):
         log_prefix: str,
     ) -> None:
         del llm_result, context
+        publisher = state.get('publisher')
         self.logger.warning(f"{log_prefix} 既没有调用 Agent 也没有给出最终答案")
         state['current_session'].append({
             "role": "user",
             "content": "请直接输出 <final_answer> 或 <tools>。",
         })
-        self._publisher.react_intermediate(
-            role="user",
-            content=state['current_session'][-1]["content"],
-            round=rounds,
-            msg_type="observation",
-        )
+        if publisher:
+            publisher.react_intermediate(
+                role="user",
+                content=state['current_session'][-1]["content"],
+                round=rounds,
+                msg_type="observation",
+            )
 
     def _handle_llm_error(
         self,
@@ -316,20 +322,21 @@ class OrchestratorAgent(BaseAgent):
         start_time: float,
     ) -> AgentResponse:
         del context
+        publisher = state.get('publisher')
         call_id = state.get('call_id')
         run_id = state.get('run_id')
-        if self._publisher:
-            self._publisher.agent_error(error=error_message, error_type="LLMError")
+        if publisher:
+            publisher.agent_error(error=error_message, error_type="LLMError")
             if call_id:
-                self._publisher.agent_call_end(
+                publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
                     result=error_message,
                     success=False,
                 )
-            self._publisher.agent_end(error_message, execution_time=time.time() - start_time)
+            publisher.agent_end(error_message, execution_time=time.time() - start_time)
             if run_id:
-                self._publisher.run_end(
+                publisher.run_end(
                     run_id=run_id,
                     status="error",
                     summary=error_message,
@@ -350,20 +357,21 @@ class OrchestratorAgent(BaseAgent):
     ) -> AgentResponse:
         del context
 
+        publisher = state.get('publisher')
         call_id = state.get('call_id')
         run_id = state.get('run_id')
-        if self._publisher:
-            self._publisher.final_answer(final_answer)
+        if publisher:
+            publisher.final_answer(final_answer)
             if call_id:
-                self._publisher.agent_call_end(
+                publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
                     result=final_answer,
                     success=True,
                 )
-            self._publisher.agent_end(final_answer, execution_time=time.time() - start_time)
+            publisher.agent_end(final_answer, execution_time=time.time() - start_time)
             if run_id:
-                self._publisher.run_end(
+                publisher.run_end(
                     run_id=run_id,
                     status="success",
                     summary=f"任务完成，共 {state.get('rounds', 0)} 轮推理，{len(state.get('agent_calls_history', []))} 次Agent调用",
@@ -388,25 +396,26 @@ class OrchestratorAgent(BaseAgent):
         del context
         self.logger.warning(f"{self._log_prefix(None, 'Orchestrator')} 达到最大轮数 {self.max_rounds}")
         final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
+        publisher = state.get('publisher')
         call_id = state.get('call_id')
         run_id = state.get('run_id')
-        if self._publisher:
-            self._publisher.final_answer(final_content)
+        if publisher:
+            publisher.final_answer(final_content)
             if call_id:
-                self._publisher.agent_call_end(
+                publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
                     result=final_content,
                     success=False,
                 )
-            self._publisher.agent_end(final_content, execution_time=time.time() - start_time)
+            publisher.agent_end(final_content, execution_time=time.time() - start_time)
             if run_id:
-                self._publisher.run_end(
+                publisher.run_end(
                     run_id=run_id,
                     status="max_rounds",
                     summary=f"达到最大轮数 {self.max_rounds}",
                 )
-            self._publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
+            publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
         return AgentResponse(
             success=True,
             content=final_content,
@@ -427,20 +436,21 @@ class OrchestratorAgent(BaseAgent):
         start_time: float,
     ) -> AgentResponse:
         del context
+        publisher = state.get('publisher')
         self.logger.info(f"任务被用户中断: {error}")
         call_id = state.get('call_id')
         run_id = state.get('run_id')
-        if self._publisher:
+        if publisher:
             if call_id:
-                self._publisher.agent_call_end(
+                publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
                     result="[已停止生成]",
                     success=False,
                 )
-            self._publisher.agent_error(error=str(error), error_type="InterruptedError")
+            publisher.agent_error(error=str(error), error_type="InterruptedError")
             if run_id:
-                self._publisher.run_end(
+                publisher.run_end(
                     run_id=run_id,
                     status="interrupted",
                     summary="用户中断执行",
@@ -461,20 +471,21 @@ class OrchestratorAgent(BaseAgent):
         start_time: float,
     ) -> AgentResponse:
         del context
+        publisher = state.get('publisher')
         self.logger.error(f"执行任务失败: {error}", exc_info=True)
         call_id = state.get('call_id')
         run_id = state.get('run_id')
-        if self._publisher:
+        if publisher:
             if call_id:
-                self._publisher.agent_call_end(
+                publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
                     result=str(error),
                     success=False,
                 )
-            self._publisher.agent_error(error=str(error), error_type="ExecutionError")
+            publisher.agent_error(error=str(error), error_type="ExecutionError")
             if run_id:
-                self._publisher.run_end(
+                publisher.run_end(
                     run_id=run_id,
                     status="error",
                     summary=f"执行失败: {error}",
@@ -491,8 +502,7 @@ class OrchestratorAgent(BaseAgent):
         context: AgentContext,
         state: Dict[str, Any],
     ) -> None:
-        del context
-
+        del context, state
 
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         return True

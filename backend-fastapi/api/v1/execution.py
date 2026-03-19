@@ -31,28 +31,37 @@ async def execute(request: ExecuteRequest):
     try:
         from dependencies import get_agent_runtime_service
         from agents import AgentContext
+        from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.get_orchestrator()
+        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
-        context = AgentContext(session_id=session_id, user_id=request.user_id)
+        run_id = str(uuid.uuid4())
+        context = runtime.build_context(
+            session_id=session_id,
+            user_id=request.user_id,
+            limit=50,
+            run_id=run_id,
+        )
 
         await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
-        await asyncio.to_thread(_load_history, runtime, context, session_id, 50)
         await asyncio.to_thread(
             store.add_message,
             session_id=session_id, role='user', content=request.task,
             metadata={'agent': request.agent}
         )
 
-        response = await asyncio.to_thread(
-            orchestrator.execute,
-            task=request.task,
-            context=context,
-            preferred_agent=request.agent,
-        )
+        try:
+            response = await asyncio.to_thread(
+                orchestrator.execute,
+                task=request.task,
+                context=context,
+                preferred_agent=request.agent,
+            )
+        finally:
+            cleanup_run(run_id)
 
         if response.success:
             if response.content:
@@ -88,28 +97,37 @@ async def execute_specific_agent(agent_name: str, request: ExecuteRequest):
     try:
         from dependencies import get_agent_runtime_service
         from agents import AgentContext
+        from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.get_orchestrator()
+        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
-        context = AgentContext(session_id=session_id, user_id=request.user_id)
+        run_id = str(uuid.uuid4())
+        context = runtime.build_context(
+            session_id=session_id,
+            user_id=request.user_id,
+            limit=50,
+            run_id=run_id,
+        )
 
         await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
-        await asyncio.to_thread(_load_history, runtime, context, session_id, 50)
         await asyncio.to_thread(
             store.add_message,
             session_id=session_id, role='user', content=request.task,
             metadata={'agent': agent_name}
         )
 
-        response = await asyncio.to_thread(
-            orchestrator.execute,
-            task=request.task,
-            context=context,
-            preferred_agent=agent_name,
-        )
+        try:
+            response = await asyncio.to_thread(
+                orchestrator.execute,
+                task=request.task,
+                context=context,
+                preferred_agent=agent_name,
+            )
+        finally:
+            cleanup_run(run_id)
 
         if response.success:
             if response.content:
@@ -145,16 +163,22 @@ async def collaborate(request: CollaborateRequest):
     try:
         from dependencies import get_agent_runtime_service
         from agents import AgentContext
+        from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.get_orchestrator()
+        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
-        context = AgentContext(session_id=session_id, user_id=request.user_id)
+        run_id = str(uuid.uuid4())
+        context = runtime.build_context(
+            session_id=session_id,
+            user_id=request.user_id,
+            limit=50,
+            run_id=run_id,
+        )
 
         await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
-        await asyncio.to_thread(_load_history, runtime, context, session_id, 50)
 
         tasks_data = [t.model_dump() for t in request.tasks]
         for t in tasks_data:
@@ -166,12 +190,15 @@ async def collaborate(request: CollaborateRequest):
                     metadata={'agent': t.get('agent')}
                 )
 
-        results = await asyncio.to_thread(
-            orchestrator.collaborate,
-            tasks=tasks_data,
-            context=context,
-            mode=request.mode,
-        )
+        try:
+            results = await asyncio.to_thread(
+                orchestrator.collaborate,
+                tasks=tasks_data,
+                context=context,
+                mode=request.mode,
+            )
+        finally:
+            cleanup_run(run_id)
 
         results_data = [
             {

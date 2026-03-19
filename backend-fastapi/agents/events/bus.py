@@ -110,6 +110,9 @@ _global_seq_counter = itertools.count(1)
 CRITICAL_EVENT_TYPES = frozenset({
     EventType.RUN_START, EventType.RUN_END,
     EventType.AGENT_START, EventType.AGENT_END, EventType.AGENT_ERROR,
+    EventType.CALL_AGENT_START, EventType.CALL_AGENT_END,
+    EventType.CALL_TOOL_START, EventType.CALL_TOOL_END,
+    EventType.INTENT_COMPLETE,
     EventType.SESSION_END, EventType.USER_INTERRUPT,
     EventType.FINAL_ANSWER, EventType.MESSAGE_SAVED,
     EventType.USER_APPROVAL_REQUIRED, EventType.USER_INPUT_REQUIRED,

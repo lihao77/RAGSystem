@@ -21,6 +21,15 @@ from .bus import EventBus, Event, EventType, CRITICAL_EVENT_TYPES
 logger = logging.getLogger(__name__)
 
 
+def is_critical_event_type(event_type: str | EventType) -> bool:
+    """Accept both raw strings and EventType enums for backpressure protection."""
+    if event_type in CRITICAL_EVENT_TYPES:
+        return True
+    if isinstance(event_type, str):
+        return any(event_type == critical.value for critical in CRITICAL_EVENT_TYPES)
+    return False
+
+
 def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
     """Build a client-facing event payload while preserving tool result semantics."""
     payload = dict(data or {})
@@ -84,11 +93,20 @@ class SSEAdapter:
         self._dropped_count: int = 0
         self._last_seq: int = 0
 
+        # 重连去重：跳过 sequence_number <= 此值的事件（已通过历史回放发送）
+        self.skip_before_seq: int = 0
+        self.completed_normally: bool = False
+        self.terminal_event_type: Optional[str] = None
+
     def start(self):
         """开始监听事件"""
         if self._subscription_id:
             logger.warning(f"[SSEAdapter] 已经启动，跳过重复启动")
             return
+
+        self.completed_normally = False
+        self.terminal_event_type = None
+        self._stopped = False
 
         # 订阅所有事件类型
         self._subscription_id = self.event_bus.subscribe(
@@ -113,6 +131,19 @@ class SSEAdapter:
             pass
         logger.info(f"[SSEAdapter] 已停止 (session: {self.session_id})")
 
+    def _terminal_reason(self, event: Event) -> Optional[str]:
+        if event.type == EventType.USER_INTERRUPT:
+            return event.type.value
+        if event.type == EventType.RUN_END:
+            return event.type.value
+        if event.type == EventType.SESSION_END:
+            return event.type.value
+        if event.type == EventType.AGENT_START and self._primary_agent_name is None:
+            self._primary_agent_name = event.agent_name
+        if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
+            return event.type.value
+        return None
+
     def _filter_event(self, event: Event) -> bool:
         """
         事件过滤器：仅接收当前会话的事件
@@ -131,7 +162,7 @@ class SSEAdapter:
         """
         事件处理器（同步版本）- 分级写入：关键事件保证入队，非关键事件队满时丢弃。
         """
-        is_critical = event.type in CRITICAL_EVENT_TYPES
+        is_critical = is_critical_event_type(event.type)
 
         try:
             # 放入异步队列
@@ -172,7 +203,7 @@ class SSEAdapter:
         while not self._event_queue.empty():
             try:
                 item = self._event_queue.get_nowait()
-                if item.type in CRITICAL_EVENT_TYPES:
+                if is_critical_event_type(item.type):
                     temp.append(item)
                 else:
                     evicted += 1
@@ -196,7 +227,7 @@ class SSEAdapter:
         while not self._sync_event_queue.empty():
             try:
                 item = self._sync_event_queue.get_nowait()
-                if item.type in CRITICAL_EVENT_TYPES:
+                if is_critical_event_type(item.type):
                     temp.append(item)
                 else:
                     evicted += 1
@@ -230,6 +261,11 @@ class SSEAdapter:
                         timeout=1.0
                     )
 
+                    terminal_reason = self._terminal_reason(event)
+                    if terminal_reason:
+                        self.completed_normally = True
+                        self.terminal_event_type = terminal_reason
+
                     # 所有事件直接转发，无假流式处理
                     sse_data = self._format_sse(event)
                     yield sse_data
@@ -237,15 +273,8 @@ class SSEAdapter:
                     last_heartbeat = time.time()
                     self._last_seq = event.sequence_number
 
-                    # ✨ 检测结束事件，自动停止流
-                    # 优先级 0: 用户中断
-                    if event.type == EventType.USER_INTERRUPT:
-                        logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
-                        break
-
-            # 优先级 1: Run 结束 (Orchestrator V2)
-                    if event.type == EventType.RUN_END:
-                        logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
+                    if terminal_reason:
+                        logger.info(f"[SSEAdapter] 检测到终止事件 ({terminal_reason})，停止流式输出")
                         break
                     # 超时：发送心跳
                     now = time.time()
@@ -277,6 +306,15 @@ class SSEAdapter:
                     if event is None:  # 哨兵值，stop() 被调用
                         break
 
+                    # 重连去重：跳过已通过历史回放发送的事件
+                    if self.skip_before_seq and event.sequence_number <= self.skip_before_seq:
+                        continue
+
+                    terminal_reason = self._terminal_reason(event)
+                    if terminal_reason:
+                        self.completed_normally = True
+                        self.terminal_event_type = terminal_reason
+
                     # 所有事件直接转发，无假流式处理
                     sse_data = self._format_sse(event)
                     yield sse_data
@@ -284,28 +322,8 @@ class SSEAdapter:
                     last_heartbeat = time.time()
                     self._last_seq = event.sequence_number
 
-                    # ✨ 检测结束事件，自动停止流
-                    # 优先级 0: 用户中断
-                    if event.type == EventType.USER_INTERRUPT:
-                        logger.info(f"[SSEAdapter] 检测到用户中断事件，停止流式输出")
-                        break
-
-            # 优先级 1: Run 结束 (Orchestrator V2)
-                    if event.type == EventType.RUN_END:
-                        logger.info(f"[SSEAdapter] 检测到 Run 结束事件 ({event.type.value})，停止流式输出")
-                        break
-
-                    # 优先级 2: Session 结束 (通用)
-                    if event.type == EventType.SESSION_END:
-                        logger.info(f"[SSEAdapter] 检测到 Session 结束事件 ({event.type.value})，停止流式输出")
-                        break
-
-                    # 优先级 3: 主 Agent 结束 (兼容旧模式)
-                    if event.type == EventType.AGENT_START and self._primary_agent_name is None:
-                        self._primary_agent_name = event.agent_name
-
-                    if self._primary_agent_name and event.type == EventType.AGENT_END and event.agent_name == self._primary_agent_name:
-                        logger.info(f"[SSEAdapter] 检测到主 Agent 结束事件 ({event.type.value})，停止流式输出")
+                    if terminal_reason:
+                        logger.info(f"[SSEAdapter] 检测到终止事件 ({terminal_reason})，停止流式输出")
                         break
 
                 except Empty:

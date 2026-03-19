@@ -51,6 +51,7 @@ def route_user_input_request(
     action: Dict[str, Any],
     context: AgentContext,
     event_bus: EventBus,
+    publisher: EventPublisher | None,
     run_id: str,
     rounds: int,
     idx: int,
@@ -69,7 +70,7 @@ def route_user_input_request(
         event_bus=event_bus,
         session_id=context.session_id,
         tool_call_id=tool_call_id,
-        publisher=agent._publisher,
+        publisher=publisher,
         parent_call_id=orchestrator_call_id,
     )
 
@@ -97,6 +98,7 @@ def route_agent_delegation(
     action: Dict[str, Any],
     context: AgentContext,
     event_bus: EventBus,
+    publisher: EventPublisher | None,
     run_id: str,
     rounds: int,
     idx: int,
@@ -130,16 +132,17 @@ def route_agent_delegation(
     agent_display_name = agent._get_agent_display_name(agent_name)
 
     # 发布 AgentCall 开始事件
-    agent._publisher.agent_call_start(
-        call_id=call_id,
-        agent_name=agent_name,
-        description=agent_task,
-        parent_call_id=orchestrator_call_id,
-        order=global_agent_order,
-        round=rounds,
-        round_index=idx,
-        agent_display_name=agent_display_name,
-    )
+    if publisher:
+        publisher.agent_call_start(
+            call_id=call_id,
+            agent_name=agent_name,
+            description=agent_task,
+            parent_call_id=orchestrator_call_id,
+            order=global_agent_order,
+            round=rounds,
+            round_index=idx,
+            agent_display_name=agent_display_name,
+        )
 
     # 派生子上下文 (Context Forking)
     child_context = context.fork()
@@ -180,14 +183,15 @@ def route_agent_delegation(
     agent_succeeded = result_success(agent_result)
 
     # 发布 AgentCall 结束事件
-    agent._publisher.agent_call_end(
-        call_id=call_id,
-        agent_name=agent_name,
-        result=result_display_text(agent_result),
-        success=agent_succeeded,
-        parent_call_id=orchestrator_call_id,
-        order=global_agent_order
-    )
+    if publisher:
+        publisher.agent_call_end(
+            call_id=call_id,
+            agent_name=agent_name,
+            result=result_display_text(agent_result),
+            success=agent_succeeded,
+            parent_call_id=orchestrator_call_id,
+            order=global_agent_order
+        )
 
     observation = _format_tool_observation(
         agent,
@@ -218,6 +222,7 @@ def route_direct_tool(
     action: Dict[str, Any],
     context: AgentContext,
     event_bus: EventBus,
+    publisher: EventPublisher | None,
     run_id: str,
     rounds: int,
     idx: int,
@@ -260,12 +265,13 @@ def route_direct_tool(
 
     # 发布工具调用开始事件
     tool_call_id = f"call_{run_id}_{rounds}_{idx}_tool"
-    agent._publisher.tool_call_start(
-        call_id=tool_call_id,
-        tool_name=tool_name,
-        arguments=arguments,
-        parent_call_id=orchestrator_call_id,
-    )
+    if publisher:
+        publisher.tool_call_start(
+            call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            parent_call_id=orchestrator_call_id,
+        )
 
     # 执行工具
     tool_start_time = time.time()
@@ -297,21 +303,22 @@ def route_direct_tool(
         observation = f"[{tool_name}]\n{observation}"
 
     # 发布工具调用结束事件
-    agent._publisher.tool_call_end(
-        call_id=tool_call_id,
-        tool_name=tool_name,
-        result=observation or "",
-        result_preview=observation or "",
-        raw_result=result_event_payload(result),
-        raw_result_ref={
-            'session_id': context.session_id,
-            'call_id': tool_call_id,
-            'tool_name': tool_name,
-        },
-        execution_time=tool_elapsed,
-        parent_call_id=orchestrator_call_id,
-        success=result_success(result),
-    )
+    if publisher:
+        publisher.tool_call_end(
+            call_id=tool_call_id,
+            tool_name=tool_name,
+            result=observation or "",
+            result_preview=observation or "",
+            raw_result=result_event_payload(result),
+            raw_result_ref={
+                'session_id': context.session_id,
+                'call_id': tool_call_id,
+                'tool_name': tool_name,
+            },
+            execution_time=tool_elapsed,
+            parent_call_id=orchestrator_call_id,
+            success=result_success(result),
+        )
 
     # 处理可视化事件（新架构下不再通过 SSE 推送，前端按需拉取）
     visualization_event = None

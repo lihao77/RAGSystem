@@ -58,7 +58,18 @@ const executionTree = computed(() => {
   executionSteps.forEach(step => {
     const round = step.round || 1;
     if (!executionByRound[round]) {
-      executionByRound[round] = step;
+      executionByRound[round] = {
+        ...step,
+        toolCalls: Array.isArray(step.toolCalls) ? [...step.toolCalls] : []
+      };
+      return;
+    }
+
+    const merged = executionByRound[round];
+    if (!merged.intent && step.intent) merged.intent = step.intent;
+    if (!merged.thinking && step.thinking) merged.thinking = step.thinking;
+    if (Array.isArray(step.toolCalls) && step.toolCalls.length > 0) {
+      merged.toolCalls.push(...step.toolCalls);
     }
   });
 

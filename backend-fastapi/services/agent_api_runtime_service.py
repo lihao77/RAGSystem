@@ -37,7 +37,7 @@ class AgentApiRuntimeService:
         self._conversation_store = conversation_store or ConversationStore()
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
-        self._orchestrator = None
+        self._metrics_collector = None
 
         from config import get_config
         from model_adapter import get_default_adapter
@@ -85,19 +85,41 @@ class AgentApiRuntimeService:
                 seq=item.get('seq'),
             )
 
-    def build_context(self, *, session_id: str, user_id: Optional[str] = None, limit: int = 200) -> AgentContext:
-        context = AgentContext(session_id=session_id, user_id=user_id)
+    def build_context(
+        self,
+        *,
+        session_id: str,
+        user_id: Optional[str] = None,
+        limit: int = 200,
+        run_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        llm_override: Optional[dict] = None,
+    ) -> AgentContext:
+        context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
+        if run_id:
+            context.metadata['run_id'] = run_id
+            context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
+        if request_id:
+            context.metadata['request_id'] = request_id
         self.load_history_into_context(context, session_id=session_id, limit=limit)
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────
 
     def get_orchestrator(self):
-        if self._orchestrator is None:
-            self._init_orchestrator()
-        return self._orchestrator
+        return self._build_orchestrator(scope='catalog')
 
-    def _init_orchestrator(self):
+    def create_execution_orchestrator(self):
+        """为单次执行创建新的 orchestrator 与 agent 实例图。"""
+        return self._build_orchestrator(scope='execution')
+
+    def get_metrics_collector(self):
+        if self._metrics_collector is None:
+            from agents.monitoring import MetricsCollector
+            self._metrics_collector = MetricsCollector()
+        return self._metrics_collector
+
+    def _build_orchestrator(self, *, scope: str):
         from agents.config.loader import AgentLoader
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
@@ -107,7 +129,7 @@ class AgentApiRuntimeService:
             system_config = self._config_getter()
             adapter = self._default_adapter_getter()
 
-            self._orchestrator = AgentOrchestrator(
+            orchestrator = AgentOrchestrator(
                 model_adapter=adapter,
                 registry=AgentRegistry(),
             )
@@ -115,72 +137,48 @@ class AgentApiRuntimeService:
             loader = AgentLoader(
                 model_adapter=adapter,
                 system_config=system_config,
-                orchestrator=self._orchestrator,
+                orchestrator=orchestrator,
                 config_manager=self._config_manager_getter(),
                 mcp_manager_getter=get_mcp_manager,
             )
             agents = loader.load_all_agents()
-            self._orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
+            orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
 
             for agent_name, agent in agents.items():
-                self._orchestrator.register_agent(agent)
+                orchestrator.register_agent(agent)
                 logger.info('已注册智能体: %s', agent_name)
 
             try:
-                from agents.monitoring import MetricsCollector
-
-                metrics_collector = MetricsCollector()
+                metrics_collector = self.get_metrics_collector()
                 session_manager = self._session_manager_getter()
 
-                self._orchestrator._metrics_collector = metrics_collector
-                self._orchestrator._session_manager = session_manager
+                orchestrator._metrics_collector = metrics_collector
+                orchestrator._session_manager = session_manager
 
                 logger.info('✓ 性能指标收集器已初始化')
             except Exception as error:
                 logger.warning('性能指标收集器初始化失败（不影响核心功能）: %s', error)
 
-            registered_agents = self._orchestrator.list_agents()
-            logger.info(
-                'Orchestrator 初始化成功，已加载 %s 个智能体，已注册 %s 个智能体',
+            registered_agents = orchestrator.list_agents()
+            log_fn = logger.info if scope == 'catalog' else logger.debug
+            log_fn(
+                'Orchestrator 实例构建成功 scope=%s loaded=%s registered=%s',
+                scope,
                 len(agents),
                 len(registered_agents),
             )
-            logger.info('已加载的智能体列表: %s', list(agents.keys()))
-            logger.info('已注册的智能体列表: %s', [a['name'] for a in registered_agents])
+            if scope == 'catalog':
+                logger.info('已加载的智能体列表: %s', list(agents.keys()))
+                logger.info('已注册的智能体列表: %s', [a['name'] for a in registered_agents])
+            return orchestrator
         except Exception as error:
             logger.error('Orchestrator 初始化失败: %s', error, exc_info=True)
             raise
 
     def reload_agents(self) -> bool:
-        if self._orchestrator is None:
-            logger.warning('orchestrator 未初始化，跳过重新加载')
-            return False
-
         try:
-            from agents.config.loader import AgentLoader
-            from mcp import get_mcp_manager
-
-            self._orchestrator.registry.clear()
-            logger.info('已清空 orchestrator 中的智能体注册')
-
-            system_config = self._config_getter()
-            adapter = self._default_adapter_getter()
-
-            loader = AgentLoader(
-                model_adapter=adapter,
-                system_config=system_config,
-                orchestrator=self._orchestrator,
-                config_manager=self._config_manager_getter(),
-                mcp_manager_getter=get_mcp_manager,
-            )
-            agents = loader.load_all_agents()
-            self._orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
-
-            for agent_name, agent in agents.items():
-                self._orchestrator.register_agent(agent)
-                logger.info('已重新注册智能体: %s', agent_name)
-
-            logger.info('智能体重新加载完成，共加载 %s 个智能体', len(agents))
+            self._build_orchestrator(scope='catalog')
+            logger.info('智能体重新加载完成')
             return True
         except Exception as error:
             logger.error('重新加载智能体失败: %s', error, exc_info=True)
@@ -205,8 +203,11 @@ class AgentApiRuntimeService:
     def get_session_manager(self):
         return self._session_manager_getter()
 
+    def get_run_event_bus(self, run_id: str, *, session_id: Optional[str] = None):
+        return self.get_session_manager().get_or_create(run_id, session_id=session_id)
+
     def get_session_event_bus(self, session_id: str):
-        return self.get_session_manager().get_or_create(session_id)
+        return self.get_session_manager().get_by_session(session_id)
 
     def get_session_application(self):
         return self._session_application

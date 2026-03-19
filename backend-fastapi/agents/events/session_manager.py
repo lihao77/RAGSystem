@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-会话级事件总线管理器
+Run 级事件总线管理器。
 
-特性：
-1. 每个会话（对话）有独立的事件总线实例
-2. 自动清理过期会话
-3. 线程安全
-4. 支持会话重连
+兼容历史命名：
+- 旧接口仍叫 session_manager / get_session_event_bus
+- 实际底层按 run_id 管理 EventBus
 """
 
+from __future__ import annotations
+
 import logging
-import time
 import threading
+import time
 from typing import Dict, Optional
-from datetime import datetime, timedelta
 
 from runtime.dependencies import get_runtime_dependency
 
@@ -22,246 +21,171 @@ from .bus import EventBus
 logger = logging.getLogger(__name__)
 
 
-class SessionEventBusManager:
-    """
-    会话级事件总线管理器
-
-    为每个会话（对话）维护独立的事件总线实例，避免不同会话的事件混淆。
-
-    使用方式:
-        manager = SessionEventBusManager()
-
-        # 获取会话的事件总线
-        event_bus = manager.get_or_create(session_id="abc123")
-
-        # 使用事件总线
-        event_bus.publish(...)
-
-        # 会话结束时清理
-        manager.remove(session_id="abc123")
-    """
+class RunEventBusManager:
+    """为每个 run 维护独立的事件总线实例。"""
 
     def __init__(
         self,
-        session_ttl: int = 3600,  # 会话过期时间（秒），默认1小时
-        cleanup_interval: int = 300,  # 清理间隔（秒），默认5分钟
-        enable_persistence: bool = True,  # 是否启用事件持久化
-        max_history: int = 1000  # ✨ EventBus 最大历史事件数
+        session_ttl: int = 3600,
+        cleanup_interval: int = 300,
+        enable_persistence: bool = True,
+        max_history: int = 1000,
     ):
-        """
-        初始化会话事件总线管理器
-
-        Args:
-            session_ttl: 会话过期时间（秒），超过此时间未活动的会话会被清理
-            cleanup_interval: 自动清理间隔（秒）
-            enable_persistence: 是否为所有会话启用事件持久化
-            max_history: 每个 EventBus 的最大历史事件数（防止内存泄漏）
-        """
         self.session_ttl = session_ttl
         self.cleanup_interval = cleanup_interval
         self.enable_persistence = enable_persistence
-        self.max_history = max_history  # ✨ 保存 max_history
+        self.max_history = max_history
 
-        # 会话事件总线字典: {session_id: EventBus}
-        self._session_buses: Dict[str, EventBus] = {}
-
-        # 会话最后活跃时间: {session_id: timestamp}
+        self._run_buses: Dict[str, EventBus] = {}
         self._last_activity: Dict[str, float] = {}
-
-        # 线程锁（保证线程安全）
+        self._run_to_session: Dict[str, Optional[str]] = {}
         self._lock = threading.RLock()
         self._shutdown_event = threading.Event()
 
-        # 启动后台清理线程
         self._cleanup_thread = threading.Thread(
             target=self._cleanup_loop,
             daemon=True,
-            name="EventBusCleanup"
+            name="EventBusCleanup",
         )
         self._cleanup_thread.start()
 
         logger.info(
-            f"SessionEventBusManager 初始化 "
-            f"(TTL: {session_ttl}s, 清理间隔: {cleanup_interval}s, 最大历史: {max_history})"
+            "RunEventBusManager 初始化 (TTL: %ss, 清理间隔: %ss, 最大历史: %s)",
+            session_ttl,
+            cleanup_interval,
+            max_history,
         )
 
-    def get_or_create(self, session_id: str) -> EventBus:
-        """
-        获取或创建会话的事件总线
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            EventBus: 该会话专属的事件总线实例
-        """
+    def get_or_create(self, run_id: str, *, session_id: Optional[str] = None) -> EventBus:
         with self._lock:
-            # 更新最后活跃时间
-            self._last_activity[session_id] = time.time()
+            self._last_activity[run_id] = time.time()
+            if run_id in self._run_buses:
+                if session_id is not None:
+                    self._run_to_session[run_id] = session_id
+                logger.debug("复用现有 run 事件总线: run_id=%s", run_id)
+                return self._run_buses[run_id]
 
-            # 如果已存在，直接返回
-            if session_id in self._session_buses:
-                logger.debug(f"复用现有事件总线: {session_id}")
-                return self._session_buses[session_id]
-
-            # 创建新的事件总线（✨ 传入 max_history）
             event_bus = EventBus(
                 enable_persistence=self.enable_persistence,
-                max_history=self.max_history
+                max_history=self.max_history,
             )
-            self._session_buses[session_id] = event_bus
-
-            logger.info(f"✨ 创建会话事件总线: {session_id}")
+            self._run_buses[run_id] = event_bus
+            self._run_to_session[run_id] = session_id
+            logger.info("✨ 创建 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
             return event_bus
 
-    def get(self, session_id: str) -> Optional[EventBus]:
-        """
-        获取会话的事件总线（不创建）
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            EventBus 或 None
-        """
+    def get(self, run_id: str) -> Optional[EventBus]:
         with self._lock:
-            if session_id in self._session_buses:
-                # 更新最后活跃时间
-                self._last_activity[session_id] = time.time()
-                return self._session_buses[session_id]
+            event_bus = self._run_buses.get(run_id)
+            if event_bus is not None:
+                self._last_activity[run_id] = time.time()
+            return event_bus
+
+    def remove(self, run_id: str) -> bool:
+        with self._lock:
+            event_bus = self._run_buses.get(run_id)
+            if event_bus is None:
+                return False
+
+            session_id = self._run_to_session.get(run_id)
+            try:
+                from .bus import Event, EventType
+
+                event_bus._publish_sync(Event(
+                    type=EventType.SESSION_END,
+                    data={'reason': 'run_removed', 'run_id': run_id},
+                    session_id=session_id,
+                ))
+            except Exception:
+                pass
+
+            event_bus.clear_history()
+            self._run_buses.pop(run_id, None)
+            self._last_activity.pop(run_id, None)
+            self._run_to_session.pop(run_id, None)
+            logger.info("🗑️ 移除 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
+            return True
+
+    def touch(self, run_id: str) -> None:
+        with self._lock:
+            if run_id in self._run_buses:
+                self._last_activity[run_id] = time.time()
+
+    def get_session_run_id(self, session_id: str) -> Optional[str]:
+        from agents.task_registry import get_task_registry
+
+        status = get_task_registry().get_status(session_id)
+        if status is None:
             return None
+        return status.get('run_id')
 
-    def remove(self, session_id: str) -> bool:
-        """
-        移除会话的事件总线
+    def get_by_session(self, session_id: str) -> Optional[EventBus]:
+        run_id = self.get_session_run_id(session_id)
+        if not run_id:
+            return None
+        return self.get(run_id)
 
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            bool: 是否成功移除
-        """
-        with self._lock:
-            if session_id in self._session_buses:
-                event_bus = self._session_buses[session_id]
-
-                # 发送 SESSION_END 让 SSEAdapter.stream_sync 正常退出
-                try:
-                    from .bus import Event, EventType
-                    event_bus._publish_sync(Event(
-                        type=EventType.SESSION_END,
-                        data={'reason': 'session_removed'},
-                        session_id=session_id,
-                    ))
-                except Exception:
-                    pass
-
-                # 清理事件总线
-                event_bus.clear_history()
-
-                # 移除
-                del self._session_buses[session_id]
-                if session_id in self._last_activity:
-                    del self._last_activity[session_id]
-
-                logger.info(f"🗑️ 移除会话事件总线: {session_id}")
-                return True
-
+    def remove_by_session(self, session_id: str) -> bool:
+        run_id = self.get_session_run_id(session_id)
+        if not run_id:
             return False
+        return self.remove(run_id)
 
-    def touch(self, session_id: str):
-        """
-        更新会话的最后活跃时间（保持会话活跃）
+    def touch_session(self, session_id: str) -> None:
+        run_id = self.get_session_run_id(session_id)
+        if run_id:
+            self.touch(run_id)
 
-        Args:
-            session_id: 会话ID
-        """
+    def get_active_runs(self) -> list[str]:
         with self._lock:
-            if session_id in self._session_buses:
-                self._last_activity[session_id] = time.time()
+            return list(self._run_buses.keys())
 
-    def get_active_sessions(self) -> list:
-        """
-        获取所有活跃会话ID列表
-
-        Returns:
-            list: 会话ID列表
-        """
+    def get_run_stats(self, run_id: str) -> Optional[Dict]:
         with self._lock:
-            return list(self._session_buses.keys())
-
-    def get_session_stats(self, session_id: str) -> Optional[Dict]:
-        """
-        获取会话的统计信息
-
-        Args:
-            session_id: 会话ID
-
-        Returns:
-            dict: 统计信息，如果会话不存在则返回None
-        """
-        with self._lock:
-            if session_id not in self._session_buses:
+            event_bus = self._run_buses.get(run_id)
+            if event_bus is None:
                 return None
-
-            event_bus = self._session_buses[session_id]
             stats = event_bus.get_stats()
-
-            # 添加会话相关信息
-            stats['session_id'] = session_id
-            stats['last_activity'] = self._last_activity.get(session_id, 0)
+            stats['run_id'] = run_id
+            stats['session_id'] = self._run_to_session.get(run_id)
+            stats['last_activity'] = self._last_activity.get(run_id, 0)
             stats['age_seconds'] = time.time() - stats['last_activity']
-
             return stats
 
     def get_all_stats(self) -> Dict[str, Dict]:
-        """
-        获取所有会话的统计信息
-
-        Returns:
-            dict: {session_id: stats}
-        """
         with self._lock:
-            return {
-                session_id: self.get_session_stats(session_id)
-                for session_id in self._session_buses.keys()
-            }
+            run_ids = list(self._run_buses.keys())
+        return {
+            run_id: self.get_run_stats(run_id)
+            for run_id in run_ids
+        }
 
-    def _cleanup_loop(self):
-        """后台清理循环（在独立线程中运行）"""
+    def _cleanup_loop(self) -> None:
         logger.info("事件总线清理线程已启动")
-
         while not self._shutdown_event.wait(self.cleanup_interval):
             try:
-                self._cleanup_expired_sessions()
-            except Exception as e:
-                logger.error(f"清理线程异常: {e}", exc_info=True)
-
+                self._cleanup_expired_runs()
+            except Exception as error:
+                logger.error("清理线程异常: %s", error, exc_info=True)
         logger.info("事件总线清理线程已停止")
 
-    def _cleanup_expired_sessions(self):
-        """清理过期的会话"""
+    def _cleanup_expired_runs(self) -> None:
+        now = time.time()
+        expired_run_ids = []
         with self._lock:
-            now = time.time()
-            expired_sessions = []
+            for run_id, last_activity in self._last_activity.items():
+                if (now - last_activity) > self.session_ttl:
+                    expired_run_ids.append(run_id)
 
-            # 查找过期会话
-            for session_id, last_activity in self._last_activity.items():
-                age = now - last_activity
-                if age > self.session_ttl:
-                    expired_sessions.append(session_id)
+        for run_id in expired_run_ids:
+            logger.info("🕒 清理过期 run: %s", run_id)
+            self.remove(run_id)
 
-            # 清理过期会话
-            for session_id in expired_sessions:
-                logger.info(f"🕒 清理过期会话: {session_id} (闲置 {(now - self._last_activity[session_id])/60:.1f} 分钟)")
-                self.remove(session_id)
+        if expired_run_ids:
+            logger.info("清理完成，移除 %s 个过期 run", len(expired_run_ids))
 
-            if expired_sessions:
-                logger.info(f"清理完成，移除 {len(expired_sessions)} 个过期会话")
-
-    def shutdown(self):
-        """关闭管理器，清理所有会话并停止后台线程。"""
-        logger.info("关闭 SessionEventBusManager，清理所有会话...")
+    def shutdown(self) -> None:
+        logger.info("关闭 RunEventBusManager，清理所有 run...")
         self._shutdown_event.set()
 
         current_thread = threading.current_thread()
@@ -269,33 +193,21 @@ class SessionEventBusManager:
             self._cleanup_thread.join(timeout=1)
 
         with self._lock:
-            session_ids = list(self._session_buses.keys())
-            for session_id in session_ids:
-                self.remove(session_id)
+            run_ids = list(self._run_buses.keys())
+        for run_id in run_ids:
+            self.remove(run_id)
+        logger.info("已清理 %s 个 run", len(run_ids))
 
-            logger.info(f"已清理 {len(session_ids)} 个会话")
 
+SessionEventBusManager = RunEventBusManager
 
-# ==================== 全局管理器 ====================
 
 def get_session_manager(
     session_ttl: int = 3600,
     cleanup_interval: int = 300,
     enable_persistence: bool = True,
     max_history: int = 1000,
-) -> SessionEventBusManager:
-    """
-    获取全局会话事件总线管理器（单例）
-
-    Args:
-        session_ttl: 会话过期时间（秒）
-        cleanup_interval: 清理间隔（秒）
-        enable_persistence: 是否启用事件持久化
-        max_history: 每个 EventBus 的最大历史事件数
-
-    Returns:
-        SessionEventBusManager实例
-    """
+) -> RunEventBusManager:
     return get_runtime_dependency(
         container_resolver=lambda c: c.get_session_manager(
             session_ttl=session_ttl,
@@ -306,39 +218,34 @@ def get_session_manager(
     )
 
 
-# ==================== 便捷函数 ====================
+def get_run_event_bus(run_id: str, *, session_id: Optional[str] = None) -> EventBus:
+    manager = get_session_manager()
+    return manager.get_or_create(run_id, session_id=session_id)
+
+
+def cleanup_run(run_id: str) -> bool:
+    manager = get_session_manager()
+    return manager.remove(run_id)
+
+
+def touch_run(run_id: str) -> None:
+    manager = get_session_manager()
+    manager.touch(run_id)
+
 
 def get_session_event_bus(session_id: str) -> EventBus:
-    """
-    获取会话的事件总线（便捷函数）
-
-    Args:
-        session_id: 会话ID
-
-    Returns:
-        EventBus实例
-    """
     manager = get_session_manager()
-    return manager.get_or_create(session_id)
+    event_bus = manager.get_by_session(session_id)
+    if event_bus is not None:
+        return event_bus
+    raise KeyError(f"session_id={session_id} 没有对应的活跃 run 事件总线")
 
 
-def cleanup_session(session_id: str):
-    """
-    清理会话的事件总线（便捷函数）
-
-    Args:
-        session_id: 会话ID
-    """
+def cleanup_session(session_id: str) -> bool:
     manager = get_session_manager()
-    manager.remove(session_id)
+    return manager.remove_by_session(session_id)
 
 
-def touch_session(session_id: str):
-    """
-    保持会话活跃（便捷函数）
-
-    Args:
-        session_id: 会话ID
-    """
+def touch_session(session_id: str) -> None:
     manager = get_session_manager()
-    manager.touch(session_id)
+    manager.touch_session(session_id)

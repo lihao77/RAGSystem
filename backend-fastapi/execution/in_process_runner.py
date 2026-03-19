@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Optional
 from .models import ExecutionContext, ExecutionHandle, ExecutionResult, ExecutionStatus
 from .observability import ExecutionObservabilityContext, execution_observability_scope
 from utils.timeout_pause import PausableTimer, set_current_timer
+from agents.events.bus import set_current_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,8 @@ class InProcessExecutionRunner:
 
         def run_target() -> None:
             with execution_observability_scope(observability):
+                if context.event_bus is not None:
+                    set_current_event_bus(context.event_bus)
                 set_current_timer(timer)
                 state.mark_running()
                 try:

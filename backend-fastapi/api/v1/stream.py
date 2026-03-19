@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import StreamingResponse
 from agents.events.sse_adapter import build_client_event_data
 
-from dependencies import get_execution_service, get_session_event_bus
+from dependencies import get_execution_service, get_run_event_bus
 from schemas.execution import StreamExecuteRequest, StreamReconnectRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
 from schemas.common import ok
 from .stream_utils import sync_to_async_sse
@@ -55,6 +55,21 @@ def _ensure_request_id(request_id=None) -> str:
         return request_id or str(uuid.uuid4())[:8]
 
 
+def _cleanup_run_bus_if_safe(session_id: str, run_id: str, *, natural_completion: bool) -> None:
+    """按流退出原因清理 run 事件总线，避免误删新 run 的 bus。"""
+    try:
+        current_status = get_execution_service().get_status_by_session(session_id)
+        should_cleanup = not current_status or current_status.get('status') != 'running'
+        if natural_completion and current_status:
+            current_run_id = current_status.get('run_id')
+            should_cleanup = current_run_id == run_id or current_status.get('status') != 'running'
+        if should_cleanup:
+            from agents.events.session_manager import cleanup_run
+            cleanup_run(run_id)
+    except Exception:
+        pass
+
+
 @router.post('/stream')
 async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     """
@@ -93,7 +108,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     llm_override=llm_override,
                     request_id=request_id,
                     conversation_store=runtime.get_conversation_store(),
-                    orchestrator=runtime.get_orchestrator(),
+                    orchestrator=runtime.create_execution_orchestrator(),
                     history_loader=runtime.load_history_into_context,
                 )
 
@@ -118,7 +133,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
             queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_event_loop()
 
-            def _cleanup():
+            def _cleanup(*, natural_completion: bool = False):
                 try:
                     started.sse_adapter.stop()
                 except Exception:
@@ -128,11 +143,11 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     _get_exec().cleanup_finished()
                 except Exception:
                     pass
-                try:
-                    from agents.events.session_manager import cleanup_session
-                    cleanup_session(session_id)
-                except Exception:
-                    pass
+                _cleanup_run_bus_if_safe(
+                    session_id,
+                    started.run_id or '',
+                    natural_completion=natural_completion or bool(started.sse_adapter.completed_normally),
+                )
 
             async for sse_line in sync_to_async_sse(
                 sync_stream=started.sse_adapter.stream_sync,
@@ -204,13 +219,30 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             from agents.events.bus import EventType
             from dependencies import get_task_registry
 
-            event_bus = get_session_event_bus(session_id)
+            run_id = status.get('run_id')
+            event_bus = get_run_event_bus(run_id, session_id=session_id)
             registry = get_task_registry()
 
+            # ── 先启动 adapter 订阅实时事件（缓冲到队列），防止回放与订阅之间的事件缝隙 ──
+            adapter = SSEAdapter(
+                event_bus=event_bus,
+                session_id=session_id,
+                buffer_size=100,
+                heartbeat_interval=15.0,
+            )
+            adapter.start()
+
+            # ── 回放历史事件 ──
             all_history = await asyncio.to_thread(
                 event_bus.get_event_history, session_id=session_id, limit=1000
             )
             history = [e for e in all_history if getattr(e, 'timestamp', 0) >= run_started_at]
+
+            # 记录历史事件的最大 sequence_number，用于实时事件去重
+            replay_max_seq = max(
+                (getattr(e, 'sequence_number', 0) for e in history),
+                default=0,
+            )
 
             reconnect_start = {
                 'type': 'reconnect_start',
@@ -253,24 +285,19 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             _apply_observability(reconnect_end, {**status, 'request_id': status.get('request_id') or request_id})
             yield _sse_line(reconnect_end)
 
-            adapter = SSEAdapter(
-                event_bus=event_bus,
-                session_id=session_id,
-                buffer_size=100,
-                heartbeat_interval=15.0,
-            )
-            adapter.start()
+            # ── 设置去重分界线：adapter 消费时跳过已回放的事件 ──
+            adapter.skip_before_seq = replay_max_seq
 
-            def _reconnect_cleanup():
+            def _reconnect_cleanup(*, natural_completion: bool = False):
                 try:
                     adapter.stop()
                 except Exception:
                     pass
-                try:
-                    from agents.events.session_manager import cleanup_session
-                    cleanup_session(session_id)
-                except Exception:
-                    pass
+                _cleanup_run_bus_if_safe(
+                    session_id,
+                    status.get('run_id') or '',
+                    natural_completion=natural_completion or bool(adapter.completed_normally),
+                )
 
             async for sse_line in sync_to_async_sse(
                 sync_stream=adapter.stream_sync,

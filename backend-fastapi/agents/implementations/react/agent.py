@@ -128,7 +128,15 @@ class ReActAgent(BaseAgent):
             log_label="ReAct",
         )
 
-    def _emit_event(self, event_type: str, data: Dict[str, Any]):
+    def _emit_event(
+        self,
+        event_type: str,
+        data: Dict[str, Any],
+        *,
+        publisher=None,
+        agent_call_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ):
         """
         发送事件到回调函数和事件总线
 
@@ -144,17 +152,11 @@ class ReActAgent(BaseAgent):
                 self.logger.warning(f"事件回调失败: {e}")
 
         # 新方式：事件总线
-        if self._publisher:
+        if publisher:
             try:
-                # ✨ 获取当前 ReActAgent 的 call_id（作为工具调用的 parent_call_id）
-                agent_call_id = getattr(self, '_current_call_id', None)
-                # 兼容旧 task_id
-                if not agent_call_id:
-                    agent_call_id = getattr(self, '_current_task_id', None)
-
                 # 映射事件类型到 EventPublisher 方法
                 if event_type in ('intent_structured', 'thinking_structured'):
-                    self._publisher.intent_structured(
+                    publisher.intent_structured(
                         intent=data.get('intent', data.get('thinking', '')),
                         actions=data.get('actions', []),
                         reasoning=f"第 {data.get('round', 0)} 轮推理",
@@ -165,7 +167,7 @@ class ReActAgent(BaseAgent):
                     import uuid
                     tool_call_id = data.get('tool_call_id') or f"tool_{uuid.uuid4()}"
 
-                    self._publisher.tool_call_start(
+                    publisher.tool_call_start(
                         call_id=tool_call_id,
                         tool_name=data.get('tool_name'),
                         arguments=data.get('arguments', {}),
@@ -181,18 +183,18 @@ class ReActAgent(BaseAgent):
                     observation = self._format_tool_observation(
                         result,
                         tool_name=tool_name,
-                        session_id=getattr(self._publisher, 'session_id', None),
+                        session_id=session_id or getattr(publisher, 'session_id', None),
                         is_skills_tool=is_skills_tool,
                     )
                     preview_text = f"[{tool_name}]\n{observation}" if observation else ""
-                    self._publisher.tool_call_end(
+                    publisher.tool_call_end(
                         call_id=data.get('tool_call_id'),
                         tool_name=tool_name,
                         result=preview_text,
                         result_preview=preview_text,
                         raw_result=result_event_payload(result),
                         raw_result_ref={
-                            'session_id': getattr(self._publisher, 'session_id', None),
+                            'session_id': session_id or getattr(publisher, 'session_id', None),
                             'call_id': data.get('tool_call_id'),
                             'tool_name': tool_name,
                         },
@@ -201,7 +203,7 @@ class ReActAgent(BaseAgent):
                         success=getattr(result, 'success', True) if result is not None else True,
                     )
                 elif event_type == 'tool_error':
-                    self._publisher.tool_error(
+                    publisher.tool_error(
                         tool_name=data.get('tool_name'),
                         error=data.get('error')
                     )

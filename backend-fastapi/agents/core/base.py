@@ -113,8 +113,6 @@ class BaseAgent(ABC):
         self.tools: List[Dict[str, Any]] = []
         self.available_tools: List[Dict[str, Any]] = []
         self.available_skills: List[Any] = []
-        self.event_bus = None
-        self._publisher = None
         self.context_pipeline = None
         self.result_normalizer = None
         self.observation_policy = None
@@ -325,7 +323,6 @@ class BaseAgent(ABC):
 
         self.available_tools = base_tools
         self.available_skills = list(available_skills or [])
-        self.event_bus = event_bus
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
         self.max_rounds = behavior_config.get('rounds', behavior_config.get('max_rounds'))
@@ -412,18 +409,17 @@ class BaseAgent(ABC):
         self.logger.info("%s '%s' 使用上下文预算档位: %s", label, self.name, budget_profile.name)
 
     def _resolve_event_bus(self, context: AgentContext, event_bus = None):
-        """获取会话级事件总线。"""
+        """获取当前 run 的事件总线。"""
         if event_bus is not None:
             return event_bus
         if hasattr(context, 'metadata'):
             context_event_bus = context.metadata.get('event_bus')
             if context_event_bus is not None:
                 return context_event_bus
-        if self.event_bus is not None:
-            return self.event_bus
-        if hasattr(context, 'session_id') and context.session_id:
-            from agents.events import get_session_event_bus
-            return get_session_event_bus(context.session_id)
+            run_id = context.metadata.get('run_id')
+            if run_id:
+                from agents.events.session_manager import get_run_event_bus
+                return get_run_event_bus(run_id, session_id=getattr(context, 'session_id', None))
         return None
 
     def _ensure_publisher(
@@ -435,7 +431,7 @@ class BaseAgent(ABC):
         parent_call_id: Optional[str] = None,
         force_new: bool = False,
     ):
-        """初始化或复用 EventPublisher。"""
+        """为当前执行构建 EventPublisher。"""
         from agents.events import EventPublisher
 
         resolved_event_bus = self._resolve_event_bus(context, event_bus=event_bus)
@@ -445,31 +441,18 @@ class BaseAgent(ABC):
         if parent_call_id is None and hasattr(context, 'metadata'):
             parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
 
-        should_create = (
-            force_new
-            or self._publisher is None
-            or self._publisher.session_id != current_session_id
-            or self._publisher.event_bus is not resolved_event_bus
+        del force_new
+        if resolved_event_bus is None:
+            return None
+        return EventPublisher(
+            agent_name=self.name,
+            session_id=current_session_id,
+            trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
+            span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
+            call_id=call_id,
+            parent_call_id=parent_call_id,
+            event_bus=resolved_event_bus,
         )
-        if should_create:
-            if resolved_event_bus is None:
-                self._publisher = None
-                return None
-            self._publisher = EventPublisher(
-                agent_name=self.name,
-                session_id=current_session_id,
-                trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
-                span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
-                call_id=call_id,
-                parent_call_id=parent_call_id,
-                event_bus=resolved_event_bus,
-            )
-        else:
-            self._publisher.call_id = call_id
-            self._publisher.parent_call_id = parent_call_id
-
-        self.event_bus = resolved_event_bus
-        return self._publisher
 
     def _handle_user_input_request(
         self,
@@ -580,25 +563,22 @@ class BaseAgent(ABC):
         if not current_call_id:
             current_call_id = f"call_{uuid.uuid4()}"
 
-        self._ensure_publisher(
+        publisher = self._ensure_publisher(
             context,
             event_bus=event_bus,
             call_id=current_call_id,
             parent_call_id=parent_call_id,
         )
-        if self._publisher:
+        if publisher:
             metadata = {}
             if self.max_rounds is not None:
                 metadata['max_rounds'] = self.max_rounds
-            self._publisher.agent_start(task, metadata=metadata)
-
-        self._current_call_id = current_call_id
-        self._parent_call_id = parent_call_id
-        self._current_task_id = current_call_id
+            publisher.agent_start(task, metadata=metadata)
 
         return {
             'start_time': start_time,
             'event_bus': event_bus,
+            'publisher': publisher,
             'call_id': current_call_id,
             'parent_call_id': parent_call_id,
             'current_session': [{"role": "user", "content": task}],
@@ -606,9 +586,9 @@ class BaseAgent(ABC):
             'rounds': 0,
         }
 
-    def _publish_context_usage(self, managed_messages, rounds: int) -> None:
+    def _publish_context_usage(self, managed_messages, rounds: int, publisher) -> None:
         """发布上下文用量事件。"""
-        if not self._publisher:
+        if not publisher:
             return
         from agents.events.bus import EventType
 
@@ -617,7 +597,7 @@ class BaseAgent(ABC):
         system_tokens = self.context_pipeline._token_counter.count_messages([managed_messages[0]]) if managed_messages else 0
         session_tokens = current_tokens - system_tokens
         budget_tokens = self.context_pipeline.config.max_tokens + system_tokens  # 总输入预算
-        self._publisher._publish(EventType.CONTEXT_USAGE, {
+        publisher._publish(EventType.CONTEXT_USAGE, {
             'used_tokens': current_tokens,
             'system_prompt_tokens': system_tokens,
             'total_tokens': current_tokens,
@@ -645,8 +625,8 @@ class BaseAgent(ABC):
         state: Dict[str, Any],
     ) -> None:
         """处理一轮模型返回后的 assistant 消息。"""
-        del state
-        if not self._publisher or final_answer:
+        publisher = state.get('publisher')
+        if not publisher or final_answer:
             return
         content = self._format_assistant_context_message(
             intent=intent,
@@ -656,7 +636,7 @@ class BaseAgent(ABC):
         )
         if not content:
             return
-        self._publisher.react_intermediate(
+        publisher.react_intermediate(
             role="assistant",
             content=content,
             round=rounds,
@@ -725,6 +705,7 @@ class BaseAgent(ABC):
 
         tool_registry = get_tool_registry()
         event_bus = state.get('event_bus')
+        publisher = state.get('publisher')
         current_session_id = getattr(context, 'session_id', None)
         observations: List[str] = []
         emit_event = getattr(self, '_emit_event', None)
@@ -772,7 +753,7 @@ class BaseAgent(ABC):
                     event_bus=event_bus,
                     session_id=current_session_id,
                     tool_call_id=tool_call_id,
-                    publisher=self._publisher,
+                    publisher=publisher,
                     parent_call_id=state.get('call_id'),
                 )
                 if user_value is None:
@@ -798,9 +779,9 @@ class BaseAgent(ABC):
                     'arguments': arguments,
                     'index': idx,
                     'total': len(actions),
-                })
-            elif self._publisher:
-                self._publisher.tool_call_start(
+                }, publisher=publisher, agent_call_id=state.get('call_id'), session_id=current_session_id)
+            elif publisher:
+                publisher.tool_call_start(
                     call_id=tool_call_id,
                     tool_name=tool_name,
                     arguments=arguments,
@@ -832,11 +813,11 @@ class BaseAgent(ABC):
                     'elapsed_time': elapsed_time,
                     'index': idx,
                     'total': len(actions),
-                })
-            elif self._publisher:
+                }, publisher=publisher, agent_call_id=state.get('call_id'), session_id=current_session_id)
+            elif publisher:
                 preview_text = f"[{tool_name}]\n{observation}" if observation else ""
                 tool_success = getattr(result, 'success', True) if result is not None else True
-                self._publisher.tool_call_end(
+                publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
                     result=preview_text,
@@ -867,8 +848,8 @@ class BaseAgent(ABC):
             "role": "user",
             "content": combined_observations,
         })
-        if self._publisher and combined_observations:
-            self._publisher.react_intermediate(
+        if publisher and combined_observations:
+            publisher.react_intermediate(
                 role="user",
                 content=combined_observations,
                 round=rounds,
@@ -904,9 +885,10 @@ class BaseAgent(ABC):
         start_time: float,
     ) -> AgentResponse:
         """处理 LLM 调用错误。"""
-        del context, state
-        if self._publisher:
-            self._publisher.agent_error(error=error_message, error_type="LLMError")
+        del context
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.agent_error(error=error_message, error_type="LLMError")
         return AgentResponse(
             success=False,
             content="",
@@ -925,9 +907,10 @@ class BaseAgent(ABC):
         """处理最终答案。"""
         del context
 
-        if self._publisher:
-            self._publisher.final_answer(final_answer)
-            self._publisher.agent_end(
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.final_answer(final_answer)
+            publisher.agent_end(
                 result=final_answer,
                 execution_time=time.time() - start_time,
             )
@@ -957,9 +940,10 @@ class BaseAgent(ABC):
         del context
         self.logger.warning(f"{self._log_prefix(None, self._get_runtime_log_label())} 达到最大轮数 {self.max_rounds}")
         final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
-        if self._publisher:
-            self._publisher.final_answer(final_content)
-            self._publisher.agent_end(
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.final_answer(final_content)
+            publisher.agent_end(
                 result=final_content,
                 execution_time=time.time() - start_time,
             )
@@ -983,11 +967,12 @@ class BaseAgent(ABC):
         start_time: float,
     ) -> AgentResponse:
         """处理中断。"""
-        del context, state
+        del context
         self.logger.info(f"任务被用户中断: {error}")
-        if self._publisher:
-            self._publisher.agent_error(error=str(error), error_type="InterruptedError")
-            self._publisher.agent_end(
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.agent_error(error=str(error), error_type="InterruptedError")
+            publisher.agent_end(
                 result="[已停止生成]",
                 execution_time=time.time() - start_time,
             )
@@ -1007,11 +992,12 @@ class BaseAgent(ABC):
         start_time: float,
     ) -> AgentResponse:
         """处理未捕获异常。"""
-        del context, state
+        del context
         self.logger.error(f"执行任务失败: {error}", exc_info=True)
-        if self._publisher:
-            self._publisher.agent_error(error=str(error), error_type="ExecutionError")
-            self._publisher.agent_end(
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.agent_error(error=str(error), error_type="ExecutionError")
+            publisher.agent_end(
                 result=str(error),
                 execution_time=time.time() - start_time,
             )
@@ -1040,6 +1026,7 @@ class BaseAgent(ABC):
         try:
             state = self._prepare_execution_state(task, context, start_time)
             current_session = state['current_session']
+            publisher = state.get('publisher')
 
             while True:
                 if self.max_rounds is not None and state['rounds'] >= self.max_rounds:
@@ -1056,14 +1043,14 @@ class BaseAgent(ABC):
                     system_prompt=self._build_system_prompt(),
                     context=context,
                     current_session=current_session,
-                    publisher=self._publisher,
+                    publisher=publisher,
                 )
                 self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
-                self._publish_context_usage(managed_messages, rounds)
+                self._publish_context_usage(managed_messages, rounds, publisher)
 
                 stream_executor = StreamExecutor(
                     model_adapter=self.model_adapter,
-                    publisher=self._publisher,
+                    publisher=publisher,
                     agent_logger=self.logger,
                 )
                 result = stream_executor.execute_llm_stream(
@@ -1126,9 +1113,10 @@ class BaseAgent(ABC):
                 return self._handle_interrupted(error, context, state, start_time)
             except Exception as handler_error:
                 self.logger.error("处理中断收尾失败: %s", handler_error, exc_info=True)
-                if self._publisher:
+                publisher = state.get('publisher')
+                if publisher:
                     try:
-                        self._publisher.agent_end(
+                        publisher.agent_end(
                             result="[已停止生成]",
                             execution_time=time.time() - start_time,
                         )
@@ -1146,9 +1134,10 @@ class BaseAgent(ABC):
                 return self._handle_execution_error(error, context, state, start_time)
             except Exception as handler_error:
                 self.logger.error("处理执行异常收尾失败: %s", handler_error, exc_info=True)
-                if self._publisher:
+                publisher = state.get('publisher')
+                if publisher:
                     try:
-                        self._publisher.agent_end(
+                        publisher.agent_end(
                             result=str(error),
                             execution_time=time.time() - start_time,
                         )

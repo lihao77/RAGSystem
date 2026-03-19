@@ -11,8 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from dependencies import (
     get_orchestrator,
     get_config_manager,
-    get_system_config,
-    get_default_adapter,
 )
 from schemas.agent import CreateAgentRequest
 from schemas.common import ok
@@ -36,10 +34,7 @@ async def list_agents(orchestrator=Depends(get_orchestrator)):
 @router.post('/agents/create')
 async def create_agent(
     data: CreateAgentRequest,
-    orchestrator=Depends(get_orchestrator),
     config_manager=Depends(get_config_manager),
-    system_config=Depends(get_system_config),
-    default_adapter=Depends(get_default_adapter),
 ):
     """创建新智能体。"""
     try:
@@ -59,22 +54,12 @@ async def create_agent(
 
         config_manager.set_config(config, save=True)
 
-        # 动态加载新智能体
         try:
-            from agents.config import AgentLoader
-            loader = AgentLoader(
-                model_adapter=default_adapter,
-                system_config=system_config,
-                orchestrator=orchestrator,
-            )
-            new_agent = loader.load_agent(agent_name)
-            if new_agent:
-                orchestrator.register_agent(new_agent)
-                logger.info('新智能体 %s 已创建并加载', agent_name)
-            else:
-                logger.warning('智能体 %s 配置已保存但在加载时失败', agent_name)
+            from dependencies import get_agent_runtime_service
+            await asyncio.to_thread(get_agent_runtime_service().reload_agents)
+            logger.info('新智能体 %s 已创建并重建 orchestrator 缓存', agent_name)
         except Exception as e:
-            logger.error('热加载新智能体失败: %s', e)
+            logger.error('重建 orchestrator 缓存失败: %s', e)
 
         return ok(data=config.model_dump(), message=f'智能体 {agent_name} 创建成功')
 
@@ -107,10 +92,12 @@ async def delete_agent(
 
         config_manager.delete_config(agent_name, save=True)
 
-        # 从 orchestrator 中移除
-        if hasattr(orchestrator, 'agents') and agent_name in orchestrator.agents:
-            del orchestrator.agents[agent_name]
-            logger.info('已从 Orchestrator 移除智能体: %s', agent_name)
+        try:
+            from dependencies import get_agent_runtime_service
+            await asyncio.to_thread(get_agent_runtime_service().reload_agents)
+            logger.info('已删除智能体并重建 orchestrator 缓存: %s', agent_name)
+        except Exception as e:
+            logger.error('重建 orchestrator 缓存失败: %s', e)
 
         return ok(message=f'智能体 {agent_name} 已删除')
 

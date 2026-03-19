@@ -211,6 +211,7 @@
                     <HierarchicalExecutionTree
                       :execution-steps="msg.execution_steps || []"
                       :subtasks="msg.subtasks || []"
+                      :react-trace="msg.react_trace || []"
                       :session-id="currentSessionId || ''"
                     />
                   </div>
@@ -308,6 +309,14 @@
           </div>
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
+        <transition name="scroll-btn-fade">
+          <button v-if="(!isUserAtBottom || !shouldAutoScroll) && messages.length > 0" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </transition>
         <div class="input-area-wrapper">
           <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="context-usage-bar">
             <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
@@ -500,6 +509,7 @@ const historyListRef = ref(null);
 const history = ref([]);
 const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
+const shouldAutoScroll = ref(true);
 const sidebarCollapsed = ref(false);
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
@@ -676,6 +686,8 @@ const startNewChat = () => {
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
+  shouldAutoScroll.value = true;
+  _userScrollUpAccum = 0;
   currentSessionId.value = null;
   router.replace('/');
   focusInput();
@@ -734,13 +746,13 @@ const typewriter = (target, key, text, speed = 30, timerId = null) => {
 const checkIfAtBottom = () => {
   if (!messagesRef.value) return true;
   const container = messagesRef.value;
-  return container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  return container.scrollHeight - container.scrollTop - container.clientHeight < 80;
 };
 
 const scrollToBottom = async (force = false) => {
   await nextTick();
   if (!messagesRef.value) return;
-  if (force || isUserAtBottom.value) {
+  if (force || shouldAutoScroll.value) {
     _isProgrammaticScroll = true;
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
   }
@@ -748,23 +760,50 @@ const scrollToBottom = async (force = false) => {
 
 let _isProgrammaticScroll = false;
 let _lastScrollTop = 0;
+// 用户主动向上滚动的累计距离，超过阈值才判定为"明显离开底部"
+let _userScrollUpAccum = 0;
+// 用户需要向上滚动超过此距离才更新底部状态（移动端触摸惯性友好）
+const SCROLL_DETACH_THRESHOLD = 200;
 
 const handleScroll = () => {
   const container = messagesRef.value;
   if (!container) return;
 
   if (_isProgrammaticScroll) {
-    // 程序触发的滚动，保持 isUserAtBottom 为 true
+    // 程序触发的滚动，重置累计，保持在底部
     _isProgrammaticScroll = false;
     _lastScrollTop = container.scrollTop;
+    _userScrollUpAccum = 0;
     isUserAtBottom.value = checkIfAtBottom();
-  } else if (isLoading.value && container.scrollTop <= _lastScrollTop && !checkIfAtBottom()) {
-    // 流式中，scrollTop 没增加且不在底部 → DOM 增长导致的被动事件，不改变意图
+    shouldAutoScroll.value = isUserAtBottom.value;
+  } else if (isLoading.value) {
+    // 流式输出中
+    const delta = container.scrollTop - _lastScrollTop;
     _lastScrollTop = container.scrollTop;
+
+    if (delta < 0) {
+      // 用户主动向上滚动
+      shouldAutoScroll.value = false;
+      _userScrollUpAccum += Math.abs(delta);
+      if (_userScrollUpAccum >= SCROLL_DETACH_THRESHOLD) {
+        isUserAtBottom.value = false;
+      }
+    } else if (delta > 0) {
+      // 用户向下滚动或 DOM 增长推动
+      if (checkIfAtBottom()) {
+        // 回到底部，重置累计
+        _userScrollUpAccum = 0;
+        isUserAtBottom.value = true;
+        shouldAutoScroll.value = true;
+      }
+    }
+    // delta === 0: DOM 增长导致的被动事件，不改变意图
   } else {
-    // 用户主动滚动
+    // 非流式：直接用位置判断
     _lastScrollTop = container.scrollTop;
+    _userScrollUpAccum = 0;
     isUserAtBottom.value = checkIfAtBottom();
+    shouldAutoScroll.value = isUserAtBottom.value;
   }
 
   // 控制 top-controls-bar 的边框显示
@@ -775,6 +814,13 @@ const handleScroll = () => {
       topControlsBarRef.value.classList.remove('scrolled');
     }
   }
+};
+
+const onScrollToBottomClick = () => {
+  isUserAtBottom.value = true;
+  shouldAutoScroll.value = true;
+  _userScrollUpAccum = 0;
+  scrollToBottom(true);
 };
 
 // 🎯 统一的 Agent 信息解析：从事件 / 持久化 payload 中取「被调用 Agent」与展示名
@@ -890,14 +936,50 @@ function executionStepsToExecutionState(executionSteps) {
   const toolCalls = new Map();
   const execution_steps = [];
 
-  const ensureOrchestratorStep = (round = null, intent = '') => {
+  const ensureOrchestratorStep = (round = null, intent = '', options = {}) => {
+    const { markIntentComplete = false } = options;
     let step = execution_steps[execution_steps.length - 1];
-    if (!step || step._closed) {
-      step = { round, intent: intent || '', toolCalls: [], expanded: true };
+    const shouldCreateNewStep = !step
+      || (step._intentComplete && (round == null || step.round !== round))
+      || (round != null && step.round != null && step.round !== round);
+    if (shouldCreateNewStep) {
+      step = {
+        round,
+        intent: intent || '',
+        toolCalls: [],
+        expanded: true,
+        _intentComplete: Boolean(markIntentComplete && intent)
+      };
       execution_steps.push(step);
     } else if (intent) {
-      step.intent = intent;
+      step.intent = step.intent ? step.intent : intent;
     }
+    if (round != null && step.round == null) step.round = round;
+    if (markIntentComplete) step._intentComplete = true;
+    return step;
+  };
+
+  const getOrchestratorStepForTool = (round = null) => {
+    const resolvedRound = round ?? getLatestRound(execution_steps) ?? 1;
+    let step = execution_steps[execution_steps.length - 1];
+
+    if (!step) {
+      step = { round: resolvedRound, intent: '', toolCalls: [], expanded: true };
+      execution_steps.push(step);
+      return step;
+    }
+
+    if (step.round == null) step.round = resolvedRound;
+    if (step.round === resolvedRound) return step;
+
+    for (let i = execution_steps.length - 1; i >= 0; i -= 1) {
+      if (execution_steps[i]?.round === resolvedRound) {
+        return execution_steps[i];
+      }
+    }
+
+    step = { round: resolvedRound, intent: '', toolCalls: [], expanded: true };
+    execution_steps.push(step);
     return step;
   };
 
@@ -937,7 +1019,7 @@ function executionStepsToExecutionState(executionSteps) {
     }
 
     if (kind === 'agent_intent' || kind === 'agent_thought') {
-      ensureOrchestratorStep(step.round, step.content || '');
+      ensureOrchestratorStep(step.round, step.content || '', { markIntentComplete: true });
       continue;
     }
 
@@ -995,7 +1077,7 @@ function executionStepsToExecutionState(executionSteps) {
           parentNode.currentStep = reactStep;
         }
       } else {
-        ensureOrchestratorStep(step.round).toolCalls.push(toolCall);
+        getOrchestratorStepForTool(step.round).toolCalls.push(toolCall);
       }
       continue;
     }
@@ -1498,6 +1580,8 @@ const reconnectToRunningTask = async (sessionId) => {
       body: JSON.stringify({ session_id: sessionId })
     });
     if (!response.ok) {
+      // 任务已结束（404）或其他错误：清理占位消息
+      _cleanupReconnectPlaceholder(assistantMsgIndex, sessionId);
       isLoading.value = false;
       return;
     }
@@ -1513,6 +1597,15 @@ const reconnectToRunningTask = async (sessionId) => {
     }
     await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     scrollToBottom();
+  }
+};
+
+/** 重连失败时清理空的占位 assistant 消息 */
+const _cleanupReconnectPlaceholder = (msgIndex, sessionId) => {
+  const msg = messages.value[msgIndex];
+  if (msg && msg.role === 'assistant' && !msg.content && !msg.finished) {
+    messages.value.splice(msgIndex, 1);
+    cacheMessages(sessionId, messages.value);
   }
 };
 
@@ -1550,6 +1643,7 @@ const loadSessionMessages = async (sessionId) => {
           content: item.content || '',
           subtasks,
           execution_steps: parsed.execution_steps || [],
+          react_trace: item.react_trace || [],
           showFullSubtasks: false,
           multimodalContents: (item.multimodalContents?.length > 0)
             ? item.multimodalContents
@@ -2341,7 +2435,20 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             // 工具调用（支持 call.tool.start / tool.start）
             else if (eventType === 'tool.start' || eventType === 'call.tool.start') {
               // 先尝试找子 Agent subtask（parent_call_id 对应某个 subtask.task_id）
-              const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
+              let subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
+              // 容错：parent_call_id 存在但 subtask 缺失（重连回放时 call.agent.start 事件可能丢失），
+              // 创建占位 subtask 避免工具被错误地挂到编排器层级
+              if (!subtask && event.parent_call_id && !isMasterEvent(event)) {
+                subtask = buildSubtaskState({
+                  eventData,
+                  fallbackRound: getLatestRound(currentMsg.execution_steps),
+                  calledAgent: event.agent_name || eventData.agent_name || '',
+                  displayName: event.agent_name || eventData.agent_name || '',
+                  taskId: event.parent_call_id,
+                  parentCallId: null,
+                });
+                currentMsg.subtasks.push(subtask);
+              }
               if (subtask) {
                 // 跨轮次时需要新建 step，避免 tool 挂到上一轮的空 step 上
                 const subtaskToolRound = eventData.round ?? subtask.currentStep?.round ?? 1;
@@ -2736,6 +2843,8 @@ const handleSend = async () => {
   messages.value.push({ role: 'user', content: content });
   inputMessage.value = '';
   isUserAtBottom.value = true;
+  shouldAutoScroll.value = true;
+  _userScrollUpAccum = 0;
   scrollToBottom(true);
   updateRecentSession(sessionId, content, new Date().toISOString());
 
@@ -2823,6 +2932,8 @@ const handleSend = async () => {
 
 onMounted(() => {
   isUserAtBottom.value = true;
+  shouldAutoScroll.value = true;
+  _userScrollUpAccum = 0;
 
   // 初始化移动端检测
   checkMobile();
@@ -3045,6 +3156,57 @@ onUnmounted(() => {
 
   .execution-pill {
     margin-left: 0;
+  }
+}
+
+/* ===== Scroll to Bottom Button ===== */
+.scroll-to-bottom-btn {
+  position: sticky;
+  bottom: 80px;
+  align-self: center;
+  z-index: var(--z-sticky, 10);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.15s ease;
+  pointer-events: auto;
+  margin: 0 auto -36px;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-hover);
+  transform: scale(1.08);
+}
+
+.scroll-to-bottom-btn:active {
+  transform: scale(0.95);
+}
+
+.scroll-btn-fade-enter-active,
+.scroll-btn-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.scroll-btn-fade-enter-from,
+.scroll-btn-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@media (max-width: 767px) {
+  .scroll-to-bottom-btn {
+    bottom: 70px;
+    width: 40px;
+    height: 40px;
   }
 }
 

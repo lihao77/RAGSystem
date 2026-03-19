@@ -85,8 +85,11 @@ class ExecutionService:
             resolved_request_id = inherited_observability.request_id
 
         resolved_event_bus = event_bus
-        if resolved_event_bus is None and resolved_session_id:
-            resolved_event_bus = self._session_manager.get_or_create(resolved_session_id)
+        if resolved_event_bus is None and resolved_run_id:
+            resolved_event_bus = self._session_manager.get_or_create(
+                resolved_run_id,
+                session_id=resolved_session_id,
+            )
 
         combined_metadata = merge_observability_metadata(
             combined_metadata,
@@ -186,23 +189,25 @@ class ExecutionService:
 
         if publish_interrupt:
             event_bus = None
+            run_id = status.get('run_id')
             session_manager_get = getattr(self._session_manager, 'get', None)
             if callable(session_manager_get):
-                event_bus = session_manager_get(session_id)
-            if event_bus is None:
-                event_bus = self._session_manager.get_or_create(session_id)
-            event_bus.publish(Event(
-                type=EventType.USER_INTERRUPT,
-                data=attach_execution_metadata(
-                    {'reason': reason},
-                    task_id=status.get('task_id'),
+                event_bus = session_manager_get(run_id)
+            if event_bus is None and run_id:
+                event_bus = self._session_manager.get_or_create(run_id, session_id=session_id)
+            if event_bus is not None:
+                event_bus.publish(Event(
+                    type=EventType.USER_INTERRUPT,
+                    data=attach_execution_metadata(
+                        {'reason': reason},
+                        task_id=status.get('task_id'),
+                        session_id=session_id,
+                        run_id=status.get('run_id'),
+                        execution_kind=status.get('execution_kind'),
+                        request_id=status.get('request_id'),
+                    ),
                     session_id=session_id,
-                    run_id=status.get('run_id'),
-                    execution_kind=status.get('execution_kind'),
-                    request_id=status.get('request_id'),
-                ),
-                session_id=session_id,
-            ))
+                ))
 
         task_id = status.get('task_id')
         if not task_id:

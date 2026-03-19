@@ -14,10 +14,14 @@ from .bus import (
 )
 from .publisher import EventPublisher
 from .session_manager import (
+    RunEventBusManager,
     SessionEventBusManager,
     get_session_manager,
+    get_run_event_bus,
     get_session_event_bus,
+    cleanup_run,
     cleanup_session,
+    touch_run,
     touch_session,
 )
 from .sse_adapter import SSEAdapter
@@ -31,10 +35,14 @@ __all__ = [
     'get_current_event_bus',
     'set_current_event_bus',
     'EventPublisher',
+    'RunEventBusManager',
     'SessionEventBusManager',
     'get_session_manager',
+    'get_run_event_bus',
     'get_session_event_bus',
+    'cleanup_run',
     'cleanup_session',
+    'touch_run',
     'touch_session',
     'SSEAdapter',
 ]

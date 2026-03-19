@@ -125,14 +125,31 @@ class AgentSessionApplication:
     ) -> Dict[str, Any]:
         data = self._conversation_store.list_messages(session_id=session_id, limit=limit, offset=offset)
         if data.get('items'):
-            data['items'] = [
-                item for item in data['items']
-                if not (item.get('metadata') or {}).get('react_intermediate')
-            ]
+            react_trace_by_run: Dict[str, list[Dict[str, Any]]] = {}
+            visible_items = []
+            for item in data['items']:
+                metadata = item.get('metadata') or {}
+                if metadata.get('react_intermediate'):
+                    run_id = metadata.get('run_id')
+                    if run_id:
+                        react_trace_by_run.setdefault(run_id, []).append({
+                            'seq': item.get('seq'),
+                            'role': item.get('role'),
+                            'content': item.get('content') or '',
+                            'msg_type': metadata.get('msg_type'),
+                            'round': metadata.get('round'),
+                            'agent': metadata.get('agent'),
+                            'created_at': item.get('created_at'),
+                        })
+                    continue
+                visible_items.append(item)
+            data['items'] = visible_items
         if expand_steps and data.get('items'):
             for item in data['items']:
                 metadata = item.get('metadata') or {}
                 run_id = metadata.get('run_id')
+                if run_id:
+                    item['react_trace'] = react_trace_by_run.get(run_id, [])
                 if item.get('role') != 'assistant' or not run_id:
                     continue
                 raw_steps = self._conversation_store.list_run_steps(

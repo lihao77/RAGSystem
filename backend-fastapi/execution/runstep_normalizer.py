@@ -49,6 +49,17 @@ def normalize_run_steps(
     if not raw_steps:
         return normalized
 
+    call_agent_start_ids = {
+        (step.get('payload') or {}).get('call_id')
+        for step in raw_steps
+        if (step.get('step_type') or ((step.get('payload') or {}).get('type'))) == 'call.agent.start'
+    }
+    call_agent_end_ids = {
+        (step.get('payload') or {}).get('call_id')
+        for step in raw_steps
+        if (step.get('step_type') or ((step.get('payload') or {}).get('type'))) == 'call.agent.end'
+    }
+
     for step in raw_steps:
         payload = step.get('payload') or {}
         data = payload.get('data') or {}
@@ -77,6 +88,8 @@ def normalize_run_steps(
                 'source_event_type': event_type,
             })
         elif event_type == 'agent.start':
+            if parent_call_id and call_id in call_agent_start_ids:
+                continue
             normalized.append({
                 'kind': 'subtask_start' if parent_call_id else 'agent_start',
                 'step_order': step_order,
@@ -89,6 +102,8 @@ def normalize_run_steps(
                 'source_event_type': event_type,
             })
         elif event_type == 'agent.end':
+            if parent_call_id and call_id in call_agent_end_ids:
+                continue
             normalized.append({
                 'kind': 'subtask_end' if parent_call_id else 'agent_end',
                 'step_order': step_order,
