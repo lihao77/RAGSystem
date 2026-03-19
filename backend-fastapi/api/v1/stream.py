@@ -196,8 +196,11 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
             from agents.events import SSEAdapter
+            from agents.events.bus import EventType
+            from dependencies import get_task_registry
 
             event_bus = get_session_event_bus(session_id)
+            registry = get_task_registry()
 
             all_history = await asyncio.to_thread(
                 event_bus.get_event_history, session_id=session_id, limit=1000
@@ -213,6 +216,16 @@ async def stream_reconnect(request: StreamReconnectRequest, http_request: Reques
             yield _sse_line(reconnect_start)
 
             for event in history:
+                # 过滤已处理的审批/输入事件：只重放仍在 pending 的
+                if event.type == EventType.USER_APPROVAL_REQUIRED:
+                    aid = (event.data or {}).get('approval_id', '')
+                    if aid and not registry.is_approval_pending(session_id, aid):
+                        continue
+                if event.type == EventType.USER_INPUT_REQUIRED:
+                    iid = (event.data or {}).get('input_id', '')
+                    if iid and not registry.is_input_pending(session_id, iid):
+                        continue
+
                 full_event = {
                     'type': event.type.value,
                     'event_id': getattr(event, 'event_id', None),

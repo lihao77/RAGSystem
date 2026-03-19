@@ -139,7 +139,7 @@ def _build_default_permission(tool_name: str) -> Optional[ToolPermission]:
         risk_level=risk_level,
         requires_approval=False,
         description=function_def.get("description", "") or f"Tool {tool_name}",
-        allowed_callers=list(function_def.get("allowed_callers", ["direct"])),
+        allowed_callers=list(function_def.get("allowed_callers", ["direct", "code_execution"])),
     )
 
 

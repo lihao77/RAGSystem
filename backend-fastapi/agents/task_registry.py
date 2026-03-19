@@ -55,6 +55,8 @@ class TaskRegistry:
         self._tasks: Dict[str, TaskInfo] = {}
         self._tasks_by_task_id: Dict[str, TaskInfo] = {}
         self._active_concurrency: Dict[str, str] = {}
+        self._approval_to_task: Dict[str, str] = {}   # approval_id → task_id
+        self._input_to_task: Dict[str, str] = {}       # input_id → task_id
         self._lock = threading.RLock()
 
     def register(
@@ -240,12 +242,14 @@ class TaskRegistry:
             for approval_id, evt in list(info.pending_approvals.items()):
                 info.approval_results[approval_id] = {'approved': False, 'message': ''}
                 evt.set()
+                self._approval_to_task.pop(approval_id, None)
             info.pending_approvals.clear()
 
             input_count = len(info.pending_inputs)
             for input_id, evt in list(info.pending_inputs.items()):
                 info.input_results[input_id] = ''
                 evt.set()
+                self._input_to_task.pop(input_id, None)
             info.pending_inputs.clear()
             self._sync_concurrency_index_locked(info)
 
@@ -301,15 +305,27 @@ class TaskRegistry:
         return self.add_task_pending_approval(task_id, approval_id)
 
     def resolve_approval(self, session_id: str, approval_id: str, approved: bool, message: str = '') -> bool:
-        """响应审批请求（由 HTTP 端点调用）。"""
-        task_id = self.get_task_id_by_session(session_id)
+        """响应审批请求（由 HTTP 端点调用）。
+
+        通过 approval_id 反向索引直接定位 task，不再依赖 session 槽位。
+        保留 session_id 参数以兼容 API 端点签名。
+        """
+        with self._lock:
+            task_id = self._approval_to_task.get(approval_id)
         if task_id is None:
             return False
         return self.resolve_task_approval(task_id, approval_id, approved, message)
 
     def get_approval_result(self, session_id: str, approval_id: str) -> tuple:
-        """获取审批结果（等待完成后调用），返回 (approved: bool, message: str)。"""
-        task_id = self.get_task_id_by_session(session_id)
+        """获取审批结果（等待完成后调用），返回 (approved: bool, message: str)。
+
+        通过 approval_id 反向索引查找，回退到 session 槽位兼容旧调用。
+        """
+        with self._lock:
+            task_id = self._approval_to_task.get(approval_id)
+        if task_id is None:
+            # 回退：approval 已从 pending 移除（已 resolve），尝试 session 槽位
+            task_id = self.get_task_id_by_session(session_id)
         if task_id is None:
             return False, ''
         return self.get_task_approval_result(task_id, approval_id)
@@ -322,15 +338,26 @@ class TaskRegistry:
         return self.add_task_pending_input(task_id, input_id)
 
     def resolve_input(self, session_id: str, input_id: str, value: str) -> bool:
-        """提交用户输入（由 HTTP 端点调用）。"""
-        task_id = self.get_task_id_by_session(session_id)
+        """提交用户输入（由 HTTP 端点调用）。
+
+        通过 input_id 反向索引直接定位 task，不再依赖 session 槽位。
+        保留 session_id 参数以兼容 API 端点签名。
+        """
+        with self._lock:
+            task_id = self._input_to_task.get(input_id)
         if task_id is None:
             return False
         return self.resolve_task_input(task_id, input_id, value)
 
     def get_input_result(self, session_id: str, input_id: str) -> str:
-        """获取用户输入结果（等待完成后调用）。"""
-        task_id = self.get_task_id_by_session(session_id)
+        """获取用户输入结果（等待完成后调用）。
+
+        通过 input_id 反向索引查找，回退到 session 槽位兼容旧调用。
+        """
+        with self._lock:
+            task_id = self._input_to_task.get(input_id)
+        if task_id is None:
+            task_id = self.get_task_id_by_session(session_id)
         if task_id is None:
             return ''
         return self.get_task_input_result(task_id, input_id)
@@ -343,6 +370,7 @@ class TaskRegistry:
             evt = threading.Event()
             info.pending_approvals[approval_id] = evt
             info.approval_results[approval_id] = {'approved': False, 'message': ''}
+            self._approval_to_task[approval_id] = task_id
             logger.info('TaskRegistry: 注册审批请求 task_id=%s approval_id=%s', task_id, approval_id)
             return evt
 
@@ -354,6 +382,7 @@ class TaskRegistry:
                 return False
             info.approval_results[approval_id] = {'approved': approved, 'message': message}
             evt = info.pending_approvals.pop(approval_id)
+            self._approval_to_task.pop(approval_id, None)
         evt.set()
         logger.info('TaskRegistry: 审批响应 task_id=%s approval_id=%s approved=%s', task_id, approval_id, approved)
         return True
@@ -374,6 +403,7 @@ class TaskRegistry:
             evt = threading.Event()
             info.pending_inputs[input_id] = evt
             info.input_results[input_id] = ''
+            self._input_to_task[input_id] = task_id
             logger.info('TaskRegistry: 注册用户输入请求 task_id=%s input_id=%s', task_id, input_id)
             return evt
 
@@ -385,6 +415,7 @@ class TaskRegistry:
                 return False
             info.input_results[input_id] = value
             evt = info.pending_inputs.pop(input_id)
+            self._input_to_task.pop(input_id, None)
         evt.set()
         logger.info('TaskRegistry: 用户输入已提交 task_id=%s input_id=%s', task_id, input_id)
         return True
@@ -431,6 +462,16 @@ class TaskRegistry:
 
     def _get_session_task_locked(self, session_id: str) -> Optional[TaskInfo]:
         return self._tasks.get(session_id)
+
+    def is_approval_pending(self, session_id: str, approval_id: str) -> bool:
+        """检查指定审批请求是否仍在等待中（用于重连重放过滤）。"""
+        with self._lock:
+            return approval_id in self._approval_to_task
+
+    def is_input_pending(self, session_id: str, input_id: str) -> bool:
+        """检查指定输入请求是否仍在等待中（用于重连重放过滤）。"""
+        with self._lock:
+            return input_id in self._input_to_task
 
     def _find_active_conflict_locked(
         self,
@@ -525,6 +566,10 @@ class TaskRegistry:
             self._tasks.pop(info.session_id, None)
         if info.concurrency_key and self._active_concurrency.get(info.concurrency_key) == task_id:
             self._active_concurrency.pop(info.concurrency_key, None)
+        for approval_id in info.pending_approvals:
+            self._approval_to_task.pop(approval_id, None)
+        for input_id in info.pending_inputs:
+            self._input_to_task.pop(input_id, None)
 
 
 def get_task_registry() -> TaskRegistry:

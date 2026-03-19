@@ -43,7 +43,7 @@ def tool(
         async def generate_report(arguments, **kwargs):
             ...
     """
-    _allowed_callers = allowed_callers or ["direct"]
+    _allowed_callers = allowed_callers or ["direct", "code_execution"]
 
     def decorator(fn: Callable) -> Callable:
         tool_name = name or fn.__name__

@@ -115,8 +115,15 @@ ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
 # 禁止导入的模块（AST 阶段检查）
 _FORBIDDEN_MODULES = {'os', 'sys', 'subprocess', 'shutil', 'socket'}
 
-# 禁止的调用模式（行级检查，跳过注释行）
-_FORBIDDEN_CALL_PATTERNS = ['__import__', 'eval(', 'exec(', 'globals(', 'locals(']
+# 禁止的调用模式（行级正则检查，跳过注释行）
+# 使用 \b 词边界避免误杀 ast.literal_eval() 等合法调用
+_FORBIDDEN_CALL_PATTERNS = [
+    (re.compile(r'__import__'), '__import__'),
+    (re.compile(r'(?<![.\w])eval\s*\('), 'eval('),    # 独立 eval(，不匹配 literal_eval( 或 obj.eval(
+    (re.compile(r'(?<![.\w])exec\s*\('), 'exec('),    # 独立 exec(，不匹配 obj.exec(
+    (re.compile(r'(?<![.\w])globals\s*\('), 'globals('),
+    (re.compile(r'(?<![.\w])locals\s*\('), 'locals('),
+]
 
 # 禁止的独立函数调用（AST 阶段精确检查，不误杀 re.compile 等属性调用）
 _FORBIDDEN_BARE_CALLS = {'compile'}
@@ -491,9 +498,9 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
         stripped = line.strip()
         if stripped.startswith('#'):
             continue
-        for pattern in _FORBIDDEN_CALL_PATTERNS:
-            if pattern in stripped:
-                return False, f"禁止使用: {pattern}"
+        for regex, label in _FORBIDDEN_CALL_PATTERNS:
+            if regex.search(stripped):
+                return False, f"禁止使用: {label}"
 
     return True, None
 
