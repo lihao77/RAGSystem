@@ -463,7 +463,12 @@ def _load_structured_document(file_path: Path, *, encoding: str) -> Any:
     suffix = file_path.suffix.lower()
     if suffix == ".json":
         with open(file_path, "r", encoding=encoding, errors="replace") as handle:
-            return json.load(handle)
+            text = handle.read()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            import ast
+            return ast.literal_eval(text)
     if suffix in {".yaml", ".yml"}:
         try:
             import yaml

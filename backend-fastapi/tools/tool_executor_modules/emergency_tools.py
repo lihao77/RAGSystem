@@ -182,7 +182,7 @@ RESPONSE_TEMPLATES = {
     risk_level=RiskLevel.LOW,
     requires_approval=False,
     timeout_seconds=60,
-    allowed_callers=["direct"],
+    allowed_callers=["direct", "code_execution"],
     returns={
         "type": "object",
         "description": "检索到的预案内容片段列表",
@@ -339,7 +339,7 @@ def query_emergency_plan(
     risk_level=RiskLevel.LOW,
     requires_approval=False,
     timeout_seconds=60,
-    allowed_callers=["direct"],
+    allowed_callers=["direct", "code_execution"],
     returns={
         "type": "object",
         "description": "风险评估结果",
@@ -516,7 +516,7 @@ def assess_flood_risk(
     risk_level=RiskLevel.LOW,
     requires_approval=False,
     timeout_seconds=60,
-    allowed_callers=["direct"],
+    allowed_callers=["direct", "code_execution"],
     returns={
         "type": "object",
         "description": "匹配到的应急响应措施",

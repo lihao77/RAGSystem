@@ -3,16 +3,17 @@
 受限 Bash 命令执行工具
 
 提供只读类 shell 命令执行能力，用于搜索文件内容、统计行数、定位关键信息。
-- 命令白名单：仅允许 grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed
+- 命令白名单：仅允许只读/无害命令（grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed/pwd/which/stat/file/du/df/diff 等）
 - 管道安全：逐段检查，禁止非白名单命令出现在管道中
-- 禁止重定向写入（> >>）
-- 工作目录限制：仅限项目数据目录
+- 禁止重定向写入（> >>），允许 2>/dev/null 和 2>&1
+- 默认工作目录：项目根目录（backend-fastapi/）
 - 超时保护：30 秒
 """
 
 import logging
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -26,7 +27,7 @@ from tools.response_builder import error_result, success_result
 logger = logging.getLogger(__name__)
 
 _BACKEND_DIR = Path(__file__).parent.parent.parent
-_DEFAULT_WORK_DIR = _BACKEND_DIR / "data"
+_DEFAULT_WORK_DIR = _BACKEND_DIR
 
 
 def _find_bash_executable() -> Optional[str]:
@@ -46,8 +47,17 @@ _BASH_EXECUTABLE = _find_bash_executable()
 
 # 允许的命令白名单（只读类）
 ALLOWED_COMMANDS = frozenset({
+    # 文件搜索与内容查看
     "grep", "find", "head", "tail", "wc", "cat", "ls",
     "echo", "sort", "uniq", "cut", "awk", "sed",
+    # 路径与环境
+    "pwd", "which", "whereis", "realpath", "dirname", "basename",
+    # 文件信息
+    "file", "stat", "du", "df",
+    # 文本处理
+    "tr", "tee", "xargs", "diff", "comm", "paste", "column",
+    # 其他只读
+    "env", "printenv", "date", "uname",
 })
 
 # 显式禁止的危险命令
@@ -62,6 +72,9 @@ BLOCKED_COMMANDS = frozenset({
 # 禁止的重定向操作符
 _REDIRECT_OPERATORS = {">", ">>"}
 
+# 安全的 stderr 重定向模式（剥离后再检查写重定向）
+_SAFE_STDERR_RE = re.compile(r'2>\s*/dev/null|2>&1')
+
 def _validate_command(command: str) -> tuple[bool, str]:
     """
     校验命令安全性。
@@ -69,9 +82,10 @@ def _validate_command(command: str) -> tuple[bool, str]:
     Returns:
         (通过, 错误消息)
     """
-    # 禁止重定向写入
+    # 先剥离安全的 stderr 重定向，再检查是否有写重定向
+    stripped = _SAFE_STDERR_RE.sub('', command)
     for op in _REDIRECT_OPERATORS:
-        if op in command:
+        if op in stripped:
             return False, f"禁止使用重定向操作符: {op}"
 
     # 按管道分段检查
@@ -105,7 +119,6 @@ def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[P
         (通过, 错误消息, 解析后的路径)
     """
     if working_dir is None:
-        _DEFAULT_WORK_DIR.mkdir(parents=True, exist_ok=True)
         return True, "", _DEFAULT_WORK_DIR
 
     p = Path(working_dir).resolve()
@@ -117,17 +130,17 @@ def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[P
 
 @tool(
     name="execute_bash",
-    description="执行受限 bash 命令，支持 grep/find/head/tail/wc 等只读命令，用于搜索文件内容、统计行数、定位关键信息",
+    description="执行受限 bash 命令。默认工作目录为项目根目录（backend-fastapi/），可通过 working_dir 参数指定。支持 grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed/pwd/which/stat/file/du/df/diff/tr/xargs 等只读命令，支持管道和 2>/dev/null 屏蔽 stderr",
     parameters={
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "要执行的 bash 命令（仅允许 grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed）",
+                "description": "要执行的 bash 命令（仅允许只读类命令，支持管道和 2>/dev/null、2>&1）",
             },
             "working_dir": {
                 "type": "string",
-                "description": "工作目录（可选，默认为项目数据目录）",
+                "description": "工作目录（可选，默认为项目根目录 backend-fastapi/）",
             },
         },
         "required": ["command"],
@@ -151,14 +164,17 @@ def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[P
     },
     usage_contract=[
         "仅允许只读类命令，禁止 rm/mv/cp 等写操作",
-        "禁止重定向写入（> >>）",
+        "禁止重定向写入（> >>），但允许 2>/dev/null 和 2>&1",
         "管道中每段命令都必须在白名单内",
+        "默认工作目录为项目根目录（backend-fastapi/），可通过 working_dir 参数指定",
         "超时 30 秒自动终止",
     ],
     examples=[
         {"input": {"command": "grep -rn '关键词' .", "working_dir": "./data"}},
         {"input": {"command": "find . -name '*.json' | head -20"}},
         {"input": {"command": "wc -l data.csv"}},
+        {"input": {"command": "pwd"}},
+        {"input": {"command": "find . -name '*.py' -type f 2>/dev/null | wc -l"}},
     ],
 )
 def execute_bash(
@@ -180,16 +196,27 @@ def execute_bash(
     # 3. 执行命令
     logger.info("execute_bash: command=%r, cwd=%s", command, cwd)
     try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            executable=_BASH_EXECUTABLE,
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env={**os.environ, "LC_ALL": "C.UTF-8"},
-        )
+        if _BASH_EXECUTABLE:
+            # Windows: 直接调用 bash -c，避免 shell=True 路径空格问题
+            proc = subprocess.run(
+                [_BASH_EXECUTABLE, "-c", command],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env={**os.environ, "LC_ALL": "C.UTF-8"},
+            )
+        else:
+            # Linux/macOS: 使用系统默认 shell
+            proc = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env={**os.environ, "LC_ALL": "C.UTF-8"},
+            )
     except subprocess.TimeoutExpired:
         return error_result("命令执行超时（超过 30 秒）", tool_name="execute_bash")
     except Exception as e:

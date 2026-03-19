@@ -49,6 +49,11 @@ _BACKEND_DIR = Path(__file__).parent.parent
 SANDBOX_ROOT = _BACKEND_DIR / "data" / "sandbox"
 SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
 
+# 只读可访问的额外目录（工具产出的数据文件目录）
+_READONLY_DIRS = [
+    _BACKEND_DIR / "static" / "temp_data",
+]
+
 # 写操作 mode 集合
 _WRITE_MODES = {'w', 'a', 'x', 'wb', 'ab', 'xb', 'w+', 'a+', 'r+', 'w+b', 'a+b', 'r+b'}
 
@@ -85,6 +90,8 @@ ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
     '_json', 'json.decoder', 'json.encoder', 'json.scanner',
     'time', '_strptime',  # datetime 内部依赖
     '_csv',  # csv 内部依赖
+    # ast（安全的字面量解析，用于 ast.literal_eval）
+    'ast', '_ast',
     # io 内部依赖
     '_io', 'io',
     # decimal 内部依赖
@@ -257,26 +264,46 @@ def _request_sandbox_approval(
     return approval_message or ""
 
 
-def _resolve_sandbox_path(path: str) -> Path:
+def _resolve_sandbox_path(path: str, *, readonly: bool = False) -> Path:
     """
-    将用户传入的路径解析为沙箱内的绝对路径。
-    - 相对路径：相对于 SANDBOX_ROOT
-    - 绝对路径：必须在 SANDBOX_ROOT 下，否则拒绝
+    将用户传入的路径解析为安全的绝对路径。
+    - 相对路径：先尝试相对于 SANDBOX_ROOT，readonly 模式下还会尝试相对于 _BACKEND_DIR
+    - 绝对路径：必须在允许的目录下
+    - readonly=True 时额外允许 _READONLY_DIRS 中的目录（只读访问）
     防止 ../ 路径穿越攻击。
     """
     p = Path(path)
+    allowed_roots = [SANDBOX_ROOT.resolve()]
+    if readonly:
+        allowed_roots.extend(d.resolve() for d in _READONLY_DIRS)
+
     if not p.is_absolute():
+        # 优先尝试沙箱目录
         resolved = (SANDBOX_ROOT / p).resolve()
+        if not any(_is_under(resolved, root) for root in allowed_roots):
+            # readonly 模式下再尝试相对于后端根目录（兼容 ./static/temp_data/... 路径）
+            if readonly:
+                resolved = (_BACKEND_DIR / p).resolve()
+            if not any(_is_under(resolved, root) for root in allowed_roots):
+                raise PermissionError(
+                    f"路径 '{path}' 超出允许的目录范围，禁止访问"
+                )
     else:
         resolved = p.resolve()
-
-    try:
-        resolved.relative_to(SANDBOX_ROOT.resolve())
-    except ValueError:
-        raise PermissionError(
-            f"路径 '{path}' 超出沙箱目录 ({SANDBOX_ROOT})，禁止访问"
-        )
+        if not any(_is_under(resolved, root) for root in allowed_roots):
+            raise PermissionError(
+                f"路径 '{path}' 超出允许的目录范围，禁止访问"
+            )
     return resolved
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    """检查 path 是否在 root 目录下。"""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _make_safe_open(event_bus, approval_granted: list):
@@ -286,9 +313,9 @@ def _make_safe_open(event_bus, approval_granted: list):
     - 写操作（w/a/x 等）：需要用户已审批（approval_granted[0] == True）
     """
     def safe_open(path, mode='r', encoding=None, **kwargs):
-        resolved = _resolve_sandbox_path(str(path))
         normalized = mode.replace('t', '')
         is_write = normalized in _WRITE_MODES
+        resolved = _resolve_sandbox_path(str(path), readonly=not is_write)
 
         if is_write:
             if not approval_granted[0]:
@@ -559,9 +586,13 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
     },
     usage_contract=[
         "代码必须设置 result 变量作为最终输出",
-        "需要调用工具时使用 call_tool(tool_name, arguments)",
-        "call_tool 返回的是工具主内容，不是完整响应壳",
-        "不要对 call_tool(...) 再取 ['content']；read_file 返回字符串时应直接使用该字符串",
+        "需要调用工具时使用 call_tool(tool_name, arguments)，返回值是工具主内容（不是完整响应壳）",
+        "不要对 call_tool(...) 再取 ['content']；read_file 返回的是文件内容字符串，直接使用即可",
+        "如果返回内容是标准 JSON 字符串（双引号），用 json.loads() 解析",
+        "如果文件内容是 Python 字面量格式（单引号），用 ast.literal_eval() 解析（需先 import ast）",
+        "禁止导入 os/sys/subprocess/shutil/socket，路径操作使用内置的 path_ops（如 path_ops.join, path_ops.basename）",
+        "读取数据文件时使用 DATA_DIR 变量拼接路径（如 open(f'{DATA_DIR}/xxx.json')），写入文件使用 SANDBOX_DIR",
+        "可用模块：math, json, re, csv, datetime, collections, itertools, functools, statistics, time, io, string, decimal, copy, textwrap, hashlib, base64",
         "复杂数据转换优先在 execute_code 内完成，再交给其他工具",
     ],
     examples=[
@@ -778,6 +809,7 @@ def execute_code_sandbox(
         'open': safe_open_func,                              # 替代内置 open，限制在沙箱目录内
         'request_write_approval': request_write_approval_func,  # 写操作前请求审批
         'SANDBOX_DIR': str(SANDBOX_ROOT),                    # 沙箱目录路径（供代码参考）
+        'DATA_DIR': str(_BACKEND_DIR / "static" / "temp_data"),  # 数据文件目录（只读，与工具产出一致）
         'path_ops': _safe_path_ops,                            # 安全路径操作（替代 os.path）
     }
 
