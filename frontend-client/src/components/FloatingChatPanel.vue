@@ -1,49 +1,46 @@
 <template>
   <div class="floating-chat-panel" :class="{ collapsed: isCollapsed }">
-    <!-- 收起状态：小圆形按钮 -->
-    <button v-if="isCollapsed" class="chat-toggle-btn" @click="isCollapsed = false" title="展开对话面板">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-      <span v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</span>
-    </button>
-
-    <!-- 展开状态：完整面板 -->
-    <div v-else class="panel-expanded">
-      <div class="panel-header">
-        <span class="panel-title">智能对话</span>
-        <div class="panel-actions">
-          <button class="panel-btn" @click="$emit('close')" title="返回聊天">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-            <span>返回</span>
-          </button>
-          <button class="panel-btn" @click="isCollapsed = true" title="收起面板">
+    <div class="panel-body" @click="isCollapsed && toggleCollapse(false)">
+      <!-- 面板主体 -->
+      <div class="panel-main">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <span class="status-dot" :class="isStreaming ? 'streaming' : 'connected'"></span>
+            <span class="panel-title">智能对话</span>
+          </div>
+          <button class="panel-collapse-btn" @click.stop="toggleCollapse(true)" title="收起">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
         </div>
-      </div>
 
-      <div class="panel-messages" ref="messagesContainer">
-        <div v-for="(msg, idx) in messages" :key="idx" class="chat-msg" :class="msg.role">
-          <div class="msg-bubble">
-            <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
-            <div v-else class="msg-content" v-html="renderContent(msg.content)"></div>
+        <div class="panel-messages" ref="messagesContainer">
+          <div v-for="(msg, idx) in messages" :key="idx" class="chat-msg" :class="msg.role">
+            <div class="msg-bubble">
+              <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
+              <div v-else class="msg-content" v-html="renderContent(msg.content)"></div>
+            </div>
+          </div>
+          <div v-if="isStreaming" class="streaming-indicator">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
           </div>
         </div>
-        <div v-if="isStreaming" class="streaming-indicator">
-          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        </div>
-      </div>
 
-      <div class="panel-input">
-        <textarea
-          ref="inputRef"
-          v-model="inputText"
-          @keydown.enter.exact.prevent="sendMessage"
-          placeholder="输入消息..."
-          rows="1"
-        ></textarea>
-        <button class="send-btn" @click="sendMessage" :disabled="!inputText.trim() || isStreaming">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-        </button>
+        <div class="panel-input">
+          <div class="input-wrapper">
+            <textarea
+              ref="inputRef"
+              v-model="inputText"
+              @keydown.enter.exact.prevent="sendMessage"
+              placeholder="Ask anything..."
+              rows="1"
+            ></textarea>
+            <button class="send-btn" @click="sendMessage" :disabled="!inputText.trim() || isStreaming">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -58,7 +55,7 @@ const props = defineProps({
   prefillText: { type: String, default: '' },
 });
 
-const emit = defineEmits(['send-message', 'close']);
+const emit = defineEmits(['send-message', 'close', 'collapse-change']);
 
 const isCollapsed = ref(false);
 const inputText = ref('');
@@ -66,26 +63,26 @@ const messagesContainer = ref(null);
 const inputRef = ref(null);
 const unreadCount = ref(0);
 
+const toggleCollapse = (val) => {
+  isCollapsed.value = val;
+  emit('collapse-change', val);
+};
+
 const renderContent = (content) => {
   if (!content) return '';
-  // [viz:xxx] 替换为可点击链接文字
   const vizRe = /\[viz:(viz_\w+)\]/g;
   let rendered = content.replace(vizRe, '<span class="viz-link">[ 地图可视化 ]</span>');
-  // 代码块（```...```）
   rendered = rendered.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$2</code></pre>');
-  // 行内代码
   rendered = rendered.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
-  // 标题 (### / ## / #)
   rendered = rendered.replace(/^### (.+)$/gm, '<div class="chat-h3">$1</div>');
   rendered = rendered.replace(/^## (.+)$/gm, '<div class="chat-h2">$1</div>');
   rendered = rendered.replace(/^# (.+)$/gm, '<div class="chat-h1">$1</div>');
-  // 粗体
   rendered = rendered.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // 无序列表
   rendered = rendered.replace(/^[-*] (.+)$/gm, '<div class="chat-list-item">· $1</div>');
-  // 有序列表
   rendered = rendered.replace(/^(\d+)\. (.+)$/gm, '<div class="chat-list-item">$1. $2</div>');
-  // 换行
+  rendered = rendered.replace(/\n{2,}/g, '<br/>');
+  rendered = rendered.replace(/<\/(div|pre)>\n/g, '</$1>');
+  rendered = rendered.replace(/\n<(div|pre)/g, '<$1');
   rendered = rendered.replace(/\n/g, '<br/>');
   return rendered;
 };
@@ -97,16 +94,14 @@ const sendMessage = () => {
   inputText.value = '';
 };
 
-// 监听 prefillText
 watch(() => props.prefillText, (val) => {
   if (val) {
     inputText.value = val;
-    isCollapsed.value = false;
+    toggleCollapse(false);
     nextTick(() => inputRef.value?.focus());
   }
 });
 
-// 自动滚动到底部
 watch(() => props.messages.length, () => {
   if (isCollapsed.value) {
     unreadCount.value++;
@@ -118,7 +113,6 @@ watch(() => props.messages.length, () => {
   });
 });
 
-// 展开时清除未读计数
 watch(isCollapsed, (val) => {
   if (!val) {
     unreadCount.value = 0;
@@ -134,76 +128,39 @@ watch(isCollapsed, (val) => {
 <style scoped>
 .floating-chat-panel {
   position: fixed;
-  right: 16px;
+  right: 0;
   top: 64px;
   bottom: 16px;
   z-index: 10002;
+}
+
+.panel-body {
+  height: 100%;
   display: flex;
-  flex-direction: column;
+  transform: translateX(0);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.floating-chat-panel.collapsed {
-  top: auto;
-  bottom: 24px;
-  right: 24px;
-}
-
-.chat-toggle-btn {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: rgba(33, 150, 243, 0.9);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  color: #fff;
+.collapsed .panel-body {
+  /* 露出面板左侧 20px */
+  transform: translateX(calc(100% - 20px));
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s;
-  position: relative;
 }
 
-.chat-toggle-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 28px rgba(33, 150, 243, 0.4);
-}
-
-.unread-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: #f44336;
-  color: #fff;
-  font-size: 0.65rem;
-  font-weight: bold;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-
-.panel-expanded {
+/* 面板主体 */
+.panel-main {
   width: 380px;
   height: 100%;
-  background: rgba(20, 20, 30, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  margin-right: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  box-shadow: var(--shadow-lg);
 }
 
 .panel-header {
@@ -211,38 +168,60 @@ watch(isCollapsed, (val) => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
-.panel-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.panel-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.panel-btn {
+.panel-title-group {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  font-size: 0.75rem;
-  transition: all 0.2s;
+  gap: 8px;
 }
 
-.panel-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: var(--color-success);
+}
+
+.status-dot.streaming {
+  background: var(--color-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.panel-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.panel-collapse-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.panel-collapse-btn:hover {
+  background: var(--color-hover-overlay);
+  color: var(--color-text-secondary);
 }
 
 .panel-messages {
@@ -256,62 +235,71 @@ watch(isCollapsed, (val) => {
 
 .chat-msg {
   display: flex;
+  flex-direction: column;
+  width: 100%;
 }
 
 .chat-msg.user {
-  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+.chat-msg.assistant {
+  align-items: flex-start;
 }
 
 .msg-bubble {
   max-width: 85%;
   padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 0.82rem;
-  line-height: 1.5;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .chat-msg.user .msg-bubble {
-  background: rgba(33, 150, 243, 0.3);
-  color: #fff;
-  border-bottom-right-radius: 3px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-bottom-right-radius: 4px;
 }
 
 .chat-msg.assistant .msg-bubble {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
-  border-bottom-left-radius: 3px;
+  background: transparent;
+  color: var(--color-text-primary);
+  max-width: 100%;
+  padding: 4px 0;
 }
 
 .msg-content {
   word-break: break-word;
+  line-height: 1.6;
 }
 
 :deep(.chat-code-block) {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   margin: 4px 0;
   overflow-x: auto;
-  font-size: 0.78rem;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
 :deep(.chat-code-block code) {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
 }
 
 :deep(.chat-inline-code) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-hover-overlay-md);
   padding: 1px 5px;
   border-radius: 3px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
 }
 
-:deep(.chat-h1) { font-size: 1rem; font-weight: 700; margin: 6px 0 4px; }
-:deep(.chat-h2) { font-size: 0.92rem; font-weight: 700; margin: 5px 0 3px; }
-:deep(.chat-h3) { font-size: 0.86rem; font-weight: 600; margin: 4px 0 2px; }
+:deep(.chat-h1) { font-size: var(--font-size-base); font-weight: 700; margin: 6px 0 4px; }
+:deep(.chat-h2) { font-size: var(--font-size-sm); font-weight: 700; margin: 5px 0 3px; }
+:deep(.chat-h3) { font-size: var(--font-size-sm); font-weight: 600; margin: 4px 0 2px; }
 
 :deep(.chat-list-item) {
   padding-left: 4px;
@@ -319,10 +307,10 @@ watch(isCollapsed, (val) => {
 }
 
 :deep(.viz-link) {
-  color: #64b5f6;
+  color: var(--color-link);
   cursor: default;
   font-style: italic;
-  font-size: 0.78rem;
+  font-size: var(--font-size-xs);
 }
 
 .streaming-indicator {
@@ -332,10 +320,10 @@ watch(isCollapsed, (val) => {
 }
 
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--color-text-muted);
   animation: dotPulse 1.2s infinite ease-in-out;
 }
 
@@ -348,62 +336,77 @@ watch(isCollapsed, (val) => {
 }
 
 .panel-input {
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.input-wrapper {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  flex-shrink: 0;
+  gap: var(--spacing-sm);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 24px;
+  padding: 4px;
+  transition: all var(--transition-fast);
+}
+
+.input-wrapper:focus-within {
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-input textarea {
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: transparent;
+  border: none;
   padding: 8px 12px;
-  color: #fff;
-  font-size: 0.82rem;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
   resize: none;
   outline: none;
-  min-height: 36px;
+  min-height: 32px;
   max-height: 100px;
   font-family: inherit;
+  line-height: 1.5;
 }
 
 .panel-input textarea::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.panel-input textarea:focus {
-  border-color: rgba(33, 150, 243, 0.5);
+  color: var(--color-text-muted);
 }
 
 .send-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(33, 150, 243, 0.8);
-  border: none;
-  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
+  margin-bottom: 2px;
+  margin-right: 2px;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: rgba(33, 150, 243, 1);
+  background: var(--color-interactive);
+  border-color: var(--color-interactive);
+  color: white;
 }
 
 .send-btn:disabled {
-  opacity: 0.4;
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: not-allowed;
+  border-color: transparent;
+  opacity: 0.5;
 }
 
-/* 滚动条 */
 .panel-messages::-webkit-scrollbar {
   width: 4px;
 }
@@ -413,13 +416,13 @@ watch(isCollapsed, (val) => {
 }
 
 .panel-messages::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 2px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
 }
 
 @media (max-width: 768px) {
-  .panel-expanded {
-    width: calc(100vw - 32px);
+  .panel-main {
+    width: calc(100vw - 48px);
   }
 }
 </style>

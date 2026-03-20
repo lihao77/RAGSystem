@@ -15,40 +15,52 @@
           :class="{ 'has-count': count > 0 }"
         >
           <span class="stat-color" :style="{ background: riskColors[level] }">{{ level }}</span>
-          <span class="stat-value">{{ count }}</span>
-          <span class="stat-label">{{ riskLabels[level] }}</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ count }}</span>
+            <span class="stat-label">{{ riskLabels[level] }}</span>
+          </div>
         </div>
-        <div class="stat-card stat-total">
-          <span class="stat-value">{{ mapData.total_points }}</span>
-          <span class="stat-label">监测点</span>
+        <div class="stat-card">
+          <div class="stat-info">
+            <span class="stat-value">{{ mapData.total_points }}</span>
+            <span class="stat-label">监测点</span>
+          </div>
         </div>
       </template>
-      <!-- 多图层地图：显示图层数和数据点 -->
+      <!-- 多图层地图 -->
       <template v-else-if="mapData?.map_type === 'bindmap'">
         <div class="stat-card">
-          <span class="stat-value">{{ mapData.total_layers }}</span>
-          <span class="stat-label">图层</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ mapData.total_layers }}</span>
+            <span class="stat-label">图层</span>
+          </div>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{{ mapData.total_points }}</span>
-          <span class="stat-label">数据点</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ mapData.total_points }}</span>
+            <span class="stat-label">数据点</span>
+          </div>
         </div>
       </template>
       <!-- 其他地图 -->
       <template v-else-if="mapData?.total_points">
         <div class="stat-card">
-          <span class="stat-value">{{ mapData.total_points }}</span>
-          <span class="stat-label">数据点</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ mapData.total_points }}</span>
+            <span class="stat-label">数据点</span>
+          </div>
         </div>
         <div class="stat-card" v-if="mapData.value_range">
-          <span class="stat-value">{{ formatNumber(mapData.value_range.max) }}</span>
-          <span class="stat-label">最大值</span>
+          <div class="stat-info">
+            <span class="stat-value">{{ formatNumber(mapData.value_range.max) }}</span>
+            <span class="stat-label">最大值</span>
+          </div>
         </div>
       </template>
     </div>
     <div class="bar-right">
       <button class="exit-btn" @click="$emit('close')" title="退出态势大屏 (ESC)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         <span>退出</span>
       </button>
     </div>
@@ -65,7 +77,6 @@ const riskColors = { I: '#d32f2f', II: '#ff9800', III: '#fdd835', IV: '#1976d2' 
 const riskLabels = { I: '特别重大', II: '重大', III: '较大', IV: '一般' };
 
 const mapTypeName = (() => {
-  // computed-like but as a simple reactive string is fine for static prop
   return '态势大屏';
 })();
 
@@ -83,11 +94,9 @@ const formatNumber = (num) => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 20px;
-  background: rgba(15, 15, 25, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   z-index: 10001;
   min-height: 48px;
 }
@@ -100,73 +109,80 @@ const formatNumber = (num) => {
 }
 
 .bar-title {
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
 .bar-tag {
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  background: rgba(255, 152, 0, 0.2);
-  color: #ff9800;
-  border: 1px solid rgba(255, 152, 0, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid transparent;
 }
 
 .type-tag {
-  background: rgba(33, 150, 243, 0.2);
-  color: #2196f3;
-  border-color: rgba(33, 150, 243, 0.3);
+  background: var(--color-active-bg);
+  color: var(--color-active);
 }
 
 .bar-center {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .stat-card {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 4px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-hover-overlay);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.stat-card:hover {
+  background: var(--color-hover-overlay-md);
 }
 
 .stat-card.has-count {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-hover-overlay-md);
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
 }
 
 .stat-color {
   width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.6rem;
-  font-weight: bold;
+  font-size: 0.55rem;
+  font-weight: 700;
   color: #fff;
   flex-shrink: 0;
 }
 
 .stat-value {
-  font-size: 1rem;
+  font-size: var(--font-size-sm);
   font-weight: 700;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 
 .stat-label {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.stat-total {
-  border-color: rgba(33, 150, 243, 0.3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .bar-right {
@@ -177,20 +193,19 @@ const formatNumber = (num) => {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.8);
+  padding: 5px 12px;
+  background: var(--color-error-bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-error);
   cursor: pointer;
-  font-size: 0.8rem;
-  transition: all 0.2s;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  transition: all var(--transition-fast);
 }
 
 .exit-btn:hover {
-  background: rgba(244, 67, 54, 0.2);
-  border-color: rgba(244, 67, 54, 0.4);
-  color: #f44336;
+  background: rgba(var(--color-error-rgb), 0.18);
 }
 
 @media (max-width: 768px) {

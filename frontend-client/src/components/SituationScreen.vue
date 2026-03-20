@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="situation-screen" @keydown.esc="$emit('close')">
+    <div class="situation-screen" :class="{ 'panel-collapsed': panelCollapsed }" @keydown.esc="$emit('close')">
       <!-- 顶部态势信息条 -->
       <SituationBar :mapData="mapData" @close="$emit('close')" />
 
@@ -22,6 +22,7 @@
         :prefillText="prefillText"
         @send-message="handleSendMessage"
         @close="$emit('close')"
+        @collapse-change="panelCollapsed = $event"
       />
     </div>
   </Teleport>
@@ -44,6 +45,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'send-message']);
 
 const prefillText = ref('');
+const panelCollapsed = ref(false);
 
 const handleSendMessage = (text) => {
   emit('send-message', text);
@@ -51,11 +53,9 @@ const handleSendMessage = (text) => {
 
 const handleAnalyzeLocation = (locationName) => {
   prefillText.value = `请详细分析${locationName}的风险情况并给出应急建议`;
-  // 重置 prefill 避免重复触发
   setTimeout(() => { prefillText.value = ''; }, 100);
 };
 
-// ESC 键退出
 const handleKeydown = (e) => {
   if (e.key === 'Escape') {
     emit('close');
@@ -64,7 +64,6 @@ const handleKeydown = (e) => {
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown);
-  // 防止背景滚动
   document.body.style.overflow = 'hidden';
 });
 
@@ -82,7 +81,7 @@ onBeforeUnmount(() => {
   width: 100vw;
   height: 100vh;
   z-index: 10000;
-  background: #0a0a14;
+  background: var(--color-bg-app);
   display: flex;
   flex-direction: column;
 }
@@ -90,10 +89,10 @@ onBeforeUnmount(() => {
 .situation-map-layer {
   flex: 1;
   position: relative;
+  z-index: 1;
   overflow: hidden;
 }
 
-/* 在态势大屏模式下，MapRenderer 要占满整个区域，隐藏头部和底部 */
 .situation-map-layer :deep(.map-renderer) {
   border: none;
   border-radius: 0;
@@ -120,6 +119,11 @@ onBeforeUnmount(() => {
 
 .situation-map-layer :deep(.map-legend) {
   bottom: 24px;
-  right: 410px; /* 避免被浮动面板遮挡 */
+  right: 410px;
+  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel-collapsed .situation-map-layer :deep(.map-legend) {
+  right: 48px;
 }
 </style>

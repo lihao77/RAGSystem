@@ -41,6 +41,11 @@
         <span v-if="node.order" class="order-badge">
           步骤 {{ getStepLabel(node) }}
         </span>
+        <div v-if="toolCallStatuses.length > 0" class="substep-dots">
+          <span v-for="(s, i) in toolCallStatuses.slice(0, 8)" :key="i"
+                class="substep-dot" :class="s"></span>
+          <span v-if="toolCallStatuses.length > 8" class="substep-dots-more">+{{ toolCallStatuses.length - 8 }}</span>
+        </div>
         <span class="status-badge" :class="node.status">
           {{ getStatusText(node.status) }}
         </span>
@@ -94,8 +99,7 @@
       <div class="agent-call-preview-wrap">
         <div class="agent-call-preview">
           <div class="description">{{ node.description }}</div>
-          <div class="preview-meta" v-if="toolCallCount > 0 || node.result_summary">
-            <span v-if="toolCallCount > 0" class="tool-count-badge">{{ toolCallCount }} 个工具调用</span>
+          <div class="preview-meta" v-if="node.result_summary">
             <span v-if="node.result_summary" class="result-preview">
               {{ node.result_summary }}
             </span>
@@ -134,6 +138,7 @@
           <div class="status-ring"></div>
         </div>
         <span class="tool-name">{{ toolDisplayName }}</span>
+        <span v-if="!localExpanded && smartPreview" class="tool-smart-preview">{{ smartPreview }}</span>
         <div class="tool-meta">
           <span v-if="node.elapsed_time" class="tool-time">
             {{ node.elapsed_time.toFixed(2) }}s
@@ -297,6 +302,73 @@ const toolCallCount = computed(() => {
   };
   walk(props.node.children);
   return count;
+});
+
+// 收集所有 tool_call 的状态序列（保持执行顺序）
+const toolCallStatuses = computed(() => {
+  if (props.node.type !== 'agent_call') return [];
+  const statuses = [];
+  const walk = (children) => {
+    if (!children) return;
+    for (const child of children) {
+      if (child.type === 'tool_call') statuses.push(child.status || 'pending');
+      if (child.children) walk(child.children);
+    }
+  };
+  walk(props.node.children);
+  return statuses;
+});
+
+// 工具结果智能预览
+const smartPreview = computed(() => {
+  if (props.node.type !== 'tool_call') return '';
+  if (props.node.status === 'running') return '';
+  const name = props.node.tool_name || '';
+  const preview = props.node.result_preview || props.node.result || '';
+
+  let parsed = null;
+  if (typeof preview === 'string') {
+    try { parsed = JSON.parse(preview.trim()); } catch(_) {}
+  } else if (typeof preview === 'object') {
+    parsed = preview;
+  }
+
+  // 可视化工具
+  if (['create_chart','create_map','create_bindmap','create_risk_map','revise_visualization'].includes(name)) {
+    const title = parsed?.title || parsed?.preview?.title || '';
+    return title ? `→ ${title}` : '→ 已生成';
+  }
+  // 查询工具
+  if (name === 'query_emergency_plan') {
+    const count = parsed?.results?.length ?? parsed?.total;
+    if (count != null) return `→ ${count} 条结果`;
+  }
+  // 风险评估
+  if (name === 'assess_flood_risk') {
+    const level = parsed?.risk_level ?? parsed?.risk_label;
+    if (level) return `→ ${level}级风险`;
+  }
+  // 报告
+  if (name === 'generate_report') {
+    const title = parsed?.title;
+    if (title) return `→ ${title}`;
+  }
+  // 代码执行
+  if (name === 'execute_code' || name === 'execute_bash') {
+    const code = parsed?.exit_code ?? parsed?.metadata?.exit_code;
+    if (code != null) return code === 0 ? '→ 成功' : `→ 退出码 ${code}`;
+  }
+  // 匹配方案
+  if (name === 'match_emergency_response') {
+    const count = parsed?.matched_plans?.length;
+    if (count != null) return `→ ${count} 个匹配方案`;
+  }
+  // 默认：截取 summary 前 30 字符
+  const summary = parsed?.summary || parsed?.message;
+  if (summary && typeof summary === 'string') {
+    return `→ ${summary.slice(0, 30)}${summary.length > 30 ? '…' : ''}`;
+  }
+  return '';
 });
 
 const getAgentClass = (agentName) => {
@@ -874,6 +946,60 @@ const formatResultContent = (value) => {
   white-space: nowrap;
 }
 
+/* 子步骤微缩状态点 */
+.substep-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.substep-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-muted);
+  transition: background-color 0.3s ease;
+}
+
+.substep-dot.success {
+  background: var(--color-success);
+}
+
+.substep-dot.error {
+  background: var(--color-error);
+}
+
+.substep-dot.running {
+  background: var(--color-warning);
+  animation: dot-breathe 1.5s ease-in-out infinite;
+}
+
+.substep-dot.pending {
+  background: var(--color-text-muted);
+  opacity: 0.4;
+}
+
+.substep-dots-more {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-left: 1px;
+  white-space: nowrap;
+}
+
+/* 工具结果智能预览 */
+.tool-smart-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 移动端优化 */
 @media (max-width: 767px) {
   /* 思考节点 */
@@ -1188,22 +1314,21 @@ const formatResultContent = (value) => {
 }
 
 .tool-name {
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tool-meta {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .tool-time {
