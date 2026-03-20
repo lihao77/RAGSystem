@@ -75,6 +75,47 @@ _REDIRECT_OPERATORS = {">", ">>"}
 # 安全的 stderr 重定向模式（剥离后再检查写重定向）
 _SAFE_STDERR_RE = re.compile(r'2>\s*/dev/null|2>&1')
 
+
+def _split_shell_pipeline(command: str) -> list[str]:
+    """按真正的 shell 管道符分段，忽略引号内或被转义的 |。"""
+    segments: list[str] = []
+    current: list[str] = []
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+
+    for ch in command:
+        if escaped:
+            current.append(ch)
+            escaped = False
+            continue
+
+        if ch == "\\" and not in_single_quote:
+            current.append(ch)
+            escaped = True
+            continue
+
+        if ch == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            current.append(ch)
+            continue
+
+        if ch == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            current.append(ch)
+            continue
+
+        if ch == "|" and not in_single_quote and not in_double_quote:
+            segments.append("".join(current))
+            current = []
+            continue
+
+        current.append(ch)
+
+    segments.append("".join(current))
+    return segments
+
+
 def _validate_command(command: str) -> tuple[bool, str]:
     """
     校验命令安全性。
@@ -88,8 +129,8 @@ def _validate_command(command: str) -> tuple[bool, str]:
         if op in stripped:
             return False, f"禁止使用重定向操作符: {op}"
 
-    # 按管道分段检查
-    segments = command.split("|")
+    # 按真正的 shell 管道分段检查
+    segments = _split_shell_pipeline(command)
     for seg in segments:
         seg = seg.strip()
         if not seg:
