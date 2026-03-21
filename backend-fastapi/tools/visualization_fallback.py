@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -67,19 +68,20 @@ def fallback_chart_to_image(
 
     # 保存
     from tools.path_resolution import get_session_visualizations_root, SESSIONS_ROOT
+    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+
     out_dir = get_session_visualizations_root(session_id) if session_id else (SESSIONS_ROOT / 'anonymous' / 'visualizations')
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = f"viz_{uuid.uuid4().hex[:8]}.png"
-    filepath = os.path.join(str(out_dir), filename)
+    filepath = Path(out_dir) / filename
     fig.savefig(filepath, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     logger.info("matplotlib 兜底图表已生成: %s", filepath)
 
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
     manager = get_visualization_artifact_manager()
     return manager.create_image(
         session_id=session_id,
-        image_path=filepath,
+        image_path=str(filepath),
         title=title,
     )

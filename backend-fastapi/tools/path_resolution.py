@@ -154,29 +154,6 @@ def _dedupe_paths(paths: Iterable[Path | None]) -> list[Path]:
     return result
 
 
-def _legacy_read_roots(session_id: str | None, run_id: str | None) -> list[Path]:
-    roots: list[Path] = []
-    if session_id:
-        roots.extend([
-            _LEGACY_CODE_EXECUTION_ROOT / session_id,
-            _LEGACY_WORKSPACE_ROOT / session_id,
-            _LEGACY_TRANSIENT_ARTIFACTS_ROOT / session_id,
-            _LEGACY_VISUALIZATION_ROOT / session_id,
-            _LEGACY_EXPORTS_ROOT / session_id,
-        ])
-        if run_id:
-            roots.append(_LEGACY_EXPORTS_ROOT / session_id / run_id)
-    roots.extend([
-        _LEGACY_ARTIFACTS_ROOT,
-        _LEGACY_VISUALIZATION_ROOT,
-        _LEGACY_TRANSIENT_ROOT,
-        _LEGACY_TRANSIENT_ARTIFACTS_ROOT,
-        _LEGACY_EXPORTS_ROOT,
-        _LEGACY_WORKSPACE_ROOT,
-    ])
-    return _dedupe_paths(roots)
-
-
 def _session_read_roots(session_id: str | None, run_id: str | None) -> list[Path]:
     if not session_id:
         return []
@@ -232,7 +209,6 @@ def _relative_candidate_roots(
             sandbox_root,
             explicit_workspace,
             *session_roots,
-            *_legacy_read_roots(session_id, run_id),
         ])
 
     if operation in _WRITE_OPERATIONS:
@@ -242,7 +218,6 @@ def _relative_candidate_roots(
         explicit_workspace,
         get_session_workspace_root(session_id) if session_id else None,
         *_session_read_roots(session_id, run_id),
-        *_legacy_read_roots(session_id, run_id),
         DATA_ROOT,
     ])
 
@@ -265,7 +240,6 @@ def _allowed_roots_for_access(
             explicit_workspace,
             get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",
             *_session_read_roots(session_id, run_id),
-            *_legacy_read_roots(session_id, run_id),
         ])
 
     if operation in _WRITE_OPERATIONS:
@@ -274,7 +248,6 @@ def _allowed_roots_for_access(
     return _dedupe_paths([
         explicit_workspace,
         *_session_read_roots(session_id, run_id),
-        *_legacy_read_roots(session_id, run_id),
         DATA_ROOT,
     ])
 
@@ -354,7 +327,7 @@ def resolve_managed_path(
     将 direct / code_execution 的文件路径统一解析为受管绝对路径。
 
     规则：
-    - direct 读取：优先 workspace/session 目录，兼容读取历史目录
+    - direct 读取：优先 workspace/session 目录
     - code_execution 读取：相对路径优先 sandbox，其次当前 session 只读目录
     - code_execution 写入：仅允许当前 session 的 sandbox
     - write_file 未指定 file_path：根据 default_output_space 分配到 exports/workspace/transient

@@ -146,7 +146,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             },
             "required": ["content"]
         },
-        allowed_callers=["direct", "code_execution"],
+        allowed_callers=["direct"],
         returns={
             "type": "object",
             "description": "成功时返回保存后的文件信息",
@@ -211,7 +211,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             },
             "required": ["file_path"]
         },
-        allowed_callers=["direct", "code_execution"],
+        allowed_callers=["direct"],
         returns={
             "type": "object",
             "description": "成功时返回文件内容和分页元数据",
@@ -383,7 +383,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             },
             "required": ["file_path", "old_string", "new_string"]
         },
-        allowed_callers=["direct", "code_execution"],
+        allowed_callers=["direct"],
         returns={
             "type": "object",
             "description": "成功时返回替换信息和 diff 预览",

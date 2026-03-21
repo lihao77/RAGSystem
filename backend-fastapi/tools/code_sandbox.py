@@ -552,7 +552,7 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
 
 @tool(
     name="execute_code",
-    description="在受限沙箱中执行 Python 代码进行复杂工具编排与数据处理。支持通过 call_tool 调用允许的其他工具，必须设置 result 变量作为输出。",
+    description="在受限沙箱中执行 Python 代码进行复杂工具编排与数据处理。支持通过 call_tool 调用仍允许 code_execution 的工具；文件读写应使用沙箱内置的受限 open() 与 request_write_approval()，必须设置 result 变量作为输出。",
     parameters={
         "type": "object",
         "properties": {
@@ -586,19 +586,28 @@ def _execute_with_timeout(code: str, globals_dict: dict, timeout: int, stdout_ca
     usage_contract=[
         "代码必须设置 result 变量作为最终输出",
         "需要调用工具时使用 call_tool(tool_name, arguments)，返回值是工具主内容（不是完整响应壳）",
-        "不要对 call_tool(...) 再取 ['content']；read_file 返回的是文件内容字符串，直接使用即可",
+        "call_tool() 只能调用 allowed_callers 包含 code_execution 的工具；read_file/write_file/edit_file 不再允许从 execute_code 中调用",
+        "不要对 call_tool(...) 再取 ['content']；当前拿到的就是工具主内容，需要自行处理",
+        "在沙箱内读取文件请直接使用受限 open(path, mode='r')；路径会按 code_execution 的受管边界解析",
+        "在沙箱内写文件前，必须先调用 request_write_approval(path, reason) 获取授权；获批后再用 open(path, 'w'/'a'/...) 写入",
         "如果返回内容是标准 JSON 字符串（双引号），用 json.loads() 解析",
         "如果文件内容是 Python 字面量格式（单引号），用 ast.literal_eval() 解析（需先 import ast）",
         "禁止导入 os/sys/subprocess/shutil/socket，路径操作使用内置的 path_ops（如 path_ops.join, path_ops.basename）",
-        "读取数据文件时使用 DATA_DIR 变量拼接路径（如 open(f'{DATA_DIR}/xxx.json')），写入文件使用 SANDBOX_DIR",
+        "读取会话受管文件时优先使用 SESSION_WORKSPACE_DIR / SESSION_UPLOADS_DIR / SESSION_VISUALIZATIONS_DIR / SESSION_EXPORTS_DIR 等内置目录变量，写入沙箱文件使用 SANDBOX_DIR",
         "可用模块：math, json, re, csv, datetime, collections, itertools, functools, statistics, time, io, string, decimal, copy, textwrap, hashlib, base64",
         "复杂数据转换优先在 execute_code 内完成，再交给其他工具",
     ],
     examples=[
         {
             "input": {
-                "code": "rows = call_tool('read_file', {'file_path': './data/sample.json'})\nresult = rows",
-                "description": "读取文件并返回内容",
+                "code": "text = open('sample.json', 'r', encoding='utf-8').read()\ndata = json.loads(text)\nresult = {'name': data.get('name')}",
+                "description": "在沙箱内读取 JSON 文件并解析",
+            }
+        },
+        {
+            "input": {
+                "code": "request_write_approval('result.txt', '保存处理结果')\nwith open('result.txt', 'w', encoding='utf-8') as f:\n    f.write('done')\nresult = {'saved_to': path_ops.join(SANDBOX_DIR, 'result.txt')}",
+                "description": "在沙箱内申请写权限后保存结果文件",
             }
         }
     ],

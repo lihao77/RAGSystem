@@ -45,6 +45,20 @@ backend-fastapi/
     └── backups/               # 数据库备份（由备份工具按需创建）
 ```
 
+## 目录桶与落盘分层
+
+| 目录桶 | 物理路径 | 主要内容 | 主要写入入口 | 说明 |
+|---|---|---|---|---|
+| `sandbox` | `./data/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里 |
+| `transient` | `./data/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `document_executor.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付 |
+| `workspace` | `./data/sessions/<session_id>/workspace/` | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 给 agent/tool 持续编辑、复用 |
+| `exports` | `./data/sessions/<session_id>/exports/<run_id>/` 或 `./data/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
+| `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录 |
+| `uploads` | `./data/sessions/<session_id>/uploads/` | 用户上传文件 | `api/v1/files.py` | 上传 API 专用目录 |
+| `monitoring/session_traces` | `./data/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
+| `db` | `./data/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
+| `anonymous fallback` | `./data/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
+
 ## 请求数据流
 
 ```
@@ -139,10 +153,12 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 占位符替换 → 路径预处理 → tool 执行 → resource scope 推断/清理
 ```
 
-- 路径解析由 `tools/path_resolution.py` 的 `resolve_document_input_path()` 完成，优先级：绝对路径 > `./data/...` 反向映射 > sandbox_root > workspace_root > DATA_ROOT
-- `write_file` 未指定路径时由 `assign_document_output_path()` 分配受管路径（exports/workspace/transient），不再落到系统 temp
-- tool 实现层（`document_executor.py`）只接受绝对路径，不再自行做路径策略判断
-- sandbox（`code_sandbox.py`）保留独立的运行时安全边界（`_resolve_sandbox_path` / `safe_open`），不受预处理层影响
+- 路径解析统一由 `tools/path_resolution.py` 的 `resolve_managed_path()` 完成，并按 caller / operation 选择受管边界
+- `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），不再落到系统 temp
+- direct 文档工具链会在进入 `document_executor.py` 前完成路径预处理；开发期已移除对历史旧目录的读取兼容，tool 实现层只接受当前受管目录内的绝对路径
+- 文档工具里的 `read_file` / `write_file` / `edit_file` 现在仅允许 `direct` 调用，不再对 `caller=code_execution` 开放
+- sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录
+- 因此，文档工具路径预处理与沙箱文件访问是两条职责分离的路径：前者服务 agent direct 文件工具，后者服务 execute_code 内部文件操作
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
 

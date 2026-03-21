@@ -269,24 +269,25 @@ class ReActAgent(BaseAgent):
 
 `call_tool()` **只返回工具的主内容**，也就是 `ToolExecutionResult.content`，**不是**包含 `content / summary / metadata` 的完整响应对象。
 
+文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。`execute_code` 内应直接使用受限 `open()` 读取文件，写入前先调用 `request_write_approval()`，再用 `open()` 写入。
+
 正确示例：
 ```python
-text = call_tool('read_file', {{
-    'file_path': '{{result_1.content.file_path}}',
-    'encoding': 'utf-8'
+risk = call_tool('assess_flood_risk', {{
+    'location': '南宁市',
+    'rainfall_24h': 180,
+    'water_level': 72.3,
+    'warning_level': 70.0
 }})
-data = json.loads(text)
 result = {{
-    'count': len(data.get('river', []))
+    'risk_level': risk.get('risk_level'),
+    'summary': risk.get('summary')
 }}
 ```
 
-也可以直接使用工具返回的绝对路径（不要自己编造路径，必须来自前序工具结果）：
+沙箱文件读取示例：
 ```python
-text = call_tool('read_file', {{
-    'file_path': previous_result['file_path'],
-    'encoding': 'utf-8'
-}})
+text = open('sample.json', 'r', encoding='utf-8').read()
 data = json.loads(text)
 result = {{
     'count': len(data.get('river', []))
@@ -295,15 +296,17 @@ result = {{
 
 错误示例：
 ```python
-text = call_tool('read_file', {{
-    'file_path': './data/artifacts/visualizations/data_xxx.json',
-    'encoding': 'utf-8'
+risk = call_tool('assess_flood_risk', {{
+    'location': '南宁市',
+    'rainfall_24h': 180,
+    'water_level': 72.3,
+    'warning_level': 70.0
 }})['content']
 ```
 
 如果需要完整工具响应壳，不要假设 `call_tool()` 会返回该结构；当前只能拿到主内容后自行处理。
 
-其他工具（如高风险写操作工具）不允许从代码中调用，只能直接作为 action 使用。"""
+其他未列出的工具不允许从代码中调用，只能直接作为 action 使用。"""
 
         # 构建 Skills 说明
         skills_desc = self._format_skills_description()

@@ -65,14 +65,14 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.HIGH,
         requires_approval=True,
         description="写入文本文件到磁盘",
-        allowed_callers=["direct", "code_execution"]
+        allowed_callers=["direct"]
     ),
     "read_file": ToolPermission(
         tool_name="read_file",
         risk_level=RiskLevel.LOW,
         requires_approval=False,
         description="读取文件内容（只读）",
-        allowed_callers=["direct", "code_execution"]
+        allowed_callers=["direct"]
     ),
     "preview_data_structure": ToolPermission(
         tool_name="preview_data_structure",
@@ -86,7 +86,7 @@ TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
         risk_level=RiskLevel.HIGH,
         requires_approval=True,
         description="编辑文件内容（精准字符串替换）",
-        allowed_callers=["direct", "code_execution"]
+        allowed_callers=["direct"]
     ),
 }
 
