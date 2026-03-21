@@ -45,7 +45,6 @@ class AgentSessionApplication:
         session = self.get_session(session_id)
         if not session:
             return False
-        # 联动清理该会话的可视化 artifact（磁盘文件 + 内存索引）
         try:
             from tools.visualization_artifact_manager import get_visualization_artifact_manager
             removed = get_visualization_artifact_manager().delete_by_session(session_id)
@@ -59,8 +58,21 @@ class AgentSessionApplication:
             logging.getLogger(__name__).warning(
                 "delete_session: 清理可视化 artifact 失败 (session=%s)", session_id, exc_info=True
             )
-        self._conversation_store.delete_session(session_id=session_id)
-        return True
+
+        deleted = self._conversation_store.delete_session(session_id=session_id)
+
+        try:
+            import shutil
+            from tools.path_resolution import get_session_cleanup_root
+            cleanup_root = get_session_cleanup_root(session_id)
+            if cleanup_root.exists():
+                shutil.rmtree(cleanup_root, ignore_errors=True)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "delete_session: 清理 session 文件树失败 (session=%s)", session_id, exc_info=True
+            )
+        return deleted
 
     def rollback_messages(
         self,
@@ -132,10 +144,16 @@ class AgentSessionApplication:
                 if metadata.get('react_intermediate'):
                     run_id = metadata.get('run_id')
                     if run_id:
+                        content = item.get('content') or ''
+                        if metadata.get('msg_type') == 'assistant_response':
+                            import re
+                            match = re.search(r'<intent>([\s\S]*?)</intent>', content)
+                            if match:
+                                content = match.group(1).strip()
                         react_trace_by_run.setdefault(run_id, []).append({
                             'seq': item.get('seq'),
                             'role': item.get('role'),
-                            'content': item.get('content') or '',
+                            'content': content,
                             'msg_type': metadata.get('msg_type'),
                             'round': metadata.get('round'),
                             'agent': metadata.get('agent'),
@@ -161,6 +179,32 @@ class AgentSessionApplication:
                     raw_steps,
                     entry_agent_name=(metadata.get('agent') or 'orchestrator_agent'),
                 )
+                if item['execution_steps']:
+                    first_kind = item['execution_steps'][0].get('kind')
+                    if first_kind == 'subtask_start':
+                        item['execution_steps'].insert(0, {
+                            'kind': 'agent_start',
+                            'step_order': 0,
+                            'agent_name': metadata.get('agent') or 'orchestrator_agent',
+                            'call_id': None,
+                            'parent_call_id': None,
+                            'description': '顶层编排',
+                            'source_event_type': 'synthetic.agent.start',
+                        })
+                    filtered_steps = []
+                    for step in item['execution_steps']:
+                        if step.get('kind') == 'agent_intent' and isinstance(step.get('content'), str):
+                            step = dict(step)
+                            step['content'] = step['content'].split('\n\n<tools>', 1)[0].strip()
+                        if (
+                            filtered_steps
+                            and filtered_steps[-1].get('kind') == 'subtask_start'
+                            and step.get('kind') == 'subtask_start'
+                            and step.get('call_id') != filtered_steps[-1].get('call_id')
+                        ):
+                            continue
+                        filtered_steps.append(step)
+                    item['execution_steps'] = filtered_steps
         return data
 
     def export_session(self, session_id: str) -> Dict[str, Any]:

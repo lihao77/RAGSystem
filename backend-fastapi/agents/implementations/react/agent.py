@@ -390,7 +390,7 @@ text = call_tool('read_file', {{
 7. 工具结果中返回的文件路径应直接传给后续工具或 execute_code 处理，不要试图读取大文件内容到上下文（详见下方「数据文件传递规则」）
 8. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据
 9. 可视化使用 `[viz:artifact_id]` 引用（详见下方「可视化规则」）；数据文件使用 `[data:路径]` 引用（详见下方「数据文件传递规则」）
-10. 如果需要基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在 `./data/artifacts/visualizations/viz_index.jsonl` 中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容进行处理
+10. 如果需要基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在 `./data/sessions/<session_id>/visualizations/viz_index.jsonl` 中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容进行处理
 
 ### 数据文件传递规则（与可视化同等重要）
 - 数据文件（JSON/GeoJSON/CSV 等）和可视化 artifact 一样，**只传路径，不传内容**
@@ -398,7 +398,7 @@ text = call_tool('read_file', {{
 - 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用该路径；`display_path` 仅用于向用户展示
 - 需要确认文件结构时，优先用 `preview_data_structure`；需要确认数据完整性（如记录数、字段是否齐全）时，可以用 `read_file`（带 limit）确认后仍然只传路径
 - 需要处理/转换数据时，用 `execute_code` 读文件处理，结果写入新文件，返回新文件路径
-- `<final_answer>` 中引用数据文件格式：`[data:文件路径]`，如 `[data:./data/artifacts/visualizations/data_abc123.json]`
+- `<final_answer>` 中引用数据文件格式：`[data:文件路径]`，如 `[data:./data/sessions/<session_id>/visualizations/data_abc123.json]`
 - 禁止在 `<final_answer>` 中输出超过 20 行的原始数据；数据量大时必须用文件路径引用
 
 **正确示例**：
@@ -406,7 +406,7 @@ text = call_tool('read_file', {{
 <final_answer>
 查询到广西14个地级市的行政区划边界数据，共14条记录。
 
-[data:./data/artifacts/visualizations/gx_boundaries.geojson]
+[data:./data/sessions/<session_id>/visualizations/gx_boundaries.geojson]
 </final_answer>
 ```
 
@@ -428,10 +428,10 @@ text = call_tool('read_file', {{
 - 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
 - 工具返回 artifact_id 和预览摘要，据此判断是否满意
 - 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
-- 可视化 artifact 默认持久化在 `./data/artifacts/visualizations`
-- `artifact_id` 与磁盘文件路径的索引文件是 `./data/artifacts/visualizations/viz_index.jsonl`
+- 可视化 artifact 默认持久化在 `./data/sessions/<session_id>/visualizations`
+- `artifact_id` 与磁盘文件路径的索引文件是 `./data/sessions/<session_id>/visualizations/viz_index.jsonl`
 - 如需基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在上述目录中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容
-- 图表/地图 artifact 的持久化文件通常是 `./data/artifacts/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
+- 图表/地图 artifact 的持久化文件通常是 `./data/sessions/<session_id>/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
 - `revise_visualization` 默认做深度合并；若要按你读到的完整配置整体覆盖，使用 `replace=true`
 - 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
 - 不要编造 artifact_id，必须使用工具返回的真实 ID

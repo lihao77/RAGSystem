@@ -66,11 +66,11 @@ def fallback_chart_to_image(
     plt.tight_layout()
 
     # 保存
-    from tools.path_resolution import VISUALIZATION_ROOT
-    out_dir = str(VISUALIZATION_ROOT)
-    os.makedirs(out_dir, exist_ok=True)
+    from tools.path_resolution import get_session_visualizations_root, SESSIONS_ROOT
+    out_dir = get_session_visualizations_root(session_id) if session_id else (SESSIONS_ROOT / 'anonymous' / 'visualizations')
+    out_dir.mkdir(parents=True, exist_ok=True)
     filename = f"viz_{uuid.uuid4().hex[:8]}.png"
-    filepath = os.path.join(out_dir, filename)
+    filepath = os.path.join(str(out_dir), filename)
     fig.savefig(filepath, dpi=150, bbox_inches="tight")
     plt.close(fig)
 

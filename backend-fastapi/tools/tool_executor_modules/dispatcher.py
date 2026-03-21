@@ -121,44 +121,42 @@ def _preprocess_document_tool_args(
     """
     文档工具参数路径预处理：在进入 tool 前把 file_path 统一转成受管绝对路径。
 
-    - 有 file_path 的工具：解析为绝对路径
-    - write_file 未指定 file_path：分配受管输出路径
+    - 有 file_path 的工具：通过统一 resolver 做受管路径解析
+    - write_file 未指定 file_path：由同一 resolver 分配受管输出路径
     """
     if tool_name not in _PATH_AWARE_DOCUMENT_TOOLS:
         return arguments
 
-    from pathlib import Path as _Path
-    from tools.path_resolution import (
-        resolve_document_input_path,
-        assign_document_output_path,
-        get_code_execution_session_root,
-    )
+    from tools.path_resolution import resolve_managed_path
 
     args = dict(arguments)
     file_path = args.get('file_path')
 
-    # 计算 sandbox_root（仅 code_execution 调用时）
-    sandbox_root = None
-    if caller == 'code_execution' and session_id:
-        sandbox_root = get_code_execution_session_root(session_id)
-
     if file_path:
-        # 输入路径解析
-        resolved = resolve_document_input_path(
+        operation = 'edit' if tool_name == 'edit_file' else 'read'
+        if tool_name == 'write_file':
+            operation = 'write'
+        resolved = resolve_managed_path(
             file_path,
+            session_id=session_id,
+            run_id=run_id,
+            caller=caller,
+            operation=operation,
+            default_output_space=default_output_space,
             workspace_root=workspace_root,
-            sandbox_root=sandbox_root,
         )
         args['file_path'] = str(resolved)
     elif tool_name == 'write_file':
-        # write_file 未指定路径 → 分配受管输出路径
-        # 注意：mode 默认值需与 document_executor.write_file 的默认值保持一致
         mode = args.get('mode', 'text')
         suffix = '.json' if mode == 'json' else '.txt'
-        assigned = assign_document_output_path(
+        assigned = resolve_managed_path(
+            None,
             session_id=session_id,
             run_id=run_id,
+            caller=caller,
+            operation='write',
             default_output_space=default_output_space,
+            workspace_root=workspace_root,
             suffix=suffix,
         )
         args['file_path'] = str(assigned)
@@ -204,10 +202,23 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
         return merge_extracted_data(**arguments)
     if tool_name == 'write_file':
         from tools.document_executor import write_file
-        return write_file(**arguments)
+        return write_file(
+            **arguments,
+            session_id=session_id,
+            run_id=_run_id,
+            default_output_space=_default_output_space,
+            workspace_root=_workspace_root,
+        )
     if tool_name == 'read_file':
         from tools.document_executor import read_file
-        return read_file(**arguments, caller=caller, event_bus=event_bus, session_id=session_id)
+        return read_file(
+            **arguments,
+            caller=caller,
+            event_bus=event_bus,
+            session_id=session_id,
+            workspace_root=_workspace_root,
+            run_id=_run_id,
+        )
     if tool_name == 'preview_data_structure':
         from tools.document_executor import preview_data_structure
         return preview_data_structure(**arguments)

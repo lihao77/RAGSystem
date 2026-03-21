@@ -862,6 +862,11 @@ def write_file(
     file_path: Optional[str] = None,
     encoding: str = "utf-8",
     mode: str = "text",
+    *,
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    default_output_space: Optional[str] = None,
+    workspace_root: Optional[str] = None,
 ) -> Any:
     """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。
 
@@ -869,7 +874,18 @@ def write_file(
     """
     try:
         if not file_path:
-            return error_result("file_path 未指定且未被预处理层分配", tool_name="write_file")
+            from tools.path_resolution import resolve_managed_path
+            suffix = '.json' if mode == 'json' else '.txt'
+            file_path = str(resolve_managed_path(
+                None,
+                session_id=session_id,
+                run_id=run_id,
+                caller='direct',
+                operation='write',
+                default_output_space=default_output_space,
+                workspace_root=workspace_root,
+                suffix=suffix,
+            ))
         file_path_obj = Path(file_path)
         if not file_path_obj.is_absolute():
             logger.warning("write_file 收到非绝对路径，尝试 resolve: %s", file_path)
@@ -914,6 +930,8 @@ def read_file(
     caller: str = "direct",
     event_bus=None,
     session_id: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+    run_id: Optional[str] = None,
     _skip_preview: bool = False,
 ) -> Any:
     """按行号读取文件内容，返回原始文本内容。支持大文件预览确认（仅 direct 调用）。
@@ -921,10 +939,16 @@ def read_file(
     file_path 由 dispatcher 预处理层保证为绝对路径。
     """
     try:
-        file_path_obj = Path(file_path)
-        if not file_path_obj.is_absolute():
-            logger.warning("read_file 收到非绝对路径，尝试 resolve: %s", file_path)
-            file_path_obj = file_path_obj.resolve()
+        from tools.path_resolution import resolve_managed_path
+        resolved_path = resolve_managed_path(
+            file_path,
+            session_id=session_id,
+            run_id=run_id,
+            caller=caller,
+            operation='read',
+            workspace_root=workspace_root,
+        )
+        file_path_obj = Path(resolved_path)
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="read_file")
@@ -1080,16 +1104,27 @@ def edit_file(
     new_string: str,
     encoding: str = "utf-8",
     replace_all: bool = False,
+    *,
+    workspace_root: Optional[str] = None,
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    caller: str = 'direct',
 ) -> Any:
     """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。
 
     file_path 由 dispatcher 预处理层保证为绝对路径。
     """
     try:
-        file_path_obj = Path(file_path)
-        if not file_path_obj.is_absolute():
-            logger.warning("edit_file 收到非绝对路径，尝试 resolve: %s", file_path)
-            file_path_obj = file_path_obj.resolve()
+        from tools.path_resolution import resolve_managed_path
+        resolved_path = resolve_managed_path(
+            file_path,
+            session_id=session_id,
+            run_id=run_id,
+            caller=caller,
+            operation='edit',
+            workspace_root=workspace_root,
+        )
+        file_path_obj = Path(resolved_path)
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="edit_file")

@@ -8,24 +8,15 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from typing import List, Optional
 
 from schemas.common import ok
+from tools.path_resolution import get_session_uploads_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-BACKEND_FASTAPI_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-DEFAULT_UPLOAD_FOLDER = os.path.join(BACKEND_FASTAPI_DIR, 'uploads')
-
-
-def _get_upload_folder() -> Path:
-    folder = os.environ.get('UPLOAD_FOLDER', DEFAULT_UPLOAD_FOLDER)
-    p = Path(folder)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 def _get_index():
@@ -33,14 +24,43 @@ def _get_index():
     return get_file_index()
 
 
+def _require_session_id(request: Request, session_id: Optional[str] = None) -> str:
+    value = (session_id or request.query_params.get('session_id') or request.headers.get('X-Session-ID') or '').strip()
+    if not value:
+        raise HTTPException(status_code=400, detail='缺少 session_id')
+    return value
+
+
+def _get_upload_folder(session_id: str) -> Path:
+    folder = get_session_uploads_root(session_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _normalize_record_for_session(rec: dict, session_id: str) -> Optional[dict]:
+    stored_path = Path(rec.get('stored_path', '')).resolve() if rec.get('stored_path') else None
+    session_root = get_session_uploads_root(session_id).resolve()
+    if stored_path is None:
+        return None
+    try:
+        stored_path.relative_to(session_root)
+    except ValueError:
+        return None
+    return rec
+
+
 @router.get('')
 async def list_files(
+    request: Request,
+    session_id: str = Query(..., description='会话 ID'),
     extensions: Optional[str] = None,
     mime_types: Optional[str] = None,
 ):
     """列出文件，支持按扩展名和 MIME 类型过滤。"""
+    session_id = _require_session_id(request, session_id)
     index = _get_index()
     items = await asyncio.to_thread(index.list)
+    items = [item for item in items if _normalize_record_for_session(item, session_id)]
 
     ext_list = [e.lower().strip() for e in extensions.split(',') if e.strip()] if extensions else None
     mime_list = [m.lower().strip() for m in mime_types.split(',') if m.strip()] if mime_types else None
@@ -60,8 +80,9 @@ async def list_files(
 
 
 @router.get('/validate')
-async def validate_files(request: Request):
+async def validate_files(request: Request, session_id: str = Query(..., description='会话 ID')):
     """验证文件 ID 是否存在。"""
+    session_id = _require_session_id(request, session_id)
     try:
         body = await request.json()
     except Exception:
@@ -76,7 +97,7 @@ async def validate_files(request: Request):
     invalid = []
     for fid in file_ids:
         rec = await asyncio.to_thread(index.get, fid)
-        if rec:
+        if rec and _normalize_record_for_session(rec, session_id):
             valid.append(fid)
         else:
             invalid.append(fid)
@@ -85,8 +106,9 @@ async def validate_files(request: Request):
 
 
 @router.post('/validate')
-async def validate_files_post(request: Request):
+async def validate_files_post(request: Request, session_id: str = Query(..., description='会话 ID')):
     """验证文件 ID 是否存在（POST）。"""
+    session_id = _require_session_id(request, session_id)
     try:
         body = await request.json()
     except Exception:
@@ -101,7 +123,7 @@ async def validate_files_post(request: Request):
     invalid = []
     for fid in file_ids:
         rec = await asyncio.to_thread(index.get, fid)
-        if rec:
+        if rec and _normalize_record_for_session(rec, session_id):
             valid.append(fid)
         else:
             invalid.append(fid)
@@ -110,24 +132,30 @@ async def validate_files_post(request: Request):
 
 
 @router.get('/{file_id}')
-async def get_file(file_id: str):
+async def get_file(file_id: str, request: Request, session_id: str = Query(..., description='会话 ID')):
     """获取文件信息。"""
     if file_id == 'validate':
         raise HTTPException(status_code=404, detail='Not found')
+    session_id = _require_session_id(request, session_id)
     index = _get_index()
     rec = await asyncio.to_thread(index.get, file_id)
-    if not rec:
+    if not rec or not _normalize_record_for_session(rec, session_id):
         raise HTTPException(status_code=404, detail='文件不存在')
     return {'success': True, 'file': rec}
 
 
 @router.post('/upload')
-async def upload_files(files: List[UploadFile] = File(...)):
+async def upload_files(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    session_id: str = Query(..., description='会话 ID'),
+):
     """上传文件。"""
+    session_id = _require_session_id(request, session_id)
     if not files:
         raise HTTPException(status_code=400, detail='未选择文件')
 
-    upload_dir = _get_upload_folder()
+    upload_dir = _get_upload_folder(session_id)
     index = _get_index()
     created = []
 
@@ -135,13 +163,11 @@ async def upload_files(files: List[UploadFile] = File(...)):
         if not f or not f.filename:
             continue
 
-        # 生成唯一文件名
         import re
         safe_name = re.sub(r'[^\w\-_\.]', '_', f.filename)
         stored_name = f'{os.urandom(8).hex()}_{safe_name}'
         stored_path = upload_dir / stored_name
 
-        # 保存文件
         content = await f.read()
         await asyncio.to_thread(_write_file, stored_path, content)
 
@@ -152,6 +178,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
             stored_path=str(stored_path),
             size=stored_path.stat().st_size,
             mime=f.content_type or '',
+            tags=f'session:{session_id}',
         )
         created.append(rec)
 
@@ -163,14 +190,14 @@ def _write_file(path: Path, content: bytes) -> None:
 
 
 @router.delete('/{file_id}')
-async def delete_file(file_id: str):
+async def delete_file(file_id: str, request: Request, session_id: str = Query(..., description='会话 ID')):
     """删除文件。"""
+    session_id = _require_session_id(request, session_id)
     index = _get_index()
     rec = await asyncio.to_thread(index.get, file_id)
-    if not rec:
+    if not rec or not _normalize_record_for_session(rec, session_id):
         raise HTTPException(status_code=404, detail='文件不存在')
 
-    # 删除物理文件
     try:
         p = Path(rec.get('stored_path', ''))
         if p.exists() and p.is_file():
@@ -185,24 +212,20 @@ async def delete_file(file_id: str):
 
 
 @router.get('/{file_id}/download')
-async def download_file(file_id: str):
+async def download_file(file_id: str, request: Request, session_id: str = Query(..., description='会话 ID')):
     """下载文件。"""
+    session_id = _require_session_id(request, session_id)
     index = _get_index()
     rec = await asyncio.to_thread(index.get, file_id)
-    if not rec:
+    if not rec or not _normalize_record_for_session(rec, session_id):
         raise HTTPException(status_code=404, detail='文件不存在')
 
-    stored_name = rec.get('stored_name')
-    if not stored_name:
-        raise HTTPException(status_code=500, detail='文件记录不完整')
-
-    upload_dir = _get_upload_folder()
-    file_path = upload_dir / stored_name
+    file_path = Path(rec.get('stored_path', ''))
     if not file_path.exists():
         raise HTTPException(status_code=404, detail='文件不存在于磁盘')
 
     return FileResponse(
         path=str(file_path),
-        filename=rec.get('original_name') or stored_name,
+        filename=rec.get('original_name') or file_path.name,
         media_type='application/octet-stream',
     )

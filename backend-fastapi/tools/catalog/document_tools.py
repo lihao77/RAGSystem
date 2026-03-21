@@ -170,7 +170,7 @@ DOCUMENT_TOOL_CONTRACTS = [
                 },
                 "result_hint": {
                     "file_path": "/abs/path/to/output.json",
-                    "display_path": "./data/transient/scratch/.../output.json",
+                    "display_path": "./data/sessions/<session_id>/transient/output_xxx.json",
                 },
             }
         ],

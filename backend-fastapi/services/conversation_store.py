@@ -1105,29 +1105,8 @@ class ConversationStore:
     @staticmethod
     def _infer_scope(path: str) -> str:
         """根据文件路径推断资源 scope。"""
-        from tools.path_resolution import TRANSIENT_ROOT, EXPORTS_ROOT, VISUALIZATION_ROOT, WORKSPACE_ROOT
-        p = Path(path).resolve()
-        try:
-            p.relative_to(TRANSIENT_ROOT.resolve())
-            return "transient"
-        except ValueError:
-            pass
-        try:
-            p.relative_to(EXPORTS_ROOT.resolve())
-            return "export"
-        except ValueError:
-            pass
-        try:
-            p.relative_to(VISUALIZATION_ROOT.resolve())
-            return "session"
-        except ValueError:
-            pass
-        try:
-            p.relative_to(WORKSPACE_ROOT.resolve())
-            return "workspace"
-        except ValueError:
-            pass
-        return "transient"
+        from tools.path_resolution import infer_resource_scope
+        return infer_resource_scope(path)
 
     def close(self):
         self._stop_event.set()
