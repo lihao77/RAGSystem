@@ -44,26 +44,33 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
     if examples:
         lines.append("**示例**:")
         for example in examples:
-            # 渲染为 XML 子标签格式
-            xml_parts = []
-            for k, v in example.items():
+            # input 展开为参数子标签，其余 key 作为注释附在 xml 块后
+            params = example.get('input') if isinstance(example.get('input'), dict) else example
+            extra = {k: v for k, v in example.items() if k != 'input'}
+
+            def _render_param(k, v):
                 if isinstance(v, list):
-                    # 数组渲染为 <item> 子标签
                     item_parts = []
                     for item in v:
                         if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
                             item_parts.append(f"    <item><![CDATA[{item}]]></item>")
                         else:
                             item_parts.append(f"    <item>{item}</item>")
-                    xml_parts.append(f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>")
+                    return f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>"
                 elif isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
-                    xml_parts.append(f"  <{k}><![CDATA[{v}]]></{k}>")
+                    return f"  <{k}><![CDATA[{v}]]></{k}>"
                 elif isinstance(v, str):
-                    xml_parts.append(f"  <{k}>{v}</{k}>")
+                    return f"  <{k}>{v}</{k}>"
                 else:
-                    xml_parts.append(f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>")
+                    return f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>"
+
+            xml_parts = [_render_param(k, v) for k, v in params.items()]
             xml_block = "\n".join(xml_parts)
-            lines.append(f"  ```xml\n  <tool name=\"...\">\n{xml_block}\n  </tool>\n  ```")
+            block = f"  ```xml\n  <tool name=\"{func.get('name', '...')}\">\n{xml_block}\n  </tool>\n  ```"
+            if extra:
+                hint_lines = [f"  <!-- {k}: {json.dumps(v, ensure_ascii=False)} -->" for k, v in extra.items()]
+                block += "\n" + "\n".join(hint_lines)
+            lines.append(block)
 
     return lines
 
