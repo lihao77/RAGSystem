@@ -852,35 +852,15 @@ const ORCHESTRATOR_AGENT_NAMES = new Set(['orchestrator_agent']);
 const isOrchestratorAgentName = (agentName) => !agentName || ORCHESTRATOR_AGENT_NAMES.has(agentName);
 
 const isSubtaskStartEvent = (eventType, calledAgent, parentCallId) => {
-  if (eventType === 'subtask.start' || eventType === 'call.agent.start') return !isOrchestratorAgentName(calledAgent);
+  if (eventType === 'call.agent.start') return !isOrchestratorAgentName(calledAgent);
   if (eventType === 'agent.start') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
   return false;
 };
 
 const isSubtaskEndEvent = (eventType, calledAgent, parentCallId) => {
-  if (eventType === 'subtask.end' || eventType === 'call.agent.end') return !isOrchestratorAgentName(calledAgent);
+  if (eventType === 'call.agent.end') return !isOrchestratorAgentName(calledAgent);
   if (eventType === 'agent.end') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
   return false;
-};
-
-const parseAssistantIntermediate = (content) => {
-  const text = String(content || '').trim();
-  if (!text) return { intent: '', hasToolCalls: false };
-  const marker = '\n\n工具调用:';
-  const startsWithTools = text.startsWith('工具调用:');
-  const markerIndex = text.indexOf(marker);
-  let intent = '';
-  if (text.startsWith('意图:\n')) {
-    const endIndex = markerIndex >= 0 ? markerIndex : text.length;
-    intent = text.slice('意图:\n'.length, endIndex).trim();
-  } else if (text.startsWith('思考:\n')) {
-    const endIndex = markerIndex >= 0 ? markerIndex : text.length;
-    intent = text.slice('思考:\n'.length, endIndex).trim();
-  }
-  return {
-    intent,
-    hasToolCalls: startsWithTools || markerIndex >= 0,
-  };
 };
 
 const getLatestRound = (steps = []) => {
@@ -1023,18 +1003,19 @@ function executionStepsToExecutionState(executionSteps) {
       continue;
     }
 
-    if (kind === 'agent_intent' || kind === 'agent_thought') {
+    if (kind === 'agent_intent') {
       ensureOrchestratorStep(step.round, step.content || '', { markIntentComplete: true });
       continue;
     }
 
-    if (kind === 'subtask_intent' || kind === 'subtask_thought') {
+    if (kind === 'subtask_intent') {
       const node = callNodes.get(callId);
       if (node) {
         // ⚠️ 【禁止随意修改】历史数据去重保护
-        // 后端持久化时，同一轮次会产生两条 subtask_intent 记录：
+        // 旧数据库中同一轮次可能同时存在两条 subtask_intent 记录：
         //   1. agent.intent_complete → runstep_normalizer 转为 subtask_intent（携带完整内容）
         //   2. react.intermediate (role=assistant) → 同样转为 subtask_intent（补发）
+        // 新数据已不再依赖这条补发链路，但这里仍需保留同 round 合并逻辑以兼容旧会话。
         // 若直接无条件 push 新 reactStep，同一 round 会出现两个意图块，导致前端显示错位。
         // 正确做法：同一 round 的第二条直接合并（内容为空时才补填），不新建 step。
         const existing = node.currentStep;
@@ -2241,8 +2222,6 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               && (
                 eventType === 'agent.intent_delta'
                 || eventType === 'agent.intent_complete'
-                || eventType === 'react.intermediate'
-                || eventType === 'tool.start'
                 || eventType === 'call.tool.start'
                 || eventType === 'output.chunk'
                 || eventType === 'output.final_answer'
@@ -2310,72 +2289,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 currentMsg.subtasks.push(subtaskState);
               }
             }
-            // ⚠️ ================================================================
-            // ⚠️  【禁止随意修改此块逻辑】react.intermediate 去重保护
-            // ⚠️ ================================================================
-            //
-            // 【背景】后端每轮 LLM 调用后，会按以下顺序连续发出两类事件：
-            //   1. agent.intent_delta × N  →  agent.intent_complete
-            //      （流式增量，intent_complete 时把 _intentComplete 置 true）
-            //   2. react.intermediate (role=assistant)
-            //      （流结束后补发，携带完整内容，历史兼容机制，同一轮次、同一 round）
-            //
-            // 【Bug 历史】这个 Bug 反复出现过多次：
-            //   若把 react.intermediate 的新建 step 条件改为 `!step || step._intentComplete`，
-            //   会导致 intent_complete 之后 react.intermediate 到达时，
-            //   因为 _intentComplete=true，错误地新建了第二个空 step，
-            //   工具调用（call.tool.start）随后落入这个空 step，
-            //   前端显示就变成：意图1 → 意图2(空) + 工具 → 意图2 的错位顺序。
-            //
-            // 【正确逻辑】
-            //   react.intermediate 新建 step 的条件必须同时满足：
-            //   a) 没有任何 step（!step / !lastStep），或者
-            //   b) 当前 step 已完成（_intentComplete）且 round 不同（真正新轮次）
-            //   —— 即：同一 round 的 react.intermediate 永远不新建 step，只做内容兜底补填
-            //
-            // ⚠️  改动此处之前，请确保你完整理解上述事件顺序和 _intentComplete 标志的含义。
-            // ⚠️ ================================================================
-            else if (eventType === 'react.intermediate' && eventData.role === 'assistant') {
-              const parsedIntermediate = parseAssistantIntermediate(eventData.content);
-              if (isMasterEvent(event)) {
-                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
-                let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                // 仅在没有 step，或已完成且是真正新 round 时才新建；同一 round 的补发直接跳过新建
-                if (!lastStep || (lastStep._intentComplete && lastStep.round !== eventData.round)) {
-                  lastStep = {
-                    round: eventData.round,
-                    intent: '',
-                    toolCalls: [],
-                    expanded: true
-                  };
-                  currentMsg.execution_steps.push(lastStep);
-                }
-                if (parsedIntermediate.intent && !lastStep.intent) {
-                  lastStep.intent = parsedIntermediate.intent;
-                }
-              } else {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) {
-                  let step = subtask.currentStep;
-                  // 仅在没有 step，或已完成且是真正新 round 时才新建；同一 round 的补发直接跳过新建
-                  if (!step || (step._intentComplete && step.round !== eventData.round)) {
-                    step = {
-                      round: eventData.round,
-                      intent: '',
-                      toolCalls: [],
-                      expanded: true
-                    };
-                    subtask.react_steps.push(step);
-                    subtask.currentStep = step;
-                  }
-                  if (parsedIntermediate.intent && !step.intent) {
-                    step.intent = parsedIntermediate.intent;
-                  }
-                }
-              }
-            }
             // 🎯 编排器的 intent（流式增量）
-            else if (eventType === 'agent.intent_delta' || eventType === 'agent.thinking_delta') {
+            else if (eventType === 'agent.intent_delta') {
               if (isMasterEvent(event)) {
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
@@ -2399,7 +2314,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               }
             }
             // intent 完成：携带完整内容，直接用于创建或收尾 step
-            else if (eventType === 'agent.intent_complete' || eventType === 'agent.thinking_complete') {
+            else if (eventType === 'agent.intent_complete') {
               if (isMasterEvent(event)) {
                 if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
                 const lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
@@ -2438,8 +2353,8 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 }
               }
             }
-            // 工具调用（支持 call.tool.start / tool.start）
-            else if (eventType === 'tool.start' || eventType === 'call.tool.start') {
+            // 工具调用
+            else if (eventType === 'call.tool.start') {
               // 先尝试找子 Agent subtask（parent_call_id 对应某个 subtask.task_id）
               let subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
               // 容错：parent_call_id 存在但 subtask 缺失（重连回放时 call.agent.start 事件可能丢失），
@@ -2528,7 +2443,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 }
               }
             }
-            else if (eventType === 'tool.end' || eventType === 'call.tool.end') {
+            else if (eventType === 'call.tool.end') {
               const toolEndStatus = eventData.success === false ? 'error' : 'success';
               // 优先通过 registry 精确匹配（同时覆盖 subtask 和 master_step）
               const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);

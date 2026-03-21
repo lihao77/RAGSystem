@@ -88,6 +88,8 @@ def normalize_run_steps(
                 'source_event_type': event_type,
             })
         elif event_type == 'agent.start':
+            # 兼容旧数据：历史上子 Agent 可能同时持久化了 agent.start 与 call.agent.start。
+            # 新数据中编排器已只保留 call.agent.start/end，下面的去重主要服务遗留记录读取。
             if parent_call_id and call_id in call_agent_start_ids:
                 continue
             normalized.append({
@@ -102,6 +104,8 @@ def normalize_run_steps(
                 'source_event_type': event_type,
             })
         elif event_type == 'agent.end':
+            # 兼容旧数据：历史上子 Agent 可能同时持久化了 agent.end 与 call.agent.end。
+            # 新数据中编排器已只保留 call.agent.start/end，下面的去重主要服务遗留记录读取。
             if parent_call_id and call_id in call_agent_end_ids:
                 continue
             normalized.append({

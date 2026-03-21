@@ -184,6 +184,8 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 
 ### 事件类型（EventType 枚举）
 
+事件规范：**一个语义只对应一个事件名**。编排器根节点只发 `run.start/end` 与 `call.agent.start/end`，不再重复发 `agent.start/end`。
+
 | 类别 | 事件 |
 |------|------|
 | Agent 生命周期 | AGENT_START, AGENT_END, AGENT_ERROR |
@@ -193,6 +195,49 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 | 用户交互 | USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED, USER_INTERRUPT |
 | 上下文 | COMPRESSION_SUMMARY, CONTEXT_USAGE |
 | 系统 | RUN_START, RUN_END, SESSION_END, ERROR |
+
+说明：
+- `INTENT` / `INTENT_STRUCTURED` 已删除，不再使用。
+- `REACT_INTERMEDIATE` 仍保留，用于 messages 持久化与上下文重建，不再承担前端执行树去重职责。
+- `CHART_GENERATED` / `MAP_GENERATED` 为兼容旧 DB 记录保留。
+
+### 统一 execution step sidecar
+
+系统保持 **message-first** 主模型：`messages` 仍是会话主对象，`run_steps` / `execution_steps` 只是 assistant message / run 的执行轨迹 sidecar，通过 `(session_id, run_id)` 持久化并最终关联到 assistant `message_id`。
+
+统一执行树语义由 `execution/step_schema.py` + `execution/step_mapper.py` 提供：
+
+- step schema：`type=node|intent|tool` + `phase=start|delta|complete|end`
+- 公共字段：`id`, `node_id`, `parent_node_id`, `seq`, `ts`, `round`, `status`, `payload`
+- 根编排器固定为 `node_id=root`
+- 子 Agent 调用优先复用 `call_id` 作为 `node_id`
+- 子智能体 `output.final_answer` 会被归并进对应 `node/end.payload.output/result_summary`
+
+不纳入 execution step 的内容：
+
+- 根智能体 `output.chunk`
+- 根智能体 `output.final_answer`
+- `output.message_saved`
+- artifact / 可视化数据
+- approval / user input / heartbeat / reconnect / done 等控制流
+
+### Execution step 发布与持久化链路
+
+```text
+原始 EventBus 事件
+  ├─ SSEAdapter → execution.step（仅执行树语义）
+  ├─ StreamPersistenceHandler/RunStepPersistenceHandler → run_steps（直接存 unified step）
+  └─ MessagePersistenceHandler → messages（仅 user / root assistant final answer / compression）
+```
+
+关键边界：
+
+- `agents/events/sse_adapter.py` 会把 agent / intent / tool / 子 agent final answer 映射成 `type=execution.step`
+- 根编排器的开始/结束语义统一由 `call.agent.start/end` 承担；`agent.start/end` 仅保留给子 Agent 生命周期事件
+- `api/v1/stream.py` reconnect 回放也会重放相同的 `execution.step` 结构，和实时流一致
+- `application/agent_session.py:list_messages()` 与 `export_session()` 对 assistant message 返回统一后的 `execution_steps`
+- `execution/runstep_normalizer.py` 已降级为 unified step 兼容包装层
+- `services/conversation_store.py:get_tool_call_raw_result()` 同时兼容新 `tool` step 与旧 `call.tool.end` 记录
 
 ### 事件流转
 

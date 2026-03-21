@@ -55,45 +55,58 @@ frontend-client/src/
 
 ### 核心流程
 
-```
+```text
 handleSend()
   → ensureSession()                    # 获取/创建会话
   → POST /api/agent/stream             # 发起流式请求
   → processSSEStream()                 # 逐 chunk 解析 SSE 事件
       ├─ reader.read() 循环
       ├─ 事件序号 gap 检测（lastSeenSeq 追踪）
-      ├─ 按事件类型分发处理
-      ├─ 更新 messages / subtasks / execution_steps
+      ├─ 消息流：output.chunk / output.final_answer / output.message_saved
+      ├─ 执行树流：execution.step → executionProjector.applyStep()
       └─ scrollToBottom()
   → 流结束 → checkSituationScreenTrigger()
   → cacheMessages()
 ```
 
-### 事件序号 gap 检测
+### 执行树 projector
 
-每个 SSE 事件携带 `seq`（全局递增序号），前端维护 `lastSeenSeq`：
-- 普通事件：`event.seq > lastSeenSeq + 1` 时 console.warn 报告 gap
-- 心跳事件：检查 `event.last_seq` 和 `event.dropped_count`，检测服务端丢弃情况
+`src/utils/executionProjector.js` 统一消费历史与实时 execution steps：
+
+- `buildExecutionState(steps)`：历史 assistant message 全量构建执行树视图模型
+- `applyStep(state, step)`：实时增量应用单条 `execution.step`
+- projector 输出：
+  - `rawSteps`：统一 step 列表
+  - `subtasks` / `execution_steps`：兼容旧 UI 的投影视图
+  - `tree`：给 `HierarchicalExecutionTree` / `ExecutionNode` 的树模型
+  - `ticker`：给 `SubtaskStatusTicker` 的当前活动/进度模型
+
+`ChatViewV2.vue` 现在把消息流与执行树流拆开处理：
+
+- 根最终答案、`message_saved`、可视化 ref 仍属于 message-first 链路
+- 执行树仅消费 `execution.step`
+- 历史消息加载和 reconnect 回放都复用同一个 projector
 
 ### SSE 事件类型处理
 
+前端实时执行树以 `execution.step` 为唯一事实来源；`ChatViewV2.vue` 中保留的旧 SSE 分支仅用于兼容历史/重连路径，不再处理 `react.intermediate` 或各类别名事件。
+
 | 事件类型 | 处理逻辑 |
 |---------|--------|
-| `agent.intent_delta` | 流式追加意图到 `step.intent` |
-| `agent.intent_complete` | 标记意图完成 |
-| `react.intermediate` | 完整意图补发（同一 round 去重） |
-| `tool.start` / `call.tool.start` | 创建工具调用对象 |
-| `tool.end` / `call.tool.end` | 更新工具调用结果 |
-| `subtask.start` / `call.agent.start` | 创建子任务卡片 |
-| `subtask.end` / `call.agent.end` | 更新子任务状态 |
-| `output.chunk` | 流式追加最终答案 |
-| `output.final_answer` | 标记消息完成 |
+| `execution.step` | 交给 executionProjector 增量更新执行树 |
+| `output.chunk` | 流式追加根最终答案 |
+| `output.final_answer` | 标记根 assistant 消息完成 |
 | `output.message_saved` | 补全消息 id/seq |
 | `user.approval_required` | 弹出审批对话框 |
 | `user.input_required` | 弹出用户输入对话框 |
 | `context.usage` | 更新上下文用量 |
 | `agent.error` | 添加错误状态 |
 | `done` | 标记流结束 |
+
+旧事件兼容说明：
+- 不再处理 `react.intermediate`。
+- 工具调用只认 `call.tool.start/end`。
+- thinking 事件只认 `agent.intent_delta/complete`，不再维护 `agent.thinking_*` 别名分支。
 
 ## 消息数据结构
 
@@ -134,7 +147,7 @@ handleSend()
   round: number,
   intent: string,                // 意图/思考
   toolCalls: [],
-  _intentComplete: boolean       // 去重标志
+  _intentComplete: boolean       // 仅用于旧数据兼容去重
 }
 ```
 

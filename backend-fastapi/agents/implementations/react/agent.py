@@ -162,14 +162,7 @@ class ReActAgent(BaseAgent):
         if publisher:
             try:
                 # 映射事件类型到 EventPublisher 方法
-                if event_type in ('intent_structured', 'thinking_structured'):
-                    publisher.intent_structured(
-                        intent=data.get('intent', data.get('thinking', '')),
-                        actions=data.get('actions', []),
-                        reasoning=f"第 {data.get('round', 0)} 轮推理",
-                        round=data.get('round'),
-                    )
-                elif event_type == 'tool_start':
+                if event_type == 'tool_start':
                     # 生成唯一的 tool call_id
                     import uuid
                     tool_call_id = data.get('tool_call_id') or f"tool_{uuid.uuid4()}"

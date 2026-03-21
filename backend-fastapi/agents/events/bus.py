@@ -43,10 +43,6 @@ class EventType(str, Enum):
     AGENT_ERROR = "agent.error"
     AGENT_RETRY_SCHEDULED = "agent.retry_scheduled"
 
-    # 意图过程事件
-    INTENT = "agent.intent"
-    INTENT_STRUCTURED = "agent.intent_structured"
-
     # 流式意图事件
     INTENT_DELTA = "agent.intent_delta"          # intent 增量内容
     INTENT_COMPLETE = "agent.intent_complete"    # intent 完成
@@ -65,8 +61,8 @@ class EventType(str, Enum):
     MESSAGE_SAVED = "output.message_saved"  # 消息持久化完成，携带 id/seq 供前端补全
 
     # 可视化事件
-    CHART_GENERATED = "visualization.chart"
-    MAP_GENERATED = "visualization.map"
+    CHART_GENERATED = "visualization.chart"  # DEPRECATED: 仅为旧 DB 记录保留
+    MAP_GENERATED = "visualization.map"  # DEPRECATED: 仅为旧 DB 记录保留
 
     # 用户交互事件 (Human-in-the-Loop)
     USER_APPROVAL_REQUIRED = "user.approval_required"

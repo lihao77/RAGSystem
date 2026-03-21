@@ -153,16 +153,6 @@ class OrchestratorAgent(BaseAgent):
                 agent_name=self.name,
                 description=task,
             )
-        agent_metadata = {
-            "agent_name": self.name,
-            "display_name": "Orchestrator Agent",
-            "run_id": run_id,
-            "call_id": orchestrator_call_id,
-        }
-        if self.max_rounds is not None:
-            agent_metadata["max_rounds"] = self.max_rounds
-        if publisher:
-            publisher.agent_start(task, metadata=agent_metadata)
 
         return {
             'start_time': start_time,
@@ -334,7 +324,6 @@ class OrchestratorAgent(BaseAgent):
                     result=error_message,
                     success=False,
                 )
-            publisher.agent_end(error_message, execution_time=time.time() - start_time)
             if run_id:
                 publisher.run_end(
                     run_id=run_id,
@@ -369,7 +358,6 @@ class OrchestratorAgent(BaseAgent):
                     result=final_answer,
                     success=True,
                 )
-            publisher.agent_end(final_answer, execution_time=time.time() - start_time)
             if run_id:
                 publisher.run_end(
                     run_id=run_id,
@@ -408,7 +396,6 @@ class OrchestratorAgent(BaseAgent):
                     result=final_content,
                     success=False,
                 )
-            publisher.agent_end(final_content, execution_time=time.time() - start_time)
             if run_id:
                 publisher.run_end(
                     run_id=run_id,

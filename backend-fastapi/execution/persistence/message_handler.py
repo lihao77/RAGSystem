@@ -112,7 +112,7 @@ class MessagePersistenceHandler:
                 logger.debug('捕获 root_call_id=%s', self.root_call_id)
 
         return self.event_bus.subscribe(
-            event_types=[EventType.AGENT_START],
+            event_types=[EventType.AGENT_START, EventType.CALL_AGENT_START],
             handler=handle,
             filter_func=lambda e: e.session_id == self.session_id,
         )

@@ -23,7 +23,7 @@ class EventPublisher:
 
     使用方式:
         publisher = EventPublisher(agent_name="kgqa_agent", session_id="abc123")
-        publisher.intent("查询知识图谱")
+        publisher.intent_delta("查询知识图谱")
         publisher.tool_call_start(call_id, "query_knowledge_graph", {...})
     """
 
@@ -185,34 +185,6 @@ class EventPublisher:
         )
 
     # ==================== 意图过程事件 ====================
-
-    def intent(self, content: str):
-        """简单意图（纯文本）"""
-        self._publish(
-            EventType.INTENT,
-            {"content": content}
-        )
-
-    def intent_structured(
-        self,
-        intent: str = "",
-        actions: Optional[list] = None,
-        reasoning: Optional[str] = None,
-        round: Optional[int] = None,
-    ):
-        """结构化意图（ReAct风格）"""
-        data: Dict[str, Any] = {
-            "intent": intent,
-            "actions": actions or [],
-            "reasoning": reasoning,
-        }
-        if round is not None:
-            data["round"] = round
-
-        self._publish(
-            EventType.INTENT_STRUCTURED,
-            data,
-        )
 
     def intent_delta(self, content: str, round: Optional[int] = None):
         """流式意图增量内容"""
