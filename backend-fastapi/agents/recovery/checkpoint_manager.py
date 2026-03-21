@@ -24,13 +24,16 @@ class CheckpointManager:
     - 清理过期检查点
     """
 
-    def __init__(self, db_path: str = "data/checkpoints.db"):
+    def __init__(self, db_path: Optional[str] = None):
         """
         初始化检查点管理器
 
         Args:
             db_path: SQLite 数据库路径
         """
+        if db_path is None:
+            from tools.path_resolution import CHECKPOINTS_DB
+            db_path = str(CHECKPOINTS_DB)
         self.db_path = db_path
         self._ensure_db_exists()
 

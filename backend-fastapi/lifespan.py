@@ -41,6 +41,14 @@ async def _startup(app: FastAPI) -> None:
     if _runtime_initialized:
         return
 
+    # ── 第零步：初始化数据目录结构 ──────────────────────────────────────
+    try:
+        from tools.path_resolution import ensure_directories
+        ensure_directories()
+        logger.info('✓ 数据目录结构已初始化')
+    except Exception as e:
+        logger.warning('数据目录初始化失败: %s', e)
+
     # ── 第一步：初始化 RuntimeContainer（所有其他服务的前置依赖）──────────
     try:
         from runtime.container import create_runtime_container

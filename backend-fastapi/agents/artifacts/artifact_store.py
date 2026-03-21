@@ -34,10 +34,13 @@ class ArtifactStore:
 
     def __init__(
         self,
-        base_dir: str = "./static/temp_data",
+        base_dir: str | None = None,
         index_file: str | None = None,
         observation_window: ObservationWindowCollector | None = None,
     ):
+        if base_dir is None:
+            from tools.path_resolution import TRANSIENT_ARTIFACTS_ROOT
+            base_dir = str(TRANSIENT_ARTIFACTS_ROOT)
         self.base_dir = base_dir
         self.index_file = index_file or os.path.join(base_dir, "artifact_index.jsonl")
         self.observation_window = observation_window

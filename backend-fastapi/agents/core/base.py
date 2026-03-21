@@ -373,7 +373,7 @@ class BaseAgent(ABC):
             logger=self.logger,
             observation_window=observation_window,
         )
-        data_save_dir = behavior_config.get('data_save_dir', './static/temp_data')
+        data_save_dir = behavior_config.get('data_save_dir') or None
         artifact_store = ArtifactStore(
             base_dir=data_save_dir,
             observation_window=observation_window,

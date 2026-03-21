@@ -215,7 +215,7 @@ class AgentLoader:
                     'compression_trigger_ratio': 0.85,
                     'summarize_max_tokens': 300,
                     'preserve_recent_turns': 3,
-                    'data_save_dir': './static/temp_data'
+                    'data_save_dir': None
                 }
             }
         )

@@ -26,7 +26,8 @@ class SessionTraceWriter:
         if base_dir is None:
             base_dir = os.getenv('SESSION_TRACE_DIR')
         if base_dir is None:
-            base_dir = Path(__file__).resolve().parents[2] / 'data' / 'session_traces'
+            from tools.path_resolution import SESSION_TRACES_ROOT
+            base_dir = SESSION_TRACES_ROOT
 
         self.base_dir = Path(base_dir)
         self._lock = threading.RLock()

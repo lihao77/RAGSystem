@@ -54,7 +54,7 @@ class SQLiteVectorConfig(BaseModel):
     """SQLite + sqlite-vec 向量存储配置"""
     model_config = ConfigDict(extra='allow')
 
-    database_path: str = "data/vector_store.db"  # 数据库文件路径
+    database_path: str = ""  # 留空时由 path_resolution.RAGSYSTEM_DB 填充
     vector_dimension: int = 0  # 0=自动与当前 Embedding 模型一致
     distance_metric: str = "cosine"  # 距离度量: cosine, l2, ip
 

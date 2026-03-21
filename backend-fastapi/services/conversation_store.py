@@ -28,6 +28,10 @@ class ConversationStore:
             config = get_config()
             db_path = config.vector_store.sqlite_vec.database_path
 
+        if not db_path:
+            from tools.path_resolution import RAGSYSTEM_DB
+            db_path = str(RAGSYSTEM_DB)
+
         db_path = Path(db_path)
         if not db_path.is_absolute():
             db_path = Path(__file__).parent / db_path
@@ -145,6 +149,66 @@ class ConversationStore:
                 "CREATE INDEX IF NOT EXISTS idx_run_steps_session_type_id ON run_steps(session_id, step_type, id DESC)"
             )
 
+            # runs: 运行记录
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    entrypoint TEXT,
+                    status TEXT NOT NULL DEFAULT 'running',
+                    task_summary TEXT,
+                    user_id TEXT,
+                    agent_name TEXT,
+                    final_message_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id)"
+            )
+
+            # resources: 文件资源记录
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS resources (
+                    resource_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    step_id INTEGER,
+                    message_id TEXT,
+                    resource_type TEXT NOT NULL,
+                    sub_type TEXT,
+                    title TEXT,
+                    path TEXT NOT NULL,
+                    source_tool TEXT,
+                    scope TEXT NOT NULL DEFAULT 'transient',
+                    metadata TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_resources_session_run ON resources(session_id, run_id)"
+            )
+
+            # step_resources: 步骤与资源的关联表
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS step_resources (
+                    step_id INTEGER NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    PRIMARY KEY(step_id, resource_id)
+                )
+                """
+            )
+
             if self.enable_archive:
                 conn.execute(
                     """
@@ -213,38 +277,53 @@ class ConversationStore:
 
     def delete_session(self, session_id: str) -> bool:
         """
-        删除会话及其所有关联数据（消息、run_steps）
-
-        由于设置了 FOREIGN KEY ON DELETE CASCADE，删除 session 会自动级联删除：
-        - messages 表中的所有消息
-        - run_steps 表中的所有步骤（如果有外键关联）
+        删除会话及其所有关联数据（消息、run_steps、resources）。
+        同时清理 transient/export/session scope 的文件，保留 workspace 文件。
 
         Returns:
             bool: 是否成功删除（True 表示删除了会话，False 表示会话不存在）
         """
         lock = self._get_session_lock(session_id)
         with lock:
+            # 先收集需要清理的文件路径
+            files_to_delete = []
             with self._get_connection() as conn:
-                # 先删除 run_steps（如果没有外键级联）
-                conn.execute(
-                    "DELETE FROM run_steps WHERE session_id=?",
+                res_rows = conn.execute(
+                    "SELECT path, scope FROM resources WHERE session_id=?",
                     (session_id,)
-                )
+                ).fetchall()
+                for row in res_rows:
+                    if row["scope"] in ("transient", "export", "session"):
+                        files_to_delete.append(row["path"])
+
+                # 删除关联表
+                conn.execute("DELETE FROM step_resources WHERE session_id=?", (session_id,))
+                conn.execute("DELETE FROM resources WHERE session_id=?", (session_id,))
+                conn.execute("DELETE FROM run_steps WHERE session_id=?", (session_id,))
+                conn.execute("DELETE FROM runs WHERE session_id=?", (session_id,))
 
                 # 删除会话（会自动级联删除 messages）
                 cursor = conn.execute(
                     "DELETE FROM sessions WHERE session_id=?",
                     (session_id,)
                 )
-
                 deleted = cursor.rowcount > 0
 
-                # 清理 session 锁
-                with self._global_lock:
-                    if session_id in self._session_locks:
-                        del self._session_locks[session_id]
+            # 在锁外清理文件
+            for file_path in files_to_delete:
+                try:
+                    p = Path(file_path)
+                    if p.exists():
+                        p.unlink()
+                except Exception as e:
+                    logging.getLogger(__name__).warning('删除资源文件失败 %s: %s', file_path, e)
 
-                return deleted
+            # 清理 session 锁
+            with self._global_lock:
+                if session_id in self._session_locks:
+                    del self._session_locks[session_id]
+
+            return deleted
 
     def add_message(
         self,
@@ -353,13 +432,14 @@ class ConversationStore:
                     "SELECT COALESCE(MAX(step_order), 0) + 1 FROM run_steps WHERE session_id=? AND run_id=?",
                     (session_id, run_id)
                 ).fetchone()[0]
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (run_id, session_id, message_id, next_order, step_type, payload_json)
                 )
+                step_id = cursor.lastrowid
         self.trace_writer.append_run_step(
             session_id=session_id,
             run_id=run_id,
@@ -370,7 +450,7 @@ class ConversationStore:
                 'payload': payload,
             },
         )
-        return {"run_id": run_id, "step_order": next_order, "step_type": step_type}
+        return {"id": step_id, "run_id": run_id, "step_order": next_order, "step_type": step_type}
 
     def update_run_steps_message_id(self, session_id: str, run_id: str, message_id: str) -> int:
         """
@@ -444,16 +524,32 @@ class ConversationStore:
                     ).fetchall()
             else:
                 return []
+            step_ids = [row["id"] for row in rows]
+            resource_refs_by_step: Dict[int, List[Dict[str, str]]] = {}
+            if step_ids:
+                placeholders = ",".join(["?"] * len(step_ids))
+                resource_rows = conn.execute(
+                    f"SELECT step_id, resource_id FROM step_resources WHERE step_id IN ({placeholders})",
+                    step_ids,
+                ).fetchall()
+                for resource_row in resource_rows:
+                    resource_refs_by_step.setdefault(resource_row["step_id"], []).append({
+                        "resource_id": resource_row["resource_id"]
+                    })
+
             items = []
             for row in rows:
+                payload = json.loads(row["payload"] or "{}")
+                step_id = row["id"]
+                payload["resource_refs"] = resource_refs_by_step.get(step_id, [])
                 items.append({
-                    "id": row["id"],
+                    "id": step_id,
                     "run_id": row["run_id"],
                     "session_id": row["session_id"],
                     "message_id": row["message_id"],
                     "step_order": row["step_order"],
                     "step_type": row["step_type"],
-                    "payload": json.loads(row["payload"] or "{}"),
+                    "payload": payload,
                     "created_at": row["created_at"]
                 })
             return items
@@ -852,6 +948,186 @@ class ConversationStore:
 
         except Exception as e:
             logger.warning(f"清理临时数据文件失败: {e}")
+
+    # ── Run 管理 ──────────────────────────────────────────────────
+
+    def create_run(
+        self,
+        run_id: str,
+        session_id: str,
+        entrypoint: str = "execute",
+        status: str = "running",
+        task_summary: str = "",
+        user_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO runs (run_id, session_id, entrypoint, status, task_summary, user_id, agent_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, session_id, entrypoint, status, task_summary, user_id, agent_name),
+            )
+        return {"run_id": run_id, "session_id": session_id, "status": status}
+
+    def update_run_status(
+        self,
+        run_id: str,
+        session_id: str,
+        status: str,
+        final_message_id: Optional[str] = None,
+    ) -> bool:
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE runs SET status=?, final_message_id=?, updated_at=CURRENT_TIMESTAMP
+                WHERE run_id=? AND session_id=?
+                """,
+                (status, final_message_id, run_id, session_id),
+            )
+            return cur.rowcount > 0
+
+    def list_runs(self, session_id: str, limit: int = 50) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, session_id, entrypoint, status, task_summary,
+                       user_id, agent_name, final_message_id, created_at, updated_at
+                FROM runs WHERE session_id=? ORDER BY created_at DESC LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+            items = []
+            for row in rows:
+                items.append({
+                    "run_id": row["run_id"],
+                    "session_id": row["session_id"],
+                    "entrypoint": row["entrypoint"],
+                    "status": row["status"],
+                    "task_summary": row["task_summary"],
+                    "user_id": row["user_id"],
+                    "agent_name": row["agent_name"],
+                    "final_message_id": row["final_message_id"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                })
+            return {"items": items, "total": len(items)}
+
+    # ── Resource 管理 ─────────────────────────────────────────────
+
+    def register_resource(
+        self,
+        session_id: str,
+        path: str,
+        resource_type: str,
+        source_tool: str = "",
+        *,
+        run_id: Optional[str] = None,
+        step_id: Optional[int] = None,
+        message_id: Optional[str] = None,
+        sub_type: Optional[str] = None,
+        title: Optional[str] = None,
+        scope: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        resource_id = str(uuid.uuid4())
+        if scope is None:
+            scope = self._infer_scope(path)
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO resources
+                (resource_id, session_id, run_id, step_id, message_id,
+                 resource_type, sub_type, title, path, source_tool, scope, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (resource_id, session_id, run_id, step_id, message_id,
+                 resource_type, sub_type, title, path, source_tool, scope, metadata_json),
+            )
+        return {
+            "resource_id": resource_id,
+            "session_id": session_id,
+            "path": path,
+            "scope": scope,
+            "resource_type": resource_type,
+        }
+
+    def list_resources(
+        self,
+        session_id: str,
+        run_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            if run_id:
+                rows = conn.execute(
+                    "SELECT * FROM resources WHERE session_id=? AND run_id=? ORDER BY created_at DESC LIMIT ?",
+                    (session_id, run_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM resources WHERE session_id=? ORDER BY created_at DESC LIMIT ?",
+                    (session_id, limit),
+                ).fetchall()
+            items = []
+            for row in rows:
+                items.append({
+                    "resource_id": row["resource_id"],
+                    "session_id": row["session_id"],
+                    "run_id": row["run_id"],
+                    "path": row["path"],
+                    "resource_type": row["resource_type"],
+                    "sub_type": row["sub_type"],
+                    "title": row["title"],
+                    "scope": row["scope"],
+                    "source_tool": row["source_tool"],
+                })
+            return {"items": items, "total": len(items)}
+
+    def attach_resource_to_step(
+        self,
+        session_id: str,
+        run_id: str,
+        step_id: int,
+        resource_id: str,
+    ) -> None:
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO step_resources (step_id, resource_id, session_id, run_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (step_id, resource_id, session_id, run_id),
+            )
+
+    @staticmethod
+    def _infer_scope(path: str) -> str:
+        """根据文件路径推断资源 scope。"""
+        from tools.path_resolution import TRANSIENT_ROOT, EXPORTS_ROOT, VISUALIZATION_ROOT, WORKSPACE_ROOT
+        p = Path(path).resolve()
+        try:
+            p.relative_to(TRANSIENT_ROOT.resolve())
+            return "transient"
+        except ValueError:
+            pass
+        try:
+            p.relative_to(EXPORTS_ROOT.resolve())
+            return "export"
+        except ValueError:
+            pass
+        try:
+            p.relative_to(VISUALIZATION_ROOT.resolve())
+            return "session"
+        except ValueError:
+            pass
+        try:
+            p.relative_to(WORKSPACE_ROOT.resolve())
+            return "workspace"
+        except ValueError:
+            pass
+        return "transient"
 
     def close(self):
         self._stop_event.set()

@@ -7,12 +7,14 @@ import os
 import json
 import csv
 import difflib
+import logging
 import re
-import tempfile
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
 from tools.response_builder import error_result, success_result
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_READ_MAX_LINES = 2000
@@ -861,18 +863,23 @@ def write_file(
     encoding: str = "utf-8",
     mode: str = "text",
 ) -> Any:
-    """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。"""
+    """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。
+
+    file_path 由 dispatcher 预处理层保证为绝对路径（未指定时已预分配）。
+    """
     try:
         if not file_path:
-            temp_dir = tempfile.gettempdir()
-            suffix = ".json" if mode == "json" else ".txt"
-            file_path = os.path.join(temp_dir, f"output_{os.getpid()}{suffix}")
+            return error_result("file_path 未指定且未被预处理层分配", tool_name="write_file")
+        file_path_obj = Path(file_path)
+        if not file_path_obj.is_absolute():
+            logger.warning("write_file 收到非绝对路径，尝试 resolve: %s", file_path)
+            file_path_obj = file_path_obj.resolve()
 
-        dir_path = os.path.dirname(file_path)
+        dir_path = file_path_obj.parent
         if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
+            dir_path.mkdir(parents=True, exist_ok=True)
 
-        with open(file_path, 'w', encoding=encoding) as f:
+        with open(file_path_obj, 'w', encoding=encoding) as f:
             if mode == "json":
                 if isinstance(content, str):
                     try:
@@ -884,10 +891,12 @@ def write_file(
             else:
                 f.write(content if isinstance(content, str) else str(content))
 
-        file_size = os.path.getsize(file_path)
+        file_size = file_path_obj.stat().st_size
+        from tools.path_resolution import to_display_path
+        display = to_display_path(file_path_obj)
         return success_result(
-            content={"file_path": file_path, "file_size": file_size},
-            summary=f"文件已写入: {file_path}（{file_size} 字节）",
+            content={"file_path": str(file_path_obj), "file_size": file_size, "display_path": display},
+            summary=f"文件已写入: {display}（{file_size} 字节）",
             output_type="text",
             tool_name="write_file",
         )
@@ -907,9 +916,15 @@ def read_file(
     session_id: Optional[str] = None,
     _skip_preview: bool = False,
 ) -> Any:
-    """按行号读取文件内容，返回 cat -n 格式。支持大文件预览确认（仅 direct 调用）。"""
+    """按行号读取文件内容，返回原始文本内容。支持大文件预览确认（仅 direct 调用）。
+
+    file_path 由 dispatcher 预处理层保证为绝对路径。
+    """
     try:
         file_path_obj = Path(file_path)
+        if not file_path_obj.is_absolute():
+            logger.warning("read_file 收到非绝对路径，尝试 resolve: %s", file_path)
+            file_path_obj = file_path_obj.resolve()
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="read_file")
@@ -1066,9 +1081,15 @@ def edit_file(
     encoding: str = "utf-8",
     replace_all: bool = False,
 ) -> Any:
-    """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。"""
+    """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。
+
+    file_path 由 dispatcher 预处理层保证为绝对路径。
+    """
     try:
         file_path_obj = Path(file_path)
+        if not file_path_obj.is_absolute():
+            logger.warning("edit_file 收到非绝对路径，尝试 resolve: %s", file_path)
+            file_path_obj = file_path_obj.resolve()
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="edit_file")

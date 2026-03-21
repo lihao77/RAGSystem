@@ -15,7 +15,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "文档文件路径，支持绝对路径或相对路径"
+                    "description": "文档文件路径。支持绝对路径或相对路径（系统会自动解析为绝对路径）"
                 },
                 "encoding": {
                     "type": "string",
@@ -124,7 +124,7 @@ DOCUMENT_TOOL_CONTRACTS = [
         name="write_file",
         description=(
             "将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。"
-            "不指定路径时自动生成临时文件，返回实际保存的文件路径（在 content.file_path 字段中）。"
+            "不指定路径时系统自动分配受管绝对路径，返回实际保存的文件路径（在 content.file_path 字段中）。"
             "修改已有文件的部分内容，请优先使用 edit_file 工具。"
         ),
         parameters={
@@ -136,7 +136,7 @@ DOCUMENT_TOOL_CONTRACTS = [
                 },
                 "file_path": {
                     "type": "string",
-                    "description": "保存路径（可选）。不指定则自动生成临时文件路径。"
+                    "description": "保存路径（可选）。支持相对路径（系统自动解析为绝对路径）。不指定则系统自动分配受管路径。"
                 },
                 "encoding": {
                     "type": "string",
@@ -153,22 +153,24 @@ DOCUMENT_TOOL_CONTRACTS = [
             "shape": {
                 "file_path": "string",
                 "file_size": "number",
+                "display_path": "string",
             },
         },
         usage_contract=[
             "content 是最终要写入的文本；JSON 请先序列化成字符串",
-            "后续工具需要路径时，优先使用返回的 file_path",
+            "后续工具需要路径时，优先复用返回的 file_path（绝对路径）",
             "若在同一轮链式调用，可引用 {result_N.content.file_path}",
             "修改已有文件的部分内容时，请优先使用 edit_file 工具进行精准替换",
+            "content.display_path 是可读展示路径，仅用于向用户展示",
         ],
         examples=[
             {
                 "input": {
                     "content": "{\"city\": \"Nanning\"}",
-                    "file_path": "./data/output.json",
                 },
                 "result_hint": {
-                    "file_path": "./data/output.json",
+                    "file_path": "/abs/path/to/output.json",
+                    "display_path": "./data/transient/scratch/.../output.json",
                 },
             }
         ],
@@ -180,13 +182,14 @@ DOCUMENT_TOOL_CONTRACTS = [
             "按行读取文件内容，返回原始文本内容。"
             "默认从第 1 行开始，最多读取 2000 行。"
             "file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
+            "支持相对路径（系统会自动解析为绝对路径）。"
         ),
         parameters={
             "type": "object",
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "文件路径（绝对路径或相对路径）"
+                    "description": "文件路径。支持绝对路径或相对路径（系统自动解析）。优先复用上一步工具返回的 file_path。"
                 },
                 "encoding": {
                     "type": "string",
@@ -271,7 +274,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "要预览结构的文件路径"
+                    "description": "要预览结构的文件路径。支持相对路径（系统自动解析为绝对路径）。"
                 },
                 "encoding": {
                     "type": "string",
@@ -357,7 +360,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "要编辑的文件路径"
+                    "description": "要编辑的文件路径。支持相对路径（系统自动解析为绝对路径）。优先复用上一步工具返回的 file_path。"
                 },
                 "old_string": {
                     "type": "string",

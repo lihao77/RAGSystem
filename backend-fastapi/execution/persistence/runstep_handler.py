@@ -71,7 +71,7 @@ class RunStepPersistenceHandler:
         def handle(event):
             payload = self._event_to_payload(event)
             try:
-                self.store.add_run_step(
+                step_result = self.store.add_run_step(
                     session_id=self.session_id,
                     run_id=self.run_id,
                     step_type=event.type.value,
@@ -80,14 +80,49 @@ class RunStepPersistenceHandler:
                 )
             except Exception as error:
                 logger.warning('写入 run_step 失败: %s', error, exc_info=True)
+                step_result = None
 
-            if event.type == EventType.RUN_END and self.message_id_for_run[0]:
+            # CALL_TOOL_END: 关联资源引用到步骤
+            if event.type == EventType.CALL_TOOL_END and step_result:
+                resource_refs = (event.data or {}).get('resource_refs') or []
+                step_id = step_result.get('id')
+                if step_id and resource_refs:
+                    for ref in resource_refs:
+                        rid = ref.get('resource_id')
+                        if rid:
+                            try:
+                                self.store.attach_resource_to_step(
+                                    session_id=self.session_id,
+                                    run_id=self.run_id,
+                                    step_id=step_id,
+                                    resource_id=rid,
+                                )
+                            except Exception as error:
+                                logger.warning('关联资源到步骤失败: %s', error, exc_info=True)
+
+            if event.type == EventType.RUN_END:
+                # 更新 run 状态
                 try:
-                    self.store.update_run_steps_message_id(
-                        self.session_id, self.run_id, self.message_id_for_run[0]
+                    status = (event.data or {}).get('status', 'completed')
+                    # 统一映射：success → completed
+                    if status == 'success':
+                        status = 'completed'
+                    self.store.update_run_status(
+                        run_id=self.run_id,
+                        session_id=self.session_id,
+                        status=status,
+                        final_message_id=self.message_id_for_run[0] if self.message_id_for_run else None,
                     )
                 except Exception as error:
-                    logger.warning('RUN_END 时更新 run_steps message_id 失败: %s', error, exc_info=True)
+                    logger.warning('RUN_END 时更新 run 状态失败: %s', error, exc_info=True)
+
+                if self.message_id_for_run and self.message_id_for_run[0]:
+                    try:
+                        self.store.update_run_steps_message_id(
+                            self.session_id, self.run_id, self.message_id_for_run[0]
+                        )
+                    except Exception as error:
+                        logger.warning('RUN_END 时更新 run_steps message_id 失败: %s', error, exc_info=True)
 
         return self.event_bus.subscribe(
             event_types=_STEP_EVENT_TYPES,

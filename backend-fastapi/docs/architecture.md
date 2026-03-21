@@ -20,6 +20,7 @@ backend-fastapi/
 │   ├── recovery/              # 检查点恢复
 │   └── tests/                 # pytest 测试
 ├── tools/                     # 工具系统（详见 tools.md）
+│   └── path_resolution.py     # 全局路径管理中心
 ├── api/v1/                    # FastAPI 路由层
 ├── runtime/                   # RuntimeContainer 中央容器
 ├── model_adapter/             # LLM Provider 统一适配
@@ -28,8 +29,20 @@ backend-fastapi/
 ├── application/               # 应用层（会话、协作）
 ├── capabilities/              # 能力模块（文档检索、向量检索、MCP）
 ├── config/yaml/               # 系统级 YAML 配置
+├── execution/                 # 执行层（持久化、可观测性）
 ├── lifespan.py                # 启动生命周期
-└── main.py                    # 应用入口
+├── main.py                    # 应用入口
+└── data/                      # 数据根目录（可通过 RAG_DATA_ROOT 环境变量覆盖）
+    ├── db/                    # 数据库文件（vector_store.db, ragsystem.db, checkpoints.db）
+    ├── artifacts/             # 工具产出的持久化文件
+    │   └── visualizations/    # 可视化 JSON
+    ├── transient/             # 临时文件（可定期清理）
+    │   ├── code_execution/    # 代码沙箱产出（按 session 隔离）
+    │   └── scratch/           # 其他临时文件
+    ├── exports/               # 供用户下载的文件（按 session/run 组织）
+    ├── workspace/             # 用户工作空间（按 session 隔离，预留）
+    ├── monitoring/            # 监控数据（指标、观察窗口、session 追踪）
+    └── backups/               # 数据库备份（由备份工具按需创建）
 ```
 
 ## 请求数据流
@@ -117,6 +130,19 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 路径解析加固：解析失败时返回错误标记（`make_ref_error()`），Agent 在 observation 中看到 `[引用错误: 路径 "xxx" 不存在, 可用: [...]]`，可感知并重试。
 
 未替换占位符拦截：`base.py._handle_actions` 在工具执行前调用 `detect_unresolved_placeholders()` 检测残留占位符，命中则跳过执行并返回错误提示。
+
+### 文档工具路径预处理
+
+文档工具（read_document, read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化：
+
+```
+占位符替换 → 路径预处理 → tool 执行 → resource scope 推断/清理
+```
+
+- 路径解析由 `tools/path_resolution.py` 的 `resolve_document_input_path()` 完成，优先级：绝对路径 > `./data/...` 反向映射 > sandbox_root > workspace_root > DATA_ROOT
+- `write_file` 未指定路径时由 `assign_document_output_path()` 分配受管路径（exports/workspace/transient），不再落到系统 temp
+- tool 实现层（`document_executor.py`）只接受绝对路径，不再自行做路径策略判断
+- sandbox（`code_sandbox.py`）保留独立的运行时安全边界（`_resolve_sandbox_path` / `safe_open`），不受预处理层影响
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
 

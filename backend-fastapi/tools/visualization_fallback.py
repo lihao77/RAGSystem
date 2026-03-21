@@ -20,7 +20,7 @@ def fallback_chart_to_image(
     session_id: str | None = None,
 ):
     """
-    用 matplotlib 生成 PNG 图表并存入 static/temp_data/。
+    用 matplotlib 生成 PNG 图表并存入可视化目录。
 
     Returns:
         VisualizationRecord (viz_type="image")
@@ -66,7 +66,8 @@ def fallback_chart_to_image(
     plt.tight_layout()
 
     # 保存
-    out_dir = "./static/temp_data"
+    from tools.path_resolution import VISUALIZATION_ROOT
+    out_dir = str(VISUALIZATION_ROOT)
     os.makedirs(out_dir, exist_ok=True)
     filename = f"viz_{uuid.uuid4().hex[:8]}.png"
     filepath = os.path.join(out_dir, filename)

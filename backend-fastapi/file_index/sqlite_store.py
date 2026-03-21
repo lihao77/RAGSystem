@@ -40,9 +40,8 @@ class FileIndexSQLite:
                     这样可以与向量数据库共享连接，便于跨表查询
         """
         if db_path is None:
-            # 默认使用统一的数据库路径（与向量存储共享）
-            backend_dir = Path(__file__).parent.parent
-            db_path = backend_dir / "data" / "ragsystem.db"
+            from tools.path_resolution import RAGSYSTEM_DB
+            db_path = RAGSYSTEM_DB
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

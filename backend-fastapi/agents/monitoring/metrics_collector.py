@@ -9,6 +9,7 @@
 import atexit
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -20,8 +21,10 @@ from .models import AgentMetrics, ToolMetrics, ErrorMetrics, SystemMetrics
 
 logger = logging.getLogger(__name__)
 
-# 默认持久化路径：backend/data/agent_metrics.json
-_DEFAULT_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+from tools.path_resolution import MONITORING_ROOT
+
+# 默认持久化路径
+_DEFAULT_STORAGE_DIR = MONITORING_ROOT
 _DEFAULT_STORAGE_PATH = _DEFAULT_STORAGE_DIR / "agent_metrics.json"
 
 
@@ -53,6 +56,7 @@ class MetricsCollector:
         self._storage_path = Path(storage_path) if storage_path else _DEFAULT_STORAGE_PATH
         self._persist_interval = persist_interval_seconds
         self._last_persist_time = 0.0
+        self._lock = threading.RLock()
 
         self._load()
 
@@ -134,11 +138,12 @@ class MetricsCollector:
         event_data = event.data if hasattr(event, 'data') else event
         call_id = event_data.get("call_id")
         if call_id:
-            self._active_runs[call_id] = {
-                "start_time": time.time(),
-                "agent_name": event_data.get("agent_name"),
-                "session_id": getattr(event, 'session_id', None),
-            }
+            with self._lock:
+                self._active_runs[call_id] = {
+                    "start_time": time.time(),
+                    "agent_name": event_data.get("agent_name"),
+                    "session_id": getattr(event, 'session_id', None),
+                }
 
     def _on_agent_call_end(self, event):
         """处理 CALL_AGENT_END 事件"""
@@ -147,10 +152,11 @@ class MetricsCollector:
         # 优先从 run_info 取 agent_name 和时长；若未收到对应 START（如 orchestrator 的 START 与 END 跨线程/顺序），用 END 的 payload 兜底
         agent_name = None
         duration_ms = 0
-        if call_id and call_id in self._active_runs:
-            run_info = self._active_runs.pop(call_id)
-            agent_name = run_info.get("agent_name")
-            duration_ms = int((time.time() - run_info["start_time"]) * 1000)
+        with self._lock:
+            if call_id and call_id in self._active_runs:
+                run_info = self._active_runs.pop(call_id)
+                agent_name = run_info.get("agent_name")
+                duration_ms = int((time.time() - run_info["start_time"]) * 1000)
         if agent_name is None:
             agent_name = event_data.get("agent_name")
         if not agent_name:
@@ -173,34 +179,35 @@ class MetricsCollector:
         # EventPublisher 使用 call_id，不是 tool_call_id
         tool_call_id = event_data.get("call_id") or event_data.get("tool_call_id")
         if tool_call_id:
-            self._active_tools[tool_call_id] = {
-                "start_time": time.time(),
-                "tool_name": event_data.get("tool_name"),
-                # 从 parent_call_id 反查 agent_name（如果有的话）
-                "parent_call_id": event_data.get("parent_call_id"),
-            }
+            with self._lock:
+                self._active_tools[tool_call_id] = {
+                    "start_time": time.time(),
+                    "tool_name": event_data.get("tool_name"),
+                    # 从 parent_call_id 反查 agent_name（如果有的话）
+                    "parent_call_id": event_data.get("parent_call_id"),
+                }
 
     def _on_tool_end(self, event):
         """处理 CALL_TOOL_END 事件"""
         event_data = event.data if hasattr(event, 'data') else event
         # EventPublisher 使用 call_id，不是 tool_call_id
         tool_call_id = event_data.get("call_id") or event_data.get("tool_call_id")
-        if tool_call_id not in self._active_tools:
-            return
 
-        tool_info = self._active_tools.pop(tool_call_id)
-        tool_name = tool_info["tool_name"]
-        duration_ms = int((time.time() - tool_info["start_time"]) * 1000)
+        with self._lock:
+            if tool_call_id not in self._active_tools:
+                return
 
-        # 从 parent_call_id 查找对应的 agent_name
-        parent_call_id = tool_info.get("parent_call_id")
-        agent_name = None
-        if parent_call_id:
-            # 从 _active_runs 中查找
-            for call_id, run_info in self._active_runs.items():
-                if call_id == parent_call_id:
+            tool_info = self._active_tools.pop(tool_call_id)
+            tool_name = tool_info["tool_name"]
+            duration_ms = int((time.time() - tool_info["start_time"]) * 1000)
+
+            # 从 parent_call_id 查找对应的 agent_name
+            parent_call_id = tool_info.get("parent_call_id")
+            agent_name = None
+            if parent_call_id:
+                run_info = self._active_runs.get(parent_call_id)
+                if run_info:
                     agent_name = run_info.get("agent_name")
-                    break
 
         # 如果找不到 agent_name，跳过（避免 None 错误）
         if not agent_name:
@@ -246,30 +253,30 @@ class MetricsCollector:
         if not agent_name:
             return  # 跳过无效的 agent_name
 
-        if agent_name not in self.metrics:
-            self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
+        with self._lock:
+            if agent_name not in self.metrics:
+                self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
 
-        metrics = self.metrics[agent_name]
-        metrics.total_calls += 1
-        if success:
-            metrics.success_count += 1
-        else:
-            metrics.failure_count += 1
+            metrics = self.metrics[agent_name]
+            metrics.total_calls += 1
+            if success:
+                metrics.success_count += 1
+            else:
+                metrics.failure_count += 1
 
-        metrics.total_duration_ms += duration_ms
-        metrics.avg_duration_ms = metrics.total_duration_ms / metrics.total_calls
+            metrics.total_duration_ms += duration_ms
+            metrics.avg_duration_ms = metrics.total_duration_ms / metrics.total_calls
 
-        metrics.total_tokens += tokens
-        if tokens > 0:
+            metrics.total_tokens += tokens
             metrics.avg_tokens = metrics.total_tokens / metrics.total_calls
 
-        now = datetime.now()
-        if not metrics.first_call:
-            metrics.first_call = now
-        metrics.last_call = now
+            now = datetime.now()
+            if not metrics.first_call:
+                metrics.first_call = now
+            metrics.last_call = now
 
-        # 每次 agent 结束都强制写盘，避免同一次运行里后结束的 agent（如 orchestrator）因节流未写入
-        self._persist(force=True)
+            # 每次 agent 结束都强制写盘，避免同一次运行里后结束的 agent（如 orchestrator）因节流未写入
+            self._persist(force=True)
 
     def _update_tool_metrics(
         self,
@@ -282,40 +289,41 @@ class MetricsCollector:
         if not agent_name or not tool_name:
             return  # 跳过无效的参数
 
-        if agent_name not in self.metrics:
-            self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
+        with self._lock:
+            if agent_name not in self.metrics:
+                self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
 
-        metrics = self.metrics[agent_name]
+            metrics = self.metrics[agent_name]
 
-        # 更新工具使用计数
-        if tool_name not in metrics.tool_usage:
-            metrics.tool_usage[tool_name] = 0
-        metrics.tool_usage[tool_name] += 1
+            # 更新工具使用计数
+            if tool_name not in metrics.tool_usage:
+                metrics.tool_usage[tool_name] = 0
+            metrics.tool_usage[tool_name] += 1
 
-        # 更新详细工具指标
-        if tool_name not in metrics.tool_metrics:
-            metrics.tool_metrics[tool_name] = ToolMetrics(tool_name=tool_name)
+            # 更新详细工具指标
+            if tool_name not in metrics.tool_metrics:
+                metrics.tool_metrics[tool_name] = ToolMetrics(tool_name=tool_name)
 
-        tool_metrics = metrics.tool_metrics[tool_name]
-        tool_metrics.total_calls += 1
-        if success:
-            tool_metrics.success_count += 1
-        else:
-            tool_metrics.failure_count += 1
+            tool_metrics = metrics.tool_metrics[tool_name]
+            tool_metrics.total_calls += 1
+            if success:
+                tool_metrics.success_count += 1
+            else:
+                tool_metrics.failure_count += 1
 
-        tool_metrics.total_duration_ms += duration_ms
-        tool_metrics.avg_duration_ms = (
-            tool_metrics.total_duration_ms / tool_metrics.total_calls
-        )
+            tool_metrics.total_duration_ms += duration_ms
+            tool_metrics.avg_duration_ms = (
+                tool_metrics.total_duration_ms / tool_metrics.total_calls
+            )
 
-        if tool_metrics.min_duration_ms == 0 or duration_ms < tool_metrics.min_duration_ms:
-            tool_metrics.min_duration_ms = duration_ms
-        if duration_ms > tool_metrics.max_duration_ms:
-            tool_metrics.max_duration_ms = duration_ms
+            if tool_metrics.min_duration_ms == 0 or duration_ms < tool_metrics.min_duration_ms:
+                tool_metrics.min_duration_ms = duration_ms
+            if duration_ms > tool_metrics.max_duration_ms:
+                tool_metrics.max_duration_ms = duration_ms
 
-        tool_metrics.last_called = datetime.now()
+            tool_metrics.last_called = datetime.now()
 
-        self._persist()
+            self._persist()
 
     def _update_error_metrics(
         self,
@@ -327,30 +335,31 @@ class MetricsCollector:
         if not agent_name:
             return  # 跳过无效的 agent_name
 
-        if agent_name not in self.metrics:
-            self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
+        with self._lock:
+            if agent_name not in self.metrics:
+                self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
 
-        metrics = self.metrics[agent_name]
+            metrics = self.metrics[agent_name]
 
-        # 更新错误分布
-        if error_type not in metrics.error_distribution:
-            metrics.error_distribution[error_type] = 0
-        metrics.error_distribution[error_type] += 1
+            # 更新错误分布
+            if error_type not in metrics.error_distribution:
+                metrics.error_distribution[error_type] = 0
+            metrics.error_distribution[error_type] += 1
 
-        # 更新详细错误指标
-        error_metric = next(
-            (e for e in metrics.error_metrics if e.error_type == error_type),
-            None
-        )
-        if not error_metric:
-            error_metric = ErrorMetrics(error_type=error_type)
-            metrics.error_metrics.append(error_metric)
+            # 更新详细错误指标
+            error_metric = next(
+                (e for e in metrics.error_metrics if e.error_type == error_type),
+                None
+            )
+            if not error_metric:
+                error_metric = ErrorMetrics(error_type=error_type)
+                metrics.error_metrics.append(error_metric)
 
-        error_metric.count += 1
-        error_metric.last_occurred = datetime.now()
-        error_metric.sample_message = error_message[:200]  # 保存前200字符
+            error_metric.count += 1
+            error_metric.last_occurred = datetime.now()
+            error_metric.sample_message = error_message[:200]  # 保存前200字符
 
-        self._persist()
+            self._persist()
 
     def get_agent_metrics(self, agent_name: str) -> Optional[AgentMetrics]:
         """获取指定智能体的指标"""

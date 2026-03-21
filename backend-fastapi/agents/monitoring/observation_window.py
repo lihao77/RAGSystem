@@ -13,7 +13,9 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+from tools.path_resolution import MONITORING_ROOT
+
+_DEFAULT_STORAGE_DIR = MONITORING_ROOT
 _DEFAULT_STORAGE_PATH = _DEFAULT_STORAGE_DIR / "observation_window.json"
 _MAX_SAMPLES = 1000
 _ARTIFACT_BUCKETS = (
@@ -94,13 +96,15 @@ class ObservationWindowCollector:
             state = self._state
             self._touch_window()
             state["totals"]["normalized_results"] += 1
-            state["totals"]["native_results"] += 1
+            if native:
+                state["totals"]["native_results"] += 1
             self._increment(state["output_type_distribution"], output_type)
             self._increment(state["normalize_branch_distribution"], branch)
 
             tool_stats = self._tool_stats(tool_name)
             tool_stats["normalized_results"] += 1
-            tool_stats["native_results"] += 1
+            if native:
+                tool_stats["native_results"] += 1
             self._increment(tool_stats["output_type_distribution"], output_type)
             self._increment(tool_stats["normalize_branch_distribution"], branch)
             if success:

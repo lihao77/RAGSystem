@@ -26,8 +26,9 @@ from tools.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
-_BACKEND_DIR = Path(__file__).parent.parent.parent
-_DEFAULT_WORK_DIR = _BACKEND_DIR
+from tools.path_resolution import BACKEND_ROOT
+
+_DEFAULT_WORK_DIR = BACKEND_ROOT
 
 
 def _find_bash_executable() -> Optional[str]:

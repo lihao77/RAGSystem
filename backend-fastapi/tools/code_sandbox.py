@@ -44,14 +44,21 @@ from tools.decorators import tool
 
 logger = logging.getLogger(__name__)
 
-# 沙箱根目录（所有文件读写必须在此目录下）
-_BACKEND_DIR = Path(__file__).parent.parent
-SANDBOX_ROOT = _BACKEND_DIR / "data" / "sandbox"
+from tools.path_resolution import (
+    ARTIFACTS_ROOT,
+    CODE_EXECUTION_ROOT,
+    VISUALIZATION_ROOT,
+    BACKEND_ROOT,
+    get_code_execution_session_root,
+)
+
+# 沙箱根目录（无 session 时的默认目录）
+SANDBOX_ROOT = CODE_EXECUTION_ROOT
 SANDBOX_ROOT.mkdir(parents=True, exist_ok=True)
 
 # 只读可访问的额外目录（工具产出的数据文件目录）
 _READONLY_DIRS = [
-    _BACKEND_DIR / "static" / "temp_data",
+    ARTIFACTS_ROOT,
 ]
 
 # 写操作 mode 集合
@@ -271,26 +278,45 @@ def _request_sandbox_approval(
     return approval_message or ""
 
 
-def _resolve_sandbox_path(path: str, *, readonly: bool = False) -> Path:
+def _resolve_sandbox_path(path: str, *, readonly: bool = False, sandbox_root: Path = None, extra_readonly_dirs: list = None) -> Path:
     """
     将用户传入的路径解析为安全的绝对路径。
-    - 相对路径：先尝试相对于 SANDBOX_ROOT，readonly 模式下还会尝试相对于 _BACKEND_DIR
+    - 相对路径：先尝试相对于 sandbox_root，readonly 模式下还会尝试额外只读目录和后端根目录
     - 绝对路径：必须在允许的目录下
     - readonly=True 时额外允许 _READONLY_DIRS 中的目录（只读访问）
     防止 ../ 路径穿越攻击。
     """
+    _sb_root = sandbox_root or SANDBOX_ROOT
+    _extra = extra_readonly_dirs or []
     p = Path(path)
-    allowed_roots = [SANDBOX_ROOT.resolve()]
+    allowed_roots = [_sb_root.resolve()]
     if readonly:
         allowed_roots.extend(d.resolve() for d in _READONLY_DIRS)
+        allowed_roots.extend(Path(d).resolve() for d in _extra)
 
     if not p.is_absolute():
         # 优先尝试沙箱目录
-        resolved = (SANDBOX_ROOT / p).resolve()
-        if not any(_is_under(resolved, root) for root in allowed_roots):
-            # readonly 模式下再尝试相对于后端根目录（兼容 ./static/temp_data/... 路径）
+        resolved = (_sb_root / p).resolve()
+        in_allowed = any(_is_under(resolved, root) for root in allowed_roots)
+        # readonly 模式下，如果沙箱目录下文件不存在，尝试额外只读目录
+        if readonly and in_allowed and not resolved.exists() and _extra:
+            for extra_dir in _extra:
+                candidate = (Path(extra_dir) / p).resolve()
+                if any(_is_under(candidate, root) for root in allowed_roots) and candidate.exists():
+                    resolved = candidate
+                    break
+        if not in_allowed:
+            # readonly 模式下尝试额外只读目录
             if readonly:
-                resolved = (_BACKEND_DIR / p).resolve()
+                for extra_dir in _extra:
+                    candidate = (Path(extra_dir) / p).resolve()
+                    if any(_is_under(candidate, root) for root in allowed_roots):
+                        resolved = candidate
+                        break
+                else:
+                    # 仅在有额外只读目录但均未命中时，才 fallback 到后端根目录
+                    if _extra:
+                        resolved = (BACKEND_ROOT / p).resolve()
             if not any(_is_under(resolved, root) for root in allowed_roots):
                 raise PermissionError(
                     f"路径 '{path}' 超出允许的目录范围，禁止访问"
@@ -313,16 +339,19 @@ def _is_under(path: Path, root: Path) -> bool:
         return False
 
 
-def _make_safe_open(event_bus, approval_granted: list):
+def _make_safe_open(event_bus, approval_granted: list, sandbox_root: Path = None, extra_readonly_dirs: list = None):
     """
     创建受限的 safe_open 函数注入到沙箱：
     - 读操作（r/rb）：直接允许，路径必须在沙箱内
     - 写操作（w/a/x 等）：需要用户已审批（approval_granted[0] == True）
     """
+    _sb_root = sandbox_root or SANDBOX_ROOT
+    _extra = extra_readonly_dirs or []
+
     def safe_open(path, mode='r', encoding=None, **kwargs):
         normalized = mode.replace('t', '')
         is_write = normalized in _WRITE_MODES
-        resolved = _resolve_sandbox_path(str(path), readonly=not is_write)
+        resolved = _resolve_sandbox_path(str(path), readonly=not is_write, sandbox_root=_sb_root, extra_readonly_dirs=_extra)
 
         if is_write:
             if not approval_granted[0]:
@@ -344,11 +373,13 @@ def _make_safe_open(event_bus, approval_granted: list):
     return safe_open
 
 
-def _make_request_write_approval(event_bus, approval_granted: list, session_id: str = None):
+def _make_request_write_approval(event_bus, approval_granted: list, session_id: str = None, sandbox_root: Path = None):
     """
     创建 request_write_approval 函数，代码调用后发布审批事件并阻塞等待结果（最多60秒）。
     审批通过后设置 approval_granted[0] = True，后续 safe_open 写操作即可放行。
     """
+    _sb_root = sandbox_root or SANDBOX_ROOT
+
     def request_write_approval(path: str, reason: str = ""):
         """
         请求用户审批文件写操作。
@@ -360,7 +391,7 @@ def _make_request_write_approval(event_bus, approval_granted: list, session_id: 
         Raises:
             PermissionError: 用户拒绝或超时
         """
-        resolved = _resolve_sandbox_path(str(path))
+        resolved = _resolve_sandbox_path(str(path), sandbox_root=_sb_root)
         try:
             _request_sandbox_approval(
                 event_bus,
@@ -662,6 +693,19 @@ def execute_code_sandbox(
         logger.warning(f"静态代码检查失败: {error_msg}")
         return error_result(f"代码安全检查失败: {error_msg}", tool_name="execute_code")
 
+    # 1.5 计算 session 级沙箱目录
+    _sandbox_root = get_code_execution_session_root(session_id) if session_id else SANDBOX_ROOT
+    _sandbox_root.mkdir(parents=True, exist_ok=True)
+
+    # 1.6 提取 workspace_root（如果 agent_config 中配置了）
+    _extra_readonly = []
+    _workspace_root = None
+    if agent_config and hasattr(agent_config, 'custom_params'):
+        cp = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
+        _workspace_root = cp.get('workspace_root')
+        if _workspace_root:
+            _extra_readonly.append(_workspace_root)
+
     # 2. 准备执行环境
     call_tool_func = _make_call_tool_function(
         agent_config,
@@ -680,8 +724,8 @@ def execute_code_sandbox(
     # 文件写操作审批状态（每次执行独立）
     approval_granted = [False]
     approved_imports = set(ALLOWED_IMPORT_NAMES)
-    safe_open_func = _make_safe_open(event_bus, approval_granted)
-    request_write_approval_func = _make_request_write_approval(event_bus, approval_granted, session_id)
+    safe_open_func = _make_safe_open(event_bus, approval_granted, sandbox_root=_sandbox_root, extra_readonly_dirs=_extra_readonly)
+    request_write_approval_func = _make_request_write_approval(event_bus, approval_granted, session_id, sandbox_root=_sandbox_root)
 
     # 构建安全的 __import__ 函数
     _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
@@ -815,8 +859,8 @@ def execute_code_sandbox(
         # 受限文件操作
         'open': safe_open_func,                              # 替代内置 open，限制在沙箱目录内
         'request_write_approval': request_write_approval_func,  # 写操作前请求审批
-        'SANDBOX_DIR': str(SANDBOX_ROOT),                    # 沙箱目录路径（供代码参考）
-        'DATA_DIR': str(_BACKEND_DIR / "static" / "temp_data"),  # 数据文件目录（只读，与工具产出一致）
+        'SANDBOX_DIR': str(_sandbox_root),                   # 沙箱目录路径（session 级）
+        'DATA_DIR': str(ARTIFACTS_ROOT),                     # 数据文件目录（只读，工具产出）
         'path_ops': _safe_path_ops,                            # 安全路径操作（替代 os.path）
     }
 

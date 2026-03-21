@@ -24,7 +24,9 @@ from tools.result_schema import ArtifactRef
 
 logger = logging.getLogger(__name__)
 
-_INDEX_DIR = "./static/temp_data"
+from tools.path_resolution import VISUALIZATION_ROOT
+
+_INDEX_DIR = str(VISUALIZATION_ROOT)
 _INDEX_FILE = "viz_index.jsonl"
 
 
@@ -35,7 +37,7 @@ class VisualizationRecord:
     sub_type: str                 # chart_type 或 map_type
     title: str
     version: int
-    artifact_ref: ArtifactRef     # 指向 ./static/temp_data/viz_xxx.json
+    artifact_ref: ArtifactRef     # 指向 data/artifacts/visualizations/viz_xxx.json
     session_id: str | None
     created_at: float
     updated_at: float

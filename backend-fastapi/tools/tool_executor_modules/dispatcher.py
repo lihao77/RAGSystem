@@ -102,7 +102,94 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
         return False, error_result(f'审批流程异常: {error}', tool_name=tool_name), ''
 
 
-def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None):
+# 需要路径预处理的文档工具（含 file_path 参数的工具）
+_PATH_AWARE_DOCUMENT_TOOLS = {
+    'read_document', 'read_file', 'edit_file', 'write_file', 'preview_data_structure',
+}
+
+
+def _preprocess_document_tool_args(
+    tool_name: str,
+    arguments: dict,
+    *,
+    workspace_root: str | None,
+    default_output_space: str | None,
+    session_id: str | None,
+    run_id: str | None,
+    caller: str,
+) -> dict:
+    """
+    文档工具参数路径预处理：在进入 tool 前把 file_path 统一转成受管绝对路径。
+
+    - 有 file_path 的工具：解析为绝对路径
+    - write_file 未指定 file_path：分配受管输出路径
+    """
+    if tool_name not in _PATH_AWARE_DOCUMENT_TOOLS:
+        return arguments
+
+    from pathlib import Path as _Path
+    from tools.path_resolution import (
+        resolve_document_input_path,
+        assign_document_output_path,
+        get_code_execution_session_root,
+    )
+
+    args = dict(arguments)
+    file_path = args.get('file_path')
+
+    # 计算 sandbox_root（仅 code_execution 调用时）
+    sandbox_root = None
+    if caller == 'code_execution' and session_id:
+        sandbox_root = get_code_execution_session_root(session_id)
+
+    if file_path:
+        # 输入路径解析
+        resolved = resolve_document_input_path(
+            file_path,
+            workspace_root=workspace_root,
+            sandbox_root=sandbox_root,
+        )
+        args['file_path'] = str(resolved)
+    elif tool_name == 'write_file':
+        # write_file 未指定路径 → 分配受管输出路径
+        # 注意：mode 默认值需与 document_executor.write_file 的默认值保持一致
+        mode = args.get('mode', 'text')
+        suffix = '.json' if mode == 'json' else '.txt'
+        assigned = assign_document_output_path(
+            session_id=session_id,
+            run_id=run_id,
+            default_output_space=default_output_space,
+            suffix=suffix,
+        )
+        args['file_path'] = str(assigned)
+
+    return args
+
+
+def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None, agent_config=None):
+    # 从 agent_config 提取路径策略参数
+    _workspace_root = None
+    _default_output_space = None
+    if agent_config and hasattr(agent_config, 'custom_params'):
+        cp = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
+        _workspace_root = cp.get('workspace_root')
+        _default_output_space = cp.get('default_output_space')
+
+    # 从可观测上下文获取 run_id
+    current_fields = get_current_execution_observability_fields()
+    _run_id = current_fields.get('run_id')
+
+    # 统一路径预处理
+    arguments = _preprocess_document_tool_args(
+        tool_name,
+        arguments,
+        workspace_root=_workspace_root,
+        default_output_space=_default_output_space,
+        session_id=session_id,
+        run_id=_run_id,
+        caller=caller,
+    )
+
     if tool_name == 'read_document':
         from tools.document_executor import read_document
         return read_document(**arguments)
@@ -279,7 +366,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _run_with_timeout(
-                lambda: _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id),
+                lambda: _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id, agent_config=agent_config),
                 timeout, tool_name,
             )
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):

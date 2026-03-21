@@ -20,6 +20,24 @@ from tools.catalog.agent_tools import get_agent_tools
 _TOOL_REGISTRY = get_tool_registry()
 
 
+def _render_example_param(k, v):
+    """将示例参数渲染为 XML 子标签。"""
+    if isinstance(v, list):
+        item_parts = []
+        for item in v:
+            if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
+                item_parts.append(f"    <item><![CDATA[{item}]]></item>")
+            else:
+                item_parts.append(f"    <item>{item}</item>")
+        return f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>"
+    elif isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
+        return f"  <{k}><![CDATA[{v}]]></{k}>"
+    elif isinstance(v, str):
+        return f"  <{k}>{v}</{k}>"
+    else:
+        return f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>"
+
+
 def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
     """Render extended direct-tool metadata into prompt lines."""
     lines: list[str] = []
@@ -48,23 +66,7 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
             params = example.get('input') if isinstance(example.get('input'), dict) else example
             extra = {k: v for k, v in example.items() if k != 'input'}
 
-            def _render_param(k, v):
-                if isinstance(v, list):
-                    item_parts = []
-                    for item in v:
-                        if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
-                            item_parts.append(f"    <item><![CDATA[{item}]]></item>")
-                        else:
-                            item_parts.append(f"    <item>{item}</item>")
-                    return f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>"
-                elif isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
-                    return f"  <{k}><![CDATA[{v}]]></{k}>"
-                elif isinstance(v, str):
-                    return f"  <{k}>{v}</{k}>"
-                else:
-                    return f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>"
-
-            xml_parts = [_render_param(k, v) for k, v in params.items()]
+            xml_parts = [_render_example_param(k, v) for k, v in params.items()]
             xml_block = "\n".join(xml_parts)
             block = f"  ```xml\n  <tool name=\"{func.get('name', '...')}\">\n{xml_block}\n  </tool>\n  ```"
             if extra:
@@ -367,10 +369,10 @@ def build_system_prompt(agent) -> str:
 - 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
 - 工具返回 artifact_id 和预览摘要，据此判断是否满意
 - 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
-- 可视化 artifact 默认持久化在 `./static/temp_data`
-- `artifact_id` 与磁盘文件路径的索引文件是 `./static/temp_data/viz_index.jsonl`
+- 可视化 artifact 默认持久化在 `./data/artifacts/visualizations`
+- `artifact_id` 与磁盘文件路径的索引文件是 `./data/artifacts/visualizations/viz_index.jsonl`
 - 如需基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在上述目录中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容
-- 图表/地图 artifact 的持久化文件通常是 `./static/temp_data` 下的 JSON；其中 `config` 字段就是当前可编辑配置
+- 图表/地图 artifact 的持久化文件通常是 `./data/artifacts/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
 - `revise_visualization` 默认做深度合并；若要按你读到的完整配置整体覆盖，使用 `replace=true`
 - 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行），如：
 
