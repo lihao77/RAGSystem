@@ -449,6 +449,89 @@ class BaseAgent(ABC):
 8. 工具结果中返回的文件路径应直接传给后续工具或 `execute_code` 处理，不要试图读取大文件内容到上下文
 9. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
 
+    def _has_tool(self, tool_name: str) -> bool:
+        return any(
+            tool.get('function', {}).get('name') == tool_name
+            for tool in getattr(self, 'available_tools', []) or []
+            if isinstance(tool, dict)
+        )
+
+    def _get_code_callable_tool_names(self) -> List[str]:
+        tool_names: List[str] = []
+        for tool in getattr(self, 'available_tools', []) or []:
+            if not isinstance(tool, dict):
+                continue
+            func = tool.get('function', {})
+            tool_name = func.get('name')
+            if not tool_name or tool_name == 'execute_code':
+                continue
+            allowed_callers = list(func.get('allowed_callers') or ['direct'])
+            if 'code_execution' in allowed_callers:
+                tool_names.append(tool_name)
+        return tool_names
+
+    def _build_code_execution_prompt_section(self) -> str:
+        if not BaseAgent._invoke_prompt_hook(self, '_has_tool', 'execute_code'):
+            return ""
+
+        code_callable_tools = BaseAgent._invoke_prompt_hook(self, '_get_code_callable_tool_names') or []
+        tools_list = (
+            "、".join(f"`{tool_name}`" for tool_name in code_callable_tools)
+            if code_callable_tools
+            else "当前没有额外工具可从代码中调用"
+        )
+        return f"""## execute_code 中可调用的工具
+
+在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，只能调用以下工具：
+{tools_list}
+
+`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`，不是包含 `content / summary / metadata` 的完整响应对象。
+
+三个受管目录 `space` 的语义与 direct 文件工具、`execute_bash` 完全一致：
+- `workspace`: 当前 effective workspace
+- `transient`: 当前 session 的 transient 目录
+- `exports`: 当前 session 的 `exports/<run_id>` 目录
+在代码里如果需要处理这三类目录，应优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径。
+
+文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。`execute_code` 内应直接使用受限 `open()` 读取文件，写入前先调用 `request_write_approval()`，再用 `open()` 写入。
+
+正确示例：
+```python
+risk = call_tool('assess_flood_risk', {{
+    'location': '南宁市',
+    'rainfall_24h': 180,
+    'water_level': 72.3,
+    'warning_level': 70.0
+}})
+result = {{
+    'risk_level': risk.get('risk_level'),
+    'summary': risk.get('summary')
+}}
+```
+
+沙箱文件读取示例：
+```python
+text = open('sample.json', 'r', encoding='utf-8').read()
+data = json.loads(text)
+result = {{
+    'count': len(data.get('river', []))
+}}
+```
+
+错误示例：
+```python
+risk = call_tool('assess_flood_risk', {{
+    'location': '南宁市',
+    'rainfall_24h': 180,
+    'water_level': 72.3,
+    'warning_level': 70.0
+}})['content']
+```
+
+如果需要完整工具响应壳，不要假设 `call_tool()` 会返回该结构；当前只能拿到主内容后自行处理。
+
+未列出的工具不能从代码中调用，只能直接作为 action 使用。"""
+
     def _build_agent_specific_prompt_sections(self) -> List[str]:
         return []
 
@@ -467,6 +550,10 @@ class BaseAgent(ABC):
             section = BaseAgent._invoke_prompt_hook(self, method_name)
             if section and str(section).strip():
                 sections.append(str(section).strip())
+
+        code_execution_section = BaseAgent._invoke_prompt_hook(self, '_build_code_execution_prompt_section')
+        if code_execution_section and str(code_execution_section).strip():
+            sections.append(str(code_execution_section).strip())
 
         for section in BaseAgent._invoke_prompt_hook(self, '_build_agent_specific_prompt_sections') or []:
             if section and str(section).strip():

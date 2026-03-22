@@ -101,8 +101,8 @@ POST /api/agent/stream {task, session_id, selected_llm}
 关键属性：`name`, `description`, `available_tools`, `available_skills`, `max_rounds`, `model_adapter`, `agent_config`, `_publisher`
 
 提示词职责分层：
-- `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则
-- `ReActAgent`：只追加 `execute_code` / `call_tool()` 专项段
+- `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
+- `ReActAgent`：仅保留必要的类型级薄扩展（当前无额外追加段）
 - `OrchestratorAgent`：只追加 Agent delegation / 编排规则段
 
 ### OrchestratorAgent（agents/implementations/orchestrator/）
@@ -119,7 +119,7 @@ POST /api/agent/stream {task, session_id, selected_llm}
 
 ### ReActAgent（agents/implementations/react/agent.py）
 
-通用 ReAct 智能体，支持工具调用和 Skills。`_resolve_tool_references()` 处理同轮工具链式引用；系统提示词同样复用 BaseAgent 共享骨架，仅在存在 `execute_code` 时追加 `call_tool()` / 沙箱目录专项说明。
+通用 ReAct 智能体，支持工具调用和 Skills。`_resolve_tool_references()` 处理同轮工具链式引用；系统提示词复用 BaseAgent 共享骨架，`execute_code` / `call_tool()` / 沙箱目录与文件访问规则也由 BaseAgent 按能力自动注入，ReActAgent 当前不再额外追加 execute_code 专属段。
 
 ### 已配置的 Agent（agent_configs.yaml）
 
