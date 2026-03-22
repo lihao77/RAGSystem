@@ -284,6 +284,7 @@ def route_direct_tool(
             agent_config=agent.agent_config,
             event_bus=event_bus,
             session_id=context.session_id,
+            cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
         )
     except Exception as tool_exc:
         agent.logger.error(

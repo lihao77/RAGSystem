@@ -158,6 +158,8 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - direct 文档工具链会在进入 `document_executor.py` 前完成路径预处理；开发期已移除对历史旧目录的读取兼容，tool 实现层只接受当前受管目录内的绝对路径
 - 文档工具里的 `read_file` / `write_file` / `edit_file` 现在仅允许 `direct` 调用，不再对 `caller=code_execution` 开放
 - sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录
+- `execute_code` 现已改为“主进程协调 + 沙箱子进程执行”模型：主进程负责静态检查、路径解析、审批等待、工具分发与超时/取消回收，子进程只负责受限 `exec()`；超时和 cancel 会直接终止子进程，因此不再依赖线程内逻辑超时
+- dispatcher 对 `execute_code` 做特殊收口：不再走通用 `_run_with_timeout()` 线程包装，而是把 `cancel_event` 直接注入 `code_sandbox.py`，由沙箱内部统一管理 timeout / cancel 语义
 - 因此，文档工具路径预处理与沙箱文件访问是两条职责分离的路径：前者服务 agent direct 文件工具，后者服务 execute_code 内部文件操作
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符

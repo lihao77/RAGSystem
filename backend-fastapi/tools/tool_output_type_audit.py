@@ -19,11 +19,21 @@ if str(ROOT_DIR) not in sys.path:
 from tools.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
 from tools.result_references import resolve_result_path
 from tools.result_schema import ToolExecutionResult
+from tools.auto_discovery import discover_decorated_tools
 from tools.tool_executor_modules.dispatcher import (
     DOCUMENT_TOOL_NAMES,
     TOOL_HANDLERS,
     _execute_document_tool,
+    _merge_decorated_handlers,
 )
+from tools.permissions import _merge_decorated_permissions
+from tools.tool_registry import get_tool_registry
+
+_decorated = discover_decorated_tools()
+_merge_decorated_handlers()
+_merge_decorated_permissions()
+if _decorated:
+    get_tool_registry().register_extra_contracts([info["contract"] for info in _decorated.values()])
 
 
 _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
@@ -89,6 +99,7 @@ def _sample_create_chart(_: Path) -> Any:
         title="sample",
         x_field="year",
         y_field="value",
+        session_id="audit-session",
     )
 
 
@@ -119,6 +130,7 @@ def _sample_create_map(_: Path) -> Any:
         name_field="name",
         value_field="value",
         geometry_field="geometry",
+        session_id="audit-session",
     )
 
 
@@ -192,9 +204,16 @@ def _run_skill_sample(tool_name: str, temp_dir: Path) -> Any:
 
 
 def _sample_read_document(temp_dir: Path) -> Any:
-    path = temp_dir / "doc.txt"
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    path = workspace / "doc.txt"
     path.write_text("document body", encoding="utf-8")
-    return _execute_document_tool("read_document", {"file_path": str(path)})
+    return _execute_document_tool(
+        "read_document",
+        {"file_path": str(path)},
+        caller="direct",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
+    )
 
 
 def _sample_chunk_document(_: Path) -> Any:
@@ -233,28 +252,119 @@ def _sample_merge_extracted_data(_: Path) -> Any:
 
 
 def _sample_write_file(temp_dir: Path) -> Any:
-    path = temp_dir / "output.txt"
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    path = workspace / "output.txt"
     return _execute_document_tool(
         "write_file",
         {"content": "hello world", "file_path": str(path)},
+        caller="direct",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
 
 
 def _sample_read_file(temp_dir: Path) -> Any:
-    path = temp_dir / "sample.txt"
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    path = workspace / "sample.txt"
     path.write_text("hello world", encoding="utf-8")
     return _execute_document_tool(
         "read_file",
         {"file_path": str(path)},
+        caller="direct",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
 
 
 def _sample_preview_data_structure(temp_dir: Path) -> Any:
-    path = temp_dir / "sample.json"
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    path = workspace / "sample.json"
     path.write_text('{"items": [{"id": 1, "name": "Alice"}]}', encoding="utf-8")
     return _execute_document_tool(
         "preview_data_structure",
         {"file_path": str(path)},
+        caller="direct",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
+    )
+
+
+def _sample_assess_flood_risk(_: Path) -> Any:
+    return TOOL_HANDLERS["assess_flood_risk"](
+        location="南宁市",
+        rainfall_24h=150,
+        water_level=78.5,
+        warning_level=77.0,
+    )
+
+
+def _sample_match_emergency_response(_: Path) -> Any:
+    return TOOL_HANDLERS["match_emergency_response"](
+        risk_level="III",
+        disaster_type="洪涝",
+        affected_area="南宁市",
+    )
+
+
+def _sample_create_risk_map(_: Path) -> Any:
+    return TOOL_HANDLERS["create_risk_map"](
+        locations_data=[{
+            "location": "南宁市",
+            "rainfall_24h": 150,
+            "water_level": 78.5,
+            "warning_level": 77.0,
+            "lat": 22.817,
+            "lon": 108.366,
+        }],
+        title="风险地图",
+        disaster_type="洪涝",
+        session_id="audit-session",
+    )
+
+
+def _sample_create_bindmap(_: Path) -> Any:
+    return TOOL_HANDLERS["create_bindmap"](
+        layers=[{
+            "type": "marker",
+            "name": "points",
+            "data": [{"name": "A", "value": 1, "geometry": "POINT (121.47 31.23)"}],
+            "name_field": "name",
+            "value_field": "value",
+            "geometry_field": "geometry",
+        }],
+        title="bindmap",
+        session_id="audit-session",
+    )
+
+
+def _sample_execute_bash(_: Path) -> Any:
+    return TOOL_HANDLERS["execute_bash"](command="pwd")
+
+
+def _sample_generate_report(_: Path) -> Any:
+    return TOOL_HANDLERS["generate_report"](
+        report_type="situation_report",
+        title="南宁市防汛综合态势报告",
+        location="南宁市",
+        situation_data={"summary": "全市出现持续强降雨"},
+        risk_data={"risk_level": "III", "risk_label": "较大", "assessment": "需加强巡查"},
+        warning_data={"warnings": [{"title": "暴雨橙色预警"}]},
+        plan_data={"matched_plans": ["启动城区内涝防御预案"]},
+        action_data={"key_actions": ["预置抢险力量"]},
+        weather_data={"rainfall_24h_mm": 86},
+    )
+
+
+def _sample_edit_file(temp_dir: Path) -> Any:
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    path = workspace / "edit.txt"
+    path.write_text("before\nafter\n", encoding="utf-8")
+    return _execute_document_tool(
+        "edit_file",
+        {"file_path": str(path), "old_string": "before", "new_string": "updated"},
+        caller="direct",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
 
 
@@ -262,6 +372,13 @@ _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "create_chart": _sample_create_chart,
     "revise_visualization": _sample_revise_visualization,
     "create_map": _sample_create_map,
+    "assess_flood_risk": _sample_assess_flood_risk,
+    "query_emergency_plan": lambda temp_dir: TOOL_HANDLERS["query_emergency_plan"](query="三级防汛应急响应启动条件", top_k=1),
+    "match_emergency_response": _sample_match_emergency_response,
+    "create_risk_map": _sample_create_risk_map,
+    "create_bindmap": _sample_create_bindmap,
+    "execute_bash": _sample_execute_bash,
+    "generate_report": _sample_generate_report,
     "activate_skill": lambda temp_dir: _run_skill_sample("activate_skill", temp_dir),
     "load_skill_resource": lambda temp_dir: _run_skill_sample("load_skill_resource", temp_dir),
     "execute_skill_script": lambda temp_dir: _run_skill_sample("execute_skill_script", temp_dir),
@@ -273,11 +390,12 @@ _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "write_file": _sample_write_file,
     "read_file": _sample_read_file,
     "preview_data_structure": _sample_preview_data_structure,
+    "edit_file": _sample_edit_file,
 }
 
 
 def _registered_tool_names() -> List[str]:
-    return sorted(set(TOOL_HANDLERS) | set(DOCUMENT_TOOL_NAMES))
+    return sorted((set(TOOL_HANDLERS) | set(DOCUMENT_TOOL_NAMES)) - {"execute_code"})
 
 
 def _tool_category(tool_name: str) -> str:

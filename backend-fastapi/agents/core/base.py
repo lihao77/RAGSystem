@@ -325,7 +325,7 @@ class BaseAgent(ABC):
         self.available_skills = list(available_skills or [])
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
-        self.max_rounds = behavior_config.get('rounds', behavior_config.get('max_rounds'))
+        self.max_rounds = behavior_config.get('rounds')
         self.base_prompt = behavior_config.get('system_prompt', '')
         budget_profile = get_context_budget_profile(
             behavior_config.get('budget_profile') or budget_profile_name
@@ -796,6 +796,7 @@ class BaseAgent(ABC):
                 agent_config=self.agent_config,
                 event_bus=event_bus,
                 session_id=current_session_id,
+                cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
             )
             elapsed_time = time.time() - tool_started_at
             is_skills_tool = tool_name in tool_registry.get_skill_tool_names()

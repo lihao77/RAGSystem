@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from agents.artifacts import ArtifactStore
 from agents.monitoring.observation_window import ObservationWindowCollector
 from tools.result_schema import ToolExecutionResult
@@ -30,7 +32,7 @@ class PromptMaterializer:
         self.artifact_store = artifact_store or ArtifactStore()
         self.observation_window = observation_window
         self.large_data_threshold = large_data_threshold
-        self._registry = registry or get_default_registry()
+        self._registry = registry or deepcopy(get_default_registry())
 
     def materialize_tool_observation(
         self,

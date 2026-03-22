@@ -340,7 +340,7 @@ DOCUMENT_TOOL_NAMES = {
 }
 
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None, cancel_event=None):
     """执行指定工具。"""
     try:
         allowed, approval_error_result, approval_message = _request_user_approval_if_needed(
@@ -370,11 +370,15 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 'event_bus': event_bus,
                 'user_role': user_role,
                 'caller': caller,
+                'cancel_event': cancel_event,
             }
             for key, value in _context.items():
                 if key in sig_params:
                     call_arguments.setdefault(key, value)
-            result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
+            if tool_name == 'execute_code':
+                result = handler(**call_arguments)
+            else:
+                result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _run_with_timeout(
                 lambda: _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id, agent_config=agent_config),
