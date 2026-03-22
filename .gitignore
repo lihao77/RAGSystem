@@ -1,147 +1,66 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# Repository metadata and hygiene
 
-.claude/
-.agent/
-.trae/
-
-# Flask
-instance/
-.webassets-cache
-
-# 环境变量
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDE
+# OS and editor files
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# 数据库
-*.db
-*.sqlite3
-*.sqlite
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
 
-# 日志
-*.log
-logs/
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.skill_venvs/
 
-# 依赖包
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Node.js
+# Frontend dependencies and builds
 node_modules/
+frontend-client/dist/
+frontend-client/.env
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.npm
-.yarn-integrity
+pnpm-debug.log*
 
-# 前端构建产物
-dist/
-build/
-*.tgz
-
-# 临时文件
-.DS_Store
-Thumbs.db
-*.tmp
-*.temp
-.cache/
-
-# 测试覆盖率
-htmlcov/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# celery
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-config.json
-
-*_configs/
-
-uploads/
-
-data/
-
-test_*.py
-
-agent_dev_resume (1).html
-
-temp*/
-
-论文/
-
-# 敏感配置文件（复制 .example 为正式文件后本地编辑，勿提交）
-backend-fastapi/model_adapter/configs/providers.yaml
-backend-fastapi/agents/configs/agent_configs.yaml
-backend-fastapi/config/yaml/config.yaml
-
+# Local Claude / IDE workspaces
+.claude/
+.agent/
+.trae/
 .cursor/
 
-notify.ps1
-pytest.ini
+# Local backend runtime files
+backend-fastapi/.env
+backend-fastapi/uploads/
+backend-fastapi/data/
+backend-fastapi/services/data/
+backend-fastapi/__pycache__/
+backend-fastapi/.pytest_cache/
+backend-fastapi/.pytest-tmp/
+backend-fastapi/test_output.txt
+backend-fastapi/test_read_write.txt
+backend-fastapi/agents/tests/test_core/tmp*/
+backend-fastapi/agents/configs/agent_configs.yaml
+backend-fastapi/agents/configs/*.yaml.bak
+backend-fastapi/agents/configs/*.backup.yaml
+backend-fastapi/model_adapter/configs/providers.yaml
+backend-fastapi/config/yaml/config.yaml
+backend-fastapi/mcp/configs/mcp_servers.yaml
+backend-fastapi/mcp/configs/*.yaml.bak
+backend-fastapi/mcp/configs/*.backup.yaml
 
-# 备份配置文件
-*.backup.yaml
-*.backup.yml
-
-# 工具测试产物
-test_*.txt
-
-# 启动日志
-backend_start.*.log
-*.out.log
-*.err.log
-
-frontend/
-
-.skill_venvs/
-
+# Keep current tracked backend tests, ignore local unpublished test files
 tests/
 !backend-fastapi/agents/tests/
 !backend-fastapi/agents/tests/test_core/
@@ -154,8 +73,17 @@ tests/
 !backend-fastapi/agents/tests/test_core/test_observation_phase_ab_smoke.py
 !backend-fastapi/agents/tests/test_core/test_map_tools.py
 !backend-fastapi/agents/tests/test_core/test_tool_output_type_audit.py
-backend-fastapi/agents/tests/test_core/tmp*/
+*.log
+*.out.log
+*.err.log
+backend_start.*.log
 
-*.docx
-unpacked*/
-fix_*.py
+# Root-level personal and temporary files
+/agent_dev_resume (1).html
+/agent_dev_resume.docx
+/硕士学位论文.docx
+/硕士学位论文_修改.docx
+/硕士学位论文_修改v2.docx
+/fix_*.py
+/unpacked*/
+/notify.ps1

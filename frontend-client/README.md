@@ -1,56 +1,65 @@
-# 对话与监控前端
+# Frontend Client
 
-`frontend-client/` 是当前系统唯一保留的前端，负责：
+中文 | [English](#english)
 
-- 聊天
-- 流式执行监控
-- Agent 配置
-- MCP 管理
+`frontend-client/` 是 RAGSystem 的 Vue 3 前端，提供聊天、执行监控、Agent 配置、MCP 管理、向量库和模型提供方管理界面。
 
-## 启动
+## 开发启动 / Development
 
-```powershell
-cd frontend-client
-Copy-Item .env.example .env
+```bash
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-默认地址：`http://localhost:5174`
+默认端口为 `http://localhost:5174`，`/api` 会代理到 `http://localhost:5001`。
 
-## 环境变量
+## 主要页面 / Main pages
 
-- `VITE_DEV_PORT`：开发端口，默认 `5174`
-- `VITE_API_PROXY_TARGET`：后端地址，默认 `http://localhost:5001`
+- `/` 或 `/chat/:id?` — 聊天页面
+- `/monitor`、`/agent-monitor` — 执行监控
+- `/agent-config` — Agent 配置
+- `/mcp` — MCP 管理
+- `/vector-library` — 向量库管理
+- `/model-providers` — 模型提供方管理
 
-## 当前路径
+## 构建 / Build
 
-页面切换定义在 `src/App.vue`：
+```bash
+npm run build
+```
 
-- `/` 或 `/chat`
-- `/monitor` 或 `/agent-monitor`
-- `/agent-config`
-- `/mcp`
+更多实现细节请查看 [docs/architecture.md](docs/architecture.md)。
 
-## 路由实现
+---
 
-- 不使用 `vue-router`
-- 通过 `window.location.pathname`、`history.pushState()` 和 `popstate` 实现页面切换
-- `App.vue` 会给页面注入 `selectedLLM`、主题和导航事件
+## English
 
-## 对接后端
+`frontend-client/` is the Vue 3 frontend for RAGSystem. It provides the chat UI, execution monitoring, agent configuration, MCP management, vector library management, and model provider management.
 
-- 对话执行：`POST /api/agent/stream`
-- 同步执行：`POST /api/agent/execute`
-- 流控：`POST /api/agent/stream/stop`、`POST /api/agent/stream/reconnect`
-- 审批：`POST /api/agent/sessions/<session_id>/approvals/<approval_id>/respond`
-- 监控：`GET /api/agent/execution/overview`、任务状态和诊断接口
-- Agent 配置：`/api/agent-config`
-- MCP：`/api/mcp`
+### Development
 
-## 主要目录
+```bash
+cp .env.example .env
+npm install
+npm run dev
+```
 
-- `src/views/`：聊天、监控、Agent 配置、MCP 页面
-- `src/components/`：消息、执行树、审批、图表、地图相关组件
-- `src/api/`：Agent、监控、MCP 请求
-- `src/styles/`：样式
+The dev server runs on `http://localhost:5174` by default and proxies `/api` to `http://localhost:5001`.
+
+### Main pages
+
+- `/` or `/chat/:id?` — chat
+- `/monitor`, `/agent-monitor` — execution monitoring
+- `/agent-config` — agent configuration
+- `/mcp` — MCP management
+- `/vector-library` — vector library management
+- `/model-providers` — model provider management
+
+### Build
+
+```bash
+npm run build
+```
+
+See [docs/architecture.md](docs/architecture.md) for implementation details.

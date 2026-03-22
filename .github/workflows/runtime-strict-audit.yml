@@ -1,22 +1,28 @@
-name: Backend FastAPI Guard
+name: Repository Checks
 
 on:
   pull_request:
     paths:
-      - 'backend-fastapi/**/*.py'
-      - 'backend-fastapi/requirements.txt'
+      - 'backend-fastapi/**'
+      - 'frontend-client/**'
+      - 'Makefile'
+      - 'README.md'
+      - 'docs/**'
       - '.github/workflows/runtime-strict-audit.yml'
   push:
     branches:
       - main
       - master
     paths:
-      - 'backend-fastapi/**/*.py'
-      - 'backend-fastapi/requirements.txt'
+      - 'backend-fastapi/**'
+      - 'frontend-client/**'
+      - 'Makefile'
+      - 'README.md'
+      - 'docs/**'
       - '.github/workflows/runtime-strict-audit.yml'
 
 jobs:
-  backend-fastapi-guard:
+  backend-checks:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,11 +34,36 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify backend-fastapi directory exists
-        run: test -d backend-fastapi
+      - name: Install backend dependencies
+        run: python -m pip install -r backend-fastapi/requirements.txt pytest
 
       - name: Compile backend-fastapi Python sources
         run: python -m compileall backend-fastapi
 
       - name: Verify FastAPI entry module syntax
         run: python -m py_compile backend-fastapi/main.py
+
+      - name: Run backend tests
+        run: cd backend-fastapi && pytest --basetemp=.pytest-tmp agents/tests/
+
+  frontend-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend-client/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend-client
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend-client

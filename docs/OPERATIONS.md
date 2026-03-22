@@ -1,61 +1,59 @@
-# 运维说明
+# 运行说明 / Operations Guide
 
-## 启动
+## 服务入口 / Service entrypoints
 
-后端：
+### 后端 / Backend
 
-```powershell
+```bash
 cd backend-fastapi
 python main.py
 ```
 
-前端：
+- 默认地址 / Default URL: `http://localhost:5001`
+- 可通过 `.env` 配置 `FASTAPI_HOST`、`FASTAPI_PORT`、`FASTAPI_RELOAD`
+- 若 `frontend-client/dist` 存在，后端会托管前端构建产物
 
-```powershell
+### 前端 / Frontend
+
+```bash
 cd frontend-client
 npm install
 npm run dev
 ```
 
-## 最小配置
+- 默认地址 / Default URL: `http://localhost:5174`
+- `/api` 代理到 / proxies to `http://localhost:5001`
+- 可通过 `frontend-client/.env` 配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`
 
-建议至少准备以下文件：
+## 最小配置链路 / Minimal configuration chain
 
-```powershell
+使用示例文件创建本地配置：
+
+```bash
+cp backend-fastapi/.env.example backend-fastapi/.env
+cp backend-fastapi/model_adapter/configs/providers.yaml.example backend-fastapi/model_adapter/configs/providers.yaml
+cp backend-fastapi/agents/configs/agent_configs.yaml.example backend-fastapi/agents/configs/agent_configs.yaml
+cp backend-fastapi/mcp/configs/mcp_servers.yaml.example backend-fastapi/mcp/configs/mcp_servers.yaml
+cp backend-fastapi/config/yaml/config.yaml.example backend-fastapi/config/yaml/config.yaml
+cp frontend-client/.env.example frontend-client/.env
+```
+
+## 常用接口与页面 / Common endpoints and pages
+
+- `POST /api/agent/stream` — 流式执行 / streaming execution
+- `POST /api/agent/execute` — 同步执行 / synchronous execution
+- `GET /api/agent/execution/overview` — 执行概览 / execution overview
+- `/agent-config` — Agent 配置页面 / agent configuration UI
+- `/mcp` — MCP 管理页面 / MCP management UI
+- `/vector-library` — 向量库页面 / vector library UI
+- `/model-providers` — 模型提供方页面 / model provider UI
+
+## 验证命令 / Verification commands
+
+```bash
 cd backend-fastapi
-Copy-Item .env.example .env
-Copy-Item model_adapter\configs\providers.yaml.example model_adapter\configs\providers.yaml
-Copy-Item agents\configs\agent_configs.yaml.example agents\configs\agent_configs.yaml
-Copy-Item mcp\configs\mcp_servers.yaml.example mcp\configs\mcp_servers.yaml
+python -m compileall .
+python -m py_compile main.py
+pytest --basetemp=.pytest-tmp agents/tests/
+cd ../frontend-client && npm run build
 ```
-
-可选：
-
-```powershell
-Copy-Item config\yaml\config.yaml.example config\yaml\config.yaml
-```
-
-## 常用入口
-
-- Agent 列表：`GET /api/agent/agents`
-- Agent 流式执行：`POST /api/agent/stream`
-- Agent 同步执行：`POST /api/agent/execute`
-- Agent 配置：`/api/agent-config`
-- 模型配置：`/api/model-adapter`
-- MCP 管理：`/api/mcp`
-
-## 常用验证
-
-```powershell
-python -m compileall backend-fastapi
-python -m py_compile backend-fastapi\main.py
-```
-
-## 当前不再支持
-
-不要再尝试启动或接回以下系统：
-
-- GraphRAG / Search / Visualization
-- Nodes / Workflows
-- Neo4j 直连后端
-- 旧管理端 `frontend/`（已下线，不再参与运行）

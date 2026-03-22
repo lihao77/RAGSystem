@@ -1,23 +1,30 @@
-# 文档中心
+# 文档中心 / Documentation Index
 
-当前文档只保留与现有系统直接对应的最小集合。
+本目录用于提供仓库级文档导航。系统实现细节请优先查看后端与前端架构文档。
 
-## 架构文档（开发前必读）
+This directory provides top-level documentation navigation. For implementation details, start with the backend and frontend architecture documents.
 
-- [后端架构](../backend-fastapi/docs/architecture.md) — Agent 体系、占位符、事件、上下文、配置、Skills、API
-- [工具系统](../backend-fastapi/docs/tools.md) — 注册链路、执行流程、数据模型、工具清单、Artifact
-- [前端架构](../frontend-client/docs/architecture.md) — SSE 通信、消息结构、可视化渲染、态势大屏
+## 核心文档 / Core documents
 
-## 其他文档
+- [../README.md](../README.md) — 仓库入口与快速开始 / repository entry and quick start
+- [../backend-fastapi/docs/architecture.md](../backend-fastapi/docs/architecture.md) — 后端架构 / backend architecture
+- [../backend-fastapi/docs/tools.md](../backend-fastapi/docs/tools.md) — 工具系统 / tools system
+- [../frontend-client/docs/architecture.md](../frontend-client/docs/architecture.md) — 前端架构 / frontend architecture
+- [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 
-- [../README.md](../README.md) — 项目入口、快速启动
-- [OPERATIONS.md](OPERATIONS.md) — 运维指南
-- [geoplus/README.md](geoplus/README.md) — GeoPLUS 治理
-- [refactor/AGENT_FIRST_REFACTOR_PLAN.md](refactor/AGENT_FIRST_REFACTOR_PLAN.md) — 重构历史（已完成）
-- [../frontend-client/README.md](../frontend-client/README.md) — 前端启动指南
+## 其他文档 / Additional documents
 
-## 维护原则
+- [geoplus/README.md](geoplus/README.md) — GeoPLUS 相关说明 / GeoPLUS documentation
+- [refactor/README.md](refactor/README.md) — 重构文档索引 / refactor documentation index
+- [refactor/AGENT_FIRST_REFACTOR_PLAN.md](refactor/AGENT_FIRST_REFACTOR_PLAN.md) — 历史重构方案 / historical refactor plan
+- [../frontend-client/README.md](../frontend-client/README.md) — 前端单独说明 / frontend-specific guide
 
-- 修改系统代码后，必须同步更新对应的架构文档
-- 只保留当前系统还在使用的文档
-- 方案类文档统一放到 `docs/refactor/`
+## 维护约定 / Maintenance rules
+
+- 修改系统代码后，请同步更新对应架构文档。
+- 保持 README 负责总览，详细设计放在深层文档中。
+- 不在示例配置或文档中提交真实密钥、令牌或部署地址。
+
+- Update the matching architecture document whenever system behavior changes.
+- Keep the root README high-level and put detailed design notes in deeper docs.
+- Never commit real keys, tokens, or deployment addresses to docs or example configs.
