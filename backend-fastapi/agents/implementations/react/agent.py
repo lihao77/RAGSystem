@@ -171,7 +171,8 @@ class ReActAgent(BaseAgent):
                         call_id=tool_call_id,
                         tool_name=data.get('tool_name'),
                         arguments=data.get('arguments', {}),
-                        parent_call_id=agent_call_id  # ✨ 关联到 ReActAgent 的调用
+                        parent_call_id=agent_call_id,  # ✨ 关联到 ReActAgent 的调用
+                        round=data.get('round'),
                     )
                 elif event_type == 'tool_end':
                     from tools.result_references import result_event_payload
@@ -201,6 +202,7 @@ class ReActAgent(BaseAgent):
                         execution_time=data.get('elapsed_time'),
                         parent_call_id=agent_call_id,  # ✨ 关联到 ReActAgent 的调用
                         success=getattr(result, 'success', True) if result is not None else True,
+                        round=data.get('round'),
                     )
                 elif event_type == 'tool_error':
                     publisher.tool_error(

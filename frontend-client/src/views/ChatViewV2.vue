@@ -211,7 +211,6 @@
                     <HierarchicalExecutionTree
                       :execution-steps="msg.execution_steps || []"
                       :subtasks="msg.subtasks || []"
-                      :react-trace="msg.react_trace || []"
                       :session-id="currentSessionId || ''"
                     />
                   </div>
@@ -426,6 +425,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
+import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
@@ -436,6 +436,7 @@ import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
 import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
+import LLMSelector from '../components/LLMSelector.vue';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
@@ -476,7 +477,18 @@ const TYPE_TO_COMPONENT = Object.fromEntries(
 const TYPE_TO_PROPS = Object.fromEntries(
   Object.values(VISUALIZATION_REGISTRY).map((r) => [r.type, r.props])
 );
-import LLMSelector from '../components/LLMSelector.vue';
+const createAssistantMessage = (overrides = {}) => ({
+  role: 'assistant',
+  content: '',
+  subtasks: [],
+  execution_steps: [],
+  showFullSubtasks: false,
+  multimodalContents: [],
+  status: [],
+  finished: false,
+  ...overrides,
+});
+
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
 import { useRouter } from 'vue-router';
@@ -828,281 +840,44 @@ const onScrollToBottomClick = () => {
   scrollToBottom(true);
 };
 
-// 🎯 统一的 Agent 信息解析：从事件 / 持久化 payload 中取「被调用 Agent」与展示名
-const getCalledAgentAndDisplayName = (eventOrStep) => {
-  // eventOrStep 可能是 SSE 里的 event，也可能是持久化的 step
-  const payload = eventOrStep && eventOrStep.payload ? eventOrStep.payload : null;
-  const eventData = payload ? (payload.data || {}) : (eventOrStep.data || {});
-  const publisherAgent = payload ? payload.agent_name : eventOrStep.agent_name;
-
-  // 被调用的 Agent：优先用 data.agent_name，其次退回事件的 agent_name
-  const calledAgent = eventData.agent_name != null ? eventData.agent_name : publisherAgent;
-
-  // 展示名：优先用 agent_display_name / subtask_agent，其次退回被调用 Agent 名
-  const displayName =
-    eventData.agent_display_name ||
-    eventData.subtask_agent ||
-    calledAgent;
-
-  return { calledAgent, displayName };
-};
-
+// execution.step 是执行树唯一事实源
 const ORCHESTRATOR_AGENT_NAMES = new Set(['orchestrator_agent']);
 
 const isOrchestratorAgentName = (agentName) => !agentName || ORCHESTRATOR_AGENT_NAMES.has(agentName);
 
-const isSubtaskStartEvent = (eventType, calledAgent, parentCallId) => {
-  if (eventType === 'call.agent.start') return !isOrchestratorAgentName(calledAgent);
-  if (eventType === 'agent.start') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
-  return false;
+const ensureExecutionProjector = (msg) => {
+  if (!msg._executionProjector) {
+    msg._executionProjector = createExecutionState();
+  }
+  return msg._executionProjector;
 };
 
-const isSubtaskEndEvent = (eventType, calledAgent, parentCallId) => {
-  if (eventType === 'call.agent.end') return !isOrchestratorAgentName(calledAgent);
-  if (eventType === 'agent.end') return !!parentCallId && !isOrchestratorAgentName(calledAgent);
-  return false;
+const syncExecutionProjection = (msg) => {
+  const state = ensureExecutionProjector(msg);
+  msg.subtasks = state.subtasks;
+  msg.execution_steps = state.execution_steps;
+  if (!msg.multimodalContents?.length || state.multimodalContents.length) {
+    msg.multimodalContents = state.multimodalContents.slice();
+  }
 };
 
-const getLatestRound = (steps = []) => {
-  if (!Array.isArray(steps) || steps.length === 0) return null;
-  for (let i = steps.length - 1; i >= 0; i -= 1) {
-    const round = steps[i]?.round;
-    if (typeof round === 'number' && Number.isFinite(round)) {
-      return round;
-    }
-  }
-  return null;
+const createAssistantMessageFromHistory = (item) => {
+  const executionSteps = Array.isArray(item.execution_steps) ? item.execution_steps : [];
+  const projected = buildExecutionState(executionSteps);
+  return createAssistantMessage({
+    id: item.id,
+    seq: item.seq,
+    content: item.content || '',
+    subtasks: projected.subtasks,
+    execution_steps: projected.execution_steps,
+    multimodalContents: (item.multimodalContents?.length > 0)
+      ? item.multimodalContents
+      : projected.multimodalContents,
+    status: item.status || [],
+    finished: true,
+    _executionProjector: projected,
+  });
 };
-
-const buildSubtaskState = ({
-  eventData = {},
-  fallbackRound = null,
-  existing = null,
-  calledAgent = '',
-  displayName = '',
-  taskId = null,
-  parentCallId = null
-} = {}) => ({
-  order: eventData.order ?? existing?.order,
-  task_id: taskId ?? existing?.task_id ?? null,
-  parent_call_id: parentCallId ?? existing?.parent_call_id ?? null,
-  round: eventData.round ?? existing?.round ?? fallbackRound,
-  round_index: eventData.round_index ?? existing?.round_index,
-  agent_name: calledAgent || existing?.agent_name || '',
-  agent_display_name: displayName || existing?.agent_display_name || calledAgent || '',
-  description: eventData.subtask_description || eventData.description || eventData.task || existing?.description || '',
-  react_steps: Array.isArray(existing?.react_steps) ? existing.react_steps : [],
-  tool_calls: Array.isArray(existing?.tool_calls) ? existing.tool_calls : [],
-  result_summary: typeof existing?.result_summary === 'string' ? existing.result_summary : '',
-  status: (existing?.status === 'success' || existing?.status === 'error')
-    ? existing.status
-    : 'running',
-  expanded: true,
-  currentStep: Object.prototype.hasOwnProperty.call(existing || {}, 'currentStep') ? existing.currentStep : null
-});
-
-const getToolPreviewResult = (toolData = {}) => (
-  toolData.result_preview ?? toolData.result ?? ''
-);
-
-const hasToolRawResult = (toolData = {}) => (
-  Object.prototype.hasOwnProperty.call(toolData, 'raw_result') && toolData.raw_result != null
-);
-
-const getToolRawResultAvailable = (toolData = {}) => (
-  Boolean(toolData.raw_result_available) || hasToolRawResult(toolData)
-);
-
-// 将规范化后的 execution_steps 还原为 subtasks 与 execution_steps
-function executionStepsToExecutionState(executionSteps) {
-  if (!Array.isArray(executionSteps) || executionSteps.length === 0) return { subtasks: [], execution_steps: [] };
-
-  const callNodes = new Map();
-  const toolCalls = new Map();
-  const execution_steps = [];
-
-  const ensureOrchestratorStep = (round = null, intent = '', options = {}) => {
-    const { markIntentComplete = false } = options;
-    let step = execution_steps[execution_steps.length - 1];
-    const shouldCreateNewStep = !step
-      || (step._intentComplete && (round == null || step.round !== round))
-      || (round != null && step.round != null && step.round !== round);
-    if (shouldCreateNewStep) {
-      step = {
-        round,
-        intent: intent || '',
-        toolCalls: [],
-        expanded: true,
-        _intentComplete: Boolean(markIntentComplete && intent)
-      };
-      execution_steps.push(step);
-    } else if (intent) {
-      step.intent = step.intent ? step.intent : intent;
-    }
-    if (round != null && step.round == null) step.round = round;
-    if (markIntentComplete) step._intentComplete = true;
-    return step;
-  };
-
-  const getOrchestratorStepForTool = (round = null) => {
-    const resolvedRound = round ?? getLatestRound(execution_steps) ?? 1;
-    let step = execution_steps[execution_steps.length - 1];
-
-    if (!step) {
-      step = { round: resolvedRound, intent: '', toolCalls: [], expanded: true };
-      execution_steps.push(step);
-      return step;
-    }
-
-    if (step.round == null) step.round = resolvedRound;
-    if (step.round === resolvedRound) return step;
-
-    for (let i = execution_steps.length - 1; i >= 0; i -= 1) {
-      if (execution_steps[i]?.round === resolvedRound) {
-        return execution_steps[i];
-      }
-    }
-
-    step = { round: resolvedRound, intent: '', toolCalls: [], expanded: true };
-    execution_steps.push(step);
-    return step;
-  };
-
-  for (const step of executionSteps) {
-    const kind = step.kind;
-    const callId = step.call_id;
-    const parentCallId = step.parent_call_id;
-
-    if (kind === 'subtask_start') {
-      if (isOrchestratorAgentName(step.agent_name)) {
-        continue;
-      }
-      const existing = callNodes.get(callId);
-      callNodes.set(callId, buildSubtaskState({
-        eventData: step,
-        fallbackRound: getLatestRound(execution_steps),
-        existing,
-        calledAgent: step.agent_name,
-        displayName: step.agent_display_name || step.agent_name,
-        taskId: callId,
-        parentCallId,
-      }));
-      continue;
-    }
-
-    if (kind === 'subtask_end') {
-      if (isOrchestratorAgentName(step.agent_name)) {
-        continue;
-      }
-      const node = callNodes.get(callId);
-      if (node) {
-        node.status = step.status || 'success';
-        node.result_summary = step.result_summary || '';
-        node.expanded = false;
-      }
-      continue;
-    }
-
-    if (kind === 'agent_intent') {
-      ensureOrchestratorStep(step.round, step.content || '', { markIntentComplete: true });
-      continue;
-    }
-
-    if (kind === 'subtask_intent') {
-      const node = callNodes.get(callId);
-      if (node) {
-        // ⚠️ 【禁止随意修改】历史数据去重保护
-        // 旧数据库中同一轮次可能同时存在两条 subtask_intent 记录：
-        //   1. agent.intent_complete → runstep_normalizer 转为 subtask_intent（携带完整内容）
-        //   2. react.intermediate (role=assistant) → 同样转为 subtask_intent（补发）
-        // 新数据已不再依赖这条补发链路，但这里仍需保留同 round 合并逻辑以兼容旧会话。
-        // 若直接无条件 push 新 reactStep，同一 round 会出现两个意图块，导致前端显示错位。
-        // 正确做法：同一 round 的第二条直接合并（内容为空时才补填），不新建 step。
-        const existing = node.currentStep;
-        if (existing && existing.round === step.round) {
-          if (!existing.intent && step.content) existing.intent = step.content;
-        } else {
-          const reactStep = {
-            round: step.round,
-            intent: step.content || '',
-            toolCalls: [],
-            expanded: true
-          };
-          node.react_steps.push(reactStep);
-          node.currentStep = reactStep;
-        }
-      }
-      continue;
-    }
-
-    if (kind === 'tool_start') {
-      const toolCall = {
-        call_id: callId,
-        parent_call_id: parentCallId,
-        tool_name: step.tool_name,
-        arguments: step.arguments,
-        status: 'running',
-        result: '',
-        result_preview: '',
-        raw_result: null,
-        raw_result_ref: null,
-        raw_result_available: false,
-        showResult: false,
-        showArgs: false
-      };
-      toolCalls.set(callId, toolCall);
-
-      const parentNode = callNodes.get(parentCallId);
-      if (parentNode) {
-        parentNode.tool_calls.push(toolCall);
-        if (parentNode.currentStep) {
-          parentNode.currentStep.toolCalls.push(toolCall);
-        } else {
-          const reactStep = { round: parentNode.round, intent: '', toolCalls: [toolCall], expanded: true };
-          parentNode.react_steps.push(reactStep);
-          parentNode.currentStep = reactStep;
-        }
-      } else {
-        getOrchestratorStepForTool(step.round).toolCalls.push(toolCall);
-      }
-      continue;
-    }
-
-    if (kind === 'tool_end') {
-      const toolCall = toolCalls.get(callId);
-      if (toolCall) {
-        toolCall.status = step.success === false ? 'error' : 'success';
-        toolCall.result = getToolPreviewResult(step);
-        toolCall.result_preview = getToolPreviewResult(step);
-        toolCall.raw_result = hasToolRawResult(step) ? step.raw_result : null;
-        toolCall.raw_result_ref = step.raw_result_ref || null;
-        toolCall.raw_result_available = getToolRawResultAvailable(step);
-        toolCall.elapsed_time = step.elapsed_time;
-      }
-      continue;
-    }
-  }
-
-  return {
-    subtasks: Array.from(callNodes.values()),
-    execution_steps,
-  };
-}
-
-function extractMultimodalFromExecutionSteps(executionSteps) {
-  if (!Array.isArray(executionSteps)) return [];
-  const contents = [];
-  for (const step of executionSteps) {
-    if (step.kind === 'visualization') {
-      const eventType = step.visualization_type === 'chart' ? 'visualization.chart' : 'visualization.map';
-      const reg = VISUALIZATION_REGISTRY[eventType];
-      if (reg) {
-        contents.push(reg.extract(step.data || {}));
-      }
-    }
-  }
-  return contents;
-}
 
 const isMasterEvent = (event) => {
   const agentName = event.agent_name || event.data?.agent_name;
@@ -1528,17 +1303,7 @@ const checkSessionTaskStatus = async (sessionId) => {
       // 创建一个占位 assistant 消息（如果最后一条不是未完成的 assistant）
       const lastMsg = messages.value[messages.value.length - 1];
       if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-        messages.value.push({
-          role: 'assistant',
-          content: '',
-          subtasks: [],
-          execution_steps: [],
-          showFullSubtasks: false,
-          multimodalContents: [],
-          status: [],
-          toolCallRegistry: new Map(),
-          finished: false
-        });
+        messages.value.push(createAssistantMessage());
       }
       // 重连 SSE（不 await，避免阻塞 loadSessionMessages 的 finally 导致 messagesLoading 一直为 true）
       reconnectToRunningTask(sessionId);
@@ -1620,24 +1385,7 @@ const loadSessionMessages = async (sessionId) => {
     const items = result.data?.items || [];
     const mapped = items.map(item => {
       if (item.role === 'assistant') {
-        const executionSteps = item.execution_steps || [];
-        const parsed = Array.isArray(executionSteps) ? executionStepsToExecutionState(executionSteps) : { subtasks: [], execution_steps: [] };
-        const subtasks = parsed.subtasks || [];
-        return {
-          role: 'assistant',
-          id: item.id,
-          seq: item.seq,
-          content: item.content || '',
-          subtasks,
-          execution_steps: parsed.execution_steps || [],
-          react_trace: item.react_trace || [],
-          showFullSubtasks: false,
-          multimodalContents: (item.multimodalContents?.length > 0)
-            ? item.multimodalContents
-            : extractMultimodalFromExecutionSteps(executionSteps),
-          status: item.status || [],
-          finished: true
-        };
+        return createAssistantMessageFromHistory(item);
       }
       if (item.role === 'system') {
         return {
@@ -2156,7 +1904,6 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
         const currentMsg = messages.value[assistantMsgIndex];
         if (!currentMsg) break;
         currentMsg.finished = true;
-        if (currentMsg.toolCallRegistry) currentMsg.toolCallRegistry.clear();
         const assistantContent = currentMsg.content;
         if (assistantContent) {
           updateRecentSession(sessionId, assistantContent, new Date().toISOString());
@@ -2250,8 +1997,6 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               lastSeenSeq = event.seq;
             }
 
-            // 🎯 使用与持久化相同的解析逻辑，统一「被调用 Agent」与展示名
-            const { calledAgent: calledAgentForStart, displayName: displayNameForStart } = getCalledAgentAndDisplayName(event);
             if (eventType === 'agent.retry_scheduled') {
               const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
               setLlmRetryState({
@@ -2268,245 +2013,10 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 status: 'running',
               };
             }
-            else if (isSubtaskStartEvent(eventType, calledAgentForStart, event.parent_call_id)) {
-              if (currentMsg.subtasks.length > 0) {
-                currentMsg.subtasks.forEach(st => st.expanded = false);
-              }
-
-              const existingSubtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-              const subtaskState = buildSubtaskState({
-                eventData,
-                fallbackRound: getLatestRound(currentMsg.execution_steps),
-                existing: existingSubtask,
-                calledAgent: calledAgentForStart,
-                displayName: displayNameForStart,
-                taskId: event.call_id,
-                parentCallId: event.parent_call_id,
-              });
-              if (existingSubtask) {
-                Object.assign(existingSubtask, subtaskState);
-              } else {
-                currentMsg.subtasks.push(subtaskState);
-              }
-            }
-            // 🎯 编排器的 intent（流式增量）
-            else if (eventType === 'agent.intent_delta') {
-              if (isMasterEvent(event)) {
-                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
-                let lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                // 新建条件：无 step / 已完成 / 上一轮的空 step（round 不同且 intent 为空）
-                if (!lastStep || lastStep._intentComplete || (lastStep.round !== eventData.round && !lastStep.intent)) {
-                  lastStep = { round: eventData.round, intent: '', toolCalls: [], expanded: true };
-                  currentMsg.execution_steps.push(lastStep);
-                }
-                lastStep.intent += eventData.content;
-              } else {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) {
-                  let step = subtask.currentStep;
-                  if (!step || step._intentComplete || (step.round !== eventData.round && !step.intent)) {
-                    step = { round: eventData.round, intent: '', toolCalls: [], expanded: true };
-                    subtask.react_steps.push(step);
-                    subtask.currentStep = step;
-                  }
-                  step.intent += eventData.content;
-                }
-              }
-            }
-            // intent 完成：携带完整内容，直接用于创建或收尾 step
-            else if (eventType === 'agent.intent_complete') {
-              if (isMasterEvent(event)) {
-                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
-                const lastStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                if (lastStep && lastStep.intent) {
-                  // delta 已填充内容，标记完成即可
-                  lastStep._intentComplete = true;
-                } else {
-                  // 未收到 delta（异常情况），用完整内容兜底建 step
-                  currentMsg.execution_steps.push({
-                    round: eventData.round,
-                    intent: eventData.content || '',
-                    toolCalls: [],
-                    expanded: true,
-                    _intentComplete: true
-                  });
-                }
-              } else {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) {
-                  const step = subtask.currentStep;
-                  if (step && step.intent) {
-                    // delta 已填充内容，标记完成即可
-                    step._intentComplete = true;
-                  } else {
-                    // 未收到 delta（异常情况），用完整内容兜底建 step
-                    const newStep = {
-                      round: eventData.round,
-                      intent: eventData.content || '',
-                      toolCalls: [],
-                      expanded: true,
-                      _intentComplete: true
-                    };
-                    subtask.react_steps.push(newStep);
-                    subtask.currentStep = newStep;
-                  }
-                }
-              }
-            }
-            // 工具调用
-            else if (eventType === 'call.tool.start') {
-              // 先尝试找子 Agent subtask（parent_call_id 对应某个 subtask.task_id）
-              let subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
-              // 容错：parent_call_id 存在但 subtask 缺失（重连回放时 call.agent.start 事件可能丢失），
-              // 创建占位 subtask 避免工具被错误地挂到编排器层级
-              if (!subtask && event.parent_call_id && !isMasterEvent(event)) {
-                subtask = buildSubtaskState({
-                  eventData,
-                  fallbackRound: getLatestRound(currentMsg.execution_steps),
-                  calledAgent: event.agent_name || eventData.agent_name || '',
-                  displayName: event.agent_name || eventData.agent_name || '',
-                  taskId: event.parent_call_id,
-                  parentCallId: null,
-                });
-                currentMsg.subtasks.push(subtask);
-              }
-              if (subtask) {
-                // 跨轮次时需要新建 step，避免 tool 挂到上一轮的空 step 上
-                const subtaskToolRound = eventData.round ?? subtask.currentStep?.round ?? 1;
-                if (!subtask.currentStep || (subtask.currentStep.round !== subtaskToolRound && !subtask.currentStep.intent && subtask.currentStep.toolCalls.every(t => t.status !== 'running'))) {
-                  const newStep = {
-                    round: subtaskToolRound,
-                    intent: '',
-                    toolCalls: [],
-                    expanded: true
-                  };
-                  subtask.react_steps.push(newStep);
-                  subtask.currentStep = newStep;
-                }
-                const toolCall = {
-                  call_id: event.call_id,
-                  tool_name: eventData.tool_name,
-                  arguments: eventData.arguments,
-                  status: 'running',
-                  result: '',
-                  result_preview: '',
-                  raw_result: null,
-                  raw_result_ref: null,
-                  raw_result_available: false,
-                  index: eventData.index,
-                  total: eventData.total,
-                  showResult: false,
-                  showArgs: false
-                };
-                subtask.currentStep.toolCalls.push(toolCall);
-                subtask.tool_calls.push(toolCall);
-                // 注册到 registry，供 tool.end 精确匹配
-                if (event.call_id && currentMsg.toolCallRegistry) {
-                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: subtask.currentStep });
-                }
-              } else {
-                // 编排器直接调用工具：工具归属于当前轮次的 step
-                // 跨轮次且上一轮是空 step（无 intent、无运行中工具）时需要新建
-                if (!currentMsg.execution_steps) currentMsg.execution_steps = [];
-                let executionStep = currentMsg.execution_steps[currentMsg.execution_steps.length - 1];
-                // 当 eventData.round 缺失时（如 LLM 跳过 <intent> 直接输出 <tools>），
-                // fallback 到已有 step 的 round，避免创建 round=undefined 的幽灵 step
-                const toolRound = eventData.round ?? executionStep?.round ?? 1;
-                if (!executionStep || (executionStep.round !== toolRound && !executionStep.intent && executionStep.toolCalls.every(t => t.status !== 'running'))) {
-                  executionStep = {
-                    round: toolRound,
-                    intent: '',
-                    toolCalls: [],
-                    expanded: true
-                  };
-                  currentMsg.execution_steps.push(executionStep);
-                }
-                const toolCall = {
-                  call_id: event.call_id,
-                  tool_name: eventData.tool_name,
-                  arguments: eventData.arguments,
-                  status: 'running',
-                  result: '',
-                  result_preview: '',
-                  raw_result: null,
-                  raw_result_ref: null,
-                  raw_result_available: false,
-                  index: eventData.index,
-                  total: eventData.total,
-                  showResult: false,
-                  showArgs: false
-                };
-                executionStep.toolCalls.push(toolCall);
-                // 注册到 registry，供 tool.end 精确匹配
-                if (event.call_id && currentMsg.toolCallRegistry) {
-                  currentMsg.toolCallRegistry.set(event.call_id, { toolCall, target: executionStep });
-                }
-              }
-            }
-            else if (eventType === 'call.tool.end') {
-              const toolEndStatus = eventData.success === false ? 'error' : 'success';
-              // 优先通过 registry 精确匹配（同时覆盖 subtask 和 master_step）
-              const registered = event.call_id && currentMsg.toolCallRegistry?.get(event.call_id);
-              if (registered) {
-                registered.toolCall.status = toolEndStatus;
-                registered.toolCall.result = getToolPreviewResult(eventData);
-                registered.toolCall.result_preview = getToolPreviewResult(eventData);
-                registered.toolCall.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
-                registered.toolCall.raw_result_ref = eventData.raw_result_ref || null;
-                registered.toolCall.raw_result_available = getToolRawResultAvailable(eventData);
-                registered.toolCall.elapsed_time = eventData.elapsed_time || eventData.execution_time;
-                currentMsg.toolCallRegistry.delete(event.call_id);
-              } else {
-                // fallback: 通过 parent_call_id 找 subtask
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.parent_call_id);
-                if (subtask) {
-                  const tc = subtask.tool_calls.find(t => t.tool_name === eventData.tool_name && t.status === 'running');
-                  if (tc) {
-                    tc.status = toolEndStatus;
-                    tc.result = getToolPreviewResult(eventData);
-                    tc.result_preview = getToolPreviewResult(eventData);
-                    tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
-                    tc.raw_result_ref = eventData.raw_result_ref || null;
-                    tc.raw_result_available = getToolRawResultAvailable(eventData);
-                    tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
-                  }
-                } else {
-                  // fallback：在 execution_steps 中查找
-                  const executionSteps = currentMsg.execution_steps;
-                  if (executionSteps) {
-                    for (const step of executionSteps) {
-                      const tc = (step.toolCalls || []).find(t => t.tool_name === eventData.tool_name && t.status === 'running');
-                      if (tc) {
-                        tc.status = toolEndStatus;
-                        tc.result = getToolPreviewResult(eventData);
-                        tc.result_preview = getToolPreviewResult(eventData);
-                        tc.raw_result = hasToolRawResult(eventData) ? eventData.raw_result : null;
-                        tc.raw_result_ref = eventData.raw_result_ref || null;
-                        tc.raw_result_available = getToolRawResultAvailable(eventData);
-                        tc.elapsed_time = eventData.elapsed_time || eventData.execution_time;
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            // 🎯 三种「结束」事件职责区分：
-            // - call.agent.end：子 Agent/子任务结束，只更新对应 subtask 的 result_summary、status
-            // - output.final_answer：最终答案内容 + 标记本条消息完成（finished）
-            // - agent.end：主 Agent 整体结束，仅作兜底（若尚未 finished 则标记完成），不重复处理内容
-
-            // 子任务/子 Agent 调用结束：只更新对应卡片（用 data.agent_name 判断，编排器自身的 end 跳过）
-            else if (isSubtaskEndEvent(eventType, eventData.agent_name != null ? eventData.agent_name : event.agent_name, event.parent_call_id)) {
-              const calledAgent = eventData.agent_name != null ? eventData.agent_name : event.agent_name;
-              if (calledAgent && !isOrchestratorAgentName(calledAgent)) {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) {
-                  subtask.result_summary = eventData.subtask_result || eventData.result_summary || eventData.result;
-                  subtask.status = eventData.success === false ? 'error' : 'success';
-                  subtask.expanded = false;
-                }
-              }
+            else if (eventType === 'execution.step') {
+              const projector = ensureExecutionProjector(currentMsg);
+              applyStep(projector, eventData);
+              syncExecutionProjection(currentMsg);
             }
             // 最终答案（完整）：内容 + 元数据 + 标记消息完成
             // （流式内容已由 output.chunk 拼接，此处仅兜底与标记）
@@ -2562,13 +2072,6 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 checkSituationScreenTrigger(currentMsg.content);
               }
             }
-            // 图表/地图等可视化事件（注册表驱动）
-            else if (VISUALIZATION_REGISTRY[eventType]) {
-              currentMsg.multimodalContents.push(
-                VISUALIZATION_REGISTRY[eventType].extract(eventData)
-              );
-            }
-            // 错误
             else if (eventType === 'agent.error') {
               currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
             }
@@ -2769,17 +2272,7 @@ const handleSend = async () => {
   scrollToBottom(true);
   updateRecentSession(sessionId, content, new Date().toISOString());
 
-  const assistantMsgIndex = messages.value.push({
-    role: 'assistant',
-    content: '',
-    subtasks: [],
-    execution_steps: [],
-    showFullSubtasks: false,
-    multimodalContents: [],
-    status: [],
-    toolCallRegistry: new Map(),
-    finished: false
-  }) - 1;
+  const assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
 
   beginOptimisticExecutionState(sessionId);
   isLoading.value = true;

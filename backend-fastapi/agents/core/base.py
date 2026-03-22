@@ -786,6 +786,7 @@ class BaseAgent(ABC):
                     tool_name=tool_name,
                     arguments=arguments,
                     parent_call_id=state.get('call_id'),
+                    round=rounds,
                 )
 
             tool_started_at = time.time()
@@ -831,6 +832,7 @@ class BaseAgent(ABC):
                     execution_time=elapsed_time,
                     parent_call_id=state.get('call_id'),
                     success=tool_success,
+                    round=rounds,
                 )
 
             self._record_visualization_result(tool_name, result, state)

@@ -55,6 +55,9 @@ class EventType(str, Enum):
     CALL_TOOL_START = "call.tool.start"
     CALL_TOOL_END = "call.tool.end"
 
+    # 规范化执行步骤
+    EXECUTION_STEP = "execution.step"
+
     # 流式输出事件
     CHUNK = "output.chunk"
     FINAL_ANSWER = "output.final_answer"
@@ -108,6 +111,7 @@ CRITICAL_EVENT_TYPES = frozenset({
     EventType.AGENT_START, EventType.AGENT_END, EventType.AGENT_ERROR,
     EventType.CALL_AGENT_START, EventType.CALL_AGENT_END,
     EventType.CALL_TOOL_START, EventType.CALL_TOOL_END,
+    EventType.EXECUTION_STEP,
     EventType.INTENT_COMPLETE,
     EventType.SESSION_END, EventType.USER_INTERRUPT,
     EventType.FINAL_ANSWER, EventType.MESSAGE_SAVED,

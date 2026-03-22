@@ -289,15 +289,19 @@ class EventPublisher:
         call_id: str,
         tool_name: str,
         arguments: Dict,
-        parent_call_id: Optional[str] = None
+        parent_call_id: Optional[str] = None,
+        round: Optional[int] = None,
     ):
         """工具调用开始"""
-        self._publish(
-            EventType.CALL_TOOL_START,
-            {
+        data = {
                 "tool_name": tool_name,
                 "arguments": arguments
-            },
+            }
+        if round is not None:
+            data["round"] = round
+        self._publish(
+            EventType.CALL_TOOL_START,
+            data,
             override_call_id=call_id,
             override_parent_call_id=parent_call_id
         )
@@ -313,11 +317,10 @@ class EventPublisher:
         execution_time: Optional[float] = None,
         parent_call_id: Optional[str] = None,
         success: bool = True,
+        round: Optional[int] = None,
     ):
         """工具调用结束"""
-        self._publish(
-            EventType.CALL_TOOL_END,
-            {
+        data = {
                 "tool_name": tool_name,
                 "success": success,
                 "result": self._make_event_value_safe(result),
@@ -327,7 +330,12 @@ class EventPublisher:
                 "raw_result_available": raw_result is not None,
                 "execution_time": execution_time,
                 "elapsed_time": execution_time,
-            },
+            }
+        if round is not None:
+            data["round"] = round
+        self._publish(
+            EventType.CALL_TOOL_END,
+            data,
             override_call_id=call_id,
             override_parent_call_id=parent_call_id
         )

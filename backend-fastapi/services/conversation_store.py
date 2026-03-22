@@ -567,18 +567,19 @@ class ConversationStore:
                 FROM run_steps
                 WHERE session_id=?
                   AND step_type=?
+                  AND json_extract(payload, '$.kind')='tool'
+                  AND json_extract(payload, '$.phase')='end'
                   AND json_extract(payload, '$.call_id')=?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (session_id, "call.tool.end", call_id)
+                (session_id, "execution.step", call_id)
             ).fetchone()
 
         if not row:
             return None
 
         payload = json.loads(row["payload"] or "{}")
-        data = payload.get("data") or {}
         return {
             "id": row["id"],
             "run_id": row["run_id"],
@@ -587,11 +588,11 @@ class ConversationStore:
             "step_order": row["step_order"],
             "step_type": row["step_type"],
             "created_at": row["created_at"],
-            "tool_name": data.get("tool_name"),
-            "result_preview": data.get("result_preview") or data.get("result"),
-            "raw_result": data.get("raw_result"),
-            "raw_result_ref": data.get("raw_result_ref") or {},
-            "raw_result_available": bool(data.get("raw_result") is not None),
+            "tool_name": payload.get("tool_name"),
+            "result_preview": payload.get("result_preview") or payload.get("result"),
+            "raw_result": payload.get("raw_result"),
+            "raw_result_ref": payload.get("raw_result_ref") or {},
+            "raw_result_available": bool(payload.get("raw_result_available") or payload.get("raw_result") is not None),
         }
 
     def delete_messages_after(

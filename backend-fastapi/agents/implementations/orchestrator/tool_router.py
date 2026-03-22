@@ -271,6 +271,7 @@ def route_direct_tool(
             tool_name=tool_name,
             arguments=arguments,
             parent_call_id=orchestrator_call_id,
+            round=rounds,
         )
 
     # 执行工具
@@ -318,6 +319,7 @@ def route_direct_tool(
             execution_time=tool_elapsed,
             parent_call_id=orchestrator_call_id,
             success=result_success(result),
+            round=rounds,
         )
 
     # 处理可视化事件（新架构下不再通过 SSE 推送，前端按需拉取）

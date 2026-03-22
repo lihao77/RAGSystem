@@ -12,23 +12,7 @@ from agents.events.bus import EventType
 
 logger = logging.getLogger(__name__)
 
-_STEP_EVENT_TYPES = [
-    EventType.RUN_START,
-    EventType.AGENT_START,
-    EventType.AGENT_END,
-    # INTENT_COMPLETE 已携带完整意图内容，是历史回放的唯一来源。
-    # REACT_INTERMEDIATE 不再持久化：它是流结束后的补发事件（历史兼容用途），
-    # 内容与 INTENT_COMPLETE 完全重复，若同时存入 run_steps 会导致同一轮次
-    # 出现两条 subtask_intent 记录，前端回放时产生重复意图块。
-    EventType.INTENT_COMPLETE,
-    EventType.CALL_AGENT_START,
-    EventType.CALL_AGENT_END,
-    EventType.CALL_TOOL_START,
-    EventType.CALL_TOOL_END,
-    EventType.CHART_GENERATED,
-    EventType.MAP_GENERATED,
-    EventType.RUN_END,
-]
+_STEP_EVENT_TYPES = [EventType.EXECUTION_STEP]
 
 
 class RunStepPersistenceHandler:
@@ -69,12 +53,12 @@ class RunStepPersistenceHandler:
 
     def _subscribe_run_steps(self) -> str:
         def handle(event):
-            payload = self._event_to_payload(event)
+            payload = dict(event.data or {})
             try:
                 step_result = self.store.add_run_step(
                     session_id=self.session_id,
                     run_id=self.run_id,
-                    step_type=event.type.value,
+                    step_type=EventType.EXECUTION_STEP.value,
                     payload=payload,
                     message_id=None,
                 )
@@ -82,9 +66,8 @@ class RunStepPersistenceHandler:
                 logger.warning('写入 run_step 失败: %s', error, exc_info=True)
                 step_result = None
 
-            # CALL_TOOL_END: 关联资源引用到步骤
-            if event.type == EventType.CALL_TOOL_END and step_result:
-                resource_refs = (event.data or {}).get('resource_refs') or []
+            if payload.get('kind') == 'tool' and payload.get('phase') == 'end' and step_result:
+                resource_refs = payload.get('resource_refs') or []
                 step_id = step_result.get('id')
                 if step_id and resource_refs:
                     for ref in resource_refs:
@@ -100,13 +83,9 @@ class RunStepPersistenceHandler:
                             except Exception as error:
                                 logger.warning('关联资源到步骤失败: %s', error, exc_info=True)
 
-            if event.type == EventType.RUN_END:
-                # 更新 run 状态
+            if payload.get('kind') == 'run' and payload.get('phase') == 'end':
                 try:
-                    status = (event.data or {}).get('status', 'completed')
-                    # 统一映射：success → completed
-                    if status == 'success':
-                        status = 'completed'
+                    status = payload.get('status', 'completed')
                     self.store.update_run_status(
                         run_id=self.run_id,
                         session_id=self.session_id,
@@ -130,46 +109,3 @@ class RunStepPersistenceHandler:
             filter_func=lambda e: e.session_id == self.session_id,
         )
 
-    @staticmethod
-    def _make_payload_safe(data: Any) -> Dict[str, Any]:
-        import json
-        if data is None:
-            return {}
-        if not isinstance(data, dict):
-            return {'value': str(data)}
-        safe: Dict[str, Any] = {}
-        for key, value in data.items():
-            if isinstance(value, (str, int, float, bool, type(None))):
-                safe[key] = value
-            else:
-                try:
-                    json.dumps(value, ensure_ascii=False)
-                    safe[key] = value
-                except (TypeError, ValueError):
-                    safe[key] = str(value)
-        return safe
-
-    @classmethod
-    def _event_to_payload(cls, event) -> Dict[str, Any]:
-        from execution.observability import apply_observability_fields
-        payload = {
-            'type': event.type.value,
-            'event_id': getattr(event, 'event_id', None),
-            'timestamp': getattr(event, 'timestamp', None),
-            'priority': getattr(getattr(event, 'priority', None), 'value', None),
-            'session_id': getattr(event, 'session_id', None),
-            'trace_id': getattr(event, 'trace_id', None),
-            'span_id': getattr(event, 'span_id', None),
-            'agent_name': event.agent_name,
-            'call_id': getattr(event, 'call_id', None),
-            'parent_call_id': getattr(event, 'parent_call_id', None),
-            'data': cls._make_payload_safe(event.data),
-            'requires_user_action': getattr(event, 'requires_user_action', False),
-            'user_action_timeout': getattr(event, 'user_action_timeout', None),
-        }
-        apply_observability_fields(payload, event.data or {})
-        if event.type in (EventType.CALL_AGENT_START, EventType.CALL_AGENT_END):
-            called = (event.data or {}).get('agent_name')
-            if called is not None:
-                payload['agent_name'] = called
-        return payload

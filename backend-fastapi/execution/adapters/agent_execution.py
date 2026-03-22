@@ -19,6 +19,7 @@ from agents.events.bus import Event
 from execution import ExecutionRequest, ExecutionResult, ExecutionStatus
 from execution.observability import apply_observability_fields, attach_execution_metadata
 from execution.persistence import StreamPersistenceHandler
+from execution.step_projector import StepProjector
 from services.execution_service import ExecutionService, get_execution_service
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,7 @@ class AgentExecutionAdapter:
 
         metrics_subscription_id = None
         sse_adapter = None
+        step_projector_subscription_id = None
         subscription_ids: List[str] = []
         try:
             conversation_store.create_session(session_id=session_id, user_id=user_id)
@@ -123,6 +125,9 @@ class AgentExecutionAdapter:
             if metrics_collector:
                 metrics_subscription_id = metrics_collector.subscribe_to_events(event_bus)
                 logger.info('✓ MetricsCollector 已订阅 run=%s session=%s 的事件总线', run_id, session_id)
+
+            step_projector = StepProjector(event_bus=event_bus, session_id=session_id)
+            step_projector_subscription_id = step_projector.subscribe()
 
             sse_adapter = SSEAdapter(
                 event_bus=event_bus,
@@ -185,6 +190,7 @@ class AgentExecutionAdapter:
             registry.mark_running(task_id, thread=handle.thread)
 
             subscription_ids = [
+                step_projector_subscription_id,
                 subscriptions['run_steps'],
                 subscriptions['final_answer'],
                 subscriptions['root_call_id'],
@@ -221,6 +227,11 @@ class AgentExecutionAdapter:
             if metrics_subscription_id and metrics_subscription_id not in subscription_ids:
                 try:
                     event_bus.unsubscribe(metrics_subscription_id)
+                except Exception:
+                    pass
+            if step_projector_subscription_id and step_projector_subscription_id not in subscription_ids:
+                try:
+                    event_bus.unsubscribe(step_projector_subscription_id)
                 except Exception:
                     pass
             return AgentStreamStartResult(

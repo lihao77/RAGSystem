@@ -6,7 +6,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from execution.runstep_normalizer import normalize_run_steps
 from services.conversation_store import ConversationStore
 from runtime.dependencies import get_runtime_dependency
 
@@ -137,28 +136,10 @@ class AgentSessionApplication:
     ) -> Dict[str, Any]:
         data = self._conversation_store.list_messages(session_id=session_id, limit=limit, offset=offset)
         if data.get('items'):
-            react_trace_by_run: Dict[str, list[Dict[str, Any]]] = {}
             visible_items = []
             for item in data['items']:
                 metadata = item.get('metadata') or {}
                 if metadata.get('react_intermediate'):
-                    run_id = metadata.get('run_id')
-                    if run_id:
-                        content = item.get('content') or ''
-                        if metadata.get('msg_type') == 'assistant_response':
-                            import re
-                            match = re.search(r'<intent>([\s\S]*?)</intent>', content)
-                            if match:
-                                content = match.group(1).strip()
-                        react_trace_by_run.setdefault(run_id, []).append({
-                            'seq': item.get('seq'),
-                            'role': item.get('role'),
-                            'content': content,
-                            'msg_type': metadata.get('msg_type'),
-                            'round': metadata.get('round'),
-                            'agent': metadata.get('agent'),
-                            'created_at': item.get('created_at'),
-                        })
                     continue
                 visible_items.append(item)
             data['items'] = visible_items
@@ -166,8 +147,6 @@ class AgentSessionApplication:
             for item in data['items']:
                 metadata = item.get('metadata') or {}
                 run_id = metadata.get('run_id')
-                if run_id:
-                    item['react_trace'] = react_trace_by_run.get(run_id, [])
                 if item.get('role') != 'assistant' or not run_id:
                     continue
                 raw_steps = self._conversation_store.list_run_steps(
@@ -175,36 +154,11 @@ class AgentSessionApplication:
                     session_id=session_id,
                     limit=500,
                 )
-                item['execution_steps'] = normalize_run_steps(
-                    raw_steps,
-                    entry_agent_name=(metadata.get('agent') or 'orchestrator_agent'),
-                )
-                if item['execution_steps']:
-                    first_kind = item['execution_steps'][0].get('kind')
-                    if first_kind == 'subtask_start':
-                        item['execution_steps'].insert(0, {
-                            'kind': 'agent_start',
-                            'step_order': 0,
-                            'agent_name': metadata.get('agent') or 'orchestrator_agent',
-                            'call_id': None,
-                            'parent_call_id': None,
-                            'description': '顶层编排',
-                            'source_event_type': 'synthetic.agent.start',
-                        })
-                    filtered_steps = []
-                    for step in item['execution_steps']:
-                        if step.get('kind') == 'agent_intent' and isinstance(step.get('content'), str):
-                            step = dict(step)
-                            step['content'] = step['content'].split('\n\n<tools>', 1)[0].strip()
-                        if (
-                            filtered_steps
-                            and filtered_steps[-1].get('kind') == 'subtask_start'
-                            and step.get('kind') == 'subtask_start'
-                            and step.get('call_id') != filtered_steps[-1].get('call_id')
-                        ):
-                            continue
-                        filtered_steps.append(step)
-                    item['execution_steps'] = filtered_steps
+                item['execution_steps'] = [
+                    step.get('payload') or {}
+                    for step in raw_steps
+                    if step.get('step_type') == 'execution.step'
+                ]
         return data
 
     def export_session(self, session_id: str) -> Dict[str, Any]:

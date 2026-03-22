@@ -71,25 +71,27 @@ handleSend()
 
 ### 执行树 projector
 
-`src/utils/executionProjector.js` 统一消费历史与实时 execution steps：
+`src/utils/executionProjector.js` 是执行树唯一 projector，统一消费历史与实时的 canonical `execution.step.data`：
 
+- `createExecutionState()`：创建增量投影状态
 - `buildExecutionState(steps)`：历史 assistant message 全量构建执行树视图模型
-- `applyStep(state, step)`：实时增量应用单条 `execution.step`
-- projector 输出：
-  - `rawSteps`：统一 step 列表
-  - `subtasks` / `execution_steps`：兼容旧 UI 的投影视图
-  - `tree`：给 `HierarchicalExecutionTree` / `ExecutionNode` 的树模型
-  - `ticker`：给 `SubtaskStatusTicker` 的当前活动/进度模型
+- `applyStep(state, step)`：实时 / reconnect 增量应用单条 canonical step
 
-`ChatViewV2.vue` 现在把消息流与执行树流拆开处理：
+projector 输出并维护：
 
-- 根最终答案、`message_saved`、可视化 ref 仍属于 message-first 链路
-- 执行树仅消费 `execution.step`
+- `rawSteps`：canonical step 列表
+- `subtasks` / `execution_steps`：兼容当前 UI 组件的投影视图
+- `multimodalContents`：从 `kind=visualization` step 投影出的历史可视化内容
+
+`ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
+
+- 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
+- 执行树只消费 `execution.step`
 - 历史消息加载和 reconnect 回放都复用同一个 projector
 
 ### SSE 事件类型处理
 
-前端实时执行树以 `execution.step` 为唯一事实来源；`ChatViewV2.vue` 中保留的旧 SSE 分支仅用于兼容历史/重连路径，不再处理 `react.intermediate` 或各类别名事件。
+前端执行树以 `execution.step` 为唯一事实来源，历史 / 实时 / reconnect 三条路径都走同一套 projector。
 
 | 事件类型 | 处理逻辑 |
 |---------|--------|
@@ -103,10 +105,10 @@ handleSend()
 | `agent.error` | 添加错误状态 |
 | `done` | 标记流结束 |
 
-旧事件兼容说明：
+说明：
+- 不再使用 raw event 状态机构建执行树。
 - 不再处理 `react.intermediate`。
-- 工具调用只认 `call.tool.start/end`。
-- thinking 事件只认 `agent.intent_delta/complete`，不再维护 `agent.thinking_*` 别名分支。
+- 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
 
 ## 消息数据结构
 
@@ -119,10 +121,10 @@ handleSend()
   content: string,               // 最终答案（流式拼接）
   subtasks: [],                  // 子任务列表
   execution_steps: [],           // 编排器执行步骤
-  multimodalContents: [],        // 可视化内容
+  multimodalContents: [],        // 历史 execution.step 中的可视化内容
   status: [],                    // 错误状态
-  toolCallRegistry: Map,         // 工具调用注册表
-  finished: boolean
+  finished: boolean,
+  _executionProjector: object    // 仅运行时内存态，不持久化
 }
 ```
 

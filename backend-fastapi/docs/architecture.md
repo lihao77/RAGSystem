@@ -205,39 +205,56 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 
 系统保持 **message-first** 主模型：`messages` 仍是会话主对象，`run_steps` / `execution_steps` 只是 assistant message / run 的执行轨迹 sidecar，通过 `(session_id, run_id)` 持久化并最终关联到 assistant `message_id`。
 
-统一执行树语义由 `execution/step_schema.py` + `execution/step_mapper.py` 提供：
+统一执行树的唯一事实源是 **canonical `execution.step`**：
 
-- step schema：`type=node|intent|tool` + `phase=start|delta|complete|end`
-- 公共字段：`id`, `node_id`, `parent_node_id`, `seq`, `ts`, `round`, `status`, `payload`
-- 根编排器固定为 `node_id=root`
-- 子 Agent 调用优先复用 `call_id` 作为 `node_id`
-- 子智能体 `output.final_answer` 会被归并进对应 `node/end.payload.output/result_summary`
+- 原始 EventBus 事件只作为运行时内部事件
+- `execution/step_projector.py` 监听原始事件并投影出 `execution.step`
+- `run_steps.step_type` 固定存 `execution.step`
+- `run_steps.payload` 直接存 canonical step data，不再存 raw event snapshot
+- `application/agent_session.py:list_messages()` 直接返回持久化的 canonical `execution_steps`
+- reconnect 回放 EventBus 历史时，前端看到的执行树事件也只有 `execution.step`
+
+canonical step 当前覆盖的语义：
+
+- `kind=run`, `phase=start|end`
+- `kind=subtask`, `phase=start|end`
+- `kind=intent`, `phase=delta|complete`
+- `kind=tool`, `phase=start|end`
+- `kind=visualization`, `phase=complete`
+
+典型字段：
+
+- 结构字段：`node_id`, `parent_node_id`, `call_id`, `parent_call_id`
+- 展示字段：`agent_name`, `agent_display_name`, `tool_name`, `description`, `content`
+- 状态字段：`round`, `status`, `elapsed_time`
+- 结果字段：`result`, `result_preview`, `raw_result`, `raw_result_ref`, `raw_result_available`
+- 追踪字段：`source_event_type`, `event_id`, `timestamp`, `_execution`
 
 不纳入 execution step 的内容：
 
 - 根智能体 `output.chunk`
 - 根智能体 `output.final_answer`
 - `output.message_saved`
-- artifact / 可视化数据
 - approval / user input / heartbeat / reconnect / done 等控制流
 
 ### Execution step 发布与持久化链路
 
 ```text
 原始 EventBus 事件
-  ├─ SSEAdapter → execution.step（仅执行树语义）
-  ├─ StreamPersistenceHandler/RunStepPersistenceHandler → run_steps（直接存 unified step）
+  ├─ StepProjector → execution.step
+  ├─ SSEAdapter → 纯转发 execution.step 与消息流事件
+  ├─ RunStepPersistenceHandler → run_steps（直接存 canonical execution.step）
   └─ MessagePersistenceHandler → messages（仅 user / root assistant final answer / compression）
 ```
 
 关键边界：
 
-- `agents/events/sse_adapter.py` 会把 agent / intent / tool / 子 agent final answer 映射成 `type=execution.step`
-- 根编排器的开始/结束语义统一由 `call.agent.start/end` 承担；`agent.start/end` 仅保留给子 Agent 生命周期事件
-- `api/v1/stream.py` reconnect 回放也会重放相同的 `execution.step` 结构，和实时流一致
-- `application/agent_session.py:list_messages()` 与 `export_session()` 对 assistant message 返回统一后的 `execution_steps`
-- `execution/runstep_normalizer.py` 已降级为 unified step 兼容包装层
-- `services/conversation_store.py:get_tool_call_raw_result()` 同时兼容新 `tool` step 与旧 `call.tool.end` 记录
+- `execution/step_projector.py` 是 raw event → canonical step 的唯一投影层
+- `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件
+- `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`
+- `application/agent_session.py:list_messages()` 与 `export_session()` 对 assistant message 直接返回持久化的 canonical `execution_steps`
+- `execution/runstep_normalizer.py` 已删除，不再存在 raw run_steps → normalized steps 的兼容层
+- `services/conversation_store.py:get_tool_call_raw_result()` 从 canonical `execution.step(kind=tool, phase=end)` 中读取工具原始结果
 
 ### 事件流转
 

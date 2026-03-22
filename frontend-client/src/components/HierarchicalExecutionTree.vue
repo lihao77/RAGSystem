@@ -39,6 +39,73 @@ const props = defineProps({
   }
 });
 
+const createToolNode = (tool) => ({
+  type: 'tool_call',
+  call_id: tool.call_id,
+  tool_name: tool.tool_name,
+  arguments: tool.arguments,
+  result: tool.result,
+  result_preview: tool.result_preview,
+  raw_result: tool.raw_result,
+  raw_result_ref: tool.raw_result_ref,
+  raw_result_available: tool.raw_result_available,
+  status: tool.status,
+  elapsed_time: tool.elapsed_time,
+  expanded: tool.expanded || false
+});
+
+const createAgentCallNode = (subtask) => {
+  const agentCallNode = {
+    type: 'agent_call',
+    agent_name: subtask.agent_name,
+    agent_display_name: subtask.agent_display_name,
+    description: subtask.description,
+    result_summary: subtask.result_summary,
+    status: subtask.status,
+    order: subtask.order,
+    round: subtask.round,
+    round_index: subtask.round_index,
+    expanded: subtask.expanded || false,
+    ctx: subtask.ctx || null,
+    children: []
+  };
+
+  const attachedToolIds = new Set();
+  if (subtask.react_steps && subtask.react_steps.length > 0) {
+    subtask.react_steps.forEach(reactStep => {
+      const reactTools = Array.isArray(reactStep.toolCalls) ? reactStep.toolCalls : [];
+      reactTools.forEach(tool => {
+        if (tool?.call_id) attachedToolIds.add(tool.call_id);
+      });
+
+      const hasIntent = Boolean(reactStep.intent || reactStep.thinking || reactStep.thought);
+      if (!hasIntent) {
+        reactTools.forEach(tool => {
+          agentCallNode.children.push(createToolNode(tool));
+        });
+        return;
+      }
+
+      const reactNode = {
+        type: 'thought',
+        agent: subtask.agent_name,
+        agent_display_name: subtask.agent_display_name,
+        round: reactStep.round,
+        intent: reactStep.intent || reactStep.thinking || reactStep.thought || '',
+        children: reactTools.map(createToolNode)
+      };
+      agentCallNode.children.push(reactNode);
+    });
+  }
+
+  const directTools = (subtask.tool_calls || []).filter(tool => !tool?.call_id || !attachedToolIds.has(tool.call_id));
+  directTools.forEach(tool => {
+    agentCallNode.children.push(createToolNode(tool));
+  });
+
+  return agentCallNode;
+};
+
 /**
  * 将 execution_steps 和 subtasks 合并为层次化的执行树
  *
@@ -100,6 +167,22 @@ const executionTree = computed(() => {
       return aOrder - bOrder;
     });
 
+    const hasOrchestratorContent = Boolean(
+      executionStep && (
+        executionStep.intent ||
+        executionStep.thinking ||
+        executionStep.thought ||
+        (executionStep.toolCalls && executionStep.toolCalls.length > 0)
+      )
+    );
+
+    if (!hasOrchestratorContent && subtasksInRound.length > 0) {
+      subtasksInRound.forEach(subtask => {
+        tree.push(createAgentCallNode(subtask));
+      });
+      return;
+    }
+
     // 创建编排器 intent 节点
     const node = {
       type: 'thought',
@@ -113,77 +196,13 @@ const executionTree = computed(() => {
     // 添加编排器的工具调用
     if (executionStep && executionStep.toolCalls && executionStep.toolCalls.length > 0) {
       executionStep.toolCalls.forEach(tool => {
-        node.children.push({
-          type: 'tool_call',
-          call_id: tool.call_id,
-          tool_name: tool.tool_name,
-          arguments: tool.arguments,
-          result: tool.result,
-          result_preview: tool.result_preview,
-          raw_result: tool.raw_result,
-          raw_result_ref: tool.raw_result_ref,
-          raw_result_available: tool.raw_result_available,
-          status: tool.status,
-          elapsed_time: tool.elapsed_time,
-          expanded: tool.expanded || false
-        });
+        node.children.push(createToolNode(tool));
       });
     }
 
     // 添加该轮次的子任务
     subtasksInRound.forEach(subtask => {
-      const agentCallNode = {
-        type: 'agent_call',
-        agent_name: subtask.agent_name,
-        agent_display_name: subtask.agent_display_name,
-        description: subtask.description,
-        result_summary: subtask.result_summary,
-        status: subtask.status,
-        order: subtask.order,
-        round: subtask.round,
-        round_index: subtask.round_index,
-        expanded: subtask.expanded || false,
-        ctx: subtask.ctx || null,
-        children: []
-      };
-
-      // 添加子任务的 ReAct 步骤
-      if (subtask.react_steps && subtask.react_steps.length > 0) {
-        subtask.react_steps.forEach(reactStep => {
-          const reactNode = {
-            type: 'thought',
-            agent: subtask.agent_name,
-            agent_display_name: subtask.agent_display_name,
-            round: reactStep.round,
-            intent: reactStep.intent || reactStep.thinking || reactStep.thought || '',
-            children: []
-          };
-
-          // 添加该 ReAct 步骤的工具调用
-          if (reactStep.toolCalls && reactStep.toolCalls.length > 0) {
-            reactStep.toolCalls.forEach(tool => {
-              reactNode.children.push({
-                type: 'tool_call',
-                call_id: tool.call_id,
-                tool_name: tool.tool_name,
-                arguments: tool.arguments,
-                result: tool.result,
-                result_preview: tool.result_preview,
-                raw_result: tool.raw_result,
-                raw_result_ref: tool.raw_result_ref,
-                raw_result_available: tool.raw_result_available,
-                status: tool.status,
-                elapsed_time: tool.elapsed_time,
-                expanded: tool.expanded || false
-              });
-            });
-          }
-
-          agentCallNode.children.push(reactNode);
-        });
-      }
-
-      node.children.push(agentCallNode);
+      node.children.push(createAgentCallNode(subtask));
     });
 
     tree.push(node);

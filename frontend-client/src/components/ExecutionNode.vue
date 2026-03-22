@@ -2,14 +2,14 @@
   <div class="execution-node" :class="node.type">
     <!-- 意图节点 -->
     <div v-if="node.type === 'thought'" class="node-thought" :class="{ running: isRunning }">
-      <div class="thought-header" v-if="node.round">
+      <div class="thought-header" v-if="node.round || node.agent_display_name || node.agent">
         <span class="agent-badge" :class="getAgentClass(node.agent)">
           <transition name="status-dot-fade">
             <span v-if="isRunning" class="badge-status-dot running"></span>
           </transition>
           {{ node.agent_display_name || node.agent }}
         </span>
-        <span class="round-badge">轮次 {{ node.round }}</span>
+        <span v-if="showRoundBadge" class="round-badge">轮次 {{ node.round }}</span>
       </div>
       <div class="thought-content" v-if="node.intent || node.thought">{{ node.intent || node.thought }}</div>
       <div class="thought-thinking" v-else-if="isRunning">
@@ -289,19 +289,12 @@ const isRunning = computed(() => {
   return false;
 });
 
-// agent_call 节点下的工具调用总数（递归统计 children 中 tool_call 类型）
-const toolCallCount = computed(() => {
-  if (props.node.type !== 'agent_call') return 0;
-  let count = 0;
-  const walk = (children) => {
-    if (!children) return;
-    for (const child of children) {
-      if (child.type === 'tool_call') count++;
-      if (child.children) walk(child.children);
-    }
-  };
-  walk(props.node.children);
-  return count;
+const isOrchestratorThought = computed(() => {
+  return props.node?.type === 'thought' && (!props.node?.agent || props.node?.agent === 'orchestrator_agent');
+});
+
+const showRoundBadge = computed(() => {
+  return Boolean(props.node?.round);
 });
 
 // 收集所有 tool_call 的状态序列（保持执行顺序）

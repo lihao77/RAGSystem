@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""Project raw run events into canonical execution.step events."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from agents.events.bus import Event, EventPriority, EventType
+from execution.observability import attach_execution_metadata, extract_observability_fields
+
+
+_PROJECTABLE_EVENT_TYPES = [
+    EventType.RUN_START,
+    EventType.RUN_END,
+    EventType.INTENT_DELTA,
+    EventType.INTENT_COMPLETE,
+    EventType.CALL_AGENT_START,
+    EventType.CALL_AGENT_END,
+    EventType.CALL_TOOL_START,
+    EventType.CALL_TOOL_END,
+    EventType.CHART_GENERATED,
+    EventType.MAP_GENERATED,
+]
+
+
+class StepProjector:
+    """Listen to raw agent events and republish canonical execution.step events."""
+
+    def __init__(self, *, event_bus, session_id: str):
+        self.event_bus = event_bus
+        self.session_id = session_id
+        self._subscription_id: Optional[str] = None
+
+    def subscribe(self) -> str:
+        if self._subscription_id:
+            return self._subscription_id
+        self._subscription_id = self.event_bus.subscribe(
+            event_types=_PROJECTABLE_EVENT_TYPES,
+            handler=self._handle_event,
+            filter_func=lambda event: event.session_id == self.session_id,
+            priority=100,
+        )
+        return self._subscription_id
+
+    def unsubscribe(self) -> None:
+        if not self._subscription_id:
+            return
+        try:
+            self.event_bus.unsubscribe(self._subscription_id)
+        finally:
+            self._subscription_id = None
+
+    def _handle_event(self, event: Event) -> None:
+        step = self.project_event(event)
+        if not step:
+            return
+
+        observability = extract_observability_fields(event.data or {})
+        payload = attach_execution_metadata(step, **observability)
+        self.event_bus.publish(Event(
+            type=EventType.EXECUTION_STEP,
+            data=payload,
+            priority=event.priority if isinstance(event.priority, EventPriority) else EventPriority.NORMAL,
+            session_id=event.session_id,
+            trace_id=event.trace_id,
+            span_id=event.span_id,
+            agent_name=payload.get('agent_name') or event.agent_name,
+            call_id=payload.get('call_id') or event.call_id,
+            parent_call_id=payload.get('parent_call_id') or event.parent_call_id,
+        ))
+
+    def project_event(self, event: Event) -> Optional[Dict[str, Any]]:
+        event_type = event.type.value if hasattr(event.type, 'value') else str(event.type)
+        data = event.data or {}
+        agent_name = data.get('agent_name') or event.agent_name
+        call_id = event.call_id
+        parent_call_id = event.parent_call_id
+        base = {
+            'node_id': call_id,
+            'parent_node_id': parent_call_id,
+            'call_id': call_id,
+            'parent_call_id': parent_call_id,
+            'agent_name': agent_name,
+            'source_event_type': event_type,
+            'timestamp': event.timestamp,
+            'event_id': event.event_id,
+        }
+
+        if event.type == EventType.RUN_START:
+            run_id = data.get('run_id')
+            description = ((data.get('metadata') or {}).get('task') or data.get('task') or '').strip()
+            return {
+                **base,
+                'kind': 'run',
+                'phase': 'start',
+                'node_id': call_id or run_id,
+                'call_id': call_id or run_id,
+                'run_id': run_id,
+                'description': description,
+                'status': 'running',
+            }
+
+        if event.type == EventType.RUN_END:
+            run_id = data.get('run_id')
+            status = data.get('status') or 'completed'
+            if status == 'success':
+                status = 'completed'
+            return {
+                **base,
+                'kind': 'run',
+                'phase': 'end',
+                'node_id': call_id or run_id,
+                'call_id': call_id or run_id,
+                'run_id': run_id,
+                'status': status,
+                'result': data.get('summary'),
+                'result_preview': data.get('summary'),
+            }
+
+        if event.type == EventType.CALL_AGENT_START:
+            if parent_call_id is None:
+                return None
+            return {
+                **base,
+                'kind': 'subtask',
+                'phase': 'start',
+                'agent_display_name': data.get('agent_display_name') or agent_name,
+                'description': data.get('description') or data.get('task') or '',
+                'round': data.get('round'),
+                'round_index': data.get('round_index'),
+                'order': data.get('order'),
+                'status': 'running',
+            }
+
+        if event.type == EventType.CALL_AGENT_END:
+            if parent_call_id is None:
+                return None
+            return {
+                **base,
+                'kind': 'subtask',
+                'phase': 'end',
+                'agent_display_name': data.get('agent_display_name') or agent_name,
+                'order': data.get('order'),
+                'status': 'error' if data.get('success') is False else 'success',
+                'result': data.get('result_summary') or data.get('result'),
+                'result_preview': data.get('result_summary') or data.get('result'),
+            }
+
+        if event.type == EventType.INTENT_DELTA:
+            return {
+                **base,
+                'kind': 'intent',
+                'phase': 'delta',
+                'round': data.get('round'),
+                'status': 'running',
+                'content': data.get('content') or '',
+            }
+
+        if event.type == EventType.INTENT_COMPLETE:
+            return {
+                **base,
+                'kind': 'intent',
+                'phase': 'complete',
+                'round': data.get('round'),
+                'status': 'completed',
+                'content': data.get('content') or '',
+            }
+
+        if event.type == EventType.CALL_TOOL_START:
+            return {
+                **base,
+                'kind': 'tool',
+                'phase': 'start',
+                'tool_name': data.get('tool_name'),
+                'arguments': data.get('arguments') or {},
+                'round': data.get('round'),
+                'status': 'running',
+            }
+
+        if event.type == EventType.CALL_TOOL_END:
+            preview = data.get('result_preview')
+            if preview is None:
+                preview = data.get('result')
+            raw_result = data.get('raw_result')
+            return {
+                **base,
+                'kind': 'tool',
+                'phase': 'end',
+                'tool_name': data.get('tool_name'),
+                'round': data.get('round'),
+                'status': 'error' if data.get('success') is False else 'success',
+                'result': preview,
+                'result_preview': preview,
+                'raw_result': raw_result,
+                'raw_result_ref': data.get('raw_result_ref') or {},
+                'raw_result_available': bool(data.get('raw_result_available') or raw_result is not None),
+                'elapsed_time': data.get('elapsed_time') or data.get('execution_time'),
+                'resource_refs': data.get('resource_refs') or [],
+            }
+
+        if event.type in (EventType.CHART_GENERATED, EventType.MAP_GENERATED):
+            return {
+                **base,
+                'kind': 'visualization',
+                'phase': 'complete',
+                'visualization_type': 'chart' if event.type == EventType.CHART_GENERATED else 'map',
+                'status': 'completed',
+                'data': data,
+            }
+
+        return None
