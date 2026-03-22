@@ -185,18 +185,14 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
     if direct_tool_names:
         preview = ', '.join(direct_tool_names[:3])
         suffix = '...' if len(direct_tool_names) > 3 else ''
-        direct_tools_guide = f"\n9. 如果任务可以通过直接工具完成（{preview}{suffix}），优先直接调用，无需委派 Agent"
+        direct_tools_guide = f"如果任务可以通过直接工具完成（{preview}{suffix}），优先直接调用，无需委派 Agent。"
 
-    orchestration_section = f"""## 编排与委派规则
+    orchestration_section = f"""## Agent 委派说明
 
-- 先判断能否直接回答，或由一个直接工具完成；不要机械委派
-- 需要专业能力时，优先委派一个最匹配的子 Agent；只有确实存在依赖关系时才做多 Agent 链式调用
-- 子 Agent 返回数据文件时只返回文件路径（格式 `[data:路径]`），不返回文件内容；收到路径后直接传给下游 Agent 或工具
-- 委派子 Agent 时，task 中明确要求：“返回数据文件路径，不要返回文件内容”
-- 多个相互独立的任务可放在同一 `<tools>` 中并行
-- 如果上一轮结果已经足够，不要重复调用相同 Agent 或工具
-- 工具或 Agent 报错后，下一轮应换策略、补参数或缩小任务，不要机械重试
-- 最终答案使用用户语言，先给结论，再给必要细节；不确定处要明确说明边界
+- 可同时使用两类能力：`invoke_agent_xxx`（委派子 Agent）和“可直接调用的工具”段中的 direct 工具。
+- {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足以完成任务时，才委派子 Agent。'}
+- 子 Agent 默认不继承此前对话历史。不要写“继续上一步”这类依赖隐式上下文的任务；必须把目标、输入数据、已有结论、用户约束和期望输出格式显式写入 `task` 或 `context_hint`。
+- `task` 至少写清：目标、地区/时间/对象、关键约束、期望输出；需要传递已有结果时，显式写入结果摘要或使用占位符。
 
 调用 Agent：
 <tools>
@@ -205,29 +201,12 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 </tool>
 </tools>
 
-**task/context_hint 约束**：子 Agent 默认不继承此前对话历史。不要写“继续上一步”这类依赖隐式上下文的任务；必须把目标、输入数据、已有结论、用户约束和期望输出格式显式写入 `task` 或 `context_hint`。
-
-**推荐的子 Agent 任务写法**：
-- `task` 至少写清：目标、地区/时间/对象、关键约束、期望输出
-- 需要传递已有结果时，显式写入结果摘要或使用占位符
-
-**用占位符传递上步数据**：
+用占位符传递上步数据：
 <tools>
 <tool name="invoke_agent_chart_agent">
   <task>生成折线图，数据：{{result_1}}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'</task>
 </tool>
-</tools>
-
-## 编排专用规则
-
-1. 可同时使用两类能力：`invoke_agent_xxx`（委派子 Agent）和“可直接调用的工具”段中的 direct 工具
-2. 缺少关键输入且无法自行补齐时，用 `request_user_input`
-3. 互相独立的调用放同一 `<tools>` 中并行
-4. 链式调用用 {{result_1}}, {{result_2}} 引用同轮前序结果
-5. 数据充足时直接输出 `<final_answer>`
-6. 禁止输出 `<thinking>` 标签；`<intent>` 应使用 1-2 句自然语言概括当前判断或下一步计划，像人类的简短思考摘要；不要写成长篇推理，也可直接省略
-7. 不要写成“查数据”“调工具”“生成图表”“调用 chart_agent”这类命令式标签；应写成“我先确认数据是否完整，再决定是直接回答还是委派”这种内心独白
-8. 调用报错时下一轮换策略，不要原样重复{direct_tools_guide}"""
+</tools>"""
 
     return ["\n".join(agent_tools_desc_lines), orchestration_section]
 

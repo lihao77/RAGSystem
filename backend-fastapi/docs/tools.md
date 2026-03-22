@@ -103,7 +103,7 @@ def my_tool(arguments, **kwargs):
 
 ## 执行流程
 
-> 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 段。
+> 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 的专属操作说明；入口 orchestrator 的 YAML `system_prompt` 只保留业务路由信息，避免重复覆盖通用协议规则。
 
 ```
 execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, cancel_event)
@@ -168,6 +168,11 @@ class ToolExecutionResult:
 ```
 
 ### ToolContract（tool_definition_builder.py）
+
+`examples` 中的 `input` 同时用于 JSON 契约展示和 prompt 中的 XML 示例渲染：
+- 当示例需要展示 XML 属性（如 `space="transient"`）时，不要把 `<file_path ...>...</file_path>` 或 `<working_dir ...>...</working_dir>` 作为字符串塞进 `input`
+- 应保持 `input.file_path="tmp.txt"` / `input.working_dir="."`，并额外通过 `xml_attrs` 描述要渲染到 XML 标签上的属性
+- JSON 调用时应显式传 `file_path_space` / `working_dir_space`，不要传字符串化 XML 标签
 
 ```python
 @dataclass

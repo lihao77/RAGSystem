@@ -164,7 +164,8 @@ DOCUMENT_TOOL_CONTRACTS = [
             "若在同一轮链式调用，可引用 {result_N.content.file_path}",
             "修改已有文件的部分内容时，请优先使用 edit_file 工具进行精准替换",
             "content.display_path 是可读展示路径，仅用于向用户展示",
-            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "相对 file_path 默认按 workspace 解析；XML 直接调用时可写成 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "JSON 参数调用时，不要把 <file_path ...>...</file_path> 当作字符串塞进 file_path；应传 file_path='foo.txt' 并配合 file_path_space='workspace|transient|exports'",
             "file_path 的 space 仅影响相对路径；若不传 file_path，仍由 default_output_space 决定自动分配到 workspace/transient/exports",
         ],
         examples=[
@@ -180,7 +181,10 @@ DOCUMENT_TOOL_CONTRACTS = [
             {
                 "input": {
                     "content": "temporary text",
-                    "file_path": "<file_path space=\"transient\">tmp.txt</file_path>",
+                    "file_path": "tmp.txt",
+                },
+                "xml_attrs": {
+                    "file_path": {"space": "transient"},
                 },
                 "result_hint": {
                     "display_path": "./data/sessions/<session_id>/transient/tmp.txt",
@@ -189,7 +193,10 @@ DOCUMENT_TOOL_CONTRACTS = [
             {
                 "input": {
                     "content": "# report",
-                    "file_path": "<file_path space=\"exports\">report.md</file_path>",
+                    "file_path": "report.md",
+                },
+                "xml_attrs": {
+                    "file_path": {"space": "exports"},
                 },
                 "result_hint": {
                     "display_path": "./data/sessions/<session_id>/exports/<run_id>/report.md",
@@ -255,7 +262,8 @@ DOCUMENT_TOOL_CONTRACTS = [
             "可用 offset/limit 指定行号区间",
             "返回内容为文件原始文本内容，不附带行号",
             "file_path 必须是真实路径字符串，不是变量名文本",
-            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "相对 file_path 默认按 workspace 解析；XML 直接调用时可写成 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "JSON 参数调用时，不要把 <file_path ...>...</file_path> 当作字符串塞进 file_path；应传 file_path='foo.txt' 并配合 file_path_space='workspace|transient|exports'",
             "space 仅影响相对路径的解析根；绝对路径仍只做受管边界校验",
             "数据文件（JSON/GeoJSON/CSV）已有路径时，优先用 preview_data_structure 确认结构；需要确认数据完整性时可用 read_file（带 limit）检查，但确认后只传递文件路径，不要把内容输出到 final_answer",
         ],
@@ -266,6 +274,17 @@ DOCUMENT_TOOL_CONTRACTS = [
                 },
                 "result_hint": {
                     "content": "{\"city\": \"Nanning\"}",
+                },
+            },
+            {
+                "input": {
+                    "file_path": "tmp.txt",
+                },
+                "xml_attrs": {
+                    "file_path": {"space": "transient"},
+                },
+                "result_hint": {
+                    "content": "temporary text",
                 },
             },
             {
@@ -424,7 +443,23 @@ DOCUMENT_TOOL_CONTRACTS = [
             "默认要求唯一匹配；多处匹配时设 replace_all=true",
             "new_string 为空字符串表示删除",
             "建议先用 read_file 确认要编辑的内容再调用",
-            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "相对 file_path 默认按 workspace 解析；XML 直接调用时可写成 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "JSON 参数调用时，不要把 <file_path ...>...</file_path> 当作字符串塞进 file_path；应传 file_path='foo.txt' 并配合 file_path_space='workspace|transient|exports'",
+        ],
+        examples=[
+            {
+                "input": {
+                    "file_path": "note.txt",
+                    "old_string": "before",
+                    "new_string": "updated",
+                },
+                "xml_attrs": {
+                    "file_path": {"space": "workspace"},
+                },
+                "result_hint": {
+                    "replacements": 1,
+                },
+            }
         ],
         source="document",
     ),

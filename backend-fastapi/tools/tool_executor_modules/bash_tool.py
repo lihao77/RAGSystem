@@ -237,17 +237,30 @@ def _resolve_work_dir(
         "禁止重定向写入（> >>），但允许 2>/dev/null 和 2>&1",
         "管道中每段命令都必须在白名单内",
         "默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/",
-        "相对 working_dir 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <working_dir space=\"workspace\">.</working_dir>、<working_dir space=\"transient\">.</working_dir>、<working_dir space=\"exports\">.</working_dir>",
+        "相对 working_dir 默认按 workspace 解析；XML 直接调用时可写成 <working_dir space=\"workspace\">.</working_dir>、<working_dir space=\"transient\">.</working_dir>、<working_dir space=\"exports\">.</working_dir>",
+        "JSON 参数调用时，不要把 <working_dir ...>...</working_dir> 当作字符串塞进 working_dir；应传 working_dir='.' 并配合 working_dir_space='workspace|transient|exports'",
         "working_dir 的 space 仅影响相对目录；绝对路径仍只做受管边界校验",
         "working_dir_space=exports 需要当前运行上下文提供 run_id",
         "超时 30 秒自动终止",
     ],
     examples=[
         {"input": {"command": "pwd"}},
-        {"input": {"command": "grep -rn '关键词' .", "working_dir": "<working_dir space=\"workspace\">.</working_dir>"}},
-        {"input": {"command": "find . -name '*.json' | head -20", "working_dir": "<working_dir space=\"transient\">.</working_dir>"}},
-        {"input": {"command": "ls -1", "working_dir": "logs", "working_dir_space": "workspace"}},
-        {"input": {"command": "find . -name '*.md' | wc -l", "working_dir": "<working_dir space=\"exports\">.</working_dir>"}},
+        {
+            "input": {"command": "grep -rn '关键词' .", "working_dir": "."},
+            "xml_attrs": {"working_dir": {"space": "workspace"}},
+        },
+        {
+            "input": {"command": "find . -name '*.json' | head -20", "working_dir": "."},
+            "xml_attrs": {"working_dir": {"space": "transient"}},
+        },
+        {
+            "input": {"command": "ls -1", "working_dir": "logs"},
+            "xml_attrs": {"working_dir": {"space": "workspace"}},
+        },
+        {
+            "input": {"command": "find . -name '*.md' | wc -l", "working_dir": "."},
+            "xml_attrs": {"working_dir": {"space": "exports"}},
+        },
     ],
 )
 def execute_bash(

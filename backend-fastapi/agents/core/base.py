@@ -177,8 +177,6 @@ class BaseAgent(ABC):
             return "当前无可用的领域知识。"
 
         lines = [
-            "## 领域知识 Skills",
-            "",
             "以下是可用的领域知识 Skills。使用流程：",
             "",
             "**第 1 步**：当任务匹配某个 Skill 的场景时，调用 `activate_skill(skill_name)` 激活它",
@@ -225,6 +223,39 @@ class BaseAgent(ABC):
         return f"  <{key}>{json.dumps(value, ensure_ascii=False)}</{key}>"
 
     @staticmethod
+    def _render_tool_example(example: Dict[str, Any], tool_name: str) -> str:
+        params = example.get('input') if isinstance(example.get('input'), dict) else example
+        extra = {k: v for k, v in example.items() if k != 'input'}
+        xml_attrs = extra.pop('xml_attrs', {}) if isinstance(extra.get('xml_attrs'), dict) else {}
+        xml_parts = []
+        for key, value in params.items():
+            attrs = xml_attrs.get(key)
+            if isinstance(attrs, dict) and attrs:
+                attr_text = ' '.join(f'{attr}="{attr_value}"' for attr, attr_value in attrs.items())
+                if isinstance(value, list):
+                    item_parts = []
+                    for item in value:
+                        if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
+                            item_parts.append(f"    <item><![CDATA[{item}]]></item>")
+                        else:
+                            item_parts.append(f"    <item>{item}</item>")
+                    rendered = f"  <{key} {attr_text}>\n" + "\n".join(item_parts) + f"\n  </{key}>"
+                elif isinstance(value, str) and ('\n' in value or '<' in value or '>' in value or '&' in value):
+                    rendered = f"  <{key} {attr_text}><![CDATA[{value}]]></{key}>"
+                else:
+                    scalar = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                    rendered = f"  <{key} {attr_text}>{scalar}</{key}>"
+                xml_parts.append(rendered)
+                continue
+            xml_parts.append(BaseAgent._render_tool_example_param(key, value))
+        xml_block = "\n".join(xml_parts)
+        block = f"  ```xml\n  <tool name=\"{tool_name}\">\n{xml_block}\n  </tool>\n  ```"
+        if extra:
+            hint_lines = [f"  <!-- {k}: {json.dumps(v, ensure_ascii=False)} -->" for k, v in extra.items()]
+            block += "\n" + "\n".join(hint_lines)
+        return block
+
+    @staticmethod
     def _format_tool_contract(tool_or_func: Dict[str, Any]) -> List[str]:
         func = tool_or_func.get('function', tool_or_func)
         lines: List[str] = []
@@ -249,15 +280,7 @@ class BaseAgent(ABC):
         if examples:
             lines.append("**示例**:")
             for example in examples:
-                params = example.get('input') if isinstance(example.get('input'), dict) else example
-                extra = {k: v for k, v in example.items() if k != 'input'}
-                xml_parts = [BaseAgent._render_tool_example_param(k, v) for k, v in params.items()]
-                xml_block = "\n".join(xml_parts)
-                block = f"  ```xml\n  <tool name=\"{func.get('name', '...')}\">\n{xml_block}\n  </tool>\n  ```"
-                if extra:
-                    hint_lines = [f"  <!-- {k}: {json.dumps(v, ensure_ascii=False)} -->" for k, v in extra.items()]
-                    block += "\n" + "\n".join(hint_lines)
-                lines.append(block)
+                lines.append(BaseAgent._render_tool_example(example, func.get('name', '...')))
 
         return lines
 
@@ -426,7 +449,7 @@ class BaseAgent(ABC):
 答案内容
 </final_answer>
 
-如需补充一段简短意图（可选，建议 1-2 句自然语言，像人在心里做下一步判断，不要展开冗长推理）：
+如需补充一段简短意图（可选，用 1-2 句自然语言概括当前判断或下一步计划，像人在心里做下一步判断，不要展开冗长推理）：
 <intent>我先确认现有信息是否足够，再决定是直接回答还是调用工具。</intent>
 <tools>...</tools>
 
@@ -439,15 +462,11 @@ class BaseAgent(ABC):
         return """## 执行规则
 
 1. 只能使用上面列出的工具
-2. `<intent>` 用 1-2 句自然语言概括当前判断或下一步计划；要像人类的简短思考摘要，不要写成长篇推理；也可省略
-   不要写成“查数据”“调工具”“生成图表”“激活技能”这类命令式标签；应写成“我先确认数据范围，再决定是否需要进一步处理”这种内心独白
-3. 互相独立的工具调用放同一 `<tools>` 中并行
-4. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
-5. 数据足够时直接输出 `<final_answer>`
-6. 缺少关键输入且无法自行补齐时，用 `request_user_input`
-7. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
-8. 工具结果中返回的文件路径应直接传给后续工具或 `execute_code` 处理，不要试图读取大文件内容到上下文
-9. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
+2. 互相独立的工具调用放同一 `<tools>` 中并行
+3. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
+4. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
+5. 工具结果中返回的文件路径应直接传给后续工具或 `execute_code` 处理，不要试图读取大文件内容到上下文
+6. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
 
     def _has_tool(self, tool_name: str) -> bool:
         return any(
@@ -485,7 +504,7 @@ class BaseAgent(ABC):
 在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，只能调用以下工具：
 {tools_list}
 
-`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`，不是包含 `content / summary / metadata` 的完整响应对象。
+`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`；如果需要完整响应壳，不要假设它会返回 `content / summary / metadata` 结构。
 
 三个受管目录 `space` 的语义与 direct 文件工具、`execute_bash` 完全一致：
 - `workspace`: 当前 effective workspace
@@ -527,8 +546,6 @@ risk = call_tool('assess_flood_risk', {{
     'warning_level': 70.0
 }})['content']
 ```
-
-如果需要完整工具响应壳，不要假设 `call_tool()` 会返回该结构；当前只能拿到主内容后自行处理。
 
 未列出的工具不能从代码中调用，只能直接作为 action 使用。"""
 

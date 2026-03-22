@@ -103,7 +103,7 @@ POST /api/agent/stream {task, session_id, selected_llm}
 提示词职责分层：
 - `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
 - `ReActAgent`：仅保留必要的类型级薄扩展（当前无额外追加段）
-- `OrchestratorAgent`：只追加 Agent delegation / 编排规则段
+- `OrchestratorAgent`：YAML `system_prompt` 仅保留业务身份与路由规则，代码侧只追加一段精简的 Agent delegation / task 编写说明，避免与共享 skeleton 重复
 
 ### OrchestratorAgent（agents/implementations/orchestrator/）
 
@@ -162,6 +162,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 - 路径解析统一由 `tools/path_resolution.py` 提供：文件走 `resolve_managed_path()`，目录走 `resolve_managed_directory()`，并按 caller / operation 选择受管边界
 - XML 工具参数里的 `<file_path space="workspace|transient|exports">...</file_path>` 与 `<working_dir space="workspace|transient|exports">...</working_dir>` 会在 `tool_xml_parser.py` 中分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
+- ToolContract 示例渲染时，若要展示 XML 属性（如 `space="transient"`），需通过示例元数据 `xml_attrs` 渲染到标签属性；不要把 `<file_path ...>...</file_path>` / `<working_dir ...>...</working_dir>` 当作 JSON 字符串参数示例
 - `file_path@space` 与 `working_dir@space` 属于同一套 managed location language：`workspace` 指向当前 effective workspace，`transient` 指向当前 session 的 transient 目录，`exports` 指向当前 session 的 exports/<run_id>
 - `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
