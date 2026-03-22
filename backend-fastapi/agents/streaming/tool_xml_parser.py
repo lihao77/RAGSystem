@@ -54,6 +54,7 @@ VARIABLE_KEY_PATTERN = re.compile(
 )
 
 CDATA_PATTERN = re.compile(r'^\s*<!\[CDATA\[(.*)\]\]>\s*$', re.DOTALL)
+XML_ATTRIBUTE_PATTERN = re.compile(r'([A-Za-z_][\w:-]*)\s*=\s*"([^"]*)"')
 
 # 匹配 XML 子标签中 CDATA 包裹的字段：<code><![CDATA[...]]></code>
 XML_CDATA_FIELD_PATTERN = re.compile(
@@ -148,15 +149,22 @@ def _coerce_xml_value(value: str) -> Any:
     return value
 
 
-def _extract_toplevel_xml_fields(args_str: str) -> List[Tuple[str, str, bool]]:
+def _extract_tag_attributes(raw_attrs: str) -> Dict[str, str]:
+    attrs: Dict[str, str] = {}
+    for key, value in XML_ATTRIBUTE_PATTERN.findall(raw_attrs):
+        attrs[key.strip()] = value.strip()
+    return attrs
+
+
+def _extract_toplevel_xml_fields(args_str: str) -> List[Tuple[str, str, Dict[str, str], bool]]:
     """
-    提取顶层 XML 子标签，返回 [(tag, value, is_cdata), ...]。
+    提取顶层 XML 子标签，返回 [(tag, value, attrs, is_cdata), ...]。
     单次顺序扫描：按开标签出现顺序提取，外层标签消费整个区间后，
     内部嵌套标签自然被跳过。
     """
-    results: List[Tuple[str, str, bool]] = []
-    # 匹配开标签（不含自闭合），捕获标签名
-    open_tag_pattern = re.compile(r'<([^/>\s!][^>\s]*)>')
+    results: List[Tuple[str, str, Dict[str, str], bool]] = []
+    # 匹配开标签（不含自闭合），捕获标签名和原始属性串
+    open_tag_pattern = re.compile(r'<([^/>\s!][^>\s]*)([^>]*)>')
     pos = 0
 
     while pos < len(args_str):
@@ -165,11 +173,12 @@ def _extract_toplevel_xml_fields(args_str: str) -> List[Tuple[str, str, bool]]:
             break
 
         tag = m.group(1).strip()
+        attrs = _extract_tag_attributes(m.group(2) or "")
         content_start = m.end()
 
         # 尝试找到匹配的闭标签（处理同名嵌套）
         close_tag = f'</{tag}>'
-        open_tag_re = re.compile(rf'<{re.escape(tag)}[\s>]')
+        open_tag_re = re.compile(rf'<{re.escape(tag)}(?:\s[^>]*)?>')
         search_pos = content_start
         depth = 1
         found = False
@@ -196,9 +205,9 @@ def _extract_toplevel_xml_fields(args_str: str) -> List[Tuple[str, str, bool]]:
                 # 检查值是否是 CDATA 包裹
                 cdata_m = CDATA_PATTERN.match(value)
                 if cdata_m:
-                    results.append((tag, cdata_m.group(1), True))
+                    results.append((tag, cdata_m.group(1), attrs, True))
                 else:
-                    results.append((tag, value, False))
+                    results.append((tag, value, attrs, False))
                 pos = tag_end  # 跳过整个标签区间，内部标签不再扫描
                 found = True
                 break
@@ -245,7 +254,7 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
         return None
 
     result = {}
-    for tag, value, is_cdata in fields:
+    for tag, value, attrs, is_cdata in fields:
         if is_cdata:
             # arguments 标签的 CDATA 内容尝试按列表解析，其余原样保留
             if tag == "arguments":
@@ -256,6 +265,9 @@ def _try_parse_xml_arguments(args_str: str) -> Optional[Dict[str, Any]]:
             result[tag] = _parse_list_value(value)
         else:
             result[tag] = _coerce_xml_value(value.strip())
+
+        if tag in {"file_path", "working_dir"} and attrs.get("space"):
+            result[f"{tag}_space"] = attrs["space"].strip()
 
     return result if result else None
 

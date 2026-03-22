@@ -51,7 +51,7 @@ backend-fastapi/
 |---|---|---|---|---|
 | `sandbox` | `./data/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里 |
 | `transient` | `./data/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `document_executor.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付 |
-| `workspace` | `./data/sessions/<session_id>/workspace/` | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 给 agent/tool 持续编辑、复用 |
+| `workspace` | 默认 `./data/sessions/<session_id>/workspace/`；若 session.metadata.workspace_root 已配置，则指向该外部绝对目录 | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 仅 workspace 工具语义可切到会话级外部目录；uploads 等其他桶不受影响 |
 | `exports` | `./data/sessions/<session_id>/exports/<run_id>/` 或 `./data/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
 | `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录 |
 | `uploads` | `./data/sessions/<session_id>/uploads/` | 用户上传文件 | `api/v1/files.py` | 上传 API 专用目录 |
@@ -147,20 +147,27 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 ### 文档工具路径预处理
 
-文档工具（read_document, read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化：
+文档工具（read_document, read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化；`execute_bash` 则在 `bash_tool.py` 内部独立完成工作目录解析：
 
 ```
-占位符替换 → 路径预处理 → tool 执行 → resource scope 推断/清理
+占位符替换 → 路径预处理 / 工作目录解析 → tool 执行 → resource scope 推断/清理
 ```
 
-- 路径解析统一由 `tools/path_resolution.py` 的 `resolve_managed_path()` 完成，并按 caller / operation 选择受管边界
-- `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），不再落到系统 temp
+- 路径解析统一由 `tools/path_resolution.py` 提供：文件走 `resolve_managed_path()`，目录走 `resolve_managed_directory()`，并按 caller / operation 选择受管边界
+- XML 工具参数里的 `<file_path space="workspace|transient|exports">...</file_path>` 与 `<working_dir space="workspace|transient|exports">...</working_dir>` 会在 `tool_xml_parser.py` 中分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
+- `file_path@space` 与 `working_dir@space` 属于同一套 managed location language：`workspace` 指向当前 effective workspace，`transient` 指向当前 session 的 transient 目录，`exports` 指向当前 session 的 exports/<run_id>
+- `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
+- direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
+- `workspace` 的默认物理目录仍是 `./data/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
+- `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；`create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，避免污染全局 YAML / 其他会话
+- `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），其中 `default_output_space=workspace` 会落到当前 effective workspace，而不是固定写死到 session/workspace
 - direct 文档工具链会在进入 `document_executor.py` 前完成路径预处理；开发期已移除对历史旧目录的读取兼容，tool 实现层只接受当前受管目录内的绝对路径
 - 文档工具里的 `read_file` / `write_file` / `edit_file` 现在仅允许 `direct` 调用，不再对 `caller=code_execution` 开放
-- sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录
+- sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
+- `execute_bash` 不接入 document dispatcher；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
 - `execute_code` 现已改为“主进程协调 + 沙箱子进程执行”模型：主进程负责静态检查、路径解析、审批等待、工具分发与超时/取消回收，子进程只负责受限 `exec()`；超时和 cancel 会直接终止子进程，因此不再依赖线程内逻辑超时
 - dispatcher 对 `execute_code` 做特殊收口：不再走通用 `_run_with_timeout()` 线程包装，而是把 `cancel_event` 直接注入 `code_sandbox.py`，由沙箱内部统一管理 timeout / cancel 语义
-- 因此，文档工具路径预处理与沙箱文件访问是两条职责分离的路径：前者服务 agent direct 文件工具，后者服务 execute_code 内部文件操作
+- 因此，direct 文件工具路径预处理、bash 工作目录解析与沙箱文件访问是三条职责分离但共享同一受管路径语言的链路
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
 

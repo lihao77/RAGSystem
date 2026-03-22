@@ -49,6 +49,16 @@ _ANONYMOUS_SESSION_ID = "anonymous"
 _READ_OPERATIONS = {"read"}
 _WRITE_OPERATIONS = {"write", "edit", "output"}
 _VALID_OPERATIONS = _READ_OPERATIONS | _WRITE_OPERATIONS
+_VALID_EXPLICIT_SPACES = {"workspace", "transient", "exports"}
+
+
+def _normalize_explicit_space(explicit_space: str | None) -> str | None:
+    value = (explicit_space or "").strip().lower()
+    if not value:
+        return None
+    if value not in _VALID_EXPLICIT_SPACES:
+        raise ValueError(f"不支持的显式空间: {explicit_space}")
+    return value
 
 
 def _normalize_session_id(session_id: str | None, *, required: bool = False, feature: str = "路径解析") -> str | None:
@@ -91,6 +101,18 @@ def get_session_sandbox_root(session_id: str) -> Path:
 
 def get_session_workspace_root(session_id: str) -> Path:
     return get_session_root(session_id) / "workspace"
+
+
+def get_effective_workspace_root(
+    session_id: str | None,
+    workspace_root: str | Path | None = None,
+) -> Path | None:
+    explicit_workspace = Path(workspace_root).resolve() if workspace_root else None
+    if explicit_workspace is not None:
+        return explicit_workspace
+    if session_id:
+        return get_session_workspace_root(session_id)
+    return None
 
 
 def get_session_transient_root(session_id: str) -> Path:
@@ -154,12 +176,13 @@ def _dedupe_paths(paths: Iterable[Path | None]) -> list[Path]:
     return result
 
 
-def _session_read_roots(session_id: str | None, run_id: str | None) -> list[Path]:
+def _session_read_roots(session_id: str | None, run_id: str | None, workspace_root: str | Path | None = None) -> list[Path]:
     if not session_id:
         return []
+    effective_workspace = get_effective_workspace_root(session_id, workspace_root)
     roots = [
         get_session_sandbox_root(session_id),
-        get_session_workspace_root(session_id),
+        effective_workspace,
         get_session_transient_root(session_id),
         get_session_uploads_root(session_id),
         get_session_visualizations_root(session_id),
@@ -176,17 +199,16 @@ def _direct_write_roots(
     run_id: str | None,
     workspace_root: str | Path | None,
 ) -> list[Path]:
-    explicit_workspace = Path(workspace_root).resolve() if workspace_root else None
+    effective_workspace = get_effective_workspace_root(session_id, workspace_root)
     if session_id:
         roots = [
-            explicit_workspace,
-            get_session_workspace_root(session_id),
+            effective_workspace,
             get_session_transient_root(session_id),
             get_export_run_root(session_id, run_id) if run_id else get_session_exports_root(session_id),
         ]
         return _dedupe_paths(roots)
-    if explicit_workspace is not None:
-        return _dedupe_paths([explicit_workspace])
+    if effective_workspace is not None:
+        return _dedupe_paths([effective_workspace])
     return [_anonymous_session_root() / "transient"]
 
 
@@ -198,16 +220,16 @@ def _relative_candidate_roots(
     operation: str,
     workspace_root: str | Path | None,
 ) -> list[Path]:
-    explicit_workspace = Path(workspace_root).resolve() if workspace_root else None
+    effective_workspace = get_effective_workspace_root(session_id, workspace_root)
 
     if caller == "code_execution":
         sandbox_root = get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox"
         if operation in _WRITE_OPERATIONS:
             return [sandbox_root.resolve()]
-        session_roots = _session_read_roots(session_id, run_id)
+        session_roots = _session_read_roots(session_id, run_id, workspace_root)
         return _dedupe_paths([
             sandbox_root,
-            explicit_workspace,
+            effective_workspace,
             *session_roots,
         ])
 
@@ -215,9 +237,8 @@ def _relative_candidate_roots(
         return _direct_write_roots(session_id, run_id, workspace_root)
 
     return _dedupe_paths([
-        explicit_workspace,
-        get_session_workspace_root(session_id) if session_id else None,
-        *_session_read_roots(session_id, run_id),
+        effective_workspace,
+        *_session_read_roots(session_id, run_id, workspace_root),
         DATA_ROOT,
     ])
 
@@ -230,24 +251,24 @@ def _allowed_roots_for_access(
     operation: str,
     workspace_root: str | Path | None,
 ) -> list[Path]:
-    explicit_workspace = Path(workspace_root).resolve() if workspace_root else None
+    effective_workspace = get_effective_workspace_root(session_id, workspace_root)
 
     if caller == "code_execution":
         if operation in _WRITE_OPERATIONS:
             sandbox_root = get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox"
             return [sandbox_root.resolve()]
         return _dedupe_paths([
-            explicit_workspace,
+            effective_workspace,
             get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",
-            *_session_read_roots(session_id, run_id),
+            *_session_read_roots(session_id, run_id, workspace_root),
         ])
 
     if operation in _WRITE_OPERATIONS:
         return _direct_write_roots(session_id, run_id, workspace_root)
 
     return _dedupe_paths([
-        explicit_workspace,
-        *_session_read_roots(session_id, run_id),
+        effective_workspace,
+        *_session_read_roots(session_id, run_id, workspace_root),
         DATA_ROOT,
     ])
 
@@ -275,12 +296,53 @@ def _assert_allowed_path(
     raise PermissionError(f"路径 '{original_path}' 超出允许的受管目录范围，禁止访问")
 
 
+def _managed_space_root(
+    *,
+    space: str,
+    session_id: str | None,
+    run_id: str | None,
+    workspace_root: str | Path | None,
+) -> Path:
+    if space == "workspace":
+        root = get_effective_workspace_root(session_id, workspace_root)
+        if root is None:
+            raise ValueError("workspace 路径缺少可用目录")
+        return root.resolve()
+    if space == "transient":
+        sid = _normalize_session_id(session_id, required=True, feature="transient 路径")
+        return get_session_transient_root(sid).resolve()
+    if space == "exports":
+        sid = _normalize_session_id(session_id, required=True, feature="exports 路径")
+        rid = _normalize_run_id(run_id)
+        if not rid:
+            raise ValueError("exports 路径缺少 run_id")
+        return get_export_run_root(sid, rid).resolve()
+    raise ValueError(f"不支持的显式空间: {space}")
+
+
+def _explicit_space_root(
+    *,
+    explicit_space: str,
+    session_id: str | None,
+    run_id: str | None,
+    workspace_root: str | Path | None,
+) -> Path:
+    return _managed_space_root(
+        space=explicit_space,
+        session_id=session_id,
+        run_id=run_id,
+        workspace_root=workspace_root,
+    )
+
+
+
 def _allocate_output_root(
     *,
     session_id: str | None,
     run_id: str | None,
     caller: str,
     default_output_space: str | None,
+    workspace_root: str | Path | None = None,
 ) -> Path:
     output_space = (default_output_space or "").strip().lower()
 
@@ -293,7 +355,10 @@ def _allocate_output_root(
             return get_export_run_root(sid, rid)
         if output_space == "workspace":
             sid = _normalize_session_id(session_id, required=True, feature="workspace 输出")
-            return get_session_workspace_root(sid)
+            root = get_effective_workspace_root(sid, workspace_root)
+            if root is None:
+                raise ValueError("workspace 输出缺少可用目录")
+            return root
         if session_id:
             return get_session_transient_root(session_id)
         return _anonymous_session_root() / "transient"
@@ -306,10 +371,93 @@ def _allocate_output_root(
         return get_export_run_root(sid, rid)
     if output_space == "workspace":
         sid = _normalize_session_id(session_id, required=True, feature="workspace 输出")
-        return get_session_workspace_root(sid)
+        root = get_effective_workspace_root(sid, workspace_root)
+        if root is None:
+            raise ValueError("workspace 输出缺少可用目录")
+        return root
     if session_id:
         return get_session_transient_root(session_id)
     return _anonymous_session_root() / "transient"
+
+
+def resolve_managed_directory(
+    directory: str | None = None,
+    *,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    caller: str = "direct",
+    workspace_root: str | Path | None = None,
+    explicit_space: str | None = None,
+    default_space: str = "workspace",
+) -> Path:
+    """
+    将相对/绝对目录统一解析为受管绝对目录。
+
+    规则：
+    - directory 为空：返回 default_space 对应根目录
+    - 绝对路径：仅做受管边界校验
+    - 相对路径 + explicit_space：按对应受管目录桶解析
+    - 相对路径 + 无 explicit_space：按 default_space 解析
+    """
+    if caller != "direct":
+        raise ValueError(f"目录解析暂不支持的调用来源: {caller}")
+
+    normalized_session_id = _normalize_session_id(session_id)
+    normalized_run_id = _normalize_run_id(run_id)
+    normalized_explicit_space = _normalize_explicit_space(explicit_space)
+    normalized_default_space = _normalize_explicit_space(default_space)
+    if normalized_default_space is None:
+        raise ValueError("default_space 不能为空")
+
+    raw_directory = str(directory).strip() if directory is not None else ""
+    if not raw_directory:
+        return _managed_space_root(
+            space=normalized_explicit_space or normalized_default_space,
+            session_id=normalized_session_id,
+            run_id=normalized_run_id,
+            workspace_root=workspace_root,
+        )
+
+    display_mapped = _from_display_path(raw_directory)
+    if display_mapped is not None:
+        return _assert_allowed_path(
+            display_mapped,
+            session_id=normalized_session_id,
+            run_id=normalized_run_id,
+            caller=caller,
+            operation="read",
+            workspace_root=workspace_root,
+            original_path=raw_directory,
+        )
+
+    original = Path(raw_directory)
+    if original.is_absolute():
+        return _assert_allowed_path(
+            original,
+            session_id=normalized_session_id,
+            run_id=normalized_run_id,
+            caller=caller,
+            operation="read",
+            workspace_root=workspace_root,
+            original_path=raw_directory,
+        )
+
+    base_root = _managed_space_root(
+        space=normalized_explicit_space or normalized_default_space,
+        session_id=normalized_session_id,
+        run_id=normalized_run_id,
+        workspace_root=workspace_root,
+    )
+    candidate = (base_root / original).resolve()
+    return _assert_allowed_path(
+        candidate,
+        session_id=normalized_session_id,
+        run_id=normalized_run_id,
+        caller=caller,
+        operation="read",
+        workspace_root=workspace_root,
+        original_path=raw_directory,
+    )
 
 
 def resolve_managed_path(
@@ -322,6 +470,7 @@ def resolve_managed_path(
     default_output_space: str | None = None,
     workspace_root: str | Path | None = None,
     suffix: str = ".txt",
+    explicit_space: str | None = None,
 ) -> Path:
     """
     将 direct / code_execution 的文件路径统一解析为受管绝对路径。
@@ -341,6 +490,7 @@ def resolve_managed_path(
 
     normalized_session_id = _normalize_session_id(session_id)
     normalized_run_id = _normalize_run_id(run_id)
+    normalized_explicit_space = _normalize_explicit_space(explicit_space)
 
     if file_path is None or not str(file_path).strip():
         if op not in _WRITE_OPERATIONS:
@@ -350,6 +500,7 @@ def resolve_managed_path(
             run_id=normalized_run_id,
             caller=caller,
             default_output_space=default_output_space,
+            workspace_root=workspace_root,
         )
         root.mkdir(parents=True, exist_ok=True)
         return (root / f"output_{uuid.uuid4().hex[:12]}{suffix}").resolve()
@@ -371,6 +522,24 @@ def resolve_managed_path(
     if original.is_absolute():
         return _assert_allowed_path(
             original,
+            session_id=normalized_session_id,
+            run_id=normalized_run_id,
+            caller=caller,
+            operation=op,
+            workspace_root=workspace_root,
+            original_path=raw_path,
+        )
+
+    if normalized_explicit_space is not None:
+        explicit_root = _explicit_space_root(
+            explicit_space=normalized_explicit_space,
+            session_id=normalized_session_id,
+            run_id=normalized_run_id,
+            workspace_root=workspace_root,
+        )
+        explicit_candidate = (explicit_root / original).resolve()
+        return _assert_allowed_path(
+            explicit_candidate,
             session_id=normalized_session_id,
             run_id=normalized_run_id,
             caller=caller,
@@ -415,12 +584,16 @@ def resolve_managed_path(
     )
 
 
-def infer_resource_scope(path: str | Path) -> str:
+def infer_resource_scope(path: str | Path, *, workspace_root: str | Path | None = None) -> str:
     """根据物理路径推断资源 scope。"""
     resolved = Path(path).resolve()
+    effective_workspace = Path(workspace_root).resolve() if workspace_root else None
 
-    def _matches(root: Path) -> bool:
-        return _is_under(resolved, root.resolve())
+    def _matches(root: Path | None) -> bool:
+        return root is not None and _is_under(resolved, root.resolve())
+
+    if _matches(effective_workspace):
+        return "workspace"
 
     if _matches(SESSIONS_ROOT):
         parts = resolved.relative_to(SESSIONS_ROOT.resolve()).parts

@@ -40,6 +40,7 @@ from tools.permissions import check_tool_permission, RiskLevel
 from tools.decorators import tool
 from tools.path_resolution import (
     resolve_managed_path,
+    get_effective_workspace_root,
     get_session_sandbox_root,
     get_session_workspace_root,
     get_session_transient_root,
@@ -576,7 +577,7 @@ def execute_code_sandbox(code: str, description: str = "", timeout: int = 30, ag
     except Exception:
         current_run_id = None
 
-    current_workspace_root = get_session_workspace_root(session_id) if session_id else None
+    current_workspace_root = get_effective_workspace_root(session_id, workspace_root)
     current_transient_root = get_session_transient_root(session_id) if session_id else None
     current_uploads_root = get_session_uploads_root(session_id) if session_id else None
     current_visualizations_root = get_session_visualizations_root(session_id) if session_id else None

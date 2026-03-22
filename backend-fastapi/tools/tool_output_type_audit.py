@@ -337,8 +337,14 @@ def _sample_create_bindmap(_: Path) -> Any:
     )
 
 
-def _sample_execute_bash(_: Path) -> Any:
-    return TOOL_HANDLERS["execute_bash"](command="pwd")
+def _sample_execute_bash(temp_dir: Path) -> Any:
+    workspace = temp_dir / "workspace"
+    workspace.mkdir(exist_ok=True)
+    return TOOL_HANDLERS["execute_bash"](
+        command="pwd",
+        session_id="audit-session",
+        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
+    )
 
 
 def _sample_generate_report(_: Path) -> Any:

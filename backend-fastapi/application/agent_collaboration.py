@@ -68,7 +68,7 @@ class AgentCollaborationApplication:
         task = user_messages[-1]['content']
         run_id = context.metadata.get('run_id')
         try:
-            response = self._runtime_service.create_execution_orchestrator().execute(
+            response = self._runtime_service.create_execution_orchestrator(session_id=session_id).execute(
                 task=task,
                 context=context,
                 preferred_agent=checkpoint['agent_name'],
@@ -120,7 +120,7 @@ class AgentCollaborationApplication:
         )
         run_id = context.metadata.get('run_id')
         try:
-            response = self._runtime_service.create_execution_orchestrator().execute(
+            response = self._runtime_service.create_execution_orchestrator(session_id=session_id).execute(
                 task=prepared['task'],
                 context=context,
             )

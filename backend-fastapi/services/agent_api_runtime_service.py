@@ -8,6 +8,7 @@ AgentChatApplication（会话历史、配置访问）的职责。
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Optional
 
@@ -66,6 +67,34 @@ class AgentApiRuntimeService:
     def get_conversation_store(self) -> ConversationStore:
         return self._conversation_store
 
+    def _get_session_workspace_root(self, session_id: str | None) -> Optional[str]:
+        normalized_session_id = (session_id or '').strip()
+        if not normalized_session_id:
+            return None
+        session = self._conversation_store.get_session(normalized_session_id) or {}
+        metadata = session.get('metadata') or {}
+        workspace_root = metadata.get('workspace_root')
+        if isinstance(workspace_root, str) and workspace_root.strip():
+            return workspace_root.strip()
+        return None
+
+    def _apply_session_workspace_root(self, orchestrator, session_id: str | None):
+        workspace_root = self._get_session_workspace_root(session_id)
+        if not workspace_root:
+            return orchestrator
+
+        for agent in getattr(orchestrator, 'agents', {}).values():
+            agent_config = getattr(agent, 'agent_config', None)
+            if agent_config is None:
+                continue
+            copied_config = copy.deepcopy(agent_config)
+            custom_params = getattr(copied_config, 'custom_params', None)
+            copied_params = dict(custom_params) if isinstance(custom_params, dict) else {}
+            copied_params['workspace_root'] = workspace_root
+            copied_config.custom_params = copied_params
+            agent.agent_config = copied_config
+        return orchestrator
+
     # ── 会话历史（原 AgentChatApplication） ───────────────
 
     def load_history_into_context(self, context: AgentContext, session_id: str, limit: int = 200) -> None:
@@ -96,6 +125,9 @@ class AgentApiRuntimeService:
         llm_override: Optional[dict] = None,
     ) -> AgentContext:
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
+        session_workspace_root = self._get_session_workspace_root(session_id)
+        if session_workspace_root:
+            context.metadata['workspace_root'] = session_workspace_root
         if run_id:
             context.metadata['run_id'] = run_id
             context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
@@ -109,9 +141,10 @@ class AgentApiRuntimeService:
     def get_orchestrator(self):
         return self._build_orchestrator(scope='catalog')
 
-    def create_execution_orchestrator(self):
+    def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
         """为单次执行创建新的 orchestrator 与 agent 实例图。"""
-        return self._build_orchestrator(scope='execution')
+        orchestrator = self._build_orchestrator(scope='execution')
+        return self._apply_session_workspace_root(orchestrator, session_id)
 
     def get_metrics_collector(self):
         if self._metrics_collector is None:

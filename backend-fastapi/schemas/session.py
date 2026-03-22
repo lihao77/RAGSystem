@@ -3,16 +3,52 @@
 会话相关 Pydantic 模型。
 """
 
+import os
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def normalize_workspace_root(value: Any) -> Optional[str]:
+    """规范化并校验 session.metadata.workspace_root。"""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('metadata.workspace_root 必须是字符串或 null')
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError('metadata.workspace_root 不能为空字符串')
+    if not os.path.isabs(normalized):
+        raise ValueError('metadata.workspace_root 必须是绝对路径')
+    return normalized
+
+
+def normalize_session_metadata(value: Any) -> Dict[str, Any]:
+    """规范化 session metadata。"""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError('metadata 必须是对象')
+
+    metadata = dict(value)
+    if 'workspace_root' in metadata:
+        metadata['workspace_root'] = normalize_workspace_root(metadata.get('workspace_root'))
+    return metadata
 
 
 class CreateSessionRequest(BaseModel):
     """创建会话请求。"""
     session_id: Optional[str] = Field(None, description='指定会话 ID（可选，不提供则自动生成）')
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description='会话级元数据；支持 metadata.workspace_root 指定当前会话的 workspace 根目录（绝对路径）',
+    )
+
+    @field_validator('metadata', mode='before')
+    @classmethod
+    def _validate_metadata(cls, value: Any) -> Dict[str, Any]:
+        return normalize_session_metadata(value)
 
 
 class SessionInfo(BaseModel):

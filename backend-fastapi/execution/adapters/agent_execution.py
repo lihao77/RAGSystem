@@ -118,7 +118,9 @@ class AgentExecutionAdapter:
         step_projector_subscription_id = None
         subscription_ids: List[str] = []
         try:
-            conversation_store.create_session(session_id=session_id, user_id=user_id)
+            session = conversation_store.get_session(session_id)
+            if not session:
+                conversation_store.create_session(session_id=session_id, user_id=user_id)
             history_loader(context, session_id=session_id, limit=history_limit)
 
             metrics_collector = getattr(orchestrator, '_metrics_collector', None)

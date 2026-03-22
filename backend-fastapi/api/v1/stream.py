@@ -108,7 +108,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     llm_override=llm_override,
                     request_id=request_id,
                     conversation_store=runtime.get_conversation_store(),
-                    orchestrator=runtime.create_execution_orchestrator(),
+                    orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
                     history_loader=runtime.load_history_into_context,
                 )
 

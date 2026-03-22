@@ -322,6 +322,18 @@
           </button>
         </transition>
         <div class="input-area-wrapper">
+          <div v-if="!currentSessionId" class="workspace-root-input-row">
+            <label class="workspace-root-input-label" for="workspace-root-input">工作区根目录</label>
+            <input
+              id="workspace-root-input"
+              v-model="pendingWorkspaceRoot"
+              type="text"
+              class="workspace-root-input"
+              placeholder="可选：如 E:/Users/.../Desktop，仅对新会话生效"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
           <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="context-usage-bar">
             <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
               <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
@@ -534,6 +546,7 @@ const historyError = ref('');
 const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const currentSessionId = ref(null);
+const pendingWorkspaceRoot = ref('');
 const messagesLoading = ref(false);
 const chatInputRef = ref(null);
 const confirmDialogRef = ref(null);
@@ -584,12 +597,15 @@ const handlePopState = () => {
   if (sessionId && sessionId !== currentSessionId.value) {
     clearExecutionState();
     currentSessionId.value = sessionId;
+    const matched = history.value.find(item => item.session_id === sessionId);
+    pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
     loadSessionMessages(sessionId);
   }
   if (!sessionId) {
     invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
+    pendingWorkspaceRoot.value = '';
     messages.value = [];
   }
 };
@@ -700,6 +716,7 @@ const startNewChat = () => {
   clearExecutionState();
   messages.value = [];
   inputMessage.value = '';
+  pendingWorkspaceRoot.value = '';
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
@@ -1419,6 +1436,7 @@ const selectSession = async (item) => {
   if (!item?.session_id) return;
   if (currentSessionId.value === item.session_id && messages.value.length > 0) return;
   currentSessionId.value = item.session_id;
+  pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
   window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
   item.unread_count = 0;
   closeMobileSidebar();
@@ -1444,7 +1462,10 @@ const updateRecentSession = (sessionId, content, timestamp) => {
       title: content ? content.slice(0, 30) : '',
       last_message: content,
       last_message_at: time,
-      unread_count: 0
+      unread_count: 0,
+      metadata: currentSessionId.value === sessionId && pendingWorkspaceRoot.value.trim()
+        ? { workspace_root: pendingWorkspaceRoot.value.trim() }
+        : {}
     });
   }
 };
@@ -1813,7 +1834,14 @@ const deleteSession = async (sessionId) => {
 const ensureSession = async () => {
   if (currentSessionId.value) return currentSessionId.value;
   const userId = (localStorage.getItem('userId') || '').trim();
-  const body = userId ? { user_id: userId } : {};
+  const workspaceRoot = pendingWorkspaceRoot.value.trim();
+  const body = {};
+  if (userId) {
+    body.user_id = userId;
+  }
+  if (workspaceRoot) {
+    body.metadata = { workspace_root: workspaceRoot };
+  }
   const response = await fetch('/api/agent/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1823,6 +1851,7 @@ const ensureSession = async () => {
   const result = await response.json();
   currentSessionId.value = result.data?.session_id || null;
   if (currentSessionId.value) {
+    pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
     window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
   }
   return currentSessionId.value;
@@ -2426,6 +2455,36 @@ onUnmounted(() => {
 }
 
 /* #10: 上下文指示器 - 字体调大至满足可读性，加 hover 反馈 */
+.workspace-root-input-row {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-root-input-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.workspace-root-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.workspace-root-input:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
 .context-usage-bar {
   display: flex;
   align-items: center;

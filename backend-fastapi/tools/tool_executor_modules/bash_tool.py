@@ -6,7 +6,8 @@
 - 命令白名单：仅允许只读/无害命令（grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed/pwd/which/stat/file/du/df/diff 等）
 - 管道安全：逐段检查，禁止非白名单命令出现在管道中
 - 禁止重定向写入（> >>），允许 2>/dev/null 和 2>&1
-- 默认工作目录：项目根目录（backend-fastapi/）
+- 默认工作目录：当前 effective workspace
+- 路径语义：working_dir 与 direct 文件工具共享 space="workspace|transient|exports"
 - 超时保护：30 秒
 """
 
@@ -26,9 +27,8 @@ from tools.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
-from tools.path_resolution import BACKEND_ROOT
-
-_DEFAULT_WORK_DIR = BACKEND_ROOT
+from tools.path_resolution import resolve_managed_directory
+from execution.observability import get_current_execution_observability_fields
 
 
 def _find_bash_executable() -> Optional[str]:
@@ -153,26 +153,49 @@ def _validate_command(command: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[Path]]:
+def _resolve_work_dir(
+    working_dir: Optional[str],
+    *,
+    working_dir_space: Optional[str] = None,
+    session_id: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> tuple[bool, str, Optional[Path]]:
     """
     解析并校验工作目录。
 
     Returns:
         (通过, 错误消息, 解析后的路径)
     """
-    if working_dir is None:
-        return True, "", _DEFAULT_WORK_DIR
+    raw_working_dir = None if working_dir is None else str(working_dir).strip()
+    requested_dir = raw_working_dir if raw_working_dir else "."
+    try:
+        resolved = resolve_managed_directory(
+            requested_dir,
+            session_id=session_id,
+            run_id=run_id,
+            caller="direct",
+            workspace_root=workspace_root,
+            explicit_space=working_dir_space,
+            default_space="workspace",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "workspace 路径缺少可用目录" in message:
+            message = "bash 默认工作目录为 workspace，但当前缺少可用 workspace 上下文"
+        return False, message, None
+    except PermissionError as exc:
+        return False, str(exc), None
 
-    p = Path(working_dir).resolve()
-    if not p.exists():
-        return False, f"工作目录不存在: {working_dir}", None
-    if not p.is_dir():
-        return False, f"路径不是目录: {working_dir}", None
-    return True, "", p
+    if not resolved.exists():
+        return False, f"工作目录不存在: {working_dir or requested_dir}", None
+    if not resolved.is_dir():
+        return False, f"路径不是目录: {working_dir or requested_dir}", None
+    return True, "", resolved
 
 @tool(
     name="execute_bash",
-    description="执行受限 bash 命令。默认工作目录为项目根目录（backend-fastapi/），可通过 working_dir 参数指定。支持 grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed/pwd/which/stat/file/du/df/diff/tr/xargs 等只读命令，支持管道和 2>/dev/null 屏蔽 stderr",
+    description="执行受限 bash 命令。默认工作目录为当前 workspace；working_dir 支持与 direct 文件工具一致的 space=\"workspace|transient|exports\" 语义。仅允许 grep/find/head/tail/wc/cat/ls/echo/sort/uniq/cut/awk/sed/pwd/which/stat/file/du/df/diff/tr/xargs 等只读命令，支持管道和 2>/dev/null 屏蔽 stderr",
     parameters={
         "type": "object",
         "properties": {
@@ -182,7 +205,12 @@ def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[P
             },
             "working_dir": {
                 "type": "string",
-                "description": "工作目录（可选，默认为项目根目录 backend-fastapi/）",
+                "description": "工作目录（可选）。相对目录默认按当前 workspace 解析；也可配合 XML 写法 <working_dir space=\"workspace|transient|exports\">...</working_dir> 显式指定受管目录桶。",
+            },
+            "working_dir_space": {
+                "type": "string",
+                "enum": ["workspace", "transient", "exports"],
+                "description": "working_dir 的可选目录空间。仅影响相对 working_dir 的解析根；绝对路径仍只做受管边界校验。推荐通过 XML 属性 <working_dir space=\"...\">...</working_dir> 传入。",
             },
         },
         "required": ["command"],
@@ -208,32 +236,60 @@ def _resolve_work_dir(working_dir: Optional[str]) -> tuple[bool, str, Optional[P
         "仅允许只读类命令，禁止 rm/mv/cp 等写操作",
         "禁止重定向写入（> >>），但允许 2>/dev/null 和 2>&1",
         "管道中每段命令都必须在白名单内",
-        "默认工作目录为项目根目录（backend-fastapi/），可通过 working_dir 参数指定",
+        "默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/",
+        "相对 working_dir 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <working_dir space=\"workspace\">.</working_dir>、<working_dir space=\"transient\">.</working_dir>、<working_dir space=\"exports\">.</working_dir>",
+        "working_dir 的 space 仅影响相对目录；绝对路径仍只做受管边界校验",
+        "working_dir_space=exports 需要当前运行上下文提供 run_id",
         "超时 30 秒自动终止",
     ],
     examples=[
-        {"input": {"command": "grep -rn '关键词' .", "working_dir": "./data"}},
-        {"input": {"command": "find . -name '*.json' | head -20"}},
-        {"input": {"command": "wc -l data.csv"}},
         {"input": {"command": "pwd"}},
-        {"input": {"command": "find . -name '*.py' -type f 2>/dev/null | wc -l"}},
+        {"input": {"command": "grep -rn '关键词' .", "working_dir": "<working_dir space=\"workspace\">.</working_dir>"}},
+        {"input": {"command": "find . -name '*.json' | head -20", "working_dir": "<working_dir space=\"transient\">.</working_dir>"}},
+        {"input": {"command": "ls -1", "working_dir": "logs", "working_dir_space": "workspace"}},
+        {"input": {"command": "find . -name '*.md' | wc -l", "working_dir": "<working_dir space=\"exports\">.</working_dir>"}},
     ],
 )
 def execute_bash(
     command: str,
     working_dir: str = None,
+    working_dir_space: str = None,
+    session_id: str = None,
+    agent_config=None,
     **kwargs,
 ):
     """执行受限 bash 命令。"""
+    del kwargs
+    workspace_root = None
+    if agent_config and hasattr(agent_config, "custom_params"):
+        custom_params = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
+        workspace_root = custom_params.get("workspace_root")
+    current_fields = get_current_execution_observability_fields()
+    run_id = current_fields.get("run_id")
+
     # 1. 校验命令安全性
     valid, err_msg = _validate_command(command)
     if not valid:
         return error_result(err_msg, tool_name="execute_bash")
 
     # 2. 解析工作目录
-    ok, dir_err, cwd = _resolve_work_dir(working_dir)
+    ok, dir_err, cwd = _resolve_work_dir(
+        working_dir,
+        working_dir_space=working_dir_space,
+        session_id=session_id,
+        workspace_root=workspace_root,
+        run_id=run_id,
+    )
     if not ok:
-        return error_result(dir_err, tool_name="execute_bash")
+        return error_result(
+            dir_err,
+            tool_name="execute_bash",
+            metadata={
+                "command": command,
+                "working_dir": working_dir if working_dir is not None else ".",
+                "working_dir_space": working_dir_space or "workspace",
+            },
+        )
 
     # 3. 执行命令
     logger.info("execute_bash: command=%r, cwd=%s", command, cwd)

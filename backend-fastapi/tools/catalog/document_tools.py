@@ -126,6 +126,8 @@ DOCUMENT_TOOL_CONTRACTS = [
             "将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。"
             "不指定路径时系统自动分配受管绝对路径，返回实际保存的文件路径（在 content.file_path 字段中）。"
             "修改已有文件的部分内容，请优先使用 edit_file 工具。"
+            "相对路径默认按 workspace 解析，也可用 XML 写法 <file_path space=\"workspace|transient|exports\">..."
+            " 显式指定解析根。"
         ),
         parameters={
             "type": "object",
@@ -162,6 +164,8 @@ DOCUMENT_TOOL_CONTRACTS = [
             "若在同一轮链式调用，可引用 {result_N.content.file_path}",
             "修改已有文件的部分内容时，请优先使用 edit_file 工具进行精准替换",
             "content.display_path 是可读展示路径，仅用于向用户展示",
+            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "file_path 的 space 仅影响相对路径；若不传 file_path，仍由 default_output_space 决定自动分配到 workspace/transient/exports",
         ],
         examples=[
             {
@@ -171,6 +175,24 @@ DOCUMENT_TOOL_CONTRACTS = [
                 "result_hint": {
                     "file_path": "/abs/path/to/output.json",
                     "display_path": "./data/sessions/<session_id>/transient/output_xxx.json",
+                },
+            },
+            {
+                "input": {
+                    "content": "temporary text",
+                    "file_path": "<file_path space=\"transient\">tmp.txt</file_path>",
+                },
+                "result_hint": {
+                    "display_path": "./data/sessions/<session_id>/transient/tmp.txt",
+                },
+            },
+            {
+                "input": {
+                    "content": "# report",
+                    "file_path": "<file_path space=\"exports\">report.md</file_path>",
+                },
+                "result_hint": {
+                    "display_path": "./data/sessions/<session_id>/exports/<run_id>/report.md",
                 },
             }
         ],
@@ -182,7 +204,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "按行读取文件内容，返回原始文本内容。"
             "默认从第 1 行开始，最多读取 2000 行。"
             "file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
-            "支持相对路径（系统会自动解析为绝对路径）。"
+            "支持相对路径（系统会自动解析为绝对路径；默认按 workspace，支持 XML file_path@space 显式指定）。"
         ),
         parameters={
             "type": "object",
@@ -233,6 +255,8 @@ DOCUMENT_TOOL_CONTRACTS = [
             "可用 offset/limit 指定行号区间",
             "返回内容为文件原始文本内容，不附带行号",
             "file_path 必须是真实路径字符串，不是变量名文本",
+            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
+            "space 仅影响相对路径的解析根；绝对路径仍只做受管边界校验",
             "数据文件（JSON/GeoJSON/CSV）已有路径时，优先用 preview_data_structure 确认结构；需要确认数据完整性时可用 read_file（带 limit）检查，但确认后只传递文件路径，不要把内容输出到 final_answer",
         ],
         examples=[
@@ -354,6 +378,7 @@ DOCUMENT_TOOL_CONTRACTS = [
         description=(
             "精准字符串替换编辑文件。old_string 必须在文件中唯一匹配（除非 replace_all=true）。"
             "new_string 为空字符串时表示删除匹配内容。返回 diff 预览和替换次数。"
+            "相对路径默认按 workspace 解析，也支持 XML file_path@space 显式指定目录桶。"
         ),
         parameters={
             "type": "object",
@@ -399,6 +424,7 @@ DOCUMENT_TOOL_CONTRACTS = [
             "默认要求唯一匹配；多处匹配时设 replace_all=true",
             "new_string 为空字符串表示删除",
             "建议先用 read_file 确认要编辑的内容再调用",
+            "相对 file_path 默认按 workspace 解析；如需显式指定目录桶，可用 XML 写法 <file_path space=\"workspace\">foo.txt</file_path>、<file_path space=\"transient\">tmp.txt</file_path>、<file_path space=\"exports\">report.md</file_path>",
         ],
         source="document",
     ),

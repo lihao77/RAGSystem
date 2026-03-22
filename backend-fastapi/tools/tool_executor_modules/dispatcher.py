@@ -131,6 +131,7 @@ def _preprocess_document_tool_args(
 
     args = dict(arguments)
     file_path = args.get('file_path')
+    file_path_space = args.get('file_path_space')
 
     if file_path:
         operation = 'edit' if tool_name == 'edit_file' else 'read'
@@ -144,6 +145,7 @@ def _preprocess_document_tool_args(
             operation=operation,
             default_output_space=default_output_space,
             workspace_root=workspace_root,
+            explicit_space=file_path_space,
         )
         args['file_path'] = str(resolved)
     elif tool_name == 'write_file':

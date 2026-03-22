@@ -19,6 +19,7 @@ from schemas.session import (
     RollbackAndRetryRequest,
     UpdateMessageRequest,
     RecoverSessionRequest,
+    normalize_session_metadata,
 )
 from schemas.common import ok
 
@@ -41,11 +42,12 @@ async def create_session(request: CreateSessionRequest):
     """创建会话。"""
     try:
         session_id = request.session_id or str(uuid.uuid4())
+        metadata = normalize_session_metadata(request.metadata)
         data = await asyncio.to_thread(
             _get_session_app().create_session,
             session_id=session_id,
             user_id=request.user_id,
-            metadata=request.metadata or {},
+            metadata=metadata,
         )
         return ok(data=data, message='会话创建成功')
     except Exception as e:

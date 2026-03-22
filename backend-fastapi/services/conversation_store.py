@@ -1034,7 +1034,7 @@ class ConversationStore:
     ) -> Dict[str, Any]:
         resource_id = str(uuid.uuid4())
         if scope is None:
-            scope = self._infer_scope(path)
+            scope = self._infer_scope(path, session_id=session_id)
         metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
         with self._get_connection() as conn:
             conn.execute(
@@ -1103,11 +1103,16 @@ class ConversationStore:
                 (step_id, resource_id, session_id, run_id),
             )
 
-    @staticmethod
-    def _infer_scope(path: str) -> str:
+    def _infer_scope(self, path: str, *, session_id: Optional[str] = None) -> str:
         """根据文件路径推断资源 scope。"""
         from tools.path_resolution import infer_resource_scope
-        return infer_resource_scope(path)
+
+        workspace_root = None
+        if session_id:
+            session = self.get_session(session_id)
+            metadata = (session or {}).get('metadata') or {}
+            workspace_root = metadata.get('workspace_root')
+        return infer_resource_scope(path, workspace_root=workspace_root)
 
     def close(self):
         self._stop_event.set()

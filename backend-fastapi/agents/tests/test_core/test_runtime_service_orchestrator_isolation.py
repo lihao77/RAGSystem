@@ -34,6 +34,7 @@ class _DummyAgent:
     def __init__(self, name: str):
         self.name = name
         self.description = f"{name} desc"
+        self.agent_config = SimpleNamespace(custom_params={})
 
     def can_handle(self, task, context=None):
         del task, context
@@ -44,9 +45,15 @@ class _DummyAgent:
 
 
 class _DummyConversationStore:
+    def __init__(self, session_map=None):
+        self._session_map = session_map or {}
+
     def get_recent_messages(self, session_id, limit):
         del session_id, limit
         return []
+
+    def get_session(self, session_id):
+        return self._session_map.get(session_id)
 
 
 def test_runtime_service_builds_fresh_execution_orchestrators(monkeypatch):
@@ -91,7 +98,9 @@ def test_runtime_service_builds_fresh_execution_orchestrators(monkeypatch):
 def test_runtime_context_binds_event_bus_per_run():
     run_manager = RunEventBusManager(cleanup_interval=3600)
     runtime = _build_runtime(
-        conversation_store=_DummyConversationStore(),
+        conversation_store=_DummyConversationStore({
+            'session-1': {'session_id': 'session-1', 'metadata': {'workspace_root': 'E:/external/workspace'}},
+        }),
         task_registry_getter=lambda: SimpleNamespace(),
         session_manager_getter=lambda: run_manager,
         session_application=SimpleNamespace(),
@@ -107,7 +116,46 @@ def test_runtime_context_binds_event_bus_per_run():
     assert context_a.metadata["run_id"] == "run-a"
     assert context_b.metadata["run_id"] == "run-b"
     assert context_a.metadata["event_bus"] is not context_b.metadata["event_bus"]
+    assert context_a.metadata['workspace_root'] == 'E:/external/workspace'
+    assert context_b.metadata['workspace_root'] == 'E:/external/workspace'
     assert run_manager.get("run-a") is context_a.metadata["event_bus"]
     assert run_manager.get("run-b") is context_b.metadata["event_bus"]
+
+    run_manager.shutdown()
+
+
+def test_runtime_execution_orchestrator_injects_session_workspace_root_without_cross_session_leak(monkeypatch):
+    def _load_all_agents(self):
+        del self
+        return {
+            'orchestrator_agent': _DummyAgent('orchestrator_agent'),
+            'qa_agent': _DummyAgent('qa_agent'),
+        }
+
+    monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
+    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self: 'orchestrator_agent')
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+
+    session_map = {
+        'session-a': {'session_id': 'session-a', 'metadata': {'workspace_root': 'E:/workspace/a'}},
+        'session-b': {'session_id': 'session-b', 'metadata': {'workspace_root': 'E:/workspace/b'}},
+    }
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore(session_map),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: SimpleNamespace(),
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    orchestrator_a = runtime.create_execution_orchestrator(session_id='session-a')
+    orchestrator_b = runtime.create_execution_orchestrator(session_id='session-b')
+
+    assert orchestrator_a.agents['qa_agent'].agent_config.custom_params['workspace_root'] == 'E:/workspace/a'
+    assert orchestrator_b.agents['qa_agent'].agent_config.custom_params['workspace_root'] == 'E:/workspace/b'
+    assert orchestrator_a.agents['qa_agent'].agent_config is not orchestrator_b.agents['qa_agent'].agent_config
 
     run_manager.shutdown()

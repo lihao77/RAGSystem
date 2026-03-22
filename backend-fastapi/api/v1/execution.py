@@ -34,10 +34,10 @@ async def execute(request: ExecuteRequest):
         from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
+        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
         run_id = str(uuid.uuid4())
         context = runtime.build_context(
             session_id=session_id,
@@ -46,7 +46,9 @@ async def execute(request: ExecuteRequest):
             run_id=run_id,
         )
 
-        await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
+        await asyncio.to_thread(
+            lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
+        )
         await asyncio.to_thread(
             store.add_message,
             session_id=session_id, role='user', content=request.task,
@@ -100,10 +102,10 @@ async def execute_specific_agent(agent_name: str, request: ExecuteRequest):
         from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
+        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
         run_id = str(uuid.uuid4())
         context = runtime.build_context(
             session_id=session_id,
@@ -112,7 +114,9 @@ async def execute_specific_agent(agent_name: str, request: ExecuteRequest):
             run_id=run_id,
         )
 
-        await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
+        await asyncio.to_thread(
+            lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
+        )
         await asyncio.to_thread(
             store.add_message,
             session_id=session_id, role='user', content=request.task,
@@ -166,10 +170,10 @@ async def collaborate(request: CollaborateRequest):
         from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
-        orchestrator = runtime.create_execution_orchestrator()
         store = runtime.get_conversation_store()
 
         session_id = request.session_id or str(uuid.uuid4())
+        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
         run_id = str(uuid.uuid4())
         context = runtime.build_context(
             session_id=session_id,
@@ -178,7 +182,9 @@ async def collaborate(request: CollaborateRequest):
             run_id=run_id,
         )
 
-        await asyncio.to_thread(store.create_session, session_id=session_id, user_id=request.user_id)
+        await asyncio.to_thread(
+            lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
+        )
 
         tasks_data = [t.model_dump() for t in request.tasks]
         for t in tasks_data:
