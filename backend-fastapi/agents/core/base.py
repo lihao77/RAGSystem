@@ -177,17 +177,7 @@ class BaseAgent(ABC):
             return "当前无可用的领域知识。"
 
         lines = [
-            "以下是可用的领域知识 Skills。使用流程：",
-            "",
-            "**第 1 步**：当任务匹配某个 Skill 的场景时，调用 `activate_skill(skill_name)` 激活它",
-            "  - 效果：加载 SKILL.md 主文件，获取完整指导流程",
-            "  - 返回：主文件内容 + 可用的资源和脚本列表",
-            "",
-            "**第 2 步**：根据主文件中的提示，使用 `load_skill_resource` 加载详细文档",
-            "",
-            "**第 3 步**：根据主文件中的指示，使用 `execute_skill_script` 执行脚本",
-            "",
-            "---",
+            "可用 Skills（按需使用）：先 `activate_skill(skill_name)`，再按主文件提示调用 `load_skill_resource` / `execute_skill_script`。",
             "",
         ]
         for idx, skill in enumerate(available_skills, 1):
@@ -306,28 +296,22 @@ class BaseAgent(ABC):
     @staticmethod
     def _build_visualization_rules_section() -> str:
         return """### 可视化规则
-- 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
-- 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
-- 工具返回 artifact_id 和预览摘要，据此判断是否满意
-- 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
-- 可视化 artifact 默认持久化在 `./data/sessions/<session_id>/visualizations`
-- `artifact_id` 与磁盘文件路径的索引文件是 `./data/sessions/<session_id>/visualizations/viz_index.jsonl`
-- 如需基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在上述目录中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容
-- 图表/地图 artifact 的持久化文件通常是 `./data/sessions/<session_id>/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
-- `revise_visualization` 默认做深度合并；若要按你读到的完整配置整体覆盖，使用 `replace=true`
+- 使用 `create_chart` 生成图表，`create_map` 生成地图；需要在已有结果上调整时用 `revise_visualization(artifact_id, config_patch)`
+- 工具返回 artifact_id 与预览摘要；如需继续编辑，可到 `./data/sessions/<session_id>/visualizations` 中按 `artifact_id` 反查配置文件
+- `revise_visualization` 默认深度合并；需要整体覆盖时用 `replace=true`
 - 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
 - 不要编造 artifact_id，必须使用工具返回的真实 ID"""
 
     @staticmethod
     def _build_data_file_rules_section() -> str:
         return """### 数据文件传递规则
-- 数据文件（JSON/GeoJSON/CSV 等）和可视化 artifact 一样，只传路径，不传内容
-- 已有文件路径时，直接在 `<final_answer>` 中返回路径，不要把完整内容读进上下文再输出
-- 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用该路径；`display_path` 仅用于向用户展示
-- 需要确认文件结构时，优先用 `preview_data_structure`；需要确认数据完整性时，可用 `read_file`（带 `limit`）确认后仍然只传路径
-- 需要处理/转换数据时，用 `execute_code` 读文件处理，结果写入新文件，返回新文件路径
+- 数据文件（JSON/GeoJSON/CSV 等）只传路径，不传内容
+- 已有文件路径时，直接在 `<final_answer>` 中返回路径
+- 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用；`display_path` 仅用于展示
+- 需要确认结构时优先用 `preview_data_structure`；需要抽样确认内容时，可用 `read_file(limit=...)` 后仍只传路径
+- 需要处理/转换数据时，用 `execute_code` 读取并写出新文件
 - `<final_answer>` 中引用数据文件格式：`[data:文件路径]`
-- 禁止在 `<final_answer>` 中输出超过 20 行的原始数据；数据量大时必须用文件路径引用"""
+- 不要在 `<final_answer>` 中输出超过 20 行原始数据"""
 
     @staticmethod
     def _invoke_prompt_hook(agent: Any, method_name: str, *args: Any) -> Any:
@@ -508,15 +492,11 @@ class BaseAgent(ABC):
 
 `call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`；如果需要完整响应壳，不要假设它会返回 `content / summary / metadata` 结构。
 
-三个受管目录 `space` 的语义与 direct 文件工具、`execute_bash` 完全一致：
-- `workspace`: 当前 effective workspace
-- `transient`: 当前 session 的 transient 目录
-- `exports`: 当前 session 的 `exports/<run_id>` 目录
-在代码里如果需要处理这三类目录，应优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径。
+三个受管目录 `space` 与 direct 文件工具、`execute_bash` 一致：`workspace` / `transient` / `exports`。在代码里优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径。
 
 文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。`execute_code` 内应直接使用受限 `open()` 读取文件，写入前先调用 `request_write_approval()`，再用 `open()` 写入。
 
-正确示例：
+示例：
 ```python
 risk = call_tool('assess_flood_risk', {{
     'location': '南宁市',
@@ -530,7 +510,7 @@ result = {{
 }}
 ```
 
-沙箱文件读取示例：
+文件读取：
 ```python
 text = open('sample.json', 'r', encoding='utf-8').read()
 data = json.loads(text)
