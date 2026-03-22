@@ -3,6 +3,8 @@ const ORCHESTRATOR_AGENT_NAME = 'orchestrator_agent';
 const isOrchestrator = (agentName) => !agentName || agentName === ORCHESTRATOR_AGENT_NAME;
 
 const createToolCall = (step) => ({
+  step_id: step.step_id || null,
+  parent_step_id: step.parent_step_id || null,
   call_id: step.call_id,
   parent_call_id: step.parent_call_id,
   tool_name: step.tool_name,
@@ -18,7 +20,9 @@ const createToolCall = (step) => ({
   showArgs: false,
 });
 
-const createExecutionStep = (round = null) => ({
+const createExecutionStep = (round = null, stepId = null, parentStepId = null) => ({
+  step_id: stepId,
+  parent_step_id: parentStepId,
   round,
   intent: '',
   toolCalls: [],
@@ -27,6 +31,8 @@ const createExecutionStep = (round = null) => ({
 });
 
 const createSubtask = (step) => ({
+  step_id: step.step_id || null,
+  parent_step_id: step.parent_step_id || null,
   order: step.order,
   task_id: step.call_id,
   parent_call_id: step.parent_call_id,
@@ -70,6 +76,7 @@ export function createExecutionState() {
     execution_steps: [],
     multimodalContents: [],
     subtaskMap: new Map(),
+    stepMap: new Map(),
     toolMap: new Map(),
   };
 }
@@ -82,43 +89,63 @@ function getLatestRound(executionSteps = []) {
   return null;
 }
 
-function ensureOrchestratorStep(state, round = null) {
+function ensureOrchestratorStep(state, round = null, stepId = null, parentStepId = null) {
+  if (stepId && state.stepMap.has(stepId)) {
+    const matched = state.stepMap.get(stepId);
+    if (matched.round == null && round != null) matched.round = round;
+    return matched;
+  }
+
   const lastStep = state.execution_steps[state.execution_steps.length - 1];
-  if (round == null) {
+  if (round == null && !stepId) {
     if (lastStep) return lastStep;
-    const fallback = createExecutionStep(1);
+    const fallback = createExecutionStep(1, null, parentStepId);
     state.execution_steps.push(fallback);
     return fallback;
   }
 
-  let step = state.execution_steps.findLast?.(item => item?.round === round);
+  let step = null;
+  if (stepId) step = state.execution_steps.find(item => item?.step_id === stepId) || null;
+  if (!step && round != null) {
+    step = state.execution_steps.findLast?.(item => item?.round === round && item?.parent_step_id === parentStepId);
+  }
   if (!step) {
     step = lastStep;
   }
-  if (!step || (step.round != null && step.round !== round)) {
-    step = createExecutionStep(round);
+  if (!step || (round != null && step.round != null && step.round !== round)) {
+    step = createExecutionStep(round ?? 1, stepId, parentStepId);
     state.execution_steps.push(step);
-  } else if (step.round == null) {
-    step.round = round;
+  } else {
+    if (step.round == null && round != null) step.round = round;
+    if (step.step_id == null && stepId) step.step_id = stepId;
+    if (step.parent_step_id == null && parentStepId) step.parent_step_id = parentStepId;
   }
+  if (step.step_id) state.stepMap.set(step.step_id, step);
   return step;
 }
 
-function ensureSubtaskIntentStep(subtask, round = null) {
-  let step = subtask.currentStep;
-  if (round != null) {
-    const matched = subtask.react_steps.findLast?.(item => item?.round === round);
-    if (matched) step = matched;
+function ensureSubtaskIntentStep(state, subtask, round = null, stepId = null, parentStepId = null) {
+  let step = stepId ? state.stepMap.get(stepId) : null;
+  if (!step) {
+    step = subtask.currentStep;
+  }
+  if (!step && round != null) {
+    step = subtask.react_steps.findLast?.(item => item?.round === round || item?.step_id === stepId);
   }
 
   const resolvedRound = round ?? step?.round ?? subtask.round ?? 1;
-  if (!step || (step.round != null && step.round !== resolvedRound)) {
-    step = createExecutionStep(resolvedRound);
+  if (!step || (step.round != null && step.round !== resolvedRound && step.step_id !== stepId)) {
+    step = createExecutionStep(resolvedRound, stepId, parentStepId || subtask.step_id || null);
     subtask.react_steps.push(step);
-  } else if (step.round == null) {
-    step.round = resolvedRound;
+  } else {
+    if (step.round == null && resolvedRound != null) step.round = resolvedRound;
+    if (step.step_id == null && stepId) step.step_id = stepId;
+    if (step.parent_step_id == null && (parentStepId || subtask.step_id)) {
+      step.parent_step_id = parentStepId || subtask.step_id;
+    }
   }
   subtask.currentStep = step;
+  if (step.step_id) state.stepMap.set(step.step_id, step);
   return step;
 }
 
@@ -133,6 +160,8 @@ export function applyStep(state, step) {
   if (step.kind === 'subtask') {
     if (step.phase === 'start') {
       const subtask = state.subtaskMap.get(step.call_id) || createSubtask(step);
+      subtask.step_id = step.step_id || subtask.step_id;
+      subtask.parent_step_id = step.parent_step_id || subtask.parent_step_id;
       subtask.order = step.order ?? subtask.order;
       subtask.round = step.round ?? subtask.round;
       subtask.round_index = step.round_index ?? subtask.round_index;
@@ -145,6 +174,7 @@ export function applyStep(state, step) {
         state.subtasks.push(subtask);
         state.subtaskMap.set(step.call_id, subtask);
       }
+      if (subtask.step_id) state.stepMap.set(subtask.step_id, subtask);
       return state;
     }
 
@@ -161,7 +191,7 @@ export function applyStep(state, step) {
 
   if (step.kind === 'intent') {
     if (isOrchestrator(step.agent_name)) {
-      const executionStep = ensureOrchestratorStep(state, step.round);
+      const executionStep = ensureOrchestratorStep(state, step.round, step.step_id, step.parent_step_id);
       if (step.content) {
         if (step.phase === 'delta' && !executionStep._intentComplete) {
           executionStep.intent += step.content;
@@ -175,7 +205,7 @@ export function applyStep(state, step) {
 
     const subtask = state.subtaskMap.get(step.call_id);
     if (!subtask) return state;
-    const reactStep = ensureSubtaskIntentStep(subtask, step.round);
+    const reactStep = ensureSubtaskIntentStep(state, subtask, step.round, step.step_id, step.parent_step_id);
     if (step.content) {
       if (step.phase === 'delta' && !reactStep._intentComplete) {
         reactStep.intent += step.content;
@@ -193,11 +223,11 @@ export function applyStep(state, step) {
       state.toolMap.set(step.call_id, toolCall);
       const subtask = state.subtaskMap.get(step.parent_call_id);
       if (subtask) {
-        const reactStep = ensureSubtaskIntentStep(subtask, step.round);
+        const reactStep = ensureSubtaskIntentStep(state, subtask, step.round, step.parent_step_id, subtask.step_id);
         reactStep.toolCalls.push(toolCall);
         subtask.tool_calls.push(toolCall);
       } else {
-        ensureOrchestratorStep(state, step.round).toolCalls.push(toolCall);
+        ensureOrchestratorStep(state, step.round, step.parent_step_id, null).toolCalls.push(toolCall);
       }
       return state;
     }

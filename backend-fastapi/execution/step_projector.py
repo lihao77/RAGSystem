@@ -26,6 +26,59 @@ _PROJECTABLE_EVENT_TYPES = [
 class StepProjector:
     """Listen to raw agent events and republish canonical execution.step events."""
 
+    @staticmethod
+    def _make_run_step_id(owner_id: Optional[str]) -> str:
+        return f"{owner_id or 'run'}:run"
+
+    @staticmethod
+    def _make_call_step_id(call_id: Optional[str], fallback: str) -> str:
+        return f"{call_id or fallback}:call"
+
+    @staticmethod
+    def _make_round_step_id(owner_call_id: Optional[str], round_value: Optional[int], fallback: str) -> str:
+        if round_value is not None:
+            return f"{owner_call_id or fallback}:round:{round_value}"
+        return f"{owner_call_id or fallback}:round"
+
+    @classmethod
+    def _resolve_step_ids(
+        cls,
+        *,
+        kind: str,
+        event_type: str,
+        call_id: Optional[str],
+        parent_call_id: Optional[str],
+        round_value: Optional[int],
+        run_id: Optional[str],
+    ) -> tuple[Optional[str], Optional[str]]:
+        root_owner = parent_call_id or call_id or run_id or 'run'
+        if kind == 'run':
+            return cls._make_run_step_id(call_id or run_id), None
+        if kind == 'subtask':
+            return (
+                cls._make_call_step_id(call_id, 'subtask'),
+                cls._make_round_step_id(parent_call_id or run_id, round_value, 'run'),
+            )
+        if kind == 'intent':
+            owner_call_id = call_id or parent_call_id or run_id
+            parent_step_id = (
+                cls._make_run_step_id(owner_call_id or run_id)
+                if parent_call_id is None
+                else cls._make_call_step_id(call_id, 'subtask')
+            )
+            return cls._make_round_step_id(owner_call_id, round_value, 'step'), parent_step_id
+        if kind == 'tool':
+            return (
+                f"{call_id or event_type}:tool",
+                cls._make_round_step_id(parent_call_id or run_id or root_owner, round_value, 'run'),
+            )
+        if kind == 'visualization':
+            return (
+                f"{event_type}:{call_id or run_id or 'viz'}",
+                cls._make_round_step_id(parent_call_id or call_id or run_id, round_value, 'run'),
+            )
+        return None, None
+
     def __init__(self, *, event_bus, session_id: str):
         self.event_bus = event_bus
         self.session_id = session_id
@@ -75,6 +128,8 @@ class StepProjector:
         agent_name = data.get('agent_name') or event.agent_name
         call_id = event.call_id
         parent_call_id = event.parent_call_id
+        run_id = data.get('run_id')
+        round_value = data.get('round')
         base = {
             'node_id': call_id,
             'parent_node_id': parent_call_id,
@@ -89,10 +144,20 @@ class StepProjector:
         if event.type == EventType.RUN_START:
             run_id = data.get('run_id')
             description = ((data.get('metadata') or {}).get('task') or data.get('task') or '').strip()
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='run',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'run',
                 'phase': 'start',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'node_id': call_id or run_id,
                 'call_id': call_id or run_id,
                 'run_id': run_id,
@@ -105,10 +170,20 @@ class StepProjector:
             status = data.get('status') or 'completed'
             if status == 'success':
                 status = 'completed'
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='run',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'run',
                 'phase': 'end',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'node_id': call_id or run_id,
                 'call_id': call_id or run_id,
                 'run_id': run_id,
@@ -120,10 +195,20 @@ class StepProjector:
         if event.type == EventType.CALL_AGENT_START:
             if parent_call_id is None:
                 return None
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='subtask',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'subtask',
                 'phase': 'start',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'agent_display_name': data.get('agent_display_name') or agent_name,
                 'description': data.get('description') or data.get('task') or '',
                 'round': data.get('round'),
@@ -135,10 +220,20 @@ class StepProjector:
         if event.type == EventType.CALL_AGENT_END:
             if parent_call_id is None:
                 return None
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='subtask',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'subtask',
                 'phase': 'end',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'agent_display_name': data.get('agent_display_name') or agent_name,
                 'order': data.get('order'),
                 'status': 'error' if data.get('success') is False else 'success',
@@ -147,30 +242,60 @@ class StepProjector:
             }
 
         if event.type == EventType.INTENT_DELTA:
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='intent',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'intent',
                 'phase': 'delta',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'round': data.get('round'),
                 'status': 'running',
                 'content': data.get('content') or '',
             }
 
         if event.type == EventType.INTENT_COMPLETE:
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='intent',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'intent',
                 'phase': 'complete',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'round': data.get('round'),
                 'status': 'completed',
                 'content': data.get('content') or '',
             }
 
         if event.type == EventType.CALL_TOOL_START:
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='tool',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'tool',
                 'phase': 'start',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'tool_name': data.get('tool_name'),
                 'arguments': data.get('arguments') or {},
                 'round': data.get('round'),
@@ -182,10 +307,20 @@ class StepProjector:
             if preview is None:
                 preview = data.get('result')
             raw_result = data.get('raw_result')
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='tool',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'tool',
                 'phase': 'end',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'tool_name': data.get('tool_name'),
                 'round': data.get('round'),
                 'status': 'error' if data.get('success') is False else 'success',
@@ -199,10 +334,20 @@ class StepProjector:
             }
 
         if event.type in (EventType.CHART_GENERATED, EventType.MAP_GENERATED):
+            step_id, parent_step_id = self._resolve_step_ids(
+                kind='visualization',
+                event_type=event_type,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                round_value=round_value,
+                run_id=run_id,
+            )
             return {
                 **base,
                 'kind': 'visualization',
                 'phase': 'complete',
+                'step_id': step_id,
+                'parent_step_id': parent_step_id,
                 'visualization_type': 'chart' if event.type == EventType.CHART_GENERATED else 'map',
                 'status': 'completed',
                 'data': data,
