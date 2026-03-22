@@ -138,6 +138,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - direct 文件工具支持 XML 写法 `<file_path space="workspace|transient|exports">relative/path</file_path>`
 - `execute_bash` 支持 XML 写法 `<working_dir space="workspace|transient|exports">relative/dir</working_dir>`
 - XML 解析层会将其分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
+- dispatcher 在路径预处理消费完 `file_path_space` / `working_dir_space` 这类中间字段后，不再继续透传给底层 tool 实现
 - `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → `./data/sessions/<session_id>/transient/`，`exports` → `./data/sessions/<session_id>/exports/<run_id>/`（缺 `run_id` 报错）
 - 绝对路径不会被 `space` 改写，仍只做受管边界校验
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析

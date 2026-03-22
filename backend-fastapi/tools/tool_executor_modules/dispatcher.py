@@ -131,7 +131,7 @@ def _preprocess_document_tool_args(
 
     args = dict(arguments)
     file_path = args.get('file_path')
-    file_path_space = args.get('file_path_space')
+    file_path_space = args.pop('file_path_space', None)
 
     if file_path:
         operation = 'edit' if tool_name == 'edit_file' else 'read'
