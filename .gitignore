@@ -143,6 +143,18 @@ frontend/
 .skill_venvs/
 
 tests/
+!backend-fastapi/agents/tests/
+!backend-fastapi/agents/tests/test_core/
+!backend-fastapi/agents/tests/test_core/test_prompt_materializer.py
+!backend-fastapi/agents/tests/test_core/test_openai_provider_sdk.py
+!backend-fastapi/agents/tests/test_core/test_runtime_service_orchestrator_isolation.py
+!backend-fastapi/agents/tests/test_core/test_agent_result_flow.py
+!backend-fastapi/agents/tests/test_core/test_context_budget_profiles.py
+!backend-fastapi/agents/tests/test_core/test_context_components.py
+!backend-fastapi/agents/tests/test_core/test_observation_phase_ab_smoke.py
+!backend-fastapi/agents/tests/test_core/test_map_tools.py
+!backend-fastapi/agents/tests/test_core/test_tool_output_type_audit.py
+backend-fastapi/agents/tests/test_core/tmp*/
 
 *.docx
 unpacked*/
