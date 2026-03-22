@@ -298,6 +298,8 @@ class BaseAgent(ABC):
 - `workspace`: 当前 effective workspace；direct 文件工具与 `execute_bash` 的相对路径/目录默认都按这里解析
 - `transient`: 当前 session 的临时目录，适合中间文件与临时产物
 - `exports`: 当前 session 的导出目录 `exports/<run_id>`，适合最终交付文件；使用时需要当前运行上下文提供 `run_id`
+- XML 直接调用时，可用属性形式指定目录桶，例如 `<file_path space="transient">tmp.txt</file_path>`、`<file_path space="exports">report.md</file_path>`、`<working_dir space="workspace">.</working_dir>`
+- JSON 参数调用时，不要传字符串化 XML 标签；应使用 `file_path`/`working_dir` 搭配 `file_path_space`/`working_dir_space`
 - `space` 只影响相对 `file_path` / `working_dir` 的解析根；绝对路径仍只做受管边界校验
 - 对 `execute_bash` 而言，默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/"""
 
@@ -465,7 +467,7 @@ class BaseAgent(ABC):
 2. 互相独立的工具调用放同一 `<tools>` 中并行
 3. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
 4. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
-5. 工具结果中返回的文件路径应直接传给后续工具或 `execute_code` 处理，不要试图读取大文件内容到上下文
+5. 数据文件与工具返回路径按“数据文件传递规则”处理，优先传路径而不是内容
 6. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
 
     def _has_tool(self, tool_name: str) -> bool:
