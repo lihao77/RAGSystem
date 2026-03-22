@@ -103,6 +103,8 @@ def my_tool(arguments, **kwargs):
 
 ## 执行流程
 
+> 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`ReActAgent` 仅补 `execute_code` 专项段，`OrchestratorAgent` 仅补 Agent delegation 段。
+
 ```
 execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, cancel_event)
   ├─ _request_user_approval_if_needed()

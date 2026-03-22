@@ -93,10 +93,17 @@ POST /api/agent/stream {task, session_id, selected_llm}
 | `_execute_react_task()` | ReAct 主循环（思考→工具→观察） |
 | `_handle_actions()` | 执行工具调用，处理占位符替换 |
 | `_resolve_tool_references()` | 解析 `{result_N.path}` 占位符 |
-| `_build_system_prompt()` | 构建系统提示词 |
+| `_build_system_prompt()` | 子类兼容入口，内部统一走共享 prompt skeleton |
+| `_build_shared_system_prompt()` | 共享提示词骨架：intro / goal / principles / tools / skills / output / rules |
+| `_build_direct_tools_section()` | 统一渲染 direct 工具条目、调用能力、参数、returns / usage_contract / examples |
 | `_setup_react_runtime()` | 初始化上下文管道、观察策略等 |
 
 关键属性：`name`, `description`, `available_tools`, `available_skills`, `max_rounds`, `model_adapter`, `agent_config`, `_publisher`
+
+提示词职责分层：
+- `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则
+- `ReActAgent`：只追加 `execute_code` / `call_tool()` 专项段
+- `OrchestratorAgent`：只追加 Agent delegation / 编排规则段
 
 ### OrchestratorAgent（agents/implementations/orchestrator/）
 
@@ -104,15 +111,15 @@ POST /api/agent/stream {task, session_id, selected_llm}
 
 | 文件 | 职责 |
 |------|------|
-| `agent.py` | OrchestratorAgent 类，复用 ReAct 主循环 |
+| `agent.py` | OrchestratorAgent 类，复用 ReAct 主循环，并通过 BaseAgent 共享 skeleton 构造 prompt |
 | `executor.py` | AgentExecutor，执行子 Agent 调用 |
-| `prompting.py` | 提示构建 + `replace_placeholders()` 占位符替换 |
+| `prompting.py` | Agent delegation 专属提示段 + `replace_placeholders()` 占位符替换 |
 | `tool_router.py` | 三层路由：user_input → Agent 委派 → 直接工具 |
 | `runtime.py` | 运行时入口 |
 
 ### ReActAgent（agents/implementations/react/agent.py）
 
-通用 ReAct 智能体，支持工具调用和 Skills。`_resolve_tool_references()` 处理同轮工具链式引用。
+通用 ReAct 智能体，支持工具调用和 Skills。`_resolve_tool_references()` 处理同轮工具链式引用；系统提示词同样复用 BaseAgent 共享骨架，仅在存在 `execute_code` 时追加 `call_tool()` / 沙箱目录专项说明。
 
 ### 已配置的 Agent（agent_configs.yaml）
 

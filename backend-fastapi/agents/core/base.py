@@ -198,6 +198,284 @@ class BaseAgent(ABC):
             lines.append("")
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_allowed_callers(func: Dict[str, Any]) -> str:
+        allowed_callers = list(func.get('allowed_callers') or ['direct'])
+        labels = []
+        if 'direct' in allowed_callers:
+            labels.append('direct（可直接调用）')
+        if 'code_execution' in allowed_callers:
+            labels.append('code_execution（可在 execute_code 中通过 call_tool 调用）')
+        return '、'.join(labels) if labels else 'direct（可直接调用）'
+
+    @staticmethod
+    def _render_tool_example_param(key: str, value: Any) -> str:
+        if isinstance(value, list):
+            item_parts = []
+            for item in value:
+                if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
+                    item_parts.append(f"    <item><![CDATA[{item}]]></item>")
+                else:
+                    item_parts.append(f"    <item>{item}</item>")
+            return f"  <{key}>\n" + "\n".join(item_parts) + f"\n  </{key}>"
+        if isinstance(value, str) and ('\n' in value or '<' in value or '>' in value or '&' in value):
+            return f"  <{key}><![CDATA[{value}]]></{key}>"
+        if isinstance(value, str):
+            return f"  <{key}>{value}</{key}>"
+        return f"  <{key}>{json.dumps(value, ensure_ascii=False)}</{key}>"
+
+    @staticmethod
+    def _format_tool_contract(tool_or_func: Dict[str, Any]) -> List[str]:
+        func = tool_or_func.get('function', tool_or_func)
+        lines: List[str] = []
+
+        returns = func.get('returns')
+        if returns:
+            lines.append("**成功返回**:")
+            return_desc = returns.get('description')
+            if return_desc:
+                lines.append(f"  - {return_desc}")
+            return_shape = returns.get('shape')
+            if return_shape is not None:
+                lines.append(f"  ```json\n  {json.dumps(return_shape, ensure_ascii=False, indent=2)}\n  ```")
+
+        usage_contract = func.get('usage_contract') or []
+        if usage_contract:
+            lines.append("**使用约束**:")
+            for item in usage_contract:
+                lines.append(f"  - {item}")
+
+        examples = func.get('examples') or []
+        if examples:
+            lines.append("**示例**:")
+            for example in examples:
+                params = example.get('input') if isinstance(example.get('input'), dict) else example
+                extra = {k: v for k, v in example.items() if k != 'input'}
+                xml_parts = [BaseAgent._render_tool_example_param(k, v) for k, v in params.items()]
+                xml_block = "\n".join(xml_parts)
+                block = f"  ```xml\n  <tool name=\"{func.get('name', '...')}\">\n{xml_block}\n  </tool>\n  ```"
+                if extra:
+                    hint_lines = [f"  <!-- {k}: {json.dumps(v, ensure_ascii=False)} -->" for k, v in extra.items()]
+                    block += "\n" + "\n".join(hint_lines)
+                lines.append(block)
+
+        return lines
+
+    @staticmethod
+    def _build_tool_calling_global_rules() -> str:
+        return """## 工具调用总规则
+
+- 每个工具条目中的 `调用能力` 字段是唯一准则：`direct` 表示可直接输出为 XML 工具调用；`code_execution` 表示仅可在 `execute_code` 中通过 `call_tool(tool_name, arguments)` 调用
+- 如果某个工具没有标注 `code_execution`，就不要假设它能在 `execute_code` 中调用
+- 路径类工具统一使用 `workspace / transient / exports` 三个受管目录空间；`space` 只影响相对 `file_path` / `working_dir` 的解析根"""
+
+    @staticmethod
+    def _build_managed_space_rules() -> str:
+        return """### 受管目录 space 说明
+- `workspace`: 当前 effective workspace；direct 文件工具与 `execute_bash` 的相对路径/目录默认都按这里解析
+- `transient`: 当前 session 的临时目录，适合中间文件与临时产物
+- `exports`: 当前 session 的导出目录 `exports/<run_id>`，适合最终交付文件；使用时需要当前运行上下文提供 `run_id`
+- `space` 只影响相对 `file_path` / `working_dir` 的解析根；绝对路径仍只做受管边界校验
+- 对 `execute_bash` 而言，默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/"""
+
+    @staticmethod
+    def _build_visualization_rules_section() -> str:
+        return """### 可视化规则
+- 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
+- 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
+- 工具返回 artifact_id 和预览摘要，据此判断是否满意
+- 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
+- 可视化 artifact 默认持久化在 `./data/sessions/<session_id>/visualizations`
+- `artifact_id` 与磁盘文件路径的索引文件是 `./data/sessions/<session_id>/visualizations/viz_index.jsonl`
+- 如需基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在上述目录中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容
+- 图表/地图 artifact 的持久化文件通常是 `./data/sessions/<session_id>/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
+- `revise_visualization` 默认做深度合并；若要按你读到的完整配置整体覆盖，使用 `replace=true`
+- 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
+- 不要编造 artifact_id，必须使用工具返回的真实 ID"""
+
+    @staticmethod
+    def _build_data_file_rules_section() -> str:
+        return """### 数据文件传递规则
+- 数据文件（JSON/GeoJSON/CSV 等）和可视化 artifact 一样，只传路径，不传内容
+- 已有文件路径时，直接在 `<final_answer>` 中返回路径，不要把完整内容读进上下文再输出
+- 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用该路径；`display_path` 仅用于向用户展示
+- 需要确认文件结构时，优先用 `preview_data_structure`；需要确认数据完整性时，可用 `read_file`（带 `limit`）确认后仍然只传路径
+- 需要处理/转换数据时，用 `execute_code` 读文件处理，结果写入新文件，返回新文件路径
+- `<final_answer>` 中引用数据文件格式：`[data:文件路径]`
+- 禁止在 `<final_answer>` 中输出超过 20 行的原始数据；数据量大时必须用文件路径引用"""
+
+    @staticmethod
+    def _invoke_prompt_hook(agent: Any, method_name: str, *args: Any) -> Any:
+        instance_method = getattr(agent, method_name, None)
+        if callable(instance_method):
+            return instance_method(*args)
+        method = getattr(type(agent), method_name, None)
+        if callable(method):
+            return method(agent, *args)
+        return getattr(BaseAgent, method_name)(agent, *args)
+
+    def _get_direct_tools_for_prompt(self) -> List[Dict[str, Any]]:
+        from tools.tool_registry import get_tool_registry
+
+        builtin_tool_names = set(get_tool_registry().get_builtin_tool_names())
+        direct_tools: List[Dict[str, Any]] = []
+        for tool in getattr(self, 'available_tools', []) or []:
+            func = tool.get('function', {}) if isinstance(tool, dict) else {}
+            tool_name = func.get('name', '')
+            if tool_name and tool_name not in builtin_tool_names:
+                direct_tools.append(tool)
+        return direct_tools
+
+    def _build_direct_tools_section(self) -> str:
+        direct_tools = self._get_direct_tools_for_prompt()
+        if not direct_tools:
+            return ""
+
+        lines = [
+            "## 可直接调用的工具",
+            "",
+            "以下工具可直接作为 XML action 调用：",
+        ]
+        for tool in direct_tools:
+            func = tool.get('function', {})
+            name = func.get('name', '')
+            desc = func.get('description', '')
+            params = func.get('parameters', {})
+            lines.append("")
+            lines.append(f"### {name}")
+            lines.append(f"**描述**: {desc}")
+            lines.append(f"**调用能力**: {BaseAgent._format_allowed_callers(func)}")
+            if params and 'properties' in params:
+                lines.append("**参数**:")
+                required = params.get('required', [])
+                for param_name, param_info in params['properties'].items():
+                    param_type = param_info.get('type', 'any')
+                    param_desc = param_info.get('description', '')
+                    required_mark = " (必填)" if param_name in required else " (可选)"
+                    lines.append(f"  - `{param_name}` ({param_type}){required_mark}: {param_desc}")
+            lines.extend(BaseAgent._format_tool_contract(func))
+
+        lines.extend(["", BaseAgent._build_managed_space_rules()])
+        return "\n".join(lines)
+
+    def _build_prompt_intro(self) -> str:
+        return (self.base_prompt or "").strip()
+
+    def _build_prompt_goal_section(self) -> str:
+        return """## 工作目标
+
+你是当前任务的执行者。优先级如下：
+1. 准确完成用户任务
+2. 只基于已知信息、技能内容和工具结果作答，不编造事实
+3. 用最少必要步骤完成任务；信息足够时直接回答，不要为了“更智能”而额外调用工具
+4. 缺少关键输入且无法通过工具补齐时，调用 `request_user_input`"""
+
+    def _build_prompt_principles_section(self) -> str:
+        return """## 决策与回答原则
+
+- 先判断是否真的需要工具。解释、总结、改写、简单判断等任务，若现有信息足够，可直接输出 `<final_answer>`
+- 需要工具时，优先选择最直接、最可靠的工具；不要重复发起已知会失败的调用
+- 如果用户指定了格式、字段、排序、时间范围、地区范围、单位或语言风格，最终答案必须严格遵守
+- 使用与用户一致的语言；用户未指定时默认中文
+- 最终答案先给结论，再给必要细节；避免空话、寒暄和过程描述
+- 不确定、未查到或数据不足时，要明确说明边界，不要猜测"""
+
+    def _build_prompt_tools_section(self) -> str:
+        parts = []
+        direct_tools_section = BaseAgent._invoke_prompt_hook(self, '_build_direct_tools_section')
+        if direct_tools_section:
+            parts.append(direct_tools_section)
+        parts.append(BaseAgent._build_tool_calling_global_rules())
+        return "\n\n".join(part for part in parts if part)
+
+    def _build_prompt_skills_section(self) -> str:
+        skills_description = BaseAgent._invoke_prompt_hook(self, '_format_skills_description')
+        return "## 领域知识 Skills\n\n" + skills_description
+
+    def _build_prompt_tool_call_example(self) -> str:
+        direct_tools = BaseAgent._invoke_prompt_hook(self, '_get_direct_tools_for_prompt')
+        if not direct_tools:
+            return "<tools>\n<tool name=\"tool_name\">\n</tool>\n</tools>"
+
+        func = direct_tools[0].get('function', {})
+        example_params = func.get('parameters', {}).get('properties', {})
+        example_arg_xml = ""
+        if example_params:
+            first_param = list(example_params.keys())[0]
+            example_arg_xml = f"  <{first_param}>示例值</{first_param}>\n"
+        return f"<tools>\n<tool name=\"{func.get('name', 'tool_name')}\">\n{example_arg_xml}</tool>\n</tools>"
+
+    def _build_prompt_output_format_section(self) -> str:
+        tool_example = BaseAgent._invoke_prompt_hook(self, '_build_prompt_tool_call_example')
+        return f"""## 输出格式
+
+**直接输出工具调用或答案。禁止写推理、分析、过程解释，也不要使用 `<thinking>` 标签。**
+
+调用工具：
+{tool_example}
+
+向用户追问缺失信息：
+<tools>
+<tool name="request_user_input">
+  <prompt>请提供需要的关键信息</prompt>
+</tool>
+</tools>
+
+给出最终答案：
+<final_answer>
+答案内容
+</final_answer>
+
+如需补充一段简短意图（可选，建议 1-2 句自然语言，像人在心里做下一步判断，不要展开冗长推理）：
+<intent>我先确认现有信息是否足够，再决定是直接回答还是调用工具。</intent>
+<tools>...</tools>
+
+**参数格式说明**：
+- 每个参数用 XML 子标签传递：`<参数名>值</参数名>`
+- 多行文本或含 `<` `>` `&` 的参数值用 CDATA 包裹：`<code><![CDATA[内容]]></code>`
+- JSON 格式参数也兼容，但推荐使用 XML 子标签"""
+
+    def _build_prompt_rules_section(self) -> str:
+        return """## 执行规则
+
+1. 只能使用上面列出的工具
+2. `<intent>` 用 1-2 句自然语言概括当前判断或下一步计划；要像人类的简短思考摘要，不要写成长篇推理；也可省略
+   不要写成“查数据”“调工具”“生成图表”“激活技能”这类命令式标签；应写成“我先确认数据范围，再决定是否需要进一步处理”这种内心独白
+3. 互相独立的工具调用放同一 `<tools>` 中并行
+4. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
+5. 数据足够时直接输出 `<final_answer>`
+6. 缺少关键输入且无法自行补齐时，用 `request_user_input`
+7. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
+8. 工具结果中返回的文件路径应直接传给后续工具或 `execute_code` 处理，不要试图读取大文件内容到上下文
+9. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
+
+    def _build_agent_specific_prompt_sections(self) -> List[str]:
+        return []
+
+    def _build_shared_system_prompt(self) -> str:
+        sections: List[str] = []
+        section_order = [
+            '_build_prompt_intro',
+            '_build_prompt_goal_section',
+            '_build_prompt_principles_section',
+            '_build_prompt_tools_section',
+            '_build_prompt_skills_section',
+            '_build_prompt_output_format_section',
+            '_build_prompt_rules_section',
+        ]
+        for method_name in section_order:
+            section = BaseAgent._invoke_prompt_hook(self, method_name)
+            if section and str(section).strip():
+                sections.append(str(section).strip())
+
+        for section in BaseAgent._invoke_prompt_hook(self, '_build_agent_specific_prompt_sections') or []:
+            if section and str(section).strip():
+                sections.append(str(section).strip())
+
+        sections.append(BaseAgent._build_data_file_rules_section())
+        sections.append(BaseAgent._build_visualization_rules_section())
+        return "\n\n".join(section for section in sections if section)
+
     def _log_prefix(self, llm_config: Optional[Dict[str, Any]] = None, display_name: Optional[str] = None) -> str:
         """返回带模型名的日志前缀"""
         name = display_name if display_name is not None else self.name

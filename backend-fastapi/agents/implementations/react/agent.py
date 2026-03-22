@@ -20,59 +20,7 @@ _TOOL_REGISTRY = get_tool_registry()
 
 
 def _format_tool_contract(tool: Dict[str, Any]) -> List[str]:
-    """Render extended tool metadata into prompt lines."""
-    func = tool.get('function', {})
-    lines: List[str] = []
-
-    returns = func.get('returns')
-    if returns:
-        lines.append("**成功返回**:")
-        return_desc = returns.get('description')
-        if return_desc:
-            lines.append(f"  - {return_desc}")
-        return_shape = returns.get('shape')
-        if return_shape is not None:
-            lines.append(f"  ```json\n  {json.dumps(return_shape, ensure_ascii=False, indent=2)}\n  ```")
-
-    usage_contract = func.get('usage_contract') or []
-    if usage_contract:
-        lines.append("**使用约束**:")
-        for item in usage_contract:
-            lines.append(f"  - {item}")
-
-    examples = func.get('examples') or []
-    if examples:
-        lines.append("**示例**:")
-        for example in examples:
-            # input 展开为参数子标签，其余 key 作为注释附在 xml 块后
-            params = example.get('input') if isinstance(example.get('input'), dict) else example
-            extra = {k: v for k, v in example.items() if k != 'input'}
-
-            def _render_param(k, v):
-                if isinstance(v, list):
-                    item_parts = []
-                    for item in v:
-                        if isinstance(item, str) and ('\n' in item or '<' in item or '>' in item or '&' in item):
-                            item_parts.append(f"    <item><![CDATA[{item}]]></item>")
-                        else:
-                            item_parts.append(f"    <item>{item}</item>")
-                    return f"  <{k}>\n" + "\n".join(item_parts) + f"\n  </{k}>"
-                elif isinstance(v, str) and ('\n' in v or '<' in v or '>' in v or '&' in v):
-                    return f"  <{k}><![CDATA[{v}]]></{k}>"
-                elif isinstance(v, str):
-                    return f"  <{k}>{v}</{k}>"
-                else:
-                    return f"  <{k}>{json.dumps(v, ensure_ascii=False)}</{k}>"
-
-            xml_parts = [_render_param(k, v) for k, v in params.items()]
-            xml_block = "\n".join(xml_parts)
-            block = f"  ```xml\n  <tool name=\"{func.get('name', '...')}\">\n{xml_block}\n  </tool>\n  ```"
-            if extra:
-                hint_lines = [f"  <!-- {k}: {json.dumps(v, ensure_ascii=False)} -->" for k, v in extra.items()]
-                block += "\n" + "\n".join(hint_lines)
-            lines.append(block)
-
-    return lines
+    return BaseAgent._format_tool_contract(tool)
 
 
 class ReActAgent(BaseAgent):
@@ -213,56 +161,38 @@ class ReActAgent(BaseAgent):
                 self.logger.warning(f"事件总线发布失败: {e}")
 
     def _build_system_prompt(self) -> str:
-        """构建系统提示词"""
-        # 构建详细的工具说明（包含参数定义）
-        tools_desc_lines = []
-        for tool in self.available_tools:
-            func = tool['function']
-            name = func['name']
-            desc = func['description']
-            params = func.get('parameters', {})
+        return BaseAgent._build_shared_system_prompt(self)
 
-            # 基本描述
-            tools_desc_lines.append(f"\n### {name}")
-            tools_desc_lines.append(f"**描述**: {desc}")
-
-            # 参数说明
-            if params and 'properties' in params:
-                tools_desc_lines.append("**参数**:")
-                required = params.get('required', [])
-                for param_name, param_info in params['properties'].items():
-                    param_type = param_info.get('type', 'any')
-                    param_desc = param_info.get('description', '')
-                    required_mark = " (必填)" if param_name in required else " (可选)"
-                    tools_desc_lines.append(f"  - `{param_name}` ({param_type}){required_mark}: {param_desc}")
-
-            tools_desc_lines.extend(_format_tool_contract(tool))
-
-        tools_desc = "\n".join(tools_desc_lines)
-
-        # 构建 execute_code 可调用工具说明
-        # 当 execute_code 在可用工具中时，告知 LLM 哪些工具可在 call_tool() 中调用
-        code_callable_hint = ""
+    def _build_agent_specific_prompt_sections(self) -> List[str]:
         has_execute_code = any(
-            t['function']['name'] == 'execute_code' for t in self.available_tools
+            tool.get('function', {}).get('name') == 'execute_code'
+            for tool in getattr(self, 'available_tools', []) or []
         )
-        if has_execute_code:
-            code_callable_tools = [
-                t['function']['name']
-                for t in self.available_tools
-                if t['function']['name'] != 'execute_code'
-                and 'code_execution' in t['function'].get('allowed_callers', ['direct'])
-            ]
-            if code_callable_tools:
-                tools_list = ", ".join(f"`{t}`" for t in code_callable_tools)
-                code_callable_hint = f"""
+        if not has_execute_code:
+            return []
 
-## execute_code 中可调用的工具
+        code_callable_tools = [
+            tool.get('function', {}).get('name')
+            for tool in getattr(self, 'available_tools', []) or []
+            if tool.get('function', {}).get('name') != 'execute_code'
+            and 'code_execution' in tool.get('function', {}).get('allowed_callers', ['direct'])
+        ]
+        if not code_callable_tools:
+            return []
 
-在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，**只能调用以下工具**：
+        tools_list = ", ".join(f"`{tool_name}`" for tool_name in code_callable_tools)
+        return [f"""## execute_code 中可调用的工具
+
+在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，只能调用以下工具：
 {tools_list}
 
-`call_tool()` **只返回工具的主内容**，也就是 `ToolExecutionResult.content`，**不是**包含 `content / summary / metadata` 的完整响应对象。
+`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`，不是包含 `content / summary / metadata` 的完整响应对象。
+
+三个受管目录 `space` 的语义与 direct 文件工具、`execute_bash` 完全一致：
+- `workspace`: 当前 effective workspace
+- `transient`: 当前 session 的 transient 目录
+- `exports`: 当前 session 的 `exports/<run_id>` 目录
+在代码里如果需要处理这三类目录，应优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径。
 
 文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。`execute_code` 内应直接使用受限 `open()` 读取文件，写入前先调用 `request_write_approval()`，再用 `open()` 写入。
 
@@ -301,139 +231,7 @@ risk = call_tool('assess_flood_risk', {{
 
 如果需要完整工具响应壳，不要假设 `call_tool()` 会返回该结构；当前只能拿到主内容后自行处理。
 
-其他未列出的工具不允许从代码中调用，只能直接作为 action 使用。"""
-
-        # 构建 Skills 说明
-        skills_desc = self._format_skills_description()
-
-        # 🔒 动态生成示例：使用当前智能体可用的工具
-        example_tool_name = self.available_tools[0]['function']['name'] if self.available_tools else "tool_name"
-        example_params = self.available_tools[0]['function'].get('parameters', {}).get('properties', {})
-
-        # 构造示例参数（XML 子标签格式）
-        if example_params:
-            first_param = list(example_params.keys())[0]
-            example_arg_xml = f"  <{first_param}>示例值</{first_param}>"
-        else:
-            example_arg_xml = ""
-
-        return f"""{self.base_prompt}
-
-## 工作目标
-
-你是当前任务的执行者。优先级如下：
-1. 准确完成用户任务
-2. 只基于已知信息、技能内容和工具结果作答，不编造事实
-3. 用最少必要步骤完成任务；信息足够时直接回答，不要为了“更智能”而额外调用工具
-4. 缺少关键输入且无法通过工具补齐时，调用 `request_user_input`
-
-## 决策与回答原则
-
-- 先判断是否真的需要工具。解释、总结、改写、简单判断等任务，若现有信息足够，可直接输出 `<final_answer>`
-- 需要工具时，优先选择最直接、最可靠的工具；不要重复发起已知会失败的调用
-- 如果用户指定了格式、字段、排序、时间范围、地区范围、单位或语言风格，最终答案必须严格遵守
-- 使用与用户一致的语言；用户未指定时默认中文
-- 最终答案先给结论，再给必要细节；避免空话、寒暄和过程描述
-- 不确定、未查到或数据不足时，要明确说明边界，不要猜测
-
-## 可用工具
-
-{tools_desc}
-{code_callable_hint}
-
-## 领域知识 (Skills)
-
-{skills_desc}
-
-## 输出格式
-
-**直接输出工具调用或答案。禁止写推理、分析、过程解释。**
-
-调用工具：
-<tools>
-<tool name="{example_tool_name}">
-{example_arg_xml}
-</tool>
-</tools>
-
-向用户追问缺失信息：
-<tools>
-<tool name="request_user_input">
-  <prompt>请提供需要的关键信息</prompt>
-</tool>
-</tools>
-
-给出最终答案：
-<final_answer>
-答案内容
-</final_answer>
-
-如需补充一段简短意图（可选，建议 1-2 句自然语言，像人在心里做下一步判断，不要展开冗长推理）：
-<intent>我先激活这个技能，再根据主文件判断是否需要加载额外资源。</intent>
-<tools>...</tools>
-
-**参数格式说明**：
-- 每个参数用 XML 子标签传递：`<参数名>值</参数名>`
-- 多行文本或含 `<` `>` `&` 的参数值用 CDATA 包裹：`<code><![CDATA[内容]]></code>`
-- JSON 格式参数也兼容，但推荐使用 XML 子标签
-
-**规则：**
-1. 只能使用“可用工具”中列出的工具
-2. `<intent>` 用 1-2 句自然语言概括当前判断或下一步计划；要像人类的简短思考摘要，不要写成长篇推理；也可省略
-   不要写成“查数据”“调工具”“生成图表”“激活技能”这类命令式标签；应写成“我先确认数据范围，再决定是否需要进一步处理”这种内心独白
-3. 互相独立的工具调用放同一 `<tools>` 中并行
-4. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
-5. 数据足够时直接输出 `<final_answer>`
-6. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
-7. 工具结果中返回的文件路径应直接传给后续工具或 execute_code 处理，不要试图读取大文件内容到上下文（详见下方「数据文件传递规则」）
-8. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据
-9. 可视化使用 `[viz:artifact_id]` 引用（详见下方「可视化规则」）；数据文件使用 `[data:路径]` 引用（详见下方「数据文件传递规则」）
-10. 如果需要基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在 `./data/sessions/<session_id>/visualizations/viz_index.jsonl` 中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容进行处理
-
-### 数据文件传递规则（与可视化同等重要）
-- 数据文件（JSON/GeoJSON/CSV 等）和可视化 artifact 一样，**只传路径，不传内容**
-- 已有文件路径时（如 Skill 返回的路径、工具落盘路径），直接在 `<final_answer>` 中返回路径，不要把完整内容读进上下文再输出
-- 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用该路径；`display_path` 仅用于向用户展示
-- 需要确认文件结构时，优先用 `preview_data_structure`；需要确认数据完整性（如记录数、字段是否齐全）时，可以用 `read_file`（带 limit）确认后仍然只传路径
-- 需要处理/转换数据时，用 `execute_code` 读文件处理，结果写入新文件，返回新文件路径
-- `<final_answer>` 中引用数据文件格式：`[data:文件路径]`，如 `[data:./data/sessions/<session_id>/visualizations/data_abc123.json]`
-- 禁止在 `<final_answer>` 中输出超过 20 行的原始数据；数据量大时必须用文件路径引用
-
-**正确示例**：
-```
-<final_answer>
-查询到广西14个地级市的行政区划边界数据，共14条记录。
-
-[data:./data/sessions/<session_id>/visualizations/gx_boundaries.geojson]
-</final_answer>
-```
-
-**错误示例**：
-```
-<final_answer>
-{{"type": "FeatureCollection", "features": [{{"type": "Feature", "geometry": ...几千行...}}]}}
-</final_answer>
-```
-
-**数据处理：**
-- 工具返回「📁 数据已存储: <path>」→ 数据已落盘，后续用文件路径传给工具或用 execute_code 读取处理
-- 需要过滤/转换/聚合大数据 → execute_code 直接读文件处理
-- 批量查多实体或循环调用 → execute_code
-- 只有当明确需要读取小文件内容到上下文时，才用 read_file，且必须携带 limit 参数限制读取大小
-
-### 可视化规则
-- 使用 `create_chart` 生成图表，`create_map` 生成地图，一步完成
-- 点图层可传 `marker_style` 自定义图标样式，例如 `icon`、`color`、`glyph`、`size`，用于区分不同 agent 或业务图层
-- 工具返回 artifact_id 和预览摘要，据此判断是否满意
-- 不满意时用 `revise_visualization(artifact_id, config_patch)` 修改
-- 可视化 artifact 默认持久化在 `./data/sessions/<session_id>/visualizations`
-- `artifact_id` 与磁盘文件路径的索引文件是 `./data/sessions/<session_id>/visualizations/viz_index.jsonl`
-- 如需基于已有 artifact 继续编辑、复制思路或恢复当前配置，可先在上述目录中按 `artifact_id` 反查对应 `file_path`，再读取 JSON 内容
-- 图表/地图 artifact 的持久化文件通常是 `./data/sessions/<session_id>/visualizations` 下的 JSON；其中 `config` 字段就是当前可编辑配置
-- `revise_visualization` 默认做深度合并；若要按你读到的完整配置整体覆盖，使用 `replace=true`
-- 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
-- 不要编造 artifact_id，必须使用工具返回的真实 ID
-"""
+其他未列出的工具不允许从代码中调用，只能直接作为 action 使用。"""]
 
     def execute_stream(self, task: str, context: AgentContext) -> AgentResponse:
         """
