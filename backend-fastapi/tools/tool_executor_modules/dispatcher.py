@@ -133,6 +133,19 @@ def _preprocess_document_tool_args(
     file_path = args.get('file_path')
     file_path_space = args.pop('file_path_space', None)
 
+    logger.debug(
+        '文档工具路径预处理开始: tool=%s caller=%s session_id=%s run_id=%s workspace_root=%s default_output_space=%s raw_file_path=%s file_path_space=%s%s',
+        tool_name,
+        caller,
+        session_id,
+        run_id,
+        workspace_root,
+        default_output_space,
+        file_path,
+        file_path_space,
+        _obs_suffix(),
+    )
+
     if file_path:
         operation = 'edit' if tool_name == 'edit_file' else 'read'
         if tool_name == 'write_file':
@@ -148,6 +161,13 @@ def _preprocess_document_tool_args(
             explicit_space=file_path_space,
         )
         args['file_path'] = str(resolved)
+        logger.debug(
+            '文档工具路径预处理完成: tool=%s operation=%s resolved_file_path=%s%s',
+            tool_name,
+            operation,
+            args['file_path'],
+            _obs_suffix(),
+        )
     elif tool_name == 'write_file':
         mode = args.get('mode', 'text')
         suffix = '.json' if mode == 'json' else '.txt'
@@ -162,6 +182,13 @@ def _preprocess_document_tool_args(
             suffix=suffix,
         )
         args['file_path'] = str(assigned)
+        logger.debug(
+            '文档工具路径预处理分配输出路径: tool=%s mode=%s assigned_file_path=%s%s',
+            tool_name,
+            mode,
+            args['file_path'],
+            _obs_suffix(),
+        )
 
     return args
 
@@ -204,13 +231,7 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
         return merge_extracted_data(**arguments)
     if tool_name == 'write_file':
         from tools.document_executor import write_file
-        return write_file(
-            **arguments,
-            session_id=session_id,
-            run_id=_run_id,
-            default_output_space=_default_output_space,
-            workspace_root=_workspace_root,
-        )
+        return write_file(**arguments)
     if tool_name == 'read_file':
         from tools.document_executor import read_file
         return read_file(
@@ -218,8 +239,6 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
             caller=caller,
             event_bus=event_bus,
             session_id=session_id,
-            workspace_root=_workspace_root,
-            run_id=_run_id,
         )
     if tool_name == 'preview_data_structure':
         from tools.document_executor import preview_data_structure

@@ -70,19 +70,27 @@ class AgentApiRuntimeService:
     def _get_session_workspace_root(self, session_id: str | None) -> Optional[str]:
         normalized_session_id = (session_id or '').strip()
         if not normalized_session_id:
+            logger.debug('session workspace_root 查询跳过：session_id 为空')
             return None
         session = self._conversation_store.get_session(normalized_session_id) or {}
         metadata = session.get('metadata') or {}
         workspace_root = metadata.get('workspace_root')
-        if isinstance(workspace_root, str) and workspace_root.strip():
-            return workspace_root.strip()
-        return None
+        resolved_workspace_root = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else None
+        logger.debug(
+            'session workspace_root 查询: session_id=%s workspace_root=%s metadata_keys=%s',
+            normalized_session_id,
+            resolved_workspace_root,
+            sorted(metadata.keys()),
+        )
+        return resolved_workspace_root
 
     def _apply_session_workspace_root(self, orchestrator, session_id: str | None):
         workspace_root = self._get_session_workspace_root(session_id)
         if not workspace_root:
+            logger.debug('execution orchestrator 未注入 workspace_root: session_id=%s', session_id)
             return orchestrator
 
+        injected_agents = []
         for agent in getattr(orchestrator, 'agents', {}).values():
             agent_config = getattr(agent, 'agent_config', None)
             if agent_config is None:
@@ -93,6 +101,13 @@ class AgentApiRuntimeService:
             copied_params['workspace_root'] = workspace_root
             copied_config.custom_params = copied_params
             agent.agent_config = copied_config
+            injected_agents.append(getattr(agent, 'name', '<unknown>'))
+        logger.debug(
+            'execution orchestrator 注入 workspace_root: session_id=%s workspace_root=%s agents=%s',
+            session_id,
+            workspace_root,
+            injected_agents,
+        )
         return orchestrator
 
     # ── 会话历史（原 AgentChatApplication） ───────────────

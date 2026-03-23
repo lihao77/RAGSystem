@@ -3,12 +3,11 @@ import shutil
 import tempfile
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
-
-from types import SimpleNamespace
 
 from tools.document_executor import read_file, write_file, edit_file
 from tools.code_sandbox import execute_code_sandbox
@@ -22,33 +21,21 @@ def _make_temp_dir() -> Path:
     return Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
 
 
-def test_read_file_prefers_workspace_root_for_relative_paths():
-    root = _make_temp_dir()
-    workspace = root / "workspace"
-    workspace.mkdir()
-    target = workspace / "demo.txt"
-    target.write_text("workspace-data\n", encoding="utf-8")
-
-    try:
-        result = read_file("demo.txt", workspace_root=str(workspace))
-
-        assert result.success is True
-        assert result.content == "workspace-data"
-        assert result.metadata["file_path"] == str(target)
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def test_write_file_without_path_uses_exports_space():
+def test_preprocess_document_tool_args_assigns_exports_path_when_file_path_missing():
     session_id = "session-export-1"
     run_id = "run-export-1"
     expected_root = get_export_run_root(session_id, run_id)
-    result = write_file(
-        "hello",
+
+    args = _preprocess_document_tool_args(
+        "write_file",
+        {"content": "hello"},
+        workspace_root=None,
+        default_output_space="exports",
         session_id=session_id,
         run_id=run_id,
-        default_output_space="exports",
+        caller="direct",
     )
+    result = write_file(args["content"], file_path=args["file_path"])
 
     assert result.success is True
     output_path = Path(result.content["file_path"])
@@ -123,7 +110,81 @@ def test_execute_document_tool_write_file_accepts_xml_space_flattened_args_witho
         output_path.unlink(missing_ok=True)
 
 
-def test_edit_file_reads_existing_relative_file_from_workspace():
+def test_preprocess_document_tool_args_keeps_workspace_as_default_relative_space():
+    root = _make_temp_dir()
+    workspace = root / "workspace"
+    workspace.mkdir()
+
+    try:
+        args = _preprocess_document_tool_args(
+            "write_file",
+            {"content": "hello", "file_path": "note.txt"},
+            workspace_root=str(workspace),
+            default_output_space="transient",
+            session_id="session-default-workspace",
+            run_id="run-default-workspace",
+            caller="direct",
+        )
+        assert Path(args["file_path"]).resolve() == (workspace / "note.txt").resolve()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_preprocess_document_tool_args_accepts_absolute_path_inside_workspace_root(caplog):
+    import logging
+
+    root = _make_temp_dir()
+    workspace = root / "workspace"
+    workspace.mkdir()
+    target = workspace / "note.txt"
+    target.write_text("hello", encoding="utf-8")
+
+    try:
+        caplog.set_level(logging.DEBUG)
+        args = _preprocess_document_tool_args(
+            "edit_file",
+            {"file_path": str(target), "old_string": "hello", "new_string": "world"},
+            workspace_root=str(workspace),
+            default_output_space="workspace",
+            session_id="session-absolute-workspace",
+            run_id="run-absolute-workspace",
+            caller="direct",
+        )
+        assert Path(args["file_path"]).resolve() == target.resolve()
+        assert "文档工具路径预处理开始" in caplog.text
+        assert str(workspace.resolve()) in caplog.text
+        assert str(target.resolve()) in caplog.text
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_read_file_uses_preprocessed_workspace_absolute_path():
+    root = _make_temp_dir()
+    workspace = root / "workspace"
+    workspace.mkdir()
+    target = workspace / "demo.txt"
+    target.write_text("workspace-data\n", encoding="utf-8")
+
+    try:
+        args = _preprocess_document_tool_args(
+            "read_file",
+            {"file_path": "demo.txt"},
+            workspace_root=str(workspace),
+            default_output_space="workspace",
+            session_id="session-read-workspace",
+            run_id="run-read-workspace",
+            caller="direct",
+        )
+        result = read_file(args["file_path"])
+
+        assert result.success is True
+        assert result.content == "workspace-data"
+        assert result.metadata["file_path"] == str(target)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_edit_file_uses_preprocessed_workspace_absolute_path():
     root = _make_temp_dir()
     workspace = root / "workspace"
     workspace.mkdir()
@@ -131,11 +192,19 @@ def test_edit_file_reads_existing_relative_file_from_workspace():
     target.write_text("before\nafter\n", encoding="utf-8")
 
     try:
-        result = edit_file(
-            "note.txt",
-            old_string="before",
-            new_string="updated",
+        args = _preprocess_document_tool_args(
+            "edit_file",
+            {"file_path": "note.txt", "old_string": "before", "new_string": "updated"},
             workspace_root=str(workspace),
+            default_output_space="workspace",
+            session_id="session-edit-workspace",
+            run_id="run-edit-workspace",
+            caller="direct",
+        )
+        result = edit_file(
+            args["file_path"],
+            old_string=args["old_string"],
+            new_string=args["new_string"],
         )
 
         assert result.success is True
@@ -160,9 +229,6 @@ def test_write_read_and_edit_file_support_explicit_transient_space():
     write_result = write_file(
         preprocessed["content"],
         file_path=preprocessed["file_path"],
-        session_id=session_id,
-        run_id=run_id,
-        default_output_space="workspace",
     )
     assert write_result.success is True
 
@@ -176,11 +242,7 @@ def test_write_read_and_edit_file_support_explicit_transient_space():
             run_id=run_id,
             caller="direct",
         )
-        read_result = read_file(
-            read_args["file_path"],
-            session_id=session_id,
-            run_id=run_id,
-        )
+        read_result = read_file(read_args["file_path"])
         assert read_result.success is True
         assert read_result.content == "before\nafter"
 
@@ -197,38 +259,16 @@ def test_write_read_and_edit_file_support_explicit_transient_space():
             edit_args["file_path"],
             old_string=edit_args["old_string"],
             new_string=edit_args["new_string"],
-            session_id=session_id,
-            run_id=run_id,
         )
         assert edit_result.success is True
 
-        updated_read = read_file(edit_args["file_path"], session_id=session_id, run_id=run_id)
+        updated_read = read_file(edit_args["file_path"])
         assert updated_read.content == "updated\nafter"
     finally:
         Path(preprocessed["file_path"]).unlink(missing_ok=True)
 
 
-def test_preprocess_document_tool_args_keeps_workspace_as_default_relative_space():
-    root = _make_temp_dir()
-    workspace = root / "workspace"
-    workspace.mkdir()
-
-    try:
-        args = _preprocess_document_tool_args(
-            "write_file",
-            {"content": "hello", "file_path": "note.txt"},
-            workspace_root=str(workspace),
-            default_output_space="transient",
-            session_id="session-default-workspace",
-            run_id="run-default-workspace",
-            caller="direct",
-        )
-        assert Path(args["file_path"]).resolve() == (workspace / "note.txt").resolve()
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def test_execute_code_reads_workspace_and_writes_to_code_execution_root():
+def test_execute_code_uses_workspace_for_reads_and_sandbox_for_writes():
     root = _make_temp_dir()
     workspace = root / "workspace"
     workspace.mkdir()
@@ -341,4 +381,3 @@ def test_document_file_tools_are_direct_only_for_permissions_and_registry():
     assert "read_file" not in code_callable_tools
     assert "write_file" not in code_callable_tools
     assert "edit_file" not in code_callable_tools
-

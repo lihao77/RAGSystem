@@ -149,6 +149,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
 - 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件先 `request_write_approval()` 再 `open()`，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
 - tool 实现层（document_executor）只接受预处理后的绝对路径，不再自行做路径策略判断
+- `read_file` / `edit_file` / `write_file` 底层不再重复调用 `resolve_managed_path(...)`；`write_file` 的空路径分配由 dispatcher 统一负责
 - `content.file_path` 为内部绝对路径（供链式调用），`content.display_path` 为可读展示路径（供用户展示）
 
 ## 核心数据模型

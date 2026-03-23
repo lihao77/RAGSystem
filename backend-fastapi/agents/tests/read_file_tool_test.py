@@ -15,8 +15,8 @@ from tools.document_executor import (
 from agents.task_registry import TaskRegistry
 
 
-def _workspace_kwargs(tmp_path):
-    return {"workspace_root": str(tmp_path)}
+def _absolute_path(tmp_path, name: str) -> str:
+    return str(tmp_path / name)
 
 
 # ───────────────────── read_file: 原始内容模式 ─────────────────────
@@ -26,7 +26,7 @@ def test_read_file_default_reads_all_small_file(tmp_path):
     fp = tmp_path / "small.txt"
     fp.write_text("line1\nline2\nline3\n", encoding="utf-8")
 
-    result = read_file("small.txt", **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp))
 
     assert result.success is True
     assert "line1" in result.content
@@ -45,7 +45,7 @@ def test_read_file_offset_and_limit(tmp_path):
     lines = [f"line{i}" for i in range(1, 11)]
     fp.write_text("\n".join(lines), encoding="utf-8")
 
-    result = read_file("lines.txt", offset=3, limit=4, **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp), offset=3, limit=4)
 
     assert result.success is True
     assert result.metadata["start_line"] == 3
@@ -63,7 +63,7 @@ def test_read_file_raw_content_format(tmp_path):
     fp = tmp_path / "fmt.txt"
     fp.write_text("alpha\nbeta\n", encoding="utf-8")
 
-    result = read_file("fmt.txt", **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp))
 
     lines = result.content.split("\n")
     assert lines[0] == "alpha"
@@ -76,7 +76,7 @@ def test_read_file_keeps_long_lines(tmp_path):
     long_line = "x" * 2500
     fp.write_text(long_line + "\nshort\n", encoding="utf-8")
 
-    result = read_file("long.txt", **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp))
 
     first_line = result.content.split("\n")[0]
     assert first_line == long_line
@@ -88,7 +88,7 @@ def test_read_file_offset_beyond_total_lines(tmp_path):
     fp = tmp_path / "tiny.txt"
     fp.write_text("only one line\n", encoding="utf-8")
 
-    result = read_file("tiny.txt", offset=100, **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp), offset=100)
 
     assert result.success is True
     assert result.content == ""
@@ -100,14 +100,14 @@ def test_read_file_rejects_invalid_offset(tmp_path):
     fp = tmp_path / "x.txt"
     fp.write_text("a", encoding="utf-8")
 
-    result = read_file("x.txt", offset=0, **_workspace_kwargs(tmp_path))
+    result = read_file(str(fp), offset=0)
     assert result.success is False
     assert "offset" in result.content
 
 
 def test_read_file_nonexistent(tmp_path):
-    """读取受管工作区中不存在的文件报错。"""
-    result = read_file("missing.txt", **_workspace_kwargs(tmp_path))
+    """读取不存在的绝对路径文件报错。"""
+    result = read_file(_absolute_path(tmp_path, "missing.txt"))
     assert result.success is False
     assert "不存在" in result.content
 
@@ -134,7 +134,7 @@ def _prepare_registry(monkeypatch, session_id):
 
 def test_read_file_large_file_confirm_approved(tmp_path, monkeypatch):
     """大文件 + direct caller + 用户批准 → 返回完整内容。"""
-    _make_large_file(tmp_path)
+    file_path = _make_large_file(tmp_path)
 
     event_bus = MagicMock()
     session_id = "test-session-1"
@@ -154,22 +154,21 @@ def test_read_file_large_file_confirm_approved(tmp_path, monkeypatch):
     event_bus.publish = fake_publish
 
     result = read_file(
-        "large.txt",
+        str(file_path),
         caller="direct",
         event_bus=event_bus,
         session_id=session_id,
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
-    assert "preview_only" not in result.metadata or result.metadata.get("preview_only") is not True
+    assert result.metadata.get("user_approved_full_read") is True
     approval_event = published_event["event"]
     assert approval_event.data["preview_threshold"] == FILE_SIZE_PREVIEW_THRESHOLD
 
 
 def test_read_file_large_file_confirm_denied(tmp_path, monkeypatch):
     """大文件 + direct caller + 用户拒绝 → 返回预览。"""
-    _make_large_file(tmp_path)
+    file_path = _make_large_file(tmp_path)
 
     event_bus = MagicMock()
     session_id = "test-session-2"
@@ -187,11 +186,10 @@ def test_read_file_large_file_confirm_denied(tmp_path, monkeypatch):
     event_bus.publish = fake_publish
 
     result = read_file(
-        "large.txt",
+        str(file_path),
         caller="direct",
         event_bus=event_bus,
         session_id=session_id,
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
@@ -201,22 +199,21 @@ def test_read_file_large_file_confirm_denied(tmp_path, monkeypatch):
 
 def test_read_file_large_file_code_execution_no_confirm(tmp_path):
     """code_execution caller 读大文件 → 不触发确认，直接返回。"""
-    _make_large_file(tmp_path)
+    file_path = _make_large_file(tmp_path)
 
     event_bus = MagicMock()
     session_id = "test-session-3"
 
     result = read_file(
-        "large.txt",
+        str(file_path),
         caller="code_execution",
         event_bus=event_bus,
         session_id=session_id,
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
     event_bus.publish.assert_not_called()
-    assert "preview_only" not in result.metadata or result.metadata.get("preview_only") is not True
+    assert result.metadata.get("preview_only") is not True
 
 
 def test_read_file_small_file_no_confirm(tmp_path):
@@ -227,11 +224,10 @@ def test_read_file_small_file_no_confirm(tmp_path):
     event_bus = MagicMock()
 
     result = read_file(
-        "small.txt",
+        str(fp),
         caller="direct",
         event_bus=event_bus,
         session_id="s1",
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
@@ -246,10 +242,9 @@ def test_edit_file_unique_match(tmp_path):
     fp.write_text("hello world\nfoo bar\n", encoding="utf-8")
 
     result = edit_file(
-        "edit.txt",
+        str(fp),
         old_string="hello world",
         new_string="hi world",
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
@@ -264,10 +259,9 @@ def test_edit_file_no_match(tmp_path):
     fp.write_text("hello world\n", encoding="utf-8")
 
     result = edit_file(
-        "edit2.txt",
+        str(fp),
         old_string="xyz",
         new_string="abc",
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is False
@@ -280,10 +274,9 @@ def test_edit_file_multiple_match_error(tmp_path):
     fp.write_text("aaa bbb aaa\n", encoding="utf-8")
 
     result = edit_file(
-        "edit3.txt",
+        str(fp),
         old_string="aaa",
         new_string="ccc",
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is False
@@ -297,11 +290,10 @@ def test_edit_file_replace_all(tmp_path):
     fp.write_text("aaa bbb aaa\n", encoding="utf-8")
 
     result = edit_file(
-        "edit4.txt",
+        str(fp),
         old_string="aaa",
         new_string="ccc",
         replace_all=True,
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
@@ -315,10 +307,9 @@ def test_edit_file_empty_new_string_deletes(tmp_path):
     fp.write_text("keep this remove_me and this\n", encoding="utf-8")
 
     result = edit_file(
-        "edit5.txt",
+        str(fp),
         old_string="remove_me ",
         new_string="",
-        **_workspace_kwargs(tmp_path),
     )
 
     assert result.success is True
@@ -326,12 +317,11 @@ def test_edit_file_empty_new_string_deletes(tmp_path):
 
 
 def test_edit_file_nonexistent(tmp_path):
-    """编辑受管工作区中不存在的文件报错。"""
+    """编辑不存在的绝对路径文件报错。"""
     result = edit_file(
-        "missing.txt",
+        _absolute_path(tmp_path, "missing.txt"),
         old_string="a",
         new_string="b",
-        **_workspace_kwargs(tmp_path),
     )
     assert result.success is False
     assert "不存在" in result.content

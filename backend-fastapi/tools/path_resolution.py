@@ -291,7 +291,21 @@ def _assert_allowed_path(
         operation=operation,
         workspace_root=workspace_root,
     )
-    if any(_is_under(resolved, root) for root in allowed_roots):
+    allowed_root_strings = [str(root.resolve()) for root in allowed_roots]
+    allowed = any(_is_under(resolved, root) for root in allowed_roots)
+    logger.debug(
+        '受管路径边界校验: original_path=%s resolved_path=%s caller=%s operation=%s session_id=%s run_id=%s workspace_root=%s allowed=%s allowed_roots=%s',
+        original_path,
+        resolved,
+        caller,
+        operation,
+        session_id,
+        run_id,
+        str(Path(workspace_root).resolve()) if workspace_root else None,
+        allowed,
+        allowed_root_strings,
+    )
+    if allowed:
         return resolved
     raise PermissionError(f"路径 '{original_path}' 超出允许的受管目录范围，禁止访问")
 

@@ -124,7 +124,43 @@ def test_runtime_context_binds_event_bus_per_run():
     run_manager.shutdown()
 
 
-def test_runtime_execution_orchestrator_injects_session_workspace_root_without_cross_session_leak(monkeypatch):
+
+
+def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatch, caplog):
+    import logging
+
+    def _load_all_agents(self):
+        del self
+        return {
+            'orchestrator_agent': _DummyAgent('orchestrator_agent'),
+            'qa_agent': _DummyAgent('qa_agent'),
+        }
+
+    monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
+    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self: 'orchestrator_agent')
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-log': {'session_id': 'session-log', 'metadata': {'workspace_root': 'E:/workspace/logs'}},
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: SimpleNamespace(),
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    caplog.set_level(logging.DEBUG)
+    orchestrator = runtime.create_execution_orchestrator(session_id='session-log')
+
+    assert orchestrator.agents['qa_agent'].agent_config.custom_params['workspace_root'] == 'E:/workspace/logs'
+    assert 'session workspace_root 查询: session_id=session-log workspace_root=E:/workspace/logs' in caplog.text
+    assert 'execution orchestrator 注入 workspace_root: session_id=session-log workspace_root=E:/workspace/logs' in caplog.text
+
+    run_manager.shutdown()
     def _load_all_agents(self):
         del self
         return {
