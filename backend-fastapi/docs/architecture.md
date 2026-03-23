@@ -102,6 +102,7 @@ POST /api/agent/stream {task, session_id, selected_llm}
 
 提示词职责分层：
 - `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
+- `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `ReActAgent`：仅保留必要的类型级薄扩展（当前无额外追加段）
 - `OrchestratorAgent`：YAML `system_prompt` 仅保留业务身份与路由规则，代码侧只追加一段精简的 Agent delegation / task 编写说明，避免与共享 skeleton 重复
 

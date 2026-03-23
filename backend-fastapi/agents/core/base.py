@@ -167,19 +167,15 @@ class BaseAgent(ABC):
 
     def _format_skills_description(self) -> str:
         """
-        格式化 Skills 说明（仅列出 name 和 description）
+        格式化 Skills 说明（仅列出 name 和 description）。
 
-        渐进式披露：System Prompt 只包含 name + description，
-        Agent 按需调用 activate_skill → load_skill_resource → execute_skill_script。
+        具体使用流程由各 Skill 的主文件（SKILL.md）定义。
         """
         available_skills = getattr(self, 'available_skills', [])
         if not available_skills:
             return "当前无可用的领域知识。"
 
-        lines = [
-            "可用 Skills（按需使用）：先 `activate_skill(skill_name)`，再按主文件提示调用 `load_skill_resource` / `execute_skill_script`。",
-            "",
-        ]
+        lines = ["可用 Skills：", ""]
         for idx, skill in enumerate(available_skills, 1):
             lines.append(f"### Skill {idx}: {skill.name}")
             lines.append(f"**适用场景**: {skill.description}")
@@ -292,16 +288,6 @@ class BaseAgent(ABC):
 - JSON 参数调用时，不要传字符串化 XML 标签；应使用 `file_path`/`working_dir` 搭配 `file_path_space`/`working_dir_space`
 - `space` 只影响相对 `file_path` / `working_dir` 的解析根；绝对路径仍只做受管边界校验
 - 对 `execute_bash` 而言，默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/"""
-
-    @staticmethod
-    def _build_visualization_rules_section() -> str:
-        return """### 可视化规则
-- 所有图表/地图通过 `execute_skill_script` 调用 `visualization` Skill 脚本生成，例如 `create_chart.py`、`create_map.py`、`create_bindmap.py`
-- 需要在已有结果上调整时，通过 `execute_skill_script` 调用 `visualization/revise.py`，传入 `artifact_id` 与 `config_patch`
-- Skill 脚本返回时若包含 artifact 协议，系统会自动持久化并返回 `artifact_id`
-- 如需继续编辑，可到 `./data/sessions/<session_id>/visualizations` 中按 `artifact_id` 反查配置文件
-- 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
-- 不要编造 artifact_id，必须使用工具返回的真实 ID"""
 
     @staticmethod
     def _build_data_file_rules_section() -> str:
@@ -560,7 +546,6 @@ risk = call_tool('assess_flood_risk', {{
                 sections.append(str(section).strip())
 
         sections.append(BaseAgent._build_data_file_rules_section())
-        sections.append(BaseAgent._build_visualization_rules_section())
         return "\n\n".join(section for section in sections if section)
 
     def _log_prefix(self, llm_config: Optional[Dict[str, Any]] = None, display_name: Optional[str] = None) -> str:
