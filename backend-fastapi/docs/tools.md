@@ -115,6 +115,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   ├─ 分发
   │   ├─ tool_name in TOOL_HANDLERS
   │   │   ├─ execute_code → 直接调用 handler（子进程内部自管理 timeout/cancel）
+  │   │   ├─ execute_bash → 先进入 bash_tool 内部命令校验（三态：直通 / 审批 / 硬拒绝）
   │   │   └─ 其他工具 → _run_with_timeout(handler, timeout)（自动注入上下文参数）
   │   ├─ tool_name in DOCUMENT_TOOL_NAMES → _run_with_timeout(_execute_document_tool, timeout)
   │   │   └─ _preprocess_document_tool_args()  ← 路径预处理（详见下方）
@@ -311,14 +312,21 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 ### Bash 工具（bash_tool.py）
 
-`execute_bash(command, working_dir, working_dir_space)` — 受限 bash 命令执行，仅允许只读类命令
+`execute_bash(command, working_dir, working_dir_space)` — 受限 bash 命令执行，采用“两段式命令策略”：白名单直通、非白名单审批。
 
-白名单命令：
+白名单命令（直接执行）：
 - 文件搜索与内容查看：grep, find, head, tail, wc, cat, ls, echo, sort, uniq, cut, awk, sed
 - 路径与环境：pwd, which, whereis, realpath, dirname, basename
 - 文件信息：file, stat, du, df
 - 文本处理：tr, tee, xargs, diff, comm, paste, column
 - 其他只读：env, printenv, date, uname
+
+所有非白名单命令都会触发一次性审批：
+- `execute_bash` 在工具内部发布 `user.approval_required` 事件，复用现有通用审批弹窗
+- 审批通过后，仅本次命令放行，不会加入白名单，也不会影响后续调用
+- 审批拒绝时返回标准错误结果，metadata 中会带上 `approval_required_commands`
+- 管道中任一非白名单命令都会让整条命令进入审批
+- 若命中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令，审批事件会提升为更明显的风险提示，并附带 `dangerous_command_segments`
 
 `execute_bash` 与 direct 文件工具共享同一套 managed location language：
 - 默认工作目录是当前 effective workspace，不再默认指向 `backend-fastapi/`
@@ -346,6 +354,13 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 </tool>
 ```
 
+```xml
+<tool name="execute_bash">
+  <command>cp data.json backup.json</command>
+  <working_dir space="workspace">.</working_dir>
+</tool>
+```
+
 规则说明：
 - `space` 仅影响相对 `working_dir` 的解析根
 - 绝对 `working_dir` 不受 `space` 改写，仍只做受管边界校验
@@ -353,7 +368,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - 若未提供 `session_id` 且没有可用 `workspace_root`，默认 workspace 解析会返回清晰错误
 - 支持管道，支持 `2>/dev/null` 和 `2>&1` 屏蔽 stderr，禁止 `>` `>>` 写重定向
 - 管道解析会忽略引号内或被转义的 `|`（如 `grep` 正则中的 `\|`）
-- 超时 30 秒
+- 等待 bash 审批的时间不计入工具超时；命令本体执行超时仍为 30 秒
 
 ## 可视化 Artifact 流程
 

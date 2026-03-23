@@ -177,6 +177,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - 文档工具里的 `read_file` / `write_file` / `edit_file` 现在仅允许 `direct` 调用，不再对 `caller=code_execution` 开放
 - sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
 - `execute_bash` 不接入 document dispatcher；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
+- `execute_bash` 在工具内部额外维护一条 bash 专用审批链：白名单命令直接执行，所有非白名单命令统一触发 `user.approval_required`；其中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令会在审批 payload 中额外标记并提升风险提示，但不再硬拒绝
 - `execute_code` 现已改为“主进程协调 + 沙箱子进程执行”模型：主进程负责静态检查、路径解析、审批等待、工具分发与超时/取消回收，子进程只负责受限 `exec()`；超时和 cancel 会直接终止子进程，因此不再依赖线程内逻辑超时
 - dispatcher 对 `execute_code` 做特殊收口：不再走通用 `_run_with_timeout()` 线程包装，而是把 `cancel_event` 直接注入 `code_sandbox.py`，由沙箱内部统一管理 timeout / cancel 语义
 - 因此，direct 文件工具路径预处理、bash 工作目录解析与沙箱文件访问是三条职责分离但共享同一受管路径语言的链路
@@ -216,6 +217,12 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 | 用户交互 | USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED, USER_INTERRUPT |
 | 上下文 | COMPRESSION_SUMMARY, CONTEXT_USAGE |
 | 系统 | RUN_START, RUN_END, SESSION_END, ERROR |
+
+`USER_APPROVAL_REQUIRED` 当前承载多类审批场景：
+- dispatcher 基于 `ToolPermission.requires_approval` 的通用工具审批
+- `execute_code` / 沙箱内的模块导入、文件写入等审批
+- `read_file` 大文件完整读取确认
+- `execute_bash` 对所有非白名单命令的临时放行审批（payload 中 `approval_type=bash_command`，并携带原始 command、命中的非白名单分段、解析后的 working_dir）；若命中高风险命令，还会额外携带 `dangerous_command_segments` 并提升审批文案风险级别
 
 说明：
 - `INTENT` / `INTENT_STRUCTURED` 已删除，不再使用。
