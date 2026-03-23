@@ -26,28 +26,28 @@ def _bootstrap_decorated_tools():
         registry.register_extra_contracts(contracts)
 
 
-def test_assess_flood_risk_has_registered_permission():
-    allowed, error = check_tool_permission("assess_flood_risk", caller="direct")
+def test_activate_skill_has_registered_permission():
+    allowed, error = check_tool_permission("activate_skill", caller="direct")
 
     assert allowed is True
     assert error is None
 
-    permission = get_tool_permission("assess_flood_risk")
+    permission = get_tool_permission("activate_skill")
     assert permission is not None
     assert permission.risk_level == RiskLevel.LOW
     assert permission.requires_approval is False
-    assert permission.allowed_callers == ["direct", "code_execution"]
+    assert permission.allowed_callers == ["direct"]
 
 
 def test_registered_tool_can_fall_back_to_default_permission(monkeypatch):
-    monkeypatch.delitem(TOOL_PERMISSIONS, "assess_flood_risk", raising=False)
+    monkeypatch.delitem(TOOL_PERMISSIONS, "activate_skill", raising=False)
 
-    permission = get_tool_permission("assess_flood_risk")
+    permission = get_tool_permission("activate_skill")
     assert permission is not None
-    assert permission.tool_name == "assess_flood_risk"
+    assert permission.tool_name == "activate_skill"
     assert permission.risk_level == RiskLevel.LOW
-    assert permission.allowed_callers == ["direct", "code_execution"]
+    assert permission.allowed_callers == ["direct"]
 
-    allowed, error = check_tool_permission("assess_flood_risk", caller="direct")
+    allowed, error = check_tool_permission("activate_skill", caller="direct")
     assert allowed is True
     assert error is None

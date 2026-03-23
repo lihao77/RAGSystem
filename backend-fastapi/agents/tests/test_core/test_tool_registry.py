@@ -30,12 +30,15 @@ def test_tool_registry_groups_default_and_document_tools():
     default_names = [tool["function"]["name"] for tool in registry.get_default_tools()]
     document_names = [tool["function"]["name"] for tool in registry.get_document_tools()]
 
-    assert "create_chart" in default_names
+    assert "activate_skill" in default_names
+    assert "execute_skill_script" in default_names
     assert "read_file" in default_names
     assert "read_file" in document_names
-    assert "create_chart" not in document_names
+    assert "execute_skill_script" not in document_names
+    assert "create_chart" not in default_names
     assert registry.get_tool_category("read_file") == "document"
-    assert registry.get_tool_category("create_chart") == "visualization"
+    assert registry.get_tool_category("activate_skill") == "skill"
+    assert registry.get_tool_category("execute_skill_script") == "skill"
     assert registry.get_tool_category("execute_code") == "execution"
 
 
@@ -43,11 +46,11 @@ def test_tool_registry_lists_configurable_tool_summaries_with_source():
     registry = get_tool_registry()
 
     summaries = registry.list_configurable_tool_summaries()
-    create_chart = next(item for item in summaries if item["name"] == "create_chart")
+    execute_skill_script = next(item for item in summaries if item["name"] == "execute_skill_script")
     read_file = next(item for item in summaries if item["name"] == "read_file")
 
-    assert create_chart["category"] == "visualization"
-    assert create_chart["source"] == "decorator"
+    assert execute_skill_script["category"] == "skill"
+    assert execute_skill_script["source"] == "skill"
     assert read_file["category"] == "document"
     assert read_file["source"] == "document"
 
@@ -56,9 +59,14 @@ def test_tool_registry_exposes_default_tool_accessors():
     registry = get_tool_registry()
 
     assert registry.get_default_tools() == registry.get_all_base_tools()
-    assert registry.get_tool_by_name("create_chart")["function"]["name"] == "create_chart"
+    assert registry.get_tool_by_name("execute_skill_script")["function"]["name"] == "execute_skill_script"
+    assert registry.get_tool_by_name("create_chart") is None
     assert "read_file" not in registry.get_code_callable_tools()
-    assert any(contract.name == "create_chart" for contract in registry.get_static_contracts())
+    assert "execute_bash" not in registry.get_code_callable_tools()
+    assert "execute_skill_script" not in registry.get_code_callable_tools()
+    assert "chunk_document" in registry.get_code_callable_tools()
+    assert any(contract.name == "execute_skill_script" for contract in registry.get_static_contracts())
+    assert not any(contract.name == "create_chart" for contract in registry.get_static_contracts())
 
 
 def test_document_and_builtin_catalog_exports_work():

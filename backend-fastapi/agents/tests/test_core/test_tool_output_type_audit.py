@@ -7,9 +7,10 @@ def test_tool_output_type_audit_contains_expected_internal_tools():
     rows = build_audit_rows()
     rows_by_name = {row["tool_name"]: row for row in rows}
 
-    assert rows_by_name["create_chart"]["normalized_output_type"] == "chart"
-    assert rows_by_name["create_map"]["normalized_output_type"] == "map"
+    assert "create_chart" not in rows_by_name
+    assert "create_map" not in rows_by_name
     assert rows_by_name["activate_skill"]["normalized_output_type"] == "markdown"
+    assert rows_by_name["execute_skill_script"]["normalized_output_type"] == "text"
     assert rows_by_name["get_skill_info"]["normalized_output_type"] == "json"
     assert rows_by_name["get_skill_info"]["raw_shape"] == "tool_execution_result"
     assert rows_by_name["chunk_document"]["normalized_output_type"] == "json"

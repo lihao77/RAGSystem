@@ -83,7 +83,7 @@ def test_revise_script_outputs_revise_action():
 from tools.tool_executor_modules.skill_tools import _handle_artifact
 
 
-def test_handle_artifact_create_chart(tmp_path, monkeypatch):
+def test_handle_artifact_create_chart(monkeypatch):
     """测试 _handle_artifact 创建 chart 类型 artifact。"""
     class FakeRecord:
         artifact_id = "viz_fake001"
@@ -100,7 +100,7 @@ def test_handle_artifact_create_chart(tmp_path, monkeypatch):
             raise AssertionError("should not call create_map")
 
     monkeypatch.setattr(
-        "tools.tool_executor_modules.skill_tools.get_visualization_artifact_manager",
+        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 
@@ -133,7 +133,7 @@ def test_handle_artifact_create_map(monkeypatch):
             return FakeRecord()
 
     monkeypatch.setattr(
-        "tools.tool_executor_modules.skill_tools.get_visualization_artifact_manager",
+        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 
@@ -163,7 +163,7 @@ def test_handle_artifact_revise(monkeypatch):
             return FakeRecord()
 
     monkeypatch.setattr(
-        "tools.tool_executor_modules.skill_tools.get_visualization_artifact_manager",
+        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 

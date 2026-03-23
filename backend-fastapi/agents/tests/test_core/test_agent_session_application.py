@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from pathlib import Path
+
 from application.agent_session import AgentSessionApplication
 from schemas.session import CreateSessionRequest
 
@@ -164,20 +166,22 @@ def test_delete_session_delegates_cleanup_to_conversation_store():
 def test_create_session_persists_workspace_root_metadata():
     store = _FakeConversationStore()
     app = AgentSessionApplication(conversation_store=store)
+    workspace_root = str(Path.cwd().resolve())
 
     result = app.create_session(
         session_id='session-workspace',
         user_id='user-1',
-        metadata={'workspace_root': 'E:/Users/demo/Desktop'},
+        metadata={'workspace_root': workspace_root},
     )
 
-    assert result['metadata']['workspace_root'] == 'E:/Users/demo/Desktop'
-    assert store.created_sessions[0]['metadata']['workspace_root'] == 'E:/Users/demo/Desktop'
+    assert result['metadata']['workspace_root'] == workspace_root
+    assert store.created_sessions[0]['metadata']['workspace_root'] == workspace_root
 
 
 def test_create_session_request_validates_workspace_root_as_absolute_path():
-    request = CreateSessionRequest(metadata={'workspace_root': 'E:/Users/demo/Desktop'})
-    assert request.metadata['workspace_root'] == 'E:/Users/demo/Desktop'
+    workspace_root = str(Path.cwd().resolve())
+    request = CreateSessionRequest(metadata={'workspace_root': workspace_root})
+    assert request.metadata['workspace_root'] == workspace_root
 
     try:
         CreateSessionRequest(metadata={'workspace_root': 'relative/path'})

@@ -146,39 +146,41 @@ def test_react_prompt_renders_read_and_edit_file_space_examples_as_xml_attribute
 
 
 def test_react_build_system_prompt_includes_tool_return_contracts():
-    create_chart_tool = _decorated_tool("create_chart")
-    fake_agent = _fake_agent(available_tools=[create_chart_tool])
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
     prompt = ReActAgent._build_system_prompt(fake_agent)
 
-    assert "### create_chart" in prompt
+    assert "### execute_skill_script" in prompt
     assert "**调用能力**:" in prompt
     assert "direct（可直接调用）" in prompt
     assert "## 工具调用总规则" in prompt
     assert "**成功返回**:" in prompt
-    assert '"artifact_id": "string"' in prompt
+    assert '"script_name": "string"' in prompt
     assert "**使用约束**:" in prompt
-    assert "create_chart 一步完成生成+持久化" in prompt
+    assert "成功时返回脚本执行结果" in prompt
+    assert "arguments 必须是字符串数组" in prompt
     assert "<final_answer>" in prompt
     assert "自然语言概括当前判断或下一步计划" in prompt
     assert "不要展开冗长推理" in prompt
 
 
 def test_orchestrator_build_system_prompt_includes_direct_tool_return_contracts():
-    create_chart_tool = _decorated_tool("create_chart")
-    fake_agent = _fake_agent(available_tools=[create_chart_tool])
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
     prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "## 可直接调用的工具" in prompt
-    assert "### create_chart" in prompt
+    assert "### execute_skill_script" in prompt
     assert "**调用能力**:" in prompt
     assert "direct（可直接调用）" in prompt
     assert "## 工具调用总规则" in prompt
     assert "**成功返回**:" in prompt
-    assert '"artifact_id": "string"' in prompt
+    assert '"script_name": "string"' in prompt
     assert "**使用约束**:" in prompt
-    assert "create_chart 一步完成生成+持久化" in prompt
+    assert "成功时返回脚本执行结果" in prompt
+    assert "arguments 必须是字符串数组" in prompt
     assert "<final_answer>" in prompt
     assert "自然语言概括当前判断或下一步计划" in prompt
     assert "不要展开冗长推理" in prompt
@@ -242,14 +244,13 @@ def test_react_prompt_includes_skill_tool_contracts():
 
 
 def test_base_prompt_includes_execute_code_capability_section_when_tool_is_available():
-    create_chart_tool = _decorated_tool("create_chart")
     execute_code_tool = _decorated_tool("execute_code")
-    fake_agent = _fake_agent(available_tools=[create_chart_tool, execute_code_tool])
+    fake_agent = _fake_agent(available_tools=[execute_code_tool])
 
     prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "## execute_code 中可调用的工具" in prompt
-    assert "`create_chart`" in prompt
+    assert "当前没有额外工具可从代码中调用" in prompt
     assert "`call_tool()` 只返回工具的主内容" in prompt
     assert "SESSION_WORKSPACE_DIR" in prompt
     assert "request_write_approval()" in prompt
@@ -257,8 +258,8 @@ def test_base_prompt_includes_execute_code_capability_section_when_tool_is_avail
 
 
 def test_base_prompt_omits_execute_code_capability_section_without_execute_code_tool():
-    create_chart_tool = _decorated_tool("create_chart")
-    fake_agent = _fake_agent(available_tools=[create_chart_tool])
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
     prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
@@ -266,14 +267,14 @@ def test_base_prompt_omits_execute_code_capability_section_without_execute_code_
 
 
 def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_extensions():
-    create_chart_tool = _decorated_tool("create_chart")
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
     execute_code_tool = _decorated_tool("execute_code")
 
     react_agent = _fake_agent(
-        available_tools=[create_chart_tool, execute_code_tool],
+        available_tools=[execute_skill_script_tool, execute_code_tool],
     )
     orchestrator_agent = _fake_agent(
-        available_tools=[create_chart_tool, execute_code_tool],
+        available_tools=[execute_skill_script_tool, execute_code_tool],
         _get_available_agent_tools=lambda: [
             {"function": {"name": "invoke_agent_chart_agent", "description": "调用图表智能体"}}
         ],
