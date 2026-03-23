@@ -92,44 +92,58 @@ def _patched_attr(module: Any, attr_name: str, replacement: Any):
         setattr(module, attr_name, original)
 
 
-def _sample_create_chart(_: Path) -> Any:
-    return TOOL_HANDLERS["create_chart"](
-        data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
-        chart_type="line",
-        title="sample",
-        x_field="year",
-        y_field="value",
+def _sample_visualization_chart(_: Path) -> Any:
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="visualization",
+        script_name="create_chart.py",
+        arguments=[
+            "--data", '[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}]',
+            "--chart-type", "line",
+            "--title", "sample",
+            "--x-field", "year",
+            "--y-field", "value",
+        ],
         session_id="audit-session",
     )
 
 
-def _sample_revise_visualization(_: Path) -> Any:
-    draft = TOOL_HANDLERS["create_chart"](
-        data=[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}],
-        chart_type="line",
-        title="sample",
-        x_field="year",
-        y_field="value",
+def _sample_visualization_revise(_: Path) -> Any:
+    draft = TOOL_HANDLERS["execute_skill_script"](
+        skill_name="visualization",
+        script_name="create_chart.py",
+        arguments=[
+            "--data", '[{"year": "2024", "value": 12}, {"year": "2025", "value": 18}]',
+            "--chart-type", "line",
+            "--title", "sample",
+            "--x-field", "year",
+            "--y-field", "value",
+        ],
         session_id="audit-session",
     )
     artifact_id = draft.content["artifact_id"]
-    return TOOL_HANDLERS["revise_visualization"](
-        artifact_id=artifact_id,
-        config_patch={"title": {"text": "updated sample"}},
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="visualization",
+        script_name="revise.py",
+        arguments=[
+            "--artifact-id", artifact_id,
+            "--config-patch", '{"title":{"text":"updated sample"}}',
+        ],
+        session_id="audit-session",
     )
 
 
-def _sample_create_map(_: Path) -> Any:
-    return TOOL_HANDLERS["create_map"](
-        data=[
-            {"name": "A", "value": 12, "geometry": "POINT (121.47 31.23)"},
-            {"name": "B", "value": 8, "geometry": "POINT (121.50 31.20)"},
+def _sample_visualization_map(_: Path) -> Any:
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="visualization",
+        script_name="create_map.py",
+        arguments=[
+            "--data", '[{"name": "A", "value": 12, "geometry": "POINT (121.47 31.23)"}, {"name": "B", "value": 8, "geometry": "POINT (121.50 31.20)"}]',
+            "--map-type", "marker",
+            "--title", "sample",
+            "--name-field", "name",
+            "--value-field", "value",
+            "--geometry-field", "geometry",
         ],
-        map_type="marker",
-        title="sample",
-        name_field="name",
-        value_field="value",
-        geometry_field="geometry",
         session_id="audit-session",
     )
 
@@ -290,49 +304,51 @@ def _sample_preview_data_structure(temp_dir: Path) -> Any:
 
 
 def _sample_assess_flood_risk(_: Path) -> Any:
-    return TOOL_HANDLERS["assess_flood_risk"](
-        location="南宁市",
-        rainfall_24h=150,
-        water_level=78.5,
-        warning_level=77.0,
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="emergency-decision-support",
+        script_name="assess_flood_risk.py",
+        arguments=[
+            "--location", "南宁市",
+            "--rainfall", "150",
+            "--water-level", "78.5",
+            "--warning-level", "77.0",
+        ],
     )
 
 
 def _sample_match_emergency_response(_: Path) -> Any:
-    return TOOL_HANDLERS["match_emergency_response"](
-        risk_level="III",
-        disaster_type="洪涝",
-        affected_area="南宁市",
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="emergency-decision-support",
+        script_name="match_response.py",
+        arguments=[
+            "--risk-level", "III",
+            "--disaster-type", "洪涝",
+            "--affected-area", "南宁市",
+        ],
     )
 
 
 def _sample_create_risk_map(_: Path) -> Any:
-    return TOOL_HANDLERS["create_risk_map"](
-        locations_data=[{
-            "location": "南宁市",
-            "rainfall_24h": 150,
-            "water_level": 78.5,
-            "warning_level": 77.0,
-            "lat": 22.817,
-            "lon": 108.366,
-        }],
-        title="风险地图",
-        disaster_type="洪涝",
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="emergency-decision-support",
+        script_name="create_risk_map.py",
+        arguments=[
+            "--data", '[{"location":"南宁市","geometry":"POINT (108.366 22.817)","rainfall_24h":150,"water_level":78.5,"warning_level":77.0}]',
+            "--title", "风险地图",
+            "--disaster-type", "洪涝",
+        ],
         session_id="audit-session",
     )
 
 
 def _sample_create_bindmap(_: Path) -> Any:
-    return TOOL_HANDLERS["create_bindmap"](
-        layers=[{
-            "type": "marker",
-            "name": "points",
-            "data": [{"name": "A", "value": 1, "geometry": "POINT (121.47 31.23)"}],
-            "name_field": "name",
-            "value_field": "value",
-            "geometry_field": "geometry",
-        }],
-        title="bindmap",
+    return TOOL_HANDLERS["execute_skill_script"](
+        skill_name="visualization",
+        script_name="create_bindmap.py",
+        arguments=[
+            "--layers", '[{"data":"[{\"name\":\"A\",\"value\":1,\"geometry\":\"POINT (121.47 31.23)\"}]","map_type":"marker","label":"points","name_field":"name","value_field":"value","geometry_field":"geometry"}]',
+            "--title", "bindmap",
+        ],
         session_id="audit-session",
     )
 
@@ -375,14 +391,6 @@ def _sample_edit_file(temp_dir: Path) -> Any:
 
 
 _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
-    "create_chart": _sample_create_chart,
-    "revise_visualization": _sample_revise_visualization,
-    "create_map": _sample_create_map,
-    "assess_flood_risk": _sample_assess_flood_risk,
-    "query_emergency_plan": lambda temp_dir: TOOL_HANDLERS["query_emergency_plan"](query="三级防汛应急响应启动条件", top_k=1),
-    "match_emergency_response": _sample_match_emergency_response,
-    "create_risk_map": _sample_create_risk_map,
-    "create_bindmap": _sample_create_bindmap,
     "execute_bash": _sample_execute_bash,
     "generate_report": _sample_generate_report,
     "activate_skill": lambda temp_dir: _run_skill_sample("activate_skill", temp_dir),

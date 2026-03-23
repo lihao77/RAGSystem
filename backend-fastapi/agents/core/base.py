@@ -296,9 +296,10 @@ class BaseAgent(ABC):
     @staticmethod
     def _build_visualization_rules_section() -> str:
         return """### 可视化规则
-- 使用 `create_chart` 生成图表，`create_map` 生成地图；需要在已有结果上调整时用 `revise_visualization(artifact_id, config_patch)`
-- 工具返回 artifact_id 与预览摘要；如需继续编辑，可到 `./data/sessions/<session_id>/visualizations` 中按 `artifact_id` 反查配置文件
-- `revise_visualization` 默认深度合并；需要整体覆盖时用 `replace=true`
+- 所有图表/地图通过 `execute_skill_script` 调用 `visualization` Skill 脚本生成，例如 `create_chart.py`、`create_map.py`、`create_bindmap.py`
+- 需要在已有结果上调整时，通过 `execute_skill_script` 调用 `visualization/revise.py`，传入 `artifact_id` 与 `config_patch`
+- Skill 脚本返回时若包含 artifact 协议，系统会自动持久化并返回 `artifact_id`
+- 如需继续编辑，可到 `./data/sessions/<session_id>/visualizations` 中按 `artifact_id` 反查配置文件
 - 在 `<final_answer>` 中用 `[viz:artifact_id]` 展示可视化（独占一行，前后空行）
 - 不要编造 artifact_id，必须使用工具返回的真实 ID"""
 

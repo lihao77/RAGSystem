@@ -235,6 +235,29 @@ description: 广西洪涝灾害应急决策支持技能，提供完整的"态势
 
 ---
 
+### match_response.py
+**功能**：响应匹配 - 对原 `match_emergency_response` 工具的 1:1 Skill 化封装，返回推荐预案与可执行行动清单
+
+**参数**：
+- `--risk-level`（必填）：风险等级（I/II/III/IV）
+- `--disaster-type`（可选）：灾害类型，默认"洪涝"
+- `--affected-area`（可选）：受影响区域
+- `--top-k`（可选）：预案检索返回条目数，默认 5
+
+**调用示例**：
+```json
+{
+  "tool": "execute_skill_script",
+  "arguments": {
+    "skill_name": "emergency-decision-support",
+    "script_name": "match_response.py",
+    "arguments": ["--risk-level", "III", "--disaster-type", "洪涝", "--affected-area", "南宁市"]
+  }
+}
+```
+
+---
+
 ### action_checklist.py
 **功能**：行动清单生成 - 将响应措施转换为带优先级和时限的可执行清单
 

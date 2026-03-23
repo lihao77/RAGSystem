@@ -239,7 +239,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 |--------|-----------------|------|
 | `query_emergency_plan` | `emergency-decision-support/scripts/query_plan.py` | 预案向量检索 |
 | `assess_flood_risk` | `emergency-decision-support/scripts/assess_flood_risk.py` | 洪涝风险评估 |
-| `match_emergency_response` | `emergency-decision-support/scripts/plan_recommend.py` + `action_checklist.py` | 响应匹配（拆分为预案推荐+行动清单） |
+| `match_emergency_response` | `emergency-decision-support/scripts/match_response.py` | 响应匹配（1:1 Skill 化封装） |
 | `create_risk_map` | `emergency-decision-support/scripts/create_risk_map.py` | 批量评估+风险地图（输出 artifact 协议） |
 
 风险等级阈值：I(特别重大/250mm) → II(重大/200mm) → III(较大/100mm) → IV(一般/50mm)

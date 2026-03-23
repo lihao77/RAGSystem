@@ -89,8 +89,6 @@ def test_get_skill_info_returns_native_result_and_skips_load_all_skills(monkeypa
         assert result.metadata["resource_count"] == 1
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
 def test_execute_skill_script_returns_parsed_json_stdout(monkeypatch):
     class StubSkill:
         name = "demo-skill"
@@ -125,3 +123,53 @@ def test_execute_skill_script_returns_parsed_json_stdout(monkeypatch):
     }
     assert result.metadata["script_name"] == "fetch_hydrology.py"
     assert result.metadata["skill"] == "demo-skill"
+
+
+def test_execute_skill_script_bridges_artifact_protocol(monkeypatch):
+    class StubSkill:
+        name = "demo-skill"
+
+        def has_scripts(self):
+            return True
+
+        def execute_script(self, script_name, arguments=None, timeout=30):
+            assert script_name == "create_chart.py"
+            return {
+                "stdout": '{"success": true, "data": {"title": "Test"}, "artifact": {"viz_type": "chart", "sub_type": "bar", "title": "Test", "config": {"series": [{"type": "bar"}]}}}',
+                "stderr": "",
+                "return_code": 0,
+            }
+
+    class StubLoader:
+        def load_all_skills(self):
+            return [StubSkill()]
+
+    class FakeRecord:
+        artifact_id = "viz_test001"
+        viz_type = "chart"
+        title = "Test"
+        version = 1
+
+    class FakeManager:
+        def create_chart(self, **kwargs):
+            assert kwargs["chart_type"] == "bar"
+            return FakeRecord()
+
+    monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
+    monkeypatch.setattr(
+        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
+        lambda: FakeManager(),
+    )
+
+    result = execute_skill_script("demo-skill", "create_chart.py", [], session_id="session-1")
+
+    assert isinstance(result, ToolExecutionResult)
+    assert result.success is True
+    assert result.content["artifact_id"] == "viz_test001"
+    assert result.content["viz_type"] == "chart"
+    assert result.metadata["artifact_id"] == "viz_test001"
+    assert result.output_type == "chart"
+    assert result.llm_hint == "在 <final_answer> 中插入 [viz:viz_test001] 来展示此可视化"
+
+
+

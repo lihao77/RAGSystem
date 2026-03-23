@@ -84,8 +84,8 @@ AGENT_TOOLS_EXAMPLE = [
         ToolContract(
             name="invoke_agent_qa_agent",
             description="""**通用文档问答智能体**
-**能力**: 处理文档读取、结构化抽取、数据整理、图表生成等通用任务
-**可用工具**: read_document, extract_structured_data, create_chart, create_map, execute_code
+**能力**: 处理文档读取、结构化抽取、数据整理、Skill 驱动的图表/地图生成等通用任务
+**可用工具**: read_document, extract_structured_data, execute_skill_script, execute_code
 **适用场景**:
 - 读取和总结文档
 - 提取结构化信息
