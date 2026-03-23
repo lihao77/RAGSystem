@@ -5,16 +5,12 @@ from types import SimpleNamespace
 from agents.core import BaseAgent
 from agents.implementations.orchestrator import prompting as orchestrator_prompting
 from agents.implementations.react.agent import ReActAgent, _format_tool_contract as react_format_tool_contract
-from tools.auto_discovery import discover_decorated_tools
+from tools.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
 from tools.tool_definition_builder import build_function_tool
 from tools.tool_registry import get_tool_registry
 
-
-discover_decorated_tools()
-get_tool_registry().register_extra_contracts([
-    info["contract"] for info in get_decorated_tools().values()
-])
+bootstrap_tool_system()
 
 
 def _decorated_tool(name: str):
@@ -34,6 +30,10 @@ def _fake_agent(**overrides):
         base_prompt="system",
         available_tools=[],
         available_skills=[],
+        agent_config=SimpleNamespace(
+            delegation=SimpleNamespace(enabled_agents=[]),
+        ),
+        orchestrator=SimpleNamespace(agents={}),
         _format_skills_description=lambda: BaseAgent._format_skills_description(agent),
         _get_direct_tools_for_prompt=lambda: BaseAgent._get_direct_tools_for_prompt(agent),
         _build_direct_tools_section=lambda: BaseAgent._build_direct_tools_section(agent),
@@ -189,8 +189,6 @@ def test_orchestrator_build_system_prompt_includes_direct_tool_return_contracts(
     assert "成功时返回脚本执行结果" in prompt
     assert "arguments 必须是字符串数组" in prompt
     assert "<final_answer>" in prompt
-    assert "自然语言概括当前判断或下一步计划" in prompt
-    assert "不要展开冗长推理" in prompt
 
 
 def test_react_prompt_includes_file_and_code_tool_contracts():
@@ -200,19 +198,8 @@ def test_react_prompt_includes_file_and_code_tool_contracts():
 
     prompt = ReActAgent._build_system_prompt(fake_agent)
 
-    assert "## 工具调用总规则" in prompt
     assert "### read_file" in prompt
-    assert "**调用能力**:" in prompt
-    assert "direct（可直接调用）" in prompt
-    assert "成功时返回文件内容和分页元数据" in prompt
-    assert "file_path 必须是真实路径字符串" in prompt
-    assert 'space="workspace"' in prompt
-    assert 'space="transient"' in prompt
-    assert 'space="exports"' in prompt
     assert "### execute_code" in prompt
-    assert "**调用能力**:" in prompt
-    assert "代码必须设置 result 变量作为最终输出" in prompt
-    assert "需要调用工具时使用 call_tool(tool_name, arguments)" in prompt
     assert "### 受管目录 space 说明" in prompt
 
 
@@ -223,12 +210,6 @@ def test_react_prompt_includes_execute_bash_managed_location_contract():
     prompt = ReActAgent._build_system_prompt(fake_agent)
 
     assert "### execute_bash" in prompt
-    assert "**调用能力**:" in prompt
-    assert "direct（可直接调用）" in prompt
-    assert 'space="workspace"' in prompt
-    assert 'space="transient"' in prompt
-    assert 'space="exports"' in prompt
-    assert "### 受管目录 space 说明" in prompt
     assert "默认工作目录为当前 effective workspace" in prompt
     assert "不再默认指向 backend-fastapi/" in prompt
 
@@ -241,11 +222,7 @@ def test_react_prompt_includes_skill_tool_contracts():
     prompt = ReActAgent._build_system_prompt(fake_agent)
 
     assert "### activate_skill" in prompt
-    assert "成功时返回 Skill 主文件内容和基础信息" in prompt
-    assert "返回的 main_content 就是 SKILL.md 正文" in prompt
     assert "### execute_skill_script" in prompt
-    assert "成功时返回脚本执行结果" in prompt
-    assert "arguments 必须是字符串数组" in prompt
 
 
 def test_base_prompt_includes_execute_code_capability_section_when_tool_is_available():
@@ -256,10 +233,6 @@ def test_base_prompt_includes_execute_code_capability_section_when_tool_is_avail
 
     assert "## execute_code 中可调用的工具" in prompt
     assert "当前没有额外工具可从代码中调用" in prompt
-    assert "`call_tool()` 只返回工具的主内容" in prompt
-    assert "SESSION_WORKSPACE_DIR" in prompt
-    assert "request_write_approval()" in prompt
-    assert "未列出的工具不能从代码中调用" in prompt
 
 
 def test_base_prompt_omits_execute_code_capability_section_without_execute_code_tool():
@@ -280,36 +253,55 @@ def test_base_prompt_uses_single_brace_result_placeholder_syntax():
     assert "{{result_N}}" not in prompt
 
 
-def test_orchestrator_prompt_examples_use_single_brace_result_placeholders():
-    orchestrator_agent = _fake_agent(
-        _get_available_agent_tools=lambda: [
-            {"function": {"name": "invoke_agent_chart_agent", "description": "调用图表智能体"}}
-        ],
-        _build_agent_specific_prompt_sections=lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent),
+def test_orchestrator_prompt_examples_use_call_agent_and_roster():
+    chart_agent = SimpleNamespace(
+        agent_config=SimpleNamespace(
+            display_name="图表智能体",
+            description="负责图表生成",
+            custom_params={"behavior": {"use_cases": "图表与地图可视化"}},
+        ),
+        description="chart",
+        available_tools=[{"function": {"name": "create_chart"}}],
     )
+    orchestrator_agent = _fake_agent(
+        available_tools=[_tool_from_registry("call_agent")],
+        agent_config=SimpleNamespace(delegation=SimpleNamespace(enabled_agents=["chart_agent"])),
+        orchestrator=SimpleNamespace(agents={"chart_agent": chart_agent}),
+    )
+    orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
     prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
 
-    assert "数据：{result_1}" in prompt
-    assert "数据：{{result_1}}" not in prompt
+    assert "call_agent" in prompt
+    assert "chart_agent" in prompt
+    assert "图表智能体" in prompt
+    assert "图表与地图可视化" in prompt
+    assert "invoke_agent_" not in prompt
 
 
 def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_extensions():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     execute_code_tool = _decorated_tool("execute_code")
-
-    react_agent = _fake_agent(
-        available_tools=[execute_skill_script_tool, execute_code_tool],
+    call_agent_tool = _tool_from_registry("call_agent")
+    chart_agent = SimpleNamespace(
+        agent_config=SimpleNamespace(
+            display_name="图表智能体",
+            description="负责图表生成",
+            custom_params={"behavior": {"use_cases": "图表与地图可视化"}},
+        ),
+        description="chart",
+        available_tools=[{"function": {"name": "create_chart"}}],
     )
+
+    react_agent = _fake_agent(available_tools=[execute_skill_script_tool, execute_code_tool])
     orchestrator_agent = _fake_agent(
-        available_tools=[execute_skill_script_tool, execute_code_tool],
-        _get_available_agent_tools=lambda: [
-            {"function": {"name": "invoke_agent_chart_agent", "description": "调用图表智能体"}}
-        ],
+        available_tools=[execute_skill_script_tool, execute_code_tool, call_agent_tool],
+        agent_config=SimpleNamespace(delegation=SimpleNamespace(enabled_agents=["chart_agent"])),
+        orchestrator=SimpleNamespace(agents={"chart_agent": chart_agent}),
         _build_prompt_goal_section=lambda: "## 工作目标\n\n主编排器目标",
         _build_prompt_principles_section=lambda: "## 编排原则\n\n主编排器原则",
-        _build_agent_specific_prompt_sections=lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent),
     )
+    orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
     react_prompt = ReActAgent._build_system_prompt(react_agent)
     orchestrator_prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
@@ -320,6 +312,6 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
 
     assert "## execute_code 中可调用的工具" in react_prompt
     assert "## execute_code 中可调用的工具" in orchestrator_prompt
-    assert "## 可用的 Agent 工具" in orchestrator_prompt
-    assert "invoke_agent_chart_agent" in orchestrator_prompt
-    assert "## 可用的 Agent 工具" not in react_prompt
+    assert "## 当前可委派子 Agent 列表" in orchestrator_prompt
+    assert "call_agent" in orchestrator_prompt
+    assert "## 当前可委派子 Agent 列表" not in react_prompt

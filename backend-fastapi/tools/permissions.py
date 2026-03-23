@@ -179,6 +179,15 @@ def is_tool_enabled(tool_name: str, agent_config) -> bool:
     if not agent_config:
         return False
 
+    # builtin / agent 工具由独立配置域控制，不属于 tools.enabled_tools
+    source = _TOOL_REGISTRY.get_tool_source(tool_name)
+    if source in {"builtin", "agent"}:
+        if source == "agent":
+            delegation = getattr(agent_config, 'delegation', None)
+            enabled_agents = getattr(delegation, 'enabled_agents', []) if delegation else []
+            return bool(enabled_agents)
+        return True
+
     # Skills 系统工具是动态注入的，不在 enabled_tools 列表里
     # 只要智能体启用了任意 Skill，这三个工具就自动可用
     if tool_name in _TOOL_REGISTRY.get_skill_tool_names():

@@ -239,6 +239,15 @@ class AgentMCPConfig(BaseModel):
     )
 
 
+class AgentDelegationConfig(BaseModel):
+    """智能体的 delegation 配置。"""
+
+    enabled_agents: List[str] = Field(
+        default_factory=list,
+        description="允许当前 Agent 委派调用的子 Agent 名称列表，留空表示禁用 delegation",
+    )
+
+
 class AgentConfig(BaseModel):
     """
     智能体完整配置
@@ -331,6 +340,11 @@ class AgentConfig(BaseModel):
     mcp: AgentMCPConfig = Field(
         default_factory=AgentMCPConfig,
         description="MCP Server 配置"
+    )
+
+    delegation: AgentDelegationConfig = Field(
+        default_factory=AgentDelegationConfig,
+        description="子 Agent 委派配置"
     )
 
     custom_params: Dict[str, Any] = Field(

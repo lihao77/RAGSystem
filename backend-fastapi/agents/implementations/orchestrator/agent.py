@@ -71,7 +71,6 @@ class OrchestratorAgent(BaseAgent):
         self._setup_react_runtime(
             available_tools=available_tools,
             available_skills=available_skills,
-            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_orchestrator,
             budget_profile_name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
             runtime_label="OrchestratorAgent",
         )
@@ -95,6 +94,9 @@ class OrchestratorAgent(BaseAgent):
     def _get_available_agent_tools(self):
         return get_available_agent_tools(self)
 
+    def _build_agent_roster_for_prompt(self):
+        from .prompting import _build_agent_roster
+        return _build_agent_roster(self)
 
     def _handle_user_input_request(
         self,
@@ -218,8 +220,7 @@ class OrchestratorAgent(BaseAgent):
         rounds: int,
         log_prefix: str,
     ) -> None:
-        from .executor import parse_agent_invocation
-        from .tool_router import route_user_input_request, route_agent_delegation, route_direct_tool
+        from .tool_router import route_direct_tool
 
         event_bus = state.get('event_bus')
         publisher = state.get('publisher')
@@ -239,43 +240,6 @@ class OrchestratorAgent(BaseAgent):
             if original_arguments != arguments:
                 self.logger.info(f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}")
             action = {**action, 'arguments': arguments}
-
-            if tool_name == 'request_user_input':
-                route_result = route_user_input_request(
-                    agent=self,
-                    action=action,
-                    context=context,
-                    event_bus=event_bus,
-                    publisher=publisher,
-                    run_id=state['run_id'],
-                    rounds=rounds,
-                    idx=idx,
-                    orchestrator_call_id=state['call_id'],
-                )
-                observations.append(route_result['observation'])
-                agent_results[idx] = route_result['result']
-                continue
-
-            agent_name = parse_agent_invocation(tool_name)
-            if agent_name:
-                state['global_agent_order'] += 1
-                route_result = route_agent_delegation(
-                    agent=self,
-                    action=action,
-                    context=context,
-                    event_bus=event_bus,
-                    publisher=publisher,
-                    run_id=state['run_id'],
-                    rounds=rounds,
-                    idx=idx,
-                    orchestrator_call_id=state['call_id'],
-                    global_agent_order=state['global_agent_order'],
-                    log_prefix=log_prefix,
-                )
-                state.setdefault('agent_calls_history', []).append(route_result['call_history'])
-                agent_results[idx] = route_result['result']
-                observations.append(route_result['observation'])
-                continue
 
             route_result = route_direct_tool(
                 agent=self,

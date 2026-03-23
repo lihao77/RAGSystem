@@ -77,7 +77,6 @@ POST /api/agent/stream {task, session_id, selected_llm}
       │   └─ tool_xml_parser.parse_tools_xml() 解析工具参数
       ├─ _handle_actions()                    # 执行工具/委派 Agent
       │   ├─ 占位符替换 {result_N.content.xxx}
-      │   ├─ route_agent_delegation()  → AgentExecutor
       │   └─ route_direct_tool()       → execute_tool()
       └─ _handle_final_answer()               # 返回最终答案
   → SSEAdapter 转发事件 → 前端
@@ -107,18 +106,18 @@ POST /api/agent/stream {task, session_id, selected_llm}
 - `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
 - `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `ReActAgent`：仅保留必要的类型级薄扩展（当前无额外追加段）
-- `OrchestratorAgent`：YAML `system_prompt` 仅保留业务身份与路由规则，代码侧只追加一段精简的 Agent delegation / task 编写说明，避免与共享 skeleton 重复
+- `OrchestratorAgent`：YAML `system_prompt` 只保留业务身份与路由规则；代码侧只追加 `call_agent` 契约和 `delegation.enabled_agents` 驱动的动态 agent roster
 
 ### OrchestratorAgent（agents/implementations/orchestrator/）
 
-主编排器，将其他 Agent 作为工具调用（`invoke_agent_<name>`）。
+主编排器，通过单一 `call_agent(agent_name, task, context_hint)` 工具委派其他 Agent。
 
 | 文件 | 职责 |
 |------|------|
 | `agent.py` | OrchestratorAgent 类，复用 ReAct 主循环，并通过 BaseAgent 共享 skeleton 构造 prompt |
-| `executor.py` | AgentExecutor，执行子 Agent 调用 |
-| `prompting.py` | Agent delegation 专属提示段 + `replace_placeholders()` 占位符替换 |
-| `tool_router.py` | 三层路由：user_input → Agent 委派 → 直接工具 |
+| `executor.py` | AgentExecutor，执行子 Agent 调用底座（供 `call_agent` 复用） |
+| `prompting.py` | `call_agent` 委派提示段、allowlist agent roster 注入、`replace_placeholders()` |
+| `tool_router.py` | 统一 direct 工具路由到 dispatcher（含 builtin/agent 工具） |
 | `runtime.py` | 运行时入口 |
 
 ### ReActAgent（agents/implementations/react/agent.py）
@@ -330,7 +329,8 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 | `mcp/configs/mcp_servers.yaml` | MCP 服务器连接 | 支持 |
 | `config/yaml/config.yaml` | 系统级（向量库、embedding） | 否 |
 
-### Provider 适配与 prompt cache 能力
+- `agents/configs/agent_configs.yaml` 现包含四类显式能力配置域：`tools.enabled_tools`（direct 本地工具）、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`
+- `call_agent` 不属于 `tools.enabled_tools` 域，而由 `delegation.enabled_agents` 是否非空决定是否注入
 
 - `model_adapter/base.py` 中的 `AIProvider` 暴露统一能力声明：`supports_prompt_caching`、`prompt_cache_style`、`prompt_cache_min_tokens`
 - 当前已接入原生缓存语义的 provider：

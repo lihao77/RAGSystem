@@ -48,7 +48,7 @@ for f in os.listdir("."):
 def test_xml_placeholder_in_value():
     """XML 中的占位符 {result_1} 作为纯文本保留"""
     content = """
-<tool name="invoke_agent_chart_agent">
+<tool name="call_agent">
   <task>生成折线图，数据：{result_1}，X轴=年份</task>
 </tool>
 """

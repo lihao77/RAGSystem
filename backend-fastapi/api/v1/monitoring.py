@@ -83,12 +83,25 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
 
             system_prompt = entry_agent._build_system_prompt()
             agent_tools = []
-            get_agent_tools = getattr(entry_agent, '_get_available_agent_tools', None)
+            get_agent_tools = getattr(entry_agent, '_build_agent_roster_for_prompt', None) or getattr(entry_agent, '_get_available_agent_tools', None)
             if callable(get_agent_tools):
-                agent_tools = [
-                    {'name': t['function']['name'], 'description': t['function']['description']}
-                    for t in get_agent_tools()
-                ]
+                raw_agent_tools = list(get_agent_tools() or [])
+                if raw_agent_tools and isinstance(raw_agent_tools[0], dict) and 'function' in raw_agent_tools[0]:
+                    agent_tools = [
+                        {'name': t['function']['name'], 'description': t['function']['description']}
+                        for t in raw_agent_tools
+                    ]
+                else:
+                    agent_tools = [
+                        {
+                            'name': t.get('agent_name') or t.get('name'),
+                            'description': t.get('description'),
+                            'display_name': t.get('display_name'),
+                            'use_cases': t.get('use_cases'),
+                        }
+                        for t in raw_agent_tools
+                        if isinstance(t, dict)
+                    ]
 
             entry_tools = getattr(entry_agent, 'available_tools', []) or []
             direct_tools = []

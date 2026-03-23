@@ -16,7 +16,7 @@ class _DummyConfigManager:
         return dict(self._configs)
 
 
-def _make_agent_config(agent_name: str, agent_type: str, enabled: bool = True):
+def _make_agent_config(agent_name: str, agent_type: str, enabled: bool = True, delegation=None):
     return SimpleNamespace(
         agent_name=agent_name,
         display_name=agent_name,
@@ -26,7 +26,8 @@ def _make_agent_config(agent_name: str, agent_type: str, enabled: bool = True):
         llm_tiers={},
         tools=SimpleNamespace(enabled_tools=[]),
         skills=SimpleNamespace(enabled_skills=[], auto_inject=False),
-        mcp=None,
+        mcp=SimpleNamespace(enabled_servers=[]),
+        delegation=SimpleNamespace(enabled_agents=list(delegation or [])),
         custom_params={'type': agent_type, 'behavior': {}},
     )
 
@@ -68,3 +69,40 @@ def test_loader_rejects_orchestrator_without_orchestrator_runtime():
     )
 
     assert agent is None
+
+
+def test_loader_injects_call_agent_from_delegation_allowlist():
+    configs = {
+        'demo_agent': _make_agent_config('demo_agent', 'react', delegation=['chart_agent']),
+    }
+    loader = AgentLoader(
+        model_adapter=None,
+        system_config=None,
+        orchestrator=SimpleNamespace(),
+        config_manager=_DummyConfigManager(configs),
+    )
+
+    tools, skills = loader._resolve_tools_and_skills(configs['demo_agent'])
+    names = [tool['function']['name'] for tool in tools]
+
+    assert 'call_agent' in names
+    assert 'request_user_input' in names
+    assert skills == []
+
+
+def test_loader_does_not_inject_call_agent_without_delegation():
+    configs = {
+        'demo_agent': _make_agent_config('demo_agent', 'react', delegation=[]),
+    }
+    loader = AgentLoader(
+        model_adapter=None,
+        system_config=None,
+        orchestrator=SimpleNamespace(),
+        config_manager=_DummyConfigManager(configs),
+    )
+
+    tools, _ = loader._resolve_tools_and_skills(configs['demo_agent'])
+    names = [tool['function']['name'] for tool in tools]
+
+    assert 'call_agent' not in names
+    assert 'request_user_input' in names

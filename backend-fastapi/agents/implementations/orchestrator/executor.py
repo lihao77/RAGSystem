@@ -134,10 +134,3 @@ class AgentExecutor:
     def _error_response(self, error_msg: str, tool_name: str = "") -> ToolExecutionResult:
         return error_result(error_msg, tool_name=tool_name)
 
-
-def parse_agent_invocation(tool_name: str) -> Optional[str]:
-    """从工具名称解析 Agent 名称，格式: invoke_agent_<agent_name>"""
-    prefix = "invoke_agent_"
-    if tool_name.startswith(prefix):
-        return tool_name[len(prefix):]
-    return None

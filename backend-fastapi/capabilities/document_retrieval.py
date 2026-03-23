@@ -18,10 +18,7 @@ class DocumentRetrievalCapability(BaseCapability):
 
     def list_tool_definitions(self) -> list[dict]:
         registry = get_tool_registry()
-        return [
-            tool for tool in registry.get_default_tools()
-            if tool.get("function", {}).get("source") == "document"
-        ]
+        return registry.get_document_tools()
 
 
 def get_document_retrieval_capability() -> DocumentRetrievalCapability:

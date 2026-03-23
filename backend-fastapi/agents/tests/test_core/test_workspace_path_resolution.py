@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from tools.auto_discovery import discover_decorated_tools
+from tools.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
 from tools.document_executor import _prepare_document_tool_args, edit_file, read_file, write_file
 from tools.code_sandbox import execute_code_sandbox
@@ -19,12 +19,7 @@ from tools.tool_executor_modules.dispatcher import _merge_decorated_handlers
 from tools.tool_registry import get_tool_registry
 
 
-discover_decorated_tools()
-_merge_decorated_handlers()
-_merge_decorated_permissions()
-get_tool_registry().register_extra_contracts([
-    info["contract"] for info in get_decorated_tools().values()
-])
+bootstrap_tool_system()
 
 
 def _make_document_agent_config(**custom_params):

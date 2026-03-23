@@ -2,6 +2,7 @@
 
 import pytest
 
+from tools.bootstrap import bootstrap_tool_system
 from tools.permissions import (
     TOOL_PERMISSIONS,
     RiskLevel,
@@ -14,16 +15,7 @@ from tools.permissions import (
 @pytest.fixture(autouse=True)
 def _bootstrap_decorated_tools():
     """触发装饰器工具的自动发现和权限合并，模拟应用启动流程。"""
-    from tools.auto_discovery import discover_decorated_tools
-    from tools.tool_registry import get_tool_registry
-
-    decorated = discover_decorated_tools()
-    _merge_decorated_permissions()
-
-    if decorated:
-        registry = get_tool_registry()
-        contracts = [info["contract"] for info in decorated.values()]
-        registry.register_extra_contracts(contracts)
+    bootstrap_tool_system()
 
 
 def test_activate_skill_has_registered_permission():

@@ -19,20 +19,12 @@ if str(ROOT_DIR) not in sys.path:
 from tools.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
 from tools.result_references import resolve_result_path
 from tools.result_schema import ToolExecutionResult
-from tools.auto_discovery import discover_decorated_tools
+from tools.bootstrap import bootstrap_tool_system
 from tools.document_executor import edit_file, preview_data_structure, read_file, write_file
-from tools.tool_executor_modules.dispatcher import (
-    TOOL_HANDLERS,
-    _merge_decorated_handlers,
-)
-from tools.permissions import _merge_decorated_permissions
+from tools.tool_executor_modules.dispatcher import TOOL_HANDLERS
 from tools.tool_registry import get_tool_registry
 
-_decorated = discover_decorated_tools()
-_merge_decorated_handlers()
-_merge_decorated_permissions()
-if _decorated:
-    get_tool_registry().register_extra_contracts([info["contract"] for info in _decorated.values()])
+bootstrap_tool_system()
 
 
 _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
@@ -65,9 +57,9 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
         "reference_compatible": False,
     },
     {
-        "tool_name": "<agent_name>",
+        "tool_name": "call_agent",
         "category": "agent_delegation",
-        "source": "agents/implementations/orchestrator/executor.py",
+        "source": "tools/tool_executor_modules/agent_tools.py",
         "raw_shape": "tool_execution_result",
         "content_field": "content",
         "content_kind": "agent_defined",

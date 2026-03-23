@@ -5,15 +5,8 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
+from typing import Iterable
 
-from tools.catalog.agent_tools import AGENT_TOOLS_EXAMPLE, get_agent_tools
-from tools.catalog.builtin_tools import (
-    BUILTIN_TOOL_NAMES,
-    REQUEST_USER_INPUT_CONTRACT,
-    REQUEST_USER_INPUT_TOOL,
-    get_builtin_tools_for_orchestrator,
-    get_builtin_tools_for_worker,
-)
 from tools.catalog.mcp_tools import (
     MCP_TOOL_PREFIX,
     is_mcp_tool,
@@ -21,8 +14,8 @@ from tools.catalog.mcp_tools import (
     mcp_tools_to_openai_format,
     parse_mcp_tool_name,
 )
-from tools.catalog.skill_tools import SKILLS_SYSTEM_TOOLS, SKILLS_TOOL_NAMES, SKILL_TOOL_CONTRACTS
-from tools.catalog.static_tools import STATIC_TOOL_CONTRACTS, STATIC_TOOLS
+from tools.catalog.static_tools import STATIC_TOOL_CONTRACTS
+from tools.tool_definition_builder import build_function_tools
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +28,14 @@ class ToolRegistry:
         self._static_tools_cache: list | None = None
 
     def register_extra_contracts(self, contracts: list) -> None:
-        """注册第三方扩展工具契约。"""
+        """注册扩展/装饰器工具契约。"""
         if not contracts:
             return
         merged = {contract.name: contract for contract in self._extra_contracts}
         merged.update({contract.name: contract for contract in contracts})
         self._extra_contracts = list(merged.values())
-        self._static_tools_cache = None  # 失效缓存
-        logger.info("注册扩展工具: %s", [c.name for c in contracts])
+        self._static_tools_cache = None
+        logger.info("注册额外工具契约: %s", [c.name for c in contracts])
 
     def get_static_contracts(self):
         return deepcopy(STATIC_TOOL_CONTRACTS) + deepcopy(self._extra_contracts)
@@ -50,25 +43,44 @@ class ToolRegistry:
     def get_static_tools(self):
         if self._static_tools_cache is not None:
             return deepcopy(self._static_tools_cache)
-        from tools.tool_definition_builder import build_function_tools
         self._static_tools_cache = build_function_tools(self.get_static_contracts())
         return deepcopy(self._static_tools_cache)
 
-    def get_document_tools(self):
-        return [
-            tool for tool in self.get_static_tools()
-            if tool.get("function", {}).get("source") == "document"
-        ]
-
     def get_default_tools(self):
+        """返回所有非 MCP 的基础工具定义。"""
         return self.get_static_tools()
 
     def get_all_base_tools(self):
         return self.get_default_tools()
 
+    def get_tools_by_source(self, sources: str | Iterable[str]):
+        if isinstance(sources, str):
+            source_set = {sources}
+        else:
+            source_set = set(sources)
+        return [
+            tool for tool in self.get_default_tools()
+            if tool.get("function", {}).get("source") in source_set
+        ]
+
+    def get_document_tools(self):
+        return self.get_tools_by_source("document")
+
+    def get_skill_tools(self):
+        return self.get_tools_by_source("skill")
+
+    def get_builtin_tools(self):
+        return self.get_tools_by_source("builtin")
+
+    def get_agent_tools(self):
+        return self.get_tools_by_source("agent")
+
     def get_configurable_tools(self):
-        """Tools that can be listed in agent tool configuration."""
-        return self.get_default_tools()
+        """只返回由 tools.enabled_tools 显式配置的本地 direct 工具。"""
+        return [
+            tool for tool in self.get_default_tools()
+            if tool.get("function", {}).get("source") not in {"builtin", "agent", "skill", "mcp"}
+        ]
 
     def get_tool_names(self):
         return [tool["function"]["name"] for tool in self.get_default_tools()]
@@ -76,7 +88,7 @@ class ToolRegistry:
     def get_tool_by_name(self, name: str):
         for tool in self.get_default_tools():
             if tool["function"]["name"] == name:
-                return tool
+                return deepcopy(tool)
         return None
 
     def get_tool_source(self, name: str) -> str | None:
@@ -89,7 +101,7 @@ class ToolRegistry:
         source = self.get_tool_source(name)
         if source == "document":
             return "document"
-        if name == "execute_code":
+        if name in {"execute_code", "execute_bash"}:
             return "execution"
         if source == "skill":
             return "skill"
@@ -99,7 +111,7 @@ class ToolRegistry:
             return "agent"
         if source == "mcp":
             return "mcp"
-        return "other"
+        return "local"
 
     def list_configurable_tool_summaries(self):
         summaries = []
@@ -122,39 +134,11 @@ class ToolRegistry:
             if "code_execution" in tool["function"].get("allowed_callers", ["direct"])
         ]
 
-    def get_request_user_input_contract(self):
-        return deepcopy(REQUEST_USER_INPUT_CONTRACT)
-
-    def get_request_user_input_tool(self):
-        return deepcopy(REQUEST_USER_INPUT_TOOL)
-
     def get_builtin_tool_names(self):
-        return set(BUILTIN_TOOL_NAMES)
-
-    def get_skill_contracts(self):
-        return deepcopy(SKILL_TOOL_CONTRACTS)
-
-    def get_skill_tools(self):
-        """返回所有 source='skill' 的工具定义（含装饰器注册的 skill 工具）。"""
-        return [
-            tool for tool in self.get_static_tools()
-            if tool.get("function", {}).get("source") == "skill"
-        ]
+        return {tool["function"]["name"] for tool in self.get_builtin_tools()}
 
     def get_skill_tool_names(self):
         return {tool["function"]["name"] for tool in self.get_skill_tools()}
-
-    def get_builtin_tools_for_worker(self, base_tools: list[dict]):
-        return get_builtin_tools_for_worker(base_tools)
-
-    def get_builtin_tools_for_orchestrator(self, base_tools: list[dict]):
-        return get_builtin_tools_for_orchestrator(base_tools)
-
-    def get_agent_tools(self, agents_dict):
-        return get_agent_tools(agents_dict)
-
-    def get_agent_tool_examples(self):
-        return deepcopy(AGENT_TOOLS_EXAMPLE)
 
     def get_mcp_tool_prefix(self):
         return MCP_TOOL_PREFIX

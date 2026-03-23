@@ -6,11 +6,11 @@
 
 ```
 tools/
-├── catalog/                          # 工具定义层
+├── catalog/                          # 仅保留兼容辅助与 MCP 适配（不再作为运行时主读模型）
 │   ├── static_tools.py               # 静态工具契约（已清空，扩展保留）
-│   ├── skill_tools.py                # Skill 工具契约
-│   ├── agent_tools.py                # Agent 委托工具
-│   ├── builtin_tools.py              # 内置工具（request_user_input）
+│   ├── skill_tools.py                # Skill 工具兼容占位
+│   ├── agent_tools.py                # Agent 描述兼容辅助
+│   ├── builtin_tools.py              # builtin 兼容占位
 │   └── mcp_tools.py                  # MCP 工具适配
 ├── tool_executor_modules/            # 工具实现层
 │   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS + _merge_decorated_handlers()
@@ -19,6 +19,7 @@ tools/
 │   ├── bash_tool.py                  # Bash 命令执行
 │   ├── shared.py                     # 共享依赖
 │   └── __init__.py                   # 导出 + __all__
+├── bootstrap.py                      # bootstrap_tool_system() 统一入口
 ├── path_resolution.py               # 全局路径管理中心（DATA_ROOT、目录常量、session 级路径）
 ├── tool_registry.py                  # ToolRegistry 注册表
 ├── tool_definition_builder.py        # ToolContract → OpenAI 格式
@@ -51,6 +52,16 @@ tools/
 | `db` | `./data/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
 | `anonymous fallback` | `./data/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
+### 统一原则（v3）
+
+- **除 MCP 外，所有可执行能力统一走 `@tool()`**
+- builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
+- agent delegation 已收敛为单一 `@tool(source="agent")`：`call_agent`
+- 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
+- `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型
+- `dispatcher` 只负责本地 handler / MCP 分发
+- 路径规则继续统一由 `path_resolution.py` 管理
+
 ## 新增工具注册
 
 ### 方式一：@tool() 装饰器（推荐，所有业务工具已迁移至此方式）
@@ -77,24 +88,37 @@ def my_tool(arguments, **kwargs):
     ...
 ```
 
-启动时自动发现（`auto_discovery.py`，扫描 `tools.tool_executor_modules.*` + 额外模块 `tools.code_sandbox` / `tools.document_executor`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry（`register_extra_contracts`）→ 一致性校验（`consistency_check.py`）。
+启动时统一通过 `bootstrap_tool_system()` 完成：
 
-`source` 字段决定工具分类：`"skill"` 类型的工具会被 `ToolRegistry.get_skill_tools()` 识别，在 `auto_inject=True` 时自动注入到配置了 Skills 的智能体。
+1. `discover_decorated_tools()`
+2. `_merge_decorated_handlers()`
+3. `_merge_decorated_permissions()`
+4. `ToolRegistry.register_extra_contracts()`
+5. `check_tool_consistency()`
 
-已迁移的工具（10 个）：
+`source` 字段决定工具分类：
+- `document` / `decorator`：本地 direct 工具
+- `skill`：Skill 系统工具
+- `builtin`：框架内置工具（如 `request_user_input`）
+- `agent`：子 Agent delegation 工具（当前仅 `call_agent`）
+- `mcp`：外部 MCP adapter 例外
+
+已迁移的本地工具（12 个）：
 - `report_tools.py`: generate_report
 - `skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `code_sandbox.py`: execute_code
 - `document_executor.py`: write_file, read_file, preview_data_structure, edit_file
+- `tool_executor_modules/builtin_tools.py`: request_user_input
+- `tool_executor_modules/agent_tools.py`: call_agent
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
 - 应急工具 → `agents/skills/emergency-decision-support/` Skill：query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map
 - Skill 脚本通过 `execute_skill_script` 调用，输出 artifact 协议格式时系统自动完成可视化持久化
 
-### 方式二：手动注册链路（扩展保留，当前无工具使用）
+### 方式二：手动注册链路（仅 MCP/扩展兼容保留）
 
-所有业务工具已迁移到 @tool() 装饰器，手动注册链路仅作为扩展机制保留。
+所有本地可执行能力都已迁移到 `@tool()` 装饰器；手动注册链路不再承载 builtin 或 agent delegation。
 
 1. **实现函数** → `tool_executor_modules/<module>.py`
 2. **定义契约** → `catalog/static_tools.py`
@@ -107,7 +131,7 @@ def my_tool(arguments, **kwargs):
 > 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 的专属操作说明；入口 orchestrator 的 YAML `system_prompt` 只保留业务路由信息，避免重复覆盖通用协议规则。
 
 ```
-execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event)
+execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event, parent_call_id, current_agent_name, tool_call_id)
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
   │   └─ 如果 requires_approval → 发布事件等待用户确认
@@ -122,6 +146,13 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
   └─ 返回 ToolExecutionResult
 ```
+
+### builtin 与 agent delegation
+
+- `request_user_input` 已从 pseudo-tool 收敛为真实 `@tool(source="builtin")`
+- `call_agent` 是唯一 `source="agent"` delegation 工具
+- `call_agent` 内部负责 allowlist 校验、目标 Agent 存在/启用校验、禁止自调用、创建当前调用作用域内的 execution orchestrator，并复用 `call.agent.start/end` 事件语义
+- 子 Agent 是否可调用不再由工具名展开决定，而由 `delegation.enabled_agents` + prompt 动态 roster 决定
 
 ### 文件类 document 工具路径治理（document_executor._prepare_document_tool_args）
 

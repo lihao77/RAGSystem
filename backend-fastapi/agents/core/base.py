@@ -313,12 +313,13 @@ class BaseAgent(ABC):
     def _get_direct_tools_for_prompt(self) -> List[Dict[str, Any]]:
         from tools.tool_registry import get_tool_registry
 
-        builtin_tool_names = set(get_tool_registry().get_builtin_tool_names())
+        builtin_tool_names = {"request_user_input"}
+        agent_tool_names = {"call_agent"}
         direct_tools: List[Dict[str, Any]] = []
         for tool in getattr(self, 'available_tools', []) or []:
             func = tool.get('function', {}) if isinstance(tool, dict) else {}
             tool_name = func.get('name', '')
-            if tool_name and tool_name not in builtin_tool_names:
+            if tool_name and tool_name not in builtin_tool_names and tool_name not in agent_tool_names:
                 direct_tools.append(tool)
         return direct_tools
 
@@ -668,8 +669,6 @@ risk = call_tool('assess_flood_risk', {{
         from tools.result_normalizer import ToolResultNormalizer
 
         base_tools = list(available_tools or [])
-        if builtin_tool_getter:
-            base_tools = builtin_tool_getter(base_tools)
 
         self.available_tools = base_tools
         self.available_skills = list(available_skills or [])
@@ -1097,31 +1096,6 @@ risk = call_tool('assess_flood_risk', {{
                 tool_results[idx] = error_result(observation, tool_name=tool_name)
                 continue
 
-            if tool_name == 'request_user_input':
-                user_value = self._handle_user_input_request(
-                    arguments=arguments,
-                    event_bus=event_bus,
-                    session_id=current_session_id,
-                    tool_call_id=tool_call_id,
-                    publisher=publisher,
-                    parent_call_id=state.get('call_id'),
-                )
-                if user_value is None:
-                    self._check_interrupt(context)
-                    user_value = ""
-                observations.append(f"[{tool_name}]\n用户输入: {user_value}")
-                tool_results[idx] = success_result(
-                    content=user_value,
-                    summary="用户输入",
-                    tool_name=tool_name,
-                )
-                state.setdefault('tool_calls_history', []).append({
-                    'tool_name': tool_name,
-                    'arguments': arguments,
-                    'result': {'success': True, 'user_input': user_value},
-                })
-                continue
-
             if callable(emit_event):
                 emit_event('tool_start', {
                     'tool_call_id': tool_call_id,
@@ -1148,6 +1122,9 @@ risk = call_tool('assess_flood_risk', {{
                 session_id=current_session_id,
                 run_id=context.metadata.get('run_id') if hasattr(context, 'metadata') else None,
                 cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
+                parent_call_id=state.get('call_id'),
+                current_agent_name=self.name,
+                tool_call_id=tool_call_id,
             )
             elapsed_time = time.time() - tool_started_at
             is_skills_tool = tool_name in tool_registry.get_skill_tool_names()

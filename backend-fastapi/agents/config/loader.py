@@ -217,7 +217,8 @@ class AgentLoader:
                     'preserve_recent_turns': 3,
                     'data_save_dir': None
                 }
-            }
+            },
+            delegation={'enabled_agents': []},
         )
 
     def _get_agent_type(self, agent_name: str, agent_config) -> str:
@@ -251,40 +252,36 @@ class AgentLoader:
 
     def _resolve_tools_and_skills(self, agent_config):
         """
-        根据 agent_config 过滤工具列表并注入 Skills 工具
+        根据 agent_config 过滤工具列表并注入 Skills/MCP/delegation 工具
 
         Returns:
             (available_tools, available_skills) 元组
         """
         from agents.skills.skill_loader import get_skill_loader
 
-        # 1. 工具过滤
-        all_tools = self._tool_registry.get_configurable_tools()
-        if agent_config and agent_config.tools and agent_config.tools.enabled_tools:
-            enabled_tools = agent_config.tools.enabled_tools
-            filtered_tools = [
-                tool for tool in all_tools
+        filtered_tools = []
+        configurable_tools = self._tool_registry.get_configurable_tools()
+        enabled_tools = list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []) or [])
+        if enabled_tools:
+            filtered_tools.extend([
+                tool for tool in configurable_tools
                 if tool.get('function', {}).get('name') in enabled_tools
-            ]
-            logger.info(f"{agent_config.agent_name} 启用工具: {enabled_tools}")
+            ])
+            logger.info(f"{agent_config.agent_name} 启用 direct 工具: {enabled_tools}")
         else:
-            filtered_tools = []
-            logger.info(f"{agent_config.agent_name} 未配置工具或配置为空列表，不启用任何工具")
+            logger.info(f"{agent_config.agent_name} 未配置 direct 工具")
 
-        # 2. Skills 过滤
+        filtered_skills = []
         skill_loader = get_skill_loader()
         all_skills = skill_loader.load_all_skills()
-        filtered_skills = []
-
         if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
             enabled_skill_names = agent_config.skills.enabled_skills
             filtered_skills = [
                 skill for skill in all_skills
                 if skill.name in enabled_skill_names
             ]
-            logger.info(f"{agent_config.agent_name} 已根据配置过滤 Skills，启用: {enabled_skill_names}")
+            logger.info(f"{agent_config.agent_name} 启用 Skills: {enabled_skill_names}")
 
-            # 3. 如果 auto_inject=True，自动追加 Skills 系统工具
             auto_inject = agent_config.skills.auto_inject if agent_config.skills else True
             if auto_inject:
                 existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
@@ -292,11 +289,9 @@ class AgentLoader:
                     tool_name = skill_tool.get('function', {}).get('name')
                     if tool_name not in existing_tool_names:
                         filtered_tools.append(skill_tool)
-                        logger.info(f"  → 自动注入 Skills 系统工具: {tool_name}")
         else:
-            logger.info(f"{agent_config.agent_name} 未配置 Skills，不加载任何 Skill")
+            logger.info(f"{agent_config.agent_name} 未配置 Skills")
 
-        # 4. MCP 工具注入
         mcp_config = getattr(agent_config, 'mcp', None)
         if mcp_config and getattr(mcp_config, 'enabled_servers', None):
             try:
@@ -305,27 +300,33 @@ class AgentLoader:
                     from mcp import get_mcp_manager
                     manager_getter = get_mcp_manager
                 manager = manager_getter()
-                injected_count = 0
                 for server_name in mcp_config.enabled_servers:
                     mcp_tools = manager.get_tools_openai_format(server_name)
                     if mcp_tools:
                         filtered_tools.extend(mcp_tools)
-                        injected_count += len(mcp_tools)
                         logger.info(
-                            f"  → {agent_config.agent_name} 注入 MCP 工具 "
-                            f"({server_name}): {len(mcp_tools)} 个"
+                            f"  → {agent_config.agent_name} 注入 MCP 工具 ({server_name}): {len(mcp_tools)} 个"
                         )
                     else:
                         logger.warning(
-                            f"  ⚠ MCP Server '{server_name}' 未连接或无工具，"
-                            f"智能体 {agent_config.agent_name} 的该 Server 工具跳过"
+                            f"  ⚠ MCP Server '{server_name}' 未连接或无工具，智能体 {agent_config.agent_name} 的该 Server 工具跳过"
                         )
-                if injected_count:
-                    logger.info(
-                        f"{agent_config.agent_name} 共注入 {injected_count} 个 MCP 工具"
-                    )
             except Exception as e:
                 logger.warning(f"注入 MCP 工具失败（{agent_config.agent_name}）: {e}")
+
+        delegation_config = getattr(agent_config, 'delegation', None)
+        enabled_agents = list(getattr(delegation_config, 'enabled_agents', []) or [])
+        if enabled_agents:
+            existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+            call_agent_tool = self._tool_registry.get_tool_by_name('call_agent')
+            if call_agent_tool and 'call_agent' not in existing_tool_names:
+                filtered_tools.append(call_agent_tool)
+            logger.info(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
+
+        builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+        request_user_input_tool = self._tool_registry.get_tool_by_name('request_user_input')
+        if request_user_input_tool and 'request_user_input' not in builtin_tool_names:
+            filtered_tools.append(request_user_input_tool)
 
         return filtered_tools, filtered_skills
 

@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
 """OrchestratorAgent 提示辅助与结果处理函数。"""
 
+from __future__ import annotations
+
 from typing import Any, Dict
 
 from agents.core import BaseAgent
 from tools.result_references import (
+    is_ref_error,
     resolve_result_path,
     result_error_message,
-    result_summary,
     result_primary_content,
     result_success,
+    result_summary,
     stringify_result_value,
-    is_ref_error,
 )
-from tools.catalog.agent_tools import get_agent_tools
+from tools.tool_registry import get_tool_registry
+
+_TOOL_REGISTRY = get_tool_registry()
 
 
 def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
@@ -21,47 +25,15 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
 
 
 def get_agent_display_name(agent, agent_name: str) -> str:
-    """
-    获取 Agent 的友好显示名称
-
-    Args:
-        agent_name: Agent 技术名称（如 'kgqa_agent'）
-
-    Returns:
-        str: 友好显示名称（如 '知识图谱问答智能体'）
-    """
-    # 尝试从 orchestrator 获取智能体实例
     target_agent = agent.orchestrator.agents.get(agent_name)
-
-    # 如果智能体存在且有配置，从配置中获取 display_name
     if target_agent and hasattr(target_agent, 'agent_config') and target_agent.agent_config:
         display_name = target_agent.agent_config.display_name
         if display_name:
             return display_name
-
-    # 降级：直接返回技术名称
     return agent_name
 
+
 def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, Any]]) -> Any:
-    """
-    递归替换数据中的占位符（优化版）
-
-    支持的占位符格式:
-    - {result_1}, {result_2}, ... - 引用第N个Agent的完整结果
-    - {result1}, {result2}, ...   - 简化格式（兼容）
-    - {result_1.content}, {result_1.content.name}, ... - 路径访问（基于标准结果结构）
-
-    优化：
-    1. 预检：快速判断是否包含占位符，避免无用递归
-    2. 缓存：避免重复替换相同的字符串
-
-    Args:
-        data: 要处理的数据（可以是字符串、字典、列表等）
-        agent_results: Agent结果字典 {1: result1, 2: result2, ...}
-
-    Returns:
-        替换后的数据
-    """
     import re
 
     placeholder_pattern = re.compile(
@@ -69,20 +41,17 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
         re.IGNORECASE,
     )
 
-    # 优化 1：预检 - 快速判断是否包含占位符
-    # 避免对不包含占位符的数据进行递归遍历
     data_str = str(data)
     if not placeholder_pattern.search(data_str):
-        return data  # 提前返回，节省递归开销
+        return data
 
     if isinstance(data, str):
-        # 字符串：查找并替换所有占位符
         def replace_func(match):
             idx = int(match.group(1))
             json_path = match.group(2)
             if idx not in agent_results:
                 agent.logger.warning(f"占位符 {match.group(0)} 引用的结果不存在")
-                return match.group(0)  # 保持原样
+                return match.group(0)
 
             result = agent_results[idx]
             if not result_success(result):
@@ -105,108 +74,136 @@ def replace_placeholders(agent, data: Any, agent_results: Dict[int, Dict[str, An
 
         return placeholder_pattern.sub(replace_func, data)
 
-    elif isinstance(data, dict):
-        # 字典：递归处理每个值
+    if isinstance(data, dict):
         return {key: agent._replace_placeholders(value, agent_results) for key, value in data.items()}
-
-    elif isinstance(data, list):
-        # 列表：递归处理每个元素
+    if isinstance(data, list):
         return [agent._replace_placeholders(item, agent_results) for item in data]
+    return data
 
-    else:
-        # 其他类型：直接返回
-        return data
 
 def format_agent_result_summary(agent, result: Any) -> str:
-    """
-    格式化 Agent 执行结果为摘要文本
-
-    Args:
-        result: Agent 执行结果
-
-    Returns:
-        str: 结果摘要（完整内容或截断）
-    """
+    del agent
     if not result_success(result):
         return f"执行失败: {result_error_message(result)}"
 
-    # 提取结果内容
     results = result_primary_content(result)
-
-    # 🎯 优先使用完整的 results（这是子 Agent 的 final_answer）
     if isinstance(results, str) and results:
-        # 如果内容较短（≤500字符），返回完整内容
         if len(results) <= 500:
             return results
-        # 否则截断
         return results[:500] + "..."
-    elif isinstance(results, dict):
-        # 字典结果：显示键数量
+    if isinstance(results, dict):
         return f"返回了 {len(results)} 个字段"
-    elif isinstance(results, list):
-        # 列表结果：显示元素数量
+    if isinstance(results, list):
         return f"返回了 {len(results)} 条记录"
-    else:
-        # 降级：使用 summary
-        summary = result_summary(result)
-        return summary if summary else "执行成功"
+    summary = result_summary(result)
+    return summary if summary else "执行成功"
+
+
+def _build_agent_roster(agent):
+    delegation = getattr(getattr(agent, 'agent_config', None), 'delegation', None)
+    enabled_agents = list(getattr(delegation, 'enabled_agents', []) or [])
+    roster = []
+    for agent_name in enabled_agents:
+        if agent_name == getattr(agent, 'name', None):
+            continue
+        target_agent = agent.orchestrator.agents.get(agent_name)
+        if target_agent is None:
+            continue
+        target_config = getattr(target_agent, 'agent_config', None)
+        description = getattr(target_config, 'description', None) or getattr(target_agent, 'description', '')
+        custom_params = getattr(target_config, 'custom_params', {}) or {}
+        behavior = custom_params.get('behavior', {}) if isinstance(custom_params, dict) else {}
+        roster.append({
+            'agent_name': agent_name,
+            'display_name': get_agent_display_name(agent, agent_name),
+            'description': description,
+            'use_cases': behavior.get('use_cases'),
+            'tool_count': len(getattr(target_agent, 'available_tools', []) or []),
+        })
+    return roster
+
 
 def get_available_agent_tools(agent):
-    """
-    动态获取可用的 Agent 工具列表
+    tool = _TOOL_REGISTRY.get_tool_by_name('call_agent')
+    return [tool] if tool and _build_agent_roster(agent) else []
 
-    延迟到执行时获取，确保其他 Agent 已经注册
-    """
-    return get_agent_tools(agent.orchestrator.agents)
 
 def build_orchestrator_specific_sections(agent) -> list[str]:
-    """构建 Orchestrator 专属提示词段落。"""
-    available_agent_tools = agent._get_available_agent_tools()
+    available_agent_tools = get_available_agent_tools(agent)
+    roster = _build_agent_roster(agent)
+    if not available_agent_tools:
+        return []
 
-    agent_tools_desc_lines = [
-        "## 可用的 Agent 工具",
-        "",
-        "你可以调用以下 Agent 来完成不同类型的任务：",
+    call_agent_tool = available_agent_tools[0]['function']
+    lines = [
+        '## 子 Agent 委派',
+        '',
+        '你只能通过单一工具 `call_agent` 委派子 Agent。',
+        '',
+        '### call_agent',
+        f"**描述**: {call_agent_tool.get('description', '')}",
+        f"**调用能力**: {BaseAgent._format_allowed_callers(call_agent_tool)}",
     ]
-    for tool in available_agent_tools:
-        func = tool['function']
-        name = func['name']
-        desc = func['description']
-        agent_tools_desc_lines.append("")
-        agent_tools_desc_lines.append(f"### {name}")
-        agent_tools_desc_lines.append(desc)
+    params = call_agent_tool.get('parameters', {})
+    if params and 'properties' in params:
+        lines.append('**参数**:')
+        required = params.get('required', [])
+        for param_name, param_info in params['properties'].items():
+            required_mark = ' (必填)' if param_name in required else ' (可选)'
+            lines.append(
+                f"  - `{param_name}` ({param_info.get('type', 'any')}){required_mark}: {param_info.get('description', '')}"
+            )
+    lines.extend(_format_tool_contract(call_agent_tool))
 
-    example_tool_name = available_agent_tools[0]['function']['name'] if available_agent_tools else "invoke_agent_qa_agent"
+    lines.extend([
+        '',
+        '## 当前可委派子 Agent 列表',
+        '',
+        '只能从下面名单中选择 `agent_name`：',
+    ])
+    for item in roster:
+        lines.append('')
+        lines.append(f"### {item['agent_name']}")
+        lines.append(f"- display_name: {item['display_name']}")
+        lines.append(f"- description: {item['description']}")
+        if item.get('use_cases'):
+            lines.append(f"- use_cases: {item['use_cases']}")
+        lines.append(f"- tool_count: {item['tool_count']}")
+
     direct_tool_names = [
         tool.get('function', {}).get('name', '')
         for tool in agent._get_direct_tools_for_prompt()
     ]
-    direct_tools_guide = ""
+    direct_tools_guide = ''
     if direct_tool_names:
         preview = ', '.join(direct_tool_names[:3])
         suffix = '...' if len(direct_tool_names) > 3 else ''
-        direct_tools_guide = f"如果任务可以通过直接工具完成（{preview}{suffix}），优先直接调用，无需委派 Agent。"
+        direct_tools_guide = f"如果任务可由直接工具完成（{preview}{suffix}），优先直接调用，无需委派。"
 
-    orchestration_section = f"""## Agent 委派说明
+    example_agent = roster[0]['agent_name'] if roster else 'qa_agent'
+    orchestration_section = f"""## 委派规则
 
-- 可同时使用两类能力：`invoke_agent_xxx`（委派子 Agent）和“可直接调用的工具”段中的 direct 工具。
-- {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足以完成任务时，才委派子 Agent。'}
-- 子 Agent 默认不继承此前对话历史。不要写“继续上一步”这类依赖隐式上下文的任务；必须把目标、输入数据、已有结论、用户约束和期望输出格式显式写入 `task` 或 `context_hint`。
-- `task` 至少写清：目标、地区/时间/对象、关键约束、期望输出；需要传递已有结果时，显式写入结果摘要或使用占位符。
+- {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足时，才委派子 Agent。'}
+- `agent_name` 必须从上面的 allowlist 中选择
+- `task` 必须写完整上下文；子 Agent 默认不继承此前对话历史
+- `context_hint` 用于补充约束、口径、输出格式或边界
+- 需要链式传递时，优先使用 `{{result_N.content}}`
 
-调用 Agent：
+调用示例：
 <tools>
-<tool name="{example_tool_name}">
+<tool name="call_agent">
+  <agent_name>{example_agent}</agent_name>
   <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>
+  <context_hint>返回 Markdown 表格，并保留统计口径说明</context_hint>
 </tool>
 </tools>
 
 用占位符传递上步数据：
 <tools>
-<tool name="invoke_agent_chart_agent">
-  <task>生成折线图，数据：{{result_1}}，X轴=年份，Y轴=受灾人口（万人），标题='受灾人口趋势'</task>
+<tool name="call_agent">
+  <agent_name>{example_agent}</agent_name>
+  <task>基于 {{result_1.content}} 继续处理并输出结论</task>
 </tool>
 </tools>"""
 
-    return ["\n".join(agent_tools_desc_lines), orchestration_section]
-
+    return ['\n'.join(lines), orchestration_section]

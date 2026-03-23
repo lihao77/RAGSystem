@@ -59,7 +59,6 @@ class ReActAgent(BaseAgent):
             available_tools=available_tools,
             available_skills=available_skills,
             event_bus=event_bus,
-            builtin_tool_getter=_TOOL_REGISTRY.get_builtin_tools_for_worker,
             budget_profile_name=WORKER_CONTEXT_PROFILE_NAME,
             runtime_label="ReActAgent",
         )

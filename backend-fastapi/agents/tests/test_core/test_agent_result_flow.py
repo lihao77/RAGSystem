@@ -5,12 +5,8 @@ from types import SimpleNamespace
 from agents.core import AgentResponse
 from agents.core.context import AgentContext
 from agents.implementations.orchestrator.executor import AgentExecutor
-from agents.implementations.orchestrator.prompting import format_agent_result_summary
-from agents.implementations.orchestrator.tool_router import (
-    route_agent_delegation,
-    route_direct_tool,
-    route_user_input_request,
-)
+from agents.implementations.orchestrator.prompting import format_agent_result_summary, replace_placeholders
+from agents.implementations.orchestrator.tool_router import route_direct_tool
 from tools.response_builder import error_result, success_result
 from tools.result_schema import ToolExecutionResult
 
@@ -24,18 +20,6 @@ class _FakeLogger:
 
     def error(self, *args, **kwargs):
         del args, kwargs
-
-
-class _FakePublisher:
-    def __init__(self):
-        self.agent_start_calls = []
-        self.agent_end_calls = []
-
-    def agent_call_start(self, **kwargs):
-        self.agent_start_calls.append(kwargs)
-
-    def agent_call_end(self, **kwargs):
-        self.agent_end_calls.append(kwargs)
 
 
 class _FakeObservationFormatter:
@@ -52,16 +36,6 @@ class _FakeObservationFormatter:
             }
         )
         return "formatted"
-
-
-class _FakeExecutor:
-    def __init__(self, result):
-        self.result = result
-        self.calls = []
-
-    def execute_agent(self, **kwargs):
-        self.calls.append(kwargs)
-        return self.result
 
 
 class _StubChildAgent:
@@ -87,137 +61,20 @@ class _StubStreamingChildAgent(_StubChildAgent):
             yield event
 
 
-class _CapturingContext(AgentContext):
-    def __init__(self):
-        super().__init__(session_id="session-1")
-        self.merged = []
+class _FakeOrchestratorAgent:
+    logger = _FakeLogger()
 
-    def merge(self, child_context, result):
-        self.merged.append((child_context, result))
-        super().merge(child_context, result)
+    def _replace_placeholders(self, data, agent_results):
+        return replace_placeholders(self, data, agent_results)
 
 
-def _build_agent(agent_result):
-    formatter = _FakeObservationFormatter()
-    return SimpleNamespace(
-        logger=_FakeLogger(),
-        _publisher=_FakePublisher(),
-        _format_tool_observation=formatter,
-        agent_executor=_FakeExecutor(agent_result),
-        _get_agent_display_name=lambda agent_name: agent_name,
-        _test_formatter=formatter,
-    )
+class _FakeReActAgent:
+    logger = _FakeLogger()
 
-
-def test_route_agent_delegation_rejects_legacy_dict_result():
-    agent_result = {
-        "success": True,
-        "data": {
-            "results": "delegated answer",
-        },
-    }
-    agent = _build_agent(agent_result)
-    context = _CapturingContext()
-
-    routed = route_agent_delegation(
-        agent=agent,
-        action={"tool": "invoke_agent_demo_agent", "arguments": {"task": "do work"}},
-        context=context,
-        event_bus=None,
-        publisher=agent._publisher,
-        run_id="run-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-        global_agent_order=1,
-        log_prefix="[test]",
-    )
-
-    assert isinstance(routed["result"], ToolExecutionResult)
-    assert routed["result"].success is False
-    assert routed["observation"] == "[demo_agent]\nformatted"
-    assert isinstance(agent._test_formatter.calls[0]["result"], ToolExecutionResult)
-    assert agent._publisher.agent_end_calls[0]["result"] == "Agent 返回了非标准结果类型: dict"
-    assert agent._publisher.agent_end_calls[0]["success"] is False
-
-
-def test_route_agent_delegation_supports_tool_execution_result_success():
-    agent_result = success_result(
-        content={"answer": "done"},
-        summary="done summary",
-        output_type="json",
-        metadata={"source": "native"},
-        tool_name="demo_agent",
-    )
-    agent = _build_agent(agent_result)
-    context = _CapturingContext()
-
-    routed = route_agent_delegation(
-        agent=agent,
-        action={"tool": "invoke_agent_demo_agent", "arguments": {"task": "do work"}},
-        context=context,
-        event_bus=None,
-        publisher=agent._publisher,
-        run_id="run-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-        global_agent_order=1,
-        log_prefix="[test]",
-    )
-
-    assert routed["result"] is agent_result
-    assert routed["observation"] == "[demo_agent]\nformatted"
-    assert agent._test_formatter.calls[0]["result"] is agent_result
-    assert agent._publisher.agent_end_calls[0]["result"] == '{"answer": "done"}'
-    assert agent._publisher.agent_end_calls[0]["success"] is True
-
-
-def test_route_agent_delegation_supports_tool_execution_result_error():
-    agent_result = error_result("delegated failed", tool_name="demo_agent")
-    agent = _build_agent(agent_result)
-    context = _CapturingContext()
-
-    route_agent_delegation(
-        agent=agent,
-        action={"tool": "invoke_agent_demo_agent", "arguments": {"task": "do work"}},
-        context=context,
-        event_bus=None,
-        publisher=agent._publisher,
-        run_id="run-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-        global_agent_order=1,
-        log_prefix="[test]",
-    )
-
-    assert agent._test_formatter.calls[0]["result"] is agent_result
-    assert agent._publisher.agent_end_calls[0]["result"] == "delegated failed"
-    assert agent._publisher.agent_end_calls[0]["success"] is False
-
-
-def test_route_agent_delegation_falls_back_to_native_error_when_executor_returns_none():
-    agent = _build_agent(None)
-    context = _CapturingContext()
-
-    routed = route_agent_delegation(
-        agent=agent,
-        action={"tool": "invoke_agent_demo_agent", "arguments": {"task": "do work"}},
-        context=context,
-        event_bus=None,
-        publisher=agent._publisher,
-        run_id="run-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-        global_agent_order=1,
-        log_prefix="[test]",
-    )
-
-    assert isinstance(routed["result"], ToolExecutionResult)
-    assert routed["result"].success is False
-    assert routed["result"].content == "Agent 未返回结果"
+    @staticmethod
+    def _safe_json_dumps(obj):
+        import json
+        return json.dumps(obj, ensure_ascii=False)
 
 
 def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
@@ -240,6 +97,7 @@ def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
 
     agent = SimpleNamespace(
         logger=_FakeLogger(),
+        name="orchestrator_agent",
         available_tools=[{"function": {"name": "write_file"}}],
         agent_config=None,
         _format_tool_observation=lambda result, **kwargs: "formatted",
@@ -265,31 +123,52 @@ def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
     assert captured["arguments"] == {"content": "demo"}
     assert captured["session_id"] == "session-1"
     assert captured["run_id"] == "run-route-1"
+    assert captured["parent_call_id"] == "orchestrator-1"
+    assert captured["current_agent_name"] == "orchestrator_agent"
 
 
-def test_route_user_input_request_returns_native_result():
-    fake_agent = SimpleNamespace(
-        _handle_user_input_request=lambda **kwargs: "user-value",
-        _publisher=None,
-    )
-    context = AgentContext(session_id="session-1")
+def test_master_placeholder_supports_tool_execution_result_and_failure_message():
+    fake_agent = _FakeOrchestratorAgent()
+    payload = {
+        "task": "技能 {result_1.content.name}，失败 {result_2}",
+    }
+    agent_results = {
+        1: success_result(
+            content={"name": "demo-skill"},
+            summary="ok",
+            output_type="json",
+            tool_name="get_skill_info",
+        ),
+        2: error_result(
+            "boom",
+            tool_name="demo_tool",
+        ),
+    }
 
-    routed = route_user_input_request(
-        agent=fake_agent,
-        action={"arguments": {"prompt": "demo"}},
-        context=context,
-        event_bus=None,
-        publisher=None,
-        run_id="run-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-    )
+    resolved = replace_placeholders(fake_agent, payload, agent_results)
 
-    assert isinstance(routed["result"], ToolExecutionResult)
-    assert routed["result"].success is True
-    assert routed["result"].tool_name == "request_user_input"
-    assert routed["result"].content == "user-value"
+    assert "demo-skill" in resolved["task"]
+    assert "[Agent 2 执行失败: boom]" in resolved["task"]
+
+
+def test_master_placeholder_supports_call_agent_result_content_path():
+    fake_agent = _FakeOrchestratorAgent()
+    payload = {
+        "task": "引用路径 {result_1.content.name}",
+    }
+    agent_results = {
+        1: success_result(
+            content={"name": "delegated-skill"},
+            summary="ok",
+            output_type="json",
+            tool_name="call_agent",
+            metadata={"agent_name": "demo_agent"},
+        )
+    }
+
+    resolved = replace_placeholders(fake_agent, payload, agent_results)
+
+    assert "delegated-skill" in resolved["task"]
 
 
 def test_format_agent_result_summary_supports_tool_execution_result_text_truncation():
@@ -298,7 +177,7 @@ def test_format_agent_result_summary_supports_tool_execution_result_text_truncat
         content="x" * 501,
         summary="fallback summary",
         output_type="text",
-        tool_name="demo_agent",
+        tool_name="call_agent",
     )
 
     summary = format_agent_result_summary(agent, result)
