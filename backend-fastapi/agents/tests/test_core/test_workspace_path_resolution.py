@@ -9,12 +9,26 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from tools.document_executor import read_file, write_file, edit_file
+from tools.auto_discovery import discover_decorated_tools
+from tools.decorators import get_decorated_tools
+from tools.document_executor import _prepare_document_tool_args, edit_file, read_file, write_file
 from tools.code_sandbox import execute_code_sandbox
 from tools.path_resolution import get_code_execution_session_root, get_export_run_root
-from tools.permissions import check_tool_permission
+from tools.permissions import check_tool_permission, _merge_decorated_permissions
+from tools.tool_executor_modules.dispatcher import _merge_decorated_handlers
 from tools.tool_registry import get_tool_registry
-from tools.tool_executor_modules.dispatcher import _preprocess_document_tool_args, _execute_document_tool
+
+
+discover_decorated_tools()
+_merge_decorated_handlers()
+_merge_decorated_permissions()
+get_tool_registry().register_extra_contracts([
+    info["contract"] for info in get_decorated_tools().values()
+])
+
+
+def _make_document_agent_config(**custom_params):
+    return SimpleNamespace(custom_params=custom_params)
 
 
 def _make_temp_dir() -> Path:
@@ -26,16 +40,22 @@ def test_preprocess_document_tool_args_assigns_exports_path_when_file_path_missi
     run_id = "run-export-1"
     expected_root = get_export_run_root(session_id, run_id)
 
-    args = _preprocess_document_tool_args(
+    args = _prepare_document_tool_args(
         "write_file",
         {"content": "hello"},
-        workspace_root=None,
-        default_output_space="exports",
+        caller="direct",
         session_id=session_id,
         run_id=run_id,
-        caller="direct",
+        agent_config=_make_document_agent_config(default_output_space="exports"),
     )
-    result = write_file(args["content"], file_path=args["file_path"])
+    result = write_file(
+        args["content"],
+        file_path=args["file_path"],
+        caller="direct",
+        session_id=session_id,
+        run_id=run_id,
+        agent_config=_make_document_agent_config(default_output_space="exports"),
+    )
 
     assert result.success is True
     output_path = Path(result.content["file_path"])
@@ -46,14 +66,13 @@ def test_preprocess_document_tool_args_assigns_exports_path_when_file_path_missi
 
 def test_preprocess_document_tool_args_routes_relative_path_to_transient_when_space_specified():
     session_id = "session-space-transient"
-    target = _preprocess_document_tool_args(
+    target = _prepare_document_tool_args(
         "write_file",
         {"content": "hello", "file_path": "tmp.txt", "file_path_space": "transient"},
-        workspace_root=None,
-        default_output_space="workspace",
+        caller="direct",
         session_id=session_id,
         run_id="run-space-transient",
-        caller="direct",
+        agent_config=_make_document_agent_config(default_output_space="workspace"),
     )
 
     assert Path(target["file_path"]).resolve().name == "tmp.txt"
@@ -64,14 +83,13 @@ def test_preprocess_document_tool_args_routes_relative_path_to_transient_when_sp
 
 def test_preprocess_document_tool_args_consumes_file_path_space_after_resolution():
     session_id = "session-space-consumed"
-    target = _preprocess_document_tool_args(
+    target = _prepare_document_tool_args(
         "write_file",
         {"content": "hello", "file_path": "tmp.txt", "file_path_space": "transient"},
-        workspace_root=None,
-        default_output_space="workspace",
+        caller="direct",
         session_id=session_id,
         run_id="run-space-consumed",
-        caller="direct",
+        agent_config=_make_document_agent_config(default_output_space="workspace"),
     )
 
     assert "file_path_space" not in target
@@ -84,20 +102,20 @@ def test_execute_document_tool_write_file_accepts_xml_space_flattened_args_witho
     session_id = "session-write-file-space"
     run_id = "run-write-file-space"
 
-    import tools.tool_executor_modules.dispatcher as dispatcher_module
+    import tools.document_executor as document_executor_module
 
-    original_get_fields = dispatcher_module.get_current_execution_observability_fields
-    dispatcher_module.get_current_execution_observability_fields = lambda: {"run_id": run_id}
+    original_get_fields = document_executor_module.get_current_execution_observability_fields
+    document_executor_module.get_current_execution_observability_fields = lambda: {"run_id": run_id}
     try:
-        result = _execute_document_tool(
-            "write_file",
-            {"content": "hello from xml attr", "file_path": "tmp.txt", "file_path_space": "transient"},
+        result = write_file(
+            content="hello from xml attr",
+            file_path="tmp.txt",
+            file_path_space="transient",
             caller="direct",
             session_id=session_id,
-            agent_config=None,
         )
     finally:
-        dispatcher_module.get_current_execution_observability_fields = original_get_fields
+        document_executor_module.get_current_execution_observability_fields = original_get_fields
 
     assert result.success is True
     output_path = Path(result.content["file_path"])
@@ -116,14 +134,16 @@ def test_preprocess_document_tool_args_keeps_workspace_as_default_relative_space
     workspace.mkdir()
 
     try:
-        args = _preprocess_document_tool_args(
+        args = _prepare_document_tool_args(
             "write_file",
             {"content": "hello", "file_path": "note.txt"},
-            workspace_root=str(workspace),
-            default_output_space="transient",
+            caller="direct",
             session_id="session-default-workspace",
             run_id="run-default-workspace",
-            caller="direct",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="transient",
+            ),
         )
         assert Path(args["file_path"]).resolve() == (workspace / "note.txt").resolve()
     finally:
@@ -141,14 +161,16 @@ def test_preprocess_document_tool_args_accepts_absolute_path_inside_workspace_ro
 
     try:
         caplog.set_level(logging.DEBUG)
-        args = _preprocess_document_tool_args(
+        args = _prepare_document_tool_args(
             "edit_file",
             {"file_path": str(target), "old_string": "hello", "new_string": "world"},
-            workspace_root=str(workspace),
-            default_output_space="workspace",
+            caller="direct",
             session_id="session-absolute-workspace",
             run_id="run-absolute-workspace",
-            caller="direct",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="workspace",
+            ),
         )
         assert Path(args["file_path"]).resolve() == target.resolve()
         assert "文档工具路径预处理开始" in caplog.text
@@ -166,16 +188,27 @@ def test_read_file_uses_preprocessed_workspace_absolute_path():
     target.write_text("workspace-data\n", encoding="utf-8")
 
     try:
-        args = _preprocess_document_tool_args(
+        args = _prepare_document_tool_args(
             "read_file",
             {"file_path": "demo.txt"},
-            workspace_root=str(workspace),
-            default_output_space="workspace",
+            caller="direct",
             session_id="session-read-workspace",
             run_id="run-read-workspace",
-            caller="direct",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="workspace",
+            ),
         )
-        result = read_file(args["file_path"])
+        result = read_file(
+            args["file_path"],
+            caller="direct",
+            session_id="session-read-workspace",
+            run_id="run-read-workspace",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="workspace",
+            ),
+        )
 
         assert result.success is True
         assert result.content == "workspace-data"
@@ -192,19 +225,28 @@ def test_edit_file_uses_preprocessed_workspace_absolute_path():
     target.write_text("before\nafter\n", encoding="utf-8")
 
     try:
-        args = _preprocess_document_tool_args(
+        args = _prepare_document_tool_args(
             "edit_file",
             {"file_path": "note.txt", "old_string": "before", "new_string": "updated"},
-            workspace_root=str(workspace),
-            default_output_space="workspace",
+            caller="direct",
             session_id="session-edit-workspace",
             run_id="run-edit-workspace",
-            caller="direct",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="workspace",
+            ),
         )
         result = edit_file(
             args["file_path"],
             old_string=args["old_string"],
             new_string=args["new_string"],
+            caller="direct",
+            session_id="session-edit-workspace",
+            run_id="run-edit-workspace",
+            agent_config=_make_document_agent_config(
+                workspace_root=str(workspace),
+                default_output_space="workspace",
+            ),
         )
 
         assert result.success is True
@@ -216,53 +258,70 @@ def test_edit_file_uses_preprocessed_workspace_absolute_path():
 def test_write_read_and_edit_file_support_explicit_transient_space():
     session_id = "session-direct-transient-space"
     run_id = "run-direct-transient-space"
-    preprocessed = _preprocess_document_tool_args(
+    preprocessed = _prepare_document_tool_args(
         "write_file",
         {"content": "before\nafter\n", "file_path": "note.txt", "file_path_space": "transient"},
-        workspace_root=None,
-        default_output_space="workspace",
+        caller="direct",
         session_id=session_id,
         run_id=run_id,
-        caller="direct",
+        agent_config=_make_document_agent_config(default_output_space="workspace"),
     )
 
     write_result = write_file(
         preprocessed["content"],
         file_path=preprocessed["file_path"],
+        caller="direct",
+        session_id=session_id,
+        run_id=run_id,
+        agent_config=_make_document_agent_config(default_output_space="workspace"),
     )
     assert write_result.success is True
 
     try:
-        read_args = _preprocess_document_tool_args(
+        read_args = _prepare_document_tool_args(
             "read_file",
             {"file_path": "note.txt", "file_path_space": "transient"},
-            workspace_root=None,
-            default_output_space="workspace",
+            caller="direct",
             session_id=session_id,
             run_id=run_id,
-            caller="direct",
+            agent_config=_make_document_agent_config(default_output_space="workspace"),
         )
-        read_result = read_file(read_args["file_path"])
+        read_result = read_file(
+            read_args["file_path"],
+            caller="direct",
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=_make_document_agent_config(default_output_space="workspace"),
+        )
         assert read_result.success is True
         assert read_result.content == "before\nafter"
 
-        edit_args = _preprocess_document_tool_args(
+        edit_args = _prepare_document_tool_args(
             "edit_file",
             {"file_path": "note.txt", "file_path_space": "transient", "old_string": "before", "new_string": "updated"},
-            workspace_root=None,
-            default_output_space="workspace",
+            caller="direct",
             session_id=session_id,
             run_id=run_id,
-            caller="direct",
+            agent_config=_make_document_agent_config(default_output_space="workspace"),
         )
         edit_result = edit_file(
             edit_args["file_path"],
             old_string=edit_args["old_string"],
             new_string=edit_args["new_string"],
+            caller="direct",
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=_make_document_agent_config(default_output_space="workspace"),
         )
         assert edit_result.success is True
 
-        updated_read = read_file(edit_args["file_path"])
+        updated_read = read_file(
+            edit_args["file_path"],
+            caller="direct",
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=_make_document_agent_config(default_output_space="workspace"),
+        )
         assert updated_read.content == "updated\nafter"
     finally:
         Path(preprocessed["file_path"]).unlink(missing_ok=True)
@@ -365,7 +424,7 @@ def test_execute_code_rejects_document_file_tools():
 
     assert result.success is False
     assert "不允许从代码调用" in result.summary
-    assert "caller code_execution" in result.summary
+    assert "Tool read_file is not allowed from caller code_execution" in result.summary
 
 
 def test_document_file_tools_are_direct_only_for_permissions_and_registry():

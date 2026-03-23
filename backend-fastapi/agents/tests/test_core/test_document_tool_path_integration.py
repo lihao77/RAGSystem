@@ -8,17 +8,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agents.task_registry import TaskRegistry
-from tools.document_executor import FILE_SIZE_PREVIEW_THRESHOLD
+from tools.document_executor import FILE_SIZE_PREVIEW_THRESHOLD, edit_file, read_file, write_file
 from tools.path_resolution import get_export_run_root
-from tools.tool_executor_modules.dispatcher import _execute_document_tool
 
 
 def _set_run_id(monkeypatch, run_id: str):
-    import tools.tool_executor_modules.dispatcher as dispatcher_module
-
     monkeypatch.setattr(
-        dispatcher_module,
-        "get_current_execution_observability_fields",
+        "tools.document_executor.get_current_execution_observability_fields",
         lambda: {"run_id": run_id},
     )
 
@@ -33,7 +29,7 @@ def _track_resolve_calls(monkeypatch):
         calls.append({"file_path": file_path, **kwargs})
         return original(file_path, **kwargs)
 
-    monkeypatch.setattr(path_resolution, "resolve_managed_path", wrapped)
+    monkeypatch.setattr("tools.document_executor.resolve_managed_path", wrapped)
     return calls
 
 
@@ -52,9 +48,10 @@ def test_execute_document_tool_edit_file_resolves_path_once(monkeypatch, tmp_pat
     _set_run_id(monkeypatch, "run-edit")
     agent_config = SimpleNamespace(custom_params={"workspace_root": str(tmp_path)})
 
-    result = _execute_document_tool(
-        "edit_file",
-        {"file_path": "note.txt", "old_string": "before", "new_string": "updated"},
+    result = edit_file(
+        file_path="note.txt",
+        old_string="before",
+        new_string="updated",
         caller="direct",
         session_id="session-edit",
         agent_config=agent_config,
@@ -76,9 +73,8 @@ def test_execute_document_tool_write_file_allocates_output_once_when_path_missin
     _set_run_id(monkeypatch, run_id)
     agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})
 
-    result = _execute_document_tool(
-        "write_file",
-        {"content": "hello"},
+    result = write_file(
+        content="hello",
         caller="direct",
         session_id=session_id,
         agent_config=agent_config,
@@ -103,14 +99,13 @@ def test_execute_document_tool_write_file_uses_explicit_run_id_without_observabi
 
     calls = _track_resolve_calls(monkeypatch)
     monkeypatch.setattr(
-        "tools.tool_executor_modules.dispatcher.get_current_execution_observability_fields",
+        "tools.document_executor.get_current_execution_observability_fields",
         lambda: {},
     )
     agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})
 
-    result = _execute_document_tool(
-        "write_file",
-        {"content": "hello explicit"},
+    result = write_file(
+        content="hello explicit",
         caller="direct",
         session_id=session_id,
         run_id=run_id,
@@ -138,9 +133,8 @@ def test_execute_document_tool_write_file_prefers_explicit_run_id_over_observabi
     _set_run_id(monkeypatch, observed_run_id)
     agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})
 
-    result = _execute_document_tool(
-        "write_file",
-        {"content": "hello preferred"},
+    result = write_file(
+        content="hello preferred",
         caller="direct",
         session_id=session_id,
         run_id=explicit_run_id,
@@ -182,9 +176,8 @@ def test_execute_document_tool_read_file_resolves_path_once_and_keeps_large_file
             return None
 
     agent_config = SimpleNamespace(custom_params={"workspace_root": str(tmp_path)})
-    result = _execute_document_tool(
-        "read_file",
-        {"file_path": "large.txt"},
+    result = read_file(
+        file_path="large.txt",
         caller="direct",
         event_bus=_EventBus(),
         session_id=session_id,

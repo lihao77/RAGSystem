@@ -9,7 +9,6 @@ from .builtin_tools import (
     get_builtin_tools_for_orchestrator,
     get_builtin_tools_for_worker,
 )
-from .document_tools import DOCUMENT_TOOL_CONTRACTS, DOCUMENT_TOOLS
 from .mcp_tools import (
     MCP_TOOL_PREFIX,
     is_mcp_tool,
@@ -23,8 +22,6 @@ from .static_tools import STATIC_TOOL_CONTRACTS, STATIC_TOOLS
 __all__ = [
     "AGENT_TOOLS_EXAMPLE",
     "BUILTIN_TOOL_NAMES",
-    "DOCUMENT_TOOL_CONTRACTS",
-    "DOCUMENT_TOOLS",
     "MCP_TOOL_PREFIX",
     "REQUEST_USER_INPUT_CONTRACT",
     "REQUEST_USER_INPUT_TOOL",

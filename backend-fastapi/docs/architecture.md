@@ -156,12 +156,12 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 未替换占位符拦截：`base.py._handle_actions` 在工具执行前调用 `detect_unresolved_placeholders()` 检测残留占位符，命中则跳过执行并返回错误提示。
 
-### 文档工具路径预处理
+### 文件类 document 工具路径治理
 
-文档工具（read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化；`execute_bash` 则在 `bash_tool.py` 内部独立完成工作目录解析：
+文件类 document 工具（read_file, edit_file, write_file, preview_data_structure）已迁移为 `document_executor.py` 内的 `@tool(source="document")` 工具，和其他 direct 工具一样经自动发现注册进入统一 `TOOL_HANDLERS`；`execute_bash` 则在 `bash_tool.py` 内部独立完成工作目录解析：
 
 ```
-占位符替换 → 路径预处理 / 工作目录解析 → tool 执行 → resource scope 推断/清理
+占位符替换 → 统一 tool handler 分发 → document_executor._prepare_document_tool_args / bash_tool._resolve_work_dir → tool 执行 → resource scope 推断/清理
 ```
 
 - 路径解析统一由 `tools/path_resolution.py` 提供：文件走 `resolve_managed_path()`，目录走 `resolve_managed_directory()`，并按 caller / operation 选择受管边界
@@ -172,16 +172,17 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录仍是 `./data/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
 - `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；`create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，避免污染全局 YAML / 其他会话
+- `document_executor._prepare_document_tool_args()` 会直接从 `agent_config.custom_params` 读取 `workspace_root/default_output_space`，并按“显式 run_id 优先，observability fallback”解析 `effective_run_id`
 - `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），其中 `default_output_space=workspace` 会落到当前 effective workspace，而不是固定写死到 session/workspace
-- direct 文档工具链会在进入 `document_executor.py` 前完成路径预处理；`BaseAgent._handle_actions()` 与 `orchestrator/tool_router.route_direct_tool()` 会从 `context.metadata` 显式透传 `session_id + run_id` 给 `execute_tool()`，再由 dispatcher 继续传给 `_execute_document_tool()`；若 direct 调用方未显式提供 `run_id`，dispatcher 仍会 fallback 到 observability context；开发期已移除对历史旧目录的读取兼容，tool 实现层只接受当前受管目录内的绝对路径
-- 文档工具里的 `read_file` / `write_file` / `edit_file` 现在仅允许 `direct` 调用，不再对 `caller=code_execution` 开放
+- `read_file` / `write_file` / `edit_file` 仅允许 `direct` 调用，不再对 `caller=code_execution` 开放；`preview_data_structure` 仍允许 `code_execution`
+- `read_file` 仍保留大文件确认、分页与 direct 调用语义
 - sandbox（`code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
-- `execute_bash` 不接入 document dispatcher；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
+- `execute_bash` 不接入 document 特殊链；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
 - 默认受管目录根的自动补建统一下沉到 `tools/path_resolution.py`：当 direct 工具以目录根语义访问 `workspace/transient/exports`（如 `working_dir` 省略、为空或为 `.`）且目标根目录尚未创建时，共享路径层会先补建对应根目录，再返回解析结果；这样 `execute_bash` 不需要单独维护目录创建分支
 - `execute_bash` 在工具内部额外维护一条 bash 专用审批链：白名单命令直接执行，所有非白名单命令统一触发 `user.approval_required`；其中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令会在审批 payload 中额外标记并提升风险提示，但不再硬拒绝
 - `execute_code` 现已改为“主进程协调 + 沙箱子进程执行”模型：主进程负责静态检查、路径解析、审批等待、工具分发与超时/取消回收，子进程只负责受限 `exec()`；超时和 cancel 会直接终止子进程，因此不再依赖线程内逻辑超时
 - dispatcher 对 `execute_code` 做特殊收口：不再走通用 `_run_with_timeout()` 线程包装，而是把 `cancel_event` 直接注入 `code_sandbox.py`，由沙箱内部统一管理 timeout / cancel 语义
-- 因此，direct 文件工具路径预处理、bash 工作目录解析与沙箱文件访问是三条职责分离但共享同一受管路径语言的链路
+- 因此，direct 文件工具路径治理、bash 工作目录解析与沙箱文件访问是三条职责分离但共享同一受管路径语言的链路
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
 

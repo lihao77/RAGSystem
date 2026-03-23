@@ -27,7 +27,8 @@ registry.register_extra_contracts([info["contract"] for info in discover_decorat
 def test_tool_registry_groups_default_and_document_tools():
     registry = get_tool_registry()
 
-    default_names = [tool["function"]["name"] for tool in registry.get_default_tools()]
+    default_tools = registry.get_default_tools()
+    default_names = [tool["function"]["name"] for tool in default_tools]
     document_names = [tool["function"]["name"] for tool in registry.get_document_tools()]
 
     assert "activate_skill" in default_names
@@ -36,7 +37,9 @@ def test_tool_registry_groups_default_and_document_tools():
     assert "read_file" in document_names
     assert "execute_skill_script" not in document_names
     assert "create_chart" not in default_names
+    assert default_names.count("read_file") == 1
     assert registry.get_tool_category("read_file") == "document"
+    assert registry.get_tool_source("read_file") == "document"
     assert registry.get_tool_category("activate_skill") == "skill"
     assert registry.get_tool_category("execute_skill_script") == "skill"
     assert registry.get_tool_category("execute_code") == "execution"

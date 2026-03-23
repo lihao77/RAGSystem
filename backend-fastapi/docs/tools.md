@@ -9,7 +9,6 @@ tools/
 ├── catalog/                          # 工具定义层
 │   ├── static_tools.py               # 静态工具契约（已清空，扩展保留）
 │   ├── skill_tools.py                # Skill 工具契约
-│   ├── document_tools.py             # 文档工具契约
 │   ├── agent_tools.py                # Agent 委托工具
 │   ├── builtin_tools.py              # 内置工具（request_user_input）
 │   └── mcp_tools.py                  # MCP 工具适配
@@ -33,7 +32,7 @@ tools/
 ├── auto_discovery.py                # 自动扫描装饰器注册的工具
 ├── consistency_check.py             # 工具注册一致性校验
 ├── code_sandbox.py                  # Python 代码沙箱
-├── document_executor.py             # 文档处理
+├── document_executor.py             # 文件类 document 工具的 @tool 注册入口 + 执行入口
 ├── visualization_artifact_manager.py # 可视化 artifact 持久化
 └── visualization_fallback.py        # 可视化降级
 ```
@@ -78,14 +77,15 @@ def my_tool(arguments, **kwargs):
     ...
 ```
 
-启动时自动发现（`auto_discovery.py`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry（`register_extra_contracts`）→ 一致性校验（`consistency_check.py`）。
+启动时自动发现（`auto_discovery.py`，扫描 `tools.tool_executor_modules.*` + 额外模块 `tools.code_sandbox` / `tools.document_executor`）→ 合并到 TOOL_HANDLERS/TOOL_PERMISSIONS → Contract 注入 ToolRegistry（`register_extra_contracts`）→ 一致性校验（`consistency_check.py`）。
 
 `source` 字段决定工具分类：`"skill"` 类型的工具会被 `ToolRegistry.get_skill_tools()` 识别，在 `auto_inject=True` 时自动注入到配置了 Skills 的智能体。
 
-已迁移的工具（6 个）：
+已迁移的工具（10 个）：
 - `report_tools.py`: generate_report
 - `skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `code_sandbox.py`: execute_code
+- `document_executor.py`: write_file, read_file, preview_data_structure, edit_file
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -117,41 +117,39 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   │   ├─ execute_code → 直接调用 handler（子进程内部自管理 timeout/cancel）
   │   │   ├─ execute_bash → 先进入 bash_tool 内部命令校验（三态：直通 / 审批 / 硬拒绝）
   │   │   └─ 其他工具 → _run_with_timeout(handler, timeout)（自动注入上下文参数）
-  │   ├─ tool_name in DOCUMENT_TOOL_NAMES → _run_with_timeout(_execute_document_tool, timeout)
-  │   │   └─ _preprocess_document_tool_args()  ← 路径预处理（详见下方）
   │   ├─ is_mcp_tool(tool_name) → _execute_mcp_tool()（自带超时，不包装）
   │   └─ else → error_result()
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
   └─ 返回 ToolExecutionResult
 ```
 
-### 文档工具路径预处理（_preprocess_document_tool_args）
+### 文件类 document 工具路径治理（document_executor._prepare_document_tool_args）
 
-文档工具在进入 tool 实现前，由 dispatcher 统一做路径预处理；`execute_bash` 则在 `bash_tool.py` 内部独立解析工作目录。两者共享同一套 managed location language：
+4 个文件类 document 工具已经和其他 `@tool()` 工具完全同构：由自动发现注册进入统一 `TOOL_HANDLERS`，dispatcher 不再维护 document 特判分支。文件路径治理则直接内聚在 `document_executor.py` 内部私有 helper：
 
 ```
 占位符替换（base.py._handle_actions）
-  → 路径预处理（dispatcher._preprocess_document_tool_args / bash_tool._resolve_work_dir）
-    → tool 执行（document_executor / bash_tool）
-      → resource scope 推断/清理（conversation_store._infer_scope）
+  → dispatcher 统一命中 TOOL_HANDLERS
+    → document_executor._prepare_document_tool_args / bash_tool._resolve_work_dir
+      → tool 执行（document_executor / bash_tool）
+        → resource scope 推断/清理（conversation_store._infer_scope）
 ```
 
 统一规则：
 - direct 文件工具支持 XML 写法 `<file_path space="workspace|transient|exports">relative/path</file_path>`
 - `execute_bash` 支持 XML 写法 `<working_dir space="workspace|transient|exports">relative/dir</working_dir>`
 - XML 解析层会将其分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
-- dispatcher 在路径预处理消费完 `file_path_space` / `working_dir_space` 这类中间字段后，不再继续透传给底层 tool 实现
+- `document_executor._prepare_document_tool_args()` / `bash_tool._resolve_work_dir()` 在消费完 `file_path_space` / `working_dir_space` 后，不再继续透传到底层 I/O 逻辑
 - `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → `./data/sessions/<session_id>/transient/`，`exports` → `./data/sessions/<session_id>/exports/<run_id>/`（缺 `run_id` 报错）
-- direct 文档工具链中的 `run_id` 会像 `session_id` 一样由 `BaseAgent._handle_actions()` / `route_direct_tool()` 显式透传到 `execute_tool()` → `_execute_document_tool()`；若调用方未显式提供，dispatcher 仍会 fallback 到 `get_current_execution_observability_fields().run_id`
+- document 工具中的 `run_id` 由工具函数优先使用显式参数，缺失时 fallback 到 `get_current_execution_observability_fields().run_id`
 - 绝对路径不会被 `space` 改写，仍只做受管边界校验
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析
 - `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到 `./data/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `./data/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `./data/sessions/<session_id>/transient/`
 - `caller=direct` 的 direct 文件工具仍通过 `path_resolution.resolve_managed_path(...)` 解析文件路径；`execute_bash` 在工具内部通过 `path_resolution.resolve_managed_directory(...)` 解析工作目录
 - `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
+- `preview_data_structure` 仍允许 `code_execution` 调用
 - 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件先 `request_write_approval()` 再 `open()`，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
-- tool 实现层（document_executor）只接受预处理后的绝对路径，不再自行做路径策略判断
-- `read_file` / `edit_file` / `write_file` 底层不再重复调用 `resolve_managed_path(...)`；`write_file` 的空路径分配由 dispatcher 统一负责
 - `content.file_path` 为内部绝对路径（供链式调用），`content.display_path` 为可读展示路径（供用户展示）
 - 链式调用占位符统一使用单花括号：`{result_N}`、`{result_N.content.file_path}`；不要写成双花括号 `{{result_N}}`
 

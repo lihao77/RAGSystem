@@ -20,10 +20,9 @@ from tools.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
 from tools.result_references import resolve_result_path
 from tools.result_schema import ToolExecutionResult
 from tools.auto_discovery import discover_decorated_tools
+from tools.document_executor import edit_file, preview_data_structure, read_file, write_file
 from tools.tool_executor_modules.dispatcher import (
-    DOCUMENT_TOOL_NAMES,
     TOOL_HANDLERS,
-    _execute_document_tool,
     _merge_decorated_handlers,
 )
 from tools.permissions import _merge_decorated_permissions
@@ -221,9 +220,9 @@ def _sample_write_file(temp_dir: Path) -> Any:
     workspace = temp_dir / "workspace"
     workspace.mkdir(exist_ok=True)
     path = workspace / "output.txt"
-    return _execute_document_tool(
-        "write_file",
-        {"content": "hello world", "file_path": str(path)},
+    return write_file(
+        content="hello world",
+        file_path=str(path),
         caller="direct",
         agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
@@ -234,9 +233,8 @@ def _sample_read_file(temp_dir: Path) -> Any:
     workspace.mkdir(exist_ok=True)
     path = workspace / "sample.txt"
     path.write_text("hello world", encoding="utf-8")
-    return _execute_document_tool(
-        "read_file",
-        {"file_path": str(path)},
+    return read_file(
+        file_path=str(path),
         caller="direct",
         agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
@@ -247,9 +245,8 @@ def _sample_preview_data_structure(temp_dir: Path) -> Any:
     workspace.mkdir(exist_ok=True)
     path = workspace / "sample.json"
     path.write_text('{"items": [{"id": 1, "name": "Alice"}]}', encoding="utf-8")
-    return _execute_document_tool(
-        "preview_data_structure",
-        {"file_path": str(path)},
+    return preview_data_structure(
+        file_path=str(path),
         caller="direct",
         agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
@@ -334,9 +331,10 @@ def _sample_edit_file(temp_dir: Path) -> Any:
     workspace.mkdir(exist_ok=True)
     path = workspace / "edit.txt"
     path.write_text("before\nafter\n", encoding="utf-8")
-    return _execute_document_tool(
-        "edit_file",
-        {"file_path": str(path), "old_string": "before", "new_string": "updated"},
+    return edit_file(
+        file_path=str(path),
+        old_string="before",
+        new_string="updated",
         caller="direct",
         agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
     )
@@ -357,24 +355,26 @@ _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
 
 
 def _registered_tool_names() -> List[str]:
-    return sorted((set(TOOL_HANDLERS) | set(DOCUMENT_TOOL_NAMES)) - {"execute_code"})
+    registry = get_tool_registry()
+    return sorted(
+        tool["function"]["name"]
+        for tool in registry.get_default_tools()
+        if tool["function"]["name"] != "execute_code"
+    )
 
 
 def _tool_category(tool_name: str) -> str:
-    if tool_name in {"activate_skill", "load_skill_resource", "execute_skill_script", "get_skill_info"}:
-        return "skill"
-    if tool_name in DOCUMENT_TOOL_NAMES:
-        return "document"
-    return "builtin"
+    return get_tool_registry().get_tool_category(tool_name)
 
 
 def _tool_source(tool_name: str) -> str:
+    tool = get_tool_registry().get_tool_by_name(tool_name)
+    if tool and tool.get("function", {}).get("source") == "document":
+        return "tools/document_executor.py"
     if tool_name in TOOL_HANDLERS:
         source = inspect.getsourcefile(TOOL_HANDLERS[tool_name])
         if source:
             return str(Path(source).resolve().relative_to(ROOT_DIR)).replace("\\", "/")
-    if tool_name in DOCUMENT_TOOL_NAMES:
-        return "tools/document_executor.py"
     return "unknown"
 
 

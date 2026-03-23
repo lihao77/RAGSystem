@@ -8,14 +8,25 @@ from agents.implementations.react.agent import ReActAgent, _format_tool_contract
 from tools.auto_discovery import discover_decorated_tools
 from tools.decorators import get_decorated_tools
 from tools.tool_definition_builder import build_function_tool
+from tools.tool_registry import get_tool_registry
 
 
 discover_decorated_tools()
+get_tool_registry().register_extra_contracts([
+    info["contract"] for info in get_decorated_tools().values()
+])
 
 
 def _decorated_tool(name: str):
     contract = get_decorated_tools()[name]["contract"]
     return build_function_tool(contract)
+
+
+def _tool_from_registry(name: str):
+    registry = get_tool_registry()
+    tool = registry.get_tool_by_name(name)
+    assert tool is not None
+    return tool
 
 
 def _fake_agent(**overrides):
@@ -116,9 +127,7 @@ def test_tool_examples_can_render_xml_attrs_without_stringified_nested_tags():
 
 
 def test_react_prompt_renders_space_examples_as_xml_attributes():
-    from tools.catalog.document_tools import DOCUMENT_TOOLS
-
-    write_file_tool = next(tool for tool in DOCUMENT_TOOLS if tool["function"]["name"] == "write_file")
+    write_file_tool = _tool_from_registry("write_file")
     execute_bash_tool = _decorated_tool("execute_bash")
     fake_agent = _fake_agent(available_tools=[write_file_tool, execute_bash_tool])
 
@@ -131,10 +140,8 @@ def test_react_prompt_renders_space_examples_as_xml_attributes():
 
 
 def test_react_prompt_renders_read_and_edit_file_space_examples_as_xml_attributes():
-    from tools.catalog.document_tools import DOCUMENT_TOOLS
-
-    read_file_tool = next(tool for tool in DOCUMENT_TOOLS if tool["function"]["name"] == "read_file")
-    edit_file_tool = next(tool for tool in DOCUMENT_TOOLS if tool["function"]["name"] == "edit_file")
+    read_file_tool = _tool_from_registry("read_file")
+    edit_file_tool = _tool_from_registry("edit_file")
     fake_agent = _fake_agent(available_tools=[read_file_tool, edit_file_tool])
 
     prompt = ReActAgent._build_system_prompt(fake_agent)
@@ -187,9 +194,7 @@ def test_orchestrator_build_system_prompt_includes_direct_tool_return_contracts(
 
 
 def test_react_prompt_includes_file_and_code_tool_contracts():
-    from tools.catalog.document_tools import DOCUMENT_TOOLS
-
-    read_file_tool = next(tool for tool in DOCUMENT_TOOLS if tool["function"]["name"] == "read_file")
+    read_file_tool = _tool_from_registry("read_file")
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[read_file_tool, execute_code_tool])
 

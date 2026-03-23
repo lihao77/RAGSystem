@@ -102,141 +102,6 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
         return False, error_result(f'审批流程异常: {error}', tool_name=tool_name), ''
 
 
-# 需要路径预处理的文档工具（含 file_path 参数的工具）
-_PATH_AWARE_DOCUMENT_TOOLS = {
-    'read_file', 'edit_file', 'write_file', 'preview_data_structure',
-}
-
-
-def _preprocess_document_tool_args(
-    tool_name: str,
-    arguments: dict,
-    *,
-    workspace_root: str | None,
-    default_output_space: str | None,
-    session_id: str | None,
-    run_id: str | None,
-    caller: str,
-) -> dict:
-    """
-    文档工具参数路径预处理：在进入 tool 前把 file_path 统一转成受管绝对路径。
-
-    - 有 file_path 的工具：通过统一 resolver 做受管路径解析
-    - write_file 未指定 file_path：由同一 resolver 分配受管输出路径
-    """
-    if tool_name not in _PATH_AWARE_DOCUMENT_TOOLS:
-        return arguments
-
-    from tools.path_resolution import resolve_managed_path
-
-    args = dict(arguments)
-    file_path = args.get('file_path')
-    file_path_space = args.pop('file_path_space', None)
-
-    logger.debug(
-        '文档工具路径预处理开始: tool=%s caller=%s session_id=%s run_id=%s workspace_root=%s default_output_space=%s raw_file_path=%s file_path_space=%s%s',
-        tool_name,
-        caller,
-        session_id,
-        run_id,
-        workspace_root,
-        default_output_space,
-        file_path,
-        file_path_space,
-        _obs_suffix(),
-    )
-
-    if file_path:
-        operation = 'edit' if tool_name == 'edit_file' else 'read'
-        if tool_name == 'write_file':
-            operation = 'write'
-        resolved = resolve_managed_path(
-            file_path,
-            session_id=session_id,
-            run_id=run_id,
-            caller=caller,
-            operation=operation,
-            default_output_space=default_output_space,
-            workspace_root=workspace_root,
-            explicit_space=file_path_space,
-        )
-        args['file_path'] = str(resolved)
-        logger.debug(
-            '文档工具路径预处理完成: tool=%s operation=%s resolved_file_path=%s%s',
-            tool_name,
-            operation,
-            args['file_path'],
-            _obs_suffix(),
-        )
-    elif tool_name == 'write_file':
-        mode = args.get('mode', 'text')
-        suffix = '.json' if mode == 'json' else '.txt'
-        assigned = resolve_managed_path(
-            None,
-            session_id=session_id,
-            run_id=run_id,
-            caller=caller,
-            operation='write',
-            default_output_space=default_output_space,
-            workspace_root=workspace_root,
-            suffix=suffix,
-        )
-        args['file_path'] = str(assigned)
-        logger.debug(
-            '文档工具路径预处理分配输出路径: tool=%s mode=%s assigned_file_path=%s%s',
-            tool_name,
-            mode,
-            args['file_path'],
-            _obs_suffix(),
-        )
-
-    return args
-
-
-def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None, run_id=None, agent_config=None):
-    # 从 agent_config 提取路径策略参数
-    _workspace_root = None
-    _default_output_space = None
-    if agent_config and hasattr(agent_config, 'custom_params'):
-        cp = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
-        _workspace_root = cp.get('workspace_root')
-        _default_output_space = cp.get('default_output_space')
-
-    # run_id 优先使用显式透传，observability 作为 fallback
-    current_fields = get_current_execution_observability_fields()
-    _run_id = run_id or current_fields.get('run_id')
-
-    # 统一路径预处理
-    arguments = _preprocess_document_tool_args(
-        tool_name,
-        arguments,
-        workspace_root=_workspace_root,
-        default_output_space=_default_output_space,
-        session_id=session_id,
-        run_id=_run_id,
-        caller=caller,
-    )
-
-    if tool_name == 'write_file':
-        from tools.document_executor import write_file
-        return write_file(**arguments)
-    if tool_name == 'read_file':
-        from tools.document_executor import read_file
-        return read_file(
-            **arguments,
-            caller=caller,
-            event_bus=event_bus,
-            session_id=session_id,
-        )
-    if tool_name == 'preview_data_structure':
-        from tools.document_executor import preview_data_structure
-        return preview_data_structure(**arguments)
-    if tool_name == 'edit_file':
-        from tools.document_executor import edit_file
-        return edit_file(**arguments)
-    return None
-
-
 def _execute_mcp_tool(tool_name, arguments, *, session_id=None):
     from services.mcp_service import get_mcp_service
 
@@ -337,14 +202,6 @@ def _merge_decorated_handlers() -> None:
             logger.info("合并装饰器工具 handler: %s", tool_name)
 
 
-DOCUMENT_TOOL_NAMES = {
-    'write_file',
-    'read_file',
-    'preview_data_structure',
-    'edit_file',
-}
-
-
 def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None, run_id=None, cancel_event=None):
     """执行指定工具。"""
     try:
@@ -385,19 +242,6 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 result = handler(**call_arguments)
             else:
                 result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
-        elif tool_name in DOCUMENT_TOOL_NAMES:
-            result = _run_with_timeout(
-                lambda: _execute_document_tool(
-                    tool_name,
-                    arguments,
-                    caller=caller,
-                    event_bus=event_bus,
-                    session_id=session_id,
-                    run_id=run_id,
-                    agent_config=agent_config,
-                ),
-                timeout, tool_name,
-            )
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
             result = _execute_mcp_tool(tool_name, arguments, session_id=session_id)
         else:

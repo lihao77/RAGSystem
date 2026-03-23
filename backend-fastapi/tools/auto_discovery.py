@@ -41,7 +41,7 @@ def discover_decorated_tools(package_name: str = "tools.tool_executor_modules") 
             logger.warning("扫描模块 %s 失败: %s", module_name, e)
 
     # 扫描不在 tool_executor_modules 包内但使用了 @tool() 的模块
-    _extra_modules = ["tools.code_sandbox"]
+    _extra_modules = ["tools.code_sandbox", "tools.document_executor"]
     for mod_name in _extra_modules:
         try:
             importlib.import_module(mod_name)

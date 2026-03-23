@@ -14,7 +14,6 @@ from tools.catalog.builtin_tools import (
     get_builtin_tools_for_orchestrator,
     get_builtin_tools_for_worker,
 )
-from tools.catalog.document_tools import DOCUMENT_TOOL_CONTRACTS, DOCUMENT_TOOLS
 from tools.catalog.mcp_tools import (
     MCP_TOOL_PREFIX,
     is_mcp_tool,
@@ -39,7 +38,9 @@ class ToolRegistry:
         """注册第三方扩展工具契约。"""
         if not contracts:
             return
-        self._extra_contracts.extend(contracts)
+        merged = {contract.name: contract for contract in self._extra_contracts}
+        merged.update({contract.name: contract for contract in contracts})
+        self._extra_contracts = list(merged.values())
         self._static_tools_cache = None  # 失效缓存
         logger.info("注册扩展工具: %s", [c.name for c in contracts])
 
@@ -53,14 +54,14 @@ class ToolRegistry:
         self._static_tools_cache = build_function_tools(self.get_static_contracts())
         return deepcopy(self._static_tools_cache)
 
-    def get_document_contracts(self):
-        return deepcopy(DOCUMENT_TOOL_CONTRACTS)
-
     def get_document_tools(self):
-        return deepcopy(DOCUMENT_TOOLS)
+        return [
+            tool for tool in self.get_static_tools()
+            if tool.get("function", {}).get("source") == "document"
+        ]
 
     def get_default_tools(self):
-        return self.get_static_tools() + deepcopy(DOCUMENT_TOOLS)
+        return self.get_static_tools()
 
     def get_all_base_tools(self):
         return self.get_default_tools()

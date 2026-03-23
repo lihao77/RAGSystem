@@ -3,7 +3,6 @@
 文档处理工具执行器
 实现文档读取、分块、结构化提取等功能
 """
-import os
 import json
 import csv
 import difflib
@@ -12,6 +11,10 @@ import re
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+from execution.observability import get_current_execution_observability_fields
+from tools.decorators import tool
+from tools.path_resolution import resolve_managed_path, to_display_path
+from tools.permissions import RiskLevel
 from tools.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,107 @@ _WKT_PATTERN = re.compile(
     r"\s*\(",
     re.IGNORECASE,
 )
+
+
+_DOCUMENT_TOOL_NAMES = frozenset({
+    "write_file",
+    "read_file",
+    "preview_data_structure",
+    "edit_file",
+})
+
+
+def _get_document_execution_context(
+    *,
+    caller: str = "direct",
+    session_id: str | None = None,
+    run_id: str | None = None,
+    agent_config=None,
+) -> dict[str, Any]:
+    custom_params = {}
+    if agent_config and hasattr(agent_config, "custom_params") and isinstance(agent_config.custom_params, dict):
+        custom_params = agent_config.custom_params
+
+    observability_fields = get_current_execution_observability_fields()
+    return {
+        "caller": caller,
+        "session_id": session_id,
+        "workspace_root": custom_params.get("workspace_root"),
+        "default_output_space": custom_params.get("default_output_space"),
+        "effective_run_id": run_id or observability_fields.get("run_id"),
+    }
+
+
+def _prepare_document_tool_args(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    caller: str = "direct",
+    session_id: str | None = None,
+    run_id: str | None = None,
+    agent_config=None,
+) -> dict[str, Any]:
+    if tool_name not in _DOCUMENT_TOOL_NAMES:
+        return dict(arguments)
+
+    context = _get_document_execution_context(
+        caller=caller,
+        session_id=session_id,
+        run_id=run_id,
+        agent_config=agent_config,
+    )
+    args = dict(arguments)
+    file_path = args.get("file_path")
+    file_path_space = args.pop("file_path_space", None)
+
+    logger.debug(
+        "文档工具路径预处理开始: tool=%s caller=%s session_id=%s run_id=%s workspace_root=%s default_output_space=%s raw_file_path=%s file_path_space=%s",
+        tool_name,
+        context["caller"],
+        context["session_id"],
+        context["effective_run_id"],
+        context["workspace_root"],
+        context["default_output_space"],
+        file_path,
+        file_path_space,
+    )
+
+    if file_path:
+        operation = "edit" if tool_name == "edit_file" else "read"
+        if tool_name == "write_file":
+            operation = "write"
+        resolved = resolve_managed_path(
+            file_path,
+            session_id=context["session_id"],
+            run_id=context["effective_run_id"],
+            caller=context["caller"],
+            operation=operation,
+            default_output_space=context["default_output_space"],
+            workspace_root=context["workspace_root"],
+            explicit_space=file_path_space,
+        )
+        args["file_path"] = str(resolved)
+    elif tool_name == "write_file":
+        mode = args.get("mode", "text")
+        suffix = ".json" if mode == "json" else ".txt"
+        assigned = resolve_managed_path(
+            None,
+            session_id=context["session_id"],
+            run_id=context["effective_run_id"],
+            caller=context["caller"],
+            operation="write",
+            default_output_space=context["default_output_space"],
+            workspace_root=context["workspace_root"],
+            suffix=suffix,
+        )
+        args["file_path"] = str(assigned)
+
+    logger.debug(
+        "文档工具路径预处理完成: tool=%s resolved_file_path=%s",
+        tool_name,
+        args.get("file_path"),
+    )
+    return args
 
 
 def _is_geojson(value: Any) -> bool:
@@ -782,16 +886,122 @@ def merge_extracted_data(
         return error_result(f"合并失败: {str(e)}", tool_name="merge_extracted_data")
 
 
+@tool(
+    name="preview_data_structure",
+    description=(
+        "预览文件的数据结构，帮助 Agent 判断 JSON/YAML 的层级、CSV/TSV 的列结构，"
+        "或文本文件的基本形态，而不必先读取全部内容。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "要预览结构的文件路径。支持相对路径（系统自动解析为绝对路径）。"
+            },
+            "encoding": {
+                "type": "string",
+                "description": "文件编码，默认 utf-8",
+                "default": "utf-8"
+            },
+            "max_preview_rows": {
+                "type": "integer",
+                "description": "最多采样的行数或数组项数，默认 5",
+                "default": 5,
+                "minimum": 1
+            },
+            "max_depth": {
+                "type": "integer",
+                "description": "结构递归预览的最大深度，默认 3",
+                "default": 3,
+                "minimum": 1
+            },
+            "max_fields": {
+                "type": "integer",
+                "description": "对象或表结构中最多返回的字段数，默认 20",
+                "default": 20,
+                "minimum": 1
+            }
+        },
+        "required": ["file_path"]
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct", "code_execution"],
+    returns={
+        "type": "object",
+        "description": "成功时返回文件类型、基础元信息和结构预览结果",
+        "shape": {
+            "content": {
+                "file_path": "string",
+                "file_name": "string",
+                "file_type": "string",
+                "file_size": "number",
+                "structure": "object",
+            },
+            "metadata": {
+                "file_type": "string",
+                "file_size": "number",
+                "max_preview_rows": "number",
+                "max_depth": "number",
+                "max_fields": "number",
+            },
+        },
+    },
+    usage_contract=[
+        "适合先探索数据结构，再决定是否调用 read_file 或直接进入后续处理步骤",
+        "JSON/YAML 返回层级结构预览；CSV/TSV 返回列与样例行；文本返回行统计与预览",
+        "想看更深层结构时可提高 max_depth；想看更多列或样例可提高 max_fields/max_preview_rows",
+    ],
+    examples=[
+        {
+            "input": {
+                "file_path": "./data/sample.json",
+                "max_depth": 2,
+            },
+            "result_hint": {
+                "file_type": "json",
+                "structure": {
+                    "type": "object",
+                    "fields": {
+                        "items": {
+                            "type": "array",
+                        }
+                    },
+                },
+            },
+        }
+    ],
+    source="document",
+)
 def preview_data_structure(
     file_path: str,
     encoding: str = "utf-8",
     max_preview_rows: int = DEFAULT_STRUCTURE_PREVIEW_ROWS,
     max_depth: int = DEFAULT_STRUCTURE_PREVIEW_DEPTH,
     max_fields: int = DEFAULT_STRUCTURE_PREVIEW_FIELDS,
+    *,
+    file_path_space: Optional[str] = None,
+    caller: str = "direct",
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    agent_config=None,
 ) -> Any:
     """预览常见数据文件的数据结构，帮助 Agent 决定下一步读取或提取策略。"""
     try:
-        file_path_obj = Path(file_path)
+        prepared = _prepare_document_tool_args(
+            "preview_data_structure",
+            {
+                "file_path": file_path,
+                "file_path_space": file_path_space,
+            },
+            caller=caller,
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=agent_config,
+        )
+        file_path_obj = Path(prepared["file_path"])
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="preview_data_structure")
@@ -857,18 +1067,123 @@ def preview_data_structure(
         return error_result(f"预览数据结构失败: {str(e)}", tool_name="preview_data_structure")
 
 
+@tool(
+    name="write_file",
+    description=(
+        "将文本内容写入文件。JSON 数据请先用 json.dumps 序列化为字符串再传入。"
+        "不指定路径时系统自动分配受管绝对路径，返回实际保存的文件路径（在 content.file_path 字段中）。"
+        "修改已有文件的部分内容，请优先使用 edit_file 工具。"
+        "相对路径默认按 workspace 解析，也可用 XML 写法 <file_path space=\"workspace|transient|exports\">..."
+        " 显式指定解析根。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "string",
+                "description": "要写入的文本内容。若要保存 JSON，请先 json.dumps 转为字符串。"
+            },
+            "file_path": {
+                "type": "string",
+                "description": "保存路径（可选）。支持相对路径（系统自动解析为绝对路径）。不指定则系统自动分配受管路径。"
+            },
+            "encoding": {
+                "type": "string",
+                "description": "文件编码，默认 utf-8",
+                "default": "utf-8"
+            }
+        },
+        "required": ["content"]
+    },
+    risk_level=RiskLevel.HIGH,
+    requires_approval=True,
+    timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回保存后的文件信息",
+        "shape": {
+            "file_path": "string",
+            "file_size": "number",
+            "display_path": "string",
+        },
+    },
+    usage_contract=[
+        "content 是最终要写入的文本；JSON 请先序列化成字符串",
+        "后续工具需要路径时，优先复用返回的 file_path（绝对路径）",
+        "若在同一轮链式调用，可引用 {result_N.content.file_path}",
+        "修改已有文件的部分内容时，请优先使用 edit_file 工具进行精准替换",
+        "content.display_path 是可读展示路径，仅用于向用户展示",
+        "支持 workspace/transient/exports 三个受管目录；统一规则见下方“受管目录 space 说明”",
+        "不传 file_path 时，仍由 default_output_space 决定自动分配到 workspace/transient/exports",
+    ],
+    examples=[
+        {
+            "input": {
+                "content": "{\"city\": \"Nanning\"}",
+            },
+            "result_hint": {
+                "file_path": "/abs/path/to/output.json",
+                "display_path": "./data/sessions/<session_id>/transient/output_xxx.json",
+            },
+        },
+        {
+            "input": {
+                "content": "temporary text",
+                "file_path": "tmp.txt",
+            },
+            "xml_attrs": {
+                "file_path": {"space": "transient"},
+            },
+            "result_hint": {
+                "display_path": "./data/sessions/<session_id>/transient/tmp.txt",
+            },
+        },
+        {
+            "input": {
+                "content": "# report",
+                "file_path": "report.md",
+            },
+            "xml_attrs": {
+                "file_path": {"space": "exports"},
+            },
+            "result_hint": {
+                "display_path": "./data/sessions/<session_id>/exports/<run_id>/report.md",
+            },
+        }
+    ],
+    source="document",
+)
 def write_file(
     content: str,
-    file_path: str,
+    file_path: Optional[str] = None,
     encoding: str = "utf-8",
     mode: str = "text",
+    *,
+    file_path_space: Optional[str] = None,
+    caller: str = "direct",
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    agent_config=None,
+    event_bus=None,
 ) -> Any:
-    """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。
-
-    file_path 是 dispatcher 预处理后的绝对路径。
-    """
+    """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。"""
+    del event_bus
     try:
-        file_path_obj = Path(file_path)
+        prepared = _prepare_document_tool_args(
+            "write_file",
+            {
+                "content": content,
+                "file_path": file_path,
+                "file_path_space": file_path_space,
+                "mode": mode,
+            },
+            caller=caller,
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=agent_config,
+        )
+        file_path_obj = Path(prepared["file_path"])
 
         dir_path = file_path_obj.parent
         if dir_path:
@@ -887,7 +1202,6 @@ def write_file(
                 f.write(content if isinstance(content, str) else str(content))
 
         file_size = file_path_obj.stat().st_size
-        from tools.path_resolution import to_display_path
         display = to_display_path(file_path_obj)
         return success_result(
             content={"file_path": str(file_path_obj), "file_size": file_size, "display_path": display},
@@ -900,23 +1214,136 @@ def write_file(
         return error_result(f"写入文件失败: {str(e)}", tool_name="write_file")
 
 
+@tool(
+    name="read_file",
+    description=(
+        "按行读取文件内容，返回原始文本内容。"
+        "默认从第 1 行开始，最多读取 2000 行。"
+        "file_path 必须是真实的文件路径字符串，不能是占位符变量名。"
+        "支持相对路径（系统会自动解析为绝对路径；默认按 workspace，支持 XML file_path@space 显式指定）。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "文件路径。支持绝对路径或相对路径（系统自动解析）。优先复用上一步工具返回的 file_path。"
+            },
+            "encoding": {
+                "type": "string",
+                "description": "文件编码，默认 utf-8",
+                "default": "utf-8"
+            },
+            "offset": {
+                "type": "integer",
+                "description": "起始行号（1-based），默认 1",
+                "default": 1,
+                "minimum": 1
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最多读取的行数，默认 2000",
+                "default": 2000,
+                "minimum": 1
+            }
+        },
+        "required": ["file_path"]
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回文件内容和分页元数据",
+        "shape": {
+            "content": "string",
+            "metadata": {
+                "file_path": "string",
+                "file_size": "number",
+                "total_lines": "number",
+                "start_line": "number",
+                "end_line": "number",
+                "has_more": "boolean",
+                "next_offset": "number|null",
+            },
+        },
+    },
+    usage_contract=[
+        "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页",
+        "可用 offset/limit 指定行号区间",
+        "返回内容为文件原始文本内容，不附带行号",
+        "file_path 必须是真实路径字符串，不是变量名文本",
+        "支持 workspace/transient/exports 三个受管目录；统一规则见下方“受管目录 space 说明”",
+        "数据文件（JSON/GeoJSON/CSV）已有路径时，优先用 preview_data_structure 确认结构；需要确认数据完整性时可用 read_file（带 limit）检查，但确认后只传递文件路径，不要把内容输出到 final_answer",
+    ],
+    examples=[
+        {
+            "input": {
+                "file_path": "./data/output.json",
+            },
+            "result_hint": {
+                "content": "{\"city\": \"Nanning\"}",
+            },
+        },
+        {
+            "input": {
+                "file_path": "tmp.txt",
+            },
+            "xml_attrs": {
+                "file_path": {"space": "transient"},
+            },
+            "result_hint": {
+                "content": "temporary text",
+            },
+        },
+        {
+            "input": {
+                "file_path": "./data/large.txt",
+                "offset": 100,
+                "limit": 50,
+            },
+            "result_hint": {
+                "content": "第100行内容...",
+                "metadata": {
+                    "start_line": 100,
+                    "end_line": 149,
+                    "has_more": True,
+                    "next_offset": 150,
+                },
+            },
+        }
+    ],
+    source="document",
+)
 def read_file(
     file_path: str,
     encoding: str = "utf-8",
     offset: int = 1,
     limit: int = DEFAULT_READ_MAX_LINES,
     *,
+    file_path_space: Optional[str] = None,
     caller: str = "direct",
     event_bus=None,
     session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    agent_config=None,
     _skip_preview: bool = False,
 ) -> Any:
-    """按行号读取文件内容，返回原始文本内容。支持大文件预览确认（仅 direct 调用）。
-
-    file_path 是 dispatcher 预处理后的绝对路径。
-    """
+    """按行号读取文件内容，返回原始文本内容。支持大文件预览确认（仅 direct 调用）。"""
     try:
-        file_path_obj = Path(file_path)
+        prepared = _prepare_document_tool_args(
+            "read_file",
+            {
+                "file_path": file_path,
+                "file_path_space": file_path_space,
+            },
+            caller=caller,
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=agent_config,
+        )
+        file_path_obj = Path(prepared["file_path"])
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="read_file")
@@ -1066,19 +1493,110 @@ def read_file(
         return error_result(f"读取文件失败: {str(e)}", tool_name="read_file")
 
 
+@tool(
+    name="edit_file",
+    description=(
+        "精准字符串替换编辑文件。old_string 必须在文件中唯一匹配（除非 replace_all=true）。"
+        "new_string 为空字符串时表示删除匹配内容。返回 diff 预览和替换次数。"
+        "相对路径默认按 workspace 解析，也支持 XML file_path@space 显式指定目录桶。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "要编辑的文件路径。支持相对路径（系统自动解析为绝对路径）。优先复用上一步工具返回的 file_path。"
+            },
+            "old_string": {
+                "type": "string",
+                "description": "要被替换的原始字符串，必须精确匹配文件中的内容"
+            },
+            "new_string": {
+                "type": "string",
+                "description": "替换后的字符串。传空字符串表示删除 old_string"
+            },
+            "encoding": {
+                "type": "string",
+                "description": "文件编码，默认 utf-8",
+                "default": "utf-8"
+            },
+            "replace_all": {
+                "type": "boolean",
+                "description": "是否替换所有匹配。默认 false，仅在唯一匹配时替换",
+                "default": False
+            }
+        },
+        "required": ["file_path", "old_string", "new_string"]
+    },
+    risk_level=RiskLevel.HIGH,
+    requires_approval=True,
+    timeout_seconds=60,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回替换信息和 diff 预览",
+        "shape": {
+            "file_path": "string",
+            "replacements": "number",
+            "file_size": "number",
+            "diff_preview": "string",
+        },
+    },
+    usage_contract=[
+        "old_string 必须精确匹配文件中的内容，包括空格和换行",
+        "默认要求唯一匹配；多处匹配时设 replace_all=true",
+        "new_string 为空字符串表示删除",
+        "建议先用 read_file 确认要编辑的内容再调用",
+        "支持 workspace/transient/exports 三个受管目录；统一规则见下方“受管目录 space 说明”",
+    ],
+    examples=[
+        {
+            "input": {
+                "file_path": "note.txt",
+                "old_string": "before",
+                "new_string": "updated",
+            },
+            "xml_attrs": {
+                "file_path": {"space": "workspace"},
+            },
+            "result_hint": {
+                "replacements": 1,
+            },
+        }
+    ],
+    source="document",
+)
 def edit_file(
     file_path: str,
     old_string: str,
     new_string: str,
     encoding: str = "utf-8",
     replace_all: bool = False,
+    *,
+    file_path_space: Optional[str] = None,
+    caller: str = "direct",
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    agent_config=None,
+    event_bus=None,
 ) -> Any:
-    """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。
-
-    file_path 是 dispatcher 预处理后的绝对路径。
-    """
+    """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。"""
+    del event_bus
     try:
-        file_path_obj = Path(file_path)
+        prepared = _prepare_document_tool_args(
+            "edit_file",
+            {
+                "file_path": file_path,
+                "file_path_space": file_path_space,
+                "old_string": old_string,
+                "new_string": new_string,
+            },
+            caller=caller,
+            session_id=session_id,
+            run_id=run_id,
+            agent_config=agent_config,
+        )
+        file_path_obj = Path(prepared["file_path"])
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="edit_file")
