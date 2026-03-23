@@ -59,6 +59,10 @@ class AgentLLMConfig(BaseModel):
         default=None,
         description="推理努力级别占位字段，如 low/medium/high；具体语义由 Provider 决定"
     )
+    prompt_cache_enabled: Optional[bool] = Field(
+        default=None,
+        description="是否启用 prompt cache；None 表示跟随 Provider 默认能力"
+    )
     top_p: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -168,6 +172,18 @@ class AgentLLMConfig(BaseModel):
             reasoning_effort = getattr(default_llm, 'reasoning_effort', None)
         if reasoning_effort is not None:
             result['reasoning_effort'] = reasoning_effort
+
+        prompt_cache_enabled = self.prompt_cache_enabled
+        if prompt_cache_enabled is None and model_adapter and result['provider'] and result['provider_type']:
+            try:
+                provider_key = f"{result['provider']}_{result['provider_type']}"
+                provider = model_adapter.providers.get(provider_key)
+                if provider and hasattr(provider, 'supports_prompt_caching'):
+                    prompt_cache_enabled = bool(provider.supports_prompt_caching)
+            except Exception:
+                pass
+        if prompt_cache_enabled is not None:
+            result['prompt_cache_enabled'] = prompt_cache_enabled
 
         result['timeout'] = self.timeout or getattr(default_llm, 'timeout', 30)
         result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 10)

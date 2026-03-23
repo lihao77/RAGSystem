@@ -64,7 +64,7 @@ class TokenCounter:
             self._use_tiktoken = False
             return None
 
-    def count_messages(self, messages: List[Dict[str, Any]]) -> int:
+    def count_messages(self, messages: List[Dict[str, Any]] | Dict[str, Any]) -> int:
         """
         计算消息列表的 token 数。
 
@@ -72,6 +72,9 @@ class TokenCounter:
         - 每条消息 +4 overhead（role + 格式符）
         - 最后 +2 reply priming
         """
+        if isinstance(messages, dict):
+            messages = [messages]
+
         enc = self._get_encoding()
 
         if enc is not None:
@@ -79,9 +82,9 @@ class TokenCounter:
                 total = 2  # reply priming
                 for msg in messages:
                     total += 4  # per-message overhead
-                    content = msg.get('content', '')
-                    if content:
-                        total += len(enc.encode(str(content)))
+                    content_text = self._extract_text(msg.get('content', ''))
+                    if content_text:
+                        total += len(enc.encode(content_text))
                     role = msg.get('role', '')
                     if role:
                         if role not in self._role_token_cache:
@@ -93,7 +96,10 @@ class TokenCounter:
                 self._use_tiktoken = False
 
         # 降级：启发式估算
-        return sum(self._heuristic(msg.get('content', '')) for msg in messages)
+        total = 0
+        for msg in messages:
+            total += self._heuristic(self._extract_text(msg.get('content', '')))
+        return total
 
     def count_text(self, text: str) -> int:
         """计算单段文本的 token 数，优先 tiktoken，失败降级"""
@@ -107,6 +113,41 @@ class TokenCounter:
                 self._use_tiktoken = False
 
         return self._heuristic(text)
+
+    def _extract_text(self, content: Any) -> str:
+        """从字符串或 content blocks 中提取可计数的纯文本。"""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                text = self._extract_block_text(block)
+                if text:
+                    parts.append(text)
+            return "\n".join(parts)
+        if isinstance(content, dict):
+            return self._extract_block_text(content)
+        return str(content)
+
+    def _extract_block_text(self, block: Any) -> str:
+        if isinstance(block, str):
+            return block
+        if not isinstance(block, dict):
+            return str(block)
+
+        if block.get('type') == 'text':
+            return str(block.get('text', ''))
+        if 'text' in block:
+            return str(block.get('text', ''))
+        if 'content' in block:
+            return self._extract_text(block.get('content'))
+        if 'input' in block:
+            return self._extract_text(block.get('input'))
+        if 'name' in block:
+            return str(block.get('name', ''))
+        return ''
 
     @staticmethod
     def _heuristic(text: str) -> int:

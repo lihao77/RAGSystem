@@ -3,6 +3,7 @@
 模型 Provider 集成适配层。
 """
 
+from .anthropic_provider import AnthropicProvider
 from .common import CancellableRequest, InterruptedError
 from .deepseek_provider import DeepSeekProvider
 from .factory import create_provider_from_config
@@ -16,6 +17,7 @@ __all__ = [
     'CancellableRequest',
     'OpenAICompatibleProvider',
     'OpenAIProvider',
+    'AnthropicProvider',
     'DeepSeekProvider',
     'OpenRouterProvider',
     'ModelScopeProvider',

@@ -14,6 +14,7 @@ from agents.context.config import ContextConfig
 from agents.context.observation_formatters import BaseObservationFormatter, FormatContext
 from agents.context.pipeline import ContextPipeline
 from agents.context.prompt_materializer import PromptMaterializer
+from agents.context.token_counter import TokenCounter
 from agents.core.context import AgentContext
 from agents.core.models import Message
 from agents.monitoring.observation_window import ObservationWindowCollector
@@ -325,3 +326,56 @@ def test_pipeline_falls_back_to_truncate_when_compression_summary_fails():
     fallback_msgs = [m for m in result if "LLM 摘要不可用" in (m.get("content") or "")]
     assert len(fallback_msgs) == 1
     assert fallback_msgs[0]["role"] == "assistant"
+
+
+def test_token_counter_supports_content_blocks():
+    counter = TokenCounter(model_name='claude-sonnet-4-5')
+
+    total = counter.count_messages([
+        {
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': 'hello'},
+                {'type': 'text', 'text': 'world'},
+            ],
+        }
+    ])
+
+    assert total > 0
+
+
+def test_pipeline_applies_anthropic_cache_policy_only_to_stable_prefix():
+    class _Provider:
+        supports_prompt_caching = True
+        prompt_cache_style = 'anthropic'
+        prompt_cache_min_tokens = 0
+
+    class _Adapter:
+        def get_provider(self, provider_name, provider_type=None):
+            del provider_name, provider_type
+            return _Provider()
+
+    pipeline = ContextPipeline(
+        config=ContextConfig(max_tokens=1000),
+        model_adapter=_Adapter(),
+        get_llm_config_fn=lambda task_type=None: {},
+    )
+    context = AgentContext(session_id='s1')
+    context.conversation_history.extend([
+        Message(role='assistant', content='[历史摘要]\nsummary', metadata={'compression': True}, seq=1),
+        Message(role='user', content='old user', metadata={}, seq=2),
+        Message(role='assistant', content='old answer', metadata={}, seq=3),
+    ])
+
+    messages = pipeline.prepare_messages(
+        system_prompt='system rules',
+        context=context,
+        current_session=[{'role': 'user', 'content': 'current question'}],
+        llm_config={'provider': 'anthropic', 'provider_type': 'anthropic'},
+    )
+
+    assert messages[0]['metadata']['prompt_cache']['style'] == 'anthropic'
+    assert messages[1]['metadata']['prompt_cache']['style'] == 'anthropic'
+    assert messages[2]['metadata']['prompt_cache']['style'] == 'anthropic'
+    assert 'prompt_cache' not in (messages[3].get('metadata') or {})
+    assert 'metadata' not in messages[-1] or 'prompt_cache' not in messages[-1].get('metadata', {})

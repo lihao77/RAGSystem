@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class AIProviderType(str, Enum):
     """AI Provider 类型枚举"""
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"
     MODELSCOPE = "modelscope"
@@ -91,6 +92,9 @@ class AIProvider(ABC):
         self.retry_delay = kwargs.get("retry_delay", 1.0)
         self.retry_backoff_factor = kwargs.get("retry_backoff_factor", 2.5)
         self.supports_function_calling = kwargs.get("supports_function_calling", False)
+        self.supports_prompt_caching = kwargs.get("supports_prompt_caching", False)
+        self.prompt_cache_style = kwargs.get("prompt_cache_style")
+        self.prompt_cache_min_tokens = kwargs.get("prompt_cache_min_tokens")
 
     def _resolve_retry_settings(self, kwargs: Dict[str, Any]) -> tuple[int, float, float]:
         """允许调用方临时覆盖重试参数，未指定时回退到 Provider 配置。"""
@@ -197,7 +201,7 @@ class AIProvider(ABC):
     @abstractmethod
     def _do_chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -217,7 +221,7 @@ class AIProvider(ABC):
 
     def chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -352,7 +356,7 @@ class AIProvider(ABC):
 
     def _do_chat_completion_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -382,7 +386,7 @@ class AIProvider(ABC):
 
     def chat_completion_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,

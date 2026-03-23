@@ -6,6 +6,7 @@ AI Provider 兼容导出层。
 """
 
 from integrations.model_providers import (
+    AnthropicProvider,
     CancellableRequest,
     DeepSeekProvider,
     InterruptedError,
@@ -19,6 +20,7 @@ __all__ = [
     'InterruptedError',
     'CancellableRequest',
     'OpenAIProvider',
+    'AnthropicProvider',
     'DeepSeekProvider',
     'OpenRouterProvider',
     'ModelScopeProvider',

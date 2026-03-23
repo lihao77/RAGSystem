@@ -32,6 +32,9 @@ class OpenAIProvider(OpenAICompatibleProvider):
             **kwargs,
         )
         self.supports_function_calling = kwargs.get('supports_function_calling', True)
+        self.supports_prompt_caching = kwargs.get('supports_prompt_caching', True)
+        self.prompt_cache_style = kwargs.get('prompt_cache_style', 'openai')
+        self.prompt_cache_min_tokens = kwargs.get('prompt_cache_min_tokens', 1024)
         self.headers = {
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
@@ -180,6 +183,18 @@ class OpenAIProvider(OpenAICompatibleProvider):
             })
         return normalized or None
 
+    def _extract_usage(self, usage_data: Any) -> Dict[str, int]:
+        usage = {
+            'prompt_tokens': getattr(usage_data, 'prompt_tokens', 0) or 0,
+            'completion_tokens': getattr(usage_data, 'completion_tokens', 0) or 0,
+            'total_tokens': getattr(usage_data, 'total_tokens', 0) or 0,
+        }
+        prompt_details = getattr(usage_data, 'prompt_tokens_details', None)
+        cached_tokens = getattr(prompt_details, 'cached_tokens', 0) if prompt_details is not None else 0
+        if cached_tokens:
+            usage['cached_tokens'] = cached_tokens
+        return usage
+
     def _do_chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -209,11 +224,7 @@ class OpenAIProvider(OpenAICompatibleProvider):
             choice = response.choices[0]
             message = choice.message
             usage_data = getattr(response, 'usage', None)
-            usage = {
-                'prompt_tokens': getattr(usage_data, 'prompt_tokens', 0) or 0,
-                'completion_tokens': getattr(usage_data, 'completion_tokens', 0) or 0,
-                'total_tokens': getattr(usage_data, 'total_tokens', 0) or 0,
-            }
+            usage = self._extract_usage(usage_data)
             selected_model = getattr(response, 'model', None) or request_kwargs['model']
             latency = self._after_request(start_time)
             cost = self.calculate_cost(usage['prompt_tokens'], usage['completion_tokens'], selected_model)

@@ -59,6 +59,7 @@ class ContextPipeline:
         context,
         current_session: List[Dict[str, Any]],
         publisher=None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         每轮调用一次，返回完整消息列表给 LLM。
@@ -99,7 +100,8 @@ class ContextPipeline:
             )
 
         system_msg = {"role": "system", "content": system_prompt}
-        return [system_msg] + history_resolved + current_session
+        prepared = [system_msg] + history_resolved + current_session
+        return self._apply_prompt_cache_policy(prepared, llm_config or {})
 
     def inspect_messages(
         self,
@@ -151,6 +153,82 @@ class ContextPipeline:
                 }
             )
         return result
+
+    def _apply_prompt_cache_policy(
+        self,
+        messages: List[Dict[str, Any]],
+        llm_config: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        provider = self._resolve_provider(llm_config)
+        if not provider:
+            return messages
+
+        prompt_cache_enabled = llm_config.get('prompt_cache_enabled')
+        if prompt_cache_enabled is False:
+            return messages
+        if not getattr(provider, 'supports_prompt_caching', False):
+            return messages
+
+        cache_style = getattr(provider, 'prompt_cache_style', None)
+        if cache_style == 'anthropic':
+            return self._annotate_anthropic_cache_prefix(messages, provider)
+        return messages
+
+    def _resolve_provider(self, llm_config: Dict[str, Any]):
+        provider_name = llm_config.get('provider')
+        provider_type = llm_config.get('provider_type')
+        if not provider_name or not self.model_adapter:
+            return None
+        try:
+            return self.model_adapter.get_provider(provider_name, provider_type)
+        except Exception:
+            return None
+
+    def _annotate_anthropic_cache_prefix(self, messages: List[Dict[str, Any]], provider) -> List[Dict[str, Any]]:
+        candidates: List[int] = []
+        min_tokens = getattr(provider, 'prompt_cache_min_tokens', None) or 0
+
+        for idx, message in enumerate(messages):
+            role = message.get('role')
+            if role == 'system':
+                candidates.append(idx)
+                continue
+
+            metadata = message.get('metadata') or {}
+            if metadata.get('compression'):
+                candidates.append(idx)
+                continue
+
+            if role == 'user' and message.get('seq') is not None and self._is_stable_historical_user_message(messages, idx):
+                if self._token_counter.count_messages(message) >= min_tokens:
+                    candidates.append(idx)
+
+        if not candidates:
+            return messages
+
+        annotated = [dict(message) for message in messages]
+        for idx in candidates[:4]:
+            metadata = dict(annotated[idx].get('metadata') or {})
+            metadata['prompt_cache'] = {
+                'enabled': True,
+                'style': 'anthropic',
+                'segment': 'stable_prefix',
+            }
+            annotated[idx]['metadata'] = metadata
+        return annotated
+
+    @staticmethod
+    def _is_stable_historical_user_message(messages: List[Dict[str, Any]], idx: int) -> bool:
+        if idx >= len(messages) - 1:
+            return False
+        next_message = messages[idx + 1]
+        if next_message.get('role') != 'assistant':
+            return False
+        current_metadata = messages[idx].get('metadata') or {}
+        if current_metadata.get('compression'):
+            return False
+        next_metadata = next_message.get('metadata') or {}
+        return next_message.get('seq') is not None or next_metadata.get('compression')
 
     def _compress(
         self,

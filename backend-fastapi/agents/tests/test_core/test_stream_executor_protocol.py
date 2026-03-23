@@ -46,6 +46,27 @@ def test_stream_executor_supports_final_answer_tag():
     assert result.answer == "完成"
 
 
+def test_stream_executor_ignores_usage_metadata_chunks():
+    executor = StreamExecutor(
+        model_adapter=_FakeModelAdapter(["<final_answer>完成</final_answer>"]),
+        publisher=_FakePublisher(),
+    )
+    executor.model_adapter = type('UsageAwareAdapter', (), {
+        'chat_completion_stream': staticmethod(lambda **kwargs: iter([
+            {'content': '<final_answer>完', 'usage': {'cached_tokens': 10}},
+            {'content': '成</final_answer>', 'finish_reason': 'stop', 'usage': {'cached_tokens': 10}},
+        ]))
+    })()
+
+    result = executor.execute_llm_stream(
+        messages=[{"role": "user", "content": "test"}],
+        llm_config={},
+        round_num=1,
+    )
+
+    assert result.answer == "完成"
+
+
 def test_stream_executor_keeps_legacy_answer_tag_compatible():
     executor = StreamExecutor(
         model_adapter=_FakeModelAdapter(["<answer>兼容</answer>"]),

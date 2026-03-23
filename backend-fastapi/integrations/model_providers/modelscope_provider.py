@@ -13,6 +13,8 @@ class ModelScopeProvider(OpenAIProvider):
 
     def __init__(self, api_key: str, model: str = 'Qwen/Qwen3-Embedding-8B', name: str = 'ModelScope', **kwargs):
         api_endpoint = kwargs.pop('api_endpoint', 'https://api-inference.modelscope.cn/v1')
+        kwargs.setdefault('supports_prompt_caching', False)
+        kwargs.setdefault('prompt_cache_style', None)
         super().__init__(
             api_key=api_key,
             model=model,

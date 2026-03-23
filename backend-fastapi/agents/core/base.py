@@ -1397,6 +1397,7 @@ risk = call_tool('assess_flood_risk', {{
                     context=context,
                     current_session=current_session,
                     publisher=publisher,
+                    llm_config=llm_config,
                 )
                 self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
                 self._publish_context_usage(managed_messages, rounds, publisher)

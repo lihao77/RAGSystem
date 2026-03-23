@@ -16,6 +16,7 @@ python-dotenv>=1.0.0
 # 以下依赖需要与 backend/requirements.txt 保持一致
 requests>=2.32.0
 openai>=1.40.0
+anthropic>=0.39.0
 tiktoken>=0.12.0
 numpy>=1.26.0
 json-repair>=0.54.0

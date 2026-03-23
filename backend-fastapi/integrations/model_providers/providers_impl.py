@@ -4,6 +4,7 @@ AI Provider 兼容聚合层。
 实际厂商实现已拆分到独立模块，本文件保留旧导入入口。
 """
 
+from .anthropic_provider import AnthropicProvider
 from .common import CancellableRequest, InterruptedError
 from .deepseek_provider import DeepSeekProvider
 from .modelscope_provider import ModelScopeProvider
@@ -16,6 +17,7 @@ __all__ = [
     'CancellableRequest',
     'OpenAICompatibleProvider',
     'OpenAIProvider',
+    'AnthropicProvider',
     'DeepSeekProvider',
     'OpenRouterProvider',
     'ModelScopeProvider',

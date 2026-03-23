@@ -212,6 +212,7 @@ class _FakeChatCompletions:
                 prompt_tokens=11,
                 completion_tokens=7,
                 total_tokens=18,
+                prompt_tokens_details=SimpleNamespace(cached_tokens=5),
             ),
         )
 
@@ -268,6 +269,7 @@ def test_openai_provider_uses_sdk_for_chat_and_preserves_extra_body(monkeypatch)
 
     assert response.error is None
     assert response.content == 'ok'
+    assert response.usage['cached_tokens'] == 5
     assert response.tool_calls[0]['function']['name'] == 'demo_tool'
 
     call = fake_client.chat.completions.calls[0]

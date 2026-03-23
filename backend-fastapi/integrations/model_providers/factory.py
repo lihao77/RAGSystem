@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from .providers_impl import (
+    AnthropicProvider,
     DeepSeekProvider,
     ModelScopeProvider,
     OpenAIProvider,
@@ -18,6 +19,7 @@ from .providers_impl import (
 
 _DEFAULT_ENDPOINTS = {
     'openai': 'https://api.openai.com/v1',
+    'anthropic': 'https://api.anthropic.com',
     'deepseek': 'https://api.deepseek.com/v1',
     'openrouter': 'https://openrouter.ai/api/v1',
     'modelscope': 'https://api-inference.modelscope.cn/v1',
@@ -42,6 +44,7 @@ _PROVIDER_CONFIG_FIELDS = {
             ],
         },
     ],
+    'anthropic': [],
     'deepseek': [],
     'openrouter': [],
     'modelscope': [],
@@ -49,6 +52,7 @@ _PROVIDER_CONFIG_FIELDS = {
 
 _PROVIDER_CLASSES = {
     'openai': OpenAIProvider,
+    'anthropic': AnthropicProvider,
     'deepseek': DeepSeekProvider,
     'openrouter': OpenRouterProvider,
     'modelscope': ModelScopeProvider,
