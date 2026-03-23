@@ -12,6 +12,79 @@ from tools.permissions import RiskLevel
 logger = logging.getLogger(__name__)
 
 
+def _handle_artifact(artifact_block, session_id):
+    """
+    处理脚本输出中的 artifact 字段，自动完成可视化持久化。
+
+    支持两种 action：
+    - create（默认）：创建新 artifact
+    - revise：修改已有 artifact
+
+    返回 (artifact_info_dict, error_string_or_None)。
+    """
+    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+
+    if not isinstance(artifact_block, dict):
+        return None, "artifact 字段必须是对象"
+
+    action = artifact_block.get("action", "create")
+    manager = get_visualization_artifact_manager()
+
+    if action == "revise":
+        artifact_id = artifact_block.get("artifact_id")
+        config_patch = artifact_block.get("config", {})
+        replace = artifact_block.get("replace", False)
+        if not artifact_id:
+            return None, "revise 操作需要 artifact_id"
+        try:
+            record = manager.revise(artifact_id, config_patch, replace=replace)
+            return {
+                "artifact_id": record.artifact_id,
+                "viz_type": record.viz_type,
+                "title": record.title,
+                "version": record.version,
+            }, None
+        except Exception as e:
+            return None, f"revise artifact 失败: {e}"
+
+    # create
+    viz_type = artifact_block.get("viz_type")
+    sub_type = artifact_block.get("sub_type", "")
+    title = artifact_block.get("title", "")
+    config = artifact_block.get("config")
+
+    if not viz_type or not config:
+        return None, "artifact 需要 viz_type 和 config 字段"
+
+    try:
+        if viz_type == "chart":
+            record = manager.create_chart(
+                session_id=session_id,
+                chart_config=config,
+                chart_type=sub_type or "bar",
+                title=title,
+            )
+        elif viz_type == "map":
+            record = manager.create_map(
+                session_id=session_id,
+                map_data=config,
+                map_type=sub_type or "marker",
+                title=title,
+            )
+        else:
+            return None, f"不支持的 viz_type: {viz_type}"
+
+        return {
+            "artifact_id": record.artifact_id,
+            "viz_type": viz_type,
+            "sub_type": sub_type,
+            "title": title,
+            "version": 1,
+        }, None
+    except Exception as e:
+        return None, f"创建 artifact 失败: {e}"
+
+
 def _parse_json_stdout(stdout):
     text = (stdout or "").strip()
     if not text:
@@ -369,21 +442,18 @@ def load_skill_resource(skill_name, resource_file):
         },
     ],
 )
-def execute_skill_script(skill_name, script_name, arguments=None):
+def execute_skill_script(skill_name, script_name, arguments=None, session_id=None):
     """
     执行 Skill 的实用脚本（Utility Scripts）
 
-    零上下文执行：脚本内容不加载到上下文，只返回执行结果
-
-    ✨ 新特性：支持依赖隔离
-    - 每个 Skill 可以有独立的虚拟环境
-    - 自动安装 requirements.txt 中的依赖
-    - 避免污染后端系统环境
+    零上下文执行：脚本内容不加载到上下文，只返回执行结果。
+    支持 artifact 协议：脚本输出含 artifact 字段时自动持久化可视化配置。
 
     Args:
         skill_name: Skill 名称
         script_name: 脚本文件名
         arguments: 传递给脚本的命令行参数列表
+        session_id: 会话 ID（dispatcher 自动注入）
 
     Returns:
         脚本执行结果（stdout, stderr, return_code）
@@ -430,6 +500,11 @@ def execute_skill_script(skill_name, script_name, arguments=None):
             parsed_stdout = _parse_json_stdout(stdout)
 
         if parsed_stdout is not None:
+            # 检测 artifact 协议：脚本输出含 artifact 字段时自动持久化
+            raw_artifact = None
+            if isinstance(parsed_stdout, dict) and "artifact" in parsed_stdout:
+                raw_artifact = parsed_stdout.pop("artifact")
+
             parsed_stdout, payload_error, payload_meta = _unwrap_script_response(parsed_stdout)
             if payload_error:
                 return error_result(payload_error, tool_name="execute_skill_script")
@@ -440,12 +515,36 @@ def execute_skill_script(skill_name, script_name, arguments=None):
             if stderr.strip():
                 meta["stderr"] = stderr
 
+            # artifact 协议桥接
+            llm_hint = None
+            output_type = "json"
+            if raw_artifact is not None:
+                artifact_info, artifact_err = _handle_artifact(raw_artifact, session_id)
+                if artifact_err:
+                    logger.warning(f"artifact 持久化失败: {artifact_err}")
+                    meta["artifact_error"] = artifact_err
+                elif artifact_info:
+                    # 将 artifact_id 注入到返回内容中
+                    if isinstance(parsed_stdout, dict):
+                        parsed_stdout["artifact_id"] = artifact_info["artifact_id"]
+                        parsed_stdout["viz_type"] = artifact_info["viz_type"]
+                    else:
+                        parsed_stdout = {
+                            "data": parsed_stdout,
+                            "artifact_id": artifact_info["artifact_id"],
+                            "viz_type": artifact_info["viz_type"],
+                        }
+                    meta["artifact_id"] = artifact_info["artifact_id"]
+                    output_type = artifact_info["viz_type"]
+                    llm_hint = f"在 <final_answer> 中插入 [viz:{artifact_info['artifact_id']}] 来展示此可视化"
+
             return success_result(
                 content=parsed_stdout,
                 summary=f"脚本 {script_name} 执行完成（返回结构化 JSON）",
                 metadata=meta,
-                output_type="json",
+                output_type=output_type,
                 tool_name="execute_skill_script",
+                llm_hint=llm_hint,
             )
 
         return success_result(
