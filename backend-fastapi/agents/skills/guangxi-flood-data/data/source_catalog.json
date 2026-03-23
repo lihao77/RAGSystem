@@ -1,0 +1,23 @@
+[
+  {
+    "key": "portal",
+    "name": "广西实时水情入口页",
+    "source_kind": "portal",
+    "url": "http://swzx.gxzf.gov.cn/swfw/sqfw/sssq/",
+    "description": "广西水情服务入口页，优先提取页面链接和嵌入来源。"
+  },
+  {
+    "key": "river",
+    "name": "广西江河实时水情",
+    "source_kind": "river",
+    "url": "http://124.227.12.36:8259/sssq/hdsq/ShowRiverData.aspx",
+    "description": "江河水位页面，重点提取站名、河流名、水位、警戒水位和时间。"
+  },
+  {
+    "key": "reservoir",
+    "name": "广西水库实时水情",
+    "source_kind": "reservoir",
+    "url": "http://124.227.12.36:8259/sssq/hdsq/ShowRsvrData.aspx",
+    "description": "水库水位页面，重点提取水库名、水位、警戒或汛限水位和时间。"
+  }
+]

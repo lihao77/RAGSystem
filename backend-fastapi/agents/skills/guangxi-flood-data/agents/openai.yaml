@@ -1,0 +1,4 @@
+interface:
+  display_name: "广西洪涝实时数据"
+  short_description: "抓取广西天气与水情网页，输出结构化实时洪涝监测数据"
+  default_prompt: "抓取广西天气和水情网页数据，解析后返回可用于风险评估的结构化结果。"

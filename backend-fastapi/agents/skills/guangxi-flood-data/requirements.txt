@@ -1,0 +1,2 @@
+# guangxi-flood-data Skill 依赖
+# 全部使用 Python 标准库，无需安装额外依赖
