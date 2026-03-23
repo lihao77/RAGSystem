@@ -392,6 +392,27 @@ def _allocate_output_root(
     if session_id:
         return get_session_transient_root(session_id)
     return _anonymous_session_root() / "transient"
+def _ensure_managed_directory_root(
+    *,
+    raw_directory: str,
+    explicit_space: str | None,
+    default_space: str,
+    session_id: str | None,
+    run_id: str | None,
+    workspace_root: str | Path | None,
+) -> None:
+    if raw_directory not in {"", "."}:
+        return
+
+    target_space = explicit_space or default_space
+    root = _managed_space_root(
+        space=target_space,
+        session_id=session_id,
+        run_id=run_id,
+        workspace_root=workspace_root,
+    )
+    root.mkdir(parents=True, exist_ok=True)
+
 
 
 def resolve_managed_directory(
@@ -424,6 +445,14 @@ def resolve_managed_directory(
         raise ValueError("default_space 不能为空")
 
     raw_directory = str(directory).strip() if directory is not None else ""
+    _ensure_managed_directory_root(
+        raw_directory=raw_directory,
+        explicit_space=normalized_explicit_space,
+        default_space=normalized_default_space,
+        session_id=normalized_session_id,
+        run_id=normalized_run_id,
+        workspace_root=workspace_root,
+    )
     if not raw_directory:
         return _managed_space_root(
             space=normalized_explicit_space or normalized_default_space,

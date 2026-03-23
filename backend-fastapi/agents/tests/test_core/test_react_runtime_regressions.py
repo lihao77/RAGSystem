@@ -160,6 +160,41 @@ class _PlaceholderAwareAgent(BaseAgent):
         return str(result.content)
 
 
+def test_base_handle_actions_passes_run_id_to_execute_tool(monkeypatch):
+    from tools import tool_executor
+
+    captured_kwargs = []
+
+    def fake_execute_tool(tool_name, arguments, **kwargs):
+        del tool_name, arguments
+        captured_kwargs.append(kwargs)
+        return success_result(
+            content="ok",
+            summary="ok",
+            output_type="text",
+            tool_name="write_file",
+        )
+
+    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
+
+    agent = _PlaceholderAwareAgent()
+    context = AgentContext(session_id="session-1")
+    context.metadata["run_id"] = "run-direct-1"
+    state = {
+        "event_bus": None,
+        "tool_calls_history": [],
+        "current_session": [],
+    }
+    actions = [
+        {"tool": "write_file", "arguments": {"content": "demo"}},
+    ]
+
+    agent._handle_actions(actions, context, state, rounds=1, log_prefix="[test]")
+
+    assert captured_kwargs[0]["session_id"] == "session-1"
+    assert captured_kwargs[0]["run_id"] == "run-direct-1"
+
+
 def test_base_handle_actions_resolves_same_round_tool_placeholders(monkeypatch):
     from tools import tool_executor
 

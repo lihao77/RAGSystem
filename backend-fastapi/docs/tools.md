@@ -107,7 +107,7 @@ def my_tool(arguments, **kwargs):
 > 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 的专属操作说明；入口 orchestrator 的 YAML `system_prompt` 只保留业务路由信息，避免重复覆盖通用协议规则。
 
 ```
-execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, cancel_event)
+execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event)
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
   │   └─ 如果 requires_approval → 发布事件等待用户确认
@@ -142,6 +142,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - XML 解析层会将其分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
 - dispatcher 在路径预处理消费完 `file_path_space` / `working_dir_space` 这类中间字段后，不再继续透传给底层 tool 实现
 - `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → `./data/sessions/<session_id>/transient/`，`exports` → `./data/sessions/<session_id>/exports/<run_id>/`（缺 `run_id` 报错）
+- direct 文档工具链中的 `run_id` 会像 `session_id` 一样由 `BaseAgent._handle_actions()` / `route_direct_tool()` 显式透传到 `execute_tool()` → `_execute_document_tool()`；若调用方未显式提供，dispatcher 仍会 fallback 到 `get_current_execution_observability_fields().run_id`
 - 绝对路径不会被 `space` 改写，仍只做受管边界校验
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析
 - `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到 `./data/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `./data/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `./data/sessions/<session_id>/transient/`
@@ -152,6 +153,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - tool 实现层（document_executor）只接受预处理后的绝对路径，不再自行做路径策略判断
 - `read_file` / `edit_file` / `write_file` 底层不再重复调用 `resolve_managed_path(...)`；`write_file` 的空路径分配由 dispatcher 统一负责
 - `content.file_path` 为内部绝对路径（供链式调用），`content.display_path` 为可读展示路径（供用户展示）
+- 链式调用占位符统一使用单花括号：`{result_N}`、`{result_N.content.file_path}`；不要写成双花括号 `{{result_N}}`
 
 ## 核心数据模型
 
@@ -365,6 +367,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - `space` 仅影响相对 `working_dir` 的解析根
 - 绝对 `working_dir` 不受 `space` 改写，仍只做受管边界校验
 - `working_dir_space=exports` 需要当前运行上下文提供 `run_id`
+- 若使用默认受管目录根（`working_dir` 省略、为空或为 `.`），共享路径层会在需要时自动补建对应的 `workspace/transient/exports` 根目录，避免新会话首次执行时直接报“工作目录不存在”
 - 若未提供 `session_id` 且没有可用 `workspace_root`，默认 workspace 解析会返回清晰错误
 - 支持管道，支持 `2>/dev/null` 和 `2>&1` 屏蔽 stderr，禁止 `>` `>>` 写重定向
 - 管道解析会忽略引号内或被转义的 `|`（如 `grep` 正则中的 `\|`）

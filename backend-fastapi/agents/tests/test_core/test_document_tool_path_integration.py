@@ -96,6 +96,69 @@ def test_execute_document_tool_write_file_allocates_output_once_when_path_missin
         output_path.unlink(missing_ok=True)
 
 
+def test_execute_document_tool_write_file_uses_explicit_run_id_without_observability(monkeypatch):
+    session_id = "session-write-explicit"
+    run_id = "run-write-explicit"
+    expected_root = get_export_run_root(session_id, run_id)
+
+    calls = _track_resolve_calls(monkeypatch)
+    monkeypatch.setattr(
+        "tools.tool_executor_modules.dispatcher.get_current_execution_observability_fields",
+        lambda: {},
+    )
+    agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})
+
+    result = _execute_document_tool(
+        "write_file",
+        {"content": "hello explicit"},
+        caller="direct",
+        session_id=session_id,
+        run_id=run_id,
+        agent_config=agent_config,
+    )
+
+    assert result.success is True
+    output_path = Path(result.content["file_path"])
+    try:
+        assert output_path.parent == expected_root
+        assert output_path.read_text(encoding="utf-8") == "hello explicit"
+        assert len(calls) == 1
+        assert calls[0]["run_id"] == run_id
+    finally:
+        output_path.unlink(missing_ok=True)
+
+
+def test_execute_document_tool_write_file_prefers_explicit_run_id_over_observability(monkeypatch):
+    session_id = "session-write-prefer-explicit"
+    explicit_run_id = "run-explicit"
+    observed_run_id = "run-observed"
+    expected_root = get_export_run_root(session_id, explicit_run_id)
+
+    calls = _track_resolve_calls(monkeypatch)
+    _set_run_id(monkeypatch, observed_run_id)
+    agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})
+
+    result = _execute_document_tool(
+        "write_file",
+        {"content": "hello preferred"},
+        caller="direct",
+        session_id=session_id,
+        run_id=explicit_run_id,
+        agent_config=agent_config,
+    )
+
+    assert result.success is True
+    output_path = Path(result.content["file_path"])
+    try:
+        assert output_path.parent == expected_root
+        assert output_path.read_text(encoding="utf-8") == "hello preferred"
+        assert len(calls) == 1
+        assert calls[0]["run_id"] == explicit_run_id
+    finally:
+        output_path.unlink(missing_ok=True)
+
+
+
 def test_execute_document_tool_read_file_resolves_path_once_and_keeps_large_file_approval(monkeypatch, tmp_path):
     session_id = "session-read"
     run_id = "run-read"

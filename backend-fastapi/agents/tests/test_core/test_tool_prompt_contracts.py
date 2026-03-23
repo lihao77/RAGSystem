@@ -266,6 +266,29 @@ def test_base_prompt_omits_execute_code_capability_section_without_execute_code_
     assert "## execute_code 中可调用的工具" not in prompt
 
 
+def test_base_prompt_uses_single_brace_result_placeholder_syntax():
+    fake_agent = _fake_agent()
+
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+
+    assert "链式调用用 {result_N} 引用同轮第 N 个工具结果" in prompt
+    assert "{{result_N}}" not in prompt
+
+
+def test_orchestrator_prompt_examples_use_single_brace_result_placeholders():
+    orchestrator_agent = _fake_agent(
+        _get_available_agent_tools=lambda: [
+            {"function": {"name": "invoke_agent_chart_agent", "description": "调用图表智能体"}}
+        ],
+        _build_agent_specific_prompt_sections=lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent),
+    )
+
+    prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
+
+    assert "数据：{result_1}" in prompt
+    assert "数据：{{result_1}}" not in prompt
+
+
 def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_extensions():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     execute_code_tool = _decorated_tool("execute_code")

@@ -436,7 +436,7 @@ class BaseAgent(ABC):
 
 1. 只能使用上面列出的工具
 2. 互相独立的工具调用放同一 `<tools>` 中并行
-3. 链式调用用 {{result_N}} 引用同轮第 N 个工具结果
+3. 链式调用用 {result_N} 引用同轮第 N 个工具结果
 4. 报错后下一轮应调整参数、换工具或缩小任务，不要机械重试
 5. 数据文件与工具返回路径按“数据文件传递规则”处理，优先传路径而不是内容
 6. 不要编造工具结果或 artifact_id；必须使用工具返回的真实数据"""
@@ -1146,6 +1146,7 @@ risk = call_tool('assess_flood_risk', {{
                 agent_config=self.agent_config,
                 event_bus=event_bus,
                 session_id=current_session_id,
+                run_id=context.metadata.get('run_id') if hasattr(context, 'metadata') else None,
                 cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
             )
             elapsed_time = time.time() - tool_started_at

@@ -15,6 +15,8 @@ from execution.observability import (
     execution_observability_scope,
 )
 from tools.tool_executor_modules.bash_tool import (
+    VALIDATION_ALLOWED,
+    VALIDATION_APPROVAL_REQUIRED,
     _resolve_work_dir,
     _split_shell_pipeline,
     _validate_command,
@@ -37,17 +39,19 @@ def test_split_shell_pipeline_preserves_regex_pipe_inside_double_quotes():
 def test_validate_command_allows_escaped_regex_pipe_in_grep_pattern():
     command = 'find . -name "*.json" | grep -i "nanning\\|南宁\\|boundary\\|admin" | head -20'
 
-    valid, err = _validate_command(command)
+    status, err, approval_commands = _validate_command(command)
 
-    assert valid is True
+    assert status == VALIDATION_ALLOWED
     assert err == ""
+    assert approval_commands == []
 
 
-def test_validate_command_still_rejects_non_whitelisted_pipeline_command():
-    valid, err = _validate_command('find . -name "*.json" | python -V')
+def test_validate_command_still_marks_non_whitelisted_pipeline_command_for_approval():
+    status, err, approval_commands = _validate_command('find . -name "*.json" | python -V')
 
-    assert valid is False
-    assert "禁止执行危险命令: python" in err
+    assert status == VALIDATION_APPROVAL_REQUIRED
+    assert "需要用户审批" in err
+    assert approval_commands == ["python"]
 
 
 def test_resolve_work_dir_defaults_to_workspace_root():
@@ -281,6 +285,26 @@ def test_execute_bash_without_workspace_context_returns_clear_error():
 
     assert result.success is False
     assert "缺少可用 workspace 上下文" in result.summary
+
+
+def test_execute_bash_workspace_space_creates_default_session_workspace_when_missing():
+    session_id = "session-bash-auto-workspace"
+    session_root = ROOT_DIR / "data" / "sessions" / session_id
+    workspace_root = session_root / "workspace"
+    shutil.rmtree(session_root, ignore_errors=True)
+
+    try:
+        result = execute_bash(
+            command="pwd",
+            working_dir=".",
+            working_dir_space="workspace",
+            session_id=session_id,
+        )
+        assert result.success is True
+        assert workspace_root.exists()
+        assert Path(result.metadata["working_dir"]).resolve() == workspace_root.resolve()
+    finally:
+        shutil.rmtree(session_root, ignore_errors=True)
 
 
 def test_execute_bash_absolute_working_dir_out_of_bounds_is_rejected():

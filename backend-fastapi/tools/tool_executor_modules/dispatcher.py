@@ -193,7 +193,7 @@ def _preprocess_document_tool_args(
     return args
 
 
-def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None, agent_config=None):
+def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=None, session_id=None, run_id=None, agent_config=None):
     # 从 agent_config 提取路径策略参数
     _workspace_root = None
     _default_output_space = None
@@ -202,9 +202,9 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
         _workspace_root = cp.get('workspace_root')
         _default_output_space = cp.get('default_output_space')
 
-    # 从可观测上下文获取 run_id
+    # run_id 优先使用显式透传，observability 作为 fallback
     current_fields = get_current_execution_observability_fields()
-    _run_id = current_fields.get('run_id')
+    _run_id = run_id or current_fields.get('run_id')
 
     # 统一路径预处理
     arguments = _preprocess_document_tool_args(
@@ -361,7 +361,7 @@ DOCUMENT_TOOL_NAMES = {
 }
 
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None, cancel_event=None):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller='direct', session_id=None, run_id=None, cancel_event=None):
     """执行指定工具。"""
     try:
         allowed, approval_error_result, approval_message = _request_user_approval_if_needed(
@@ -387,6 +387,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             # 自动注入 dispatcher 级上下文参数
             _context = {
                 'session_id': session_id,
+                'run_id': run_id,
                 'agent_config': agent_config,
                 'event_bus': event_bus,
                 'user_role': user_role,
@@ -402,7 +403,15 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif tool_name in DOCUMENT_TOOL_NAMES:
             result = _run_with_timeout(
-                lambda: _execute_document_tool(tool_name, arguments, caller=caller, event_bus=event_bus, session_id=session_id, agent_config=agent_config),
+                lambda: _execute_document_tool(
+                    tool_name,
+                    arguments,
+                    caller=caller,
+                    event_bus=event_bus,
+                    session_id=session_id,
+                    run_id=run_id,
+                    agent_config=agent_config,
+                ),
                 timeout, tool_name,
             )
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):

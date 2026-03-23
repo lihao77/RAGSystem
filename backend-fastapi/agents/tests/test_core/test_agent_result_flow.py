@@ -8,6 +8,7 @@ from agents.implementations.orchestrator.executor import AgentExecutor
 from agents.implementations.orchestrator.prompting import format_agent_result_summary
 from agents.implementations.orchestrator.tool_router import (
     route_agent_delegation,
+    route_direct_tool,
     route_user_input_request,
 )
 from tools.response_builder import error_result, success_result
@@ -217,6 +218,53 @@ def test_route_agent_delegation_falls_back_to_native_error_when_executor_returns
     assert isinstance(routed["result"], ToolExecutionResult)
     assert routed["result"].success is False
     assert routed["result"].content == "Agent 未返回结果"
+
+
+def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
+    from tools import tool_executor
+
+    captured = {}
+
+    def fake_execute_tool(tool_name, arguments, **kwargs):
+        captured["tool_name"] = tool_name
+        captured["arguments"] = arguments
+        captured.update(kwargs)
+        return success_result(
+            content="ok",
+            summary="ok",
+            output_type="text",
+            tool_name=tool_name,
+        )
+
+    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
+
+    agent = SimpleNamespace(
+        logger=_FakeLogger(),
+        available_tools=[{"function": {"name": "write_file"}}],
+        agent_config=None,
+        _format_tool_observation=lambda result, **kwargs: "formatted",
+    )
+    context = AgentContext(session_id="session-1")
+    context.metadata["run_id"] = "run-route-1"
+
+    routed = route_direct_tool(
+        agent=agent,
+        action={"tool": "write_file", "arguments": {"content": "demo"}},
+        context=context,
+        event_bus=None,
+        publisher=None,
+        run_id="run-route-1",
+        rounds=1,
+        idx=1,
+        orchestrator_call_id="orchestrator-1",
+        log_prefix="[test]",
+    )
+
+    assert routed["result"].success is True
+    assert captured["tool_name"] == "write_file"
+    assert captured["arguments"] == {"content": "demo"}
+    assert captured["session_id"] == "session-1"
+    assert captured["run_id"] == "run-route-1"
 
 
 def test_route_user_input_request_returns_native_result():
