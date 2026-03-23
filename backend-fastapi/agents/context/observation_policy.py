@@ -139,8 +139,8 @@ class ObservationPolicy:
                 budget_bucket=self.budget_bucket,
             )
 
-        # 4.5 read_file / read_document 始终 inline（不落盘，大文件已有用户确认机制把关）
-        if result.tool_name in {"read_file", "read_document"}:
+        # 4.5 read_file 始终 inline（不落盘，大文件已有用户确认机制把关）
+        if result.tool_name == "read_file":
             reason = "user_approved_read" if result.metadata.get("user_approved_full_read") else "read_file_inline"
             return ObservationDecision(
                 mode="inline",

@@ -217,54 +217,6 @@ def _run_skill_sample(tool_name: str, temp_dir: Path) -> Any:
     raise KeyError(tool_name)
 
 
-def _sample_read_document(temp_dir: Path) -> Any:
-    workspace = temp_dir / "workspace"
-    workspace.mkdir(exist_ok=True)
-    path = workspace / "doc.txt"
-    path.write_text("document body", encoding="utf-8")
-    return _execute_document_tool(
-        "read_document",
-        {"file_path": str(path)},
-        caller="direct",
-        agent_config=type("Cfg", (), {"custom_params": {"workspace_root": str(workspace)}})(),
-    )
-
-
-def _sample_chunk_document(_: Path) -> Any:
-    return _execute_document_tool(
-        "chunk_document",
-        {"content": "abcdefghij", "chunk_size": 4, "chunk_overlap": 1},
-    )
-
-
-def _sample_extract_structured_data(_: Path) -> Any:
-    import model_adapter
-
-    class _FakeAdapter:
-        def chat_completion(self, messages, response_format=None):
-            del messages, response_format
-            return {"content": "{\"name\": \"Alice\", \"age\": 30}"}
-
-    with _patched_attr(model_adapter, "get_default_adapter", lambda: _FakeAdapter()):
-        return _execute_document_tool(
-            "extract_structured_data",
-            {
-                "text": "Alice is 30 years old.",
-                "schema": {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "number"}}},
-            },
-        )
-
-
-def _sample_merge_extracted_data(_: Path) -> Any:
-    return _execute_document_tool(
-        "merge_extracted_data",
-        {
-            "data_list": [[{"id": 1, "name": "Alice"}], [{"id": 2, "name": "Bob"}]],
-            "merge_strategy": "append",
-        },
-    )
-
-
 def _sample_write_file(temp_dir: Path) -> Any:
     workspace = temp_dir / "workspace"
     workspace.mkdir(exist_ok=True)
@@ -397,10 +349,6 @@ _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "load_skill_resource": lambda temp_dir: _run_skill_sample("load_skill_resource", temp_dir),
     "execute_skill_script": lambda temp_dir: _run_skill_sample("execute_skill_script", temp_dir),
     "get_skill_info": lambda temp_dir: _run_skill_sample("get_skill_info", temp_dir),
-    "read_document": _sample_read_document,
-    "chunk_document": _sample_chunk_document,
-    "extract_structured_data": _sample_extract_structured_data,
-    "merge_extracted_data": _sample_merge_extracted_data,
     "write_file": _sample_write_file,
     "read_file": _sample_read_file,
     "preview_data_structure": _sample_preview_data_structure,

@@ -26,7 +26,7 @@ def test_execute_code_call_tool_passes_session_id_for_approval(monkeypatch):
     monkeypatch.setattr("tools.tool_executor.execute_tool", _fake_execute_tool)
 
     result = execute_code_sandbox(
-        code="result = call_tool('chunk_document', {'content': 'a b c', 'chunk_size': 10, 'chunk_overlap': 0})",
+        code="result = call_tool('preview_data_structure', {'file_path': 'sample.json'})",
         description="approval session propagation",
         agent_config=None,
         event_bus=object(),
@@ -36,8 +36,8 @@ def test_execute_code_call_tool_passes_session_id_for_approval(monkeypatch):
 
     assert result.success is True
     assert captured == {
-        "tool_name": "chunk_document",
-        "arguments": {"content": "a b c", "chunk_size": 10, "chunk_overlap": 0},
+        "tool_name": "preview_data_structure",
+        "arguments": {"file_path": "sample.json"},
         "caller": "code_execution",
         "session_id": "session-approval-1",
         "cancel_event": False,
@@ -369,7 +369,7 @@ def test_execute_code_subprocess_call_tool_roundtrip(monkeypatch):
 
     monkeypatch.setattr('tools.tool_executor.execute_tool', _fake_execute_tool)
     result = execute_code_sandbox(
-        code="result = call_tool('chunk_document', {'content': 'abc', 'chunk_size': 10, 'chunk_overlap': 0})",
+        code="result = call_tool('preview_data_structure', {'file_path': 'sample.json'})",
         description='subprocess tool call',
         agent_config=None,
         event_bus=None,
@@ -379,7 +379,7 @@ def test_execute_code_subprocess_call_tool_roundtrip(monkeypatch):
 
     assert result.success is True
     assert result.content == {'items': [1, 2]}
-    assert captured['tool_name'] == 'chunk_document'
+    assert captured['tool_name'] == 'preview_data_structure'
     assert captured['caller'] == 'code_execution'
     assert captured['session_id'] == 'session-subprocess-call'
 

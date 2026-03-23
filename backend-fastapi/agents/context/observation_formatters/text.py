@@ -19,7 +19,7 @@ class TextDataFormatter(BaseObservationFormatter):
     """
     文本结果格式化器。
 
-    处理字符串类型的结果，如 read_document、read_file 等。
+    处理字符串类型的结果，如 read_file 或 Skill 文本文档结果等。
     """
 
     name = "text"

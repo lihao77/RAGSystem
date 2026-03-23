@@ -64,7 +64,7 @@ def test_tool_registry_exposes_default_tool_accessors():
     assert "read_file" not in registry.get_code_callable_tools()
     assert "execute_bash" not in registry.get_code_callable_tools()
     assert "execute_skill_script" not in registry.get_code_callable_tools()
-    assert "chunk_document" in registry.get_code_callable_tools()
+    assert "preview_data_structure" in registry.get_code_callable_tools()
     assert any(contract.name == "execute_skill_script" for contract in registry.get_static_contracts())
     assert not any(contract.name == "create_chart" for contract in registry.get_static_contracts())
 

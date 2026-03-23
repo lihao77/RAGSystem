@@ -104,7 +104,7 @@ def _request_user_approval_if_needed(tool_name, arguments, *, agent_config=None,
 
 # 需要路径预处理的文档工具（含 file_path 参数的工具）
 _PATH_AWARE_DOCUMENT_TOOLS = {
-    'read_document', 'read_file', 'edit_file', 'write_file', 'preview_data_structure',
+    'read_file', 'edit_file', 'write_file', 'preview_data_structure',
 }
 
 
@@ -217,18 +217,6 @@ def _execute_document_tool(tool_name, arguments, *, caller='direct', event_bus=N
         caller=caller,
     )
 
-    if tool_name == 'read_document':
-        from tools.document_executor import read_document
-        return read_document(**arguments)
-    if tool_name == 'chunk_document':
-        from tools.document_executor import chunk_document
-        return chunk_document(**arguments)
-    if tool_name == 'extract_structured_data':
-        from tools.document_executor import extract_structured_data
-        return extract_structured_data(**arguments)
-    if tool_name == 'merge_extracted_data':
-        from tools.document_executor import merge_extracted_data
-        return merge_extracted_data(**arguments)
     if tool_name == 'write_file':
         from tools.document_executor import write_file
         return write_file(**arguments)
@@ -350,10 +338,6 @@ def _merge_decorated_handlers() -> None:
 
 
 DOCUMENT_TOOL_NAMES = {
-    'read_document',
-    'chunk_document',
-    'extract_structured_data',
-    'merge_extracted_data',
     'write_file',
     'read_file',
     'preview_data_structure',

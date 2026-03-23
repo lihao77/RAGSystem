@@ -28,7 +28,7 @@ def test_medium_json_result_uses_artifact_bucket():
     )
     result = success_result(
         [{"value": "x" * 80}],
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
     )
 
@@ -48,7 +48,7 @@ def test_large_json_result_uses_artifact_ref():
     )
     result = success_result(
         [{"value": "x" * 200}],
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
     )
 

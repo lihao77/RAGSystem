@@ -228,10 +228,10 @@ def test_base_handle_actions_resolves_same_round_tool_placeholders(monkeypatch):
     }
     actions = [
         {"tool": "write_file", "arguments": {"content": '{"name":"demo"}'}},
-        {"tool": "read_document", "arguments": {"file_path": "{result_1.content.file_path}"}},
+        {"tool": "read_file", "arguments": {"file_path": "{result_1.content.file_path}"}},
     ]
 
     agent._handle_actions(actions, context, state, rounds=1, log_prefix="[test]")
 
-    assert captured_arguments[1][0] == "read_document"
+    assert captured_arguments[1][0] == "read_file"
     assert captured_arguments[1][1]["file_path"] == "E:/tmp/generated.json"

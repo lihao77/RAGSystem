@@ -9,8 +9,8 @@ from agents.streaming.xml_parser import StreamingXMLParser, TagType
 def test_xml_subtag_basic_parsing():
     """XML 子标签基本解析"""
     content = """
-<tool name="read_document">
-  <file_path>report.pdf</file_path>
+<tool name="read_file">
+  <file_path>report.txt</file_path>
   <encoding>utf-8</encoding>
 </tool>
 """
@@ -18,8 +18,8 @@ def test_xml_subtag_basic_parsing():
     assert error is None
     assert len(actions) == 1
     assert actions[0] == {
-        "tool": "read_document",
-        "arguments": {"file_path": "report.pdf", "encoding": "utf-8"},
+        "tool": "read_file",
+        "arguments": {"file_path": "report.txt", "encoding": "utf-8"},
     }
 
 
@@ -83,13 +83,13 @@ def test_xml_value_type_coercion():
 def test_json_fallback_still_works():
     """JSON fallback 仍正常工作"""
     content = """
-<tool name="read_document">{"file_path": "report.pdf", "encoding": "utf-8"}</tool>
+<tool name="read_file">{"file_path": "report.txt", "encoding": "utf-8"}</tool>
 """
     actions, error = parse_tools_xml(content)
     assert error is None
     assert actions[0] == {
-        "tool": "read_document",
-        "arguments": {"file_path": "report.pdf", "encoding": "utf-8"},
+        "tool": "read_file",
+        "arguments": {"file_path": "report.txt", "encoding": "utf-8"},
     }
 
 

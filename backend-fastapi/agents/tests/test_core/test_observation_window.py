@@ -16,14 +16,14 @@ def test_observation_window_collector_builds_report():
 
     try:
         collector.record_normalization(
-            tool_name="read_document",
+            tool_name="read_file",
             output_type="text",
-            branch="_normalize_document_result",
+            branch="direct_passthrough",
             success=True,
-            native=False,
+            native=True,
         )
         collector.record_materialization(
-            tool_name="read_document",
+            tool_name="read_file",
             output_type="text",
             estimated_size=120,
             threshold=8000,
@@ -54,7 +54,7 @@ def test_observation_window_collector_builds_report():
         report = collector.save_report()
 
         assert report["counts"]["normalized_results"] == 2
-        assert report["counts"]["native_results"] == 1
+        assert report["counts"]["native_results"] == 2
         assert report["output_type_distribution"]["text"] == 1
         assert report["output_type_distribution"]["json"] == 1
         assert report["threshold_stats"]["triggered"] == 1
@@ -65,7 +65,7 @@ def test_observation_window_collector_builds_report():
         assert report["trim_stats"]["trimmed_messages"] == 2
         assert report["spill_stats"]["count"] == 1
         tool_coverage = {item["tool_name"]: item for item in report["tool_coverage"]}
-        assert tool_coverage["read_document"]["native_results"] == 0
+        assert tool_coverage["read_file"]["native_results"] == 1
         assert tool_coverage["execute_code"]["native_results"] == 1
 
         persisted = json.loads(Path(storage_path).read_text(encoding="utf-8"))

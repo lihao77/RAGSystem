@@ -63,17 +63,17 @@ def test_observation_pipeline_uses_artifact_for_large_payload():
     result = success_result(
         [{"value": "x" * 9000}],
         summary="数据过大",
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
     )
 
     try:
-        normalized = normalizer.normalize(result, tool_name="chunk_document")
+        normalized = normalizer.normalize(result, tool_name="preview_data_structure")
         decision = policy.decide(normalized)
         observation = materializer.materialize_tool_observation(
             normalized,
             decision,
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
             session_id="session-1",
         )
 

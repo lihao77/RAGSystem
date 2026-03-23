@@ -2,8 +2,8 @@
 parse_tools_xml - 解析 <tools> 标签内容为 actions 列表。
 
 主格式（XML 子标签）:
-    <tool name="read_document">
-      <file_path>report.pdf</file_path>
+    <tool name="read_file">
+      <file_path>report.txt</file_path>
     </tool>
     <tool name="execute_code">
       <code><![CDATA[import os
@@ -12,11 +12,11 @@ print("<hello>")]]></code>
     </tool>
 
 兼容格式（JSON，自动 fallback）:
-    <tool name="read_document">{"file_path":"report.pdf"}</tool>
+    <tool name="read_file">{"file_path":"report.txt"}</tool>
 
 输出格式（与现有 JSON actions 完全一致）:
     [
-        {"tool": "read_document", "arguments": {"file_path": "report.pdf"}},
+        {"tool": "read_file", "arguments": {"file_path": "report.txt"}},
         {"tool": "execute_code", "arguments": {"code": "import os\nprint(\"<hello>\")", "description": "运行示例"}}
     ]
 """

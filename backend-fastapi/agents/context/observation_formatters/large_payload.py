@@ -25,7 +25,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
 
     name = "large_payload"
     priority = 30
-    _SOURCE_READ_TOOL_NAMES = {"read_file", "read_document"}
+    _SOURCE_READ_TOOL_NAMES = {"read_file"}
     _GEOJSON_TYPES = {"FeatureCollection", "Feature", "Point", "MultiPoint",
                       "LineString", "MultiLineString", "Polygon", "MultiPolygon",
                       "GeometryCollection"}

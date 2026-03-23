@@ -158,7 +158,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 ### 文档工具路径预处理
 
-文档工具（read_document, read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化；`execute_bash` 则在 `bash_tool.py` 内部独立完成工作目录解析：
+文档工具（read_file, edit_file, write_file, preview_data_structure）在进入 tool 实现前，由 `dispatcher._preprocess_document_tool_args()` 统一做路径归一化；`execute_bash` 则在 `bash_tool.py` 内部独立完成工作目录解析：
 
 ```
 占位符替换 → 路径预处理 / 工作目录解析 → tool 执行 → resource scope 推断/清理

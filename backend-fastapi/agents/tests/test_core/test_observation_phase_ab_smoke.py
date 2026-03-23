@@ -181,38 +181,38 @@ def test_phase_ab_smoke_document_tools_are_normalized_explicitly():
 
     read_result = normalizer.normalize(
         success_result(
-            content="doc body",
-            summary="文档读取成功: demo.txt（8 字符）",
+            content="line 1\nline 2",
+            summary="文件读取成功",
             output_type="text",
             metadata={
-                "file_type": "txt",
-                "char_count": 8,
                 "file_path": "demo.txt",
+                "start_line": 1,
+                "end_line": 2,
+                "has_more": False,
+                "next_offset": None,
             },
-            tool_name="read_document",
+            tool_name="read_file",
         ),
     )
-    chunk_result = normalizer.normalize(
+    preview_result = normalizer.normalize(
         success_result(
-            content=[{"chunk_id": 0, "content": "doc body"}],
-            summary="文档分块成功: 共 1 块（fixed）",
+            content={"file_type": "json", "structure": {"type": "object"}},
+            summary="结构预览成功",
             output_type="json",
             metadata={
-                "total_chunks": 1,
-                "strategy": "fixed",
-                "chunk_size": 2000,
-                "chunk_overlap": 200,
+                "file_type": "json",
+                "file_size": 18,
             },
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
         ),
     )
 
     assert read_result.output_type == "text"
-    assert read_result.content == "doc body"
+    assert read_result.content == "line 1\nline 2"
     assert read_result.metadata["file_path"] == "demo.txt"
-    assert chunk_result.output_type == "json"
-    assert chunk_result.content == [{"chunk_id": 0, "content": "doc body"}]
-    assert chunk_result.metadata["strategy"] == "fixed"
+    assert preview_result.output_type == "json"
+    assert preview_result.content == {"file_type": "json", "structure": {"type": "object"}}
+    assert preview_result.metadata["file_type"] == "json"
 
 
 def test_phase_ab_smoke_conversation_store_uses_artifact_store_cleanup():

@@ -31,35 +31,6 @@ class ToolPermission(BaseModel):
 # 已迁移到 @tool() 装饰器的工具权限在启动时通过 _merge_decorated_permissions() 注入。
 TOOL_PERMISSIONS: Dict[str, ToolPermission] = {
     # 文档处理工具
-    "read_document": ToolPermission(
-        tool_name="read_document",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="读取文档文件（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "chunk_document": ToolPermission(
-        tool_name="chunk_document",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="文档分块（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
-    "extract_structured_data": ToolPermission(
-        tool_name="extract_structured_data",
-        risk_level=RiskLevel.MEDIUM,
-        requires_approval=False,
-        description="从文本提取结构化数据",
-        allowed_callers=["direct", "code_execution"],
-        timeout_seconds=120,
-    ),
-    "merge_extracted_data": ToolPermission(
-        tool_name="merge_extracted_data",
-        risk_level=RiskLevel.LOW,
-        requires_approval=False,
-        description="合并提取结果（只读）",
-        allowed_callers=["direct", "code_execution"]
-    ),
     "write_file": ToolPermission(
         tool_name="write_file",
         risk_level=RiskLevel.HIGH,

@@ -40,7 +40,7 @@ def test_summarize_output_keeps_full_content():
     result = success_result(
         {"city": "Shanghai", "value": "x" * 100},
         answer="已找到统计结果",
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
     )
 
@@ -48,7 +48,7 @@ def test_summarize_output_keeps_full_content():
         observation = materializer.materialize_tool_observation(
             result,
             ObservationDecision(mode="summarize"),
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
         )
 
         assert observation.startswith("✅ 已找到统计结果")
@@ -65,7 +65,7 @@ def test_artifact_reference_output_persists_session_and_ttl():
     result = success_result(
         [{"value": "x" * 120}],
         summary="数据过大",
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
         metadata={"total_count": 1, "data_type": "List"},
     )
@@ -74,7 +74,7 @@ def test_artifact_reference_output_persists_session_and_ttl():
         observation = materializer.materialize_tool_observation(
             result,
             ObservationDecision(mode="artifact_ref", artifact_ttl_seconds=600),
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
             session_id="session-1",
         )
 
@@ -96,7 +96,7 @@ def test_artifact_reference_output_keeps_full_sample_preview():
     result = success_result(
         [{"value": "x" * 120}],
         summary="数据过大",
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
         metadata={"total_count": 1, "data_type": "List", "sample": sample},
     )
@@ -105,7 +105,7 @@ def test_artifact_reference_output_keeps_full_sample_preview():
         observation = materializer.materialize_tool_observation(
             result,
             ObservationDecision(mode="artifact_ref", artifact_ttl_seconds=600),
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
             session_id="session-1",
         )
 
@@ -157,7 +157,7 @@ def test_answer_and_data_detail_output():
     result = success_result(
         {"city": "Shanghai", "value": 12},
         answer="已找到统计结果",
-        tool_name="chunk_document",
+        tool_name="preview_data_structure",
         output_type="json",
     )
 
@@ -165,7 +165,7 @@ def test_answer_and_data_detail_output():
         observation = materializer.materialize_tool_observation(
             result,
             ObservationDecision(mode="inline"),
-            tool_name="chunk_document",
+            tool_name="preview_data_structure",
         )
 
         assert observation.startswith("✅ 已找到统计结果")

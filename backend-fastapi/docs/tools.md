@@ -206,7 +206,7 @@ class ToolPermission:
     timeout_seconds: int             # 执行超时秒数（默认 60，0=不限制）
 ```
 
-慢工具超时配置：`execute_skill_script`、`extract_structured_data`、`generate_report` 设为 120s。
+慢工具超时配置：`execute_skill_script`、`generate_report` 设为 120s。
 
 ### 结果规范化（dispatcher._normalize_tool_result）
 
@@ -275,11 +275,10 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 ### 文档工具（document_executor.py）
 
+当前 document 旧分发链已收缩为文件类 direct 工具专用链，只保留受管路径协议与文件 I/O 边界。
+
 | 函数 | 参数 | 说明 |
 |------|------|------|
-| `read_document` | file_path, encoding | 读取 PDF/Word/TXT/Markdown |
-| `chunk_document` | content, chunk_size, chunk_overlap, strategy | 文档分块 |
-| `extract_structured_data` | text, schema, instruction, examples | 结构化数据提取 |
 | `preview_data_structure` | file_path | 预览文件数据结构 |
 | `write_file` | content, file_path, encoding | 写文件（仅支持 direct） |
 | `read_file` | file_path, encoding, offset, limit | 读文件（分页，仅支持 direct） |
