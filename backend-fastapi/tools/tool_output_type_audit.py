@@ -45,7 +45,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "mcp__*",
         "category": "mcp",
-        "source": "tools/runtime/dispatcher.py",
+        "source": "tools/runtime/mcp_gateway.py",
         "raw_shape": "dynamic",
         "content_field": "server_defined",
         "content_kind": "unknown",

@@ -5,6 +5,7 @@
 from typing import Dict, Optional
 
 from tools.contracts.permissions import RiskLevel, ToolPermission
+from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
 from tools.tool_registry import get_tool_registry
 
 # 工具权限配置表
@@ -189,7 +190,7 @@ def is_mcp_server_enabled_for_agent(tool_name: str, agent_config) -> bool:
     if not agent_config:
         return False
 
-    parsed = _TOOL_REGISTRY.parse_mcp_tool_name(tool_name)
+    parsed = parse_mcp_tool_name(tool_name)
     if not parsed:
         return False
 
@@ -210,8 +211,8 @@ def check_tool_permission(
     if not permission:
         from mcp.config_store import get_mcp_config_store
 
-        if _TOOL_REGISTRY.is_mcp_tool(tool_name):
-            parsed = _TOOL_REGISTRY.parse_mcp_tool_name(tool_name)
+        if is_mcp_tool(tool_name):
+            parsed = parse_mcp_tool_name(tool_name)
             if parsed:
                 server_name, _ = parsed
                 srv_cfg = get_mcp_config_store().get_server(server_name)
@@ -231,7 +232,7 @@ def check_tool_permission(
         return False, f"Tool {tool_name} is not allowed from caller {caller}"
 
     if agent_config:
-        if _TOOL_REGISTRY.is_mcp_tool(tool_name):
+        if is_mcp_tool(tool_name):
             if not is_mcp_server_enabled_for_agent(tool_name, agent_config):
                 return False, f"MCP tool {tool_name} is not enabled for this agent"
         elif not is_tool_enabled(tool_name, agent_config):

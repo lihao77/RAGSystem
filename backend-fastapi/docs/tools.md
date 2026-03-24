@@ -15,7 +15,8 @@ tools/
 │   ├── discovery.py                  # 自动扫描 @tool() 模块
 │   ├── registration.py               # TOOL_HANDLERS + _merge_decorated_handlers()
 │   ├── approvals.py                  # 通用审批等待与 approval gate
-│   ├── dispatcher.py                 # 本地 handler / MCP 分发辅助
+│   ├── dispatcher.py                 # 本地 handler 分发 + MCP gateway 薄封装
+│   ├── mcp_gateway.py                # MCP 运行时命名解析与统一执行入口
 │   ├── executor.py                   # execute_tool() 主执行编排
 │   ├── response_builder.py           # success_result() / error_result()
 │   └── result_normalizer.py          # 结果规范化
@@ -72,8 +73,8 @@ tools/
 - builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
 - agent delegation 已收敛为单一 `@tool(source="agent")`：`call_agent`
 - 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
-- `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型，当前仅依赖 contracts + MCP 适配，不反向依赖 runtime/local
-- runtime 层负责 discovery / registration / approval / dispatch / execute；local 层承载工具真实实现
+- `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型；MCP contract/schema 适配仍来自 `tools.catalog.mcp_tools`，但运行时命名解析统一复用 `tools.runtime.mcp_gateway`
+- runtime 层负责 discovery / registration / approval / dispatch / execute；其中 MCP 采用“外部展开、内部单网关”：Agent 仍看到 `mcp__<server>__<tool>`，实际执行与 observability 透传统一收敛到 `tools.runtime.mcp_gateway`
 - 稳定 root-level public API 仅保留：`tools.bootstrap`、`tools.tool_executor`、`tools.path_resolution`
 
 ## 新增工具注册
@@ -148,7 +149,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   │   ├─ execute_code → 直接调用 handler（子进程内部自管理 timeout/cancel）
   │   │   ├─ execute_bash → 先进入 bash_tool 内部命令校验（三态：直通 / 审批 / 硬拒绝）
   │   │   └─ 其他工具 → _run_with_timeout(handler, timeout)（自动注入上下文参数）
-  │   ├─ is_mcp_tool(tool_name) → _execute_mcp_tool()（自带超时，不包装）
+  │   ├─ is_mcp_tool(tool_name) → dispatcher.execute_mcp_tool() → runtime.mcp_gateway.execute_mcp_tool()
   │   └─ else → error_result()
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
   └─ 返回 ToolExecutionResult
@@ -191,7 +192,31 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `content.file_path` 为内部绝对路径（供链式调用），`content.display_path` 为可读展示路径（供用户展示）
 - 链式调用占位符统一使用单花括号：`{result_N}`、`{result_N.content.file_path}`；不要写成双花括号 `{{result_N}}`
 
-## 核心数据模型
+### MCP：外部展开，内部单网关
+
+MCP 在本轮保持 **LLM 可见工具面不变**：Agent / ToolRegistry / prompt 仍看到展开后的 `mcp__<server>__<tool>`。
+
+但内部运行时职责已收敛为单一 gateway：
+
+- `tools/catalog/mcp_tools.py`：只负责把 MCP tool schema 适配为 ToolContract / function tool schema
+- `tools/runtime/mcp_gateway.py`：统一负责 `MCP_TOOL_PREFIX`、`is_mcp_tool()`、`parse_mcp_tool_name()`、`execute_mcp_tool()`
+- `tools/runtime/dispatcher.py`：仅保留对 gateway 的薄封装，不再自行解析 MCP 工具名
+- `tools/permissions.py`：继续负责 server enablement、config store fallback 注册、caller/role 校验，但 MCP 解析统一复用 gateway
+- `services/mcp_service.py`：继续作为真实业务调用入口，gateway 最终通过 `get_mcp_service().call_tool(...)` 发起调用
+
+执行链路：
+
+```
+Agent 可见工具: mcp__server__tool
+  → execute_tool()
+    → dispatcher.execute_mcp_tool()
+      → runtime.mcp_gateway.execute_mcp_tool()
+        → get_current_execution_observability_fields()
+        → services.mcp_service.MCPService.call_tool()
+```
+
+这保证了“对外工具面不变、对内运行时收口”。
+
 
 ### ToolExecutionResult（result_schema.py）
 

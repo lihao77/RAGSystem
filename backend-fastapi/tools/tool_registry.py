@@ -7,14 +7,9 @@ import logging
 from copy import deepcopy
 from typing import Iterable
 
-from tools.catalog.mcp_tools import (
-    MCP_TOOL_PREFIX,
-    is_mcp_tool,
-    mcp_tool_to_openai_format,
-    mcp_tools_to_openai_format,
-    parse_mcp_tool_name,
-)
+from tools.catalog.mcp_tools import mcp_tool_to_openai_format, mcp_tools_to_openai_format
 from tools.contracts.tool_contracts import build_function_tools
+from tools.runtime.mcp_gateway import MCP_TOOL_PREFIX, is_mcp_tool, parse_mcp_tool_name
 
 logger = logging.getLogger(__name__)
 

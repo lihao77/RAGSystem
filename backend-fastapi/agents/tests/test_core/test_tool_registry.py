@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 
 from tools.bootstrap import bootstrap_tool_system
+from tools.catalog.mcp_tools import mcp_tool_to_openai_format
+from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
 from tools.tool_registry import get_tool_registry
-from tools.catalog.mcp_tools import (
-    is_mcp_tool,
-    mcp_tool_to_openai_format,
-    parse_mcp_tool_name,
-)
 
 bootstrap_tool_system()
 

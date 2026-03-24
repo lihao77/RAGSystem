@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
+
 import pytest
 
 from tools.bootstrap import bootstrap_tool_system
@@ -43,3 +45,48 @@ def test_registered_tool_can_fall_back_to_default_permission(monkeypatch):
     allowed, error = check_tool_permission("activate_skill", caller="direct")
     assert allowed is True
     assert error is None
+
+
+def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeypatch):
+    monkeypatch.delitem(TOOL_PERMISSIONS, "mcp__demo__search", raising=False)
+
+    class _FakeStore:
+        def get_server(self, server_name):
+            if server_name == "demo":
+                return {"risk_level": "high", "requires_approval": True}
+            return None
+
+    import mcp.config_store as config_store_module
+
+    monkeypatch.setattr(config_store_module, "get_mcp_config_store", lambda: _FakeStore())
+
+    agent_config = SimpleNamespace(mcp=SimpleNamespace(enabled_servers=["demo"]))
+    allowed, error = check_tool_permission("mcp__demo__search", agent_config=agent_config, caller="direct")
+
+    assert allowed is True
+    assert error is None
+
+    permission = get_tool_permission("mcp__demo__search")
+    assert permission is not None
+    assert permission.risk_level == RiskLevel.HIGH
+    assert permission.requires_approval is True
+
+
+def test_mcp_permission_rejects_disabled_server(monkeypatch):
+    monkeypatch.delitem(TOOL_PERMISSIONS, "mcp__demo__search", raising=False)
+
+    class _FakeStore:
+        def get_server(self, server_name):
+            if server_name == "demo":
+                return {"risk_level": "medium", "requires_approval": False}
+            return None
+
+    import mcp.config_store as config_store_module
+
+    monkeypatch.setattr(config_store_module, "get_mcp_config_store", lambda: _FakeStore())
+
+    agent_config = SimpleNamespace(mcp=SimpleNamespace(enabled_servers=[]))
+    allowed, error = check_tool_permission("mcp__demo__search", agent_config=agent_config, caller="direct")
+
+    assert allowed is False
+    assert error == "MCP tool mcp__demo__search is not enabled for this agent"

@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List
 
 from tools.contracts.tool_contracts import ToolContract, build_function_tool
+from tools.runtime.mcp_gateway import MCP_TOOL_PREFIX
 
 logger = logging.getLogger(__name__)
-
-MCP_TOOL_PREFIX = "mcp__"
 
 
 def mcp_tool_to_openai_format(server_name: str, mcp_tool) -> dict:
@@ -54,21 +53,3 @@ def mcp_tools_to_openai_format(server_name: str, mcp_tools: list) -> List[dict]:
         except Exception as error:
             logger.warning("转换 MCP 工具失败 (%s/%s): %s", server_name, getattr(tool, "name", "?"), error)
     return result
-
-
-def parse_mcp_tool_name(tool_name: str) -> Optional[Tuple[str, str]]:
-    """Parse mcp__server__tool naming."""
-    if not tool_name.startswith(MCP_TOOL_PREFIX):
-        return None
-
-    rest = tool_name[len(MCP_TOOL_PREFIX):]
-    parts = rest.split("__", 1)
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        return None
-
-    return parts[0], parts[1]
-
-
-def is_mcp_tool(tool_name: str) -> bool:
-    """Whether a tool name is an MCP-prefixed tool."""
-    return tool_name.startswith(MCP_TOOL_PREFIX)

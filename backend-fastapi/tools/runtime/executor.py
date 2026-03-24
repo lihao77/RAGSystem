@@ -105,7 +105,7 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
             else:
                 result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
-            result = execute_mcp_tool(tool_name, arguments, session_id=session_id)
+            result = execute_mcp_tool(tool_name, arguments, session_id=session_id, run_id=run_id)
         else:
             result = error_result(f"未知的工具: {tool_name}", tool_name=tool_name)
 

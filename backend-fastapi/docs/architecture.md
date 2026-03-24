@@ -112,8 +112,22 @@ POST /api/agent/stream {task, session_id, selected_llm}
 - `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `ReActAgent`：仅保留必要的类型级薄扩展（当前无额外追加段）
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
-- 工具系统已完成分层收敛：`tools/contracts` 负责纯模型，`tools/runtime` 负责 discovery / execute 主链，`tools/local` 承载工具实现，`tools/refs` / `tools/artifacts` / `tools/paths` 分别承载结果引用、artifact、路径子域；根目录仅保留 `tools.bootstrap`、`tools.tool_executor`、`tools.path_resolution` 作为稳定 public API
+- 工具系统已完成分层收敛：`tools/contracts` 负责纯模型，`tools/runtime` 负责 discovery / execute 主链，`tools/local` 承载工具实现，`tools/refs` / `tools/artifacts` / `tools/paths` 分别承载结果引用、artifact、路径子域；MCP 额外采用“外部展开、内部单网关”——Agent 继续看到 `mcp__<server>__<tool>`，运行时命名解析、执行入口与 observability 透传统一收敛到 `tools.runtime.mcp_gateway`
 - `OrchestratorAgent`：YAML `system_prompt` 只保留业务身份与路由规则；代码侧只追加 `call_agent` 契约和 `delegation.enabled_agents` 驱动的动态 agent roster
+
+### MCP 运行时收口
+
+MCP 暴露模型保持不变：`AgentLoader._resolve_tools_and_skills()` 仍通过 `mcp.client_manager.MCPClientManager.get_tools_openai_format()` 为启用的 server 注入展开后的 `mcp__<server>__<tool>` 工具定义，因此 prompt contract、LLM 可见工具面与现有测试语义都不变。
+
+变化仅发生在内部运行时：
+
+- `tools/catalog/mcp_tools.py` 只负责 schema / contract 适配
+- `tools/runtime/mcp_gateway.py` 统一负责 MCP 工具名识别、解析与执行
+- `tools/runtime/dispatcher.py` 对 MCP 只做薄封装转调 gateway
+- `tools/permissions.py` 继续保留授权策略，但 server/tool 解析统一复用 gateway
+- `services/mcp_service.py` 继续作为真实业务调用入口
+
+这样 MCP 在工程结构上更接近 `call_agent`：外部仍是展开工具，内部则由单一运行时入口承接执行语义。
 
 ### OrchestratorAgent（agents/implementations/orchestrator/）
 
