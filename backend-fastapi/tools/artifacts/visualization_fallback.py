@@ -67,8 +67,8 @@ def fallback_chart_to_image(
     plt.tight_layout()
 
     # 保存
-    from tools.path_resolution import get_session_visualizations_root, SESSIONS_ROOT
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.paths.path_resolution import SESSIONS_ROOT, get_session_visualizations_root
 
     out_dir = get_session_visualizations_root(session_id) if session_id else (SESSIONS_ROOT / 'anonymous' / 'visualizations')
     out_dir.mkdir(parents=True, exist_ok=True)

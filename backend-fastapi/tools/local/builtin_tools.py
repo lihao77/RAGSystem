@@ -12,8 +12,8 @@ from agents.events import EventType
 from agents.events.bus import Event
 from agents.task_registry import get_task_registry
 from tools.decorators import tool
-from tools.permissions import RiskLevel
-from tools.response_builder import success_result
+from tools.contracts.permissions import RiskLevel
+from tools.runtime.response_builder import success_result
 from utils.timeout_pause import pause_current, resume_current
 
 logger = logging.getLogger(__name__)

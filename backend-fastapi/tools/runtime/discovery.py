@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+"""自动扫描 @tool() 装饰器注册的工具模块。"""
+
+from __future__ import annotations
+
+import importlib
+import logging
+import pkgutil
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def discover_decorated_tools(package_name: str = "tools.local") -> dict[str, Any]:
+    """扫描指定包下所有模块，触发 @tool() 装饰器注册。"""
+    from tools.decorators import get_decorated_tools
+
+    try:
+        package = importlib.import_module(package_name)
+    except ImportError as error:
+        logger.warning("无法导入工具包 %s: %s", package_name, error)
+        return get_decorated_tools()
+
+    package_path = getattr(package, "__path__", None)
+    if package_path is None:
+        logger.warning("包 %s 没有 __path__，跳过扫描", package_name)
+        return get_decorated_tools()
+
+    for _, module_name, _ in pkgutil.walk_packages(package_path, prefix=f"{package_name}."):
+        try:
+            importlib.import_module(module_name)
+            logger.debug("已扫描模块: %s", module_name)
+        except Exception as error:
+            logger.warning("扫描模块 %s 失败: %s", module_name, error)
+
+    decorated = get_decorated_tools()
+    if decorated:
+        logger.info("自动发现 %d 个装饰器注册的工具: %s", len(decorated), list(decorated.keys()))
+    return decorated

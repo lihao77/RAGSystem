@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from agents.artifacts import ArtifactStore
-from tools.result_schema import ArtifactRef
+from tools.contracts.result_models import ArtifactRef
 
 
 @dataclass

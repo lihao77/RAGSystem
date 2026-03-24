@@ -5,9 +5,9 @@ skill_tools 工具模块。
 
 import json
 import logging
-from .shared import error_result, success_result
+from tools.local.shared import error_result, success_result
 from tools.decorators import tool
-from tools.permissions import RiskLevel
+from tools.contracts.permissions import RiskLevel
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def _handle_artifact(artifact_block, session_id):
 
     返回 (artifact_info_dict, error_string_or_None)。
     """
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
 
     if not isinstance(artifact_block, dict):
         return None, "artifact 字段必须是对象"

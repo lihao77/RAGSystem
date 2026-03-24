@@ -6,8 +6,8 @@ from __future__ import annotations
 import functools
 from typing import Any, Callable
 
-from tools.tool_definition_builder import ToolContract
-from tools.permissions import ToolPermission, RiskLevel
+from tools.contracts.permissions import ToolPermission, RiskLevel
+from tools.contracts.tool_contracts import ToolContract
 
 # 全局注册表：装饰器注册的工具
 _DECORATED_TOOLS: dict[str, dict[str, Any]] = {}

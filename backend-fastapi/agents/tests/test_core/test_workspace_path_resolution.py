@@ -9,13 +9,13 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from tools.bootstrap import bootstrap_tool_system
+from tools.runtime.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
-from tools.document_executor import _prepare_document_tool_args, edit_file, read_file, write_file
-from tools.code_sandbox import execute_code_sandbox
-from tools.path_resolution import get_code_execution_session_root, get_export_run_root
+from tools.local.document_tools import _prepare_document_tool_args, edit_file, read_file, write_file
+from tools.local.code_sandbox import execute_code_sandbox
+from tools.paths.path_resolution import get_code_execution_session_root, get_export_run_root
 from tools.permissions import check_tool_permission, _merge_decorated_permissions
-from tools.tool_executor_modules.dispatcher import _merge_decorated_handlers
+from tools.runtime.registration import _merge_decorated_handlers
 from tools.tool_registry import get_tool_registry
 
 
@@ -97,7 +97,7 @@ def test_execute_document_tool_write_file_accepts_xml_space_flattened_args_witho
     session_id = "session-write-file-space"
     run_id = "run-write-file-space"
 
-    import tools.document_executor as document_executor_module
+    import tools.local.document_tools as document_executor_module
 
     original_get_fields = document_executor_module.get_current_execution_observability_fields
     document_executor_module.get_current_execution_observability_fields = lambda: {"run_id": run_id}
@@ -375,7 +375,7 @@ def test_execute_code_uses_workspace_for_reads_and_sandbox_for_writes():
             return None
 
     try:
-        from tools import code_sandbox as sandbox_module
+        import tools.local.code_sandbox as sandbox_module
         original_registry_getter = sandbox_module.get_task_registry
         sandbox_module.get_task_registry = lambda: registry
 

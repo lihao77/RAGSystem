@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from tools.path_resolution import MONITORING_ROOT
+from tools.paths.path_resolution import MONITORING_ROOT
 
 _DEFAULT_STORAGE_DIR = MONITORING_ROOT
 _DEFAULT_STORAGE_PATH = _DEFAULT_STORAGE_DIR / "observation_window.json"

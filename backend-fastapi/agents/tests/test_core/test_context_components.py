@@ -18,7 +18,7 @@ from agents.context.token_counter import TokenCounter
 from agents.core.context import AgentContext
 from agents.core.models import Message
 from agents.monitoring.observation_window import ObservationWindowCollector
-from tools.result_schema import ToolExecutionResult
+from tools.contracts.result_models import ToolExecutionResult
 
 
 class _FakeConversationStore:

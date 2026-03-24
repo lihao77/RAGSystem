@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from agents.core import BaseAgent
-from tools.result_references import (
+from tools.refs.result_references import (
     is_ref_error,
     resolve_result_path,
     result_error_message,

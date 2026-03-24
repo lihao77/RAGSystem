@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from runtime.dependencies import get_runtime_dependency
-from tools.response_builder import error_result, success_result
+from tools.runtime.response_builder import error_result, success_result
 from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)

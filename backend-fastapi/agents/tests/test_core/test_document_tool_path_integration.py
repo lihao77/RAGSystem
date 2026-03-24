@@ -8,19 +8,19 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agents.task_registry import TaskRegistry
-from tools.document_executor import FILE_SIZE_PREVIEW_THRESHOLD, edit_file, read_file, write_file
-from tools.path_resolution import get_export_run_root
+from tools.local.document_tools import FILE_SIZE_PREVIEW_THRESHOLD, edit_file, read_file, write_file
+from tools.paths.path_resolution import get_export_run_root
 
 
 def _set_run_id(monkeypatch, run_id: str):
     monkeypatch.setattr(
-        "tools.document_executor.get_current_execution_observability_fields",
+        "tools.local.document_tools.get_current_execution_observability_fields",
         lambda: {"run_id": run_id},
     )
 
 
 def _track_resolve_calls(monkeypatch):
-    import tools.path_resolution as path_resolution
+    import tools.paths.path_resolution as path_resolution
 
     original = path_resolution.resolve_managed_path
     calls = []
@@ -29,7 +29,7 @@ def _track_resolve_calls(monkeypatch):
         calls.append({"file_path": file_path, **kwargs})
         return original(file_path, **kwargs)
 
-    monkeypatch.setattr("tools.document_executor.resolve_managed_path", wrapped)
+    monkeypatch.setattr("tools.local.document_tools.resolve_managed_path", wrapped)
     return calls
 
 
@@ -99,7 +99,7 @@ def test_execute_document_tool_write_file_uses_explicit_run_id_without_observabi
 
     calls = _track_resolve_calls(monkeypatch)
     monkeypatch.setattr(
-        "tools.document_executor.get_current_execution_observability_fields",
+        "tools.local.document_tools.get_current_execution_observability_fields",
         lambda: {},
     )
     agent_config = SimpleNamespace(custom_params={"default_output_space": "exports"})

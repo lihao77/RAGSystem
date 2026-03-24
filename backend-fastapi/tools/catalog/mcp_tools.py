@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Tuple
 
-from tools.tool_definition_builder import ToolContract, build_function_tool
+from tools.contracts.tool_contracts import ToolContract, build_function_tool
 
 logger = logging.getLogger(__name__)
 

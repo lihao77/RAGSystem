@@ -9,8 +9,8 @@ import logging
 from typing import Any, Optional
 
 from agents.core import AgentContext, AgentResponse
-from tools.response_builder import error_result, success_result
-from tools.result_schema import ToolExecutionResult
+from tools.runtime.response_builder import error_result, success_result
+from tools.contracts.result_models import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 

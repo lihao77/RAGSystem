@@ -122,7 +122,7 @@ class ReActAgent(BaseAgent):
                         round=data.get('round'),
                     )
                 elif event_type == 'tool_end':
-                    from tools.result_references import result_event_payload
+                    from tools.refs.result_references import result_event_payload
                     from tools.tool_registry import get_tool_registry
                     tool_name = data.get('tool_name')
                     result = data.get('result')
@@ -230,7 +230,7 @@ class ReActAgent(BaseAgent):
             替换后的参数字典
         """
         import re
-        from tools.result_references import (
+        from tools.refs.result_references import (
             resolve_result_path,
             result_primary_content,
             stringify_result_value,

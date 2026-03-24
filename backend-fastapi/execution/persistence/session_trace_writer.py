@@ -26,7 +26,7 @@ class SessionTraceWriter:
         if base_dir is None:
             base_dir = os.getenv('SESSION_TRACE_DIR')
         if base_dir is None:
-            from tools.path_resolution import SESSION_TRACES_ROOT
+            from tools.paths.path_resolution import SESSION_TRACES_ROOT
             base_dir = SESSION_TRACES_ROOT
 
         self.base_dir = Path(base_dir)

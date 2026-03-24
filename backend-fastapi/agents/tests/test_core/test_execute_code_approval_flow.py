@@ -2,9 +2,13 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from tools.code_sandbox import execute_code_sandbox
+from tools.runtime.bootstrap import bootstrap_tool_system
+from tools.local.code_sandbox import execute_code_sandbox
 from tools.path_resolution import get_code_execution_session_root
-from tools.response_builder import success_result
+from tools.runtime.response_builder import success_result
+
+
+bootstrap_tool_system()
 
 
 def test_execute_code_call_tool_passes_session_id_for_approval(monkeypatch):
@@ -74,7 +78,7 @@ def test_execute_code_import_approval_allows_restricted_module(monkeypatch):
     registry = _FakeApprovalRegistry()
     published = {}
 
-    monkeypatch.setattr("tools.code_sandbox.get_task_registry", lambda: registry)
+    monkeypatch.setattr("tools.local.code_sandbox.get_task_registry", lambda: registry)
 
     event_bus = MagicMock()
 
@@ -115,7 +119,7 @@ def test_execute_code_import_approval_denied_returns_error(monkeypatch):
     registry = _FakeApprovalRegistry()
     published = {}
 
-    monkeypatch.setattr("tools.code_sandbox.get_task_registry", lambda: registry)
+    monkeypatch.setattr("tools.local.code_sandbox.get_task_registry", lambda: registry)
 
     event_bus = MagicMock()
 
@@ -386,7 +390,7 @@ def test_execute_code_subprocess_call_tool_roundtrip(monkeypatch):
 
 def test_execute_code_approval_wait_does_not_count_timeout(monkeypatch):
     registry = _FakeApprovalRegistry()
-    monkeypatch.setattr('tools.code_sandbox.get_task_registry', lambda: registry)
+    monkeypatch.setattr('tools.local.code_sandbox.get_task_registry', lambda: registry)
 
     event_bus = MagicMock()
 
@@ -417,7 +421,7 @@ def test_execute_code_approval_wait_does_not_count_timeout(monkeypatch):
 
 
 def test_execute_code_subprocess_abnormal_exit_returns_error(monkeypatch):
-    import tools.code_sandbox as sandbox_module
+    import tools.local.code_sandbox as sandbox_module
 
     monkeypatch.setattr(sandbox_module, '_sandbox_worker', _crash_worker_for_test)
     result = execute_code_sandbox(

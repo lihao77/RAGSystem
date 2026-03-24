@@ -8,8 +8,8 @@ if str(ROOT_DIR) not in sys.path:
 
 from agents.implementations.orchestrator.prompting import replace_placeholders
 from agents.implementations.react.agent import ReActAgent
-from tools.response_builder import success_result
-from tools.result_references import resolve_result_path, is_ref_error
+from tools.runtime.response_builder import success_result
+from tools.refs.result_references import resolve_result_path, is_ref_error
 
 
 class DummyOrchestratorAgent:

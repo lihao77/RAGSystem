@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from typing import List, Optional
 
 from schemas.common import ok
-from tools.path_resolution import get_session_uploads_root
+from tools.paths.path_resolution import get_session_uploads_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

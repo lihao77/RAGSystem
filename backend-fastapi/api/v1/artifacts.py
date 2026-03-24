@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get('/visualizations/{artifact_id}')
 async def get_visualization(artifact_id: str):
     """前端按 artifact_id 拉取完整配置。"""
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
 
     try:
         manager = get_visualization_artifact_manager()
@@ -30,7 +30,7 @@ async def get_visualization(artifact_id: str):
 @router.get('/visualizations')
 async def list_visualizations(session_id: str = Query(..., description="会话 ID")):
     """列出某会话的所有可视化 artifact。"""
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
 
     try:
         manager = get_visualization_artifact_manager()
@@ -55,7 +55,7 @@ async def list_visualizations(session_id: str = Query(..., description="会话 I
 @router.delete('/visualizations/{artifact_id}')
 async def delete_visualization(artifact_id: str):
     """删除单个可视化 artifact。"""
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
 
     try:
         manager = get_visualization_artifact_manager()
@@ -73,7 +73,7 @@ async def delete_visualization(artifact_id: str):
 @router.delete('/visualizations')
 async def delete_visualizations_by_session(session_id: str = Query(..., description="会话 ID")):
     """删除某会话下的所有可视化 artifact。"""
-    from tools.visualization_artifact_manager import get_visualization_artifact_manager
+    from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
 
     try:
         manager = get_visualization_artifact_manager()

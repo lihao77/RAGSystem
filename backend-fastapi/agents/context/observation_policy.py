@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from tools.result_schema import ToolExecutionResult
+from tools.contracts.result_models import ToolExecutionResult
 
 _GEOJSON_TYPES = {"FeatureCollection", "Feature", "Point", "MultiPoint",
                   "LineString", "MultiLineString", "Polygon", "MultiPolygon",

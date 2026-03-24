@@ -666,7 +666,7 @@ risk = call_tool('assess_flood_risk', {{
         from agents.context.pipeline import ContextPipeline
         from agents.context.prompt_materializer import PromptMaterializer
         from agents.monitoring.observation_window import ObservationWindowCollector
-        from tools.result_normalizer import ToolResultNormalizer
+        from tools.runtime.result_normalizer import ToolResultNormalizer
 
         base_tools = list(available_tools or [])
 
@@ -1047,9 +1047,9 @@ risk = call_tool('assess_flood_risk', {{
         log_prefix: str,
     ) -> None:
         """默认动作处理：直接工具执行。"""
-        from tools.response_builder import success_result, error_result
-        from tools.result_references import result_event_payload
-        from tools.tool_executor import execute_tool
+        from tools.runtime.response_builder import success_result, error_result
+        from tools.refs.result_references import result_event_payload
+        from tools.runtime.executor import execute_tool
         from tools.tool_registry import get_tool_registry
 
         tool_registry = get_tool_registry()
@@ -1088,7 +1088,7 @@ risk = call_tool('assess_flood_risk', {{
             tool_call_id = f"tool_{uuid.uuid4()}"
 
             # C6: 拦截未替换的占位符
-            from tools.result_references import detect_unresolved_placeholders
+            from tools.refs.result_references import detect_unresolved_placeholders
             unresolved = detect_unresolved_placeholders(arguments)
             if unresolved:
                 observation = f"[{tool_name}] 参数中包含未替换的占位符: {', '.join(unresolved)}，请检查引用路径是否正确"

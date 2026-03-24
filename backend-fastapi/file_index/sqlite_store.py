@@ -40,7 +40,7 @@ class FileIndexSQLite:
                     这样可以与向量数据库共享连接，便于跨表查询
         """
         if db_path is None:
-            from tools.path_resolution import RAGSYSTEM_DB
+            from tools.paths.path_resolution import RAGSYSTEM_DB
             db_path = RAGSYSTEM_DB
 
         self.db_path = Path(db_path)

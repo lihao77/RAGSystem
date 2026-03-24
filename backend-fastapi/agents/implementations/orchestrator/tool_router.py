@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Dict
 
-from tools.response_builder import error_result
+from tools.runtime.response_builder import error_result
 from tools.tool_registry import get_tool_registry
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ def route_direct_tool(
     orchestrator_call_id: str,
     log_prefix: str,
 ) -> Dict[str, object]:
-    from tools.result_references import result_event_payload, result_success
+    from tools.refs.result_references import result_event_payload, result_success
 
     tool_name = action.get('tool')
     arguments = action.get('arguments', {})
@@ -81,7 +81,7 @@ def route_direct_tool(
 
     tool_start_time = time.time()
     try:
-        from tools.tool_executor import execute_tool as _execute_tool
+        from tools.runtime.executor import execute_tool as _execute_tool
         result = _execute_tool(
             tool_name,
             arguments,

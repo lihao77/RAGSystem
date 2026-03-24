@@ -16,12 +16,12 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from tools.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
-from tools.result_references import resolve_result_path
-from tools.result_schema import ToolExecutionResult
-from tools.bootstrap import bootstrap_tool_system
-from tools.document_executor import edit_file, preview_data_structure, read_file, write_file
-from tools.tool_executor_modules.dispatcher import TOOL_HANDLERS
+from tools.runtime.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
+from tools.refs.result_references import resolve_result_path
+from tools.contracts.result_models import ToolExecutionResult
+from tools.runtime.bootstrap import bootstrap_tool_system
+from tools.local.document_tools import edit_file, preview_data_structure, read_file, write_file
+from tools.runtime.registration import TOOL_HANDLERS
 from tools.tool_registry import get_tool_registry
 
 bootstrap_tool_system()
@@ -31,7 +31,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "execute_code",
         "category": "builtin",
-        "source": "tools/code_sandbox.py",
+        "source": "tools/local/code_sandbox.py",
         "raw_shape": "dynamic",
         "content_field": "depends_on_result",
         "content_kind": "unknown",
@@ -45,7 +45,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "mcp__*",
         "category": "mcp",
-        "source": "tools/tool_executor_modules/dispatcher.py",
+        "source": "tools/runtime/dispatcher.py",
         "raw_shape": "dynamic",
         "content_field": "server_defined",
         "content_kind": "unknown",
@@ -59,7 +59,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "request_user_input",
         "category": "builtin",
-        "source": "tools/tool_executor_modules/builtin_tools.py",
+        "source": "tools/local/builtin_tools.py",
         "raw_shape": "tool_execution_result",
         "content_field": "content",
         "content_kind": "text_or_empty",
@@ -73,7 +73,7 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
     {
         "tool_name": "call_agent",
         "category": "agent_delegation",
-        "source": "tools/tool_executor_modules/agent_tools.py",
+        "source": "tools/local/agent_tools.py",
         "raw_shape": "tool_execution_result",
         "content_field": "content",
         "content_kind": "agent_defined",
@@ -384,7 +384,7 @@ def _tool_category(tool_name: str) -> str:
 def _tool_source(tool_name: str) -> str:
     tool = get_tool_registry().get_tool_by_name(tool_name)
     if tool and tool.get("function", {}).get("source") == "document":
-        return "tools/document_executor.py"
+        return "tools/local/document_tools.py"
     if tool_name in TOOL_HANDLERS:
         source = inspect.getsourcefile(TOOL_HANDLERS[tool_name])
         if source:

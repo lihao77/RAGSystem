@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 if TYPE_CHECKING:
     from agents.artifacts import ArtifactStore
     from agents.monitoring.observation_window import ObservationWindowCollector
-    from tools.result_schema import ToolExecutionResult
+    from tools.contracts.result_models import ToolExecutionResult
 
 
 @dataclass

@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-工具模块 - Function Calling工具定义
-"""
+"""tools 包公共导出。"""
 
-# 导出响应构造器
-from .response_builder import error_result, success_result
-from .result_schema import ArtifactRef, ToolExecutionResult
+from .runtime.response_builder import error_result, success_result
+from .contracts.result_models import ArtifactRef, ToolExecutionResult
 
 __all__ = [
     'success_result',

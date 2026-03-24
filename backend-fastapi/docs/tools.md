@@ -6,42 +6,57 @@
 
 ```
 tools/
-├── catalog/                          # 仅保留 MCP 适配
-│   └── mcp_tools.py                  # MCP 工具适配
-├── tool_executor_modules/            # 工具实现层
-│   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS + _merge_decorated_handlers()
-│   ├── report_tools.py               # 应急报告生成（@tool 装饰器示范）
+├── contracts/                        # 纯定义层：Contract / Result / Permission 模型
+│   ├── tool_contracts.py             # ToolContract + OpenAI 函数定义构建
+│   ├── result_models.py              # ToolExecutionResult / ArtifactRef
+│   └── permissions.py                # RiskLevel / ToolPermission 纯模型
+├── runtime/                          # 运行时装配与执行边界
+│   ├── bootstrap.py                  # bootstrap_tool_system() 真实实现
+│   ├── discovery.py                  # 自动扫描 @tool() 模块
+│   ├── registration.py               # TOOL_HANDLERS + _merge_decorated_handlers()
+│   ├── approvals.py                  # 通用审批等待与 approval gate
+│   ├── dispatcher.py                 # 本地 handler / MCP 分发辅助
+│   ├── executor.py                   # execute_tool() 主执行编排
+│   ├── response_builder.py           # success_result() / error_result()
+│   └── result_normalizer.py          # 结果规范化
+├── local/                            # 本地工具真实实现
+│   ├── document_tools.py             # 文件类 document 工具实现
+│   ├── code_sandbox.py               # Python 代码沙箱
 │   ├── skill_tools.py                # Skill 执行（含 artifact 协议桥接）
 │   ├── builtin_tools.py              # builtin 工具（request_user_input）
 │   ├── agent_tools.py                # agent delegation 工具（call_agent）
 │   ├── bash_tool.py                  # Bash 命令执行
-│   ├── shared.py                     # 共享依赖
-│   └── __init__.py                   # 导出 + __all__
-├── bootstrap.py                      # bootstrap_tool_system() 统一入口
-├── path_resolution.py               # 全局路径管理中心（DATA_ROOT、目录常量、session 级路径）
+│   ├── report_tools.py               # 应急报告生成
+│   └── shared.py                     # 本地工具共享依赖
+├── refs/                             # 结果引用与占位符解析
+│   └── result_references.py          # 占位符路径解析 + 错误标记 + 未替换检测
+├── artifacts/                        # artifact / presentation 子域
+│   ├── visualization_artifact_manager.py # 可视化 artifact 持久化
+│   ├── visualization_fallback.py     # 可视化降级
+│   └── presentation_store.py         # 旧 presentation store 实现
+├── paths/                            # 路径治理子域
+│   └── path_resolution.py            # 全局路径管理中心（DATA_ROOT、目录常量、session 级路径）
+├── catalog/                          # 协议型适配（当前仅 MCP）
+│   └── mcp_tools.py                  # MCP 工具适配
+├── decorators.py                     # @tool() 装饰器（合并 Contract+Permission+Handler）
+├── consistency_check.py              # 工具注册一致性校验
 ├── tool_registry.py                  # ToolRegistry 唯一读模型
-├── tool_definition_builder.py        # ToolContract → OpenAI 格式
-├── tool_executor.py                  # 执行公共入口
-├── permissions.py                    # 权限管理 + TOOL_PERMISSIONS + _merge_decorated_permissions()
-├── result_schema.py                  # ToolExecutionResult 数据模型
-├── response_builder.py              # success_result() / error_result()
-├── result_references.py             # 占位符路径解析 + 错误标记 + 未替换检测
-├── result_normalizer.py             # 结果规范化
-├── decorators.py                    # @tool() 装饰器（合并 Contract+Permission+Handler）
-├── auto_discovery.py                # 自动扫描装饰器注册的工具
-├── consistency_check.py             # 工具注册一致性校验
-├── code_sandbox.py                  # Python 代码沙箱
-├── document_executor.py             # 文件类 document 工具的 @tool 注册入口 + 执行入口
-├── visualization_artifact_manager.py # 可视化 artifact 持久化
-└── visualization_fallback.py        # 可视化降级
+├── bootstrap.py                      # 稳定 public API：指向 runtime.bootstrap
+├── tool_executor.py                  # 稳定 public API：指向 runtime.executor
+├── path_resolution.py                # 稳定 public API：指向 paths.path_resolution
+├── tool_definition_builder.py        # facade：指向 contracts.tool_contracts
+├── result_schema.py                  # facade：指向 contracts.result_models
+├── result_references.py              # facade：指向 refs.result_references
+├── visualization_artifact_manager.py # 模块别名 facade：指向 artifacts.visualization_artifact_manager
+└── __init__.py
 ```
 
 ## 目录桶与落盘入口
 
 | 目录桶 | 物理路径 | 主要内容 | 主要写入入口 | 说明 |
 |---|---|---|---|---|
-| `sandbox` | `./data/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里 |
-| `transient` | `./data/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `document_executor.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付 |
+| `sandbox` | `./data/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/local/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里 |
+| `transient` | `./data/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `tools.local.document_tools.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付 |
 | `workspace` | 默认 `./data/sessions/<session_id>/workspace/`；若 session.metadata.workspace_root 已配置，则指向该外部绝对目录 | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 仅 workspace 工具语义可切到会话级外部目录；uploads 等其他桶不受影响 |
 | `exports` | `./data/sessions/<session_id>/exports/<run_id>/` 或 `./data/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
 | `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录 |
@@ -53,12 +68,13 @@ tools/
 ### 统一原则（v3）
 
 - **除 MCP 外，所有可执行能力统一走 `@tool()`**
+- contracts / runtime / local / refs / artifacts / paths 已完成分层收敛；`tools/` 根目录只保留少量稳定 public API，其余 facade 已清理
 - builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
 - agent delegation 已收敛为单一 `@tool(source="agent")`：`call_agent`
 - 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
-- `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型
-- `dispatcher` 只负责本地 handler / MCP 分发
-- 路径规则继续统一由 `path_resolution.py` 管理
+- `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型，当前仅依赖 contracts + MCP 适配，不反向依赖 runtime/local
+- runtime 层负责 discovery / registration / approval / dispatch / execute；local 层承载工具真实实现
+- 稳定 root-level public API 仅保留：`tools.bootstrap`、`tools.tool_executor`、`tools.path_resolution`
 
 ## 新增工具注册
 
@@ -104,12 +120,12 @@ def my_tool(arguments, **kwargs):
 - `mcp`：外部 MCP adapter 例外
 
 已迁移的本地工具（12 个）：
-- `report_tools.py`: generate_report
-- `tool_executor_modules/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
-- `code_sandbox.py`: execute_code
-- `document_executor.py`: write_file, read_file, preview_data_structure, edit_file
-- `tool_executor_modules/builtin_tools.py`: request_user_input
-- `tool_executor_modules/agent_tools.py`: call_agent
+- `local/report_tools.py`: generate_report
+- `local/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
+- `local/code_sandbox.py`: execute_code
+- `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
+- `local/builtin_tools.py`: request_user_input
+- `local/agent_tools.py`: call_agent
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -145,15 +161,15 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `call_agent` 内部负责 allowlist 校验、目标 Agent 存在/启用校验、禁止自调用、创建当前调用作用域内的 execution orchestrator，并复用 `call.agent.start/end` 事件语义
 - 子 Agent 是否可调用不再由工具名展开决定，而由 `delegation.enabled_agents` + prompt 动态 roster 决定
 
-### 文件类 document 工具路径治理（document_executor._prepare_document_tool_args）
+### 文件类 document 工具路径治理（local.document_tools._prepare_document_tool_args）
 
-4 个文件类 document 工具已经和其他 `@tool()` 工具完全同构：由自动发现注册进入统一 `TOOL_HANDLERS`，dispatcher 不再维护 document 特判分支。文件路径治理则直接内聚在 `document_executor.py` 内部私有 helper：
+4 个文件类 document 工具已经和其他 `@tool()` 工具完全同构：由自动发现注册进入统一 `TOOL_HANDLERS`，dispatcher 不再维护 document 特判分支。文件路径治理则直接内聚在 `tools.local.document_tools` 内部私有 helper：
 
 ```
 占位符替换（base.py._handle_actions）
   → dispatcher 统一命中 TOOL_HANDLERS
-    → document_executor._prepare_document_tool_args / bash_tool._resolve_work_dir
-      → tool 执行（document_executor / bash_tool）
+    → local.document_tools._prepare_document_tool_args / local.bash_tool._resolve_work_dir
+      → tool 执行（local.document_tools / local.bash_tool）
         → resource scope 推断/清理（conversation_store._infer_scope）
 ```
 
@@ -161,7 +177,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - direct 文件工具支持 XML 写法 `<file_path space="workspace|transient|exports">relative/path</file_path>`
 - `execute_bash` 支持 XML 写法 `<working_dir space="workspace|transient|exports">relative/dir</working_dir>`
 - XML 解析层会将其分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
-- `document_executor._prepare_document_tool_args()` / `bash_tool._resolve_work_dir()` 在消费完 `file_path_space` / `working_dir_space` 后，不再继续透传到底层 I/O 逻辑
+- `tools.local.document_tools._prepare_document_tool_args()` / `local.bash_tool._resolve_work_dir()` 在消费完 `file_path_space` / `working_dir_space` 后，不再继续透传到底层 I/O 逻辑
 - `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → `./data/sessions/<session_id>/transient/`，`exports` → `./data/sessions/<session_id>/exports/<run_id>/`（缺 `run_id` 报错）
 - document 工具中的 `run_id` 由工具函数优先使用显式参数，缺失时 fallback 到 `get_current_execution_observability_fields().run_id`
 - 绝对路径不会被 `space` 改写，仍只做受管边界校验
@@ -284,7 +300,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 各数据参数接受 JSON 字符串或结构化对象；未提供的章节标注“暂无数据”。返回 `output_type=markdown`。
 
-### Skill 工具（tool_executor_modules/skill_tools.py）
+### Skill 工具（local/skill_tools.py）
 
 | 函数 | 参数 | 说明 |
 |------|------|------|
@@ -293,9 +309,9 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `execute_skill_script` | skill_name, script_name, arguments, session_id | 执行 Skill 脚本（含 artifact 协议桥接） |
 | `get_skill_info` | skill_name | 获取 Skill 元信息 |
 
-### 文档工具（document_executor.py）
+### 文档工具（local/document_tools.py）
 
-当前 document 旧分发链已收缩为文件类 direct 工具专用链，只保留受管路径协议与文件 I/O 边界。
+当前 document 实现已经收敛到本地真实模块，只保留受管路径协议与文件 I/O 边界。
 
 | 函数 | 参数 | 说明 |
 |------|------|------|
@@ -304,7 +320,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `read_file` | file_path, encoding, offset, limit | 读文件（分页，仅支持 direct） |
 | `edit_file` | file_path, old_text, new_text, encoding | 编辑文件（仅支持 direct） |
 
-### 代码沙箱（code_sandbox.py）
+### 代码沙箱（local/code_sandbox.py）
 
 `execute_code_sandbox(code, description, timeout, ..., cancel_event=None)` — 受限 Python 执行环境。
 

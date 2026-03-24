@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .result_schema import ArtifactRef, ToolExecutionResult
+from tools.contracts.result_models import ArtifactRef, ToolExecutionResult
 
 
 def success_result(

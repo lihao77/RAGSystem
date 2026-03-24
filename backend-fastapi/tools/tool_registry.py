@@ -14,7 +14,7 @@ from tools.catalog.mcp_tools import (
     mcp_tools_to_openai_format,
     parse_mcp_tool_name,
 )
-from tools.tool_definition_builder import build_function_tools
+from tools.contracts.tool_contracts import build_function_tools
 
 logger = logging.getLogger(__name__)
 

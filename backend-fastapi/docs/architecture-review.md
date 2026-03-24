@@ -15,7 +15,7 @@
 当前本地工具已统一收口到：
 
 ```
-@tool() → auto_discovery.py → bootstrap.py → ToolRegistry / dispatcher / permissions → docs/tools.md
+@tool() → runtime/discovery.py → tools.bootstrap → ToolRegistry / runtime.dispatcher / permissions → docs/tools.md
 ```
 
 一致性校验已由 `check_tool_consistency()` 覆盖，历史兼容注册链路已移除。

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from .base import BaseObservationFormatter, FormatContext
 
 if TYPE_CHECKING:
-    from tools.result_schema import ToolExecutionResult
+    from tools.contracts.result_models import ToolExecutionResult
 
 
 class LargePayloadFormatter(BaseObservationFormatter):
@@ -126,7 +126,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
         # GeoJSON 专用预览（不含 coordinates）
         if isinstance(pure_data, dict) and self._is_geojson(pure_data):
             try:
-                from tools.document_executor import _preview_geojson
+                from tools.local.document_tools import _preview_geojson
                 preview = _preview_geojson(pure_data, sample_size=3)
                 preview_str = json.dumps(preview, ensure_ascii=False, indent=2)
                 if len(preview_str) > 1500:
@@ -136,7 +136,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
                 pass
         elif isinstance(pure_data, (dict, list)):
             try:
-                from tools.document_executor import _preview_data_value
+                from tools.local.document_tools import _preview_data_value
                 structure = _preview_data_value(
                     pure_data,
                     max_depth=2,

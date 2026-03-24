@@ -22,12 +22,12 @@ from pathlib import Path
 from typing import Optional
 
 from tools.decorators import tool
-from tools.permissions import RiskLevel
-from tools.response_builder import error_result, success_result
+from tools.contracts.permissions import RiskLevel
+from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
-from tools.path_resolution import resolve_managed_directory
+from tools.paths.path_resolution import resolve_managed_directory
 from execution.observability import get_current_execution_observability_fields
 
 

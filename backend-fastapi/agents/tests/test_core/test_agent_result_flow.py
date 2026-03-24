@@ -7,8 +7,8 @@ from agents.core.context import AgentContext
 from agents.implementations.orchestrator.executor import AgentExecutor
 from agents.implementations.orchestrator.prompting import format_agent_result_summary, replace_placeholders
 from agents.implementations.orchestrator.tool_router import route_direct_tool
-from tools.response_builder import error_result, success_result
-from tools.result_schema import ToolExecutionResult
+from tools.runtime.response_builder import error_result, success_result
+from tools.contracts.result_models import ToolExecutionResult
 
 
 class _FakeLogger:
@@ -78,7 +78,7 @@ class _FakeReActAgent:
 
 
 def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
-    from tools import tool_executor
+    from tools.runtime import executor as tool_executor
 
     captured = {}
 

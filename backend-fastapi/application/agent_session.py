@@ -45,7 +45,7 @@ class AgentSessionApplication:
         if not session:
             return False
         try:
-            from tools.visualization_artifact_manager import get_visualization_artifact_manager
+            from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
             removed = get_visualization_artifact_manager().delete_by_session(session_id)
             if removed:
                 import logging
@@ -62,7 +62,7 @@ class AgentSessionApplication:
 
         try:
             import shutil
-            from tools.path_resolution import get_session_cleanup_root
+            from tools.paths.path_resolution import get_session_cleanup_root
             cleanup_root = get_session_cleanup_root(session_id)
             if cleanup_root.exists():
                 shutil.rmtree(cleanup_root, ignore_errors=True)

@@ -10,8 +10,8 @@ from agents.core import AgentContext
 from agents.events import EventPublisher
 from agents.implementations.orchestrator.executor import AgentExecutor
 from tools.decorators import tool
-from tools.permissions import RiskLevel
-from tools.response_builder import error_result, success_result
+from tools.contracts.permissions import RiskLevel
+from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 

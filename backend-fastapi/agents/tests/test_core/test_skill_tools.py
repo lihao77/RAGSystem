@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agents.skills.skill_loader import SkillLoader
 from tools.tool_executor_modules.skill_tools import execute_skill_script, get_skill_info
-from tools.result_schema import ToolExecutionResult
+from tools.contracts.result_models import ToolExecutionResult
 
 
 def _make_temp_dir() -> str:

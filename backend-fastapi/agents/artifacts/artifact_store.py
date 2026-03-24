@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.monitoring.observation_window import ObservationWindowCollector
-from tools.result_schema import ArtifactRef
+from tools.contracts.result_models import ArtifactRef
 
 
 @dataclass
@@ -38,7 +38,7 @@ class ArtifactStore:
         index_file: str | None = None,
         observation_window: ObservationWindowCollector | None = None,
     ):
-        from tools.path_resolution import TRANSIENT_ARTIFACTS_ROOT
+        from tools.paths.path_resolution import TRANSIENT_ARTIFACTS_ROOT
 
         self.base_dir = str(Path(base_dir).resolve()) if base_dir else str(TRANSIENT_ARTIFACTS_ROOT)
         self._uses_default_base_dir = base_dir is None
@@ -126,7 +126,7 @@ class ArtifactStore:
         return artifact
 
     def cleanup(self, max_age_seconds: int) -> int:
-        from tools.path_resolution import SESSIONS_ROOT
+        from tools.paths.path_resolution import SESSIONS_ROOT
 
         target_dir = Path(self.base_dir).resolve() if self.base_dir else SESSIONS_ROOT.resolve()
         cutoff_time = time.time() - max_age_seconds
@@ -165,7 +165,7 @@ class ArtifactStore:
         tool_name: str,
         metadata: dict[str, Any] | None,
     ) -> Path:
-        from tools.path_resolution import (
+        from tools.paths.path_resolution import (
             get_session_transient_root,
             get_session_visualizations_root,
             SESSIONS_ROOT,
@@ -247,7 +247,7 @@ class ArtifactStore:
             file_obj.write(json.dumps(asdict(record), ensure_ascii=False) + '\n')
 
     def _index_files(self, *, session_id: str | None = None) -> list[Path]:
-        from tools.path_resolution import SESSIONS_ROOT
+        from tools.paths.path_resolution import SESSIONS_ROOT
 
         if self.index_file:
             return [Path(self.index_file)]

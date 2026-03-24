@@ -6,8 +6,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from agents.monitoring.observation_window import ObservationWindowCollector
-
-from .result_schema import ToolExecutionResult
+from tools.contracts.result_models import ToolExecutionResult
 
 
 TOOL_OUTPUT_TYPE_MAP = {

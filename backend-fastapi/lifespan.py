@@ -43,7 +43,7 @@ async def _startup(app: FastAPI) -> None:
 
     # ── 第零步：初始化数据目录结构 ──────────────────────────────────────
     try:
-        from tools.path_resolution import ensure_directories
+        from tools.paths.path_resolution import ensure_directories
         ensure_directories()
         logger.info('✓ 数据目录结构已初始化')
     except Exception as e:
@@ -91,7 +91,7 @@ async def _startup(app: FastAPI) -> None:
 
     # ── 第 4.5 步：统一 bootstrap 工具系统 ──────────────────────────────────
     try:
-        from tools.bootstrap import bootstrap_tool_system
+        from tools.runtime.bootstrap import bootstrap_tool_system
 
         bootstrap_result = bootstrap_tool_system()
         warnings = bootstrap_result.get('warnings', [])

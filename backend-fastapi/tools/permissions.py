@@ -2,30 +2,10 @@
 工具权限管理系统
 """
 
-from enum import Enum
 from typing import Dict, Optional
-from pydantic import BaseModel
 
+from tools.contracts.permissions import RiskLevel, ToolPermission
 from tools.tool_registry import get_tool_registry
-
-
-class RiskLevel(str, Enum):
-    """工具风险等级"""
-    LOW = "low"          # 低风险：只读操作，无副作用
-    MEDIUM = "medium"    # 中风险：可能影响性能或返回大量数据
-    HIGH = "high"        # 高风险：写操作、删除操作、执行外部命令
-
-
-class ToolPermission(BaseModel):
-    """工具权限配置"""
-    tool_name: str
-    risk_level: RiskLevel = RiskLevel.LOW
-    requires_approval: bool = False
-    description: str = ""
-    allowed_roles: list = []  # 允许的角色列表（空表示所有角色）
-    allowed_callers: list = ["direct", "code_execution"]  # 允许的调用来源
-    timeout_seconds: int = 60  # 执行超时秒数，0=不限制
-
 
 # 工具权限配置表
 # 已迁移到 @tool() 装饰器的工具权限在启动时通过 _merge_decorated_permissions() 注入。

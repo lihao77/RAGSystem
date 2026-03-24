@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, List, Optional, Type
 
 if TYPE_CHECKING:
     from .base import BaseObservationFormatter, FormatContext
-    from tools.result_schema import ToolExecutionResult
+    from tools.contracts.result_models import ToolExecutionResult
 
 
 class ObservationFormatterRegistry:

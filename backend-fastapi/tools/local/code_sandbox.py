@@ -35,10 +35,11 @@ from typing import Any, Optional
 from contextlib import redirect_stdout
 
 from agents.task_registry import get_task_registry
-from tools.response_builder import success_result, error_result
-from tools.permissions import check_tool_permission, RiskLevel
+from tools.runtime.response_builder import success_result, error_result
+from tools.permissions import check_tool_permission
+from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
-from tools.path_resolution import (
+from tools.paths.path_resolution import (
     resolve_managed_path,
     get_effective_workspace_root,
     get_session_sandbox_root,
@@ -329,7 +330,7 @@ def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, reque
 
 
 def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None, cancel_event=None):
-    from tools.result_references import result_error_message, result_primary_content, result_success
+    from tools.refs.result_references import result_error_message, result_primary_content, result_success
     from tools.tool_executor import execute_tool
 
     def call_tool(tool_name: str, arguments: dict) -> Any:

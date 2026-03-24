@@ -17,7 +17,7 @@ def check_tool_consistency() -> list[str]:
         警告列表，空列表表示一致性校验通过
     """
     from tools.decorators import get_decorated_tools
-    from tools.tool_executor_modules.dispatcher import TOOL_HANDLERS
+    from tools.runtime.registration import TOOL_HANDLERS
     from tools.permissions import TOOL_PERMISSIONS
 
     warnings: list[str] = []

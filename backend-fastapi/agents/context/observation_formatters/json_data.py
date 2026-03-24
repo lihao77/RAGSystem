@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from .base import BaseObservationFormatter, FormatContext
 
 if TYPE_CHECKING:
-    from tools.result_schema import ToolExecutionResult
+    from tools.contracts.result_models import ToolExecutionResult
 
 
 class JsonDataFormatter(BaseObservationFormatter):
