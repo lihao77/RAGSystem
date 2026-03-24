@@ -80,7 +80,7 @@ def test_revise_script_outputs_revise_action():
 
 # ─── artifact 协议桥接测试（_handle_artifact） ────────────────────
 
-from tools.tool_executor_modules.skill_tools import _handle_artifact
+from tools.local.skill_tools import _handle_artifact
 
 
 def test_handle_artifact_create_chart(monkeypatch):
@@ -100,7 +100,7 @@ def test_handle_artifact_create_chart(monkeypatch):
             raise AssertionError("should not call create_map")
 
     monkeypatch.setattr(
-        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
+        "tools.artifacts.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 
@@ -133,7 +133,7 @@ def test_handle_artifact_create_map(monkeypatch):
             return FakeRecord()
 
     monkeypatch.setattr(
-        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
+        "tools.artifacts.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 
@@ -163,7 +163,7 @@ def test_handle_artifact_revise(monkeypatch):
             return FakeRecord()
 
     monkeypatch.setattr(
-        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
+        "tools.artifacts.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 

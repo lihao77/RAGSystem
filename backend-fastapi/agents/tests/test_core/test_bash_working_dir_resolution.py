@@ -14,7 +14,7 @@ from execution.observability import (
     ExecutionObservabilityContext,
     execution_observability_scope,
 )
-from tools.tool_executor_modules.bash_tool import (
+from tools.local.bash_tool import (
     VALIDATION_ALLOWED,
     VALIDATION_APPROVAL_REQUIRED,
     _resolve_work_dir,

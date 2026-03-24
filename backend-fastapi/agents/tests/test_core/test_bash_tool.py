@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from tools.tool_executor_modules.bash_tool import (
+from tools.local.bash_tool import (
     VALIDATION_ALLOWED,
     VALIDATION_APPROVAL_REQUIRED,
     VALIDATION_BLOCKED,

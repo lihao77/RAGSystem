@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from agents.skills.skill_loader import SkillLoader
-from tools.tool_executor_modules.skill_tools import execute_skill_script, get_skill_info
+from tools.local.skill_tools import execute_skill_script, get_skill_info
 from tools.contracts.result_models import ToolExecutionResult
 
 
@@ -157,7 +157,7 @@ def test_execute_skill_script_bridges_artifact_protocol(monkeypatch):
 
     monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
     monkeypatch.setattr(
-        "tools.visualization_artifact_manager.get_visualization_artifact_manager",
+        "tools.artifacts.visualization_artifact_manager.get_visualization_artifact_manager",
         lambda: FakeManager(),
     )
 
