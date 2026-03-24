@@ -16,10 +16,10 @@ def test_tool_output_type_audit_contains_expected_internal_tools():
     assert rows_by_name["preview_data_structure"]["normalized_output_type"] == "json"
     assert rows_by_name["read_file"]["normalized_output_type"] == "text"
     assert rows_by_name["mcp__*"]["normalized_output_type"] == "dynamic"
-    assert rows_by_name["<agent_name>"]["raw_shape"] == "tool_execution_result"
-    assert rows_by_name["<agent_name>"]["content_field"] == "content"
-    assert rows_by_name["<agent_name>"]["normalized_branch"] == "direct_passthrough"
-    assert rows_by_name["<agent_name>"]["classification_basis"] == "agent_outputs_are_not_tool_output_map_entries"
+    assert rows_by_name["call_agent"]["raw_shape"] == "tool_execution_result"
+    assert rows_by_name["call_agent"]["content_field"] == "content"
+    assert rows_by_name["call_agent"]["normalized_branch"] == "direct_passthrough"
+    assert rows_by_name["call_agent"]["classification_basis"] == "agent_outputs_are_not_tool_output_map_entries"
 
 
 def test_tool_output_type_audit_summary_marks_dynamic_entries_and_reference_compatibility():

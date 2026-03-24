@@ -6,22 +6,20 @@
 
 ```
 tools/
-├── catalog/                          # 仅保留兼容辅助与 MCP 适配（不再作为运行时主读模型）
-│   ├── static_tools.py               # 静态工具契约（已清空，扩展保留）
-│   ├── skill_tools.py                # Skill 工具兼容占位
-│   ├── agent_tools.py                # Agent 描述兼容辅助
-│   ├── builtin_tools.py              # builtin 兼容占位
+├── catalog/                          # 仅保留 MCP 适配
 │   └── mcp_tools.py                  # MCP 工具适配
 ├── tool_executor_modules/            # 工具实现层
 │   ├── dispatcher.py                 # 分发入口 + TOOL_HANDLERS + _merge_decorated_handlers()
 │   ├── report_tools.py               # 应急报告生成（@tool 装饰器示范）
 │   ├── skill_tools.py                # Skill 执行（含 artifact 协议桥接）
+│   ├── builtin_tools.py              # builtin 工具（request_user_input）
+│   ├── agent_tools.py                # agent delegation 工具（call_agent）
 │   ├── bash_tool.py                  # Bash 命令执行
 │   ├── shared.py                     # 共享依赖
 │   └── __init__.py                   # 导出 + __all__
 ├── bootstrap.py                      # bootstrap_tool_system() 统一入口
 ├── path_resolution.py               # 全局路径管理中心（DATA_ROOT、目录常量、session 级路径）
-├── tool_registry.py                  # ToolRegistry 注册表
+├── tool_registry.py                  # ToolRegistry 唯一读模型
 ├── tool_definition_builder.py        # ToolContract → OpenAI 格式
 ├── tool_executor.py                  # 执行公共入口
 ├── permissions.py                    # 权限管理 + TOOL_PERMISSIONS + _merge_decorated_permissions()
@@ -64,7 +62,9 @@ tools/
 
 ## 新增工具注册
 
-### 方式一：@tool() 装饰器（推荐，所有业务工具已迁移至此方式）
+所有本地工具统一通过 `@tool()` 注册；MCP 是唯一保留的外部适配例外。
+
+### @tool() 装饰器注册（唯一入口）
 
 在工具函数上添加 `@tool()` 装饰器，一处定义 Contract + Permission + Handler：
 
@@ -93,7 +93,7 @@ def my_tool(arguments, **kwargs):
 1. `discover_decorated_tools()`
 2. `_merge_decorated_handlers()`
 3. `_merge_decorated_permissions()`
-4. `ToolRegistry.register_extra_contracts()`
+4. `ToolRegistry.register_contracts()`
 5. `check_tool_consistency()`
 
 `source` 字段决定工具分类：
@@ -105,7 +105,7 @@ def my_tool(arguments, **kwargs):
 
 已迁移的本地工具（12 个）：
 - `report_tools.py`: generate_report
-- `skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
+- `tool_executor_modules/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `code_sandbox.py`: execute_code
 - `document_executor.py`: write_file, read_file, preview_data_structure, edit_file
 - `tool_executor_modules/builtin_tools.py`: request_user_input
@@ -116,15 +116,6 @@ def my_tool(arguments, **kwargs):
 - 应急工具 → `agents/skills/emergency-decision-support/` Skill：query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map
 - Skill 脚本通过 `execute_skill_script` 调用，输出 artifact 协议格式时系统自动完成可视化持久化
 
-### 方式二：手动注册链路（仅 MCP/扩展兼容保留）
-
-所有本地可执行能力都已迁移到 `@tool()` 装饰器；手动注册链路不再承载 builtin 或 agent delegation。
-
-1. **实现函数** → `tool_executor_modules/<module>.py`
-2. **定义契约** → `catalog/static_tools.py`
-3. **配置权限** → `permissions.py`
-
-完成后更新本文档的「工具清单」章节。
 
 ## 执行流程
 
@@ -219,7 +210,7 @@ class ToolContract:
     usage_contract: list[str]        # 使用约定（给 LLM 的指导）
     examples: list[dict]             # 使用示例
     tags: list[str]                  # 标签
-    source: str                      # static/skill/document/agent/mcp
+    source: str                      # decorator/skill/document/builtin/agent/mcp
 ```
 
 ### 权限配置（permissions.py）
@@ -293,7 +284,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 各数据参数接受 JSON 字符串或结构化对象；未提供的章节标注“暂无数据”。返回 `output_type=markdown`。
 
-### Skill 工具（skill_tools.py）
+### Skill 工具（tool_executor_modules/skill_tools.py）
 
 | 函数 | 参数 | 说明 |
 |------|------|------|

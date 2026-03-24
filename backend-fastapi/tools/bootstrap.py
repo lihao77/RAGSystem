@@ -30,7 +30,7 @@ def bootstrap_tool_system() -> dict[str, Any]:
     registry = get_tool_registry()
     contracts = [info["contract"] for info in decorated.values()]
     if contracts:
-        registry.register_extra_contracts(contracts)
+        registry.register_contracts(contracts)
 
     warnings = check_tool_consistency()
     _BOOTSTRAP_STATE["decorated"] = decorated

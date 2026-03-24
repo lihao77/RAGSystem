@@ -14,44 +14,37 @@ from tools.catalog.mcp_tools import (
     mcp_tools_to_openai_format,
     parse_mcp_tool_name,
 )
-from tools.catalog.static_tools import STATIC_TOOL_CONTRACTS
 from tools.tool_definition_builder import build_function_tools
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """Canonical access layer for tool definitions grouped by source."""
+    """Canonical read model for runtime tool contracts and tool definitions."""
 
     def __init__(self):
-        self._extra_contracts: list = []
-        self._static_tools_cache: list | None = None
+        self._contracts: list = []
+        self._tool_cache: list | None = None
 
-    def register_extra_contracts(self, contracts: list) -> None:
-        """注册扩展/装饰器工具契约。"""
+    def register_contracts(self, contracts: list) -> None:
+        """注册运行时可见的工具契约。"""
         if not contracts:
             return
-        merged = {contract.name: contract for contract in self._extra_contracts}
+        merged = {contract.name: contract for contract in self._contracts}
         merged.update({contract.name: contract for contract in contracts})
-        self._extra_contracts = list(merged.values())
-        self._static_tools_cache = None
-        logger.info("注册额外工具契约: %s", [c.name for c in contracts])
+        self._contracts = list(merged.values())
+        self._tool_cache = None
+        logger.info("注册工具契约: %s", [c.name for c in contracts])
 
-    def get_static_contracts(self):
-        return deepcopy(STATIC_TOOL_CONTRACTS) + deepcopy(self._extra_contracts)
+    def get_all_contracts(self):
+        return deepcopy(self._contracts)
 
-    def get_static_tools(self):
-        if self._static_tools_cache is not None:
-            return deepcopy(self._static_tools_cache)
-        self._static_tools_cache = build_function_tools(self.get_static_contracts())
-        return deepcopy(self._static_tools_cache)
-
-    def get_default_tools(self):
+    def get_base_tools(self):
         """返回所有非 MCP 的基础工具定义。"""
-        return self.get_static_tools()
-
-    def get_all_base_tools(self):
-        return self.get_default_tools()
+        if self._tool_cache is not None:
+            return deepcopy(self._tool_cache)
+        self._tool_cache = build_function_tools(self.get_all_contracts())
+        return deepcopy(self._tool_cache)
 
     def get_tools_by_source(self, sources: str | Iterable[str]):
         if isinstance(sources, str):
@@ -59,7 +52,7 @@ class ToolRegistry:
         else:
             source_set = set(sources)
         return [
-            tool for tool in self.get_default_tools()
+            tool for tool in self.get_base_tools()
             if tool.get("function", {}).get("source") in source_set
         ]
 
@@ -75,18 +68,18 @@ class ToolRegistry:
     def get_agent_tools(self):
         return self.get_tools_by_source("agent")
 
-    def get_configurable_tools(self):
+    def get_direct_tools(self):
         """只返回由 tools.enabled_tools 显式配置的本地 direct 工具。"""
         return [
-            tool for tool in self.get_default_tools()
+            tool for tool in self.get_base_tools()
             if tool.get("function", {}).get("source") not in {"builtin", "agent", "skill", "mcp"}
         ]
 
     def get_tool_names(self):
-        return [tool["function"]["name"] for tool in self.get_default_tools()]
+        return [tool["function"]["name"] for tool in self.get_base_tools()]
 
     def get_tool_by_name(self, name: str):
-        for tool in self.get_default_tools():
+        for tool in self.get_base_tools():
             if tool["function"]["name"] == name:
                 return deepcopy(tool)
         return None
@@ -113,9 +106,9 @@ class ToolRegistry:
             return "mcp"
         return "local"
 
-    def list_configurable_tool_summaries(self):
+    def list_direct_tool_summaries(self):
         summaries = []
-        for tool in self.get_configurable_tools():
+        for tool in self.get_direct_tools():
             function_def = tool.get("function", {})
             tool_name = function_def.get("name", "")
             summaries.append({
@@ -123,14 +116,14 @@ class ToolRegistry:
                 "display_name": tool_name.replace("_", " ").title(),
                 "description": function_def.get("description", ""),
                 "category": self.get_tool_category(tool_name),
-                "source": function_def.get("source", "static"),
+                "source": function_def.get("source", "decorator"),
             })
         return summaries
 
     def get_code_callable_tools(self):
         return [
             tool["function"]["name"]
-            for tool in self.get_default_tools()
+            for tool in self.get_base_tools()
             if "code_execution" in tool["function"].get("allowed_callers", ["direct"])
         ]
 

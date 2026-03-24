@@ -72,7 +72,7 @@ def _build_default_permission(tool_name: str) -> Optional[ToolPermission]:
         return None
 
     function_def = tool.get("function", {})
-    source = function_def.get("source", "static")
+    source = function_def.get("source", "decorator")
     category = _TOOL_REGISTRY.get_tool_category(tool_name)
     risk_level = _infer_default_risk_level(tool_name, source, category)
 

@@ -260,11 +260,11 @@ class AgentLoader:
         from agents.skills.skill_loader import get_skill_loader
 
         filtered_tools = []
-        configurable_tools = self._tool_registry.get_configurable_tools()
+        direct_tools = self._tool_registry.get_direct_tools()
         enabled_tools = list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []) or [])
         if enabled_tools:
             filtered_tools.extend([
-                tool for tool in configurable_tools
+                tool for tool in direct_tools
                 if tool.get('function', {}).get('name') in enabled_tools
             ])
             logger.info(f"{agent_config.agent_name} 启用 direct 工具: {enabled_tools}")

@@ -111,7 +111,7 @@ async def _startup(app: FastAPI) -> None:
             # 5a. 注册扩展工具
             from tools.tool_registry import get_tool_registry
             for ext in loaded_extensions:
-                get_tool_registry().register_extra_contracts(ext.get_tool_contracts())
+                get_tool_registry().register_contracts(ext.get_tool_contracts())
 
             # 5b. 注册扩展格式化器
             from agents.context.observation_formatters.registry import get_default_registry

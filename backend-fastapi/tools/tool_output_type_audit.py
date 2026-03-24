@@ -57,6 +57,20 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
         "reference_compatible": False,
     },
     {
+        "tool_name": "request_user_input",
+        "category": "builtin",
+        "source": "tools/tool_executor_modules/builtin_tools.py",
+        "raw_shape": "tool_execution_result",
+        "content_field": "content",
+        "content_kind": "text_or_empty",
+        "normalized_branch": "direct_passthrough",
+        "normalized_output_type": "text",
+        "classification_basis": "interactive_runtime_tool",
+        "notes": "interactive builtin tool requires runtime event bus and task registry",
+        "validation_mode": "dynamic",
+        "reference_compatible": True,
+    },
+    {
         "tool_name": "call_agent",
         "category": "agent_delegation",
         "source": "tools/tool_executor_modules/agent_tools.py",
@@ -71,6 +85,13 @@ _DYNAMIC_ENTRIES: List[Dict[str, Any]] = [
         "reference_compatible": True,
     },
 ]
+
+
+_DYNAMIC_TOOL_NAMES = {
+    entry["tool_name"]
+    for entry in _DYNAMIC_ENTRIES
+    if "*" not in entry["tool_name"]
+}
 
 
 @contextmanager
@@ -206,6 +227,7 @@ def _run_skill_sample(tool_name: str, temp_dir: Path) -> Any:
         if tool_name == "get_skill_info":
             return TOOL_HANDLERS[tool_name](skill_name="demo-skill")
     raise KeyError(tool_name)
+
 
 
 def _sample_write_file(temp_dir: Path) -> Any:
@@ -350,8 +372,8 @@ def _registered_tool_names() -> List[str]:
     registry = get_tool_registry()
     return sorted(
         tool["function"]["name"]
-        for tool in registry.get_default_tools()
-        if tool["function"]["name"] != "execute_code"
+        for tool in registry.get_base_tools()
+        if tool["function"]["name"] not in _DYNAMIC_TOOL_NAMES
     )
 
 

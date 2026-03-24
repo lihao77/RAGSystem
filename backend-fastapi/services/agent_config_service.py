@@ -154,7 +154,7 @@ class AgentConfigService:
         return PRESET_CONFIGS
 
     def list_available_tools(self):
-        return self._tool_registry.list_configurable_tool_summaries()
+        return self._tool_registry.list_direct_tool_summaries()
 
     def list_available_mcp_servers(self):
         from services.mcp_service import get_mcp_service

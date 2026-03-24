@@ -10,18 +10,15 @@
 
 ## 二、核心问题（按优先级排序）
 
-### P0 — 工具注册链路过于分散
+### P0 — 工具注册链路曾经过于分散（现已统一）
 
-新增一个工具需要改 5 个文件：
+当前本地工具已统一收口到：
 
 ```
-static_tools.py → dispatcher.py → permissions.py → __init__.py → docs/tools.md
+@tool() → auto_discovery.py → bootstrap.py → ToolRegistry / dispatcher / permissions → docs/tools.md
 ```
 
-任何一处遗漏都会导致运行时错误，且没有一致性校验。
-
-**升级方向**：引入统一注册框架，用装饰器 `@tool(name, description, parameters, risk_level)`
-将合约、实现、权限合并到一处定义，启动时自动扫描注册 + 一致性校验。
+一致性校验已由 `check_tool_consistency()` 覆盖，历史兼容注册链路已移除。
 
 ### P0 — 工具错误处理不统一
 

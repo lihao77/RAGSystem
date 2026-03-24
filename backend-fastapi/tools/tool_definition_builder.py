@@ -20,7 +20,7 @@ class ToolContract:
     usage_contract: list[str] = field(default_factory=list)
     examples: list[dict[str, Any]] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
-    source: str = "static"
+    source: str = "decorator"
 
 
 def build_function_tool(contract: ToolContract | Mapping[str, Any]) -> dict[str, Any]:
