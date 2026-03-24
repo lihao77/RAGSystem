@@ -125,6 +125,46 @@ def test_execute_skill_script_returns_parsed_json_stdout(monkeypatch):
     assert result.metadata["skill"] == "demo-skill"
 
 
+def test_execute_skill_script_unwraps_generate_report_payload(monkeypatch):
+    class StubSkill:
+        name = "emergency-decision-support"
+
+        def has_scripts(self):
+            return True
+
+        def execute_script(self, script_name, arguments=None, timeout=30):
+            assert script_name == "generate_report.py"
+            assert arguments == ["--report-type", "situation_report", "--location", "南宁市"]
+            return {
+                "stdout": '{"success": true, "summary": "已生成综合态势报告（南宁市）", "data": {"report_type": "situation_report", "title": "综合态势报告", "location": "南宁市", "report_time": "2026-03-24 12:00", "sections": {"situation": {"summary": "持续强降雨"}, "risk": {}, "warning": {}, "plan": {}, "action": {}, "weather": {}}, "markdown": "# 综合态势报告\\n\\n### 一、态势概览\\n\\n持续强降雨\\n"}}',
+                "stderr": "",
+                "return_code": 0,
+            }
+
+    class StubLoader:
+        def load_all_skills(self):
+            return [StubSkill()]
+
+    monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
+
+    result = execute_skill_script(
+        "emergency-decision-support",
+        "generate_report.py",
+        ["--report-type", "situation_report", "--location", "南宁市"],
+    )
+
+    assert isinstance(result, ToolExecutionResult)
+    assert result.success is True
+    assert result.output_type == "json"
+    assert result.content["report_type"] == "situation_report"
+    assert result.content["location"] == "南宁市"
+    assert "markdown" in result.content
+    assert result.content["markdown"].startswith("# 综合态势报告")
+    assert result.metadata["summary"] == "已生成综合态势报告（南宁市）"
+    assert result.metadata["script_name"] == "generate_report.py"
+    assert result.metadata["skill"] == "emergency-decision-support"
+
+
 def test_execute_skill_script_bridges_artifact_protocol(monkeypatch):
     class StubSkill:
         name = "demo-skill"

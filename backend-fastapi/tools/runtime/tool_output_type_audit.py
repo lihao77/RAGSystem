@@ -326,20 +326,6 @@ def _sample_execute_bash(temp_dir: Path) -> Any:
     )
 
 
-def _sample_generate_report(_: Path) -> Any:
-    return TOOL_HANDLERS["generate_report"](
-        report_type="situation_report",
-        title="南宁市防汛综合态势报告",
-        location="南宁市",
-        situation_data={"summary": "全市出现持续强降雨"},
-        risk_data={"risk_level": "III", "risk_label": "较大", "assessment": "需加强巡查"},
-        warning_data={"warnings": [{"title": "暴雨橙色预警"}]},
-        plan_data={"matched_plans": ["启动城区内涝防御预案"]},
-        action_data={"key_actions": ["预置抢险力量"]},
-        weather_data={"rainfall_24h_mm": 86},
-    )
-
-
 def _sample_edit_file(temp_dir: Path) -> Any:
     workspace = temp_dir / "workspace"
     workspace.mkdir(exist_ok=True)
@@ -356,7 +342,6 @@ def _sample_edit_file(temp_dir: Path) -> Any:
 
 _SAMPLE_RUNNERS: Dict[str, Callable[[Path], Any]] = {
     "execute_bash": _sample_execute_bash,
-    "generate_report": _sample_generate_report,
     "activate_skill": lambda temp_dir: _run_skill_sample("activate_skill", temp_dir),
     "load_skill_resource": lambda temp_dir: _run_skill_sample("load_skill_resource", temp_dir),
     "execute_skill_script": lambda temp_dir: _run_skill_sample("execute_skill_script", temp_dir),

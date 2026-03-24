@@ -34,13 +34,13 @@ def tool(
     用法::
 
         @tool(
-            name="generate_report",
-            description="生成标准格式应急报告",
+            name="my_tool",
+            description="工具描述",
             parameters={...},
             risk_level=RiskLevel.LOW,
             timeout_seconds=120,
         )
-        async def generate_report(arguments, **kwargs):
+        async def my_tool(arguments, **kwargs):
             ...
     """
     _allowed_callers = allowed_callers or ["direct", "code_execution"]

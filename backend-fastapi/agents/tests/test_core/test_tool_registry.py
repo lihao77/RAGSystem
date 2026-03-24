@@ -19,6 +19,7 @@ def test_tool_registry_groups_base_and_document_tools():
 
     assert "activate_skill" in base_names
     assert "execute_skill_script" in base_names
+    assert "generate_report" not in base_names
     assert "read_file" in base_names
     assert "request_user_input" in builtin_names
     assert agent_names == ["call_agent"]
@@ -54,6 +55,7 @@ def test_tool_registry_exposes_base_tool_accessors():
     all_contract_names = {contract.name for contract in registry.get_all_contracts()}
 
     assert registry.get_tool_by_name("execute_skill_script")["function"]["name"] == "execute_skill_script"
+    assert registry.get_tool_by_name("generate_report") is None
     assert registry.get_tool_by_name("call_agent")["function"]["name"] == "call_agent"
     assert "read_file" not in registry.get_code_callable_tools()
     assert "execute_bash" not in registry.get_code_callable_tools()

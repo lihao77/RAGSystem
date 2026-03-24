@@ -28,7 +28,6 @@ tools/
 │   ├── builtin_tools.py              # builtin 工具（request_user_input）
 │   ├── agent_tools.py                # agent delegation 工具（call_agent）
 │   ├── bash_tool.py                  # Bash 命令执行
-│   ├── report_tools.py               # 应急报告生成
 │   └── shared.py                     # 本地工具共享依赖
 ├── refs/                             # 结果引用与占位符解析
 │   └── result_references.py          # 占位符路径解析 + 错误标记 + 未替换检测
@@ -116,8 +115,7 @@ def my_tool(arguments, **kwargs):
 - `agent`：子 Agent delegation 工具（当前仅 `call_agent`）
 - `mcp`：外部 MCP adapter 例外
 
-已迁移的本地工具（12 个）：
-- `local/report_tools.py`: generate_report
+已迁移的本地工具（11 个）：
 - `local/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `local/code_sandbox.py`: execute_code
 - `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
@@ -126,7 +124,7 @@ def my_tool(arguments, **kwargs):
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
-- 应急工具 → `agents/skills/emergency-decision-support/` Skill：query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map
+- 应急工具 → `agents/skills/emergency-decision-support/` Skill：query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map 等
 - Skill 脚本通过 `execute_skill_script` 调用，输出 artifact 协议格式时系统自动完成可视化持久化
 
 
@@ -263,7 +261,7 @@ class ToolPermission:
     timeout_seconds: int             # 执行超时秒数（默认 60，0=不限制）
 ```
 
-慢工具超时配置：`execute_skill_script`、`generate_report` 设为 120s。
+慢工具超时配置：`execute_skill_script` 设为 120s。
 
 ### 结果规范化（dispatcher._normalize_tool_result）
 
@@ -294,7 +292,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 ### 应急工具（已迁移为 Skill：`emergency-decision-support`）
 
-原 `emergency_tools.py` 中的 4 个工具已迁移为 `agents/skills/emergency-decision-support/` Skill 脚本：
+原 `emergency_tools.py` 中的 4 个工具，以及原报告生成功能，已统一迁移为 `agents/skills/emergency-decision-support/` Skill 脚本：
 
 | 原工具 | 对应 Skill 脚本 | 说明 |
 |--------|-----------------|------|
@@ -302,25 +300,6 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `assess_flood_risk` | `emergency-decision-support/scripts/assess_flood_risk.py` | 洪涝风险评估 |
 | `match_emergency_response` | `emergency-decision-support/scripts/match_response.py` | 响应匹配（1:1 Skill 化封装） |
 | `create_risk_map` | `emergency-decision-support/scripts/create_risk_map.py` | 批量评估+风险地图（输出 artifact 协议） |
-
-风险等级阈值：I(特别重大/250mm) → II(重大/200mm) → III(较大/100mm) → IV(一般/50mm)
-
-### 报告工具（report_tools.py）
-
-| 函数 | 参数 | 说明 |
-|------|------|------|
-| `generate_report` | report_type, title, location, situation_data, risk_data, warning_data, plan_data, action_data, weather_data, extra_sections, report_time | 生成标准格式应急报告 |
-
-报告类型：flood_bulletin（汛情快报）、disaster_report（灾情报告）、situation_report（综合态势报告）
-
-调用约束：
-- `report_type` 优先传英文枚举值，不要直接传中文标题；中文仅作为兼容别名，不应作为首选调用方式
-- `situation_data`、`risk_data`、`weather_data` 推荐传对象
-- `warning_data`、`plan_data`、`action_data` 可传对象或数组，推荐对象
-- `extra_sections` 推荐传 `{章节名: 内容}` 对象；若传数组，元素应尽量使用 `{title, content}` 结构
-
-各数据参数接受 JSON 字符串或结构化对象；未提供的章节标注“暂无数据”。返回 `output_type=markdown`。
-
 ### Skill 工具（local/skill_tools.py）
 
 | 函数 | 参数 | 说明 |
