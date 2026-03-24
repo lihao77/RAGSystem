@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 
 import pytest
@@ -7,7 +8,11 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from tools.document_executor import preview_data_structure
+from tools.local.document_tools import preview_data_structure
+
+
+def _agent_config(tmp_path):
+    return SimpleNamespace(custom_params={"workspace_root": str(tmp_path)})
 
 
 def test_preview_data_structure_json_nested(tmp_path):
@@ -17,7 +22,7 @@ def test_preview_data_structure_json_nested(tmp_path):
         encoding="utf-8",
     )
 
-    result = preview_data_structure(str(fp))
+    result = preview_data_structure(str(fp), agent_config=_agent_config(tmp_path))
 
     assert result.success is True
     assert result.content["file_type"] == "json"
@@ -35,7 +40,7 @@ def test_preview_data_structure_csv_columns_and_types(tmp_path):
         encoding="utf-8",
     )
 
-    result = preview_data_structure(str(fp))
+    result = preview_data_structure(str(fp), agent_config=_agent_config(tmp_path))
 
     assert result.success is True
     assert result.content["file_type"] == "csv"
@@ -56,7 +61,7 @@ def test_preview_data_structure_yaml_object(tmp_path):
         encoding="utf-8",
     )
 
-    result = preview_data_structure(str(fp), max_depth=2)
+    result = preview_data_structure(str(fp), max_depth=2, agent_config=_agent_config(tmp_path))
 
     assert result.success is True
     assert result.content["file_type"] == "yaml"
@@ -70,7 +75,7 @@ def test_preview_data_structure_text_summary(tmp_path):
     fp = tmp_path / "notes.txt"
     fp.write_text("alpha\n\nbeta line\ncharlie\n", encoding="utf-8")
 
-    result = preview_data_structure(str(fp), max_preview_rows=2)
+    result = preview_data_structure(str(fp), max_preview_rows=2, agent_config=_agent_config(tmp_path))
 
     assert result.success is True
     assert result.content["file_type"] == "txt"
@@ -85,7 +90,7 @@ def test_preview_data_structure_rejects_invalid_limits(tmp_path):
     fp = tmp_path / "sample.json"
     fp.write_text("{}", encoding="utf-8")
 
-    result = preview_data_structure(str(fp), max_depth=0)
+    result = preview_data_structure(str(fp), max_depth=0, agent_config=_agent_config(tmp_path))
 
     assert result.success is False
     assert "max_depth" in result.content

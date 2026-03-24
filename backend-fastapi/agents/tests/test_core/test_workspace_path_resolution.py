@@ -13,7 +13,7 @@ from tools.runtime.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
 from tools.local.document_tools import _prepare_document_tool_args, edit_file, read_file, write_file
 from tools.local.code_sandbox import execute_code_sandbox
-from tools.paths.path_resolution import get_code_execution_session_root, get_export_run_root
+from tools.paths.path_resolution import get_session_sandbox_root, get_export_run_root
 from tools.permissions import check_tool_permission, _merge_decorated_permissions
 from tools.runtime.registration import _merge_decorated_handlers
 from tools.tool_registry import get_tool_registry
@@ -338,7 +338,7 @@ def test_execute_code_uses_workspace_for_reads_and_sandbox_for_writes():
     )
 
     session_id = "session-code-root"
-    code_root = get_code_execution_session_root(session_id)
+    code_root = get_session_sandbox_root(session_id)
     output_path = code_root / "result.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.unlink(missing_ok=True)
