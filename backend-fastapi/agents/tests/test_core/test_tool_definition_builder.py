@@ -2,7 +2,7 @@
 
 import pytest
 
-from tools.tool_definition_builder import ToolContract, build_function_tool, build_function_tools
+from tools.contracts.tool_contracts import ToolContract, build_function_tool, build_function_tools
 
 
 def test_build_function_tool_emits_openai_style_schema_with_extended_fields():

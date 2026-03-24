@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from agents.context.observation_policy import ObservationPolicy
-from tools.response_builder import error_result, success_result
+from tools.runtime.response_builder import error_result, success_result
 
 
 def test_small_text_result_stays_inline():

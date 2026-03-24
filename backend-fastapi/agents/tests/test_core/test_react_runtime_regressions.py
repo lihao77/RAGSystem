@@ -10,8 +10,8 @@ from agents.context.observation_policy import ObservationPolicy
 from agents.context.prompt_materializer import PromptMaterializer
 from agents.implementations.orchestrator.agent import OrchestratorAgent
 from agents.artifacts import ArtifactStore
-from tools.result_normalizer import ToolResultNormalizer
-from tools.response_builder import success_result
+from tools.runtime.result_normalizer import ToolResultNormalizer
+from tools.runtime.response_builder import success_result
 
 
 class _DummyPublisher:
@@ -161,7 +161,7 @@ class _PlaceholderAwareAgent(BaseAgent):
 
 
 def test_base_handle_actions_passes_run_id_to_execute_tool(monkeypatch):
-    from tools import tool_executor
+    import tools.runtime.executor as tool_executor
 
     captured_kwargs = []
 
@@ -196,7 +196,7 @@ def test_base_handle_actions_passes_run_id_to_execute_tool(monkeypatch):
 
 
 def test_base_handle_actions_resolves_same_round_tool_placeholders(monkeypatch):
-    from tools import tool_executor
+    import tools.runtime.executor as tool_executor
 
     captured_arguments = []
 

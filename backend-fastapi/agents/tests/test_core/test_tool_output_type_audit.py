@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from tools.tool_output_type_audit import build_audit_rows, build_summary
+from tools.runtime.tool_output_type_audit import build_audit_rows, build_summary
 
 
 def test_tool_output_type_audit_contains_expected_internal_tools():

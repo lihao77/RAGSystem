@@ -5,12 +5,10 @@ import tempfile
 from pathlib import Path
 
 from services.conversation_store import ConversationStore
-from tools.path_resolution import (
-    EXPORTS_ROOT,
-    TRANSIENT_ROOT,
-    VISUALIZATION_ROOT,
+from tools.paths.path_resolution import (
     get_export_run_root,
     get_session_sandbox_root,
+    get_session_transient_root,
     get_session_visualizations_root,
 )
 
@@ -91,37 +89,39 @@ def test_conversation_store_persists_runs_resources_and_step_links():
 
 def test_conversation_store_infers_new_resource_scopes():
     root = _make_temp_dir()
+    session_id = "session-scope"
+    run_id = "run-1"
     try:
         db_path = root / "conversation.db"
         store = ConversationStore(db_path=str(db_path), start_cleanup_thread=False)
-        store.create_session("session-scope")
+        store.create_session(session_id)
 
-        transient_path = TRANSIENT_ROOT / "artifacts" / "data_1.json"
+        transient_path = get_session_transient_root(session_id) / "data_1.json"
         transient_path.parent.mkdir(parents=True, exist_ok=True)
         transient_path.write_text("{}", encoding="utf-8")
 
-        export_path = EXPORTS_ROOT / "session-scope" / "run-1" / "out.txt"
+        export_path = get_export_run_root(session_id, run_id) / "out.txt"
         export_path.parent.mkdir(parents=True, exist_ok=True)
         export_path.write_text("ok", encoding="utf-8")
 
-        viz_path = VISUALIZATION_ROOT / "session-scope" / "viz.json"
+        viz_path = get_session_visualizations_root(session_id) / "viz.json"
         viz_path.parent.mkdir(parents=True, exist_ok=True)
         viz_path.write_text("{}", encoding="utf-8")
 
         transient = store.register_resource(
-            session_id="session-scope",
+            session_id=session_id,
             path=str(transient_path),
             resource_type="data",
             source_tool="demo",
         )
         export = store.register_resource(
-            session_id="session-scope",
+            session_id=session_id,
             path=str(export_path),
             resource_type="data",
             source_tool="demo",
         )
         session = store.register_resource(
-            session_id="session-scope",
+            session_id=session_id,
             path=str(viz_path),
             resource_type="artifact",
             source_tool="demo",
@@ -132,6 +132,7 @@ def test_conversation_store_infers_new_resource_scopes():
         assert session["scope"] == "session"
     finally:
         shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
 

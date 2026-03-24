@@ -4,7 +4,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from tools.path_resolution import (
+from tools.paths.path_resolution import (
     DATA_ROOT,
     get_effective_workspace_root,
     get_session_cleanup_root,

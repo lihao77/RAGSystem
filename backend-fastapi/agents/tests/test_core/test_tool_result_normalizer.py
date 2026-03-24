@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from agents.monitoring.observation_window import ObservationWindowCollector
-from tools.result_normalizer import ToolResultNormalizer
-from tools.response_builder import success_result
+from tools.runtime.result_normalizer import ToolResultNormalizer
+from tools.runtime.response_builder import success_result
 
 
 def test_normalizer_rejects_legacy_standard_result_dict():

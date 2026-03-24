@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 from tools.runtime.bootstrap import bootstrap_tool_system
 from tools.local.code_sandbox import execute_code_sandbox
-from tools.path_resolution import get_code_execution_session_root
 from tools.runtime.response_builder import success_result
 
 
@@ -27,7 +26,7 @@ def test_execute_code_call_tool_passes_session_id_for_approval(monkeypatch):
             tool_name=tool_name,
         )
 
-    monkeypatch.setattr("tools.tool_executor.execute_tool", _fake_execute_tool)
+    monkeypatch.setattr("tools.runtime.executor.execute_tool", _fake_execute_tool)
 
     result = execute_code_sandbox(
         code="result = call_tool('preview_data_structure', {'file_path': 'sample.json'})",
@@ -371,7 +370,7 @@ def test_execute_code_subprocess_call_tool_roundtrip(monkeypatch):
         captured['session_id'] = session_id
         return success_result(content={'items': [1, 2]}, summary='ok', output_type='json', tool_name=tool_name)
 
-    monkeypatch.setattr('tools.tool_executor.execute_tool', _fake_execute_tool)
+    monkeypatch.setattr('tools.runtime.executor.execute_tool', _fake_execute_tool)
     result = execute_code_sandbox(
         code="result = call_tool('preview_data_structure', {'file_path': 'sample.json'})",
         description='subprocess tool call',

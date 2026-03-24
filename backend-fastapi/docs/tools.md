@@ -19,7 +19,8 @@ tools/
 │   ├── mcp_gateway.py                # MCP 运行时命名解析与统一执行入口
 │   ├── executor.py                   # execute_tool() 主执行编排
 │   ├── response_builder.py           # success_result() / error_result()
-│   └── result_normalizer.py          # 结果规范化
+│   ├── result_normalizer.py          # 结果规范化
+│   └── tool_output_type_audit.py     # 工具输出形态审计脚本
 ├── local/                            # 本地工具真实实现
 │   ├── document_tools.py             # 文件类 document 工具实现
 │   ├── code_sandbox.py               # Python 代码沙箱
@@ -31,10 +32,9 @@ tools/
 │   └── shared.py                     # 本地工具共享依赖
 ├── refs/                             # 结果引用与占位符解析
 │   └── result_references.py          # 占位符路径解析 + 错误标记 + 未替换检测
-├── artifacts/                        # artifact / presentation 子域
+├── artifacts/                        # 可视化 artifact 子域
 │   ├── visualization_artifact_manager.py # 可视化 artifact 持久化
-│   ├── visualization_fallback.py     # 可视化降级
-│   └── presentation_store.py         # 旧 presentation store 实现
+│   └── visualization_fallback.py     # 可视化降级
 ├── paths/                            # 路径治理子域
 │   └── path_resolution.py            # 全局路径管理中心（DATA_ROOT、目录常量、session 级路径）
 ├── catalog/                          # 协议型适配（当前仅 MCP）
@@ -44,11 +44,6 @@ tools/
 ├── tool_registry.py                  # ToolRegistry 唯一读模型
 ├── bootstrap.py                      # 稳定 public API：指向 runtime.bootstrap
 ├── tool_executor.py                  # 稳定 public API：指向 runtime.executor
-├── path_resolution.py                # 稳定 public API：指向 paths.path_resolution
-├── tool_definition_builder.py        # facade：指向 contracts.tool_contracts
-├── result_schema.py                  # facade：指向 contracts.result_models
-├── result_references.py              # facade：指向 refs.result_references
-├── visualization_artifact_manager.py # 模块别名 facade：指向 artifacts.visualization_artifact_manager
 └── __init__.py
 ```
 
@@ -69,13 +64,14 @@ tools/
 ### 统一原则（v3）
 
 - **除 MCP 外，所有可执行能力统一走 `@tool()`**
-- contracts / runtime / local / refs / artifacts / paths 已完成分层收敛；`tools/` 根目录只保留少量稳定 public API，其余 facade 已清理
+- 当前真实结构只保留 `contracts / runtime / local / refs / artifacts / paths / catalog`
+- `tools/` 根目录不再保留兼容 facade；稳定入口仅剩 `tools.bootstrap` 与 `tools.tool_executor`
 - builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
 - agent delegation 已收敛为单一 `@tool(source="agent")`：`call_agent`
 - 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
 - `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型；MCP contract/schema 适配仍来自 `tools.catalog.mcp_tools`，但运行时命名解析统一复用 `tools.runtime.mcp_gateway`
 - runtime 层负责 discovery / registration / approval / dispatch / execute；其中 MCP 采用“外部展开、内部单网关”：Agent 仍看到 `mcp__<server>__<tool>`，实际执行与 observability 透传统一收敛到 `tools.runtime.mcp_gateway`
-- 稳定 root-level public API 仅保留：`tools.bootstrap`、`tools.tool_executor`、`tools.path_resolution`
+- 历史顶层目录 `data/artifacts`、`data/transient`、`data/exports`、`data/workspace` 已不再作为主写入模型
 
 ## 新增工具注册
 
@@ -218,7 +214,7 @@ Agent 可见工具: mcp__server__tool
 这保证了“对外工具面不变、对内运行时收口”。
 
 
-### ToolExecutionResult（result_schema.py）
+### ToolExecutionResult（contracts/result_models.py）
 
 ```python
 @dataclass
@@ -234,7 +230,7 @@ class ToolExecutionResult:
     llm_hint: Optional[str]          # 给 LLM 的提示
 ```
 
-### ToolContract（tool_definition_builder.py）
+### ToolContract（contracts/tool_contracts.py）
 
 `examples` 中的 `input` 同时用于 JSON 契约展示和 prompt 中的 XML 示例渲染：
 - 当示例需要展示 XML 属性（如 `space="transient"`）时，不要把 `<file_path ...>...</file_path>` 或 `<working_dir ...>...</working_dir>` 作为字符串塞进 `input`
@@ -486,7 +482,7 @@ Skill 脚本输出 JSON 到 stdout，当需要创建可视化 artifact 时，包
 }
 ```
 
-## 结果引用系统（result_references.py）
+## 结果引用系统（refs/result_references.py）
 
 | 函数 | 说明 |
 |------|------|

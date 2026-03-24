@@ -35,15 +35,7 @@ SESSION_TRACES_ROOT: Path = MONITORING_ROOT / "session_traces"
 RAGSYSTEM_DB: Path = DB_ROOT / "ragsystem.db"
 CHECKPOINTS_DB: Path = DB_ROOT / "checkpoints.db"
 
-# ── 兼容历史目录（仅用于只读 fallback / scope 推断）─────────────
-_LEGACY_ARTIFACTS_ROOT: Path = DATA_ROOT / "artifacts"
-_LEGACY_TRANSIENT_ROOT: Path = DATA_ROOT / "transient"
-_LEGACY_EXPORTS_ROOT: Path = DATA_ROOT / "exports"
-_LEGACY_WORKSPACE_ROOT: Path = DATA_ROOT / "workspace"
-_LEGACY_VISUALIZATION_ROOT: Path = _LEGACY_ARTIFACTS_ROOT / "visualizations"
-_LEGACY_TRANSIENT_ARTIFACTS_ROOT: Path = _LEGACY_TRANSIENT_ROOT / "scratch"
-_LEGACY_CODE_EXECUTION_ROOT: Path = _LEGACY_TRANSIENT_ROOT / "code_execution"
-
+# ── 匿名 session 兜底 ─────────────────────────────────────────────
 _DISPLAY_PATH_PREFIX = "./data/"
 _ANONYMOUS_SESSION_ID = "anonymous"
 _READ_OPERATIONS = {"read"}
@@ -78,15 +70,6 @@ def _normalize_run_id(run_id: str | None) -> str | None:
 def _anonymous_session_root() -> Path:
     return SESSIONS_ROOT / _ANONYMOUS_SESSION_ID
 
-
-# ── 兼容导出常量（新代码请优先使用 session 函数）───────────────
-ARTIFACTS_ROOT: Path = _LEGACY_ARTIFACTS_ROOT
-TRANSIENT_ROOT: Path = _LEGACY_TRANSIENT_ROOT
-EXPORTS_ROOT: Path = _LEGACY_EXPORTS_ROOT
-WORKSPACE_ROOT: Path = _LEGACY_WORKSPACE_ROOT
-VISUALIZATION_ROOT: Path = _LEGACY_VISUALIZATION_ROOT
-TRANSIENT_ARTIFACTS_ROOT: Path = _anonymous_session_root() / "transient"
-CODE_EXECUTION_ROOT: Path = _anonymous_session_root() / "sandbox"
 
 
 # ── Session 级路径生成函数 ──────────────────────────────────────
@@ -140,10 +123,6 @@ def get_export_run_root(session_id: str, run_id: str) -> Path:
 
 def get_session_cleanup_root(session_id: str) -> Path:
     return get_session_root(session_id)
-
-
-# 兼容旧调用名，便于渐进迁移
-get_code_execution_session_root = get_session_sandbox_root
 
 
 def _from_display_path(file_path: str) -> Path | None:
@@ -653,15 +632,6 @@ def infer_resource_scope(path: str | Path, *, workspace_root: str | Path | None 
             if bucket == "visualizations":
                 return "session"
         return "session"
-
-    if _matches(_LEGACY_VISUALIZATION_ROOT):
-        return "session"
-    if _matches(_LEGACY_EXPORTS_ROOT):
-        return "export"
-    if _matches(_LEGACY_WORKSPACE_ROOT):
-        return "workspace"
-    if _matches(_LEGACY_CODE_EXECUTION_ROOT) or _matches(_LEGACY_TRANSIENT_ROOT) or _matches(_LEGACY_TRANSIENT_ARTIFACTS_ROOT):
-        return "transient"
 
     return "transient"
 

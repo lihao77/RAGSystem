@@ -7,8 +7,8 @@ from pathlib import Path
 from agents.artifacts import ArtifactStore
 from agents.context.observation_policy import ObservationPolicy
 from agents.context.prompt_materializer import PromptMaterializer
-from tools.result_normalizer import ToolResultNormalizer
-from tools.response_builder import success_result
+from tools.runtime.result_normalizer import ToolResultNormalizer
+from tools.runtime.response_builder import success_result
 
 
 def _make_workspace_tmp_dir() -> Path:

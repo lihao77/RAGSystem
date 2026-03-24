@@ -7,16 +7,16 @@ import time
 from pathlib import Path
 
 from agents.artifacts import ArtifactStore
-from tools.path_resolution import TRANSIENT_ARTIFACTS_ROOT, get_session_transient_root, get_session_visualizations_root
+from tools.paths.path_resolution import get_session_transient_root, get_session_visualizations_root
 
 
 def _make_temp_dir() -> str:
     return tempfile.mkdtemp(dir=Path(__file__).resolve().parent)
 
 
-def test_artifact_store_default_base_dir_points_to_transient_artifacts():
+def test_artifact_store_default_base_dir_points_to_anonymous_session_transient_root():
     store = ArtifactStore()
-    assert Path(store.base_dir) == TRANSIENT_ARTIFACTS_ROOT
+    assert Path(store.base_dir) == get_session_transient_root("anonymous")
 
 
 def test_artifact_store_save_json_uses_data_file_pattern():

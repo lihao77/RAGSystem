@@ -38,9 +38,9 @@ class ArtifactStore:
         index_file: str | None = None,
         observation_window: ObservationWindowCollector | None = None,
     ):
-        from tools.paths.path_resolution import TRANSIENT_ARTIFACTS_ROOT
+        from tools.paths.path_resolution import get_session_transient_root
 
-        self.base_dir = str(Path(base_dir).resolve()) if base_dir else str(TRANSIENT_ARTIFACTS_ROOT)
+        self.base_dir = str(Path(base_dir).resolve()) if base_dir else str(get_session_transient_root("anonymous"))
         self._uses_default_base_dir = base_dir is None
         self.index_file = index_file
         self.observation_window = observation_window

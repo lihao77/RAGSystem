@@ -48,7 +48,6 @@ from tools.paths.path_resolution import (
     get_session_uploads_root,
     get_session_visualizations_root,
     get_session_exports_root,
-    get_code_execution_session_root,
 )
 
 logger = logging.getLogger(__name__)
@@ -331,7 +330,7 @@ def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, reque
 
 def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None, cancel_event=None):
     from tools.refs.result_references import result_error_message, result_primary_content, result_success
-    from tools.tool_executor import execute_tool
+    from tools.runtime.executor import execute_tool
 
     def call_tool(tool_name: str, arguments: dict) -> Any:
         allowed, error_msg = check_tool_permission(
@@ -564,7 +563,7 @@ def execute_code_sandbox(code: str, description: str = "", timeout: int = 30, ag
     if not passed:
         return error_result(f"代码安全检查失败: {error_msg}", tool_name='execute_code')
 
-    sandbox_root = get_code_execution_session_root(session_id) if session_id else SANDBOX_ROOT
+    sandbox_root = get_session_sandbox_root(session_id) if session_id else SANDBOX_ROOT
     sandbox_root.mkdir(parents=True, exist_ok=True)
 
     workspace_root = None

@@ -7,7 +7,7 @@ from agents.core import AgentContext, AgentResponse
 from agents.implementations.orchestrator.executor import AgentExecutor
 from agents.implementations.orchestrator.prompting import replace_placeholders
 from agents.implementations.react.agent import ReActAgent
-from tools.response_builder import error_result, success_result
+from tools.runtime.response_builder import error_result, success_result
 
 
 class _FakeReActAgent:

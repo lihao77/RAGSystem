@@ -24,7 +24,7 @@ backend-fastapi/
 │   ├── runtime/               # bootstrap / discovery / approval / execute 运行时层
 │   ├── local/                 # 本地工具真实实现层
 │   ├── refs/                  # 结果引用与占位符解析
-│   ├── artifacts/             # visualization / presentation artifact 子域
+│   ├── artifacts/             # 可视化 artifact 子域
 │   └── paths/                 # 全局路径治理
 ├── api/v1/                    # FastAPI 路由层
 ├── runtime/                   # RuntimeContainer 中央容器
@@ -38,16 +38,17 @@ backend-fastapi/
 ├── lifespan.py                # 启动生命周期
 ├── main.py                    # 应用入口
 └── data/                      # 数据根目录（可通过 RAG_DATA_ROOT 环境变量覆盖）
-    ├── db/                    # 数据库文件（vector_store.db, ragsystem.db, checkpoints.db）
-    ├── artifacts/             # 工具产出的持久化文件
-    │   └── visualizations/    # 可视化 JSON
-    ├── transient/             # 临时文件（可定期清理）
-    │   ├── code_execution/    # 代码沙箱产出（按 session 隔离）
-    │   └── scratch/           # 其他临时文件
-    ├── exports/               # 供用户下载的文件（按 session/run 组织）
-    ├── workspace/             # 用户工作空间（按 session 隔离，预留）
-    ├── monitoring/            # 监控数据（指标、观察窗口、session 追踪）
-    └── backups/               # 数据库备份（由备份工具按需创建）
+    ├── db/                    # 数据库文件（ragsystem.db, checkpoints.db）
+    ├── monitoring/
+    │   └── session_traces/    # session/run 级调试追踪
+    └── sessions/
+        └── <session_id>/
+            ├── sandbox/       # execute_code 沙箱目录
+            ├── workspace/     # 默认会话工作空间
+            ├── transient/     # 临时中间数据 / observation 落盘
+            ├── uploads/       # 用户上传文件
+            ├── visualizations/# 可视化 artifact
+            └── exports/       # 导出文件（可包含 <run_id>/ 子目录）
 ```
 
 ## 目录桶与落盘分层
@@ -170,7 +171,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 支持格式：`{result_1}`, `{result_1.content.layers}`, `{RESULT_1.RISK_LEVEL}`（大小写不敏感，提示词示例统一使用单花括号 `{result_N}`）
 
-核心解析：`tools/result_references.py` → `resolve_result_path()`, `materialize_result_reference()`
+核心解析：`tools/refs/result_references.py` → `resolve_result_path()`, `materialize_result_reference()`
 
 路径解析加固：解析失败时返回错误标记（`make_ref_error()`），Agent 在 observation 中看到 `[引用错误: 路径 "xxx" 不存在, 可用: [...]]`，可感知并重试。
 
@@ -184,7 +185,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 占位符替换 → 统一 tool handler 分发 → local.document_tools._prepare_document_tool_args / local.bash_tool._resolve_work_dir → tool 执行 → resource scope 推断/清理
 ```
 
-- 路径解析统一由 `tools/path_resolution.py` 提供：文件走 `resolve_managed_path()`，目录走 `resolve_managed_directory()`，并按 caller / operation 选择受管边界
+- 路径解析统一由 `tools/paths/path_resolution.py` 提供：文件走 `resolve_managed_path()`，目录走 `resolve_managed_directory()`，并按 caller / operation 选择受管边界
 - XML 工具参数里的 `<file_path space="workspace|transient|exports">...</file_path>` 与 `<working_dir space="workspace|transient|exports">...</working_dir>` 会在 `tool_xml_parser.py` 中分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
 - ToolContract 示例渲染时，若要展示 XML 属性（如 `space="transient"`），需通过示例元数据 `xml_attrs` 渲染到标签属性；不要把 `<file_path ...>...</file_path>` / `<working_dir ...>...</working_dir>` 当作 JSON 字符串参数示例
 - `file_path@space` 与 `working_dir@space` 属于同一套 managed location language：`workspace` 指向当前 effective workspace，`transient` 指向当前 session 的 transient 目录，`exports` 指向当前 session 的 exports/<run_id>
@@ -198,7 +199,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `read_file` 仍保留大文件确认、分页与 direct 调用语义
 - sandbox（`tools/local/code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
 - `execute_bash` 不接入 document 特殊链；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
-- 默认受管目录根的自动补建统一下沉到 `tools/path_resolution.py`：当 direct 工具以目录根语义访问 `workspace/transient/exports`（如 `working_dir` 省略、为空或为 `.`）且目标根目录尚未创建时，共享路径层会先补建对应根目录，再返回解析结果；这样 `execute_bash` 不需要单独维护目录创建分支
+- 默认受管目录根的自动补建统一下沉到 `tools/paths/path_resolution.py`：当 direct 工具以目录根语义访问 `workspace/transient/exports`（如 `working_dir` 省略、为空或为 `.`）且目标根目录尚未创建时，共享路径层会先补建对应根目录，再返回解析结果；这样 `execute_bash` 不需要单独维护目录创建分支
 - `execute_bash` 在工具内部额外维护一条 bash 专用审批链：白名单命令直接执行，所有非白名单命令统一触发 `user.approval_required`；其中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令会在审批 payload 中额外标记并提升风险提示，但不再硬拒绝
 - `execute_code` 现已改为“主进程协调 + 沙箱子进程执行”模型：主进程负责静态检查、路径解析、审批等待、工具分发与超时/取消回收，子进程只负责受限 `exec()`；超时和 cancel 会直接终止子进程，因此不再依赖线程内逻辑超时
 - dispatcher 对 `execute_code` 做特殊收口：不再走通用 `_run_with_timeout()` 线程包装，而是把 `cancel_event` 直接注入 `tools.local.code_sandbox`，由沙箱内部统一管理 timeout / cancel 语义

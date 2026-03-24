@@ -11,8 +11,8 @@ from agents.context.observation_policy import ObservationPolicy
 from agents.context.prompt_materializer import PromptMaterializer
 from agents.monitoring.observation_window import ObservationWindowCollector
 from services.conversation_store import ConversationStore
-from tools.result_normalizer import ToolResultNormalizer
-from tools.response_builder import success_result
+from tools.runtime.result_normalizer import ToolResultNormalizer
+from tools.runtime.response_builder import success_result
 
 
 def _make_temp_dir() -> str:

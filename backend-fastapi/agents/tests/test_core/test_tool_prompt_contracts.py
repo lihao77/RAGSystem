@@ -7,7 +7,7 @@ from agents.implementations.orchestrator import prompting as orchestrator_prompt
 from agents.implementations.react.agent import ReActAgent, _format_tool_contract as react_format_tool_contract
 from tools.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
-from tools.tool_definition_builder import build_function_tool
+from tools.contracts.tool_contracts import build_function_tool
 from tools.tool_registry import get_tool_registry
 
 bootstrap_tool_system()
