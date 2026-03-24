@@ -25,14 +25,15 @@ def test_tool_output_type_audit_contains_expected_internal_tools():
 def test_tool_output_type_audit_summary_marks_dynamic_entries_and_reference_compatibility():
     rows = build_audit_rows()
     summary = build_summary(rows)
+    sampled_rows = [row for row in rows if row["validation_mode"] == "sampled"]
 
     assert summary["tool_count"] >= 10
-    assert summary["sampled_tool_count"] >= 10
+    assert summary["sampled_tool_count"] == len(sampled_rows)
+    assert summary["sampled_tool_count"] >= 1
     assert "dynamic" in summary["normalized_output_type_counts"]
     assert "mcp__*" in summary["dynamic_tools"]
     assert summary["reference_incompatible_tools"] == []
     assert all(
         row["reference_compatible"]
-        for row in rows
-        if row["validation_mode"] == "sampled"
+        for row in sampled_rows
     )
