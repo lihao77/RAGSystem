@@ -93,6 +93,9 @@ def route_direct_tool(
             parent_call_id=orchestrator_call_id,
             current_agent_name=getattr(agent, 'name', None),
             tool_call_id=tool_call_id,
+            round=rounds,
+            order=idx,
+            round_index=idx,
         )
     except Exception as tool_exc:
         agent.logger.error(f"{log_prefix} 工具 {tool_name} 执行异常: {tool_exc}", exc_info=True)

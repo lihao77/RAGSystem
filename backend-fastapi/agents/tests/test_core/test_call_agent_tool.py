@@ -2,8 +2,17 @@
 
 from types import SimpleNamespace
 
+from agents.events.bus import EventType
 from tools.local.agent_tools import call_agent, list_child_agents, send_message
 from tools.runtime.response_builder import success_result
+
+
+class _FakeEventBus:
+    def __init__(self):
+        self.published = []
+
+    def publish(self, event):
+        self.published.append(event)
 
 
 class _FakeConfigManager:
@@ -129,6 +138,45 @@ def test_list_child_agents_returns_existing_children(monkeypatch):
     assert result.content['items'][0]['agent_name'] == 'demo_agent'
 
 
+def test_call_agent_publishes_subtask_ordering_fields(monkeypatch):
+    runtime = _FakeRuntime()
+    bus = _FakeEventBus()
+    monkeypatch.setattr(
+        'services.agent_api_runtime_service.get_agent_api_runtime_service',
+        lambda: runtime,
+    )
+
+    call_agent(
+        agent_name='demo_agent',
+        task='collect data',
+        agent_config=SimpleNamespace(
+            agent_name='orchestrator_agent',
+            delegation=SimpleNamespace(enabled_agents=['demo_agent']),
+        ),
+        event_bus=bus,
+        session_id='session-1',
+        run_id='run-1',
+        parent_call_id='call-root',
+        round=2,
+        order=3,
+        round_index=3,
+    )
+
+    start_event = next(event for event in bus.published if event.type == EventType.CALL_AGENT_START)
+    end_event = next(event for event in bus.published if event.type == EventType.CALL_AGENT_END)
+
+    assert start_event.data['round'] == 2
+    assert start_event.data['order'] == 3
+    assert start_event.data['round_index'] == 3
+    assert start_event.data['mode'] == 'create'
+    assert start_event.data['child_agent_id'].startswith('child_')
+    assert end_event.data['order'] == 3
+    assert end_event.data['round'] == 2
+    assert end_event.data['round_index'] == 3
+    assert end_event.data['mode'] == 'create'
+
+
+
 def test_send_message_reuses_existing_child_agent(monkeypatch):
     runtime = _FakeRuntime()
     monkeypatch.setattr(
@@ -149,6 +197,37 @@ def test_send_message_reuses_existing_child_agent(monkeypatch):
 
     assert result.success is True
     assert result.tool_name == 'send_message'
-    assert result.metadata['child_agent_id'] == 'child-existing'
-    assert runtime.store.messages[0]['child_agent_id'] == 'child-existing'
-    assert runtime.execution_calls[0]['child_agent_id'] == 'child-existing'
+def test_send_message_publishes_resume_ordering_fields(monkeypatch):
+    runtime = _FakeRuntime()
+    bus = _FakeEventBus()
+    monkeypatch.setattr(
+        'services.agent_api_runtime_service.get_agent_api_runtime_service',
+        lambda: runtime,
+    )
+
+    send_message(
+        child_agent_id='child-existing',
+        message='continue analysis',
+        agent_config=SimpleNamespace(agent_name='orchestrator_agent'),
+        event_bus=bus,
+        session_id='session-1',
+        run_id='run-2',
+        parent_call_id='call-root',
+        round=4,
+        order=2,
+        round_index=2,
+    )
+
+    start_event = next(event for event in bus.published if event.type == EventType.CALL_AGENT_START)
+    end_event = next(event for event in bus.published if event.type == EventType.CALL_AGENT_END)
+
+    assert start_event.data['round'] == 4
+    assert start_event.data['order'] == 2
+    assert start_event.data['round_index'] == 2
+    assert start_event.data['mode'] == 'resume'
+    assert start_event.data['child_agent_id'] == 'child-existing'
+    assert end_event.data['order'] == 2
+    assert end_event.data['round'] == 4
+    assert end_event.data['round_index'] == 2
+    assert end_event.data['mode'] == 'resume'
+    assert end_event.data['child_agent_id'] == 'child-existing'

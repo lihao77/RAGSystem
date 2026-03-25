@@ -64,7 +64,7 @@ def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
     return success_result(content=str(result), tool_name=tool_name)
 
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct", session_id=None, run_id=None, cancel_event=None, parent_call_id=None, current_agent_name=None, tool_call_id=None):
+def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct", session_id=None, run_id=None, cancel_event=None, parent_call_id=None, current_agent_name=None, tool_call_id=None, round=None, order=None, round_index=None):
     """执行指定工具。"""
     try:
         allowed, approval_error_result, approval_message = request_user_approval_if_needed(
@@ -99,6 +99,9 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
                 parent_call_id=parent_call_id,
                 current_agent_name=current_agent_name,
                 tool_call_id=tool_call_id,
+                round=round,
+                order=order,
+                round_index=round_index,
             )
             if tool_name == "execute_code":
                 result = handler(**call_arguments)

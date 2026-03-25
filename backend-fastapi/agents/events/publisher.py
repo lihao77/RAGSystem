@@ -235,6 +235,7 @@ class EventPublisher:
         round: Optional[int] = None,
         round_index: Optional[int] = None,
         agent_display_name: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ):
         """Agent调用开始"""
         data = {
@@ -249,6 +250,8 @@ class EventPublisher:
             data["round"] = round
         if round_index is not None:
             data["round_index"] = round_index
+        if extra:
+            data.update({key: value for key, value in extra.items() if value is not None})
 
         self._publish(
             EventType.CALL_AGENT_START,
@@ -264,7 +267,8 @@ class EventPublisher:
         result: str,
         success: bool = True,
         parent_call_id: Optional[str] = None,
-        order: Optional[int] = None
+        order: Optional[int] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ):
         """Agent调用结束"""
         data = {
@@ -274,6 +278,8 @@ class EventPublisher:
         }
         if order is not None:
             data["order"] = order
+        if extra:
+            data.update({key: value for key, value in extra.items() if value is not None})
 
         self._publish(
             EventType.CALL_AGENT_END,

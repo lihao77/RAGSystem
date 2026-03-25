@@ -75,6 +75,9 @@ def call_agent(
     run_id: str | None = None,
     cancel_event=None,
     parent_call_id: str | None = None,
+    round: int | None = None,
+    order: int | None = None,
+    round_index: int | None = None,
 ):
     from services.agent_api_runtime_service import get_agent_api_runtime_service
 
@@ -123,7 +126,14 @@ def call_agent(
             agent_name=agent_name,
             description=task,
             parent_call_id=parent_call_id,
+            order=order,
+            round=round,
+            round_index=round_index,
             agent_display_name=getattr(target_config, "display_name", None),
+            extra={
+                'child_agent_id': child_agent_id,
+                'mode': 'create',
+            },
         )
 
     store = runtime.get_conversation_store()
@@ -152,6 +162,13 @@ def call_agent(
         parent_call_id=parent_call_id,
         metadata={"created_via": "call_agent"},
     )
+    agent_call_event_extra = {
+        'child_agent_id': child_agent_id,
+        'mode': 'create',
+        'round': round,
+        'round_index': round_index,
+        'order': order,
+    }
 
     agent_result = execution_service.execute_agent_call(
         agent_name=agent_name,
@@ -177,6 +194,8 @@ def call_agent(
             result=agent_result.content if agent_result.success else agent_result.content,
             success=agent_result.success,
             parent_call_id=parent_call_id,
+            order=order,
+            extra=agent_call_event_extra,
         )
 
     if not agent_result.success:
@@ -362,6 +381,9 @@ def send_message(
     run_id: str | None = None,
     cancel_event=None,
     parent_call_id: str | None = None,
+    round: int | None = None,
+    order: int | None = None,
+    round_index: int | None = None,
 ):
     from services.agent_api_runtime_service import get_agent_api_runtime_service
 
@@ -399,7 +421,14 @@ def send_message(
             agent_name=agent_name,
             description=message,
             parent_call_id=parent_call_id,
+            order=order,
+            round=round,
+            round_index=round_index,
             agent_display_name=getattr(target_config, "display_name", None),
+            extra={
+                'child_agent_id': child_agent_id,
+                'mode': 'resume',
+            },
         )
 
     store.add_message(
@@ -442,6 +471,13 @@ def send_message(
             result=agent_result.content if agent_result.success else agent_result.content,
             success=agent_result.success,
             parent_call_id=parent_call_id,
+            order=order,
+            extra={
+                'child_agent_id': child_agent_id,
+                'mode': 'resume',
+                'round': round,
+                'round_index': round_index,
+            },
         )
 
     if not agent_result.success:

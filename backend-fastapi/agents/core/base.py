@@ -1126,6 +1126,9 @@ risk = call_tool('assess_flood_risk', {{
                 parent_call_id=state.get('call_id'),
                 current_agent_name=self.name,
                 tool_call_id=tool_call_id,
+                round=rounds,
+                order=idx,
+                round_index=idx,
             )
             elapsed_time = time.time() - tool_started_at
             is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
