@@ -25,8 +25,8 @@ class _FakeConversationStore:
     def __init__(self, messages):
         self._messages = messages
 
-    def get_recent_messages(self, session_id: str, limit: int = 50):
-        del session_id, limit
+    def get_recent_messages(self, session_id: str, limit: int = 50, thread_key=None):
+        del session_id, limit, thread_key
         return list(self._messages)
 
 
@@ -183,7 +183,47 @@ def test_pipeline_write_back_context_preserves_seq():
     assert context.get_history(limit=0)[1]["seq"] == 31
 
 
-def test_prompt_materializer_registry_isolation_between_instances():
+def test_prompt_materializer_text_observation_deduplicates_same_summary_and_content():
+    materializer = PromptMaterializer()
+    result = ToolExecutionResult(
+        success=True,
+        tool_name="call_agent",
+        summary="kgqa_agent 并发调用成功",
+        content="kgqa_agent 并发调用成功",
+        output_type="text",
+    )
+    observation = materializer.materialize_tool_observation(
+        result,
+        SimpleNamespace(mode="inline", artifact_ttl_seconds=None),
+        tool_name="call_agent",
+        is_skills_tool=False,
+        session_id="s1",
+    )
+
+    assert observation == "✅ kgqa_agent 并发调用成功"
+
+
+def test_prompt_materializer_json_observation_exposes_child_agent_id():
+    materializer = PromptMaterializer()
+    result = ToolExecutionResult(
+        success=True,
+        tool_name="call_agent",
+        summary="ok",
+        content={"answer": "ok"},
+        output_type="json",
+        metadata={"child_agent_id": "child-123"},
+    )
+    observation = materializer.materialize_tool_observation(
+        result,
+        SimpleNamespace(mode="inline", artifact_ttl_seconds=None),
+        tool_name="call_agent",
+        is_skills_tool=False,
+        session_id="s1",
+    )
+
+    assert "child_agent_id: child-123" in observation
+
+
     class _DemoFormatter(BaseObservationFormatter):
         name = "demo"
         priority = 1

@@ -66,7 +66,7 @@ tools/
 - 当前真实结构只保留 `contracts / runtime / local / refs / artifacts / paths / catalog`
 - `tools/` 根目录不再保留兼容 facade；稳定入口仅剩 `tools.bootstrap` 与 `tools.tool_executor`
 - builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
-- agent delegation 已收敛为单一 `@tool(source="agent")`：`call_agent`
+- agent delegation 已收敛为 `@tool(source="agent")` 工具组：`call_agent` + `send_message`
 - 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
 - `ToolRegistry` 是运行时、loader、prompt、测试的唯一读模型；MCP contract/schema 适配仍来自 `tools.catalog.mcp_tools`，但运行时命名解析统一复用 `tools.runtime.mcp_gateway`
 - runtime 层负责 discovery / registration / approval / dispatch / execute；其中 MCP 采用“外部展开、内部单网关”：Agent 仍看到 `mcp__<server>__<tool>`，实际执行与 observability 透传统一收敛到 `tools.runtime.mcp_gateway`
@@ -112,7 +112,7 @@ def my_tool(arguments, **kwargs):
 - `document` / `decorator`：本地 direct 工具
 - `skill`：Skill 系统工具
 - `builtin`：框架内置工具（如 `request_user_input`）
-- `agent`：子 Agent delegation 工具（当前仅 `call_agent`）
+- `agent`：子 Agent delegation 工具（`call_agent` / `send_message`）
 - `mcp`：外部 MCP adapter 例外
 
 已迁移的本地工具（11 个）：
@@ -120,7 +120,7 @@ def my_tool(arguments, **kwargs):
 - `local/code_sandbox.py`: execute_code
 - `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
 - `local/builtin_tools.py`: request_user_input
-- `local/agent_tools.py`: call_agent
+- `local/agent_tools.py`: call_agent, send_message
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -152,8 +152,9 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 ### builtin 与 agent delegation
 
 - `request_user_input` 已从 pseudo-tool 收敛为真实 `@tool(source="builtin")`
-- `call_agent` 是唯一 `source="agent"` delegation 工具
-- `call_agent` 内部负责 allowlist 校验、目标 Agent 存在/启用校验、禁止自调用、创建当前调用作用域内的 execution orchestrator，并复用 `call.agent.start/end` 事件语义
+- `call_agent` 与 `send_message` 共同构成 `source="agent"` delegation 工具面
+- `call_agent` 负责创建新的 child agent 会话并返回 `child_agent_id`
+- `send_message` 负责向既有 child agent 发送新消息并续接上下文
 - 子 Agent 是否可调用不再由工具名展开决定，而由 `delegation.enabled_agents` + prompt 动态 roster 决定
 
 ### 文件类 document 工具路径治理（local.document_tools._prepare_document_tool_args）

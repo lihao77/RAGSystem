@@ -21,6 +21,7 @@ from execution.observability import apply_observability_fields, attach_execution
 from execution.persistence import StreamPersistenceHandler
 from execution.step_projector import StepProjector
 from services.execution_service import ExecutionService, get_execution_service
+from services.agent_execution_service import AgentExecutionService, get_agent_execution_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,13 @@ class AgentStreamStartResult:
 class AgentExecutionAdapter:
     """负责发起 Agent 流式执行任务。"""
 
-    def __init__(self, execution_service: Optional[ExecutionService] = None):
+    def __init__(
+        self,
+        execution_service: Optional[ExecutionService] = None,
+        agent_execution_service: Optional[AgentExecutionService] = None,
+    ):
         self._execution_service = execution_service or get_execution_service()
+        self._agent_execution_service = agent_execution_service or get_agent_execution_service()
 
     def start_stream_execution(
         self,
@@ -56,17 +62,11 @@ class AgentExecutionAdapter:
         history_loader: Callable[[AgentContext, str, int], None],
         history_limit: int = 200,
     ) -> AgentStreamStartResult:
+        del history_loader
         registry = self._execution_service.get_task_registry()
         session_manager = self._execution_service.get_session_manager()
 
-        context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
-
-        run_id = str(uuid.uuid4())
-        context.metadata['run_id'] = run_id
-        context.metadata['request_id'] = request_id
-
         cancel_event = threading.Event()
-        context.metadata['cancel_event'] = cancel_event
 
         entry_agent = orchestrator.resolve_default_entry_agent() if hasattr(orchestrator, 'resolve_default_entry_agent') else None
         if not entry_agent:
@@ -77,6 +77,7 @@ class AgentExecutionAdapter:
                 error_message='默认入口智能体未找到，请确认已正确加载',
             )
 
+        run_id = str(uuid.uuid4())
         concurrency_key = f'session:{session_id}'
         task_id = registry.register_task(
             session_id=session_id,
@@ -97,21 +98,6 @@ class AgentExecutionAdapter:
             )
 
         event_bus = session_manager.get_or_create(run_id, session_id=session_id)
-        context.metadata['event_bus'] = event_bus
-
-        context.metadata.update({
-            'task_id': task_id,
-            'session_id': session_id,
-            'execution_kind': 'agent_stream',
-            'request_id': request_id,
-            '_execution': {
-                'task_id': task_id,
-                'session_id': session_id,
-                'run_id': run_id,
-                'execution_kind': 'agent_stream',
-                'request_id': request_id,
-            },
-        })
 
         metrics_subscription_id = None
         sse_adapter = None
@@ -121,7 +107,38 @@ class AgentExecutionAdapter:
             session = conversation_store.get_session(session_id)
             if not session:
                 conversation_store.create_session(session_id=session_id, user_id=user_id)
-            history_loader(context, session_id=session_id, limit=history_limit)
+
+            execution_handle = self._agent_execution_service.prepare_execution(
+                agent_name=getattr(entry_agent, 'name', None) or 'orchestrator_agent',
+                session_id=session_id,
+                user_id=user_id,
+                llm_override=llm_override,
+                request_id=request_id,
+                run_id=run_id,
+                parent_run_id=None,
+                parent_call_id=None,
+                event_bus=event_bus,
+                cancel_event=cancel_event,
+                thread_key='root',
+                history_limit=history_limit,
+                entrypoint='agent_stream',
+                task_summary=task[:200],
+                source='api',
+            )
+            context = execution_handle.context
+            context.metadata.update({
+                'task_id': task_id,
+                'session_id': session_id,
+                'execution_kind': 'agent_stream',
+                'request_id': request_id,
+                '_execution': {
+                    'task_id': task_id,
+                    'session_id': session_id,
+                    'run_id': run_id,
+                    'execution_kind': 'agent_stream',
+                    'request_id': request_id,
+                },
+            })
 
             metrics_collector = getattr(orchestrator, '_metrics_collector', None)
             if metrics_collector:
@@ -138,7 +155,6 @@ class AgentExecutionAdapter:
                 heartbeat_interval=15.0,
             )
 
-            # 创建持久化处理器并订阅事件
             persistence_handler = StreamPersistenceHandler(
                 event_bus=event_bus,
                 store=conversation_store,
@@ -149,20 +165,26 @@ class AgentExecutionAdapter:
             )
             subscriptions = persistence_handler.subscribe_all()
             final_answer_saved = persistence_handler.final_answer_saved
-            message_id_for_run = persistence_handler.message_id_for_run
 
             user_msg = conversation_store.add_message(
                 session_id=session_id,
                 role='user',
                 content=task,
-                metadata={'agent': getattr(entry_agent, 'name', None)},
+                metadata={
+                    'agent': getattr(entry_agent, 'name', None),
+                    'run_id': run_id,
+                    'thread_key': 'root',
+                    'conversation_scope': 'root',
+                    'visible_to_user': True,
+                },
+                thread_key='root',
             )
 
             target = self._create_agent_task_target(
                 task_id=task_id,
                 event_bus=event_bus,
                 final_answer_saved=final_answer_saved,
-                entry_agent=entry_agent,
+                entry_agent=execution_handle.agent,
                 registry=registry,
                 run_id=run_id,
                 session_id=session_id,
@@ -322,7 +344,14 @@ class AgentExecutionAdapter:
                         session_id=session_id,
                         role='assistant',
                         content=response.content,
-                        metadata={'agent': getattr(response, 'agent_name', None), 'run_id': run_id},
+                        metadata={
+                            'agent': getattr(response, 'agent_name', None),
+                            'run_id': run_id,
+                            'thread_key': 'root',
+                            'conversation_scope': 'root',
+                            'visible_to_user': True,
+                        },
+                        thread_key='root',
                     )
                     store.update_run_steps_message_id(session_id, run_id, message['id'])
                     final_answer_saved.set()

@@ -318,9 +318,10 @@ class AgentLoader:
         enabled_agents = list(getattr(delegation_config, 'enabled_agents', []) or [])
         if enabled_agents:
             existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
-            call_agent_tool = self._tool_registry.get_tool_by_name('call_agent')
-            if call_agent_tool and 'call_agent' not in existing_tool_names:
-                filtered_tools.append(call_agent_tool)
+            for agent_tool in self._tool_registry.get_agent_tools():
+                tool_name = agent_tool.get('function', {}).get('name')
+                if tool_name and tool_name not in existing_tool_names:
+                    filtered_tools.append(agent_tool)
             logger.info(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
 
         builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}

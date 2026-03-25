@@ -46,6 +46,8 @@ def test_project_subtask_and_tool_events():
             'agent_name': 'kgqa_agent',
             'agent_display_name': '知识图谱代理',
             'description': '查询灾害数据',
+            'child_agent_id': 'child-1',
+            'mode': 'create',
             'round': 1,
             'round_index': 1,
             'order': 1,
@@ -90,6 +92,8 @@ def test_project_subtask_and_tool_events():
     assert subtask_start['kind'] == 'subtask'
     assert subtask_start['phase'] == 'start'
     assert subtask_start['agent_display_name'] == '知识图谱代理'
+    assert subtask_start['child_agent_id'] == 'child-1'
+    assert subtask_start['mode'] == 'create'
     assert subtask_start['round'] == 1
     assert subtask_start['parent_call_id'] == 'call-root'
     assert subtask_start['step_id'] == 'call-subtask:call'

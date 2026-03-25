@@ -4,9 +4,9 @@ import json
 import logging
 
 from agents.core import AgentContext, AgentResponse
-from agents.implementations.orchestrator.executor import AgentExecutor
 from agents.implementations.orchestrator.prompting import replace_placeholders
 from agents.implementations.react.agent import ReActAgent
+from services.agent_execution_service import AgentExecutionService
 from tools.runtime.response_builder import error_result, success_result
 
 
@@ -94,29 +94,59 @@ def test_master_placeholder_supports_tool_execution_result_and_failure_message()
     assert "[Agent 2 执行失败: boom]" in resolved["task"]
 
 
-def test_master_placeholder_supports_agent_executor_native_result():
+def test_master_placeholder_supports_agent_metadata_child_agent_id_path():
     fake_agent = _FakeOrchestratorAgent()
-    executor = AgentExecutor(
-        orchestrator=type(
-            "_Orchestrator",
-            (),
-            {
-                "agents": {
-                    "demo_agent": _StubDelegatedAgent(
-                        AgentResponse(
-                            success=True,
-                            content={"name": "delegated-skill"},
-                        )
-                    )
-                }
-            },
-        )()
-    )
+    payload = {
+        "message": "继续处理 {result_1.metadata.child_agent_id}",
+    }
+    agent_results = {
+        1: success_result(
+            content={"answer": "ok"},
+            summary="ok",
+            output_type="json",
+            tool_name="call_agent",
+            metadata={"child_agent_id": "child-123"},
+        )
+    }
 
-    delegated_result = executor.execute_agent(
+    resolved = replace_placeholders(fake_agent, payload, agent_results)
+
+    assert resolved["message"] == "继续处理 child-123"
+
+
+def test_master_placeholder_supports_agent_execution_service_native_result():
+    fake_agent = _FakeOrchestratorAgent()
+
+    class _StubRuntimeService:
+        def create_execution_orchestrator(self, session_id=None):
+            del session_id
+            return type(
+                "_Orchestrator",
+                (),
+                {
+                    "agents": {
+                        "demo_agent": _StubDelegatedAgent(
+                            AgentResponse(
+                                success=True,
+                                content={"name": "delegated-skill"},
+                            )
+                        )
+                    }
+                },
+            )()
+
+        def build_context(self, **kwargs):
+            return AgentContext(session_id=kwargs["session_id"])
+
+        def get_conversation_store(self):
+            return type("_Store", (), {"create_run": lambda self, **kwargs: kwargs})()
+
+    service = AgentExecutionService(runtime_service=_StubRuntimeService())
+    delegated_result = service.execute_agent_call(
         agent_name="demo_agent",
         task="fetch skill",
-        context=AgentContext(session_id="session-1"),
+        session_id="session-1",
+        source='agent_call',
     )
     payload = {
         "task": "引用路径 {result_1.content.name}",

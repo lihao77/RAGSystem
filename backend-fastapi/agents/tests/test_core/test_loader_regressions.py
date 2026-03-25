@@ -86,6 +86,7 @@ def test_loader_injects_call_agent_from_delegation_allowlist():
     names = [tool['function']['name'] for tool in tools]
 
     assert 'call_agent' in names
+    assert 'send_message' in names
     assert 'request_user_input' in names
     assert skills == []
 
@@ -105,4 +106,5 @@ def test_loader_does_not_inject_call_agent_without_delegation():
     names = [tool['function']['name'] for tool in tools]
 
     assert 'call_agent' not in names
+    assert 'send_message' not in names
     assert 'request_user_input' in names

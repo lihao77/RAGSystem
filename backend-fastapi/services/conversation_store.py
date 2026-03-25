@@ -55,6 +55,16 @@ class ConversationStore:
             self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
             self._cleanup_thread.start()
 
+    @staticmethod
+    def _column_exists(conn, table_name: str, column_name: str) -> bool:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return any(row[1] == column_name for row in rows)
+
+    def _ensure_column(self, conn, table_name: str, column_name: str, definition: str) -> None:
+        if self._column_exists(conn, table_name, column_name):
+            return
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
     @contextmanager
     def _get_connection(self):
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -106,16 +116,23 @@ class ConversationStore:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     metadata TEXT,
+                    thread_key TEXT NOT NULL DEFAULT 'root',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                 )
                 """
             )
+            self._ensure_column(conn, 'messages', 'thread_key', "TEXT NOT NULL DEFAULT 'root'")
+            self._ensure_column(conn, 'messages', 'child_agent_id', 'TEXT')
+
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, seq)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_session_thread_seq ON messages(session_id, thread_key, seq)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)"
@@ -160,6 +177,9 @@ class ConversationStore:
                     task_summary TEXT,
                     user_id TEXT,
                     agent_name TEXT,
+                    thread_key TEXT NOT NULL DEFAULT 'root',
+                    parent_run_id TEXT,
+                    parent_call_id TEXT,
                     final_message_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -167,8 +187,15 @@ class ConversationStore:
                 )
                 """
             )
+            self._ensure_column(conn, 'runs', 'thread_key', "TEXT NOT NULL DEFAULT 'root'")
+            self._ensure_column(conn, 'runs', 'parent_run_id', 'TEXT')
+            self._ensure_column(conn, 'runs', 'parent_call_id', 'TEXT')
+            self._ensure_column(conn, 'runs', 'child_agent_id', 'TEXT')
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_session_thread_created ON runs(session_id, thread_key, created_at)"
             )
 
             # resources: 文件资源记录
@@ -207,6 +234,50 @@ class ConversationStore:
                     PRIMARY KEY(step_id, resource_id)
                 )
                 """
+            )
+
+            # step_resources: 步骤与资源的关联表
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS step_resources (
+                    step_id INTEGER NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    run_id TEXT,
+                    PRIMARY KEY(step_id, resource_id)
+                )
+                """
+            )
+
+            # child_agents: 子 Agent 会话实体
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS child_agents (
+                    child_agent_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    agent_name TEXT NOT NULL,
+                    thread_key TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_by_run_id TEXT,
+                    created_by_call_id TEXT,
+                    parent_run_id TEXT,
+                    parent_call_id TEXT,
+                    last_run_id TEXT,
+                    metadata TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_child_agents_session_created ON child_agents(session_id, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_child_agents_session_agent ON child_agents(session_id, agent_name, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_child_agents_session_thread ON child_agents(session_id, thread_key)"
             )
 
             if self.enable_archive:
@@ -331,7 +402,9 @@ class ConversationStore:
         role: str,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
-        message_id: Optional[str] = None
+        message_id: Optional[str] = None,
+        thread_key: str = 'root',
+        child_agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         添加消息到会话
@@ -339,7 +412,13 @@ class ConversationStore:
         使用 session 级别的锁，确保同一 session 的消息顺序一致
         """
         message_id = message_id or str(uuid.uuid4())
-        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        resolved_metadata = dict(metadata or {})
+        resolved_thread_key = (thread_key or resolved_metadata.get('thread_key') or 'root').strip() or 'root'
+        resolved_child_agent_id = child_agent_id or resolved_metadata.get('child_agent_id')
+        resolved_metadata['thread_key'] = resolved_thread_key
+        if resolved_child_agent_id:
+            resolved_metadata['child_agent_id'] = resolved_child_agent_id
+        metadata_json = json.dumps(resolved_metadata, ensure_ascii=False)
 
         # ✨ 使用 session 级别的锁
         with self._get_session_lock(session_id):
@@ -353,10 +432,10 @@ class ConversationStore:
                 )
                 conn.execute(
                     """
-                    INSERT INTO messages (id, session_id, role, content, metadata)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (message_id, session_id, role, content, metadata_json)
+                    (message_id, session_id, role, content, metadata_json, resolved_thread_key, resolved_child_agent_id)
                 )
                 conn.execute(
                     "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
@@ -369,10 +448,10 @@ class ConversationStore:
 
         self.trace_writer.append_message(
             session_id=session_id,
-            run_id=(metadata or {}).get('run_id', ''),
+            run_id=resolved_metadata.get('run_id', ''),
             role=role,
             content=content,
-            metadata=metadata or {},
+            metadata=resolved_metadata,
             message_id=message_id,
             seq=seq,
             source='store',
@@ -384,7 +463,9 @@ class ConversationStore:
             "session_id": session_id,
             "role": role,
             "content": content,
-            "metadata": metadata or {}
+            "metadata": resolved_metadata,
+            "thread_key": resolved_thread_key,
+            "child_agent_id": resolved_child_agent_id,
         }
 
     def insert_compression_message(
@@ -680,23 +761,25 @@ class ConversationStore:
         self,
         session_id: str,
         limit: int = 20,
-        offset: int = 0
+        offset: int = 0,
+        thread_key: Optional[str] = None,
     ) -> Dict[str, Any]:
+        resolved_thread_key = (thread_key or '').strip() or None
         with self._get_connection() as conn:
             total = conn.execute(
-                "SELECT COUNT(1) AS cnt FROM messages WHERE session_id=?",
-                (session_id,)
+                "SELECT COUNT(1) AS cnt FROM messages WHERE session_id=? AND (? IS NULL OR thread_key=?)",
+                (session_id, resolved_thread_key, resolved_thread_key)
             ).fetchone()["cnt"]
 
             rows = conn.execute(
                 """
-                SELECT seq, id, role, content, metadata, created_at
+                SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
                 FROM messages
-                WHERE session_id=?
+                WHERE session_id=? AND (? IS NULL OR thread_key=?)
                 ORDER BY seq ASC
                 LIMIT ? OFFSET ?
                 """,
-                (session_id, limit, offset)
+                (session_id, resolved_thread_key, resolved_thread_key, limit, offset)
             ).fetchall()
 
             items = []
@@ -707,6 +790,8 @@ class ConversationStore:
                     "role": row["role"],
                     "content": row["content"],
                     "metadata": json.loads(row["metadata"] or "{}"),
+                    "thread_key": row["thread_key"],
+                    "child_agent_id": row["child_agent_id"],
                     "created_at": row["created_at"]
                 })
 
@@ -806,7 +891,7 @@ class ConversationStore:
         with self._get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT seq, id, role, content, metadata, created_at
+                SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
                 FROM messages
                 WHERE session_id=? AND seq=?
                 """,
@@ -820,20 +905,27 @@ class ConversationStore:
                 "role": row["role"],
                 "content": row["content"],
                 "metadata": json.loads(row["metadata"] or "{}"),
+                "thread_key": row["thread_key"],
                 "created_at": row["created_at"]
             }
 
-    def get_recent_messages(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_recent_messages(
+        self,
+        session_id: str,
+        limit: int = 20,
+        thread_key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        resolved_thread_key = (thread_key or '').strip() or None
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT seq, id, role, content, metadata, created_at
+                SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
                 FROM messages
-                WHERE session_id=?
+                WHERE session_id=? AND (? IS NULL OR thread_key=?)
                 ORDER BY seq DESC
                 LIMIT ?
                 """,
-                (session_id, limit)
+                (session_id, resolved_thread_key, resolved_thread_key, limit)
             ).fetchall()
 
             rows = list(reversed(rows))
@@ -845,9 +937,14 @@ class ConversationStore:
                     "role": row["role"],
                     "content": row["content"],
                     "metadata": json.loads(row["metadata"] or "{}"),
+                    "thread_key": row["thread_key"],
+                    "child_agent_id": row["child_agent_id"],
                     "created_at": row["created_at"]
                 })
             return items
+
+    def get_recent_messages_by_thread(self, session_id: str, thread_key: str, limit: int = 20) -> List[Dict[str, Any]]:
+        return self.get_recent_messages(session_id=session_id, limit=limit, thread_key=thread_key)
 
     def cleanup_expired_sessions(self) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.session_ttl_days)
@@ -950,6 +1047,155 @@ class ConversationStore:
         except Exception as e:
             logger.warning(f"清理临时数据文件失败: {e}")
 
+    def create_child_agent(
+        self,
+        *,
+        child_agent_id: str,
+        session_id: str,
+        agent_name: str,
+        thread_key: Optional[str] = None,
+        created_by_run_id: Optional[str] = None,
+        created_by_call_id: Optional[str] = None,
+        parent_run_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
+        last_run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        status: str = 'active',
+    ) -> Dict[str, Any]:
+        resolved_thread_key = (thread_key or f'child:{child_agent_id}').strip() or f'child:{child_agent_id}'
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO child_agents (
+                    child_agent_id, session_id, agent_name, thread_key, status,
+                    created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                    last_run_id, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    child_agent_id,
+                    session_id,
+                    agent_name,
+                    resolved_thread_key,
+                    status,
+                    created_by_run_id,
+                    created_by_call_id,
+                    parent_run_id,
+                    parent_call_id,
+                    last_run_id,
+                    metadata_json,
+                ),
+            )
+        return {
+            'child_agent_id': child_agent_id,
+            'session_id': session_id,
+            'agent_name': agent_name,
+            'thread_key': resolved_thread_key,
+            'status': status,
+            'created_by_run_id': created_by_run_id,
+            'created_by_call_id': created_by_call_id,
+            'parent_run_id': parent_run_id,
+            'parent_call_id': parent_call_id,
+            'last_run_id': last_run_id,
+            'metadata': metadata or {},
+        }
+
+    def get_child_agent(self, *, session_id: str, child_agent_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT child_agent_id, session_id, agent_name, thread_key, status,
+                       created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                       last_run_id, metadata, created_at, updated_at
+                FROM child_agents
+                WHERE session_id=? AND child_agent_id=?
+                """,
+                (session_id, child_agent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'child_agent_id': row['child_agent_id'],
+                'session_id': row['session_id'],
+                'agent_name': row['agent_name'],
+                'thread_key': row['thread_key'],
+                'status': row['status'],
+                'created_by_run_id': row['created_by_run_id'],
+                'created_by_call_id': row['created_by_call_id'],
+                'parent_run_id': row['parent_run_id'],
+                'parent_call_id': row['parent_call_id'],
+                'last_run_id': row['last_run_id'],
+                'metadata': json.loads(row['metadata'] or '{}'),
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at'],
+            }
+
+    def update_child_agent_last_run(
+        self,
+        *,
+        session_id: str,
+        child_agent_id: str,
+        last_run_id: str,
+        status: Optional[str] = None,
+    ) -> bool:
+        updates = ['last_run_id=?', 'updated_at=CURRENT_TIMESTAMP']
+        params: List[Any] = [last_run_id]
+        if status is not None:
+            updates.insert(1, 'status=?')
+            params.append(status)
+        params.extend([session_id, child_agent_id])
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                f"UPDATE child_agents SET {', '.join(updates)} WHERE session_id=? AND child_agent_id=?",
+                params,
+            )
+            return cur.rowcount > 0
+
+    def list_child_agents(self, *, session_id: str, agent_name: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT child_agent_id, session_id, agent_name, thread_key, status,
+                       created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                       last_run_id, metadata, created_at, updated_at
+                FROM child_agents
+                WHERE session_id=? AND (? IS NULL OR agent_name=?)
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (session_id, agent_name, agent_name, limit),
+            ).fetchall()
+            items = []
+            for row in rows:
+                items.append({
+                    'child_agent_id': row['child_agent_id'],
+                    'session_id': row['session_id'],
+                    'agent_name': row['agent_name'],
+                    'thread_key': row['thread_key'],
+                    'status': row['status'],
+                    'created_by_run_id': row['created_by_run_id'],
+                    'created_by_call_id': row['created_by_call_id'],
+                    'parent_run_id': row['parent_run_id'],
+                    'parent_call_id': row['parent_call_id'],
+                    'last_run_id': row['last_run_id'],
+                    'metadata': json.loads(row['metadata'] or '{}'),
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                })
+            return {'items': items, 'total': len(items)}
+
+    def get_recent_messages_by_child_agent(self, session_id: str, child_agent_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        child_agent = self.get_child_agent(session_id=session_id, child_agent_id=child_agent_id)
+        if not child_agent:
+            return []
+        return self.get_recent_messages(
+            session_id=session_id,
+            limit=limit,
+            thread_key=child_agent['thread_key'],
+        )
+
     # ── Run 管理 ──────────────────────────────────────────────────
 
     def create_run(
@@ -961,16 +1207,44 @@ class ConversationStore:
         task_summary: str = "",
         user_id: Optional[str] = None,
         agent_name: Optional[str] = None,
+        thread_key: str = 'root',
+        parent_run_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
+        child_agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        resolved_thread_key = (thread_key or 'root').strip() or 'root'
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO runs (run_id, session_id, entrypoint, status, task_summary, user_id, agent_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO runs (
+                    run_id, session_id, entrypoint, status, task_summary,
+                    user_id, agent_name, thread_key, parent_run_id, parent_call_id, child_agent_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, session_id, entrypoint, status, task_summary, user_id, agent_name),
+                (
+                    run_id,
+                    session_id,
+                    entrypoint,
+                    status,
+                    task_summary,
+                    user_id,
+                    agent_name,
+                    resolved_thread_key,
+                    parent_run_id,
+                    parent_call_id,
+                    child_agent_id,
+                ),
             )
-        return {"run_id": run_id, "session_id": session_id, "status": status}
+        return {
+            "run_id": run_id,
+            "session_id": session_id,
+            "status": status,
+            "thread_key": resolved_thread_key,
+            "parent_run_id": parent_run_id,
+            "parent_call_id": parent_call_id,
+            "child_agent_id": child_agent_id,
+        }
 
     def update_run_status(
         self,
@@ -994,7 +1268,8 @@ class ConversationStore:
             rows = conn.execute(
                 """
                 SELECT run_id, session_id, entrypoint, status, task_summary,
-                       user_id, agent_name, final_message_id, created_at, updated_at
+                       user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                       child_agent_id, final_message_id, created_at, updated_at
                 FROM runs WHERE session_id=? ORDER BY created_at DESC LIMIT ?
                 """,
                 (session_id, limit),
@@ -1009,6 +1284,10 @@ class ConversationStore:
                     "task_summary": row["task_summary"],
                     "user_id": row["user_id"],
                     "agent_name": row["agent_name"],
+                    "thread_key": row["thread_key"],
+                    "parent_run_id": row["parent_run_id"],
+                    "parent_call_id": row["parent_call_id"],
+                    "child_agent_id": row["child_agent_id"],
                     "final_message_id": row["final_message_id"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],

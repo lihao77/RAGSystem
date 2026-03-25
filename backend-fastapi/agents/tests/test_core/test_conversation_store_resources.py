@@ -87,6 +87,59 @@ def test_conversation_store_persists_runs_resources_and_step_links():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_conversation_store_supports_child_agents_and_child_scoped_messages():
+    temp_dir = tempfile.mkdtemp()
+    try:
+        db_path = str(Path(temp_dir) / "conversation.db")
+        store = ConversationStore(db_path=db_path, start_cleanup_thread=False)
+        store.create_session("session-thread", user_id="user-1")
+        child = store.create_child_agent(
+            child_agent_id="child-1",
+            session_id="session-thread",
+            agent_name="kgqa_agent",
+            parent_run_id="run-root",
+            parent_call_id="call-parent",
+        )
+
+        store.add_message(
+            session_id="session-thread",
+            role="assistant",
+            content="child-answer",
+            metadata={"run_id": "run-child"},
+            thread_key=child["thread_key"],
+            child_agent_id="child-1",
+        )
+        store.create_run(
+            run_id="run-child",
+            session_id="session-thread",
+            entrypoint="send_message",
+            status="running",
+            task_summary="child task",
+            user_id="user-1",
+            agent_name="kgqa_agent",
+            thread_key=child["thread_key"],
+            parent_run_id="run-root",
+            parent_call_id="call-parent",
+            child_agent_id="child-1",
+        )
+
+        child_messages = store.get_recent_messages_by_child_agent(
+            session_id="session-thread",
+            child_agent_id="child-1",
+            limit=20,
+        )
+        runs = store.list_runs(session_id="session-thread")
+        children = store.list_child_agents(session_id="session-thread")
+
+        assert child["thread_key"] == "child:child-1"
+        assert [item["content"] for item in child_messages] == ["child-answer"]
+        assert child_messages[0]["child_agent_id"] == "child-1"
+        assert runs["items"][0]["child_agent_id"] == "child-1"
+        assert children["items"][0]["child_agent_id"] == "child-1"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_conversation_store_infers_new_resource_scopes():
     root = _make_temp_dir()
     session_id = "session-scope"

@@ -37,6 +37,7 @@ class TextDataFormatter(BaseObservationFormatter):
         summary = result.summary
         metadata = result.metadata or {}
         approval_message = metadata.get("approval_message", "")
+        child_agent_id = metadata.get("child_agent_id")
 
         # 记录物化
         estimated_size = self._estimate_size_fast(content)
@@ -44,11 +45,16 @@ class TextDataFormatter(BaseObservationFormatter):
 
         # 构建前缀
         prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+        if child_agent_id:
+            prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
         if approval_message:
             prefix += f"👤 用户批注: {approval_message}\n\n"
 
         # 如果 content 不是字符串，转为字符串
         if not isinstance(content, str):
             content = str(content)
+
+        if summary and content.strip() == summary.strip():
+            return prefix.rstrip()
 
         return f"{prefix}{content}"

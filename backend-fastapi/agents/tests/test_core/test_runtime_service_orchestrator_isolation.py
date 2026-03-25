@@ -48,8 +48,8 @@ class _DummyConversationStore:
     def __init__(self, session_map=None):
         self._session_map = session_map or {}
 
-    def get_recent_messages(self, session_id, limit):
-        del session_id, limit
+    def get_recent_messages(self, session_id, limit, thread_key=None):
+        del session_id, limit, thread_key
         return []
 
     def get_session(self, session_id):
@@ -110,11 +110,22 @@ def test_runtime_context_binds_event_bus_per_run():
         default_adapter_getter=lambda: SimpleNamespace(),
     )
 
-    context_a = runtime.build_context(session_id="session-1", user_id="u1", run_id="run-a")
-    context_b = runtime.build_context(session_id="session-1", user_id="u1", run_id="run-b")
+    context_a = runtime.build_context(session_id="session-1", user_id="u1", run_id="run-a", thread_key="root")
+    context_b = runtime.build_context(
+        session_id="session-1",
+        user_id="u1",
+        run_id="run-b",
+        thread_key="thread-1",
+        parent_run_id="run-a",
+        parent_call_id="call-1",
+    )
 
     assert context_a.metadata["run_id"] == "run-a"
     assert context_b.metadata["run_id"] == "run-b"
+    assert context_a.metadata["thread_key"] == "root"
+    assert context_b.metadata["thread_key"] == "thread-1"
+    assert context_b.metadata["parent_run_id"] == "run-a"
+    assert context_b.metadata["parent_call_id"] == "call-1"
     assert context_a.metadata["event_bus"] is not context_b.metadata["event_bus"]
     assert context_a.metadata['workspace_root'] == 'E:/external/workspace'
     assert context_b.metadata['workspace_root'] == 'E:/external/workspace'

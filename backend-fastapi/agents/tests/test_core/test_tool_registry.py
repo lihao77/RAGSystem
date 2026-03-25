@@ -22,7 +22,7 @@ def test_tool_registry_groups_base_and_document_tools():
     assert "generate_report" not in base_names
     assert "read_file" in base_names
     assert "request_user_input" in builtin_names
-    assert agent_names == ["call_agent"]
+    assert agent_names == ["call_agent", "send_message"]
     assert "read_file" in document_names
     assert "execute_skill_script" not in document_names
     assert base_names.count("read_file") == 1
@@ -33,6 +33,7 @@ def test_tool_registry_groups_base_and_document_tools():
     assert registry.get_tool_category("activate_skill") == "skill"
     assert registry.get_tool_category("request_user_input") == "builtin"
     assert registry.get_tool_category("call_agent") == "agent"
+    assert registry.get_tool_category("send_message") == "agent"
 
 
 def test_tool_registry_lists_direct_tool_summaries_with_source():
@@ -44,6 +45,7 @@ def test_tool_registry_lists_direct_tool_summaries_with_source():
 
     assert "request_user_input" not in names
     assert "call_agent" not in names
+    assert "send_message" not in names
     assert "execute_skill_script" not in names
     assert read_file["category"] == "document"
     assert read_file["source"] == "document"
@@ -57,6 +59,7 @@ def test_tool_registry_exposes_base_tool_accessors():
     assert registry.get_tool_by_name("execute_skill_script")["function"]["name"] == "execute_skill_script"
     assert registry.get_tool_by_name("generate_report") is None
     assert registry.get_tool_by_name("call_agent")["function"]["name"] == "call_agent"
+    assert registry.get_tool_by_name("send_message")["function"]["name"] == "send_message"
     assert "read_file" not in registry.get_code_callable_tools()
     assert "execute_bash" not in registry.get_code_callable_tools()
     assert "execute_skill_script" not in registry.get_code_callable_tools()
@@ -64,12 +67,13 @@ def test_tool_registry_exposes_base_tool_accessors():
     assert "execute_skill_script" in all_contract_names
     assert "request_user_input" in all_contract_names
     assert "call_agent" in all_contract_names
+    assert "send_message" in all_contract_names
 
 
 def test_registry_source_queries_are_unique():
     registry = get_tool_registry()
 
-    assert [tool["function"]["name"] for tool in registry.get_agent_tools()] == ["call_agent"]
+    assert [tool["function"]["name"] for tool in registry.get_agent_tools()] == ["call_agent", "send_message"]
     assert registry.get_builtin_tool_names() == {"request_user_input"}
     assert {tool["function"]["name"] for tool in registry.get_skill_tools()} == {
         "activate_skill", "load_skill_resource", "execute_skill_script", "get_skill_info"

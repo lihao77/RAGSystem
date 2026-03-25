@@ -28,6 +28,10 @@ def get_conversation_store(runtime=Depends(get_agent_runtime_service)):
     return runtime.get_conversation_store()
 
 
+def get_agent_execution_service():
+    return _container().get_agent_execution_service()
+
+
 def get_config_manager(runtime=Depends(get_agent_runtime_service)):
     return runtime.get_config_manager()
 

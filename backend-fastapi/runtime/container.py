@@ -161,6 +161,20 @@ class RuntimeContainer:
 
         return self._get_or_create('agent_api_runtime_service', AgentApiRuntimeService)
 
+    def get_agent_execution_service(self):
+        from services.agent_execution_service import AgentExecutionService
+
+        instance = self.get_instance('agent_execution_service')
+        if instance is not None:
+            return instance
+
+        with self._lock:
+            instance = self._instances.get('agent_execution_service')
+            if instance is None:
+                instance = AgentExecutionService(runtime_service=self.get_agent_api_runtime_service())
+                self._instances['agent_execution_service'] = instance
+            return instance
+
     def get_embedding_model_service(self):
         from services.embedding_model_service import EmbeddingModelService
 

@@ -136,6 +136,8 @@ class StepProjector:
             'call_id': call_id,
             'parent_call_id': parent_call_id,
             'agent_name': agent_name,
+            'child_agent_id': data.get('child_agent_id'),
+            'mode': data.get('mode'),
             'source_event_type': event_type,
             'timestamp': event.timestamp,
             'event_id': event.event_id,

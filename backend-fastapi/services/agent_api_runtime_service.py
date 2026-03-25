@@ -112,9 +112,19 @@ class AgentApiRuntimeService:
 
     # ── 会话历史（原 AgentChatApplication） ───────────────
 
-    def load_history_into_context(self, context: AgentContext, session_id: str, limit: int = 200) -> None:
+    def load_history_into_context(
+        self,
+        context: AgentContext,
+        session_id: str,
+        limit: int = 200,
+        thread_key: Optional[str] = None,
+    ) -> None:
         try:
-            raw_messages = self._conversation_store.get_recent_messages(session_id=session_id, limit=limit)
+            raw_messages = self._conversation_store.get_recent_messages(
+                session_id=session_id,
+                limit=limit,
+                thread_key=thread_key,
+            )
         except Exception as e:
             logger.warning('加载历史失败，使用空历史: %s', e)
             return
@@ -138,8 +148,14 @@ class AgentApiRuntimeService:
         run_id: Optional[str] = None,
         request_id: Optional[str] = None,
         llm_override: Optional[dict] = None,
+        thread_key: str = 'root',
+        parent_run_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
     ) -> AgentContext:
+        resolved_thread_key = (thread_key or 'root').strip() or 'root'
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
+        context.metadata['thread_key'] = resolved_thread_key
+        context.metadata['conversation_scope'] = 'root' if resolved_thread_key == 'root' else 'agent_thread'
         session_workspace_root = self._get_session_workspace_root(session_id)
         if session_workspace_root:
             context.metadata['workspace_root'] = session_workspace_root
@@ -148,7 +164,16 @@ class AgentApiRuntimeService:
             context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
         if request_id:
             context.metadata['request_id'] = request_id
-        self.load_history_into_context(context, session_id=session_id, limit=limit)
+        if parent_run_id:
+            context.metadata['parent_run_id'] = parent_run_id
+        if parent_call_id:
+            context.metadata['parent_call_id'] = parent_call_id
+        self.load_history_into_context(
+            context,
+            session_id=session_id,
+            limit=limit,
+            thread_key=resolved_thread_key,
+        )
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────
@@ -242,6 +267,10 @@ class AgentApiRuntimeService:
 
     def get_default_adapter(self):
         return self._default_adapter_getter()
+
+    def get_agent_execution_service(self):
+        from services.agent_execution_service import AgentExecutionService
+        return AgentExecutionService(runtime_service=self)
 
     # ── 任务 / 会话管理 ────────────────────────────────
 

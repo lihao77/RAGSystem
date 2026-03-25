@@ -34,6 +34,10 @@ class MessagePersistenceHandler:
         run_id: str,
         cancel_event: ThreadingEvent,
         entry_agent_name: str = 'orchestrator_agent',
+        thread_key: str = 'root',
+        conversation_scope: str = 'root',
+        visible_to_user: bool = True,
+        child_agent_id: Optional[str] = None,
     ):
         self.event_bus = event_bus
         self.store = store
@@ -41,6 +45,10 @@ class MessagePersistenceHandler:
         self.run_id = run_id
         self.cancel_event = cancel_event
         self.entry_agent_name = entry_agent_name
+        self.thread_key = thread_key
+        self.conversation_scope = conversation_scope
+        self.visible_to_user = visible_to_user
+        self.child_agent_id = child_agent_id
 
         self.final_answer_saved = ThreadingEvent()
         self.message_id_for_run: List[Optional[str]] = [None]
@@ -138,7 +146,13 @@ class MessagePersistenceHandler:
                         'round': data.get('round'),
                         'run_id': self.run_id,
                         'agent': self.entry_agent_name,
+                        'thread_key': self.thread_key,
+                        'conversation_scope': self.conversation_scope,
+                        'visible_to_user': self.visible_to_user,
+                        'child_agent_id': self.child_agent_id,
                     },
+                    thread_key=self.thread_key,
+                    child_agent_id=self.child_agent_id,
                 )
             except Exception as error:
                 logger.warning('写入 react_intermediate 消息失败: %s', error, exc_info=True)
@@ -163,7 +177,16 @@ class MessagePersistenceHandler:
                     session_id=self.session_id,
                     role='assistant',
                     content=content if isinstance(content, str) else str(content),
-                    metadata={'agent': event.agent_name, 'run_id': self.run_id},
+                    metadata={
+                        'agent': event.agent_name,
+                        'run_id': self.run_id,
+                        'thread_key': self.thread_key,
+                        'conversation_scope': self.conversation_scope,
+                        'visible_to_user': self.visible_to_user,
+                        'child_agent_id': self.child_agent_id,
+                    },
+                    thread_key=self.thread_key,
+                    child_agent_id=self.child_agent_id,
                 )
                 self.message_id_for_run[0] = message['id']
                 self.store.update_run_steps_message_id(self.session_id, self.run_id, message['id'])

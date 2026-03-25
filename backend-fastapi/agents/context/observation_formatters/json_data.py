@@ -39,6 +39,7 @@ class JsonDataFormatter(BaseObservationFormatter):
         answer = result.answer
         metadata = result.metadata or {}
         approval_message = metadata.get("approval_message", "")
+        child_agent_id = metadata.get("child_agent_id")
 
         # 记录物化
         estimated_size = self._estimate_size_fast(content)
@@ -54,12 +55,16 @@ class JsonDataFormatter(BaseObservationFormatter):
         # 如果有 answer，使用特殊格式
         if answer:
             prefix = f"✅ {answer}\n\n"
+            if child_agent_id:
+                prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
             if approval_message:
                 prefix += f"👤 用户批注: {approval_message}\n\n"
             return f"{prefix}📊 数据详情:\n```json\n{content_str}\n```"
 
         # 默认格式
         prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+        if child_agent_id:
+            prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
         if approval_message:
             prefix += f"👤 用户批注: {approval_message}\n\n"
 

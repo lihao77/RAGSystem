@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from agents.core import AgentContext, AgentResponse, BaseAgent
 from tools.tool_registry import get_tool_registry
 
-from .executor import AgentExecutor
 from .prompting import (
     build_orchestrator_specific_sections,
     format_agent_result_summary,
@@ -66,7 +65,6 @@ class OrchestratorAgent(BaseAgent):
         )
 
         self.orchestrator = orchestrator
-        self.agent_executor = AgentExecutor(orchestrator)
         from agents.context.budget import ORCHESTRATOR_CONTEXT_PROFILE_NAME
         self._setup_react_runtime(
             available_tools=available_tools,

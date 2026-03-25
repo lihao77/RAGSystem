@@ -47,6 +47,10 @@ def test_react_intermediate_is_persisted_as_message_and_run_step():
         run_id="run-1",
         cancel_event=ThreadingEvent(),
         entry_agent_name="orchestrator_agent",
+        thread_key="child:child-1",
+        conversation_scope="child",
+        visible_to_user=False,
+        child_agent_id="child-1",
     )
     handler.subscribe_all()
 
@@ -67,6 +71,10 @@ def test_react_intermediate_is_persisted_as_message_and_run_step():
 
     assert len(store.messages) == 1
     assert store.messages[0]["metadata"]["react_intermediate"] is True
+    assert store.messages[0]["metadata"]["thread_key"] == "child:child-1"
+    assert store.messages[0]["metadata"]["child_agent_id"] == "child-1"
+    assert store.messages[0]["metadata"]["visible_to_user"] is False
+    assert store.messages[0]["thread_key"] == "child:child-1"
     assert store.messages[0]["content"] == "先搜索资料"
     assert len(store.run_steps) == 0
 

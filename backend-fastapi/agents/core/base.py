@@ -313,8 +313,9 @@ class BaseAgent(ABC):
     def _get_direct_tools_for_prompt(self) -> List[Dict[str, Any]]:
         from tools.tool_registry import get_tool_registry
 
-        builtin_tool_names = {"request_user_input"}
-        agent_tool_names = {"call_agent"}
+        registry = get_tool_registry()
+        builtin_tool_names = {tool["function"]["name"] for tool in registry.get_builtin_tools()}
+        agent_tool_names = {tool["function"]["name"] for tool in registry.get_agent_tools()}
         direct_tools: List[Dict[str, Any]] = []
         for tool in getattr(self, 'available_tools', []) or []:
             func = tool.get('function', {}) if isinstance(tool, dict) else {}

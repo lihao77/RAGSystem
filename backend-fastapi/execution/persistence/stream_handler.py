@@ -28,6 +28,10 @@ class StreamPersistenceHandler:
         run_id: str,
         cancel_event: ThreadingEvent,
         entry_agent_name: str = 'orchestrator_agent',
+        thread_key: str = 'root',
+        conversation_scope: str = 'root',
+        visible_to_user: bool = True,
+        child_agent_id: Optional[str] = None,
     ):
         self._message_handler = MessagePersistenceHandler(
             event_bus=event_bus,
@@ -36,6 +40,10 @@ class StreamPersistenceHandler:
             run_id=run_id,
             cancel_event=cancel_event,
             entry_agent_name=entry_agent_name,
+            thread_key=thread_key,
+            conversation_scope=conversation_scope,
+            visible_to_user=visible_to_user,
+            child_agent_id=child_agent_id,
         )
         self._runstep_handler = RunStepPersistenceHandler(
             event_bus=event_bus,

@@ -124,8 +124,15 @@ def _build_agent_roster(agent):
 
 
 def get_available_agent_tools(agent):
-    tool = _TOOL_REGISTRY.get_tool_by_name('call_agent')
-    return [tool] if tool and _build_agent_roster(agent) else []
+    tools = []
+    roster = _build_agent_roster(agent)
+    if not roster:
+        return tools
+    for tool_name in ('call_agent', 'send_message'):
+        tool = _TOOL_REGISTRY.get_tool_by_name(tool_name)
+        if tool:
+            tools.append(tool)
+    return tools
 
 
 def build_orchestrator_specific_sections(agent) -> list[str]:
@@ -134,26 +141,29 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
     if not available_agent_tools:
         return []
 
-    call_agent_tool = available_agent_tools[0]['function']
     lines = [
         '## 子 Agent 委派',
         '',
-        '你只能通过单一工具 `call_agent` 委派子 Agent。',
-        '',
-        '### call_agent',
-        f"**描述**: {call_agent_tool.get('description', '')}",
-        f"**调用能力**: {BaseAgent._format_allowed_callers(call_agent_tool)}",
+        '你只能通过 `call_agent` 创建子 Agent，会通过 `send_message` 继续既有子 Agent。',
     ]
-    params = call_agent_tool.get('parameters', {})
-    if params and 'properties' in params:
-        lines.append('**参数**:')
-        required = params.get('required', [])
-        for param_name, param_info in params['properties'].items():
-            required_mark = ' (必填)' if param_name in required else ' (可选)'
-            lines.append(
-                f"  - `{param_name}` ({param_info.get('type', 'any')}){required_mark}: {param_info.get('description', '')}"
-            )
-    lines.extend(_format_tool_contract(call_agent_tool))
+    for tool in available_agent_tools:
+        func = tool['function']
+        lines.extend([
+            '',
+            f"### {func.get('name', '')}",
+            f"**描述**: {func.get('description', '')}",
+            f"**调用能力**: {BaseAgent._format_allowed_callers(func)}",
+        ])
+        params = func.get('parameters', {})
+        if params and 'properties' in params:
+            lines.append('**参数**:')
+            required = params.get('required', [])
+            for param_name, param_info in params['properties'].items():
+                required_mark = ' (必填)' if param_name in required else ' (可选)'
+                lines.append(
+                    f"  - `{param_name}` ({param_info.get('type', 'any')}){required_mark}: {param_info.get('description', '')}"
+                )
+        lines.extend(_format_tool_contract(func))
 
     lines.extend([
         '',
@@ -185,11 +195,12 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 
 - {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足时，才委派子 Agent。'}
 - `agent_name` 必须从上面的 allowlist 中选择
-- `task` 必须写完整上下文；子 Agent 默认不继承此前对话历史
+- `task` 必须写完整上下文；首次创建子 Agent 用 `call_agent`
+- 已有 `child_agent_id` 时，用 `send_message(child_agent_id, message)` 续接既有子 Agent
 - `context_hint` 用于补充约束、口径、输出格式或边界
-- 需要链式传递时，优先使用 `{{result_N.content}}`
+- 需要链式传递时，优先使用 `{{result_N.content}}` 或 `{{result_N.metadata.child_agent_id}}`
 
-调用示例：
+创建子 Agent：
 <tools>
 <tool name="call_agent">
   <agent_name>{example_agent}</agent_name>
@@ -198,11 +209,11 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 </tool>
 </tools>
 
-用占位符传递上步数据：
+续接已有子 Agent：
 <tools>
-<tool name="call_agent">
-  <agent_name>{example_agent}</agent_name>
-  <task>基于 {{result_1.content}} 继续处理并输出结论</task>
+<tool name="send_message">
+  <child_agent_id>{{result_1.metadata.child_agent_id}}</child_agent_id>
+  <message>继续基于上一轮结果补充结论，并输出最终摘要</message>
 </tool>
 </tools>"""
 

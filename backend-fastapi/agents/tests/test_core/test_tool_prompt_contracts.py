@@ -273,6 +273,7 @@ def test_orchestrator_prompt_examples_use_call_agent_and_roster():
     prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
 
     assert "call_agent" in prompt
+    assert "send_message" in prompt
     assert "chart_agent" in prompt
     assert "图表智能体" in prompt
     assert "图表与地图可视化" in prompt
@@ -314,4 +315,5 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
     assert "## execute_code 中可调用的工具" in orchestrator_prompt
     assert "## 当前可委派子 Agent 列表" in orchestrator_prompt
     assert "call_agent" in orchestrator_prompt
+    assert "send_message" in orchestrator_prompt
     assert "## 当前可委派子 Agent 列表" not in react_prompt
