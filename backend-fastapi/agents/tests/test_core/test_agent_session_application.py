@@ -43,7 +43,20 @@ class _FakeConversationStore:
                     'created_at': '2026-03-19T00:00:01Z',
                 },
                 {
-                    'seq': 3,
+                    'seq': 2.5,
+                    'id': 'msg-child-hidden',
+                    'role': 'user',
+                    'content': '请继续本会话，仅返回一句确认语',
+                    'metadata': {
+                        'run_id': 'run-child-1',
+                        'agent': 'kgqa_agent',
+                        'visible_to_user': False,
+                        'conversation_scope': 'child',
+                    },
+                    'thread_key': 'child:child-1',
+                    'created_at': '2026-03-19T00:00:01Z',
+                },
+                {
                     'id': 'msg-final',
                     'role': 'assistant',
                     'content': '最终答案',
@@ -139,6 +152,15 @@ def test_list_messages_filters_react_intermediate_messages():
     assistant = result['items'][0]
     assert assistant['id'] == 'msg-final'
     assert 'react_trace' not in assistant
+
+
+def test_list_messages_filters_child_internal_messages():
+    app = AgentSessionApplication(conversation_store=_FakeConversationStore())
+
+    result = app.list_messages(session_id='session-1', limit=20, offset=0, expand_steps=False)
+
+    assert [item['id'] for item in result['items']] == ['msg-final']
+
 
 
 def test_list_messages_returns_canonical_execution_steps():

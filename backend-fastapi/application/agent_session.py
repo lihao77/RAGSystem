@@ -141,6 +141,12 @@ class AgentSessionApplication:
                 metadata = item.get('metadata') or {}
                 if metadata.get('react_intermediate'):
                     continue
+                if metadata.get('visible_to_user') is False:
+                    continue
+                if metadata.get('conversation_scope') == 'child':
+                    continue
+                if item.get('thread_key') not in (None, '', 'root'):
+                    continue
                 visible_items.append(item)
             data['items'] = visible_items
         if expand_steps and data.get('items'):
