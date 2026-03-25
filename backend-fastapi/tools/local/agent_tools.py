@@ -198,6 +198,102 @@ def call_agent(
 
 
 @tool(
+    name="list_child_agents",
+    source="agent",
+    description=(
+        "列出当前 session 下已创建的子 Agent 会话，便于找回 child_agent_id。"
+        "可按 agent_name 过滤，并返回最近创建的 child_agent_id 列表。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "agent_name": {
+                "type": "string",
+                "description": "可选的 Agent 名称过滤条件，只返回该 agent 的 child 会话",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "返回条数上限，默认 20",
+                "minimum": 1,
+                "maximum": 100,
+            },
+        },
+    },
+    risk_level=RiskLevel.LOW,
+    requires_approval=False,
+    timeout_seconds=0,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回 child agent 列表，便于后续 send_message 续接",
+        "shape": {
+            "items": [
+                {
+                    "child_agent_id": "string",
+                    "agent_name": "string",
+                    "status": "string",
+                    "last_run_id": "string|null",
+                }
+            ],
+            "total": "integer",
+        },
+    },
+    usage_contract=[
+        "当不知道之前的 child_agent_id 时，可先调用 list_child_agents 再决定是否 send_message",
+        "agent_name 可用于缩小范围，只查看某个子 Agent 的历史会话",
+        "返回结果中的 child_agent_id 可直接作为 send_message(child_agent_id, message) 的输入",
+    ],
+)
+def list_child_agents(
+    agent_name: str | None = None,
+    limit: int = 20,
+    *,
+    agent_config=None,
+    event_bus=None,
+    session_id: str | None = None,
+    run_id: str | None = None,
+    cancel_event=None,
+    parent_call_id: str | None = None,
+):
+    del agent_config, event_bus, run_id, cancel_event, parent_call_id
+    from services.agent_api_runtime_service import get_agent_api_runtime_service
+
+    runtime = get_agent_api_runtime_service()
+    store = runtime.get_conversation_store()
+    effective_session_id = session_id or str(uuid.uuid4())
+    resolved_limit = max(1, min(int(limit or 20), 100))
+    result = store.list_child_agents(
+        session_id=effective_session_id,
+        agent_name=agent_name,
+        limit=resolved_limit,
+    )
+    items = [
+        {
+            "child_agent_id": item.get("child_agent_id"),
+            "agent_name": item.get("agent_name"),
+            "status": item.get("status"),
+            "last_run_id": item.get("last_run_id"),
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+        }
+        for item in result.get("items", [])
+    ]
+    summary = f"找到 {len(items)} 个 child agent"
+    if agent_name:
+        summary = f"找到 {len(items)} 个 {agent_name} child agent"
+    return success_result(
+        content={"items": items, "total": result.get("total", len(items))},
+        summary=summary,
+        output_type="json",
+        metadata={
+            "agent_name": agent_name,
+            "session_id": effective_session_id,
+        },
+        tool_name="list_child_agents",
+    )
+
+
+@tool(
     name="send_message",
     source="agent",
     description=(

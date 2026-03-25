@@ -128,7 +128,7 @@ def get_available_agent_tools(agent):
     roster = _build_agent_roster(agent)
     if not roster:
         return tools
-    for tool_name in ('call_agent', 'send_message'):
+    for tool_name in ('call_agent', 'list_child_agents', 'send_message'):
         tool = _TOOL_REGISTRY.get_tool_by_name(tool_name)
         if tool:
             tools.append(tool)
@@ -144,7 +144,7 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
     lines = [
         '## 子 Agent 委派',
         '',
-        '你只能通过 `call_agent` 创建子 Agent，会通过 `send_message` 继续既有子 Agent。',
+        '你可以通过 `call_agent` 创建子 Agent，通过 `list_child_agents` 找回已有 child_agent_id，并通过 `send_message` 继续既有子 Agent。',
     ]
     for tool in available_agent_tools:
         func = tool['function']
@@ -196,6 +196,7 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 - {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足时，才委派子 Agent。'}
 - `agent_name` 必须从上面的 allowlist 中选择
 - `task` 必须写完整上下文；首次创建子 Agent 用 `call_agent`
+- 不确定之前的 `child_agent_id` 时，先用 `list_child_agents(agent_name?)` 找回
 - 已有 `child_agent_id` 时，用 `send_message(child_agent_id, message)` 续接既有子 Agent
 - `context_hint` 用于补充约束、口径、输出格式或边界
 - 需要链式传递时，优先使用 `{{result_N.content}}` 或 `{{result_N.metadata.child_agent_id}}`
@@ -209,10 +210,17 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 </tool>
 </tools>
 
+续接已有子 Agent 前先找回 id：
+<tools>
+<tool name="list_child_agents">
+  <agent_name>{example_agent}</agent_name>
+</tool>
+</tools>
+
 续接已有子 Agent：
 <tools>
 <tool name="send_message">
-  <child_agent_id>{{result_1.metadata.child_agent_id}}</child_agent_id>
+  <child_agent_id>{{result_1.content.items.0.child_agent_id}}</child_agent_id>
   <message>继续基于上一轮结果补充结论，并输出最终摘要</message>
 </tool>
 </tools>"""

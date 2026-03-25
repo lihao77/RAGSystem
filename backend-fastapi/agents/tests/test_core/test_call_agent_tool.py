@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from tools.local.agent_tools import call_agent, send_message
+from tools.local.agent_tools import call_agent, list_child_agents, send_message
 from tools.runtime.response_builder import success_result
 
 
@@ -36,9 +36,13 @@ class _FakeStore:
             return dict(self.child)
         return None
 
-    def add_message(self, **kwargs):
-        self.messages.append(kwargs)
-        return {'id': 'msg-1', 'seq': 1}
+    def list_child_agents(self, *, session_id, agent_name=None, limit=100):
+        del limit
+        items = [dict(self.child)]
+        if agent_name is not None:
+            items = [item for item in items if item.get('agent_name') == agent_name]
+        return {'items': items, 'total': len(items)}
+
 
 
 class _FakeRuntime:
@@ -100,6 +104,26 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
     assert runtime.store.created_children[0]['agent_name'] == 'demo_agent'
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']
     assert runtime.execution_calls[0]['parent_run_id'] == 'run-1'
+
+
+def test_list_child_agents_returns_existing_children(monkeypatch):
+    runtime = _FakeRuntime()
+    monkeypatch.setattr(
+        'services.agent_api_runtime_service.get_agent_api_runtime_service',
+        lambda: runtime,
+    )
+
+    result = list_child_agents(
+        agent_name='demo_agent',
+        limit=10,
+        session_id='session-1',
+    )
+
+    assert result.success is True
+    assert result.tool_name == 'list_child_agents'
+    assert result.content['total'] == 1
+    assert result.content['items'][0]['child_agent_id'] == 'child-existing'
+    assert result.content['items'][0]['agent_name'] == 'demo_agent'
 
 
 def test_send_message_reuses_existing_child_agent(monkeypatch):

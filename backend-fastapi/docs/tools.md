@@ -120,7 +120,7 @@ def my_tool(arguments, **kwargs):
 - `local/code_sandbox.py`: execute_code
 - `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
 - `local/builtin_tools.py`: request_user_input
-- `local/agent_tools.py`: call_agent, send_message
+- `local/agent_tools.py`: call_agent, list_child_agents, send_message
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -152,8 +152,9 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 ### builtin 与 agent delegation
 
 - `request_user_input` 已从 pseudo-tool 收敛为真实 `@tool(source="builtin")`
-- `call_agent` 与 `send_message` 共同构成 `source="agent"` delegation 工具面
+- `call_agent`、`list_child_agents` 与 `send_message` 共同构成 `source="agent"` delegation 工具面
 - `call_agent` 负责创建新的 child agent 会话并返回 `child_agent_id`
+- `list_child_agents` 负责列出当前 session 下已创建的 child agent，便于找回 `child_agent_id`
 - `send_message` 负责向既有 child agent 发送新消息并续接上下文
 - 子 Agent 是否可调用不再由工具名展开决定，而由 `delegation.enabled_agents` + prompt 动态 roster 决定
 
