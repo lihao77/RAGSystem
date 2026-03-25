@@ -258,6 +258,7 @@ class ConversationStore:
                     agent_name TEXT NOT NULL,
                     thread_key TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'active',
+                    created_seq INTEGER,
                     created_by_run_id TEXT,
                     created_by_call_id TEXT,
                     parent_run_id TEXT,
@@ -279,6 +280,7 @@ class ConversationStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_child_agents_session_thread ON child_agents(session_id, thread_key)"
             )
+            self._ensure_column(conn, 'child_agents', 'created_seq', 'INTEGER')
 
             if self.enable_archive:
                 conn.execute(
@@ -711,6 +713,10 @@ class ConversationStore:
                 (session_id, after_seq)
             )
             conn.execute(
+                "DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?",
+                (session_id, after_seq)
+            )
+            conn.execute(
                 "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?",
                 (session_id,)
             )
@@ -1054,6 +1060,7 @@ class ConversationStore:
         session_id: str,
         agent_name: str,
         thread_key: Optional[str] = None,
+        created_seq: Optional[int] = None,
         created_by_run_id: Optional[str] = None,
         created_by_call_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
@@ -1069,10 +1076,10 @@ class ConversationStore:
                 """
                 INSERT INTO child_agents (
                     child_agent_id, session_id, agent_name, thread_key, status,
-                    created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                    created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
                     last_run_id, metadata
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     child_agent_id,
@@ -1080,6 +1087,7 @@ class ConversationStore:
                     agent_name,
                     resolved_thread_key,
                     status,
+                    created_seq,
                     created_by_run_id,
                     created_by_call_id,
                     parent_run_id,
@@ -1094,6 +1102,7 @@ class ConversationStore:
             'agent_name': agent_name,
             'thread_key': resolved_thread_key,
             'status': status,
+            'created_seq': created_seq,
             'created_by_run_id': created_by_run_id,
             'created_by_call_id': created_by_call_id,
             'parent_run_id': parent_run_id,
@@ -1107,7 +1116,7 @@ class ConversationStore:
             row = conn.execute(
                 """
                 SELECT child_agent_id, session_id, agent_name, thread_key, status,
-                       created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                       created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
                        last_run_id, metadata, created_at, updated_at
                 FROM child_agents
                 WHERE session_id=? AND child_agent_id=?
@@ -1122,6 +1131,7 @@ class ConversationStore:
                 'agent_name': row['agent_name'],
                 'thread_key': row['thread_key'],
                 'status': row['status'],
+                'created_seq': row['created_seq'],
                 'created_by_run_id': row['created_by_run_id'],
                 'created_by_call_id': row['created_by_call_id'],
                 'parent_run_id': row['parent_run_id'],
@@ -1158,7 +1168,7 @@ class ConversationStore:
             rows = conn.execute(
                 """
                 SELECT child_agent_id, session_id, agent_name, thread_key, status,
-                       created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+                       created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
                        last_run_id, metadata, created_at, updated_at
                 FROM child_agents
                 WHERE session_id=? AND (? IS NULL OR agent_name=?)
@@ -1175,6 +1185,7 @@ class ConversationStore:
                     'agent_name': row['agent_name'],
                     'thread_key': row['thread_key'],
                     'status': row['status'],
+                    'created_seq': row['created_seq'],
                     'created_by_run_id': row['created_by_run_id'],
                     'created_by_call_id': row['created_by_call_id'],
                     'parent_run_id': row['parent_run_id'],

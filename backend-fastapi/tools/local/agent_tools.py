@@ -93,6 +93,7 @@ def call_agent(
         return error_result("不允许委派给自身", tool_name="call_agent")
 
     runtime = get_agent_api_runtime_service()
+    effective_session_id = session_id or str(uuid.uuid4())
     config_manager = runtime.get_config_manager()
     execution_service = runtime.get_agent_execution_service()
     target_config = config_manager.get_config(agent_name)
@@ -104,7 +105,7 @@ def call_agent(
     child_agent_id = f"child_{uuid.uuid4()}"
     resolved_thread_key = f"child:{child_agent_id}"
 
-    orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
+    orchestrator = runtime.create_execution_orchestrator(session_id=effective_session_id)
     if getattr(orchestrator, "agents", {}).get(agent_name) is None:
         return error_result(f"目标 Agent '{agent_name}' 未成功加载", tool_name="call_agent")
 
@@ -113,7 +114,7 @@ def call_agent(
     if event_bus is not None:
         publisher = EventPublisher(
             agent_name=current_agent_name or "call_agent",
-            session_id=session_id,
+            session_id=effective_session_id,
             event_bus=event_bus,
             parent_call_id=parent_call_id,
         )
@@ -126,11 +127,25 @@ def call_agent(
         )
 
     store = runtime.get_conversation_store()
+    anchor_message = store.add_message(
+        session_id=effective_session_id,
+        role='assistant',
+        content='',
+        metadata={
+            'agent': current_agent_name or 'call_agent',
+            'msg_type': 'child_agent_anchor',
+            'react_intermediate': True,
+            'visible_to_user': False,
+            'conversation_scope': 'root',
+        },
+        thread_key='root',
+    )
     store.create_child_agent(
         child_agent_id=child_agent_id,
-        session_id=session_id or str(uuid.uuid4()),
+        session_id=effective_session_id,
         agent_name=agent_name,
         thread_key=resolved_thread_key,
+        created_seq=anchor_message.get('seq'),
         created_by_run_id=run_id,
         created_by_call_id=agent_call_id,
         parent_run_id=run_id,
@@ -141,7 +156,7 @@ def call_agent(
     agent_result = execution_service.execute_agent_call(
         agent_name=agent_name,
         task=task,
-        session_id=session_id or str(uuid.uuid4()),
+        session_id=effective_session_id,
         user_id=None,
         context_hint=context_hint,
         request_id=None,

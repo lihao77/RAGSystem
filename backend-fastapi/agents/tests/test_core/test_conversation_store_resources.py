@@ -140,7 +140,59 @@ def test_conversation_store_supports_child_agents_and_child_scoped_messages():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_conversation_store_infers_new_resource_scopes():
+
+
+def test_conversation_store_rollback_removes_child_agents_created_after_checkpoint():
+    temp_dir = tempfile.mkdtemp()
+    try:
+        db_path = str(Path(temp_dir) / "conversation.db")
+        store = ConversationStore(db_path=db_path, start_cleanup_thread=False)
+        store.create_session("session-rollback", user_id="user-1")
+
+        root_user = store.add_message(
+            session_id="session-rollback",
+            role="user",
+            content="root request",
+            metadata={"run_id": "run-root"},
+        )
+        store.create_child_agent(
+            child_agent_id="child-before",
+            session_id="session-rollback",
+            agent_name="kgqa_agent",
+            created_seq=root_user["seq"],
+        )
+        store.add_message(
+            session_id="session-rollback",
+            role="assistant",
+            content="root answer",
+            metadata={"run_id": "run-root"},
+        )
+        later_msg = store.add_message(
+            session_id="session-rollback",
+            role="assistant",
+            content="anchor for child-after",
+            metadata={"run_id": "run-root", "react_intermediate": True},
+        )
+        store.create_child_agent(
+            child_agent_id="child-after",
+            session_id="session-rollback",
+            agent_name="emergency_agent",
+            created_seq=later_msg["seq"],
+        )
+        store.add_message(
+            session_id="session-rollback",
+            role="assistant",
+            content="post checkpoint",
+            metadata={"run_id": "run-root"},
+        )
+
+        deleted = store.delete_messages_after(session_id="session-rollback", after_seq=root_user["seq"])
+        children = store.list_child_agents(session_id="session-rollback")
+
+        assert deleted > 0
+        assert [item["child_agent_id"] for item in children["items"]] == ["child-before"]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
     root = _make_temp_dir()
     session_id = "session-scope"
     run_id = "run-1"
