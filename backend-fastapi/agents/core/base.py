@@ -907,11 +907,15 @@ risk = call_tool('assess_flood_risk', {{
         event_bus = self._resolve_event_bus(context)
         current_call_id = None
         parent_call_id = None
+        run_id = None
         if hasattr(context, 'metadata'):
             current_call_id = context.metadata.get('call_id')
             parent_call_id = context.metadata.get('parent_call_id') or context.metadata.get('parent_task_id')
+            run_id = context.metadata.get('run_id')
         if not current_call_id:
             current_call_id = f"call_{uuid.uuid4()}"
+        if not run_id:
+            run_id = str(uuid.uuid4())
 
         publisher = self._ensure_publisher(
             context,
@@ -931,6 +935,7 @@ risk = call_tool('assess_flood_risk', {{
             'publisher': publisher,
             'call_id': current_call_id,
             'parent_call_id': parent_call_id,
+            'run_id': run_id,
             'current_session': [{"role": "user", "content": task}],
             'tool_calls_history': [],
             'rounds': 0,
@@ -1206,6 +1211,8 @@ risk = call_tool('assess_flood_risk', {{
         publisher = state.get('publisher')
         if publisher:
             publisher.agent_error(error=error_message, error_type="LLMError")
+        state['_run_status'] = 'error'
+        state['_run_summary'] = error_message
         return AgentResponse(
             success=False,
             content="",
@@ -1232,6 +1239,8 @@ risk = call_tool('assess_flood_risk', {{
                 execution_time=time.time() - start_time,
             )
 
+        state['_run_status'] = 'success'
+        state['_run_summary'] = f"任务完成，共 {state.get('rounds', 0)} 轮推理"
         return AgentResponse(
             success=True,
             content=final_answer,
@@ -1264,6 +1273,8 @@ risk = call_tool('assess_flood_risk', {{
                 result=final_content,
                 execution_time=time.time() - start_time,
             )
+        state['_run_status'] = 'max_rounds'
+        state['_run_summary'] = f"达到最大轮数 {self.max_rounds}"
         return AgentResponse(
             success=True,
             content=final_content,
@@ -1293,6 +1304,8 @@ risk = call_tool('assess_flood_risk', {{
                 result="[已停止生成]",
                 execution_time=time.time() - start_time,
             )
+        state['_run_status'] = 'interrupted'
+        state['_run_summary'] = '用户中断执行'
         return AgentResponse(
             success=False,
             content="[已停止生成]",
@@ -1318,6 +1331,8 @@ risk = call_tool('assess_flood_risk', {{
                 result=str(error),
                 execution_time=time.time() - start_time,
             )
+        state['_run_status'] = 'error'
+        state['_run_summary'] = f"执行失败: {error}"
         return AgentResponse(
             success=False,
             content=str(error),
@@ -1331,8 +1346,20 @@ risk = call_tool('assess_flood_risk', {{
         context: AgentContext,
         state: Dict[str, Any],
     ) -> None:
-        """清理执行态资源。默认无操作。"""
-        del context, state
+        """清理执行态资源，统一发布 run_end 事件。"""
+        del context
+        publisher = state.get('publisher')
+        run_id = state.get('run_id')
+        parent_call_id = state.get('parent_call_id')
+        # 仅顶层 Agent 发布 run_end
+        if publisher and run_id and not parent_call_id:
+            run_status = state.get('_run_status', 'error')
+            run_summary = state.get('_run_summary', '')
+            publisher.run_end(
+                run_id=run_id,
+                status=run_status,
+                summary=run_summary,
+            )
 
     def _execute_react_task(self, task: str, context: AgentContext) -> AgentResponse:
         """统一的 ReAct 主循环。"""
@@ -1344,6 +1371,13 @@ risk = call_tool('assess_flood_risk', {{
             state = self._prepare_execution_state(task, context, start_time)
             current_session = state['current_session']
             publisher = state.get('publisher')
+
+            # 顶层 Agent 发布 run_start（子类无论怎么重写 _prepare_execution_state 都会走到这里）
+            if publisher and not state.get('parent_call_id'):
+                publisher.run_start(
+                    run_id=state['run_id'],
+                    metadata={"task": task},
+                )
 
             while True:
                 if self.max_rounds is not None and state['rounds'] >= self.max_rounds:
@@ -1440,6 +1474,8 @@ risk = call_tool('assess_flood_risk', {{
                         )
                     except Exception:
                         pass
+                state['_run_status'] = 'interrupted'
+                state['_run_summary'] = '用户中断执行'
                 return AgentResponse(
                     success=False,
                     content="[已停止生成]",
@@ -1461,6 +1497,8 @@ risk = call_tool('assess_flood_risk', {{
                         )
                     except Exception:
                         pass
+                state['_run_status'] = 'error'
+                state['_run_summary'] = f"执行失败: {error}"
                 return AgentResponse(
                     success=False,
                     content="",

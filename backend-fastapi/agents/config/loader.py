@@ -8,7 +8,7 @@
 import logging
 from typing import Dict, Optional, Type
 from agents.core import BaseAgent
-from agents.implementations import ReActAgent, OrchestratorAgent
+from agents.implementations import OrchestratorAgent
 from .manager import get_config_manager
 from tools.tool_registry import get_tool_registry
 
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
-    'react': ReActAgent,
     'orchestrator': OrchestratorAgent,
 }
 
@@ -246,9 +245,9 @@ class AgentLoader:
                 if agent_type:
                     return agent_type
 
-        # 默认使用 react 类型
-        logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'react'")
-        return 'react'
+        # 默认统一使用 orchestrator 类型
+        logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'orchestrator'")
+        return 'orchestrator'
 
     def _resolve_tools_and_skills(self, agent_config):
         """
@@ -358,19 +357,12 @@ class AgentLoader:
         # 根据不同类型添加特殊参数
         filtered_tools, filtered_skills = self._resolve_tools_and_skills(agent_config)
 
-        if agent_class == ReActAgent:
+        if agent_class == OrchestratorAgent:
             common_kwargs.update({
                 'agent_name': agent_config.agent_name,
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
-                'available_tools': filtered_tools,
-                'available_skills': filtered_skills
-            })
-        elif agent_class == OrchestratorAgent:
-            if self.orchestrator is None:
-                raise ValueError("orchestrator 未提供，无法创建 Orchestrator Agent")
-            common_kwargs.update({
-                'orchestrator': self.orchestrator,
+                'orchestrator': self.orchestrator if agent_name == 'orchestrator_agent' else None,
                 'available_tools': filtered_tools,
                 'available_skills': filtered_skills,
             })

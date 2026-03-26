@@ -281,7 +281,7 @@ class AgentConfig(BaseModel):
                     "auto_inject": True
                 },
                 "custom_params": {
-                    "type": "react",
+                    "type": "orchestrator",
                     "behavior": {
                         "system_prompt": "你是一个专门做XX的智能体...",
                         "auto_execute_tools": True,

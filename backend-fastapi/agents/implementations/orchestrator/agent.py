@@ -23,71 +23,54 @@ _TOOL_REGISTRY = get_tool_registry()
 
 class OrchestratorAgent(BaseAgent):
     """
-    Orchestrator Agent - 动态智能体编排器
+    通用 ReAct 智能体。
 
-    核心特性：
-    1. **Agent 作为工具**: 将其他 Agent 视为可调用的工具
-    2. **ReAct 模式**: 使用推理-行动循环，动态决定调用哪个 Agent
-    3. **XML 流式输出**: 实时展示思考和回答过程
-    4. **完全可观察**: 每次 Agent 调用都有明确的输入输出
+    既可作为主编排器（持有 orchestrator 引用，调度其他 Agent），
+    也可作为独立 Worker（orchestrator=None，专注工具调用）。
+    所有智能体统一使用此类，通过配置区分行为。
     """
     def __init__(
         self,
-        orchestrator,
+        orchestrator=None,
         model_adapter=None,
         agent_config=None,
         system_config=None,
         available_tools=None,
-        available_skills=None
+        available_skills=None,
+        agent_name: Optional[str] = None,
+        display_name: Optional[str] = None,
+        description: Optional[str] = None,
     ):
-        """
-        初始化 Orchestrator Agent
-
-        Args:
-            orchestrator: AgentOrchestrator 实例（用于访问其他 Agent）
-            model_adapter: Model 适配器
-            agent_config: 智能体配置
-            system_config: 系统配置
-            available_tools: 可直接调用的工具列表（来自 agent_configs.yaml 的 tools 配置）
-            available_skills: 可用的 Skills 列表（来自 agent_configs.yaml 的 skills 配置）
-        """
+        _name = agent_name or (agent_config.agent_name if agent_config else None) or 'orchestrator_agent'
+        _desc = description or (agent_config.description if agent_config else None) or '动态智能体编排器'
         super().__init__(
-            name='orchestrator_agent',
-            description='动态智能体编排器，将 Agent 当作工具使用',
-            capabilities=[
-                'dynamic_planning',
-                'agent_coordination',
-                'adaptive_execution'
-            ],
+            name=_name,
+            description=_desc,
+            capabilities=['dynamic_planning', 'agent_coordination', 'adaptive_execution'],
             model_adapter=model_adapter,
             agent_config=agent_config,
             system_config=system_config
         )
 
+        self.display_name = display_name or (agent_config.display_name if agent_config else None) or _name
         self.orchestrator = orchestrator
-        from agents.context.budget import ORCHESTRATOR_CONTEXT_PROFILE_NAME
+        from agents.context.budget import ORCHESTRATOR_CONTEXT_PROFILE_NAME, WORKER_CONTEXT_PROFILE_NAME
+        budget_profile_name = WORKER_CONTEXT_PROFILE_NAME if orchestrator is None else ORCHESTRATOR_CONTEXT_PROFILE_NAME
         self._setup_react_runtime(
             available_tools=available_tools,
             available_skills=available_skills,
-            budget_profile_name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
-            runtime_label="OrchestratorAgent",
+            budget_profile_name=budget_profile_name,
+            runtime_label=self.display_name,
         )
-
-        # 注意：不在初始化时生成 Agent 工具列表
-        # 因为此时其他 Agent 可能还未注册到 orchestrator
-        # 延迟到 _get_available_agent_tools() 方法中动态获取
 
     def _get_agent_display_name(self, agent_name: str) -> str:
         return get_agent_display_name(self, agent_name)
 
-
     def _replace_placeholders(self, data: Any, agent_results: Dict[int, Dict[str, Any]]) -> Any:
         return replace_placeholders(self, data, agent_results)
 
-
     def _format_agent_result_summary(self, result: Dict[str, Any]) -> str:
         return format_agent_result_summary(self, result)
-
 
     def _get_available_agent_tools(self):
         return get_available_agent_tools(self)
@@ -115,7 +98,6 @@ class OrchestratorAgent(BaseAgent):
             log_label="Orchestrator",
         )
 
-
     def _build_prompt_goal_section(self) -> str:
         return """## 工作目标
 
@@ -132,7 +114,7 @@ class OrchestratorAgent(BaseAgent):
 - 先判断能否直接回答，或由一个直接工具完成；不要机械委派
 - 需要专业能力时，优先委派一个最匹配的子 Agent；只有确实存在依赖关系时才做多 Agent 链式调用
 - 子 Agent 返回数据文件时只返回文件路径（格式 `[data:路径]`），不返回文件内容；收到路径后直接传给下游 Agent 或工具
-- 委派子 Agent 时，task 中明确要求“返回数据文件路径，不要返回文件内容”
+- 委派子 Agent 时，task 中明确要求"返回数据文件路径，不要返回文件内容"
 - 多个相互独立的任务可放在同一 `<tools>` 中并行
 - 如果上一轮结果已经足够，不要重复调用相同 Agent 或工具
 - 工具或 Agent 报错后，下一轮应换策略、补参数或缩小任务，不要机械重试
@@ -143,7 +125,6 @@ class OrchestratorAgent(BaseAgent):
 
     def _build_system_prompt(self) -> str:
         return BaseAgent._build_shared_system_prompt(self)
-
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         return execute_orchestrator(self, task, context)
@@ -157,58 +138,24 @@ class OrchestratorAgent(BaseAgent):
         context: AgentContext,
         start_time: float,
     ) -> Dict[str, Any]:
-        event_bus = self._resolve_event_bus(context)
-
+        """Orchestrator 在基础状态上额外追踪 agent_calls_history 和调用树事件。"""
         import uuid
-        orchestrator_call_id = f"call_{uuid.uuid4()}"
-        run_id = context.metadata.get('run_id') or str(uuid.uuid4())
-        parent_call_id = context.metadata.get('parent_call_id') if hasattr(context, 'metadata') else None
+        state = super()._prepare_execution_state(task, context, start_time)
 
-        publisher = self._ensure_publisher(
-            context,
-            event_bus=event_bus,
-            call_id=orchestrator_call_id,
-            parent_call_id=parent_call_id,
-        )
+        # 补充 orchestrator 特有状态
+        state['agent_calls_history'] = []
+        state['global_agent_order'] = 0
 
+        # 发布 agent_call_start 供前端构建调用树
+        publisher = state.get('publisher')
         if publisher:
-            publisher.run_start(run_id=run_id, metadata={"task": task})
             publisher.agent_call_start(
-                call_id=orchestrator_call_id,
+                call_id=state['call_id'],
                 agent_name=self.name,
                 description=task,
             )
 
-        return {
-            'start_time': start_time,
-            'event_bus': event_bus,
-            'publisher': publisher,
-            'call_id': orchestrator_call_id,
-            'parent_call_id': parent_call_id,
-            'run_id': run_id,
-            'current_session': [{"role": "user", "content": task}],
-            'agent_calls_history': [],
-            'global_agent_order': 0,
-            'rounds': 0,
-        }
-
-    def _on_assistant_message(
-        self,
-        intent: str,
-        actions: List[Dict[str, Any]],
-        full_response: str,
-        final_answer: str,
-        rounds: int,
-        state: Dict[str, Any],
-    ) -> None:
-        super()._on_assistant_message(
-            intent=intent,
-            actions=actions,
-            full_response=full_response,
-            final_answer=final_answer,
-            rounds=rounds,
-            state=state,
-        )
+        return state
 
     def _handle_actions(
         self,
@@ -291,39 +238,6 @@ class OrchestratorAgent(BaseAgent):
                 msg_type="observation",
             )
 
-    def _handle_llm_error(
-        self,
-        error_message: str,
-        context: AgentContext,
-        state: Dict[str, Any],
-        start_time: float,
-    ) -> AgentResponse:
-        del context
-        publisher = state.get('publisher')
-        call_id = state.get('call_id')
-        run_id = state.get('run_id')
-        if publisher:
-            publisher.agent_error(error=error_message, error_type="LLMError")
-            if call_id:
-                publisher.agent_call_end(
-                    call_id=call_id,
-                    agent_name=self.name,
-                    result=error_message,
-                    success=False,
-                )
-            if run_id:
-                publisher.run_end(
-                    run_id=run_id,
-                    status="error",
-                    summary=error_message,
-                )
-        return AgentResponse(
-            success=False,
-            error=error_message,
-            agent_name=self.name,
-            execution_time=time.time() - start_time,
-        )
-
     def _handle_final_answer(
         self,
         final_answer: str,
@@ -332,10 +246,8 @@ class OrchestratorAgent(BaseAgent):
         start_time: float,
     ) -> AgentResponse:
         del context
-
         publisher = state.get('publisher')
         call_id = state.get('call_id')
-        run_id = state.get('run_id')
         if publisher:
             publisher.final_answer(final_answer)
             if call_id:
@@ -345,12 +257,11 @@ class OrchestratorAgent(BaseAgent):
                     result=final_answer,
                     success=True,
                 )
-            if run_id:
-                publisher.run_end(
-                    run_id=run_id,
-                    status="success",
-                    summary=f"任务完成，共 {state.get('rounds', 0)} 轮推理，{len(state.get('agent_calls_history', []))} 次Agent调用",
-                )
+        state['_run_status'] = 'success'
+        state['_run_summary'] = (
+            f"任务完成，共 {state.get('rounds', 0)} 轮推理，"
+            f"{len(state.get('agent_calls_history', []))} 次Agent调用"
+        )
         return AgentResponse(
             success=True,
             content=final_answer,
@@ -373,7 +284,6 @@ class OrchestratorAgent(BaseAgent):
         final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
         publisher = state.get('publisher')
         call_id = state.get('call_id')
-        run_id = state.get('run_id')
         if publisher:
             publisher.final_answer(final_content)
             if call_id:
@@ -383,13 +293,9 @@ class OrchestratorAgent(BaseAgent):
                     result=final_content,
                     success=False,
                 )
-            if run_id:
-                publisher.run_end(
-                    run_id=run_id,
-                    status="max_rounds",
-                    summary=f"达到最大轮数 {self.max_rounds}",
-                )
             publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
+        state['_run_status'] = 'max_rounds'
+        state['_run_summary'] = f"达到最大轮数 {self.max_rounds}"
         return AgentResponse(
             success=True,
             content=final_content,
@@ -413,7 +319,6 @@ class OrchestratorAgent(BaseAgent):
         publisher = state.get('publisher')
         self.logger.info(f"任务被用户中断: {error}")
         call_id = state.get('call_id')
-        run_id = state.get('run_id')
         if publisher:
             if call_id:
                 publisher.agent_call_end(
@@ -423,16 +328,40 @@ class OrchestratorAgent(BaseAgent):
                     success=False,
                 )
             publisher.agent_error(error=str(error), error_type="InterruptedError")
-            if run_id:
-                publisher.run_end(
-                    run_id=run_id,
-                    status="interrupted",
-                    summary="用户中断执行",
-                )
+        state['_run_status'] = 'interrupted'
+        state['_run_summary'] = '用户中断执行'
         return AgentResponse(
             success=False,
             content="[已停止生成]",
             error="interrupted",
+            agent_name=self.name,
+            execution_time=time.time() - start_time,
+        )
+
+    def _handle_llm_error(
+        self,
+        error_message: str,
+        context: AgentContext,
+        state: Dict[str, Any],
+        start_time: float,
+    ) -> AgentResponse:
+        del context
+        publisher = state.get('publisher')
+        call_id = state.get('call_id')
+        if publisher:
+            publisher.agent_error(error=error_message, error_type="LLMError")
+            if call_id:
+                publisher.agent_call_end(
+                    call_id=call_id,
+                    agent_name=self.name,
+                    result=error_message,
+                    success=False,
+                )
+        state['_run_status'] = 'error'
+        state['_run_summary'] = error_message
+        return AgentResponse(
+            success=False,
+            error=error_message,
             agent_name=self.name,
             execution_time=time.time() - start_time,
         )
@@ -448,7 +377,6 @@ class OrchestratorAgent(BaseAgent):
         publisher = state.get('publisher')
         self.logger.error(f"执行任务失败: {error}", exc_info=True)
         call_id = state.get('call_id')
-        run_id = state.get('run_id')
         if publisher:
             if call_id:
                 publisher.agent_call_end(
@@ -458,12 +386,8 @@ class OrchestratorAgent(BaseAgent):
                     success=False,
                 )
             publisher.agent_error(error=str(error), error_type="ExecutionError")
-            if run_id:
-                publisher.run_end(
-                    run_id=run_id,
-                    status="error",
-                    summary=f"执行失败: {error}",
-                )
+        state['_run_status'] = 'error'
+        state['_run_summary'] = f"执行失败: {error}"
         return AgentResponse(
             success=False,
             error=str(error),
@@ -471,13 +395,5 @@ class OrchestratorAgent(BaseAgent):
             execution_time=time.time() - start_time,
         )
 
-    def _cleanup_execution(
-        self,
-        context: AgentContext,
-        state: Dict[str, Any],
-    ) -> None:
-        del context, state
-
     def can_handle(self, task: str, context: Optional[AgentContext] = None) -> bool:
         return True
-

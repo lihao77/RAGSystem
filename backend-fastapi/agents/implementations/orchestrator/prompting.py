@@ -25,7 +25,10 @@ def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
 
 
 def get_agent_display_name(agent, agent_name: str) -> str:
-    target_agent = agent.orchestrator.agents.get(agent_name)
+    orchestrator = getattr(agent, 'orchestrator', None)
+    if not orchestrator or not getattr(orchestrator, 'agents', None):
+        return agent_name
+    target_agent = orchestrator.agents.get(agent_name)
     if target_agent and hasattr(target_agent, 'agent_config') and target_agent.agent_config:
         display_name = target_agent.agent_config.display_name
         if display_name:
@@ -100,6 +103,9 @@ def format_agent_result_summary(agent, result: Any) -> str:
 
 
 def _build_agent_roster(agent):
+    orchestrator = getattr(agent, 'orchestrator', None)
+    if not orchestrator or not getattr(orchestrator, 'agents', None):
+        return []
     delegation = getattr(getattr(agent, 'agent_config', None), 'delegation', None)
     enabled_agents = list(getattr(delegation, 'enabled_agents', []) or [])
     roster = []
