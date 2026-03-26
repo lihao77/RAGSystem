@@ -52,8 +52,8 @@ class MessagePersistenceHandler:
 
         self.final_answer_saved = ThreadingEvent()
         self.message_id_for_run: List[Optional[str]] = [None]
-        # 入口 Agent 的 root_call_id，首个 AGENT_START 事件时捕获
-        self.root_call_id: Optional[str] = None
+        # 当前持久化边界对应的入口调用节点 ID（root 与 child 统一语义）
+        self.entry_call_id: Optional[str] = None
 
         self._subscription_ids: dict = {}
 
@@ -61,7 +61,7 @@ class MessagePersistenceHandler:
         self._subscription_ids = {
             'interrupt': self._subscribe_user_interrupt(),
             'compression': self._subscribe_compression_summary(),
-            'root_call_id': self._subscribe_root_call_id(),
+            'entry_call_id': self._subscribe_entry_call_id(),
             'react_intermediate': self._subscribe_react_intermediate(),
             'final_answer': self._subscribe_final_answer(),
         }
@@ -112,12 +112,11 @@ class MessagePersistenceHandler:
             filter_func=lambda e: e.session_id == self.session_id,
         )
 
-    def _subscribe_root_call_id(self) -> str:
+    def _subscribe_entry_call_id(self) -> str:
         def handle(event):
-            # parent_call_id 为 None 说明是顶层入口 Agent
-            if self.root_call_id is None and getattr(event, 'parent_call_id', None) is None:
-                self.root_call_id = getattr(event, 'call_id', None)
-                logger.debug('捕获 root_call_id=%s', self.root_call_id)
+            if self.entry_call_id is None and getattr(event, 'parent_call_id', None) is None:
+                self.entry_call_id = getattr(event, 'call_id', None)
+                logger.debug('捕获 entry_call_id=%s', self.entry_call_id)
 
         return self.event_bus.subscribe(
             event_types=[EventType.AGENT_START, EventType.CALL_AGENT_START],
@@ -127,10 +126,8 @@ class MessagePersistenceHandler:
 
     def _subscribe_react_intermediate(self) -> str:
         def handle(event):
-            # 用 call_id 精确匹配入口 Agent，支持主智能体嵌套场景
-            # root_call_id 已知时用它做精确匹配，否则降级到 agent_name 过滤
-            if self.root_call_id is not None:
-                if getattr(event, 'call_id', None) != self.root_call_id:
+            if self.entry_call_id is not None:
+                if getattr(event, 'call_id', None) != self.entry_call_id:
                     return
             elif event.agent_name and event.agent_name != self.entry_agent_name:
                 return
@@ -145,7 +142,7 @@ class MessagePersistenceHandler:
                         'msg_type': data.get('msg_type'),
                         'round': data.get('round'),
                         'run_id': self.run_id,
-                        'agent': self.entry_agent_name,
+                        'agent': event.agent_name or self.entry_agent_name,
                         'thread_key': self.thread_key,
                         'conversation_scope': self.conversation_scope,
                         'visible_to_user': self.visible_to_user,
@@ -165,7 +162,10 @@ class MessagePersistenceHandler:
 
     def _subscribe_final_answer(self) -> str:
         def handle(event):
-            if event.agent_name and event.agent_name != self.entry_agent_name:
+            if self.entry_call_id is not None:
+                if getattr(event, 'call_id', None) != self.entry_call_id:
+                    return
+            elif event.agent_name and event.agent_name != self.entry_agent_name:
                 return
             if self.final_answer_saved.is_set():
                 return

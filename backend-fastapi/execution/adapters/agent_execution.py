@@ -223,7 +223,7 @@ class AgentExecutionAdapter:
                 step_projector_subscription_id,
                 subscriptions['run_steps'],
                 subscriptions['final_answer'],
-                subscriptions['root_call_id'],
+                subscriptions['entry_call_id'],
                 subscriptions['compression'],
                 subscriptions['react_intermediate'],
                 subscriptions['interrupt'],
