@@ -332,7 +332,6 @@ class AgentExecutionAdapter:
             context = execution_handle.context
             entry_agent = execution_handle.agent
             thread_key = context.metadata.get('thread_key', execution_handle.thread_key)
-            conversation_scope = context.metadata.get('conversation_scope', 'root')
             child_agent_id = context.metadata.get('child_agent_id', execution_handle.child_agent_id)
             try:
                 event_bus.publish(Event(
@@ -374,22 +373,25 @@ class AgentExecutionAdapter:
                 )
                 response = invocation.response
                 if response and getattr(response, 'content', None) and not final_answer_saved.is_set():
-                    message = store.add_message(
+                    event_bus.publish(Event(
+                        type=EventType.FINAL_ANSWER,
+                        data=attach_execution_metadata(
+                            {
+                                'content': response.content,
+                                'task_id': task_id,
+                                'request_id': context.metadata.get('request_id'),
+                            },
+                            task_id=task_id,
+                            session_id=session_id,
+                            run_id=run_id,
+                            execution_kind='agent_stream',
+                            request_id=context.metadata.get('request_id'),
+                        ),
                         session_id=session_id,
-                        role='assistant',
-                        content=response.content,
-                        metadata={
-                            'agent': getattr(response, 'agent_name', None),
-                            'run_id': run_id,
-                            'thread_key': thread_key,
-                            'conversation_scope': conversation_scope,
-                            'visible_to_user': True,
-                            'child_agent_id': child_agent_id,
-                        },
-                        thread_key=thread_key,
-                        child_agent_id=child_agent_id,
-                    )
-                    store.update_run_steps_message_id(session_id, run_id, message['id'])
+                        agent_name=getattr(response, 'agent_name', None),
+                        call_id=context.metadata.get('call_id'),
+                        parent_call_id=context.metadata.get('parent_call_id'),
+                    ))
                     final_answer_saved.set()
                 logger.info('Agent 任务执行完成: %s', task)
 
