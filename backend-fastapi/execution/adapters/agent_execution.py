@@ -162,6 +162,10 @@ class AgentExecutionAdapter:
                 run_id=run_id,
                 cancel_event=cancel_event,
                 entry_agent_name=getattr(entry_agent, 'name', 'orchestrator_agent'),
+                thread_key=execution_handle.thread_key,
+                conversation_scope=context.metadata.get('conversation_scope', 'root'),
+                visible_to_user=True,
+                child_agent_id=execution_handle.child_agent_id,
             )
             subscriptions = persistence_handler.subscribe_all()
             final_answer_saved = persistence_handler.final_answer_saved
@@ -173,11 +177,13 @@ class AgentExecutionAdapter:
                 metadata={
                     'agent': getattr(entry_agent, 'name', None),
                     'run_id': run_id,
-                    'thread_key': 'root',
-                    'conversation_scope': 'root',
+                    'thread_key': execution_handle.thread_key,
+                    'conversation_scope': context.metadata.get('conversation_scope', 'root'),
                     'visible_to_user': True,
+                    'child_agent_id': execution_handle.child_agent_id,
                 },
-                thread_key='root',
+                thread_key=execution_handle.thread_key,
+                child_agent_id=execution_handle.child_agent_id,
             )
 
             target = self._create_agent_task_target(
@@ -323,6 +329,9 @@ class AgentExecutionAdapter:
         user_message,
     ):
         def execute_agent_task(_execution_context):
+            thread_key = context.metadata.get('thread_key', 'root')
+            conversation_scope = context.metadata.get('conversation_scope', 'root')
+            child_agent_id = context.metadata.get('child_agent_id')
             try:
                 event_bus.publish(Event(
                     type=EventType.MESSAGE_SAVED,
@@ -347,11 +356,13 @@ class AgentExecutionAdapter:
                         metadata={
                             'agent': getattr(response, 'agent_name', None),
                             'run_id': run_id,
-                            'thread_key': 'root',
-                            'conversation_scope': 'root',
+                            'thread_key': thread_key,
+                            'conversation_scope': conversation_scope,
                             'visible_to_user': True,
+                            'child_agent_id': child_agent_id,
                         },
-                        thread_key='root',
+                        thread_key=thread_key,
+                        child_agent_id=child_agent_id,
                     )
                     store.update_run_steps_message_id(session_id, run_id, message['id'])
                     final_answer_saved.set()
