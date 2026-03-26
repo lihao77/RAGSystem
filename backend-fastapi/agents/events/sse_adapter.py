@@ -133,14 +133,6 @@ class SSEAdapter:
             return event.type.value
         if event.type == EventType.SESSION_END:
             return event.type.value
-        if self._primary_agent_name is None:
-            if event.type in (EventType.AGENT_START, EventType.CALL_AGENT_START):
-                if getattr(event, 'parent_call_id', None) is None:
-                    self._primary_agent_name = event.agent_name
-        if self._primary_agent_name and event.agent_name == self._primary_agent_name:
-            if event.type in (EventType.AGENT_END, EventType.CALL_AGENT_END):
-                if getattr(event, 'parent_call_id', None) is None:
-                    return event.type.value
         return None
 
     def _filter_event(self, event: Event) -> bool:

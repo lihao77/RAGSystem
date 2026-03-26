@@ -304,6 +304,15 @@ class EventBus:
             if len(self._event_history) > self._max_history:
                 self._event_history = self._event_history[-self._max_history:]
 
+        if event.type == EventType.RUN_END:
+            try:
+                from agents.events.session_manager import get_session_manager
+                run_id = (event.data or {}).get('run_id')
+                if run_id:
+                    get_session_manager().mark_run_ended(run_id)
+            except Exception:
+                pass
+
         # ✨ 获取订阅者（在锁内复制列表）
         with self._lock:
             subscriptions = list(self._subscriptions.get(event.type, []))
@@ -342,6 +351,15 @@ class EventBus:
             # 限制历史大小，防止内存泄漏
             if len(self._event_history) > self._max_history:
                 self._event_history = self._event_history[-self._max_history:]
+
+        if event.type == EventType.RUN_END:
+            try:
+                from agents.events.session_manager import get_session_manager
+                run_id = (event.data or {}).get('run_id')
+                if run_id:
+                    get_session_manager().mark_run_ended(run_id)
+            except Exception:
+                pass
 
         # ✨ 获取订阅者（在锁内复制列表）
         with self._lock:
