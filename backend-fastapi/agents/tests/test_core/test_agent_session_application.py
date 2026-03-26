@@ -21,7 +21,7 @@ class _FakeConversationStore:
                     'content': '<intent>第一轮思考</intent><tools><tool name="create_chart" /></tools>',
                     'metadata': {
                         'react_intermediate': True,
-                        'msg_type': 'assistant_response',
+                        'msg_type': 'intent',
                         'round': 1,
                         'run_id': 'run-1',
                         'agent': 'orchestrator_agent',

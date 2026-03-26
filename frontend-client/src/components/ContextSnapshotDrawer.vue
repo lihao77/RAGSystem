@@ -143,14 +143,14 @@ function msgLabel(msg) {
     if (msg.role === 'assistant') return 'Final Answer';
     return msg.role;
   }
-  if (msg.msg_type === 'assistant_response') return 'react-thought';
+  if (msg.msg_type === 'intent') return 'react-thought';
   else if (msg.msg_type === 'observation') return 'react-observation';
   // return msg.msg_type === 'thought' ? 'MasterAgent Thought' : 'SubAgent Result';
 }
 
 function msgClass(msg) {
   if (!msg.react_intermediate) return 'role-' + msg.role;
-  if (msg.msg_type === 'assistant_response') return 'react-thought';
+  if (msg.msg_type === 'intent') return 'react-thought';
   else if (msg.msg_type === 'observation') return 'react-observation';
   // return msg.msg_type === 'thought' ? 'react-thought' : 'react-observation';
 }

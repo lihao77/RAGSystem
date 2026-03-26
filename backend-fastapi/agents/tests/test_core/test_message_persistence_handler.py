@@ -102,6 +102,37 @@ def test_message_handler_persists_only_entry_call_messages():
     assert store.messages[0]['content'] == 'root intent'
 
 
+def test_message_handler_normalizes_intermediate_msg_type():
+    bus = _FakeEventBus()
+    store = _FakeStore()
+    handler = MessagePersistenceHandler(
+        event_bus=bus,
+        store=store,
+        session_id='session-1',
+        run_id='run-1',
+        cancel_event=ThreadingEvent(),
+        entry_agent_name='orchestrator_agent',
+        thread_key='root',
+        conversation_scope='root',
+        visible_to_user=True,
+        child_agent_id=None,
+    )
+    handler.subscribe_all()
+
+    bus.publish(_event(EventType.AGENT_START, call_id='call-root', parent_call_id=None))
+    bus.publish(_event(
+        EventType.REACT_INTERMEDIATE,
+        call_id='call-root',
+        data={'role': 'assistant', 'content': 'thinking', 'msg_type': 'intent', 'round': 1},
+    ))
+    bus.publish(_event(
+        EventType.REACT_INTERMEDIATE,
+        call_id='call-root',
+        data={'role': 'user', 'content': 'tool done', 'msg_type': 'unexpected_type', 'round': 1},
+    ))
+
+
+
 def test_message_handler_final_answer_uses_entry_call_boundary():
     bus = _FakeEventBus()
     store = _FakeStore()
@@ -126,3 +157,4 @@ def test_message_handler_final_answer_uses_entry_call_boundary():
     assert len(store.messages) == 1
     assert store.messages[0]['content'] == 'root final'
     assert store.updated[0] == ('session-1', 'run-1', 'msg-1')
+

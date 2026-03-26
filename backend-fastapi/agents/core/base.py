@@ -995,7 +995,7 @@ risk = call_tool('assess_flood_risk', {{
             role="assistant",
             content=content,
             round=rounds,
-            msg_type="assistant_response",
+            msg_type="intent",
         )
 
     def _record_visualization_result(

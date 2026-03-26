@@ -18,6 +18,7 @@ from execution.observability import attach_execution_metadata
 
 logger = logging.getLogger(__name__)
 
+_ALLOWED_INTERMEDIATE_TYPES = frozenset({'intent', 'observation'})
 
 class MessagePersistenceHandler:
     """
@@ -133,13 +134,17 @@ class MessagePersistenceHandler:
                 return
             try:
                 data = event.data or {}
+                raw_msg_type = data.get('msg_type')
+                normalized_msg_type = raw_msg_type
+                if normalized_msg_type not in _ALLOWED_INTERMEDIATE_TYPES:
+                    normalized_msg_type = 'observation'
                 self.store.add_message(
                     session_id=self.session_id,
                     role=data.get('role', 'assistant'),
                     content=data.get('content', ''),
                     metadata={
                         'react_intermediate': True,
-                        'msg_type': data.get('msg_type'),
+                        'msg_type': normalized_msg_type,
                         'round': data.get('round'),
                         'run_id': self.run_id,
                         'agent': event.agent_name or self.entry_agent_name,

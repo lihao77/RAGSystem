@@ -60,7 +60,7 @@ class IntermediateAssistantMessagesTest(unittest.TestCase):
             'role': 'assistant',
             'content': full_response,
             'round': 2,
-            'msg_type': 'assistant_response',
+            'msg_type': 'intent',
         }])
 
     def test_base_agent_skips_intermediate_persist_for_final_answer(self) -> None:
@@ -97,7 +97,7 @@ class IntermediateAssistantMessagesTest(unittest.TestCase):
             'role': 'assistant',
             'content': full_response,
             'round': 3,
-            'msg_type': 'assistant_response',
+            'msg_type': 'intent',
         }])
 
 
