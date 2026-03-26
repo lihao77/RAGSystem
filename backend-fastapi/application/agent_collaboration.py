@@ -67,12 +67,14 @@ class AgentCollaborationApplication:
 
         task = user_messages[-1]['content']
         run_id = context.metadata.get('run_id')
+        routed_agent = self._runtime_service.get_agent_execution_service().resolve_routed_root_agent(
+            task=task,
+            session_id=session_id,
+            preferred_agent=checkpoint['agent_name'],
+            user_id=body.get('user_id'),
+        )
         try:
-            response = self._runtime_service.create_execution_orchestrator(session_id=session_id).execute(
-                task=task,
-                context=context,
-                preferred_agent=checkpoint['agent_name'],
-            )
+            response = routed_agent.execute(task, context)
         finally:
             if run_id:
                 cleanup_run(run_id)
@@ -113,20 +115,19 @@ class AgentCollaborationApplication:
             after_seq=after_seq,
             modify_user_message=body.get('modify_user_message'),
         )
-        context = self._runtime_service.build_context(
+        agent_execution_service = self._runtime_service.get_agent_execution_service()
+        invocation = agent_execution_service.invoke_routed_agent(
+            task=prepared['task'],
             session_id=session_id,
             user_id=body.get('user_id'),
             run_id=str(uuid.uuid4()),
+            entrypoint='rollback_and_retry',
+            source='api',
+            persist_user_message=False,
+            persist_final_answer=False,
+            visible_to_user=True,
         )
-        run_id = context.metadata.get('run_id')
-        try:
-            response = self._runtime_service.create_execution_orchestrator(session_id=session_id).execute(
-                task=prepared['task'],
-                context=context,
-            )
-        finally:
-            if run_id:
-                cleanup_run(run_id)
+        response = invocation.response
 
         if response.success and response.content:
             self._session_application.add_assistant_message(

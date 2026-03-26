@@ -158,6 +158,22 @@ async def get_session_task_status(session_id: str):
     execution_service = get_execution_service()
     status = await asyncio.to_thread(execution_service.get_status_by_session, session_id)
     diagnostics = await asyncio.to_thread(execution_service.get_diagnostics_by_session, session_id)
+    return ok(data={
+        'session_id': session_id,
+        'has_running_task': status is not None and status.get('status') == 'running',
+        'task_info': status,
+        'observability': (
+            {
+                'task_id': status.get('task_id'),
+                'session_id': status.get('session_id'),
+                'run_id': status.get('run_id'),
+                'execution_kind': status.get('execution_kind'),
+                'request_id': status.get('request_id'),
+            }
+            if status is not None else None
+        ),
+        'diagnostics': diagnostics,
+    })
 
 
 @router.get('/sessions/{session_id}/execution-diagnostics')

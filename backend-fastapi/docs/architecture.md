@@ -156,9 +156,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `custom_params.type`（优先）
 - `custom_params.behavior.type`（兼容当前 YAML 结构）
 
-当前运行时已统一收敛到 `OrchestratorAgent`：
-- `type=orchestrator`：主路径，主编排器与 worker 统一使用该实现
-- 未声明 type：默认视为 `orchestrator`
+`application/agent_collaboration.py` 中的回退重试也已不再直调 `orchestrator.execute()`：其中 `rollback_and_retry()` 直接复用 `AgentExecutionService.invoke_routed_agent()`；`recover_session()` 因需要先把 checkpoint messages 重放进临时 context，仍保留“checkpoint 注入上下文 + routed agent.execute(context)”的执行形态，但目标 Agent 的选择也已统一复用 execution service 的路由解析。
 
 ## 占位符系统
 

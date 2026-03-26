@@ -256,6 +256,26 @@ class AgentExecutionService:
             raise LookupError('未找到合适的智能体来处理此任务')
         return routed_agent.name, routed_agent
 
+    def resolve_routed_root_agent(
+        self,
+        *,
+        task: str,
+        session_id: str,
+        preferred_agent: Optional[str] = None,
+        user_id: Optional[str] = None,
+        llm_override: Optional[dict] = None,
+        request_id: Optional[str] = None,
+    ):
+        _, routed_agent = self._route_root_agent(
+            task=task,
+            session_id=session_id,
+            preferred_agent=preferred_agent,
+            user_id=user_id,
+            llm_override=llm_override,
+            request_id=request_id,
+        )
+        return routed_agent
+
     def invoke_routed_agent(
         self,
         *,
