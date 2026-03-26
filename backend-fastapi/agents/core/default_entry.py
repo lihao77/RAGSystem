@@ -12,7 +12,7 @@ class DefaultEntryAgentProvider:
     def __init__(
         self,
         default_agent_name: Optional[str] = None,
-        fallback_agent_name: Optional[str] = "orchestrator_agent",
+        fallback_agent_name: Optional[str] = None,
     ):
         self._default_agent_name = default_agent_name
         self._fallback_agent_name = fallback_agent_name

@@ -36,20 +36,33 @@ async def execute(request: ExecuteRequest):
             lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
         )
 
-        target_agent = request.agent or 'orchestrator_agent'
-        invocation = await asyncio.to_thread(
-            agent_execution_service.invoke_agent,
-            mode='root',
-            agent_name=target_agent,
-            task=request.task,
-            session_id=session_id,
-            user_id=request.user_id,
-            entrypoint='execute',
-            source='api',
-            persist_user_message=True,
-            persist_final_answer=True,
-            visible_to_user=True,
-        )
+        if request.agent:
+            invocation = await asyncio.to_thread(
+                agent_execution_service.invoke_agent,
+                mode='root',
+                agent_name=request.agent,
+                task=request.task,
+                session_id=session_id,
+                user_id=request.user_id,
+                entrypoint='execute',
+                source='api',
+                persist_user_message=True,
+                persist_final_answer=True,
+                visible_to_user=True,
+            )
+        else:
+            invocation = await asyncio.to_thread(
+                agent_execution_service.invoke_routed_agent,
+                task=request.task,
+                session_id=session_id,
+                preferred_agent=None,
+                user_id=request.user_id,
+                entrypoint='execute',
+                source='api',
+                persist_user_message=True,
+                persist_final_answer=True,
+                visible_to_user=True,
+            )
 
         try:
             response = invocation.response

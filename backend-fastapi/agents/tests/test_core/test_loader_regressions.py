@@ -94,6 +94,25 @@ def test_loader_injects_call_agent_from_delegation_allowlist():
     assert skills == []
 
 
+def test_loader_injects_orchestrator_runtime_into_all_orchestrator_agents():
+    orchestrator_runtime = SimpleNamespace(name='runtime')
+    configs = {
+        'qa_agent': _make_agent_config('qa_agent', 'orchestrator', enabled=True),
+    }
+    loader = AgentLoader(
+        model_adapter=None,
+        system_config=None,
+        orchestrator=orchestrator_runtime,
+        config_manager=_DummyConfigManager(configs),
+    )
+    loader._resolve_tools_and_skills = lambda agent_config: ([], [])
+
+    agent = loader.load_agent('qa_agent', agent_config=configs['qa_agent'])
+
+    assert isinstance(agent, OrchestratorAgent)
+    assert agent.orchestrator is orchestrator_runtime
+
+
 def test_loader_does_not_inject_call_agent_without_delegation():
     configs = {
         'demo_agent': _make_agent_config('demo_agent', 'react', delegation=[]),

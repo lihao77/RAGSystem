@@ -84,30 +84,57 @@ class AgentApiRuntimeService:
         )
         return resolved_workspace_root
 
-    def _apply_session_workspace_root(self, orchestrator, session_id: str | None):
-        workspace_root = self._get_session_workspace_root(session_id)
-        if not workspace_root:
-            logger.debug('execution orchestrator 未注入 workspace_root: session_id=%s', session_id)
-            return orchestrator
-
-        injected_agents = []
-        for agent in getattr(orchestrator, 'agents', {}).values():
-            agent_config = getattr(agent, 'agent_config', None)
-            if agent_config is None:
-                continue
-            copied_config = copy.deepcopy(agent_config)
-            custom_params = getattr(copied_config, 'custom_params', None)
-            copied_params = dict(custom_params) if isinstance(custom_params, dict) else {}
-            copied_params['workspace_root'] = workspace_root
-            copied_config.custom_params = copied_params
-            agent.agent_config = copied_config
-            injected_agents.append(getattr(agent, 'name', '<unknown>'))
+    def _get_session_entry_agent(self, session_id: str | None) -> Optional[str]:
+        normalized_session_id = (session_id or '').strip()
+        if not normalized_session_id:
+            logger.debug('session entry_agent 查询跳过：session_id 为空')
+            return None
+        session = self._conversation_store.get_session(normalized_session_id) or {}
+        metadata = session.get('metadata') or {}
+        entry_agent = metadata.get('entry_agent')
+        resolved_entry_agent = entry_agent.strip() if isinstance(entry_agent, str) and entry_agent.strip() else None
         logger.debug(
-            'execution orchestrator 注入 workspace_root: session_id=%s workspace_root=%s agents=%s',
-            session_id,
-            workspace_root,
-            injected_agents,
+            'session entry_agent 查询: session_id=%s entry_agent=%s metadata_keys=%s',
+            normalized_session_id,
+            resolved_entry_agent,
+            sorted(metadata.keys()),
         )
+        return resolved_entry_agent
+
+    def _apply_session_runtime_overrides(self, orchestrator, session_id: str | None):
+        workspace_root = self._get_session_workspace_root(session_id)
+        if workspace_root:
+            injected_agents = []
+            for agent in getattr(orchestrator, 'agents', {}).values():
+                agent_config = getattr(agent, 'agent_config', None)
+                if agent_config is None:
+                    continue
+                copied_config = copy.deepcopy(agent_config)
+                custom_params = getattr(copied_config, 'custom_params', None)
+                copied_params = dict(custom_params) if isinstance(custom_params, dict) else {}
+                copied_params['workspace_root'] = workspace_root
+                copied_config.custom_params = copied_params
+                agent.agent_config = copied_config
+                injected_agents.append(getattr(agent, 'name', '<unknown>'))
+            logger.debug(
+                'execution orchestrator 注入 workspace_root: session_id=%s workspace_root=%s agents=%s',
+                session_id,
+                workspace_root,
+                injected_agents,
+            )
+        else:
+            logger.debug('execution orchestrator 未注入 workspace_root: session_id=%s', session_id)
+
+        entry_agent = self._get_session_entry_agent(session_id)
+        if entry_agent:
+            orchestrator.set_default_entry_agent(entry_agent)
+            logger.debug(
+                'execution orchestrator 覆盖默认入口: session_id=%s entry_agent=%s',
+                session_id,
+                entry_agent,
+            )
+        else:
+            logger.debug('execution orchestrator 未覆盖默认入口: session_id=%s', session_id)
         return orchestrator
 
     # ── 会话历史（原 AgentChatApplication） ───────────────
@@ -160,6 +187,9 @@ class AgentApiRuntimeService:
         session_workspace_root = self._get_session_workspace_root(session_id)
         if session_workspace_root:
             context.metadata['workspace_root'] = session_workspace_root
+        session_entry_agent = self._get_session_entry_agent(session_id)
+        if session_entry_agent:
+            context.metadata['entry_agent'] = session_entry_agent
         if run_id:
             context.metadata['run_id'] = run_id
             context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
@@ -187,7 +217,7 @@ class AgentApiRuntimeService:
     def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
         """为单次执行创建新的 orchestrator 与 agent 实例图。"""
         orchestrator = self._build_orchestrator(scope='execution')
-        return self._apply_session_workspace_root(orchestrator, session_id)
+        return self._apply_session_runtime_overrides(orchestrator, session_id)
 
     def get_metrics_collector(self):
         if self._metrics_collector is None:

@@ -6,7 +6,12 @@
 import os
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+try:
+    from pydantic import BaseModel, Field, field_validator
+    _PYDANTIC_V2 = True
+except ImportError:
+    from pydantic import BaseModel, Field, validator as field_validator
+    _PYDANTIC_V2 = False
 
 
 def normalize_workspace_root(value: Any) -> Optional[str]:
@@ -23,6 +28,18 @@ def normalize_workspace_root(value: Any) -> Optional[str]:
     return normalized
 
 
+def normalize_entry_agent(value: Any) -> Optional[str]:
+    """规范化并校验 session.metadata.entry_agent。"""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('metadata.entry_agent 必须是字符串或 null')
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError('metadata.entry_agent 不能为空字符串')
+    return normalized
+
+
 def normalize_session_metadata(value: Any) -> Dict[str, Any]:
     """规范化 session metadata。"""
     if value is None:
@@ -33,6 +50,8 @@ def normalize_session_metadata(value: Any) -> Dict[str, Any]:
     metadata = dict(value)
     if 'workspace_root' in metadata:
         metadata['workspace_root'] = normalize_workspace_root(metadata.get('workspace_root'))
+    if 'entry_agent' in metadata:
+        metadata['entry_agent'] = normalize_entry_agent(metadata.get('entry_agent'))
     return metadata
 
 
@@ -42,13 +61,18 @@ class CreateSessionRequest(BaseModel):
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
     metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
-        description='会话级元数据；支持 metadata.workspace_root 指定当前会话的 workspace 根目录（绝对路径）',
+        description='会话级元数据；支持 metadata.workspace_root 指定当前会话的 workspace 根目录（绝对路径），支持 metadata.entry_agent 指定当前会话的默认入口 Agent',
     )
 
-    @field_validator('metadata', mode='before')
-    @classmethod
-    def _validate_metadata(cls, value: Any) -> Dict[str, Any]:
-        return normalize_session_metadata(value)
+    if _PYDANTIC_V2:
+        @field_validator('metadata', mode='before')
+        @classmethod
+        def _validate_metadata(cls, value: Any) -> Dict[str, Any]:
+            return normalize_session_metadata(value)
+    else:
+        @field_validator('metadata', pre=True, allow_reuse=True)
+        def _validate_metadata(cls, value: Any) -> Dict[str, Any]:
+            return normalize_session_metadata(value)
 
 
 class SessionInfo(BaseModel):

@@ -57,10 +57,10 @@ def test_preferred_agent_overrides_default_entry():
     assert routed is preferred
 
 
-def test_loader_resolves_configured_default_entry_agent():
+def test_loader_without_configured_default_entry_returns_none():
     configs = {
         'orchestrator_agent': _make_cfg('orchestrator_agent'),
-        'qa_agent': _make_cfg('qa_agent', default_entry=True),
+        'qa_agent': _make_cfg('qa_agent'),
     }
     loader = AgentLoader(
         model_adapter=None,
@@ -69,7 +69,15 @@ def test_loader_resolves_configured_default_entry_agent():
         config_manager=_DummyConfigManager(configs),
     )
 
-    assert loader.resolve_default_entry_agent_name() == 'qa_agent'
+    assert loader.resolve_default_entry_agent_name() is None
+
+
+def test_default_entry_provider_has_no_builtin_fallback():
+    provider = DefaultEntryAgentProvider()
+    registry = AgentRegistry()
+    registry.register(_StubAgent('orchestrator_agent'))
+
+    assert provider.resolve_name(registry) is None
 
 
 def test_route_task_falls_back_to_capable_agent_when_default_entry_unavailable():

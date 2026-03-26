@@ -193,6 +193,25 @@ def test_invoke_routed_agent_uses_preferred_agent_route():
     assert runtime.store.messages[1]['metadata']['agent'] == 'fallback_agent'
 
 
+def test_invoke_routed_agent_uses_default_entry_when_no_preferred_agent():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    result = service.invoke_routed_agent(
+        task='hello',
+        session_id='session-1',
+        preferred_agent=None,
+        persist_user_message=True,
+        persist_final_answer=True,
+        visible_to_user=True,
+    )
+
+    assert runtime.orchestrator.route_calls[0]['preferred_agent'] is None
+    assert result.response.agent_name == 'demo_agent'
+    assert runtime.store.messages[0]['metadata']['agent'] == 'demo_agent'
+    assert runtime.store.messages[1]['metadata']['agent'] == 'demo_agent'
+
+
 
 
 def test_persist_user_message_uses_mode_scoped_metadata():

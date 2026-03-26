@@ -213,6 +213,20 @@ def test_create_session_persists_workspace_root_metadata():
     assert store.created_sessions[0]['metadata']['workspace_root'] == workspace_root
 
 
+def test_create_session_persists_entry_agent_metadata():
+    store = _FakeConversationStore()
+    app = AgentSessionApplication(conversation_store=store)
+
+    result = app.create_session(
+        session_id='session-entry-agent',
+        user_id='user-1',
+        metadata={'entry_agent': 'qa_agent'},
+    )
+
+    assert result['metadata']['entry_agent'] == 'qa_agent'
+    assert store.created_sessions[0]['metadata']['entry_agent'] == 'qa_agent'
+
+
 def test_create_session_request_validates_workspace_root_as_absolute_path():
     workspace_root = str(Path.cwd().resolve())
     request = CreateSessionRequest(metadata={'workspace_root': workspace_root})
@@ -223,3 +237,14 @@ def test_create_session_request_validates_workspace_root_as_absolute_path():
         assert False, 'expected validation error'
     except Exception as error:
         assert 'workspace_root' in str(error)
+
+
+def test_create_session_request_validates_entry_agent():
+    request = CreateSessionRequest(metadata={'entry_agent': 'qa_agent'})
+    assert request.metadata['entry_agent'] == 'qa_agent'
+
+    try:
+        CreateSessionRequest(metadata={'entry_agent': '   '})
+        assert False, 'expected validation error'
+    except Exception as error:
+        assert 'entry_agent' in str(error)

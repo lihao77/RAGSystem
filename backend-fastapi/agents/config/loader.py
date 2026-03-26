@@ -158,7 +158,7 @@ class AgentLoader:
                 logger.warning("检测到多个 default_entry=true，使用第一个: %s", explicit_defaults[0])
             return explicit_defaults[0]
 
-        return 'orchestrator_agent'
+        return None
 
     def _load_system_orchestrator_agent(self) -> Optional[BaseAgent]:
         """
@@ -366,7 +366,7 @@ class AgentLoader:
                 'agent_name': agent_config.agent_name,
                 'display_name': agent_config.display_name,
                 'description': agent_config.description,
-                'orchestrator': self.orchestrator if agent_name == 'orchestrator_agent' else None,
+                'orchestrator': self.orchestrator,
                 'available_tools': filtered_tools,
                 'available_skills': filtered_skills,
             })

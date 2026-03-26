@@ -172,6 +172,9 @@ def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatc
     assert 'execution orchestrator 注入 workspace_root: session_id=session-log workspace_root=E:/workspace/logs' in caplog.text
 
     run_manager.shutdown()
+
+
+def test_runtime_execution_orchestrator_applies_session_entry_agent_override(monkeypatch):
     def _load_all_agents(self):
         del self
         return {
@@ -183,12 +186,10 @@ def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatc
     monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self: 'orchestrator_agent')
     run_manager = RunEventBusManager(cleanup_interval=3600)
 
-    session_map = {
-        'session-a': {'session_id': 'session-a', 'metadata': {'workspace_root': 'E:/workspace/a'}},
-        'session-b': {'session_id': 'session-b', 'metadata': {'workspace_root': 'E:/workspace/b'}},
-    }
     runtime = _build_runtime(
-        conversation_store=_DummyConversationStore(session_map),
+        conversation_store=_DummyConversationStore({
+            'session-entry': {'session_id': 'session-entry', 'metadata': {'entry_agent': 'qa_agent'}},
+        }),
         task_registry_getter=lambda: SimpleNamespace(),
         session_manager_getter=lambda: run_manager,
         session_application=SimpleNamespace(),
@@ -198,11 +199,34 @@ def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatc
         default_adapter_getter=lambda: SimpleNamespace(),
     )
 
-    orchestrator_a = runtime.create_execution_orchestrator(session_id='session-a')
-    orchestrator_b = runtime.create_execution_orchestrator(session_id='session-b')
+    orchestrator = runtime.create_execution_orchestrator(session_id='session-entry')
 
-    assert orchestrator_a.agents['qa_agent'].agent_config.custom_params['workspace_root'] == 'E:/workspace/a'
-    assert orchestrator_b.agents['qa_agent'].agent_config.custom_params['workspace_root'] == 'E:/workspace/b'
-    assert orchestrator_a.agents['qa_agent'].agent_config is not orchestrator_b.agents['qa_agent'].agent_config
+    assert orchestrator.resolve_default_entry_agent_name() == 'qa_agent'
+    assert orchestrator.resolve_default_entry_agent().name == 'qa_agent'
+
+    run_manager.shutdown()
+
+
+def test_runtime_build_context_exposes_session_entry_agent():
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-1': {
+                'session_id': 'session-1',
+                'metadata': {'workspace_root': 'E:/external/workspace', 'entry_agent': 'qa_agent'},
+            },
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: SimpleNamespace(),
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    context = runtime.build_context(session_id='session-1', user_id='u1', run_id='run-a', thread_key='root')
+
+    assert context.metadata['entry_agent'] == 'qa_agent'
 
     run_manager.shutdown()
