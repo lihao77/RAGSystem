@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 from agents.core import BaseAgent
 from agents.implementations.orchestrator import prompting as orchestrator_prompting
-from agents.implementations.react.agent import ReActAgent, _format_tool_contract as react_format_tool_contract
 from tools.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
 from tools.contracts.tool_contracts import build_function_tool
@@ -66,7 +65,7 @@ def test_react_format_tool_contract_uses_input_payload_and_filters_helper_fields
         }
     }
 
-    lines = react_format_tool_contract(tool)
+    lines = BaseAgent._format_tool_contract(tool)
     rendered = "\n".join(lines)
 
     assert "<command>pwd</command>" in rendered
@@ -131,7 +130,7 @@ def test_react_prompt_renders_space_examples_as_xml_attributes():
     execute_bash_tool = _decorated_tool("execute_bash")
     fake_agent = _fake_agent(available_tools=[write_file_tool, execute_bash_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert '<file_path space="transient">tmp.txt</file_path>' in prompt
     assert '<file_path_space>transient</file_path_space>' not in prompt
@@ -144,7 +143,7 @@ def test_react_prompt_renders_read_and_edit_file_space_examples_as_xml_attribute
     edit_file_tool = _tool_from_registry("edit_file")
     fake_agent = _fake_agent(available_tools=[read_file_tool, edit_file_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert '<file_path space="transient">tmp.txt</file_path>' in prompt
     assert '<file_path_space>transient</file_path_space>' not in prompt
@@ -156,7 +155,7 @@ def test_react_build_system_prompt_includes_tool_return_contracts():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "### execute_skill_script" in prompt
     assert "**调用能力**:" in prompt
@@ -196,7 +195,7 @@ def test_react_prompt_includes_file_and_code_tool_contracts():
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[read_file_tool, execute_code_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "### read_file" in prompt
     assert "### execute_code" in prompt
@@ -207,7 +206,7 @@ def test_react_prompt_includes_execute_bash_managed_location_contract():
     execute_bash_tool = _decorated_tool("execute_bash")
     fake_agent = _fake_agent(available_tools=[execute_bash_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "### execute_bash" in prompt
     assert "默认工作目录为当前 effective workspace" in prompt
@@ -219,7 +218,7 @@ def test_react_prompt_includes_skill_tool_contracts():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[activate_skill_tool, execute_skill_script_tool])
 
-    prompt = ReActAgent._build_system_prompt(fake_agent)
+    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
 
     assert "### activate_skill" in prompt
     assert "### execute_skill_script" in prompt
@@ -305,7 +304,7 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
     )
     orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
-    react_prompt = ReActAgent._build_system_prompt(react_agent)
+    react_prompt = BaseAgent._build_shared_system_prompt(react_agent)
     orchestrator_prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
 
     for marker in ["## 工具调用总规则", "## 可直接调用的工具", "## 输出格式", "## 执行规则", "### 受管目录 space 说明"]:

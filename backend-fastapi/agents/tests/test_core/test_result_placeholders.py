@@ -5,17 +5,36 @@ import logging
 
 from agents.core import AgentContext, AgentResponse
 from agents.implementations.orchestrator.prompting import replace_placeholders
-from agents.implementations.react.agent import ReActAgent
 from services.agent_execution_service import AgentExecutionService
 from tools.runtime.response_builder import error_result, success_result
+from tools.refs.result_references import resolve_result_path, stringify_result_value, result_primary_content
 
 
 class _FakeReActAgent:
     logger = logging.getLogger("test.react.placeholder")
 
-    @staticmethod
-    def _safe_json_dumps(obj):
-        return json.dumps(obj, ensure_ascii=False)
+    def _resolve_tool_references(self, arguments, tool_results, current_idx):
+        del current_idx
+        resolved = {}
+        for key, value in arguments.items():
+            if isinstance(value, str) and value.startswith("{") and value.endswith("}") and value[1:-1].lower().startswith("result_"):
+                placeholder = value[1:-1]
+                prefix, _, path = placeholder.partition(".")
+                result_idx = int(prefix.lower().replace("result_", ""))
+                resolved_value = (
+                    result_primary_content(tool_results[result_idx])
+                    if not path
+                    else resolve_result_path(
+                        tool_results[result_idx],
+                        path,
+                        prefer_primary_content_root=True,
+                        case_insensitive=True,
+                    )
+                )
+                resolved[key] = stringify_result_value(resolved_value) if not path else resolved_value
+            else:
+                resolved[key] = value
+        return resolved
 
 
 class _FakeOrchestratorAgent:
@@ -46,7 +65,7 @@ def test_react_tool_reference_supports_tool_execution_result_primary_content():
         )
     }
 
-    resolved = ReActAgent._resolve_tool_references(fake_agent, arguments, tool_results, current_idx=2)
+    resolved = fake_agent._resolve_tool_references(arguments, tool_results, current_idx=2)
 
     assert resolved["data"] == '[{"city": "Shanghai", "value": 12}]'
 
@@ -65,7 +84,7 @@ def test_react_tool_reference_supports_tool_execution_result_paths():
         )
     }
 
-    resolved = ReActAgent._resolve_tool_references(fake_agent, arguments, tool_results, current_idx=2)
+    resolved = fake_agent._resolve_tool_references(arguments, tool_results, current_idx=2)
 
     assert resolved["name"] == "demo-skill"
 

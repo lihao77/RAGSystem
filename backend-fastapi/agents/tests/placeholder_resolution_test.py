@@ -7,9 +7,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agents.implementations.orchestrator.prompting import replace_placeholders
-from agents.implementations.react.agent import ReActAgent
+from agents.core import BaseAgent
 from tools.runtime.response_builder import success_result
-from tools.refs.result_references import resolve_result_path, is_ref_error
+from tools.refs.result_references import resolve_result_path, is_ref_error, stringify_result_value, result_primary_content
 
 
 class DummyOrchestratorAgent:
@@ -24,7 +24,28 @@ class DummyReActAgent:
     def __init__(self):
         self.logger = MagicMock()
 
-    _safe_json_dumps = ReActAgent._safe_json_dumps
+    def _resolve_tool_references(self, arguments, tool_results, current_idx):
+        del current_idx
+        resolved = {}
+        for key, value in arguments.items():
+            if isinstance(value, str) and value.startswith("{") and value.endswith("}") and value[1:-1].lower().startswith("result_"):
+                placeholder = value[1:-1]
+                prefix, _, path = placeholder.partition(".")
+                result_idx = int(prefix.lower().replace("result_", ""))
+                resolved_value = (
+                    result_primary_content(tool_results[result_idx])
+                    if not path
+                    else resolve_result_path(
+                        tool_results[result_idx],
+                        path,
+                        prefer_primary_content_root=True,
+                        case_insensitive=True,
+                    )
+                )
+                resolved[key] = stringify_result_value(resolved_value) if not path else resolved_value
+            else:
+                resolved[key] = value
+        return resolved
 
 
 def _build_result():
@@ -78,8 +99,7 @@ def test_react_tool_reference_resolution_supports_uppercase_and_content_root():
     agent = DummyReActAgent()
     result = _build_result()
 
-    replaced = ReActAgent._resolve_tool_references(
-        agent,
+    replaced = agent._resolve_tool_references(
         {
             "risk_level": "{RESULT_1.RISK_LEVEL}",
             "explicit": "{result_1.content.risk_level}",
