@@ -10,7 +10,6 @@ ReAct Agent - 使用 XML 标签格式 + 流式输出
 """
 
 import logging
-import json
 from typing import Optional, Dict, Any, List
 from agents.core import BaseAgent, AgentContext, AgentResponse
 from tools.tool_registry import get_tool_registry
@@ -81,83 +80,6 @@ class ReActAgent(BaseAgent):
             parent_call_id=parent_call_id,
             log_label="ReAct",
         )
-
-    def _emit_event(
-        self,
-        event_type: str,
-        data: Dict[str, Any],
-        *,
-        publisher=None,
-        agent_call_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-    ):
-        """
-        发送事件到回调函数和事件总线
-
-        支持两种方式（向后兼容）：
-        1. 旧方式：通过 event_callback 回调函数
-        2. 新方式：通过 EventPublisher 发布到事件总线
-        """
-        # 旧方式：回调函数（向后兼容）
-        if self.event_callback:
-            try:
-                self.event_callback(event_type, data)
-            except Exception as e:
-                self.logger.warning(f"事件回调失败: {e}")
-
-        # 新方式：事件总线
-        if publisher:
-            try:
-                # 映射事件类型到 EventPublisher 方法
-                if event_type == 'tool_start':
-                    # 生成唯一的 tool call_id
-                    import uuid
-                    tool_call_id = data.get('tool_call_id') or f"tool_{uuid.uuid4()}"
-
-                    publisher.tool_call_start(
-                        call_id=tool_call_id,
-                        tool_name=data.get('tool_name'),
-                        arguments=data.get('arguments', {}),
-                        parent_call_id=agent_call_id,  # ✨ 关联到 ReActAgent 的调用
-                        round=data.get('round'),
-                    )
-                elif event_type == 'tool_end':
-                    from tools.refs.result_references import result_event_payload
-                    from tools.tool_registry import get_tool_registry
-                    tool_name = data.get('tool_name')
-                    result = data.get('result')
-                    tool_registry = get_tool_registry()
-                    is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
-                    observation = self._format_tool_observation(
-                        result,
-                        tool_name=tool_name,
-                        session_id=session_id or getattr(publisher, 'session_id', None),
-                        is_skills_tool=is_skills_tool,
-                    )
-                    preview_text = f"[{tool_name}]\n{observation}" if observation else ""
-                    publisher.tool_call_end(
-                        call_id=data.get('tool_call_id'),
-                        tool_name=tool_name,
-                        result=preview_text,
-                        result_preview=preview_text,
-                        raw_result=result_event_payload(result),
-                        raw_result_ref={
-                            'session_id': session_id or getattr(publisher, 'session_id', None),
-                            'call_id': data.get('tool_call_id'),
-                            'tool_name': tool_name,
-                        },
-                        execution_time=data.get('elapsed_time'),
-                        parent_call_id=agent_call_id,  # ✨ 关联到 ReActAgent 的调用
-                        success=getattr(result, 'success', True) if result is not None else True,
-                        round=data.get('round'),
-                    )
-                elif event_type == 'tool_error':
-                    publisher.tool_error(
-                        tool_name=data.get('tool_name'),
-                        error=data.get('error')
-                    )
-            except Exception as e:
-                self.logger.warning(f"事件总线发布失败: {e}")
 
     def _build_system_prompt(self) -> str:
         return BaseAgent._build_shared_system_prompt(self)

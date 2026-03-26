@@ -112,6 +112,10 @@ class _FakeConversationStoreWithSteps(_FakeConversationStore):
                     'phase': 'start',
                     'call_id': 'call-root',
                     'node_id': 'call-root',
+                    'parent_node_id': None,
+                    'source_event_type': 'run.start',
+                    'timestamp': 123.4,
+                    'event_id': 'evt-run-start',
                     'run_id': 'run-1',
                     'description': '顶层编排',
                     'status': 'running',
@@ -177,6 +181,11 @@ def test_list_messages_returns_canonical_execution_steps():
     assert [step['kind'] for step in execution_steps] == ['run', 'subtask', 'intent']
     assert [step['phase'] for step in execution_steps] == ['start', 'start', 'complete']
     assert execution_steps[2]['content'] == '先查数据'
+    assert 'node_id' not in execution_steps[0]
+    assert 'parent_node_id' not in execution_steps[0]
+    assert 'source_event_type' not in execution_steps[0]
+    assert 'timestamp' not in execution_steps[0]
+    assert 'event_id' not in execution_steps[0]
 
 
 def test_delete_session_delegates_cleanup_to_conversation_store():

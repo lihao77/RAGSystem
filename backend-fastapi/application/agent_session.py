@@ -13,8 +13,32 @@ from runtime.dependencies import get_runtime_dependency
 class AgentSessionApplication:
     """Own session and conversation persistence workflows."""
 
+    _DROPPED_EXECUTION_STEP_FIELDS = {
+        'event_id',
+        'timestamp',
+        'source_event_type',
+        'node_id',
+        'parent_node_id',
+        'child_agent_id',
+        'mode',
+        'raw_result',
+        'raw_result_ref',
+        'resource_refs',
+    }
+
     def __init__(self, *, conversation_store: Optional[ConversationStore] = None):
         self._conversation_store = conversation_store or ConversationStore()
+
+    @classmethod
+    def _compact_execution_step(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        compact = {
+            key: value
+            for key, value in (payload or {}).items()
+            if key not in cls._DROPPED_EXECUTION_STEP_FIELDS
+        }
+        if compact.get('result_preview') is not None:
+            compact.pop('result', None)
+        return compact
 
     def get_conversation_store(self) -> ConversationStore:
         return self._conversation_store
@@ -161,7 +185,7 @@ class AgentSessionApplication:
                     limit=500,
                 )
                 item['execution_steps'] = [
-                    step.get('payload') or {}
+                    self._compact_execution_step(step.get('payload') or {})
                     for step in raw_steps
                     if step.get('step_type') == 'execution.step'
                 ]

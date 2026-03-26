@@ -1058,7 +1058,6 @@ risk = call_tool('assess_flood_risk', {{
         publisher = state.get('publisher')
         current_session_id = getattr(context, 'session_id', None)
         observations: List[str] = []
-        emit_event = getattr(self, '_emit_event', None)
         tool_results: Dict[int, Any] = {}
 
         for idx, action in enumerate(actions, 1):
@@ -1097,15 +1096,7 @@ risk = call_tool('assess_flood_risk', {{
                 tool_results[idx] = error_result(observation, tool_name=tool_name)
                 continue
 
-            if callable(emit_event):
-                emit_event('tool_start', {
-                    'tool_call_id': tool_call_id,
-                    'tool_name': tool_name,
-                    'arguments': arguments,
-                    'index': idx,
-                    'total': len(actions),
-                }, publisher=publisher, agent_call_id=state.get('call_id'), session_id=current_session_id)
-            elif publisher:
+            if publisher:
                 publisher.tool_call_start(
                     call_id=tool_call_id,
                     tool_name=tool_name,
@@ -1139,16 +1130,7 @@ risk = call_tool('assess_flood_risk', {{
                 is_skills_tool=is_skills_tool,
             )
 
-            if callable(emit_event):
-                emit_event('tool_end', {
-                    'tool_call_id': tool_call_id,
-                    'tool_name': tool_name,
-                    'result': result,
-                    'elapsed_time': elapsed_time,
-                    'index': idx,
-                    'total': len(actions),
-                }, publisher=publisher, agent_call_id=state.get('call_id'), session_id=current_session_id)
-            elif publisher:
+            if publisher:
                 preview_text = f"[{tool_name}]\n{observation}" if observation else ""
                 tool_success = getattr(result, 'success', True) if result is not None else True
                 publisher.tool_call_end(

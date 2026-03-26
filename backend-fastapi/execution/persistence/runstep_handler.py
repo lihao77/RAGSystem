@@ -22,6 +22,18 @@ class RunStepPersistenceHandler:
     订阅事件总线，将执行步骤事件写入 run_steps 表。
     """
 
+    _DROPPED_PERSISTED_FIELDS = {
+        'event_id',
+        'timestamp',
+        'source_event_type',
+        'node_id',
+        'parent_node_id',
+        'child_agent_id',
+        'mode',
+        'resource_refs',
+        'raw_result_ref',
+    }
+
     def __init__(
         self,
         event_bus,
@@ -54,12 +66,24 @@ class RunStepPersistenceHandler:
     def _subscribe_run_steps(self) -> str:
         def handle(event):
             payload = dict(event.data or {})
+            kind = payload.get('kind')
+            phase = payload.get('phase')
+            if (kind == 'intent' and phase == 'delta') or (kind == 'round' and phase == 'update'):
+                return
+            resource_refs = payload.get('resource_refs') or []
+            persisted_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in self._DROPPED_PERSISTED_FIELDS
+            }
+            if persisted_payload.get('result_preview') is not None:
+                persisted_payload.pop('result', None)
             try:
                 step_result = self.store.add_run_step(
                     session_id=self.session_id,
                     run_id=self.run_id,
                     step_type=EventType.EXECUTION_STEP.value,
-                    payload=payload,
+                    payload=persisted_payload,
                     message_id=None,
                 )
             except Exception as error:
@@ -67,7 +91,6 @@ class RunStepPersistenceHandler:
                 step_result = None
 
             if payload.get('kind') == 'tool' and payload.get('phase') == 'end' and step_result:
-                resource_refs = payload.get('resource_refs') or []
                 step_id = step_result.get('id')
                 if step_id and resource_refs:
                     for ref in resource_refs:

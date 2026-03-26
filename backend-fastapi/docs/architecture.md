@@ -270,15 +270,15 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 - 原始 EventBus 事件只作为运行时内部事件
 - `execution/step_projector.py` 监听原始事件并投影出 `execution.step`
 - `run_steps.step_type` 固定存 `execution.step`
-- `run_steps.payload` 直接存 canonical step data，不再存 raw event snapshot
-- `application/agent_session.py:list_messages()` 直接返回持久化的 canonical `execution_steps`
+- `run_steps.payload` 只持久化 canonical step 的精简字段集合：保留 UI 所需的结构/状态/展示字段；`intent delta` / `round update` 这类纯流式碎片不入库；`event_id`、`timestamp`、`source_event_type`、`node_id`、`parent_node_id`、`child_agent_id`、`mode`、`raw_result_ref`、`resource_refs` 等调试/冗余字段不写入 payload
+- `application/agent_session.py:list_messages()` 返回进一步裁剪后的 `execution_steps`：继续保留前端现阶段渲染所需字段，但不暴露 `raw_result`、`raw_result_ref`、`resource_refs` 和调试追踪字段
 - reconnect 回放 EventBus 历史时，前端看到的执行树事件也只有 `execution.step`
 
 canonical step 当前覆盖的语义：
 
 - `kind=run`, `phase=start|end`
 - `kind=subtask`, `phase=start|end`
-- `kind=intent`, `phase=delta|complete`
+- `kind=intent`, `phase=complete`（`phase=delta` 仅用于 SSE 流式展示，不持久化到 `run_steps`）
 - `kind=tool`, `phase=start|end`
 - `kind=visualization`, `phase=complete`
 
@@ -310,6 +310,7 @@ canonical step 当前覆盖的语义：
 关键边界：
 
 - `execution/step_projector.py` 是 raw event → canonical step 的唯一投影层
+- `agents/core/base.py` 中的 tool start/end 事件统一直接走 `EventPublisher` 主链，不再通过 `ReActAgent._emit_event()` 二次桥接，避免 round / parent_call_id 等字段在兼容分支中丢失
 - `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件
 - `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`
 - 子 Agent 递归显示依赖同一棵 root execution tree：`call_agent` / `send_message` 创建的可见 subtask 节点 `call_id`，必须继续透传到子 Agent 执行上下文 `context.metadata.call_id`；这样 child agent 内部的 `intent/tool` 才会以同一 `call_id` 继续发事件，并递归挂入该 subtask，而不是生成新的孤立调用节点
