@@ -7,22 +7,15 @@ import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
-from dependencies import (
-    get_orchestrator,
-    get_conversation_store,
-    get_execution_service,
-)
+from dependencies import get_execution_service
 from schemas.execution import ExecuteRequest, CollaborateRequest
 from schemas.common import ok
+from services.agent_execution_service import get_agent_execution_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _load_history(runtime_service, context, session_id: str, limit: int = 50):
-    return runtime_service.load_history_into_context(context, session_id=session_id, limit=limit)
 
 
 @router.post('/execute')
@@ -30,61 +23,55 @@ async def execute(request: ExecuteRequest):
     """执行智能体任务（自动路由）。"""
     try:
         from dependencies import get_agent_runtime_service
-        from agents import AgentContext
         from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
         store = runtime.get_conversation_store()
+        agent_execution_service = get_agent_execution_service()
 
         session_id = request.session_id or str(uuid.uuid4())
-        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
-        run_id = str(uuid.uuid4())
-        context = runtime.build_context(
-            session_id=session_id,
-            user_id=request.user_id,
-            limit=50,
-            run_id=run_id,
-        )
-
         await asyncio.to_thread(
             lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
         )
-        await asyncio.to_thread(
-            store.add_message,
-            session_id=session_id, role='user', content=request.task,
-            metadata={'agent': request.agent}
+
+        target_agent = request.agent or 'orchestrator_agent'
+        invocation = await asyncio.to_thread(
+            agent_execution_service.invoke_agent,
+            mode='root',
+            agent_name=target_agent,
+            task=request.task,
+            session_id=session_id,
+            user_id=request.user_id,
+            entrypoint='execute',
+            source='api',
+            persist_user_message=True,
+            persist_final_answer=True,
+            visible_to_user=True,
         )
 
         try:
-            response = await asyncio.to_thread(
-                orchestrator.execute,
-                task=request.task,
-                context=context,
-                preferred_agent=request.agent,
-            )
+            response = invocation.response
         finally:
-            cleanup_run(run_id)
+            cleanup_run(invocation.run_id)
 
         if response.success:
-            if response.content:
-                await asyncio.to_thread(
-                    store.add_message,
-                    session_id=session_id, role='assistant', content=response.content,
-                    metadata={'agent': response.agent_name}
-                )
             return ok(
                 data={
                     'answer': response.content,
                     'agent_name': response.agent_name,
                     'execution_time': response.execution_time,
                     'tool_calls': response.tool_calls,
-                    'metadata': response.metadata,
+                    'metadata': {
+                        **(response.metadata or {}),
+                        'run_id': invocation.run_id,
+                        'thread_key': invocation.thread_key,
+                        'child_agent_id': invocation.child_agent_id,
+                    },
                     'session_id': session_id,
                 },
                 message='任务执行成功'
             )
-        else:
-            raise HTTPException(status_code=500, detail=response.error or '任务执行失败')
+        raise HTTPException(status_code=500, detail=response.error or '任务执行失败')
 
     except HTTPException:
         raise
@@ -96,69 +83,8 @@ async def execute(request: ExecuteRequest):
 @router.post('/execute/{agent_name}')
 async def execute_specific_agent(agent_name: str, request: ExecuteRequest):
     """执行指定智能体。"""
-    try:
-        from dependencies import get_agent_runtime_service
-        from agents import AgentContext
-        from agents.events.session_manager import cleanup_run
-
-        runtime = get_agent_runtime_service()
-        store = runtime.get_conversation_store()
-
-        session_id = request.session_id or str(uuid.uuid4())
-        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
-        run_id = str(uuid.uuid4())
-        context = runtime.build_context(
-            session_id=session_id,
-            user_id=request.user_id,
-            limit=50,
-            run_id=run_id,
-        )
-
-        await asyncio.to_thread(
-            lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
-        )
-        await asyncio.to_thread(
-            store.add_message,
-            session_id=session_id, role='user', content=request.task,
-            metadata={'agent': agent_name}
-        )
-
-        try:
-            response = await asyncio.to_thread(
-                orchestrator.execute,
-                task=request.task,
-                context=context,
-                preferred_agent=agent_name,
-            )
-        finally:
-            cleanup_run(run_id)
-
-        if response.success:
-            if response.content:
-                await asyncio.to_thread(
-                    store.add_message,
-                    session_id=session_id, role='assistant', content=response.content,
-                    metadata={'agent': response.agent_name}
-                )
-            return ok(
-                data={
-                    'answer': response.content,
-                    'agent_name': response.agent_name,
-                    'execution_time': response.execution_time,
-                    'tool_calls': response.tool_calls,
-                    'metadata': response.metadata,
-                    'session_id': session_id,
-                },
-                message='任务执行成功'
-            )
-        else:
-            raise HTTPException(status_code=500, detail=response.error or '任务执行失败')
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error('执行任务失败: %s', e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    payload = request.model_copy(update={'agent': agent_name})
+    return await execute(payload)
 
 
 @router.post('/collaborate')
@@ -166,7 +92,6 @@ async def collaborate(request: CollaborateRequest):
     """多智能体协作。"""
     try:
         from dependencies import get_agent_runtime_service
-        from agents import AgentContext
         from agents.events.session_manager import cleanup_run
 
         runtime = get_agent_runtime_service()
@@ -247,15 +172,6 @@ async def get_session_task_status(session_id: str):
     execution_service = get_execution_service()
     status = await asyncio.to_thread(execution_service.get_status_by_session, session_id)
     diagnostics = await asyncio.to_thread(execution_service.get_diagnostics_by_session, session_id)
-    return ok(data={
-        'session_id': session_id,
-        'scope': 'session_id',
-        'scope_id': session_id,
-        'found': status is not None,
-        'has_running_task': status is not None and status.get('status') == 'running',
-        'task_info': status,
-        'observability': diagnostics.get('observability') if diagnostics is not None else None,
-    })
 
 
 @router.get('/sessions/{session_id}/execution-diagnostics')

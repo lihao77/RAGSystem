@@ -156,7 +156,7 @@ class AgentApiRuntimeService:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
         context.metadata['thread_key'] = resolved_thread_key
-        context.metadata['conversation_scope'] = 'root' if resolved_thread_key == 'root' else 'agent_thread'
+        context.metadata['conversation_scope'] = 'root' if resolved_thread_key == 'root' else 'child'
         session_workspace_root = self._get_session_workspace_root(session_id)
         if session_workspace_root:
             context.metadata['workspace_root'] = session_workspace_root

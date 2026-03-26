@@ -137,25 +137,18 @@ def call_agent(
         )
 
     store = runtime.get_conversation_store()
-    anchor_message = store.add_message(
+    latest_root_messages = store.get_recent_messages(
         session_id=effective_session_id,
-        role='assistant',
-        content='',
-        metadata={
-            'agent': current_agent_name or 'call_agent',
-            'msg_type': 'child_agent_anchor',
-            'react_intermediate': True,
-            'visible_to_user': False,
-            'conversation_scope': 'root',
-        },
+        limit=1,
         thread_key='root',
     )
+    created_seq = latest_root_messages[-1]['seq'] if latest_root_messages else None
     store.create_child_agent(
         child_agent_id=child_agent_id,
         session_id=effective_session_id,
         agent_name=agent_name,
         thread_key=resolved_thread_key,
-        created_seq=anchor_message.get('seq'),
+        created_seq=created_seq,
         created_by_run_id=run_id,
         created_by_call_id=agent_call_id,
         parent_run_id=run_id,
@@ -431,22 +424,6 @@ def send_message(
                 'mode': 'resume',
             },
         )
-
-    store.add_message(
-        session_id=effective_session_id,
-        role='user',
-        content=message,
-        metadata={
-            'agent': agent_name,
-            'run_id': run_id,
-            'child_agent_id': child_agent_id,
-            'thread_key': child_agent.get('thread_key'),
-            'conversation_scope': 'child',
-            'visible_to_user': False,
-        },
-        thread_key=child_agent.get('thread_key'),
-        child_agent_id=child_agent_id,
-    )
 
     agent_result = execution_service.execute_agent_call(
         agent_name=agent_name,

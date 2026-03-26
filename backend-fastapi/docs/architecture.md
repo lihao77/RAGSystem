@@ -70,7 +70,7 @@ backend-fastapi/
 POST /api/agent/stream {task, session_id, selected_llm}
   → api/v1/stream.py
   → AgentExecutionAdapter.start_stream_execution()
-  → AgentExecutionService.prepare_execution(thread_key=root)
+  → AgentExecutionService.invoke_agent(mode=root)
   → AgentOrchestrator.route_task()
   → OrchestratorAgent.execute()
   → _execute_react_task() 主循环
@@ -262,6 +262,7 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 - 顶层入口固定使用 `thread_key=root`
 - 子 Agent 对外以 `child_agent_id` 续接，不再暴露 `thread_key`
 - 运行时内部约定 `thread_key = child:{child_agent_id}`
+- child 会话创建检查点直接记录在 `child_agents.created_seq`，不再通过 `child_agent_anchor` 空消息占位
 - `child_agent_id` 是稳定子会话 ID；`call_id` 仍表示一次调用节点；`run_id` 仍表示一次执行实例
 - `child_agents.created_seq` 记录该 child 会话在主 session 消息流中的创建检查点；rollback 时若 `created_seq > after_seq`，则该 child 会话会随 checkpoint 一并移除
 - `AgentSessionApplication.list_messages()` 默认仍只展示 root 主消息流；会过滤 `react_intermediate`、`visible_to_user=False`、`conversation_scope='child'` 与非 `root` 线程消息；child 对话主要用于上下文恢复与调试
