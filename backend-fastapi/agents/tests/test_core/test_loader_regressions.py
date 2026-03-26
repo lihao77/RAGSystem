@@ -3,6 +3,9 @@ from types import SimpleNamespace
 
 from agents.config.loader import AgentLoader
 from agents.implementations.orchestrator.agent import OrchestratorAgent
+from tools.bootstrap import bootstrap_tool_system
+
+bootstrap_tool_system()
 
 
 class _DummyConfigManager:

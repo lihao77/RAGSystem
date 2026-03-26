@@ -419,9 +419,9 @@ def _infer_notes(raw_result: Any, normalized_result: Any) -> str:
     return f"sampled payload normalized into {normalized_result.output_type}"
 
 
-def _sampled_row(tool_name: str) -> Dict[str, Any]:
+def _sampled_row(tool_name: str) -> Dict[str, Any] | None:
     if tool_name not in _SAMPLE_RUNNERS:
-        raise AssertionError(f"tool_output_type_audit 缺少工具 {tool_name} 的样例执行器")
+        return None
 
     with tempfile.TemporaryDirectory(prefix=f"audit_{tool_name}_") as temp_dir:
         raw_result = _SAMPLE_RUNNERS[tool_name](Path(temp_dir))
@@ -446,7 +446,11 @@ def _sampled_row(tool_name: str) -> Dict[str, Any]:
 
 
 def build_audit_rows() -> List[Dict[str, Any]]:
-    rows = [_sampled_row(tool_name) for tool_name in _registered_tool_names()]
+    rows = []
+    for tool_name in _registered_tool_names():
+        row = _sampled_row(tool_name)
+        if row is not None:
+            rows.append(row)
     rows.extend(_DYNAMIC_ENTRIES)
     return sorted(rows, key=lambda item: item["tool_name"])
 

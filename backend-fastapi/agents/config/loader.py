@@ -96,6 +96,10 @@ class AgentLoader:
                 logger.error(f"未知的智能体类型: {agent_type}")
                 return None
 
+            if agent_type == 'orchestrator' and self.orchestrator is None:
+                logger.warning("orchestrator 未提供，无法加载 Orchestrator Agent")
+                return None
+
             # 创建智能体实例
             agent = self._create_agent_instance(
                 agent_class,

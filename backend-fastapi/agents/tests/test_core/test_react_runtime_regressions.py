@@ -151,9 +151,29 @@ class _PlaceholderAwareAgent(BaseAgent):
         raise NotImplementedError
 
     def _resolve_tool_references(self, arguments, tool_results, current_idx):
-        from agents.implementations.react.agent import ReActAgent
+        del current_idx
+        from tools.refs.result_references import resolve_result_path, stringify_result_value, result_primary_content
 
-        return ReActAgent._resolve_tool_references(self, arguments, tool_results, current_idx)
+        resolved = {}
+        for key, value in arguments.items():
+            if isinstance(value, str) and value.startswith("{") and value.endswith("}") and value[1:-1].lower().startswith("result_"):
+                placeholder = value[1:-1]
+                prefix, _, path = placeholder.partition(".")
+                result_idx = int(prefix.lower().replace("result_", ""))
+                resolved_value = (
+                    result_primary_content(tool_results[result_idx])
+                    if not path
+                    else resolve_result_path(
+                        tool_results[result_idx],
+                        path,
+                        prefer_primary_content_root=True,
+                        case_insensitive=True,
+                    )
+                )
+                resolved[key] = stringify_result_value(resolved_value) if not path else resolved_value
+            else:
+                resolved[key] = value
+        return resolved
 
     def _format_tool_observation(self, result, **kwargs):
         del kwargs

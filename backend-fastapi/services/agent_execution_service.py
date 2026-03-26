@@ -403,7 +403,8 @@ class AgentExecutionService:
             child_agent_id=child_agent_id,
         )
         effective_scope = self._resolve_conversation_scope(mode)
-        if persist_user_message:
+        can_persist_messages = hasattr(store, 'add_message') and hasattr(store, 'update_run_steps_message_id')
+        if persist_user_message and can_persist_messages:
             self.persist_user_message(
                 session_id=session_id,
                 task=task,
@@ -440,7 +441,7 @@ class AgentExecutionService:
         effective_child_agent_id = handle.child_agent_id
         merged_task = self._merge_task(task, context_hint)
         response = handle.agent.execute(merged_task, handle.context)
-        if persist_final_answer and response.success and response.content:
+        if persist_final_answer and can_persist_messages and response.success and response.content:
             message = store.add_message(
                 session_id=session_id,
                 role='assistant',
