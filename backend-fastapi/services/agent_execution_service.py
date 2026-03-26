@@ -30,6 +30,7 @@ class AgentInvocationResult:
     run_id: str
     thread_key: str
     child_agent_id: Optional[str]
+    context: object
 
 
 class AgentExecutionService:
@@ -252,6 +253,7 @@ class AgentExecutionService:
         persist_user_message: bool = False,
         persist_final_answer: bool = False,
         visible_to_user: Optional[bool] = None,
+        prepared_handle: Optional[AgentExecutionHandle] = None,
     ) -> AgentInvocationResult:
         store = self._runtime.get_conversation_store()
         effective_visible = visible_to_user if visible_to_user is not None else (mode == 'root')
@@ -277,7 +279,7 @@ class AgentExecutionService:
                 child_agent_id=child_agent_id,
             )
 
-        handle = self.prepare_execution(
+        handle = prepared_handle or self.prepare_execution(
             mode=mode,
             agent_name=agent_name,
             session_id=session_id,
@@ -297,6 +299,9 @@ class AgentExecutionService:
             task_summary=task[:200],
             source=source,
         )
+        effective_thread_key = handle.thread_key
+        effective_scope = getattr(handle.context, 'metadata', {}).get('conversation_scope', effective_scope)
+        effective_child_agent_id = handle.child_agent_id
         merged_task = self._merge_task(task, context_hint)
         response = handle.agent.execute(merged_task, handle.context)
         if persist_final_answer and response.success and response.content:
@@ -310,17 +315,18 @@ class AgentExecutionService:
                     'thread_key': handle.thread_key,
                     'conversation_scope': effective_scope,
                     'visible_to_user': effective_visible,
-                    'child_agent_id': handle.child_agent_id,
+                    'child_agent_id': effective_child_agent_id,
                 },
                 thread_key=handle.thread_key,
-                child_agent_id=handle.child_agent_id,
+                child_agent_id=effective_child_agent_id,
             )
             store.update_run_steps_message_id(session_id, handle.run_id, message['id'])
         return AgentInvocationResult(
             response=response,
             run_id=handle.run_id,
             thread_key=handle.thread_key,
-            child_agent_id=handle.child_agent_id,
+            child_agent_id=effective_child_agent_id,
+            context=handle.context,
         )
 
     def execute_agent_call(

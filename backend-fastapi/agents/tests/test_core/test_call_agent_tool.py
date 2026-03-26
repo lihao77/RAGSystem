@@ -51,9 +51,16 @@ class _FakeStore:
         if agent_name is not None:
             items = [item for item in items if item.get('agent_name') == agent_name]
         return {'items': items, 'total': len(items)}
+
     def add_message(self, **kwargs):
         self.messages.append(kwargs)
         return {'id': 'msg-1', 'seq': 42}
+
+    def get_recent_messages(self, *, session_id, limit=20, thread_key=None):
+        assert session_id == 'session-1'
+        assert thread_key == 'root'
+        assert limit == 1
+        return [{'id': 'msg-root-1', 'seq': 42}]
 
 
 class _FakeRuntime:
@@ -114,6 +121,7 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
     assert result.metadata['child_agent_id'].startswith('child_')
     assert runtime.store.created_children[0]['agent_name'] == 'demo_agent'
     assert runtime.store.created_children[0]['created_seq'] == 42
+    assert runtime.store.messages == []
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']
     assert runtime.execution_calls[0]['parent_run_id'] == 'run-1'
     assert runtime.execution_calls[0]['call_id'] == result.metadata['agent_call_id']

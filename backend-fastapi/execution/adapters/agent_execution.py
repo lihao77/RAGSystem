@@ -190,13 +190,13 @@ class AgentExecutionAdapter:
                 task_id=task_id,
                 event_bus=event_bus,
                 final_answer_saved=final_answer_saved,
-                entry_agent=execution_handle.agent,
+                agent_execution_service=self._agent_execution_service,
+                execution_handle=execution_handle,
                 registry=registry,
                 run_id=run_id,
                 session_id=session_id,
                 store=conversation_store,
                 task=task,
-                context=context,
                 user_message=user_msg,
             )
 
@@ -319,19 +319,21 @@ class AgentExecutionAdapter:
         task_id: str,
         event_bus,
         final_answer_saved,
-        entry_agent,
+        agent_execution_service: AgentExecutionService,
+        execution_handle,
         registry,
         run_id: str,
         session_id: str,
         store,
         task: str,
-        context,
         user_message,
     ):
         def execute_agent_task(_execution_context):
-            thread_key = context.metadata.get('thread_key', 'root')
+            context = execution_handle.context
+            entry_agent = execution_handle.agent
+            thread_key = context.metadata.get('thread_key', execution_handle.thread_key)
             conversation_scope = context.metadata.get('conversation_scope', 'root')
-            child_agent_id = context.metadata.get('child_agent_id')
+            child_agent_id = context.metadata.get('child_agent_id', execution_handle.child_agent_id)
             try:
                 event_bus.publish(Event(
                     type=EventType.MESSAGE_SAVED,
@@ -347,7 +349,30 @@ class AgentExecutionAdapter:
                     agent_name=getattr(entry_agent, 'name', None),
                 ))
                 logger.info('后台执行 Agent 任务: %s', task)
-                response = entry_agent.execute(task, context)
+                invocation = agent_execution_service.invoke_agent(
+                    mode='child' if child_agent_id else 'root',
+                    agent_name=getattr(entry_agent, 'name', None),
+                    task=task,
+                    session_id=session_id,
+                    user_id=context.user_id,
+                    llm_override=context.llm_override,
+                    request_id=context.metadata.get('request_id'),
+                    run_id=run_id,
+                    parent_run_id=context.metadata.get('parent_run_id'),
+                    parent_call_id=context.metadata.get('parent_call_id'),
+                    call_id=context.metadata.get('call_id'),
+                    event_bus=event_bus,
+                    cancel_event=context.metadata.get('cancel_event'),
+                    thread_key=thread_key,
+                    child_agent_id=child_agent_id,
+                    history_limit=0,
+                    entrypoint='agent_stream',
+                    source='api',
+                    persist_user_message=False,
+                    persist_final_answer=False,
+                    prepared_handle=execution_handle,
+                )
+                response = invocation.response
                 if response and getattr(response, 'content', None) and not final_answer_saved.is_set():
                     message = store.add_message(
                         session_id=session_id,
