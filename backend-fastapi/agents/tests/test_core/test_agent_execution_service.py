@@ -22,6 +22,29 @@ class _FakeAgent:
         )
 
 
+class _FakeOrchestrator:
+    def __init__(self, agent, fallback_agent=None):
+        self.agent = agent
+        self.fallback_agent = fallback_agent or agent
+        self.route_calls = []
+        self.agents = {
+            agent.name: agent,
+            self.fallback_agent.name: self.fallback_agent,
+        }
+
+    def route_task(self, task, context=None, preferred_agent=None):
+        self.route_calls.append({
+            'task': task,
+            'context': context,
+            'preferred_agent': preferred_agent,
+        })
+        if preferred_agent == 'missing_agent':
+            return None
+        if preferred_agent == 'fallback_agent':
+            return self.fallback_agent
+        return self.agent
+
+
 class _FakeStore:
     def __init__(self):
         self.runs = []
@@ -59,13 +82,15 @@ class _FakeRuntime:
     def __init__(self):
         self.store = _FakeStore()
         self.agent = _FakeAgent()
+        self.fallback_agent = _FakeAgent(name='fallback_agent')
+        self.orchestrator = _FakeOrchestrator(self.agent, self.fallback_agent)
 
     def get_conversation_store(self):
         return self.store
 
     def create_execution_orchestrator(self, session_id=None):
         del session_id
-        return SimpleNamespace(agents={'demo_agent': self.agent})
+        return self.orchestrator
 
     def build_context(
         self,
@@ -119,6 +144,10 @@ def test_invoke_agent_root_persists_visible_messages():
     assert runtime.store.messages[1]['metadata']['visible_to_user'] is True
 
 
+
+
+
+
 def test_invoke_agent_child_uses_child_thread_and_hidden_messages():
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
@@ -143,3 +172,37 @@ def test_invoke_agent_child_uses_child_thread_and_hidden_messages():
     assert runtime.store.messages[0]['metadata']['visible_to_user'] is False
     assert runtime.store.messages[1]['child_agent_id'] == 'child-1'
     assert runtime.store.updated_run_steps[0][1] == result.run_id
+
+
+def test_invoke_routed_agent_uses_preferred_agent_route():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    result = service.invoke_routed_agent(
+        task='hello',
+        session_id='session-1',
+        preferred_agent='fallback_agent',
+        persist_user_message=True,
+        persist_final_answer=True,
+        visible_to_user=True,
+    )
+
+    assert runtime.orchestrator.route_calls[0]['preferred_agent'] == 'fallback_agent'
+    assert result.response.agent_name == 'fallback_agent'
+    assert runtime.store.messages[0]['metadata']['agent'] == 'fallback_agent'
+    assert runtime.store.messages[1]['metadata']['agent'] == 'fallback_agent'
+
+
+def test_invoke_routed_agent_raises_when_route_missing():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    try:
+        service.invoke_routed_agent(
+            task='hello',
+            session_id='session-1',
+            preferred_agent='missing_agent',
+        )
+        assert False, 'expected lookup error'
+    except LookupError as error:
+        assert '未找到合适的智能体' in str(error)

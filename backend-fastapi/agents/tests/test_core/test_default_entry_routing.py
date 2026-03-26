@@ -72,6 +72,25 @@ def test_loader_resolves_configured_default_entry_agent():
     assert loader.resolve_default_entry_agent_name() == 'qa_agent'
 
 
+def test_route_task_falls_back_to_capable_agent_when_default_entry_unavailable():
+    registry = AgentRegistry()
+    fallback_agent = _StubAgent("fallback_agent")
+    registry.register(fallback_agent)
+
+    orchestrator = AgentOrchestrator(
+        registry=registry,
+        default_entry_provider=DefaultEntryAgentProvider(default_agent_name="missing_agent"),
+    )
+
+    routed = orchestrator.route_task(
+        "task",
+        AgentContext(session_id="s1"),
+        preferred_agent=None,
+    )
+
+    assert routed is fallback_agent
+
+
 def test_orchestrator_resolves_default_entry_agent_instance():
     registry = AgentRegistry()
     default_agent = _StubAgent("qa_agent")

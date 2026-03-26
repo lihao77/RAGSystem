@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import Optional, Literal, Tuple
 
 from agents.core.models import AgentResponse
 from runtime.dependencies import get_runtime_dependency
@@ -226,6 +226,90 @@ class AgentExecutionService:
             thread_key=resolved_thread_key,
             child_agent_id=resolved_child_agent_id,
             created_run=created_run,
+        )
+
+    def _route_root_agent(
+        self,
+        *,
+        task: str,
+        session_id: str,
+        preferred_agent: Optional[str] = None,
+        user_id: Optional[str] = None,
+        llm_override: Optional[dict] = None,
+        request_id: Optional[str] = None,
+    ) -> Tuple[str, object]:
+        orchestrator = self._runtime.create_execution_orchestrator(session_id=session_id)
+        context = self._runtime.build_context(
+            session_id=session_id,
+            user_id=user_id,
+            limit=0,
+            run_id=None,
+            request_id=request_id,
+            llm_override=llm_override,
+            thread_key='root',
+            parent_run_id=None,
+            parent_call_id=None,
+            call_id=None,
+        )
+        routed_agent = orchestrator.route_task(task, context, preferred_agent=preferred_agent)
+        if routed_agent is None:
+            raise LookupError('未找到合适的智能体来处理此任务')
+        return routed_agent.name, routed_agent
+
+    def invoke_routed_agent(
+        self,
+        *,
+        task: str,
+        session_id: str,
+        preferred_agent: Optional[str] = None,
+        user_id: Optional[str] = None,
+        context_hint: Optional[str] = None,
+        llm_override: Optional[dict] = None,
+        request_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        parent_run_id: Optional[str] = None,
+        parent_call_id: Optional[str] = None,
+        call_id: Optional[str] = None,
+        event_bus=None,
+        cancel_event=None,
+        history_limit: int = 200,
+        entrypoint: str = 'execute',
+        source: str = 'api',
+        persist_user_message: bool = False,
+        persist_final_answer: bool = False,
+        visible_to_user: Optional[bool] = None,
+    ) -> AgentInvocationResult:
+        agent_name, _ = self._route_root_agent(
+            task=task,
+            session_id=session_id,
+            preferred_agent=preferred_agent,
+            user_id=user_id,
+            llm_override=llm_override,
+            request_id=request_id,
+        )
+        return self.invoke_agent(
+            mode='root',
+            agent_name=agent_name,
+            task=task,
+            session_id=session_id,
+            user_id=user_id,
+            context_hint=context_hint,
+            llm_override=llm_override,
+            request_id=request_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            parent_call_id=parent_call_id,
+            call_id=call_id,
+            event_bus=event_bus,
+            cancel_event=cancel_event,
+            thread_key='root',
+            child_agent_id=None,
+            history_limit=history_limit,
+            entrypoint=entrypoint,
+            source=source,
+            persist_user_message=persist_user_message,
+            persist_final_answer=persist_final_answer,
+            visible_to_user=visible_to_user,
         )
 
     def invoke_agent(

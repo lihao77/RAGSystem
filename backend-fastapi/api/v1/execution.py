@@ -9,6 +9,8 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
+from agents.core.base import AgentExecutionError
+
 from dependencies import get_execution_service
 from schemas.execution import ExecuteRequest, CollaborateRequest
 from schemas.common import ok
@@ -94,71 +96,55 @@ async def collaborate(request: CollaborateRequest):
         from dependencies import get_agent_runtime_service
         from agents.events.session_manager import cleanup_run
 
+        if request.mode != 'sequential':
+            raise HTTPException(status_code=400, detail='并行模式尚未实现')
+
         runtime = get_agent_runtime_service()
         store = runtime.get_conversation_store()
+        agent_execution_service = get_agent_execution_service()
 
         session_id = request.session_id or str(uuid.uuid4())
-        orchestrator = runtime.create_execution_orchestrator(session_id=session_id)
-        run_id = str(uuid.uuid4())
-        context = runtime.build_context(
-            session_id=session_id,
-            user_id=request.user_id,
-            limit=50,
-            run_id=run_id,
-        )
-
         await asyncio.to_thread(
             lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
         )
 
-        tasks_data = [t.model_dump() for t in request.tasks]
-        for t in tasks_data:
-            task_content = (t.get('task') or '').strip()
-            if task_content:
-                await asyncio.to_thread(
-                    store.add_message,
-                    session_id=session_id, role='user', content=task_content,
-                    metadata={'agent': t.get('agent')}
-                )
-
-        try:
-            results = await asyncio.to_thread(
-                orchestrator.collaborate,
-                tasks=tasks_data,
-                context=context,
-                mode=request.mode,
+        results = []
+        for task_item in request.tasks:
+            invocation = await asyncio.to_thread(
+                agent_execution_service.invoke_routed_agent,
+                task=task_item.task,
+                session_id=session_id,
+                preferred_agent=task_item.agent,
+                user_id=request.user_id,
+                entrypoint='collaborate',
+                source='api',
+                persist_user_message=True,
+                persist_final_answer=True,
+                visible_to_user=True,
             )
-        finally:
-            cleanup_run(run_id)
-
-        results_data = [
-            {
-                'success': r.success,
-                'content': r.content,
-                'error': r.error,
-                'agent_name': r.agent_name,
-                'execution_time': r.execution_time,
-            }
-            for r in results
-        ]
-
-        for r in results:
-            if r and r.content:
-                await asyncio.to_thread(
-                    store.add_message,
-                    session_id=session_id, role='assistant', content=r.content,
-                    metadata={'agent': r.agent_name}
-                )
+            try:
+                response = invocation.response
+                results.append({
+                    'success': response.success,
+                    'content': response.content,
+                    'error': response.error,
+                    'agent_name': response.agent_name,
+                    'execution_time': response.execution_time,
+                })
+            finally:
+                cleanup_run(invocation.run_id)
 
         return ok(
             data={
-                'results': results_data,
+                'results': results,
                 'session_id': session_id,
-                'total_tasks': len(tasks_data),
+                'total_tasks': len(request.tasks),
             },
             message='协作任务执行完成'
         )
 
+    except AgentExecutionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

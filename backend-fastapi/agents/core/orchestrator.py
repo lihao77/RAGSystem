@@ -120,35 +120,6 @@ class AgentOrchestrator:
                 agent_name=agent.name
             )
 
-    def collaborate(
-        self,
-        tasks: List[Dict[str, Any]],
-        context: Optional[AgentContext] = None,
-        mode: str = 'sequential'
-    ) -> List[AgentResponse]:
-        if context is None:
-            import uuid
-            context = AgentContext(session_id=str(uuid.uuid4()))
-
-        results = []
-        if mode == 'sequential':
-            for task_info in tasks:
-                task_desc = task_info.get('task', '')
-                preferred_agent = task_info.get('agent')
-                result = self.execute(
-                    task=task_desc,
-                    context=context,
-                    preferred_agent=preferred_agent
-                )
-                results.append(result)
-                if not result.success:
-                    self.logger.warning(f"任务失败: {task_desc}")
-        elif mode == 'parallel':
-            raise NotImplementedError("并行模式尚未实现")
-        else:
-            raise ValueError(f"不支持的协作模式: {mode}")
-        return results
-
     def get_agent_info(self, agent_name: str) -> Optional[Dict[str, Any]]:
         agent = self.registry.get(agent_name)
         return agent.get_info() if agent else None
