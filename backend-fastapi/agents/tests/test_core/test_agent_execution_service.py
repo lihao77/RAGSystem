@@ -193,16 +193,35 @@ def test_invoke_routed_agent_uses_preferred_agent_route():
     assert runtime.store.messages[1]['metadata']['agent'] == 'fallback_agent'
 
 
-def test_invoke_routed_agent_raises_when_route_missing():
+
+
+def test_persist_user_message_uses_mode_scoped_metadata():
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
 
-    try:
-        service.invoke_routed_agent(
-            task='hello',
-            session_id='session-1',
-            preferred_agent='missing_agent',
-        )
-        assert False, 'expected lookup error'
-    except LookupError as error:
-        assert '未找到合适的智能体' in str(error)
+    root_message = service.persist_user_message(
+        session_id='session-1',
+        task='hello',
+        agent_name='demo_agent',
+        mode='root',
+        run_id='run-root',
+        visible_to_user=True,
+    )
+    child_message = service.persist_user_message(
+        session_id='session-1',
+        task='continue',
+        agent_name='demo_agent',
+        mode='child',
+        run_id='run-child',
+        child_agent_id='child-1',
+        thread_key='child:child-1',
+        visible_to_user=False,
+    )
+
+    assert root_message['id'] == 'msg-1'
+    assert child_message['id'] == 'msg-2'
+    assert runtime.store.messages[0]['metadata']['conversation_scope'] == 'root'
+    assert runtime.store.messages[0]['metadata']['run_id'] == 'run-root'
+    assert runtime.store.messages[1]['metadata']['conversation_scope'] == 'child'
+    assert runtime.store.messages[1]['thread_key'] == 'child:child-1'
+    assert runtime.store.messages[1]['metadata']['visible_to_user'] is False

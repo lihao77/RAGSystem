@@ -332,6 +332,42 @@ class AgentExecutionService:
             visible_to_user=visible_to_user,
         )
 
+    def persist_user_message(
+        self,
+        *,
+        session_id: str,
+        task: str,
+        agent_name: Optional[str],
+        mode: Literal['root', 'child'] = 'root',
+        run_id: Optional[str] = None,
+        thread_key: Optional[str] = None,
+        child_agent_id: Optional[str] = None,
+        visible_to_user: Optional[bool] = None,
+    ):
+        store = self._runtime.get_conversation_store()
+        effective_visible = visible_to_user if visible_to_user is not None else (mode == 'root')
+        effective_thread_key = self._resolve_thread_key_for_mode(
+            mode,
+            thread_key=thread_key,
+            child_agent_id=child_agent_id,
+        )
+        effective_scope = self._resolve_conversation_scope(mode)
+        return store.add_message(
+            session_id=session_id,
+            role='user',
+            content=task,
+            metadata={
+                'agent': agent_name,
+                'run_id': run_id,
+                'thread_key': effective_thread_key,
+                'conversation_scope': effective_scope,
+                'visible_to_user': effective_visible,
+                'child_agent_id': child_agent_id,
+            },
+            thread_key=effective_thread_key,
+            child_agent_id=child_agent_id,
+        )
+
     def invoke_agent(
         self,
         *,
@@ -368,19 +404,15 @@ class AgentExecutionService:
         )
         effective_scope = self._resolve_conversation_scope(mode)
         if persist_user_message:
-            store.add_message(
+            self.persist_user_message(
                 session_id=session_id,
-                role='user',
-                content=task,
-                metadata={
-                    'agent': agent_name,
-                    'thread_key': effective_thread_key,
-                    'conversation_scope': effective_scope,
-                    'visible_to_user': effective_visible,
-                    'child_agent_id': child_agent_id,
-                },
+                task=task,
+                agent_name=agent_name,
+                mode=mode,
+                run_id=run_id,
                 thread_key=effective_thread_key,
                 child_agent_id=child_agent_id,
+                visible_to_user=effective_visible,
             )
 
         handle = prepared_handle or self.prepare_execution(

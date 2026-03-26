@@ -170,20 +170,15 @@ class AgentExecutionAdapter:
             subscriptions = persistence_handler.subscribe_all()
             final_answer_saved = persistence_handler.final_answer_saved
 
-            user_msg = conversation_store.add_message(
+            user_msg = self._agent_execution_service.persist_user_message(
                 session_id=session_id,
-                role='user',
-                content=task,
-                metadata={
-                    'agent': getattr(entry_agent, 'name', None),
-                    'run_id': run_id,
-                    'thread_key': execution_handle.thread_key,
-                    'conversation_scope': context.metadata.get('conversation_scope', 'root'),
-                    'visible_to_user': True,
-                    'child_agent_id': execution_handle.child_agent_id,
-                },
+                task=task,
+                agent_name=getattr(entry_agent, 'name', None),
+                mode='child' if execution_handle.child_agent_id else 'root',
+                run_id=run_id,
                 thread_key=execution_handle.thread_key,
                 child_agent_id=execution_handle.child_agent_id,
+                visible_to_user=True,
             )
 
             target = self._create_agent_task_target(
