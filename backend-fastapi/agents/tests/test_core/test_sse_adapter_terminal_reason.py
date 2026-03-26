@@ -7,10 +7,14 @@ from agents.events.sse_adapter import SSEAdapter
 
 
 class _FakeEventBus:
+    def __init__(self):
+        self.unsubscribe_calls = []
+
     def subscribe(self, event_types, handler, filter_func=None, priority=0):
         return 'sub-1'
 
     def unsubscribe(self, subscription_id):
+        self.unsubscribe_calls.append(subscription_id)
         return None
 
 
@@ -36,3 +40,15 @@ def test_sse_adapter_stops_on_run_end():
     adapter = SSEAdapter(event_bus=_FakeEventBus(), session_id='session-1')
 
     assert adapter._terminal_reason(_event(EventType.RUN_END)) == EventType.RUN_END.value
+
+
+def test_sse_adapter_stop_is_idempotent():
+    event_bus = _FakeEventBus()
+    adapter = SSEAdapter(event_bus=event_bus, session_id='session-1')
+    adapter._subscription_id = 'sub-1'
+
+    adapter.stop()
+    adapter.stop()
+
+    assert adapter._stopped is True
+    assert event_bus.unsubscribe_calls == ['sub-1']

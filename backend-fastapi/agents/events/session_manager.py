@@ -30,17 +30,14 @@ class RunEventBusManager:
         cleanup_interval: int = 300,
         enable_persistence: bool = True,
         max_history: int = 1000,
-        ended_run_ttl: int = 30,
     ):
         self.session_ttl = session_ttl
         self.cleanup_interval = cleanup_interval
         self.enable_persistence = enable_persistence
         self.max_history = max_history
-        self.ended_run_ttl = ended_run_ttl
 
         self._run_buses: Dict[str, EventBus] = {}
         self._last_activity: Dict[str, float] = {}
-        self._ended_at: Dict[str, float] = {}
         self._run_to_session: Dict[str, Optional[str]] = {}
         self._lock = threading.RLock()
         self._shutdown_event = threading.Event()
@@ -53,9 +50,8 @@ class RunEventBusManager:
         self._cleanup_thread.start()
 
         logger.info(
-            "RunEventBusManager 初始化 (TTL: %ss, 结束TTL: %ss, 清理间隔: %ss, 最大历史: %s)",
+            "RunEventBusManager 初始化 (TTL: %ss, 清理间隔: %ss, 最大历史: %s)",
             session_ttl,
-            ended_run_ttl,
             cleanup_interval,
             max_history,
         )
@@ -106,15 +102,12 @@ class RunEventBusManager:
             event_bus.clear_history()
             self._run_buses.pop(run_id, None)
             self._last_activity.pop(run_id, None)
-            self._ended_at.pop(run_id, None)
             self._run_to_session.pop(run_id, None)
             logger.info("🗑️ 移除 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
             return True
 
     def mark_run_ended(self, run_id: str) -> None:
-        with self._lock:
-            if run_id in self._run_buses:
-                self._ended_at[run_id] = time.time()
+        return None
 
     def touch(self, run_id: str) -> None:
         with self._lock:
@@ -183,12 +176,7 @@ class RunEventBusManager:
         now = time.time()
         expired_run_ids = []
         with self._lock:
-            for run_id, ended_at in self._ended_at.items():
-                if (now - ended_at) >= self.ended_run_ttl:
-                    expired_run_ids.append(run_id)
             for run_id, last_activity in self._last_activity.items():
-                if run_id in self._ended_at:
-                    continue
                 if (now - last_activity) > self.session_ttl:
                     expired_run_ids.append(run_id)
 

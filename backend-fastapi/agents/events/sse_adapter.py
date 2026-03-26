@@ -114,11 +114,15 @@ class SSEAdapter:
 
     def stop(self):
         """停止监听事件"""
+        if self._stopped:
+            return
+
+        self._stopped = True
+
         if self._subscription_id:
             self.event_bus.unsubscribe(self._subscription_id)
             self._subscription_id = None
 
-        self._stopped = True
         # 放入哨兵值唤醒可能阻塞在 get() 的 stream_sync
         try:
             self._event_queue.put_nowait(None)
