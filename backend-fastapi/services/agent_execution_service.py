@@ -106,6 +106,7 @@ class AgentExecutionService:
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
+        call_id: Optional[str] = None,
         event_bus=None,
         cancel_event=None,
         thread_key: Optional[str] = None,
@@ -146,6 +147,7 @@ class AgentExecutionService:
             thread_key=resolved_thread_key,
             parent_run_id=parent_run_id,
             parent_call_id=parent_call_id,
+            call_id=call_id,
         )
         context.metadata['agent_name'] = agent_name
         context.metadata['execution_source'] = source
@@ -201,6 +203,7 @@ class AgentExecutionService:
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
+        call_id: Optional[str] = None,
         event_bus=None,
         cancel_event=None,
         thread_key: Optional[str] = None,
@@ -219,6 +222,7 @@ class AgentExecutionService:
                 run_id=run_id,
                 parent_run_id=parent_run_id,
                 parent_call_id=parent_call_id,
+                call_id=call_id,
                 event_bus=event_bus,
                 cancel_event=cancel_event,
                 thread_key=thread_key,

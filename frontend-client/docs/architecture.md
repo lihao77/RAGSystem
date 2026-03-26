@@ -82,6 +82,14 @@ projector 输出并维护：
 - `rawSteps`：canonical step 列表
 - `subtasks` / `execution_steps`：兼容当前 UI 组件的投影视图
 - `multimodalContents`：从 `kind=visualization` step 投影出的历史可视化内容
+- `pendingToolCallsByParentCallId`：子 agent tool 先于 `subtask start` 到达时的最小乱序缓冲
+
+tool 归属规则：
+
+- 子 agent 的 tool 优先按 `parent_call_id -> subtaskMap` 归入对应 `subtask`
+- 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
+- 只有确认 `agent_name` 属于 orchestrator 时，tool 才写入 `execution_steps.toolCalls`
+- `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 

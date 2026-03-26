@@ -312,7 +312,7 @@ canonical step 当前覆盖的语义：
 - `execution/step_projector.py` 是 raw event → canonical step 的唯一投影层
 - `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件
 - `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`
-- `application/agent_session.py:list_messages()` 与 `export_session()` 对 assistant message 直接返回持久化的 canonical `execution_steps`
+- 子 Agent 递归显示依赖同一棵 root execution tree：`call_agent` / `send_message` 创建的可见 subtask 节点 `call_id`，必须继续透传到子 Agent 执行上下文 `context.metadata.call_id`；这样 child agent 内部的 `intent/tool` 才会以同一 `call_id` 继续发事件，并递归挂入该 subtask，而不是生成新的孤立调用节点
 - `execution/runstep_normalizer.py` 已删除，不再存在 raw run_steps → normalized steps 的兼容层
 - `services/conversation_store.py:get_tool_call_raw_result()` 从 canonical `execution.step(kind=tool, phase=end)` 中读取工具原始结果
 - `execution/persistence/message_handler.py` 现支持 root / child 两类消息持久化边界，通过 `child_agent_id + thread_key + visible_to_user` 控制恢复与展示语义

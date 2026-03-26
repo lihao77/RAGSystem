@@ -1,0 +1,181 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { applyStep, buildExecutionState, createExecutionState } from './executionProjector.js';
+
+function createSubtaskStart(overrides = {}) {
+  return {
+    kind: 'subtask',
+    phase: 'start',
+    call_id: 'subtask-1',
+    parent_call_id: 'root-call',
+    step_id: 'subtask-1:call',
+    parent_step_id: 'root-call:round:1',
+    agent_name: 'child_agent',
+    agent_display_name: '子 Agent',
+    description: '执行子任务',
+    round: 1,
+    round_index: 1,
+    order: 1,
+    status: 'running',
+    ...overrides,
+  };
+}
+
+function createToolStart(overrides = {}) {
+  return {
+    kind: 'tool',
+    phase: 'start',
+    call_id: 'tool-1',
+    parent_call_id: 'subtask-1',
+    step_id: 'tool-1:tool',
+    parent_step_id: 'subtask-1:round:1',
+    agent_name: 'child_agent',
+    tool_name: 'search_docs',
+    arguments: { query: 'flood' },
+    round: 1,
+    status: 'running',
+    ...overrides,
+  };
+}
+
+function createToolEnd(overrides = {}) {
+  return {
+    kind: 'tool',
+    phase: 'end',
+    call_id: 'tool-1',
+    parent_call_id: 'subtask-1',
+    step_id: 'tool-1:tool',
+    parent_step_id: 'subtask-1:round:1',
+    agent_name: 'child_agent',
+    tool_name: 'search_docs',
+    result_preview: 'done',
+    result: 'done',
+    raw_result: { ok: true },
+    raw_result_ref: { call_id: 'tool-1' },
+    raw_result_available: true,
+    elapsed_time: 0.2,
+    round: 1,
+    status: 'success',
+    ...overrides,
+  };
+}
+
+function createOrchestratorToolStart(overrides = {}) {
+  return {
+    kind: 'tool',
+    phase: 'start',
+    call_id: 'tool-root-1',
+    parent_call_id: 'root-call',
+    step_id: 'tool-root-1:tool',
+    parent_step_id: 'root-call:round:1',
+    agent_name: 'orchestrator_agent',
+    tool_name: 'query_index',
+    arguments: { keyword: 'rain' },
+    round: 1,
+    status: 'running',
+    ...overrides,
+  };
+}
+
+test('将正常顺序的子 agent 工具调用挂到对应 agent_call 内部', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createSubtaskStart());
+  applyStep(state, createToolStart());
+  applyStep(state, createToolEnd());
+
+  assert.equal(state.subtasks.length, 1);
+  assert.equal(state.execution_steps.length, 0);
+
+  const [subtask] = state.subtasks;
+  assert.equal(subtask.tool_calls.length, 1);
+  assert.equal(subtask.react_steps.length, 1);
+  assert.equal(subtask.react_steps[0].toolCalls.length, 1);
+  assert.equal(subtask.tool_calls[0].call_id, 'tool-1');
+  assert.equal(subtask.tool_calls[0].status, 'success');
+  assert.equal(subtask.tool_calls[0].result_preview, 'done');
+});
+
+test('当 tool start 先于 subtask start 到达时，稍后回填到对应子 agent', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createToolStart());
+  assert.equal(state.subtasks.length, 0);
+  assert.equal(state.execution_steps.length, 0);
+  assert.equal(state.pendingToolCallsByParentCallId.get('subtask-1')?.length, 1);
+
+  applyStep(state, createSubtaskStart());
+  applyStep(state, createToolEnd());
+
+  const [subtask] = state.subtasks;
+  assert.ok(subtask);
+  assert.equal(subtask.tool_calls.length, 1);
+  assert.equal(subtask.react_steps.length, 1);
+  assert.equal(subtask.react_steps[0].toolCalls.length, 1);
+  assert.equal(subtask.tool_calls[0].status, 'success');
+  assert.equal(state.pendingToolCallsByParentCallId.has('subtask-1'), false);
+  assert.equal(state.execution_steps.length, 0);
+});
+
+test('当 parent_call_id 不稳定时，可回退用 parent_step_id 归到子 agent', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createSubtaskStart());
+  applyStep(state, createToolStart({
+    parent_call_id: 'unexpected-parent',
+    parent_step_id: 'subtask-1:call',
+  }));
+  applyStep(state, createToolEnd({
+    parent_call_id: 'unexpected-parent',
+    parent_step_id: 'subtask-1:call',
+  }));
+
+  const [subtask] = state.subtasks;
+  assert.ok(subtask);
+  assert.equal(subtask.tool_calls.length, 1);
+  assert.equal(subtask.react_steps.length, 1);
+  assert.equal(subtask.tool_calls[0].call_id, 'tool-1');
+  assert.equal(state.execution_steps.length, 0);
+});
+
+test('编排器自己的工具调用仍保留在 execution_steps 中', () => {
+  const state = createExecutionState();
+
+  applyStep(state, {
+    kind: 'intent',
+    phase: 'complete',
+    call_id: 'root-call',
+    parent_call_id: null,
+    step_id: 'root-call:round:1',
+    parent_step_id: 'root-call:run',
+    agent_name: 'orchestrator_agent',
+    round: 1,
+    content: '先检索',
+    status: 'completed',
+  });
+  applyStep(state, createOrchestratorToolStart());
+
+  assert.equal(state.execution_steps.length, 1);
+  assert.equal(state.execution_steps[0].toolCalls.length, 1);
+  assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
+  assert.equal(state.subtasks.length, 0);
+});
+
+test('buildExecutionState 与增量 applyStep 结果一致', () => {
+  const steps = [
+    createToolStart(),
+    createSubtaskStart(),
+    createToolEnd(),
+  ];
+
+  const incremental = createExecutionState();
+  steps.forEach(step => applyStep(incremental, step));
+
+  const rebuilt = buildExecutionState(steps);
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(rebuilt)),
+    JSON.parse(JSON.stringify(incremental)),
+  );
+});

@@ -151,6 +151,7 @@ class AgentApiRuntimeService:
         thread_key: str = 'root',
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
+        call_id: Optional[str] = None,
     ) -> AgentContext:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
@@ -168,6 +169,8 @@ class AgentApiRuntimeService:
             context.metadata['parent_run_id'] = parent_run_id
         if parent_call_id:
             context.metadata['parent_call_id'] = parent_call_id
+        if call_id:
+            context.metadata['call_id'] = call_id
         self.load_history_into_context(
             context,
             session_id=session_id,

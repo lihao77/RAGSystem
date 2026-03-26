@@ -96,6 +96,10 @@ class _FakeConversationStore:
 
 
 class _FakeConversationStoreWithSteps(_FakeConversationStore):
+    def list_runs(self, session_id: str, limit: int = 50):
+        assert session_id == 'session-1'
+        return {'items': [], 'total': 0}
+
     def list_run_steps(self, *, run_id: str, session_id: str, limit: int):
         assert run_id == 'run-1'
         assert session_id == 'session-1'

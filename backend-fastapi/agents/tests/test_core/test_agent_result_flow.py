@@ -42,9 +42,10 @@ class _StubChildAgent:
     def __init__(self, response):
         self.response = response
         self.tasks = []
+        self.contexts = []
 
     def execute(self, task, context):
-        del context
+        self.contexts.append(context)
         self.tasks.append(task)
         return self.response
 
@@ -207,6 +208,7 @@ class _StubRuntimeService:
         thread_key='root',
         parent_run_id=None,
         parent_call_id=None,
+        call_id=None,
     ):
         del limit, request_id, llm_override
         context = AgentContext(session_id=session_id, user_id=user_id)
@@ -215,6 +217,7 @@ class _StubRuntimeService:
             'thread_key': thread_key,
             'parent_run_id': parent_run_id,
             'parent_call_id': parent_call_id,
+            'call_id': call_id,
         })
         return context
 
@@ -308,6 +311,7 @@ def test_agent_execution_service_creates_run_with_child_agent_and_parent_links()
         child_agent_id="child-1",
         parent_run_id="run-parent",
         parent_call_id="call-parent",
+        call_id="call-child-visible",
         source='agent_call',
         entrypoint='send_message',
     )
@@ -316,4 +320,5 @@ def test_agent_execution_service_creates_run_with_child_agent_and_parent_links()
     assert runtime.created_runs[0]["child_agent_id"] == "child-1"
     assert runtime.created_runs[0]["parent_run_id"] == "run-parent"
     assert runtime.created_runs[0]["parent_call_id"] == "call-parent"
+    assert child_agent.contexts[0].metadata["call_id"] == "call-child-visible"
     assert runtime.updated_child_runs[0]["child_agent_id"] == "child-1"

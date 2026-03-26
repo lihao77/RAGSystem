@@ -116,6 +116,7 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
     assert runtime.store.created_children[0]['created_seq'] == 42
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']
     assert runtime.execution_calls[0]['parent_run_id'] == 'run-1'
+    assert runtime.execution_calls[0]['call_id'] == result.metadata['agent_call_id']
 
 
 def test_list_child_agents_returns_existing_children(monkeypatch):
@@ -197,6 +198,8 @@ def test_send_message_reuses_existing_child_agent(monkeypatch):
 
     assert result.success is True
     assert result.tool_name == 'send_message'
+    assert runtime.execution_calls[0]['call_id'].startswith('call_')
+
 def test_send_message_publishes_resume_ordering_fields(monkeypatch):
     runtime = _FakeRuntime()
     bus = _FakeEventBus()

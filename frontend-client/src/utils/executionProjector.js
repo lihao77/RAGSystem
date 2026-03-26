@@ -78,6 +78,7 @@ export function createExecutionState() {
     subtaskMap: new Map(),
     stepMap: new Map(),
     toolMap: new Map(),
+    pendingToolCallsByParentCallId: new Map(),
   };
 }
 
@@ -122,6 +123,74 @@ function ensureOrchestratorStep(state, round = null, stepId = null, parentStepId
   }
   if (step.step_id) state.stepMap.set(step.step_id, step);
   return step;
+}
+
+function addToolCallOnce(toolCalls, toolCall) {
+  if (!Array.isArray(toolCalls)) return;
+  if (toolCalls.some(item => item?.call_id === toolCall?.call_id)) return;
+  toolCalls.push(toolCall);
+}
+
+function queuePendingToolCall(state, step, toolCall) {
+  if (!step?.parent_call_id) return;
+  const pending = state.pendingToolCallsByParentCallId.get(step.parent_call_id) || [];
+  if (!pending.some(item => item?.toolCall?.call_id === toolCall?.call_id)) {
+    pending.push({ step, toolCall });
+    state.pendingToolCallsByParentCallId.set(step.parent_call_id, pending);
+  }
+}
+
+function attachToolCallToSubtask(state, subtask, step, toolCall) {
+  const reactStepId = step.parent_step_id === subtask.step_id ? null : step.parent_step_id;
+  const reactStep = ensureSubtaskIntentStep(state, subtask, step.round, reactStepId, subtask.step_id);
+  addToolCallOnce(reactStep.toolCalls, toolCall);
+  addToolCallOnce(subtask.tool_calls, toolCall);
+}
+
+function findSubtaskByToolStep(state, step) {
+  const byParentCallId = state.subtaskMap.get(step.parent_call_id);
+  if (byParentCallId) return byParentCallId;
+
+  if (step.parent_step_id) {
+    for (const subtask of state.subtasks) {
+      if (!subtask) continue;
+      if (subtask.step_id === step.parent_step_id) return subtask;
+      if (subtask.react_steps?.some(item => item?.step_id === step.parent_step_id)) return subtask;
+    }
+  }
+
+  return null;
+}
+
+function flushPendingToolCalls(state, subtask) {
+  const pending = state.pendingToolCallsByParentCallId.get(subtask.task_id);
+  if (!pending?.length) return;
+  pending.forEach(({ step, toolCall }) => {
+    attachToolCallToSubtask(state, subtask, step, toolCall);
+  });
+  state.pendingToolCallsByParentCallId.delete(subtask.task_id);
+}
+
+function handleToolStart(state, step) {
+  const toolCall = createToolCall(step);
+  state.toolMap.set(step.call_id, toolCall);
+
+  const subtask = findSubtaskByToolStep(state, step);
+  if (subtask) {
+    attachToolCallToSubtask(state, subtask, step, toolCall);
+    return state;
+  }
+
+  if (isOrchestrator(step.agent_name)) {
+    addToolCallOnce(
+      ensureOrchestratorStep(state, step.round, step.parent_step_id, null).toolCalls,
+      toolCall,
+    );
+    return state;
+  }
+
+  queuePendingToolCall(state, step, toolCall);
+  return state;
 }
 
 function ensureSubtaskIntentStep(state, subtask, round = null, stepId = null, parentStepId = null) {
@@ -175,6 +244,7 @@ export function applyStep(state, step) {
         state.subtaskMap.set(step.call_id, subtask);
       }
       if (subtask.step_id) state.stepMap.set(subtask.step_id, subtask);
+      flushPendingToolCalls(state, subtask);
       return state;
     }
 
@@ -219,17 +289,7 @@ export function applyStep(state, step) {
 
   if (step.kind === 'tool') {
     if (step.phase === 'start') {
-      const toolCall = createToolCall(step);
-      state.toolMap.set(step.call_id, toolCall);
-      const subtask = state.subtaskMap.get(step.parent_call_id);
-      if (subtask) {
-        const reactStep = ensureSubtaskIntentStep(state, subtask, step.round, step.parent_step_id, subtask.step_id);
-        reactStep.toolCalls.push(toolCall);
-        subtask.tool_calls.push(toolCall);
-      } else {
-        ensureOrchestratorStep(state, step.round, step.parent_step_id, null).toolCalls.push(toolCall);
-      }
-      return state;
+      return handleToolStart(state, step);
     }
 
     if (step.phase === 'end') {
