@@ -189,6 +189,7 @@ def call_agent(
             success=agent_result.success,
             parent_call_id=parent_call_id,
             order=order,
+            agent_display_name=getattr(target_config, "display_name", None),
             extra=agent_call_event_extra,
         )
 
@@ -451,6 +452,7 @@ def send_message(
             success=agent_result.success,
             parent_call_id=parent_call_id,
             order=order,
+            agent_display_name=getattr(target_config, "display_name", None),
             extra={
                 'child_agent_id': child_agent_id,
                 'mode': 'resume',

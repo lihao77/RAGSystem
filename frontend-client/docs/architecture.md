@@ -85,6 +85,7 @@ projector 输出并维护：
 - `subtasks` / `execution_steps`：兼容当前 UI 组件的投影视图
 - `multimodalContents`：从 `kind=visualization` step 投影出的历史可视化内容
 - `pendingToolCallsByParentCallId`：子 agent tool 先于 `subtask start` 到达时的最小乱序缓冲
+- `agentNameDisplayNameMap`：按 `agent_name -> agent_display_name` 记忆已见过的展示名；历史回放与 SSE 增量都复用同一映射规则，保证后续未显式携带 display name 的 step 仍保持中文展示
 
 tool 归属规则：
 
@@ -92,6 +93,7 @@ tool 归属规则：
 - 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
 - 根级 `kind=run` 会先投影成一个 root execution step，占位表示“当前入口 agent 已启动”；后续同轮 `intent/tool` 会继续挂到这个根节点
 - `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
+- 所有 UI 展示 agent 名称时统一优先使用 `agent_display_name`，没有时再回退 `agent_name`；`SubtaskStatusTicker.vue` 与执行树节点都直接消费 projector 的投影结果，不再各自硬编码“编排器”等标签
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 

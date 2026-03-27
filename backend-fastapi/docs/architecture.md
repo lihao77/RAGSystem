@@ -375,6 +375,7 @@ canonical step 当前覆盖的语义：
 
 - 结构字段：`node_id`, `parent_node_id`, `call_id`, `parent_call_id`, `child_agent_id`
 - 展示字段：`agent_name`, `agent_display_name`, `tool_name`, `description`, `content`
+- 名称规则：后端 canonical `execution.step` 在 `run / subtask / intent / tool` 上统一透传 `agent_name` 与 `agent_display_name`；前者用于稳定标识，后者用于 UI 展示，缺失时才回退到 `agent_name`
 - 状态字段：`round`, `status`, `elapsed_time`
 - 结果字段：`result`, `result_preview`, `raw_result`, `raw_result_ref`, `raw_result_available`
 - 追踪字段：`source_event_type`, `event_id`, `timestamp`, `_execution`

@@ -28,11 +28,20 @@ const createExecutionStep = (round = null, stepId = null, parentStepId = null) =
   status: 'running',
   run_status: null,
   agent_name: 'orchestrator_agent',
-  agent_display_name: 'orchestrator_agent',
+  agent_display_name: '',
   _intentComplete: false,
 });
 
-const createSubtask = (step) => ({
+function resolveAgentDisplayName(state, agentName, explicitDisplayName) {
+  return explicitDisplayName || state.agentNameDisplayNameMap.get(agentName) || agentName || 'orchestrator_agent';
+}
+
+function rememberAgentDisplayName(state, step) {
+  if (!step?.agent_name || !step?.agent_display_name) return;
+  state.agentNameDisplayNameMap.set(step.agent_name, step.agent_display_name);
+}
+
+const createSubtask = (state, step) => ({
   step_id: step.step_id || null,
   parent_step_id: step.parent_step_id || null,
   order: step.order,
@@ -41,7 +50,7 @@ const createSubtask = (step) => ({
   round: step.round,
   round_index: step.round_index,
   agent_name: step.agent_name || '',
-  agent_display_name: step.agent_display_name || step.agent_name || '',
+  agent_display_name: resolveAgentDisplayName(state, step.agent_name, step.agent_display_name),
   description: step.description || '',
   react_steps: [],
   tool_calls: [],
@@ -81,6 +90,7 @@ export function createExecutionState() {
     stepMap: new Map(),
     toolMap: new Map(),
     pendingToolCallsByParentCallId: new Map(),
+    agentNameDisplayNameMap: new Map(),
   };
 }
 
@@ -187,6 +197,12 @@ function handleToolStart(state, step) {
   if (existingRootStep || state.execution_steps.length > 0) {
     const rootStep = existingRootStep || ensureOrchestratorStep(state, step.round, step.parent_step_id || step.step_id || null, null);
     addToolCallOnce(rootStep.toolCalls, toolCall);
+    if (step.agent_name) rootStep.agent_name = step.agent_name;
+    rootStep.agent_display_name = resolveAgentDisplayName(
+      state,
+      rootStep.agent_name,
+      step.agent_display_name || rootStep.agent_display_name,
+    );
     rootStep.status = 'running';
     if (rootStep.step_id) state.stepMap.set(rootStep.step_id, rootStep);
     return state;
@@ -229,7 +245,11 @@ function handleRunStep(state, step) {
     step.parent_step_id || null,
   );
   if (step.agent_name) executionStep.agent_name = step.agent_name;
-  if (step.agent_display_name) executionStep.agent_display_name = step.agent_display_name;
+  executionStep.agent_display_name = resolveAgentDisplayName(
+    state,
+    executionStep.agent_name,
+    step.agent_display_name || executionStep.agent_display_name,
+  );
   executionStep.run_status = step.phase === 'end'
     ? (step.status === 'error' ? 'error' : 'success')
     : 'running';
@@ -241,6 +261,7 @@ function handleRunStep(state, step) {
 
 export function applyStep(state, step) {
   if (!state || !step || step.kind == null || step.phase == null) return state;
+  rememberAgentDisplayName(state, step);
   state.rawSteps.push(step);
 
   if (step.kind === 'run') {
@@ -249,14 +270,18 @@ export function applyStep(state, step) {
 
   if (step.kind === 'subtask') {
     if (step.phase === 'start') {
-      const subtask = state.subtaskMap.get(step.call_id) || createSubtask(step);
+      const subtask = state.subtaskMap.get(step.call_id) || createSubtask(state, step);
       subtask.step_id = step.step_id || subtask.step_id;
       subtask.parent_step_id = step.parent_step_id || subtask.parent_step_id;
       subtask.order = step.order ?? subtask.order;
       subtask.round = step.round ?? subtask.round;
       subtask.round_index = step.round_index ?? subtask.round_index;
       subtask.agent_name = step.agent_name || subtask.agent_name;
-      subtask.agent_display_name = step.agent_display_name || subtask.agent_display_name || subtask.agent_name;
+      subtask.agent_display_name = resolveAgentDisplayName(
+        state,
+        subtask.agent_name,
+        step.agent_display_name || subtask.agent_display_name,
+      );
       subtask.description = step.description || subtask.description;
       subtask.status = 'running';
       subtask.expanded = true;
@@ -272,6 +297,12 @@ export function applyStep(state, step) {
     if (step.phase === 'end') {
       const subtask = state.subtaskMap.get(step.call_id);
       if (subtask) {
+        subtask.agent_name = step.agent_name || subtask.agent_name;
+        subtask.agent_display_name = resolveAgentDisplayName(
+          state,
+          subtask.agent_name,
+          step.agent_display_name || subtask.agent_display_name,
+        );
         subtask.status = step.status === 'error' ? 'error' : 'success';
         subtask.result_summary = step.result_preview ?? step.result ?? subtask.result_summary;
         subtask.expanded = false;
@@ -284,7 +315,11 @@ export function applyStep(state, step) {
     if (isRootExecutionStep(step)) {
       const executionStep = ensureOrchestratorStep(state, step.round, step.step_id, step.parent_step_id);
       if (step.agent_name) executionStep.agent_name = step.agent_name;
-      if (step.agent_display_name) executionStep.agent_display_name = step.agent_display_name;
+      executionStep.agent_display_name = resolveAgentDisplayName(
+        state,
+        executionStep.agent_name,
+        step.agent_display_name || executionStep.agent_display_name,
+      );
       if (step.content) {
         if (step.phase === 'delta' && !executionStep._intentComplete) {
           executionStep.intent += step.content;
@@ -302,6 +337,12 @@ export function applyStep(state, step) {
     const subtask = state.subtaskMap.get(step.call_id);
     if (!subtask) return state;
     const reactStep = ensureSubtaskIntentStep(state, subtask, step.round, step.step_id, step.parent_step_id);
+    if (step.agent_name) reactStep.agent_name = step.agent_name;
+    reactStep.agent_display_name = resolveAgentDisplayName(
+      state,
+      reactStep.agent_name || subtask.agent_name,
+      step.agent_display_name || reactStep.agent_display_name || subtask.agent_display_name,
+    );
     if (step.content) {
       if (step.phase === 'delta' && !reactStep._intentComplete) {
         reactStep.intent += step.content;

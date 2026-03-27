@@ -27,6 +27,17 @@ class StepProjector:
     """Listen to raw agent events and republish canonical execution.step events."""
 
     @staticmethod
+    def _resolve_display_agent_name(data: Dict[str, Any], fallback_agent_name: Optional[str]) -> str:
+        metadata = data.get('metadata') or {}
+        return data.get('agent_name') or metadata.get('agent_name') or fallback_agent_name or ''
+
+    @classmethod
+    def _resolve_display_agent_display_name(cls, data: Dict[str, Any], fallback_agent_name: Optional[str]) -> str:
+        metadata = data.get('metadata') or {}
+        display_agent_name = cls._resolve_display_agent_name(data, fallback_agent_name)
+        return data.get('agent_display_name') or metadata.get('agent_display_name') or display_agent_name
+
+    @staticmethod
     def _make_run_step_id(owner_id: Optional[str]) -> str:
         return f"{owner_id or 'run'}:run"
 
@@ -125,7 +136,8 @@ class StepProjector:
     def project_event(self, event: Event) -> Optional[Dict[str, Any]]:
         event_type = event.type.value if hasattr(event.type, 'value') else str(event.type)
         data = event.data or {}
-        agent_name = data.get('agent_name') or event.agent_name
+        agent_name = self._resolve_display_agent_name(data, event.agent_name)
+        agent_display_name = self._resolve_display_agent_display_name(data, event.agent_name)
         call_id = event.call_id
         parent_call_id = event.parent_call_id
         run_id = data.get('run_id')
@@ -136,6 +148,7 @@ class StepProjector:
             'call_id': call_id,
             'parent_call_id': parent_call_id,
             'agent_name': agent_name,
+            'agent_display_name': agent_display_name,
             'child_agent_id': data.get('child_agent_id'),
             'mode': data.get('mode'),
             'source_event_type': event_type,
@@ -145,7 +158,10 @@ class StepProjector:
 
         if event.type == EventType.RUN_START:
             run_id = data.get('run_id')
-            description = ((data.get('metadata') or {}).get('task') or data.get('task') or '').strip()
+            metadata = data.get('metadata') or {}
+            description = (metadata.get('task') or data.get('task') or '').strip()
+            display_agent_name = self._resolve_display_agent_name(data, event.agent_name)
+            display_agent_display_name = self._resolve_display_agent_display_name(data, event.agent_name)
             step_id, parent_step_id = self._resolve_step_ids(
                 kind='run',
                 event_type=event_type,
@@ -156,6 +172,8 @@ class StepProjector:
             )
             return {
                 **base,
+                'agent_name': display_agent_name,
+                'agent_display_name': display_agent_display_name,
                 'kind': 'run',
                 'phase': 'start',
                 'step_id': step_id,
@@ -169,6 +187,8 @@ class StepProjector:
 
         if event.type == EventType.RUN_END:
             run_id = data.get('run_id')
+            display_agent_name = self._resolve_display_agent_name(data, event.agent_name)
+            display_agent_display_name = self._resolve_display_agent_display_name(data, event.agent_name)
             status = data.get('status') or 'completed'
             if status == 'success':
                 status = 'completed'
@@ -182,6 +202,8 @@ class StepProjector:
             )
             return {
                 **base,
+                'agent_name': display_agent_name,
+                'agent_display_name': display_agent_display_name,
                 'kind': 'run',
                 'phase': 'end',
                 'step_id': step_id,
@@ -211,7 +233,7 @@ class StepProjector:
                 'phase': 'start',
                 'step_id': step_id,
                 'parent_step_id': parent_step_id,
-                'agent_display_name': data.get('agent_display_name') or agent_name,
+                'agent_display_name': data.get('agent_display_name') or agent_display_name,
                 'description': data.get('description') or data.get('task') or '',
                 'round': data.get('round'),
                 'round_index': data.get('round_index'),
@@ -258,6 +280,7 @@ class StepProjector:
                 'phase': 'delta',
                 'step_id': step_id,
                 'parent_step_id': parent_step_id,
+                'agent_display_name': agent_display_name,
                 'round': data.get('round'),
                 'status': 'running',
                 'content': data.get('content') or '',
@@ -278,6 +301,7 @@ class StepProjector:
                 'phase': 'complete',
                 'step_id': step_id,
                 'parent_step_id': parent_step_id,
+                'agent_display_name': agent_display_name,
                 'round': data.get('round'),
                 'status': 'completed',
                 'content': data.get('content') or '',
@@ -298,6 +322,7 @@ class StepProjector:
                 'phase': 'start',
                 'step_id': step_id,
                 'parent_step_id': parent_step_id,
+                'agent_display_name': agent_display_name,
                 'tool_name': data.get('tool_name'),
                 'arguments': data.get('arguments') or {},
                 'round': data.get('round'),
@@ -323,6 +348,7 @@ class StepProjector:
                 'phase': 'end',
                 'step_id': step_id,
                 'parent_step_id': parent_step_id,
+                'agent_display_name': agent_display_name,
                 'tool_name': data.get('tool_name'),
                 'round': data.get('round'),
                 'status': 'error' if data.get('success') is False else 'success',

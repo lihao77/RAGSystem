@@ -20,7 +20,14 @@ def test_project_run_start_to_execution_step():
     projector = _make_projector()
     event = Event(
         type=EventType.RUN_START,
-        data={'run_id': 'run-1', 'metadata': {'task': '分析任务'}},
+        data={
+            'run_id': 'run-1',
+            'metadata': {
+                'task': '分析任务',
+                'agent_name': 'emergency_agent',
+                'agent_display_name': '应急决策助手',
+            },
+        },
         session_id='session-1',
         agent_name='orchestrator_agent',
         call_id='call-root',
@@ -35,9 +42,37 @@ def test_project_run_start_to_execution_step():
     assert step['call_id'] == 'call-root'
     assert step['description'] == '分析任务'
     assert step['status'] == 'running'
+    assert step['agent_name'] == 'emergency_agent'
+    assert step['agent_display_name'] == '应急决策助手'
 
 
-def test_project_subtask_and_tool_events():
+def test_project_run_end_preserves_display_name():
+    projector = _make_projector()
+    event = Event(
+        type=EventType.RUN_END,
+        data={
+            'run_id': 'run-1',
+            'status': 'success',
+            'summary': '完成',
+            'metadata': {
+                'agent_name': 'emergency_agent',
+                'agent_display_name': '应急决策助手',
+            },
+        },
+        session_id='session-1',
+        agent_name='orchestrator_agent',
+        call_id='call-root',
+    )
+
+    step = projector.project_event(event)
+
+    assert step['kind'] == 'run'
+    assert step['phase'] == 'end'
+    assert step['agent_name'] == 'emergency_agent'
+    assert step['agent_display_name'] == '应急决策助手'
+    assert step['status'] == 'completed'
+
+
     projector = _make_projector()
 
     subtask_start = projector.project_event(Event(
@@ -63,6 +98,7 @@ def test_project_subtask_and_tool_events():
         data={
             'content': '开始分析',
             'round': 1,
+            'agent_display_name': '知识图谱代理',
             '_execution': {'run_id': 'run-1'},
         },
         session_id='session-1',
@@ -74,6 +110,7 @@ def test_project_subtask_and_tool_events():
         type=EventType.CALL_TOOL_END,
         data={
             'tool_name': 'read_file',
+            'agent_display_name': '知识图谱代理',
             'success': True,
             'result_preview': '读取成功',
             'raw_result': {'content': 'ok'},
@@ -101,11 +138,13 @@ def test_project_subtask_and_tool_events():
 
     assert child_intent['kind'] == 'intent'
     assert child_intent['phase'] == 'complete'
+    assert child_intent['agent_display_name'] == '知识图谱代理'
     assert child_intent['step_id'] == 'call-subtask:round:1'
     assert child_intent['parent_step_id'] == 'call-subtask:call'
 
     assert tool_end['kind'] == 'tool'
     assert tool_end['phase'] == 'end'
+    assert tool_end['agent_display_name'] == '知识图谱代理'
     assert tool_end['tool_name'] == 'read_file'
     assert tool_end['result_preview'] == '读取成功'
     assert tool_end['raw_result_available'] is True

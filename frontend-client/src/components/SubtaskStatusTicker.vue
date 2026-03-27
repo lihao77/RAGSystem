@@ -27,7 +27,7 @@
 
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="intent" class="ticker-item active">
-             <span class="agent-badge">编排器</span>
+            <span class="agent-badge">{{ rootExecutionAgentLabel }}</span>
              <span class="action-text">正在生成意图</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
@@ -88,6 +88,13 @@ const props = defineProps({
 
 defineEmits(['toggle-view']);
 
+const resolveAgentLabel = (item) => (
+  item?.agent_display_name
+  || item?.agentDisplayName
+  || item?.agent_name
+  || ''
+);
+
 // 计算当前正在进行的活动
 const currentActivity = computed(() => {
   // 1. 先找正在运行的子任务
@@ -107,7 +114,7 @@ const currentActivity = computed(() => {
       }
     }
     return {
-      agent_display_name: runningTask.agent_display_name,
+      agent_display_name: resolveAgentLabel(runningTask),
       description: runningTask.description,
       tool_name: runningTool ? runningTool.tool_name : null
     };
@@ -120,7 +127,7 @@ const currentActivity = computed(() => {
       const activeTool = step.toolCalls.find(t => t.status === 'running');
       if (activeTool) {
         return {
-          agent_display_name: '编排器',
+          agent_display_name: resolveAgentLabel(step),
           description: null,
           tool_name: activeTool.tool_name
         };
@@ -136,8 +143,15 @@ const hasRunningRootExecution = computed(() => {
 });
 
 const rootExecutionAgentLabel = computed(() => {
-  const runningRoot = (props.executionSteps || []).find(step => step?.status === 'running' || step?.run_status === 'running');
-  return runningRoot?.agent_display_name || runningRoot?.agent_name || 'orchestrator_agent';
+  const executionSteps = props.executionSteps || [];
+  const runningRoot = executionSteps.find(step => step?.status === 'running' || step?.run_status === 'running');
+  if (runningRoot) return resolveAgentLabel(runningRoot) || 'orchestrator_agent';
+
+  const completedRoot = [...executionSteps].reverse().find(step => step?.run_status === 'success' || step?.run_status === 'error');
+  if (completedRoot) return resolveAgentLabel(completedRoot) || 'orchestrator_agent';
+
+  const lastLabeledRoot = [...executionSteps].reverse().find(step => resolveAgentLabel(step));
+  return resolveAgentLabel(lastLabeledRoot) || 'orchestrator_agent';
 });
 
 // 最近完成的任务
@@ -155,7 +169,7 @@ const lastCompletedTask = computed(() => {
       const lastTool = step.toolCalls[step.toolCalls.length - 1];
       if (lastTool.status === 'success') {
         return {
-          agent_display_name: '编排器',
+          agent_display_name: rootExecutionAgentLabel.value,
           description: lastTool.tool_name,
           status: 'success'
         };
@@ -164,7 +178,7 @@ const lastCompletedTask = computed(() => {
   }
   // 兜底：任务已结束（running=false）且有 orchestrator steps（纯推理直接回答的情况）
   if (!props.running && executionSteps.length > 0) {
-    return { agent_display_name: '编排器', status: 'success' };
+    return { agent_display_name: rootExecutionAgentLabel.value, status: 'success' };
   }
   return null;
 });

@@ -77,6 +77,7 @@ def route_direct_tool(
             arguments=arguments,
             parent_call_id=orchestrator_call_id,
             round=rounds,
+            agent_display_name=getattr(agent, 'display_name', None) or getattr(agent, 'name', None),
         )
 
     tool_start_time = time.time()
@@ -128,6 +129,7 @@ def route_direct_tool(
             parent_call_id=orchestrator_call_id,
             success=result_success(result),
             round=rounds,
+            agent_display_name=getattr(agent, 'display_name', None) or getattr(agent, 'name', None),
         )
 
     return {

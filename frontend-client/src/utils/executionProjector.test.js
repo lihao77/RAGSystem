@@ -113,13 +113,17 @@ function createOrchestratorToolStart(overrides = {}) {
 test('run step 会投影为可显示的根级 execution step', () => {
   const state = createExecutionState();
 
-  applyStep(state, createRunStart());
+  applyStep(state, createRunStart({
+    agent_name: 'emergency_agent',
+    agent_display_name: '应急决策助手'
+  }));
 
   assert.equal(state.execution_steps.length, 1);
   assert.equal(state.execution_steps[0].step_id, 'root-call:run');
   assert.equal(state.execution_steps[0].status, 'running');
   assert.equal(state.execution_steps[0].run_status, 'running');
-  assert.equal(state.execution_steps[0].agent_name, 'orchestrator_agent');
+  assert.equal(state.execution_steps[0].agent_name, 'emergency_agent');
+  assert.equal(state.execution_steps[0].agent_display_name, '应急决策助手');
 });
 
 test('run-only 历史步骤回放后仍保留执行节点', () => {
@@ -131,6 +135,21 @@ test('run-only 历史步骤回放后仍保留执行节点', () => {
   assert.equal(rebuilt.execution_steps.length, 1);
   assert.equal(rebuilt.execution_steps[0].status, 'success');
   assert.equal(rebuilt.execution_steps[0].run_status, 'success');
+});
+
+test('run end 未显式携带中文名时仍保留已记忆的 display name', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createRunStart({
+    agent_name: 'emergency_agent',
+    agent_display_name: '应急决策助手',
+  }));
+  applyStep(state, createRunEnd({
+    agent_name: 'emergency_agent',
+    agent_display_name: '',
+  }));
+
+  assert.equal(state.execution_steps[0].agent_display_name, '应急决策助手');
 });
 
 test('将正常顺序的子 agent 工具调用挂到对应 agent_call 内部', () => {
@@ -150,6 +169,32 @@ test('将正常顺序的子 agent 工具调用挂到对应 agent_call 内部', (
   assert.equal(subtask.tool_calls[0].call_id, 'tool-1');
   assert.equal(subtask.tool_calls[0].status, 'success');
   assert.equal(subtask.tool_calls[0].result_preview, 'done');
+});
+
+test('子 agent 后续 intent/tool 未显式携带中文名时仍沿用已记忆的 display name', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createSubtaskStart({
+    agent_name: 'child_agent',
+    agent_display_name: '子 Agent',
+  }));
+  applyStep(state, {
+    kind: 'intent',
+    phase: 'complete',
+    call_id: 'subtask-1',
+    parent_call_id: 'root-call',
+    step_id: 'subtask-1:round:1',
+    parent_step_id: 'subtask-1:call',
+    agent_name: 'child_agent',
+    round: 1,
+    content: '继续分析',
+    status: 'completed',
+  });
+  applyStep(state, createToolStart({ agent_display_name: '' }));
+
+  const [subtask] = state.subtasks;
+  assert.equal(subtask.agent_display_name, '子 Agent');
+  assert.equal(subtask.react_steps[0].agent_display_name, '子 Agent');
 });
 
 test('当 tool start 先于 subtask start 到达时，稍后回填到对应子 agent', () => {
@@ -215,6 +260,19 @@ test('编排器自己的工具调用仍保留在 execution_steps 中', () => {
   assert.equal(state.execution_steps[0].toolCalls.length, 1);
   assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
   assert.equal(state.subtasks.length, 0);
+});
+
+test('编排器自己的工具调用会沿用已记忆的 display name', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createRunStart({
+    agent_name: 'orchestrator_agent',
+    agent_display_name: '总控编排器',
+  }));
+  applyStep(state, createOrchestratorToolStart({ agent_display_name: '' }));
+
+  assert.equal(state.execution_steps[0].agent_display_name, '总控编排器');
+  assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
 });
 
 test('buildExecutionState 与增量 applyStep 结果一致', () => {

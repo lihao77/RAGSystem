@@ -256,6 +256,7 @@ class OrchestratorAgent(BaseAgent):
                     agent_name=self.name,
                     result=final_answer,
                     success=True,
+                    agent_display_name=self.display_name or self.name,
                 )
         state['_run_status'] = 'success'
         state['_run_summary'] = (
@@ -292,6 +293,7 @@ class OrchestratorAgent(BaseAgent):
                     agent_name=self.name,
                     result=final_content,
                     success=False,
+                    agent_display_name=self.display_name or self.name,
                 )
             publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
         state['_run_status'] = 'max_rounds'
@@ -326,6 +328,7 @@ class OrchestratorAgent(BaseAgent):
                     agent_name=self.name,
                     result="[已停止生成]",
                     success=False,
+                    agent_display_name=self.display_name or self.name,
                 )
             publisher.agent_error(error=str(error), error_type="InterruptedError")
         state['_run_status'] = 'interrupted'
@@ -356,6 +359,7 @@ class OrchestratorAgent(BaseAgent):
                     agent_name=self.name,
                     result=error_message,
                     success=False,
+                    agent_display_name=self.display_name or self.name,
                 )
         state['_run_status'] = 'error'
         state['_run_summary'] = error_message

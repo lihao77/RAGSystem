@@ -35,7 +35,8 @@ class EventPublisher:
         span_id: Optional[str] = None,
         call_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
-        event_bus: Optional[EventBus] = None
+        event_bus: Optional[EventBus] = None,
+        agent_display_name: Optional[str] = None,
     ):
         """
         初始化事件发布器
@@ -48,8 +49,10 @@ class EventPublisher:
             call_id: 当前调用节点ID（用于构建调用树）
             parent_call_id: 父调用节点ID（用于构建调用树）
             event_bus: 事件总线实例（None则使用全局）
+            agent_display_name: Agent 展示名称
         """
         self.agent_name = agent_name
+        self.agent_display_name = agent_display_name or agent_name
         self.session_id = session_id
         self.trace_id = trace_id
         self.span_id = span_id
@@ -186,18 +189,32 @@ class EventPublisher:
 
     # ==================== 意图过程事件 ====================
 
-    def intent_delta(self, content: str, round: Optional[int] = None):
+    def intent_delta(
+        self,
+        content: str,
+        round: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
+    ):
         """流式意图增量内容"""
         data: Dict[str, Any] = {"content": content}
         if round is not None:
             data["round"] = round
+        if agent_display_name is not None:
+            data["agent_display_name"] = agent_display_name
         self._publish(EventType.INTENT_DELTA, data)
 
-    def intent_complete(self, full_content: str, round: Optional[int] = None):
+    def intent_complete(
+        self,
+        full_content: str,
+        round: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
+    ):
         """意图输出完成"""
         data: Dict[str, Any] = {"content": full_content}
         if round is not None:
             data["round"] = round
+        if agent_display_name is not None:
+            data["agent_display_name"] = agent_display_name
         self._publish(EventType.INTENT_COMPLETE, data)
 
     # ==================== 运行生命周期事件 ====================
@@ -212,14 +229,21 @@ class EventPublisher:
             }
         )
 
-    def run_end(self, run_id: str, status: str = "success", summary: Optional[str] = None):
+    def run_end(
+        self,
+        run_id: str,
+        status: str = "success",
+        summary: Optional[str] = None,
+        metadata: Optional[Dict] = None,
+    ):
         """运行结束"""
         self._publish(
             EventType.RUN_END,
             {
                 "run_id": run_id,
                 "status": status,
-                "summary": summary
+                "summary": summary,
+                "metadata": metadata or {},
             }
         )
 
@@ -268,6 +292,7 @@ class EventPublisher:
         success: bool = True,
         parent_call_id: Optional[str] = None,
         order: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
     ):
         """Agent调用结束"""
@@ -276,6 +301,8 @@ class EventPublisher:
             "result": str(result)[:500],
             "success": success
         }
+        if agent_display_name is not None:
+            data["agent_display_name"] = agent_display_name
         if order is not None:
             data["order"] = order
         if extra:
@@ -297,6 +324,7 @@ class EventPublisher:
         arguments: Dict,
         parent_call_id: Optional[str] = None,
         round: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
     ):
         """工具调用开始"""
         data = {
@@ -305,6 +333,8 @@ class EventPublisher:
             }
         if round is not None:
             data["round"] = round
+        if agent_display_name is not None:
+            data["agent_display_name"] = agent_display_name
         self._publish(
             EventType.CALL_TOOL_START,
             data,
@@ -324,6 +354,7 @@ class EventPublisher:
         parent_call_id: Optional[str] = None,
         success: bool = True,
         round: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
     ):
         """工具调用结束"""
         data = {
@@ -339,6 +370,8 @@ class EventPublisher:
             }
         if round is not None:
             data["round"] = round
+        if agent_display_name is not None:
+            data["agent_display_name"] = agent_display_name
         self._publish(
             EventType.CALL_TOOL_END,
             data,

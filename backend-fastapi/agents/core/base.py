@@ -796,6 +796,7 @@ risk = call_tool('assess_flood_risk', {{
             return None
         return EventPublisher(
             agent_name=self.name,
+            agent_display_name=self.display_name or self.name,
             session_id=current_session_id,
             trace_id=context.metadata.get('trace_id') if hasattr(context, 'metadata') else None,
             span_id=context.metadata.get('span_id') if hasattr(context, 'metadata') else None,
@@ -833,6 +834,7 @@ risk = call_tool('assess_flood_risk', {{
                 tool_name='request_user_input',
                 arguments=arguments,
                 parent_call_id=parent_call_id,
+                agent_display_name=self.display_name or self.name,
             )
 
         if event_bus:
@@ -860,6 +862,7 @@ risk = call_tool('assess_flood_risk', {{
                     tool_name='request_user_input',
                     result='（无 session，跳过）',
                     parent_call_id=parent_call_id,
+                    agent_display_name=self.display_name or self.name,
                 )
             return ""
 
@@ -880,6 +883,7 @@ risk = call_tool('assess_flood_risk', {{
                 result=value if value else '（已取消）',
                 execution_time=time.time() - started_at,
                 parent_call_id=parent_call_id,
+                agent_display_name=self.display_name or self.name,
             )
 
         self.logger.info("[%s] 用户输入已接收 input_id=%s", prefix, input_id)
@@ -1108,6 +1112,7 @@ risk = call_tool('assess_flood_risk', {{
                     arguments=arguments,
                     parent_call_id=state.get('call_id'),
                     round=rounds,
+                    agent_display_name=self.display_name or self.name,
                 )
 
             tool_started_at = time.time()
@@ -1153,6 +1158,7 @@ risk = call_tool('assess_flood_risk', {{
                     parent_call_id=state.get('call_id'),
                     success=tool_success,
                     round=rounds,
+                    agent_display_name=self.display_name or self.name,
                 )
 
             self._record_visualization_result(tool_name, result, state)
@@ -1359,6 +1365,10 @@ risk = call_tool('assess_flood_risk', {{
                 run_id=run_id,
                 status=run_status,
                 summary=run_summary,
+                metadata={
+                    "agent_name": getattr(self, 'name', ''),
+                    "agent_display_name": getattr(self, 'display_name', None) or getattr(self, 'name', ''),
+                },
             )
 
     def _execute_react_task(self, task: str, context: AgentContext) -> AgentResponse:
@@ -1376,7 +1386,11 @@ risk = call_tool('assess_flood_risk', {{
             if publisher and not state.get('parent_call_id'):
                 publisher.run_start(
                     run_id=state['run_id'],
-                    metadata={"task": task},
+                    metadata={
+                        "task": task,
+                        "agent_name": getattr(self, 'name', ''),
+                        "agent_display_name": getattr(self, 'display_name', None) or getattr(self, 'name', ''),
+                    },
                 )
 
             while True:

@@ -118,10 +118,18 @@ class StreamExecutor:
                         if evt.type == 'content':
                             intent += evt.content
                             if self.publisher:
-                                self.publisher.intent_delta(evt.content, round=round_num)
+                                self.publisher.intent_delta(
+                                    evt.content,
+                                    round=round_num,
+                                    agent_display_name=getattr(self.publisher, 'agent_display_name', None),
+                                )
                         elif evt.type == 'tag_close':
                             if self.publisher:
-                                self.publisher.intent_complete(intent, round=round_num)
+                                self.publisher.intent_complete(
+                                    intent,
+                                    round=round_num,
+                                    agent_display_name=getattr(self.publisher, 'agent_display_name', None),
+                                )
 
                     elif evt.tag == TagType.TOOLS:
                         if evt.type == 'tag_open' and answer_streaming_committed:
