@@ -39,6 +39,7 @@ def test_agent_loader_injects_memory_tools_by_default():
         skills=None,
         mcp=None,
         delegation=None,
+        memory=SimpleNamespace(enabled=True, enabled_tools=[], allowed_scopes=['project', 'session']),
     )
 
     tools, skills = loader._resolve_tools_and_skills(agent_config)
@@ -46,3 +47,25 @@ def test_agent_loader_injects_memory_tools_by_default():
     tool_names = {tool['function']['name'] for tool in tools}
     assert {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory', 'request_user_input'} <= tool_names
     assert skills == []
+
+
+def test_agent_loader_skips_memory_tools_when_memory_disabled():
+    loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
+    loader._tool_registry = _FakeRegistry()
+    agent_config = SimpleNamespace(
+        agent_name='demo_agent',
+        tools=SimpleNamespace(enabled_tools=[]),
+        skills=None,
+        mcp=None,
+        delegation=None,
+        memory=SimpleNamespace(enabled=False, enabled_tools=[], allowed_scopes=['project', 'session']),
+    )
+
+    tools, _ = loader._resolve_tools_and_skills(agent_config)
+
+    tool_names = {tool['function']['name'] for tool in tools}
+    assert 'list_memory_index' not in tool_names
+    assert 'read_memory_entry' not in tool_names
+    assert 'write_memory' not in tool_names
+    assert 'archive_memory' not in tool_names
+    assert 'request_user_input' in tool_names

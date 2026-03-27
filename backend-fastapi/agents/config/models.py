@@ -239,6 +239,35 @@ class AgentMCPConfig(BaseModel):
     )
 
 
+class AgentMemoryConfig(BaseModel):
+    """智能体的 memory 配置。"""
+
+    enabled: bool = Field(
+        default=False,
+        description="是否为当前 Agent 启用 memory 能力"
+    )
+    auto_inject: bool = Field(
+        default=True,
+        description="是否在构建上下文时自动注入 MEMORY.md 索引头部"
+    )
+    enabled_tools: List[str] = Field(
+        default_factory=list,
+        description="启用的 memory 工具列表，留空表示使用默认 memory 工具集"
+    )
+    allowed_scopes: List[str] = Field(
+        default_factory=lambda: ['project', 'session'],
+        description="允许访问的 memory scope 列表"
+    )
+    write_scopes: List[str] = Field(
+        default_factory=lambda: ['session'],
+        description="允许写入的 memory scope 列表"
+    )
+    archive_scopes: List[str] = Field(
+        default_factory=lambda: ['session'],
+        description="允许归档的 memory scope 列表"
+    )
+
+
 class AgentDelegationConfig(BaseModel):
     """智能体的 delegation 配置。"""
 
@@ -340,6 +369,11 @@ class AgentConfig(BaseModel):
     mcp: AgentMCPConfig = Field(
         default_factory=AgentMCPConfig,
         description="MCP Server 配置"
+    )
+
+    memory: AgentMemoryConfig = Field(
+        default_factory=AgentMemoryConfig,
+        description="memory 配置"
     )
 
     delegation: AgentDelegationConfig = Field(

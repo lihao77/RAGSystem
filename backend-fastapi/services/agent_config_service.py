@@ -17,6 +17,7 @@ from agents.config import (
     AgentMCPConfig,
     AgentSkillConfig,
     AgentToolConfig,
+    AgentMemoryConfig,
     get_config_manager,
 )
 
@@ -80,6 +81,7 @@ class AgentConfigService:
             tools = self._merge_model_config(config.tools, payload.get('tools'), AgentToolConfig)
             skills = self._merge_model_config(config.skills, payload.get('skills'), AgentSkillConfig)
             mcp = self._merge_model_config(config.mcp, payload.get('mcp'), AgentMCPConfig)
+            memory = self._merge_model_config(config.memory, payload.get('memory'), AgentMemoryConfig)
         except Exception as error:
             raise AgentConfigServiceError(str(error), status_code=400) from error
 
@@ -89,6 +91,7 @@ class AgentConfigService:
             tools=tools,
             skills=skills,
             mcp=mcp,
+            memory=memory,
             custom_params=payload.get('custom_params'),
             enabled=payload.get('enabled'),
             save=True,
@@ -154,7 +157,11 @@ class AgentConfigService:
         return PRESET_CONFIGS
 
     def list_available_tools(self):
-        return self._tool_registry.list_direct_tool_summaries()
+        hidden = {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory', 'request_user_input'}
+        return [
+            item for item in self._tool_registry.list_direct_tool_summaries()
+            if item.get('name') not in hidden
+        ]
 
     def list_available_mcp_servers(self):
         from services.mcp_service import get_mcp_service

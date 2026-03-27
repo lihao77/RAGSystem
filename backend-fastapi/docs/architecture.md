@@ -258,7 +258,15 @@ memory 存储结构：
 - Agent 如需细节，再直接调用 `read_file` 读取对应 md 文件
 
 当前默认 scope chain：
-- `project -> session`
+- 仅当 Agent 的 `memory.enabled=true` 且 `memory.auto_inject=true` 时，按 `allowed_scopes` 自动注入索引
+- 默认推荐 `project -> session`
+
+memory 工具不再对所有 Agent 默认开放，而是像 Skill 一样由配置决定：
+- `memory.enabled`
+- `memory.enabled_tools`
+- `memory.allowed_scopes`
+- `memory.write_scopes`
+- `memory.archive_scopes`
 
 预留但未默认启用：
 - `agent`

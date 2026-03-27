@@ -183,7 +183,8 @@ class AgentExecutionService:
             parent_run_id=parent_run_id,
             parent_call_id=parent_call_id,
             call_id=call_id,
-            memory_query=task,
+            memory_query=task_summary,
+            agent_name=agent_name,
         )
         context.metadata['agent_name'] = agent_name
         context.metadata['execution_source'] = source
@@ -252,6 +253,7 @@ class AgentExecutionService:
             parent_call_id=None,
             call_id=None,
             memory_query=task,
+            agent_name=preferred_agent,
         )
         routed_agent = orchestrator.route_task(task, context, preferred_agent=preferred_agent)
         if routed_agent is None:

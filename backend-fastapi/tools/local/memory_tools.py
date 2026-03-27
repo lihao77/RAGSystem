@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from agents.config import get_config_manager
 from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
 from tools.runtime.response_builder import error_result, success_result
@@ -13,6 +14,40 @@ from services.memory_store import MemoryStore
 
 
 _MEMORY_STORE = MemoryStore()
+_MEMORY_DEFAULT_TOOLS = {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory'}
+
+
+def _resolve_memory_config(agent_name: Optional[str]):
+    if not agent_name:
+        return None
+    agent_config = get_config_manager().get_config(agent_name)
+    return getattr(agent_config, 'memory', None) if agent_config else None
+
+
+def _ensure_memory_enabled(tool_name: str, agent_name: Optional[str]):
+    memory_config = _resolve_memory_config(agent_name)
+    if memory_config is None or not getattr(memory_config, 'enabled', False):
+        return f"当前 Agent 未启用 memory 能力: {agent_name or 'unknown'}"
+    enabled_tools = set(getattr(memory_config, 'enabled_tools', []) or []) or _MEMORY_DEFAULT_TOOLS
+    if tool_name not in enabled_tools:
+        return f"当前 Agent 未授权 memory 工具: {tool_name}"
+    return None
+
+
+def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]:
+    scope_name = (scope or '').strip().lower()
+    allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
+    if scope_name not in allowed_scopes:
+        return f"当前 Agent 不允许访问 memory scope: {scope}"
+    if mode == 'write':
+        write_scopes = set(getattr(memory_config, 'write_scopes', []) or [])
+        if scope_name not in write_scopes:
+            return f"当前 Agent 不允许写入 memory scope: {scope}"
+    if mode == 'archive':
+        archive_scopes = set(getattr(memory_config, 'archive_scopes', []) or [])
+        if scope_name not in archive_scopes:
+            return f"当前 Agent 不允许归档 memory scope: {scope}"
+    return None
 
 
 @tool(
@@ -53,8 +88,16 @@ def list_memory_index(
     session_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
+    current_agent_name: Optional[str] = None,
 ) -> Any:
     try:
+        error = _ensure_memory_enabled('list_memory_index', current_agent_name)
+        if error:
+            return error_result(error, tool_name='list_memory_index')
+        memory_config = _resolve_memory_config(current_agent_name)
+        scope_error = _ensure_scope_allowed(memory_config, scope, 'read')
+        if scope_error:
+            return error_result(scope_error, tool_name='list_memory_index')
         scope_root = _MEMORY_STORE.ensure_scope(
             scope=scope,
             session_id=session_id,
@@ -122,8 +165,16 @@ def read_memory_entry(
     session_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
+    current_agent_name: Optional[str] = None,
 ) -> Any:
     try:
+        error = _ensure_memory_enabled('read_memory_entry', current_agent_name)
+        if error:
+            return error_result(error, tool_name='read_memory_entry')
+        memory_config = _resolve_memory_config(current_agent_name)
+        scope_error = _ensure_scope_allowed(memory_config, scope, 'read')
+        if scope_error:
+            return error_result(scope_error, tool_name='read_memory_entry')
         scope_root = _MEMORY_STORE.ensure_scope(
             scope=scope,
             session_id=session_id,
@@ -202,8 +253,16 @@ def write_memory(
     workspace_key: Optional[str] = None,
     source_run_id: Optional[str] = None,
     source_message_id: Optional[str] = None,
+    current_agent_name: Optional[str] = None,
 ) -> Any:
     try:
+        error = _ensure_memory_enabled('write_memory', current_agent_name)
+        if error:
+            return error_result(error, tool_name='write_memory')
+        memory_config = _resolve_memory_config(current_agent_name)
+        scope_error = _ensure_scope_allowed(memory_config, scope, 'write')
+        if scope_error:
+            return error_result(scope_error, tool_name='write_memory')
         path = _MEMORY_STORE.save_memory(
             scope=scope,
             session_id=session_id,
@@ -273,8 +332,16 @@ def archive_memory(
     session_id: Optional[str] = None,
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
+    current_agent_name: Optional[str] = None,
 ) -> Any:
     try:
+        error = _ensure_memory_enabled('archive_memory', current_agent_name)
+        if error:
+            return error_result(error, tool_name='archive_memory')
+        memory_config = _resolve_memory_config(current_agent_name)
+        scope_error = _ensure_scope_allowed(memory_config, scope, 'archive')
+        if scope_error:
+            return error_result(scope_error, tool_name='archive_memory')
         archived = _MEMORY_STORE.archive_memory(
             scope=scope,
             file_name=file_name,

@@ -171,7 +171,9 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
             file_path='E:/Python/RAGSystem/backend-fastapi/data/memory/projects/backend-fastapi/sessions/s1/preference_用户偏好-最少代码.md',
         )
     ]
-    context = service.build_context(session_id='s1', memory_query='最少代码')
+    import services.agent_api_runtime_service as runtime_module
+    runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=True, auto_inject=True, allowed_scopes=['project', 'session'])))
+    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
     pipeline = _make_pipeline()
 
     prepared = pipeline.inspect_messages('sys', context)
@@ -179,6 +181,16 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
     assert context.metadata['memory_indices']['project'] == '# project memory'
     assert context.metadata['memory_indices']['session'] == '# session memory'
     assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
+
+
+def test_build_context_skips_memory_when_agent_memory_disabled():
+    service = _make_runtime_service([])
+    import services.agent_api_runtime_service as runtime_module
+    runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=False, auto_inject=False, allowed_scopes=[])))
+    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
+
+    assert 'memory_indices' not in context.metadata
+    assert 'retrieved_memories' not in context.metadata
 
 
 def test_pipeline_get_history_raw_uses_message_seq_only():

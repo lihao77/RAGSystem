@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from runtime.dependencies import get_runtime_dependency
 from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
-from .models import AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset, apply_preset
+from .models import AgentConfig, AgentLLMConfig, AgentToolConfig, AgentConfigPreset, apply_preset, AgentSkillConfig, AgentMCPConfig, AgentMemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +217,7 @@ class AgentConfigManager:
         tools: Optional[AgentToolConfig] = None,
         skills: Optional['AgentSkillConfig'] = None,
         mcp: Optional['AgentMCPConfig'] = None,
+        memory: Optional['AgentMemoryConfig'] = None,
         custom_params: Optional[Dict] = None,
         enabled: Optional[bool] = None,
         save: bool = True
@@ -250,6 +251,8 @@ class AgentConfigManager:
             config.skills = skills
         if mcp is not None:
             config.mcp = mcp
+        if memory is not None:
+            config.memory = memory
         if custom_params is not None:
             config.custom_params = custom_params  # 完整替换，不使用 update
         if enabled is not None:

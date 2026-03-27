@@ -322,6 +322,19 @@
             </div>
           </section>
 
+          <section id="section-prompt" class="form-section">
+            <div class="section-head">
+              <h2>System Prompt</h2>
+              <span>编辑 custom_params.behavior.system_prompt</span>
+            </div>
+            <div class="section-body">
+              <label class="form-item">
+                <span class="field-label-text">System Prompt</span>
+                <textarea v-model="configForm.custom_params.behavior.system_prompt" class="form-control form-control--textarea" rows="8" placeholder="请输入该 Agent 的 system prompt"></textarea>
+              </label>
+            </div>
+          </section>
+
           <section id="section-tools" class="form-section">
             <div class="section-head">
               <h2>工具</h2>
@@ -383,6 +396,69 @@
             </div>
           </section>
 
+          <section id="section-memory" class="form-section">
+            <div class="section-head">
+              <h2>Memory</h2>
+              <span>像 Skill 一样按 Agent 控制 memory 注入与工具权限</span>
+            </div>
+            <div class="section-body skills-body">
+              <label class="form-item checkbox-item checkbox-item--inline">
+                <input v-model="configForm.memory.enabled" type="checkbox" />
+                <span>启用 Memory</span>
+              </label>
+              <label class="form-item checkbox-item checkbox-item--inline">
+                <input v-model="configForm.memory.auto_inject" type="checkbox" :disabled="!configForm.memory.enabled" />
+                <span>自动注入 MEMORY 索引</span>
+              </label>
+
+              <div class="subsection-title">Memory 工具</div>
+              <div class="toggle-grid">
+                <div
+                  v-for="toolName in ['list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory']"
+                  :key="toolName"
+                  class="toggle-card"
+                  :class="{ active: configForm.memory.enabled_tools.includes(toolName), disabled: !configForm.memory.enabled }"
+                  @click="configForm.memory.enabled && toggleMemoryTool(toolName, !configForm.memory.enabled_tools.includes(toolName))"
+                >
+                  <div class="toggle-card__indicator">
+                    <svg v-if="configForm.memory.enabled_tools.includes(toolName)"
+                      xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <div class="toggle-card__name">{{ toolName }}</div>
+                  <div class="toggle-card__desc">默认 memory 工具</div>
+                </div>
+              </div>
+
+              <div class="subsection-title">允许访问的 Scope</div>
+              <div class="toggle-grid">
+                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="scope" class="toggle-card" :class="{ active: configForm.memory.allowed_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('allowed_scopes', scope, !configForm.memory.allowed_scopes.includes(scope))">
+                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.allowed_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                  <div class="toggle-card__name">{{ scope }}</div>
+                </div>
+              </div>
+
+              <div class="subsection-title">允许写入的 Scope</div>
+              <div class="toggle-grid">
+                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="`write-${scope}`" class="toggle-card" :class="{ active: configForm.memory.write_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('write_scopes', scope, !configForm.memory.write_scopes.includes(scope))">
+                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.write_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                  <div class="toggle-card__name">{{ scope }}</div>
+                </div>
+              </div>
+
+              <div class="subsection-title">允许归档的 Scope</div>
+              <div class="toggle-grid">
+                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="`archive-${scope}`" class="toggle-card" :class="{ active: configForm.memory.archive_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('archive_scopes', scope, !configForm.memory.archive_scopes.includes(scope))">
+                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.archive_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                  <div class="toggle-card__name">{{ scope }}</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section id="section-mcp" class="form-section">
             <div class="section-head">
               <h2>MCP 服务</h2>
@@ -415,6 +491,31 @@
                     <span>{{ server.enabled ? '已启用' : '已禁用' }}</span>
                     <span v-if="server.error_message">{{ server.error_message }}</span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-delegation" class="form-section">
+            <div class="section-head">
+              <h2>委派</h2>
+              <span>控制当前 Agent 可委派的其他 Agent</span>
+            </div>
+            <div class="section-body">
+              <div class="toggle-grid">
+                <div
+                  v-for="agent in agents.filter(a => a !== selectedAgent)"
+                  :key="agent"
+                  class="toggle-card"
+                  :class="{ active: configForm.delegation.enabled_agents.includes(agent) }"
+                  @click="toggleDelegation(agent, !configForm.delegation.enabled_agents.includes(agent))"
+                >
+                  <div class="toggle-card__indicator">
+                    <svg v-if="configForm.delegation.enabled_agents.includes(agent)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <div class="toggle-card__name">{{ agent }}</div>
                 </div>
               </div>
             </div>
@@ -543,9 +644,12 @@ const sections = [
   { id: 'section-basic', label: '基础' },
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-tiers', label: '分层' },
+  { id: 'section-prompt', label: 'Prompt' },
   { id: 'section-tools', label: '工具' },
   { id: 'section-skills', label: 'Skills' },
-  { id: 'section-mcp', label: 'MCP' }
+  { id: 'section-memory', label: 'Memory' },
+  { id: 'section-mcp', label: 'MCP' },
+  { id: 'section-delegation', label: '委派' }
 ];
 const activeSection = ref('section-basic');
 let observer = null;
@@ -689,7 +793,16 @@ function createEmptyForm() {
     tools: { enabled_tools: [] },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
-    custom_params: {}
+    memory: {
+      enabled: false,
+      auto_inject: true,
+      enabled_tools: [],
+      allowed_scopes: ['project', 'session'],
+      write_scopes: ['session'],
+      archive_scopes: ['session']
+    },
+    delegation: { enabled_agents: [] },
+    custom_params: { behavior: { system_prompt: '' } }
   };
 }
 
@@ -740,7 +853,24 @@ function applyConfigToForm(config) {
     mcp: {
       enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
     },
-    custom_params: safeConfig.custom_params || {}
+    memory: {
+      enabled: safeConfig.memory?.enabled ?? false,
+      auto_inject: safeConfig.memory?.auto_inject ?? true,
+      enabled_tools: Array.isArray(safeConfig.memory?.enabled_tools) ? [...safeConfig.memory.enabled_tools] : [],
+      allowed_scopes: Array.isArray(safeConfig.memory?.allowed_scopes) ? [...safeConfig.memory.allowed_scopes] : ['project', 'session'],
+      write_scopes: Array.isArray(safeConfig.memory?.write_scopes) ? [...safeConfig.memory.write_scopes] : ['session'],
+      archive_scopes: Array.isArray(safeConfig.memory?.archive_scopes) ? [...safeConfig.memory.archive_scopes] : ['session']
+    },
+    delegation: {
+      enabled_agents: Array.isArray(safeConfig.delegation?.enabled_agents) ? [...safeConfig.delegation.enabled_agents] : []
+    },
+    custom_params: {
+      ...(safeConfig.custom_params || {}),
+      behavior: {
+        ...(safeConfig.custom_params?.behavior || {}),
+        system_prompt: safeConfig.custom_params?.behavior?.system_prompt || ''
+      }
+    }
   };
 
   const matched = providers.value.find(item =>
@@ -803,6 +933,21 @@ function buildPayload() {
   merged.mcp = {
     ...(merged.mcp || {}),
     enabled_servers: configForm.value.mcp.enabled_servers
+  };
+
+  merged.memory = {
+    ...(merged.memory || {}),
+    enabled: !!configForm.value.memory.enabled,
+    auto_inject: !!configForm.value.memory.auto_inject,
+    enabled_tools: configForm.value.memory.enabled_tools,
+    allowed_scopes: configForm.value.memory.allowed_scopes,
+    write_scopes: configForm.value.memory.write_scopes,
+    archive_scopes: configForm.value.memory.archive_scopes
+  };
+
+  merged.delegation = {
+    ...(merged.delegation || {}),
+    enabled_agents: configForm.value.delegation.enabled_agents
   };
 
   merged.custom_params = configForm.value.custom_params || merged.custom_params || {};
@@ -951,6 +1096,33 @@ function toggleMcpServer(name, checked) {
     list.push(name);
   } else if (!checked) {
     configForm.value.mcp.enabled_servers = list.filter(item => item !== name);
+  }
+}
+
+function toggleMemoryTool(name, checked) {
+  const list = configForm.value.memory.enabled_tools;
+  if (checked && !list.includes(name)) {
+    list.push(name);
+  } else if (!checked) {
+    configForm.value.memory.enabled_tools = list.filter(item => item !== name);
+  }
+}
+
+function toggleMemoryScope(field, scope, checked) {
+  const list = configForm.value.memory[field];
+  if (checked && !list.includes(scope)) {
+    list.push(scope);
+  } else if (!checked) {
+    configForm.value.memory[field] = list.filter(item => item !== scope);
+  }
+}
+
+function toggleDelegation(name, checked) {
+  const list = configForm.value.delegation.enabled_agents;
+  if (checked && !list.includes(name)) {
+    list.push(name);
+  } else if (!checked) {
+    configForm.value.delegation.enabled_agents = list.filter(item => item !== name);
   }
 }
 

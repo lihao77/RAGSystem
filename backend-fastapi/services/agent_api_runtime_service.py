@@ -19,6 +19,7 @@ from agents.events import get_session_manager
 from agents.task_registry import get_task_registry
 from services.conversation_store import ConversationStore
 from services.memory_store import MemoryStore
+from agents.config import get_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ class AgentApiRuntimeService:
         parent_call_id: Optional[str] = None,
         call_id: Optional[str] = None,
         memory_query: Optional[str] = None,
+        agent_name: Optional[str] = None,
     ) -> AgentContext:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
@@ -205,39 +207,50 @@ class AgentApiRuntimeService:
             context.metadata['parent_call_id'] = parent_call_id
         if call_id:
             context.metadata['call_id'] = call_id
+        if agent_name:
+            context.metadata['agent_name'] = agent_name
+        memory_config = None
+        if agent_name:
+            agent_config = get_config_manager().get_config(agent_name)
+            memory_config = getattr(agent_config, 'memory', None) if agent_config else None
         self.load_history_into_context(
             context,
             session_id=session_id,
             limit=limit,
             thread_key=resolved_thread_key,
         )
-        project_memory = self._memory_store.load_index_head(scope='project')
-        session_memory = self._memory_store.load_index_head(scope='session', session_id=session_id)
-        if project_memory or session_memory:
-            context.metadata['memory_indices'] = {
-                'project': project_memory,
-                'session': session_memory,
-            }
-        if memory_query is not None:
-            retrieved = self._memory_store.search_memories(
-                scope_chain=[
-                    {'scope': 'project'},
-                    {'scope': 'session', 'session_id': session_id},
-                ],
-                query=memory_query,
-                limit=5,
-            )
-            context.metadata['retrieved_memories'] = [
-                {
-                    'name': item.name,
-                    'description': item.description,
-                    'scope': item.scope,
-                    'memory_type': item.memory_type,
-                    'file_name': item.file_name,
-                    'file_path': item.file_path,
+        if memory_config and getattr(memory_config, 'enabled', False) and getattr(memory_config, 'auto_inject', True):
+            project_memory = self._memory_store.load_index_head(scope='project')
+            session_memory = self._memory_store.load_index_head(scope='session', session_id=session_id)
+            if project_memory or session_memory:
+                context.metadata['memory_indices'] = {
+                    'project': project_memory,
+                    'session': session_memory,
                 }
-                for item in retrieved
-            ]
+            if memory_query is not None:
+                allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
+                scope_chain = []
+                if 'project' in allowed_scopes:
+                    scope_chain.append({'scope': 'project'})
+                if 'session' in allowed_scopes:
+                    scope_chain.append({'scope': 'session', 'session_id': session_id})
+                if scope_chain:
+                    retrieved = self._memory_store.search_memories(
+                        scope_chain=scope_chain,
+                        query=memory_query,
+                        limit=5,
+                    )
+                    context.metadata['retrieved_memories'] = [
+                        {
+                            'name': item.name,
+                            'description': item.description,
+                            'scope': item.scope,
+                            'memory_type': item.memory_type,
+                            'file_name': item.file_name,
+                            'file_path': item.file_path,
+                        }
+                        for item in retrieved
+                    ]
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────

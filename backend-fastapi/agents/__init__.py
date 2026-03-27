@@ -30,7 +30,7 @@ _CONFIG_ATTRS = {
     'AgentConfig', 'AgentLLMConfig', 'AgentToolConfig', 'AgentConfigPreset',
     'apply_preset', 'AgentConfigManager', 'get_config_manager',
     'AgentLoader', 'load_agents_from_config', 'register_agent_type',
-    'AgentSkillConfig', 'PRESET_CONFIGS',
+    'AgentSkillConfig', 'AgentMCPConfig', 'AgentMemoryConfig', 'PRESET_CONFIGS',
 }
 _IMPL_ATTRS = {'OrchestratorAgent'}
 
