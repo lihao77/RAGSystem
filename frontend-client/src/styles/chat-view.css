@@ -313,6 +313,21 @@
   color: var(--color-text-primary);
 }
 
+.history-item.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  /* border-color: var(--color-border); */
+}
+
+.history-item.active .history-icon {
+  opacity: 1;
+  color: var(--color-text-primary);
+}
+
+.history-item.active .history-time {
+  color: var(--color-text-secondary);
+}
+
 .history-item:hover .history-icon {
   opacity: 1;
   color: var(--color-text-primary);
