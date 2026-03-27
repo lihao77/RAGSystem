@@ -4,6 +4,7 @@
 
 from typing import Dict, Optional
 
+from agents.config.loader import _MEMORY_DEFAULT_TOOLS
 from tools.contracts.permissions import RiskLevel, ToolPermission
 from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
 from tools.tool_registry import get_tool_registry
@@ -146,6 +147,17 @@ def sync_mcp_tool_permissions(
 _TOOL_REGISTRY = get_tool_registry()
 
 
+def _get_effective_direct_tool_names(agent_config) -> set[str]:
+    if not agent_config or not hasattr(agent_config, 'tools'):
+        return set()
+
+    enabled_tools = set(agent_config.tools.enabled_tools if agent_config.tools else [])
+    memory_config = getattr(agent_config, 'memory', None)
+    if memory_config and getattr(memory_config, 'enabled', False):
+        enabled_tools.update(set(getattr(memory_config, 'enabled_tools', []) or []) or _MEMORY_DEFAULT_TOOLS)
+    return enabled_tools
+
+
 def is_tool_enabled(tool_name: str, agent_config) -> bool:
     """
     检查工具是否在智能体配置中启用
@@ -178,11 +190,7 @@ def is_tool_enabled(tool_name: str, agent_config) -> bool:
             return bool(enabled_skills)
         return False
 
-    if not hasattr(agent_config, 'tools'):
-        return False
-
-    enabled_tools = agent_config.tools.enabled_tools if agent_config.tools else []
-    return tool_name in enabled_tools
+    return tool_name in _get_effective_direct_tool_names(agent_config)
 
 
 def is_mcp_server_enabled_for_agent(tool_name: str, agent_config) -> bool:

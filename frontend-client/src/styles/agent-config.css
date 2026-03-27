@@ -221,6 +221,16 @@ input[type='number'].form-control {
   padding-right: 8px;
 }
 
+.form-control--textarea {
+  min-height: 180px;
+  max-height: 420px;
+  height: auto;
+  padding: 12px 14px;
+  line-height: 1.6;
+  resize: none;
+  overflow-y: hidden;
+}
+
 /* ===== Inline checkbox (auto_inject) ===== */
 .checkbox-item--inline {
   display: flex;
@@ -319,6 +329,83 @@ input[type='number'].form-control {
   color: var(--color-text-muted);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.memory-scope-card {
+  cursor: default;
+}
+
+.memory-scope-card__permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.memory-scope-card__permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.memory-scope-card__permission:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-interactive);
+}
+
+.memory-scope-card__permission input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1.5px solid var(--color-border);
+  border-radius: 50%;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  position: relative;
+}
+
+.memory-scope-card__permission input[type='checkbox']::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-brand-accent-light);
+  transform: scale(0);
+  transition: transform var(--transition-fast);
+}
+
+.memory-scope-card__permission input[type='checkbox']:checked {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.7);
+  background: rgba(var(--color-brand-accent-rgb), 0.16);
+}
+
+.memory-scope-card__permission input[type='checkbox']:checked::after {
+  transform: scale(1);
+}
+
+.memory-scope-card__permission:has(input[type='checkbox']:checked) {
+  color: var(--color-text-primary);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+}
+
+.memory-scope-card__permission input[type='checkbox']:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* ===== Form actions (hidden - replaced by config-bottom) ===== */

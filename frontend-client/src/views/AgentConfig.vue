@@ -330,7 +330,14 @@
             <div class="section-body">
               <label class="form-item">
                 <span class="field-label-text">System Prompt</span>
-                <textarea v-model="configForm.custom_params.behavior.system_prompt" class="form-control form-control--textarea" rows="8" placeholder="请输入该 Agent 的 system prompt"></textarea>
+                <textarea
+                  ref="systemPromptTextareaRef"
+                  v-model="configForm.custom_params.behavior.system_prompt"
+                  class="form-control form-control--textarea"
+                  rows="8"
+                  placeholder="请输入该 Agent 的 system prompt"
+                  @input="autoResizeSystemPrompt"
+                ></textarea>
               </label>
             </div>
           </section>
@@ -414,46 +421,67 @@
               <div class="subsection-title">Memory 工具</div>
               <div class="toggle-grid">
                 <div
-                  v-for="toolName in ['list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory']"
-                  :key="toolName"
+                  v-for="tool in memoryToolMeta"
+                  :key="tool.name"
                   class="toggle-card"
-                  :class="{ active: configForm.memory.enabled_tools.includes(toolName), disabled: !configForm.memory.enabled }"
-                  @click="configForm.memory.enabled && toggleMemoryTool(toolName, !configForm.memory.enabled_tools.includes(toolName))"
+                  :class="{ active: configForm.memory.enabled_tools.includes(tool.name), disabled: !configForm.memory.enabled }"
+                  @click="configForm.memory.enabled && toggleMemoryTool(tool.name, !configForm.memory.enabled_tools.includes(tool.name))"
                 >
                   <div class="toggle-card__indicator">
-                    <svg v-if="configForm.memory.enabled_tools.includes(toolName)"
+                    <svg v-if="configForm.memory.enabled_tools.includes(tool.name)"
                       xmlns="http://www.w3.org/2000/svg" width="13" height="13"
                       viewBox="0 0 24 24" fill="none" stroke="currentColor"
                       stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
                   </div>
-                  <div class="toggle-card__name">{{ toolName }}</div>
-                  <div class="toggle-card__desc">默认 memory 工具</div>
+                  <div class="toggle-card__name">{{ tool.display_name || tool.name }}</div>
+                  <div class="toggle-card__desc">{{ tool.description || tool.name }}</div>
                 </div>
               </div>
 
-              <div class="subsection-title">允许访问的 Scope</div>
+              <div class="subsection-title">Scope 权限</div>
               <div class="toggle-grid">
-                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="scope" class="toggle-card" :class="{ active: configForm.memory.allowed_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('allowed_scopes', scope, !configForm.memory.allowed_scopes.includes(scope))">
-                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.allowed_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
-                  <div class="toggle-card__name">{{ scope }}</div>
-                </div>
-              </div>
-
-              <div class="subsection-title">允许写入的 Scope</div>
-              <div class="toggle-grid">
-                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="`write-${scope}`" class="toggle-card" :class="{ active: configForm.memory.write_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('write_scopes', scope, !configForm.memory.write_scopes.includes(scope))">
-                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.write_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
-                  <div class="toggle-card__name">{{ scope }}</div>
-                </div>
-              </div>
-
-              <div class="subsection-title">允许归档的 Scope</div>
-              <div class="toggle-grid">
-                <div v-for="scope in ['project', 'session', 'agent', 'workspace']" :key="`archive-${scope}`" class="toggle-card" :class="{ active: configForm.memory.archive_scopes.includes(scope), disabled: !configForm.memory.enabled }" @click="configForm.memory.enabled && toggleMemoryScope('archive_scopes', scope, !configForm.memory.archive_scopes.includes(scope))">
-                  <div class="toggle-card__indicator"><svg v-if="configForm.memory.archive_scopes.includes(scope)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
-                  <div class="toggle-card__name">{{ scope }}</div>
+                <div
+                  v-for="scope in memoryScopeMeta"
+                  :key="scope.name"
+                  class="toggle-card memory-scope-card"
+                  :class="{ disabled: !configForm.memory.enabled }"
+                >
+                  <div class="toggle-card__name">{{ scope.name }}</div>
+                  <div class="toggle-card__desc">{{ scope.description }}</div>
+                  <div class="memory-scope-card__permissions">
+                    <label class="memory-scope-card__permission">
+                      <input
+                        :checked="configForm.memory.allowed_scopes.includes(scope.name)"
+                        type="checkbox"
+                        :disabled="!configForm.memory.enabled"
+                        @click.stop
+                        @change="toggleMemoryScope('allowed_scopes', scope.name, $event.target.checked)"
+                      />
+                      <span>读取</span>
+                    </label>
+                    <label class="memory-scope-card__permission">
+                      <input
+                        :checked="configForm.memory.write_scopes.includes(scope.name)"
+                        type="checkbox"
+                        :disabled="!configForm.memory.enabled"
+                        @click.stop
+                        @change="toggleMemoryScope('write_scopes', scope.name, $event.target.checked)"
+                      />
+                      <span>写入</span>
+                    </label>
+                    <label class="memory-scope-card__permission">
+                      <input
+                        :checked="configForm.memory.archive_scopes.includes(scope.name)"
+                        type="checkbox"
+                        :disabled="!configForm.memory.enabled"
+                        @click.stop
+                        @change="toggleMemoryScope('archive_scopes', scope.name, $event.target.checked)"
+                      />
+                      <span>归档</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -621,7 +649,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
 import {
   getAllAgentConfigs,
   getAgentConfig,
@@ -630,7 +658,8 @@ import {
   deleteAgent,
   getAvailableTools,
   getAvailableSkills,
-  getAvailableMCPServers
+  getAvailableMCPServers,
+  getMemoryConfigMetadata
 } from '../api/agentConfig';
 import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
@@ -715,10 +744,21 @@ function scrollToSection(id) {
 }
 
 const configBodyRef = ref(null);
+const systemPromptTextareaRef = ref(null);
+const SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT = 420;
 
 function scrollToBottom() {
   const el = configBodyRef.value;
   if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+}
+
+function autoResizeSystemPrompt() {
+  const textarea = systemPromptTextareaRef.value;
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  const nextHeight = Math.min(textarea.scrollHeight, SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
 }
 
 const loading = ref(false);
@@ -737,6 +777,8 @@ const tools = ref([]);
 const skills = ref([]);
 const mcpServers = ref([]);
 const providers = ref([]);
+const memoryToolMeta = ref([]);
+const memoryScopeMeta = ref([]);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
@@ -767,6 +809,52 @@ function getProviderModels(provider) {
 const providerModelOptions = computed(() => {
   return getProviderModels(selectedProviderEntry.value);
 });
+
+const memoryToolFallbackMeta = [
+  {
+    name: 'list_memory_index',
+    display_name: 'List Memory Index',
+    description: '读取指定作用域的 MEMORY.md 索引头部，让 Agent 先了解可用记忆，再决定是否读取具体记忆文件。',
+    usage_contract: [
+      '先调用 list_memory_index 再决定是否读取具体记忆文件',
+      '该工具只返回 MEMORY.md 头部，不返回所有记忆正文'
+    ]
+  },
+  {
+    name: 'read_memory_entry',
+    display_name: 'Read Memory Entry',
+    description: '按作用域与文件名读取单条记忆正文，供 Agent 在看到 MEMORY.md 索引后按需展开细节。',
+    usage_contract: [
+      '通常先通过 list_memory_index 或 prompt 中给出的 memory 文件路径定位 file_name，再调用本工具',
+      '该工具只读取一条具体记忆，不做全文检索'
+    ]
+  },
+  {
+    name: 'write_memory',
+    display_name: 'Write Memory',
+    description: '为指定作用域新增或更新一条记忆。memory 会写入 Markdown 文件并同步更新该作用域的 MEMORY.md 索引。',
+    usage_contract: [
+      '写入前应确认该记忆属于长期可复用信息，而不是一次性临时任务状态',
+      '写入后系统会自动同步更新该作用域的 MEMORY.md 索引'
+    ]
+  },
+  {
+    name: 'archive_memory',
+    display_name: 'Archive Memory',
+    description: '归档指定作用域下的单条记忆，并同步更新 MEMORY.md 索引。',
+    usage_contract: [
+      '仅归档确认已过时或不再需要主动使用的记忆',
+      '归档前先确认目标 scope 与文件名无误，避免误归档'
+    ]
+  }
+];
+
+const memoryScopeFallbackMeta = [
+  { name: 'project', description: '项目级长期记忆，适合跨会话复用的偏好、约束与背景事实。' },
+  { name: 'session', description: '当前会话记忆，适合记录本轮协作中形成的稳定偏好和上下文。' },
+  { name: 'agent', description: '当前 Agent 私有记忆，仅适合该 Agent 独立维护的长期信息。' },
+  { name: 'workspace', description: '当前工作区记忆，适合绑定具体 workspace 的本地约定和上下文。' }
+];
 
 function createEmptyLLM() {
   return {
@@ -878,6 +966,7 @@ function applyConfigToForm(config) {
     (!configForm.value.llm.provider_type || item?.provider_type === configForm.value.llm.provider_type)
   );
   selectedProviderKey.value = matched ? (matched.key || matched.name) : '';
+  nextTick(() => autoResizeSystemPrompt());
 }
 
 function buildPayload() {
@@ -962,18 +1051,25 @@ async function loadInitialData() {
   error.value = '';
 
   try {
-    const [configs, toolList, skillList, mcpServerList, providerList] = await Promise.all([
+    const [configs, toolList, skillList, mcpServerList, providerList, memoryMetadata] = await Promise.all([
       getAllAgentConfigs(),
       getAvailableTools(),
       getAvailableSkills(),
       getAvailableMCPServers(),
-      getProviders()
+      getProviders(),
+      getMemoryConfigMetadata()
     ]);
 
     tools.value = Array.isArray(toolList) ? toolList : [];
     skills.value = Array.isArray(skillList) ? skillList : [];
     mcpServers.value = Array.isArray(mcpServerList) ? mcpServerList : [];
     providers.value = Array.isArray(providerList) ? providerList : [];
+    memoryToolMeta.value = Array.isArray(memoryMetadata?.tools) && memoryMetadata.tools.length
+      ? memoryMetadata.tools
+      : memoryToolFallbackMeta;
+    memoryScopeMeta.value = Array.isArray(memoryMetadata?.scopes) && memoryMetadata.scopes.length
+      ? memoryMetadata.scopes
+      : memoryScopeFallbackMeta;
 
     const agentNames = Object.keys(configs || {});
     agents.value = agentNames;
@@ -1273,8 +1369,14 @@ async function handleExport() {
   }
 }
 
+watch(
+  () => configForm.value.custom_params?.behavior?.system_prompt,
+  () => nextTick(() => autoResizeSystemPrompt())
+);
+
 onMounted(() => {
   loadInitialData();
+  nextTick(() => autoResizeSystemPrompt());
   observer = new IntersectionObserver(
     (entries) => {
       // 点击滚动期间忽略观察结果

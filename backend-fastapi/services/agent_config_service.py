@@ -163,6 +163,55 @@ class AgentConfigService:
             if item.get('name') not in hidden
         ]
 
+    def get_memory_config_metadata(self):
+        memory_tool_names = ['list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory']
+        tool_defs = []
+        for tool_name in memory_tool_names:
+            tool = self._tool_registry.get_tool_by_name(tool_name) or {}
+            function_def = tool.get('function', {})
+            tool_defs.append({
+                'name': tool_name,
+                'display_name': tool_name.replace('_', ' ').title(),
+                'description': function_def.get('description', ''),
+                'usage_contract': list(function_def.get('usage_contract', []) or []),
+            })
+
+        scope_defs = [
+            {
+                'name': 'project',
+                'description': '项目级长期记忆，适合跨会话复用的偏好、约束与背景事实。',
+                'read_label': '允许读取',
+                'write_label': '允许写入',
+                'archive_label': '允许归档',
+            },
+            {
+                'name': 'session',
+                'description': '当前会话记忆，适合记录本轮协作中形成的稳定偏好和上下文。',
+                'read_label': '允许读取',
+                'write_label': '允许写入',
+                'archive_label': '允许归档',
+            },
+            {
+                'name': 'agent',
+                'description': '当前 Agent 私有记忆，仅适合该 Agent 独立维护的长期信息。',
+                'read_label': '允许读取',
+                'write_label': '允许写入',
+                'archive_label': '允许归档',
+            },
+            {
+                'name': 'workspace',
+                'description': '当前工作区记忆，适合绑定具体 workspace 的本地约定和上下文。',
+                'read_label': '允许读取',
+                'write_label': '允许写入',
+                'archive_label': '允许归档',
+            },
+        ]
+
+        return {
+            'tools': tool_defs,
+            'scopes': scope_defs,
+        }
+
     def list_available_mcp_servers(self):
         from services.mcp_service import get_mcp_service
 

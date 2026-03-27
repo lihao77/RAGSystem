@@ -154,11 +154,31 @@ class ContextPipeline:
         metadata = getattr(context, 'metadata', {}) or {}
         indices = metadata.get('memory_indices') or {}
         retrieved = metadata.get('retrieved_memories') or []
+        scope_capabilities = metadata.get('memory_scope_capabilities') or {}
         sections: list[str] = []
-        if indices.get('project'):
-            sections.append("[Project Memory Index]\n" + str(indices['project']).strip())
-        if indices.get('session'):
-            sections.append("[Session Memory Index]\n" + str(indices['session']).strip())
+
+        if scope_capabilities.get('enabled'):
+            allowed_scopes = scope_capabilities.get('allowed_scopes') or []
+            write_scopes = scope_capabilities.get('write_scopes') or []
+            archive_scopes = scope_capabilities.get('archive_scopes') or []
+            sections.append(
+                "[Memory Scope Capabilities]\n"
+                f"- 可读取 scope: {', '.join(allowed_scopes) if allowed_scopes else '无'}\n"
+                f"- 可写入 scope: {', '.join(write_scopes) if write_scopes else '无'}\n"
+                f"- 可归档 scope: {', '.join(archive_scopes) if archive_scopes else '无'}\n"
+                "- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作"
+            )
+
+        scope_titles = {
+            'project': 'Project',
+            'session': 'Session',
+            'agent': 'Agent',
+            'workspace': 'Workspace',
+        }
+        for scope_name, content in indices.items():
+            if content:
+                title = scope_titles.get(scope_name, str(scope_name).replace('_', ' ').title())
+                sections.append(f"[{title} Memory Index]\n" + str(content).strip())
         if retrieved:
             lines = ["[Relevant Memory Files]", "如需更多细节，请直接调用 read_file 读取下面文件："]
             for item in retrieved[:5]:

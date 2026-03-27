@@ -174,6 +174,17 @@ async def list_available_tools():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get('/memory-metadata')
+async def get_memory_config_metadata():
+    """获取 Memory 配置页所需的工具与 scope 元数据。"""
+    try:
+        metadata = await asyncio.to_thread(_get_service().get_memory_config_metadata)
+        return ok(data=metadata, message='Memory 配置元数据')
+    except Exception as e:
+        logger.error('获取 Memory 配置元数据失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get('/mcp-servers')
 async def list_available_mcp_servers():
     """列出可分配给智能体的 MCP Server。"""

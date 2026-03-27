@@ -49,6 +49,28 @@ def test_agent_loader_injects_memory_tools_by_default():
     assert skills == []
 
 
+def test_agent_loader_injects_only_configured_memory_tool_subset():
+    loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
+    loader._tool_registry = _FakeRegistry()
+    agent_config = SimpleNamespace(
+        agent_name='demo_agent',
+        tools=SimpleNamespace(enabled_tools=['read_file']),
+        skills=None,
+        mcp=None,
+        delegation=None,
+        memory=SimpleNamespace(enabled=True, enabled_tools=['read_memory_entry'], allowed_scopes=['project', 'session']),
+    )
+
+    tools, skills = loader._resolve_tools_and_skills(agent_config)
+
+    tool_names = {tool['function']['name'] for tool in tools}
+    assert {'read_file', 'read_memory_entry', 'request_user_input'} <= tool_names
+    assert 'list_memory_index' not in tool_names
+    assert 'write_memory' not in tool_names
+    assert 'archive_memory' not in tool_names
+    assert skills == []
+
+
 def test_agent_loader_skips_memory_tools_when_memory_disabled():
     loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
     loader._tool_registry = _FakeRegistry()

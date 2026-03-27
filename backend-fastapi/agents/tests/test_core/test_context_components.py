@@ -183,12 +183,67 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
     assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
 
 
-def test_build_context_skips_memory_when_agent_memory_disabled():
+def test_build_context_injects_memory_scope_capabilities_into_prompt():
     service = _make_runtime_service([])
     import services.agent_api_runtime_service as runtime_module
-    runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=False, auto_inject=False, allowed_scopes=[])))
-    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
+    runtime_module.get_config_manager = lambda: SimpleNamespace(
+        get_config=lambda name: SimpleNamespace(
+            memory=SimpleNamespace(
+                enabled=True,
+                auto_inject=True,
+                allowed_scopes=['project', 'session', 'workspace'],
+                write_scopes=['session', 'workspace'],
+                archive_scopes=['project'],
+            )
+        )
+    )
+    context = service.build_context(session_id='s1', agent_name='demo_agent')
+    pipeline = _make_pipeline()
 
+    prepared = pipeline.inspect_messages('sys', context)
+    memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
+
+    assert context.metadata['memory_scope_capabilities'] == {
+        'enabled': True,
+        'allowed_scopes': ['project', 'session', 'workspace'],
+        'write_scopes': ['session', 'workspace'],
+        'archive_scopes': ['project'],
+    }
+    merged_block = '\n\n'.join(memory_blocks)
+    assert '[Memory Scope Capabilities]' in merged_block
+    assert '可读取 scope: project, session, workspace' in merged_block
+    assert '可写入 scope: session, workspace' in merged_block
+    assert '可归档 scope: project' in merged_block
+
+
+def test_build_context_exposes_disabled_memory_scope_capabilities():
+    service = _make_runtime_service([])
+    import services.agent_api_runtime_service as runtime_module
+    runtime_module.get_config_manager = lambda: SimpleNamespace(
+        get_config=lambda name: SimpleNamespace(
+            memory=SimpleNamespace(
+                enabled=False,
+                auto_inject=False,
+                allowed_scopes=[],
+                write_scopes=[],
+                archive_scopes=[],
+            )
+        )
+    )
+    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
+    pipeline = _make_pipeline()
+
+    prepared = pipeline.inspect_messages('sys', context)
+    memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
+    merged_block = '\n\n'.join(memory_blocks)
+
+    assert context.metadata['memory_scope_capabilities'] == {
+        'enabled': False,
+        'allowed_scopes': ['project', 'session'],
+        'write_scopes': [],
+        'archive_scopes': [],
+    }
+    assert '[Memory Scope Capabilities]' not in merged_block
     assert 'memory_indices' not in context.metadata
     assert 'retrieved_memories' not in context.metadata
 

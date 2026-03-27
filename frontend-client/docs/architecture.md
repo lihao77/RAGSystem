@@ -196,7 +196,22 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 手动触发：MapRenderer 标题栏"进入态势大屏"按钮 → `emit('enter-situation')`
 
-## 会话管理
+## Agent 配置页
+
+`AgentConfig.vue` 负责展示和编辑 Agent 的基础配置、工具、Skills、MCP、委派与 Memory 能力。
+
+其中 Memory 区块采用独立元数据接口而不是前端硬编码：
+- 前端通过 `GET /api/agent-config/memory-metadata` 获取 memory 工具描述与 scope 说明
+- Memory 工具卡片展示 `name + description`
+- scope 权限按单个 scope 聚合展示，在同一张卡片中勾选“读取 / 写入 / 归档”三类权限，避免把同一组 scope 重复渲染三遍
+- 保存时仍写回后端配置字段：
+  - `memory.enabled`
+  - `memory.auto_inject`
+  - `memory.enabled_tools`
+  - `memory.allowed_scopes`
+  - `memory.write_scopes`
+  - `memory.archive_scopes`
+
 
 `ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`

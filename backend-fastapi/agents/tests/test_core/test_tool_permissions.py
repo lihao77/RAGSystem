@@ -72,6 +72,54 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
     assert permission.requires_approval is True
 
 
+def test_memory_tools_are_enabled_via_effective_direct_tools():
+    agent_config = SimpleNamespace(
+        tools=SimpleNamespace(enabled_tools=[]),
+        memory=SimpleNamespace(enabled=True, enabled_tools=[]),
+        skills=None,
+        delegation=None,
+        mcp=None,
+    )
+
+    allowed, error = check_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
+
+    assert allowed is True
+    assert error is None
+
+
+def test_memory_tools_respect_configured_subset():
+    agent_config = SimpleNamespace(
+        tools=SimpleNamespace(enabled_tools=[]),
+        memory=SimpleNamespace(enabled=True, enabled_tools=["read_memory_entry"]),
+        skills=None,
+        delegation=None,
+        mcp=None,
+    )
+
+    allowed, error = check_tool_permission("read_memory_entry", agent_config=agent_config, caller="direct")
+    assert allowed is True
+    assert error is None
+
+    denied, denied_error = check_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
+    assert denied is False
+    assert denied_error == "Tool list_memory_index is not enabled for this agent"
+
+
+def test_memory_tools_are_rejected_when_memory_disabled():
+    agent_config = SimpleNamespace(
+        tools=SimpleNamespace(enabled_tools=[]),
+        memory=SimpleNamespace(enabled=False, enabled_tools=[]),
+        skills=None,
+        delegation=None,
+        mcp=None,
+    )
+
+    allowed, error = check_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
+
+    assert allowed is False
+    assert error == "Tool list_memory_index is not enabled for this agent"
+
+
 def test_mcp_permission_rejects_disabled_server(monkeypatch):
     monkeypatch.delitem(TOOL_PERMISSIONS, "mcp__demo__search", raising=False)
 

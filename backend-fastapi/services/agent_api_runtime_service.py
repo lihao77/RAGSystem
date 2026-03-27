@@ -231,6 +231,13 @@ class AgentApiRuntimeService:
         if agent_name:
             agent_config = get_config_manager().get_config(agent_name)
             memory_config = getattr(agent_config, 'memory', None) if agent_config else None
+        if memory_config:
+            context.metadata['memory_scope_capabilities'] = {
+                'enabled': bool(getattr(memory_config, 'enabled', False)),
+                'allowed_scopes': list(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session']),
+                'write_scopes': list(getattr(memory_config, 'write_scopes', []) or []),
+                'archive_scopes': list(getattr(memory_config, 'archive_scopes', []) or []),
+            }
         self.load_history_into_context(
             context,
             session_id=session_id,
