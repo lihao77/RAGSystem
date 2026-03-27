@@ -323,6 +323,16 @@
         </transition>
         <div class="input-area-wrapper">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
+            <label class="workspace-root-input-label" for="entry-agent-select">入口 Agent</label>
+            <CustomSelect
+              id="entry-agent-select"
+              v-model="pendingEntryAgent"
+              :options="entryAgentOptions"
+              :disabled="entryAgentLoading"
+              placeholder="可选：使用配置默认入口 Agent"
+            />
+          </div>
+          <div v-if="!currentSessionId" class="workspace-root-input-row">
             <label class="workspace-root-input-label" for="workspace-root-input">工作区根目录</label>
             <input
               id="workspace-root-input"
@@ -449,6 +459,8 @@ import VisualizationLoader from '../components/VisualizationLoader.vue';
 import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import LLMSelector from '../components/LLMSelector.vue';
+import CustomSelect from '../components/CustomSelect.vue';
+import { getAllAgentConfigs } from '../api/agentConfig';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
@@ -547,7 +559,9 @@ const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const currentSessionId = ref(null);
 const pendingWorkspaceRoot = ref('');
-const messagesLoading = ref(false);
+const pendingEntryAgent = ref('');
+const entryAgentOptions = ref([]);
+const entryAgentLoading = ref(false);
 const chatInputRef = ref(null);
 const confirmDialogRef = ref(null);
 const approvalDialogRef = ref(null);
@@ -599,6 +613,7 @@ const handlePopState = () => {
     currentSessionId.value = sessionId;
     const matched = history.value.find(item => item.session_id === sessionId);
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
+    pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     loadSessionMessages(sessionId);
   }
   if (!sessionId) {
@@ -606,6 +621,7 @@ const handlePopState = () => {
     clearExecutionState();
     currentSessionId.value = null;
     pendingWorkspaceRoot.value = '';
+    pendingEntryAgent.value = '';
     messages.value = [];
   }
 };
@@ -649,6 +665,26 @@ const openMobileSidebar = () => {
   mobileOpen.value = true;
   // 禁止背景滚动
   document.body.style.overflow = 'hidden';
+};
+
+const loadEntryAgentOptions = async () => {
+  entryAgentLoading.value = true;
+  try {
+    const configs = await getAllAgentConfigs();
+    const items = Object.values(configs || {})
+      .filter(config => config && config.enabled)
+      .map(config => ({
+        value: config.agent_name,
+        label: config.display_name || config.agent_name,
+        defaultEntry: Boolean(config.default_entry),
+      }));
+    entryAgentOptions.value = items;
+  } catch (error) {
+    console.warn('加载入口 Agent 列表失败:', error);
+    entryAgentOptions.value = [];
+  } finally {
+    entryAgentLoading.value = false;
+  }
 };
 
 // 关闭移动端侧边栏
@@ -717,6 +753,7 @@ const startNewChat = () => {
   messages.value = [];
   inputMessage.value = '';
   pendingWorkspaceRoot.value = '';
+  pendingEntryAgent.value = '';
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
@@ -1069,6 +1106,13 @@ const loadRecentSessions = async (reset = false) => {
     const items = payload.items || [];
     if (reset) {
       history.value = items;
+      if (currentSessionId.value) {
+        const matched = items.find(item => item.session_id === currentSessionId.value);
+        if (matched) {
+          pendingWorkspaceRoot.value = matched.metadata?.workspace_root || pendingWorkspaceRoot.value;
+          pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
+        }
+      }
     } else {
       history.value = history.value.concat(items);
     }
@@ -1437,6 +1481,7 @@ const selectSession = async (item) => {
   if (currentSessionId.value === item.session_id && messages.value.length > 0) return;
   currentSessionId.value = item.session_id;
   pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
+  pendingEntryAgent.value = item.metadata?.entry_agent || '';
   window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
   item.unread_count = 0;
   closeMobileSidebar();
@@ -1446,6 +1491,12 @@ const selectSession = async (item) => {
 const updateRecentSession = (sessionId, content, timestamp) => {
   if (!sessionId) return;
   const time = timestamp || new Date().toISOString();
+  const currentMetadata = currentSessionId.value === sessionId
+    ? {
+        ...(pendingWorkspaceRoot.value.trim() ? { workspace_root: pendingWorkspaceRoot.value.trim() } : {}),
+        ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
+      }
+    : {};
   const idx = history.value.findIndex(h => h.session_id === sessionId);
   if (idx >= 0) {
     const item = history.value[idx];
@@ -1454,6 +1505,7 @@ const updateRecentSession = (sessionId, content, timestamp) => {
     if (!item.title) {
       item.title = (item.title || content || '').toString().slice(0, 30);
     }
+    item.metadata = { ...(item.metadata || {}), ...currentMetadata };
     history.value.splice(idx, 1);
     history.value.unshift(item);
   } else {
@@ -1463,9 +1515,7 @@ const updateRecentSession = (sessionId, content, timestamp) => {
       last_message: content,
       last_message_at: time,
       unread_count: 0,
-      metadata: currentSessionId.value === sessionId && pendingWorkspaceRoot.value.trim()
-        ? { workspace_root: pendingWorkspaceRoot.value.trim() }
-        : {}
+      metadata: currentMetadata
     });
   }
 };
@@ -1835,12 +1885,17 @@ const ensureSession = async () => {
   if (currentSessionId.value) return currentSessionId.value;
   const userId = (localStorage.getItem('userId') || '').trim();
   const workspaceRoot = pendingWorkspaceRoot.value.trim();
+  const entryAgent = pendingEntryAgent.value.trim();
+  const metadata = {
+    ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
+    ...(entryAgent ? { entry_agent: entryAgent } : {}),
+  };
   const body = {};
   if (userId) {
     body.user_id = userId;
   }
-  if (workspaceRoot) {
-    body.metadata = { workspace_root: workspaceRoot };
+  if (Object.keys(metadata).length > 0) {
+    body.metadata = metadata;
   }
   const response = await fetch('/api/agent/sessions', {
     method: 'POST',
@@ -1852,6 +1907,7 @@ const ensureSession = async () => {
   currentSessionId.value = result.data?.session_id || null;
   if (currentSessionId.value) {
     pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
+    pendingEntryAgent.value = result.data?.metadata?.entry_agent || entryAgent || '';
     window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
   }
   return currentSessionId.value;
@@ -2380,6 +2436,7 @@ onMounted(() => {
 
   // 初始化移动端检测
   checkMobile();
+  loadEntryAgentOptions();
 
   // 监听窗口大小变化
   window.addEventListener('resize', checkMobile);
@@ -2391,6 +2448,9 @@ onMounted(() => {
   })();
   if (initialSessionId) {
     currentSessionId.value = initialSessionId;
+    const matched = history.value.find(item => item.session_id === initialSessionId);
+    pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
+    pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     loadSessionMessages(initialSessionId);
   }
 });

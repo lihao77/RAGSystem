@@ -197,6 +197,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录仍是 `./data/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
+- 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；后端会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口
 - `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；若配置了 `session.metadata.entry_agent`，也会一并写入 `context.metadata.entry_agent` 作为观测字段
 - `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖；两者都只作用于本次 execution 实例，不污染全局 YAML / 其他会话
 - `tools.local.document_tools._prepare_document_tool_args()` 会直接从 `agent_config.custom_params` 读取 `workspace_root/default_output_space`，并按“显式 run_id 优先，observability fallback”解析 `effective_run_id`

@@ -58,6 +58,8 @@ frontend-client/src/
 ```text
 handleSend()
   → ensureSession()                    # 获取/创建会话
+      ├─ 读取新会话初始化参数：workspace_root / entry_agent
+      └─ POST /api/agent/sessions      # 持久化 session metadata
   → POST /api/agent/stream             # 发起流式请求
   → processSSEStream()                 # 逐 chunk 解析 SSE 事件
       ├─ reader.read() 循环
@@ -191,6 +193,12 @@ SituationScreen (Teleport to body, z-index: 10000)
 手动触发：MapRenderer 标题栏"进入态势大屏"按钮 → `emit('enter-situation')`
 
 ## 会话管理
+
+`ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
+- `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
+- `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`
+
+两者都只在 `!currentSessionId` 时展示和编辑；会话创建成功后，前端会从返回的 `session.metadata` 回填本地状态，并在历史会话切换 / 浏览器前进后退时继续恢复。
 
 | 操作 | 流程 |
 |------|------|
