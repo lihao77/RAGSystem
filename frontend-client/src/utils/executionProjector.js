@@ -1,6 +1,4 @@
-const ORCHESTRATOR_AGENT_NAME = 'orchestrator_agent';
-
-const isOrchestrator = (agentName) => !agentName || agentName === ORCHESTRATOR_AGENT_NAME;
+const isRootExecutionStep = (step) => !step?.parent_call_id;
 
 const createToolCall = (step) => ({
   step_id: step.step_id || null,
@@ -181,11 +179,11 @@ function handleToolStart(state, step) {
     return state;
   }
 
-  if (isOrchestrator(step.agent_name)) {
-    addToolCallOnce(
-      ensureOrchestratorStep(state, step.round, step.parent_step_id, null).toolCalls,
-      toolCall,
-    );
+  const existingRootStep = step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null;
+  if (existingRootStep || state.execution_steps.length > 0) {
+    const rootStep = existingRootStep || ensureOrchestratorStep(state, step.round, step.parent_step_id || step.step_id || null, null);
+    addToolCallOnce(rootStep.toolCalls, toolCall);
+    if (rootStep.step_id) state.stepMap.set(rootStep.step_id, rootStep);
     return state;
   }
 
@@ -260,8 +258,10 @@ export function applyStep(state, step) {
   }
 
   if (step.kind === 'intent') {
-    if (isOrchestrator(step.agent_name)) {
+    if (isRootExecutionStep(step)) {
       const executionStep = ensureOrchestratorStep(state, step.round, step.step_id, step.parent_step_id);
+      if (step.agent_name) executionStep.agent_name = step.agent_name;
+      if (step.agent_display_name) executionStep.agent_display_name = step.agent_display_name;
       if (step.content) {
         if (step.phase === 'delta' && !executionStep._intentComplete) {
           executionStep.intent += step.content;

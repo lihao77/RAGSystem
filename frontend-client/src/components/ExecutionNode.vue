@@ -290,7 +290,7 @@ const isRunning = computed(() => {
 });
 
 const isOrchestratorThought = computed(() => {
-  return props.node?.type === 'thought' && (!props.node?.agent || props.node?.agent === 'orchestrator_agent');
+  return props.node?.type === 'thought' && props.level === 0;
 });
 
 const showRoundBadge = computed(() => {

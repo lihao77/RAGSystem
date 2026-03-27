@@ -562,6 +562,7 @@ const pendingWorkspaceRoot = ref('');
 const pendingEntryAgent = ref('');
 const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
+const messagesLoading = ref(false);
 const chatInputRef = ref(null);
 const confirmDialogRef = ref(null);
 const approvalDialogRef = ref(null);
@@ -895,9 +896,7 @@ const onScrollToBottomClick = () => {
 };
 
 // execution.step 是执行树唯一事实源
-const ORCHESTRATOR_AGENT_NAMES = new Set(['orchestrator_agent']);
-
-const isOrchestratorAgentName = (agentName) => !agentName || ORCHESTRATOR_AGENT_NAMES.has(agentName);
+const isRootEvent = (event) => !(event?.parent_call_id || event?.data?.parent_call_id);
 
 const ensureExecutionProjector = (msg) => {
   if (!msg._executionProjector) {
@@ -933,10 +932,7 @@ const createAssistantMessageFromHistory = (item) => {
   });
 };
 
-const isMasterEvent = (event) => {
-  const agentName = event.agent_name || event.data?.agent_name;
-  return isOrchestratorAgentName(agentName);
-};
+const isMasterEvent = (event) => isRootEvent(event);
 
 const findSubtaskByCallId = (subtasks, callId) => {
   if (!callId || !Array.isArray(subtasks)) return null;
@@ -2177,7 +2173,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
               if (eventData.compressing) isCompressing.value = true;
               const agentName = event.agent_name;
               const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
-              if (isOrchestratorAgentName(agentName)) {
+              if (isRootEvent(event)) {
                 contextUsage.value = ctx;
               } else {
                 // 写入对应 subtask

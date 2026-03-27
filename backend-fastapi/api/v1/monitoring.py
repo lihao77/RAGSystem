@@ -73,7 +73,13 @@ async def reset_metrics(agent_name: Optional[str] = None):
 async def get_context_snapshot(session_id: Optional[str] = Query(None)):
     """获取当前默认入口智能体的上下文快照，用于调试和可视化。"""
     try:
-        orchestrator = _get_orchestrator()
+        from dependencies import get_agent_runtime_service
+        runtime_service = get_agent_runtime_service()
+        orchestrator = (
+            runtime_service.create_execution_orchestrator(session_id=session_id)
+            if session_id
+            else runtime_service.get_orchestrator()
+        )
         entry_agent = orchestrator.resolve_default_entry_agent() if hasattr(orchestrator, 'resolve_default_entry_agent') else None
         if not entry_agent:
             raise HTTPException(status_code=503, detail='默认入口智能体未加载')
@@ -132,7 +138,6 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
             history_tokens = 0
             if session_id:
                 from dependencies import get_agent_runtime_service
-                runtime_service = get_agent_runtime_service()
                 context = runtime_service.build_context(session_id=session_id)
                 messages = entry_agent.context_pipeline.inspect_messages(system_prompt, context)
                 # 跳过第一条 system prompt（已单独统计）

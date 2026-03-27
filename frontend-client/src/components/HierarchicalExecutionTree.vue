@@ -22,8 +22,6 @@
 import { computed, defineProps } from 'vue';
 import ExecutionNode from './ExecutionNode.vue';
 
-const ORCHESTRATOR_AGENT_NAME = 'orchestrator_agent';
-
 const props = defineProps({
   executionSteps: {
     type: Array,
@@ -186,8 +184,8 @@ const executionTree = computed(() => {
     // 创建编排器 intent 节点
     const node = {
       type: 'thought',
-      agent: ORCHESTRATOR_AGENT_NAME,
-      agent_display_name: '编排器',
+      agent: executionStep?.agent_name || '',
+      agent_display_name: executionStep?.agent_display_name || executionStep?.agent_name || '主入口 Agent',
       round: round,
       intent: executionStep ? (executionStep.intent || executionStep.thinking || executionStep.thought || '') : '',
       children: []
