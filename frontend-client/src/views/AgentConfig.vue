@@ -177,14 +177,20 @@
                 <input v-model="configForm.description" type="text" class="form-control" />
               </label>
 
-              <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.enabled" type="checkbox" />
+              <label class="form-item switch-item">
                 <span class="field-label-text">启用该 Agent</span>
+                <span class="switch-control">
+                  <input v-model="configForm.enabled" type="checkbox" />
+                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
+                </span>
               </label>
 
-              <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.default_entry" type="checkbox" />
+              <label class="form-item switch-item">
                 <span class="field-label-text">设为默认入口 Agent</span>
+                <span class="switch-control">
+                  <input v-model="configForm.default_entry" type="checkbox" />
+                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
+                </span>
               </label>
             </div>
           </section>
@@ -257,79 +263,86 @@
             <div class="section-body">
               <div v-for="tier in ['fast', 'powerful']" :key="tier" class="tier-block">
                 <div class="tier-block__head">
-                  <div class="toggle-card"
+                  <button
+                    type="button"
+                    class="tier-toggle"
                     :class="{ active: !!configForm.llm_tiers[tier] }"
-                    style="flex:1"
                     @click="configForm.llm_tiers[tier] = configForm.llm_tiers[tier] ? null : createEmptyLLM()"
                   >
-                    <div class="toggle-card__indicator">
-                      <svg v-if="configForm.llm_tiers[tier]"
-                        xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </div>
-                    <div class="toggle-card__name">{{ tier }}</div>
-                    <div class="toggle-card__desc">{{ tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</div>
+                    <span class="tier-toggle__copy">
+                      <span class="tier-toggle__name">{{ tier }}</span>
+                      <span class="tier-toggle__desc">{{ tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</span>
+                    </span>
+                    <span class="tier-toggle__indicator" :class="{ active: !!configForm.llm_tiers[tier] }">
+                      <span class="tier-toggle__indicator-icon">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                <Transition name="tier-expand">
+                  <div v-if="configForm.llm_tiers[tier]" class="form-grid tier-block__body">
+                    <label class="form-item">
+                      <span class="field-label-text">Provider</span>
+                      <CustomSelect
+                        :model-value="getTierProviderKey(tier)"
+                        :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                        placeholder="未设置"
+                        @update:model-value="handleTierProviderChange(tier, $event)"
+                      />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Provider Type</span>
+                      <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Model Name</span>
+                      <CustomSelect
+                        :model-value="configForm.llm_tiers[tier].model_name"
+                        :options="[{ value: '', label: '选择模型' }, ...getTierModelOptions(tier).map(m => ({ value: m, label: m }))]"
+                        placeholder="选择模型"
+                        @update:model-value="configForm.llm_tiers[tier].model_name = $event"
+                      />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Temperature</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm_tiers[tier].temperature = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Max Completion Tokens</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_completion_tokens = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Max Context Tokens</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Retry Attempts</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].retry_attempts = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">退避指数</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm_tiers[tier].retry_backoff_factor = $event" />
+                    </label>
                   </div>
-                </div>
-                <div v-if="configForm.llm_tiers[tier]" class="form-grid tier-block__body">
-                  <label class="form-item">
-                    <span class="field-label-text">Provider</span>
-                    <CustomSelect
-                      :model-value="getTierProviderKey(tier)"
-                      :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
-                      placeholder="未设置"
-                      @update:model-value="handleTierProviderChange(tier, $event)"
-                    />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Provider Type</span>
-                    <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Model Name</span>
-                    <CustomSelect
-                      :model-value="configForm.llm_tiers[tier].model_name"
-                      :options="[{ value: '', label: '选择模型' }, ...getTierModelOptions(tier).map(m => ({ value: m, label: m }))]"
-                      placeholder="选择模型"
-                      @update:model-value="configForm.llm_tiers[tier].model_name = $event"
-                    />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Temperature</span>
-                    <NumberInput :model-value="configForm.llm_tiers[tier].temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm_tiers[tier].temperature = $event" />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Max Completion Tokens</span>
-                    <NumberInput :model-value="configForm.llm_tiers[tier].max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_completion_tokens = $event" />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Max Context Tokens</span>
-                    <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">Retry Attempts</span>
-                    <NumberInput :model-value="configForm.llm_tiers[tier].retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].retry_attempts = $event" />
-                  </label>
-                  <label class="form-item">
-                    <span class="field-label-text">退避指数</span>
-                    <NumberInput :model-value="configForm.llm_tiers[tier].retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm_tiers[tier].retry_backoff_factor = $event" />
-                  </label>
-                </div>
+                </Transition>
               </div>
             </div>
           </section>
 
           <section id="section-prompt" class="form-section">
             <div class="section-head">
-              <h2>System Prompt</h2>
-              <span>编辑 custom_params.behavior.system_prompt</span>
+              <h2>系统提示词</h2>
+              <span>编辑当前 Agent 的 custom_params.behavior.system_prompt</span>
             </div>
             <div class="section-body">
               <label class="form-item">
-                <span class="field-label-text">System Prompt</span>
+                <span class="field-label-text">系统提示词</span>
                 <textarea
                   ref="systemPromptTextareaRef"
                   v-model="configForm.custom_params.behavior.system_prompt"
@@ -371,13 +384,13 @@
 
           <section id="section-skills" class="form-section">
             <div class="section-head">
-              <h2>Skills</h2>
+              <h2>技能</h2>
               <span>管理领域知识与脚本能力注入</span>
             </div>
             <div class="section-body skills-body">
               <label class="form-item checkbox-item checkbox-item--inline">
                 <input v-model="configForm.skills.auto_inject" type="checkbox" />
-                <span>自动注入 Skills</span>
+                <span>自动注入技能</span>
               </label>
 
               <div class="toggle-grid">
@@ -405,20 +418,20 @@
 
           <section id="section-memory" class="form-section">
             <div class="section-head">
-              <h2>Memory</h2>
-              <span>像 Skill 一样按 Agent 控制 memory 注入与工具权限</span>
+              <h2>记忆</h2>
+              <span>按 Agent 控制记忆注入、工具启用与 scope 权限</span>
             </div>
             <div class="section-body skills-body">
               <label class="form-item checkbox-item checkbox-item--inline">
                 <input v-model="configForm.memory.enabled" type="checkbox" />
-                <span>启用 Memory</span>
+                <span>启用记忆</span>
               </label>
               <label class="form-item checkbox-item checkbox-item--inline">
                 <input v-model="configForm.memory.auto_inject" type="checkbox" :disabled="!configForm.memory.enabled" />
-                <span>自动注入 MEMORY 索引</span>
+                <span>自动注入记忆索引</span>
               </label>
 
-              <div class="subsection-title">Memory 工具</div>
+              <div class="subsection-title">记忆工具</div>
               <div class="toggle-grid">
                 <div
                   v-for="tool in memoryToolMeta"
@@ -448,8 +461,10 @@
                   class="toggle-card memory-scope-card"
                   :class="{ disabled: !configForm.memory.enabled }"
                 >
-                  <div class="toggle-card__name">{{ scope.name }}</div>
-                  <div class="toggle-card__desc">{{ scope.description }}</div>
+                  <div class="memory-scope-card__header">
+                    <div class="toggle-card__name">{{ scope.name }}</div>
+                    <div class="toggle-card__desc">{{ scope.description }}</div>
+                  </div>
                   <div class="memory-scope-card__permissions">
                     <label class="memory-scope-card__permission">
                       <input
@@ -490,7 +505,7 @@
           <section id="section-mcp" class="form-section">
             <div class="section-head">
               <h2>MCP 服务</h2>
-              <span>将已配置的 MCP Server 工具授权给当前 Agent</span>
+              <span>将可用 MCP Server 授权给当前 Agent</span>
             </div>
             <div class="section-body">
               <div v-if="mcpServers.length === 0" class="state-panel state-panel--empty state-panel--compact">
@@ -514,10 +529,10 @@
                     </svg>
                   </div>
                   <div class="toggle-card__name">{{ server.display_name || server.name }}</div>
-                  <div class="toggle-card__desc">{{ server.transport || 'stdio' }} / {{ server.status || 'unknown' }} / {{ server.tool_count || 0 }} tools</div>
-                  <div class="toggle-card__meta">
-                    <span>{{ server.enabled ? '已启用' : '已禁用' }}</span>
-                    <span v-if="server.error_message">{{ server.error_message }}</span>
+                  <div class="toggle-card__desc">{{ server.transport || 'stdio' }} · {{ server.status || 'unknown' }} · {{ server.tool_count || 0 }} tools</div>
+                  <div class="toggle-card__meta toggle-card__meta--badges">
+                    <span class="toggle-card__badge">{{ server.enabled ? '已启用' : '已禁用' }}</span>
+                    <span v-if="server.error_message" class="toggle-card__badge toggle-card__badge--danger">{{ server.error_message }}</span>
                   </div>
                 </div>
               </div>
@@ -673,10 +688,10 @@ const sections = [
   { id: 'section-basic', label: '基础' },
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-tiers', label: '分层' },
-  { id: 'section-prompt', label: 'Prompt' },
+  { id: 'section-prompt', label: '提示词' },
   { id: 'section-tools', label: '工具' },
-  { id: 'section-skills', label: 'Skills' },
-  { id: 'section-memory', label: 'Memory' },
+  { id: 'section-skills', label: '技能' },
+  { id: 'section-memory', label: '记忆' },
   { id: 'section-mcp', label: 'MCP' },
   { id: 'section-delegation', label: '委派' }
 ];
@@ -745,7 +760,10 @@ function scrollToSection(id) {
 
 const configBodyRef = ref(null);
 const systemPromptTextareaRef = ref(null);
-const SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT = 420;
+
+function getSystemPromptTextareaMaxHeight() {
+  return Math.min(520, Math.max(260, Math.floor(window.innerHeight * 0.42)));
+}
 
 function scrollToBottom() {
   const el = configBodyRef.value;
@@ -756,9 +774,11 @@ function autoResizeSystemPrompt() {
   const textarea = systemPromptTextareaRef.value;
   if (!textarea) return;
   textarea.style.height = 'auto';
-  const nextHeight = Math.min(textarea.scrollHeight, SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT);
+  const maxHeight = getSystemPromptTextareaMaxHeight();
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
   textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = textarea.scrollHeight > SYSTEM_PROMPT_TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
+  textarea.style.maxHeight = `${maxHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
 
 const loading = ref(false);
