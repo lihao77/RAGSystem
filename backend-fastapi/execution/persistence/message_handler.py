@@ -10,15 +10,22 @@
 """
 
 import logging
+import re
 from threading import Event as ThreadingEvent
 from typing import List, Optional
 
 from agents.events.bus import EventType, Event
 from execution.observability import attach_execution_metadata
+from services.memory_store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
 _ALLOWED_INTERMEDIATE_TYPES = frozenset({'intent', 'observation'})
+_MEMORY_PREFERENCE_PATTERNS = [
+    (re.compile(r'优先最少代码'), '用户偏好-最少代码', '当前 session 中用户明确要求方案优先最少代码', 'preference', '后续方案优先最少代码。'),
+    (re.compile(r'不要兼容层|不考虑兼容性'), '用户偏好-不要兼容层', '当前 session 中用户明确要求不要保留兼容层', 'constraint', '后续实现不要保留兼容层。'),
+    (re.compile(r'请用中文|回答请使用中文'), '用户偏好-使用中文', '当前 session 中用户明确要求后续回答使用中文', 'preference', '后续回答默认使用中文。'),
+]
 
 class MessagePersistenceHandler:
     """
@@ -57,6 +64,7 @@ class MessagePersistenceHandler:
         self.entry_call_id: Optional[str] = None
 
         self._subscription_ids: dict = {}
+        self._memory_store = MemoryStore()
 
     def subscribe_all(self) -> dict:
         self._subscription_ids = {
@@ -195,6 +203,11 @@ class MessagePersistenceHandler:
                 )
                 self.message_id_for_run[0] = message['id']
                 self.store.update_run_steps_message_id(self.session_id, self.run_id, message['id'])
+                self._persist_session_memories(
+                    content=content if isinstance(content, str) else str(content),
+                    message_id=message['id'],
+                    agent_name=event.agent_name or self.entry_agent_name,
+                )
                 self.final_answer_saved.set()
                 self.event_bus.publish(Event(
                     type=EventType.MESSAGE_SAVED,
@@ -218,3 +231,40 @@ class MessagePersistenceHandler:
             filter_func=lambda e: e.session_id == self.session_id,
             priority=10,
         )
+
+    def _persist_session_memories(self, *, content: str, message_id: str, agent_name: str) -> None:
+        if self.conversation_scope != 'root':
+            return
+        latest_user_message = self.store.get_recent_messages(
+            session_id=self.session_id,
+            limit=20,
+            thread_key=self.thread_key,
+        )
+        latest_user_text = ''
+        for item in reversed(latest_user_message):
+            if item.get('role') == 'user':
+                latest_user_text = (item.get('content') or '').strip()
+                break
+        source_text = f"{latest_user_text}\n{content}".strip()
+        if not source_text:
+            return
+        for pattern, name, description, memory_type, memory_content in _MEMORY_PREFERENCE_PATTERNS:
+            if not pattern.search(source_text):
+                continue
+            try:
+                self._memory_store.save_memory(
+                    scope='session',
+                    session_id=self.session_id,
+                    agent_name=agent_name,
+                    name=name,
+                    description=description,
+                    memory_type=memory_type,
+                    content=memory_content,
+                    why='来源于当前 session 中明确表达且后续可复用的稳定要求。',
+                    how_to_apply='后续同一 session 的方案和回答默认遵循该要求。',
+                    source_run_id=self.run_id,
+                    source_message_id=message_id,
+                )
+            except Exception as error:
+                logger.warning('写入 session memory 失败: %s', error, exc_info=True)
+

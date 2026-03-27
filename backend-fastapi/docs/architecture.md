@@ -61,6 +61,7 @@ backend-fastapi/
 | `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录 |
 | `uploads` | `./data/sessions/<session_id>/uploads/` | 用户上传文件 | `api/v1/files.py` | 上传 API 专用目录 |
 | `monitoring/session_traces` | `./data/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
+| `memory` | `./data/memory/projects/<project_key>/...` | 项目/会话/Agent/workspace 级 Markdown 记忆索引与主题文件 | `services/memory_store.py`、`execution/persistence/message_handler.py` | 参考 Claude Code：启动时注入各作用域 `MEMORY.md` 索引头部，详细记忆由 Agent 按需读取具体 md 文件 |
 | `db` | `./data/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
 | `anonymous fallback` | `./data/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
@@ -71,10 +72,14 @@ POST /api/agent/stream {task, session_id, selected_llm}
   → api/v1/stream.py
   → AgentExecutionAdapter.start_stream_execution()
   → AgentExecutionService.invoke_agent(mode=root)
+  → AgentApiRuntimeService.build_context()
+      ├─ 读取历史消息到 AgentContext
+      ├─ 注入 project/session MEMORY.md 索引头部（Claude Code 风格 eager-load）
+      └─ 根据当前 task 选出相关 memory 文件路径供 Agent 后续按需 read_file
   → AgentOrchestrator.route_task()
   → OrchestratorAgent.execute()
   → _execute_react_task() 主循环
-      ├─ context_pipeline.prepare_messages()  # 构建提示词+历史
+      ├─ context_pipeline.prepare_messages()  # 构建提示词+历史+memory index
       │   └─ _apply_prompt_cache_policy()     # 仅标注稳定前缀缓存策略
       ├─ StreamExecutor.execute_llm_stream()  # LLM 流式调用
       │   ├─ ModelAdapter.chat_completion_stream()
@@ -85,6 +90,7 @@ POST /api/agent/stream {task, session_id, selected_llm}
       │   ├─ 占位符替换 {result_N.content.xxx}
       │   └─ route_direct_tool()       → execute_tool()
       └─ _handle_final_answer()               # 返回最终答案
+          └─ MessagePersistenceHandler        # root final_answer 后抽取并写入 session memory md
   → SSEAdapter 转发事件 → 前端
 ```
 
@@ -213,6 +219,57 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - 因此，direct 文件工具路径治理、bash 工作目录解析与沙箱文件访问是三条职责分离但共享同一受管路径语言的链路
 
 XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders()` 处理裸占位符
+
+## 长期记忆系统（Claude Code 风格）
+
+长期记忆与 `CLAUDE.md` / rules / 权限治理分层管理：
+
+- `CLAUDE.md` / `.claude/rules`：稳定规则与共享规范
+- `data/memory/projects/<project_key>/...`：learned memory（Markdown）
+- settings / permissions / sandbox：真正的强制边界
+
+memory 存储结构：
+
+```text
+./data/memory/projects/<project_key>/
+├── project/
+│   ├── MEMORY.md
+│   └── *.md
+├── sessions/
+│   └── <session_id>/
+│       ├── MEMORY.md
+│       └── *.md
+├── agents/
+│   └── <agent_name>/...
+└── workspaces/
+    └── <workspace_key>/...
+```
+
+当前 P1 已落地：
+- `project` / `session` 两层读取
+- `session` 层 root final_answer 自动写入
+- `MEMORY.md` 作为索引入口
+- 单条记忆单独 Markdown 文件保存 frontmatter + 正文
+
+加载机制参考 Claude Code：
+- 会话开始 / build_context 时，不把所有记忆正文注入 prompt
+- 只注入各作用域 `MEMORY.md` 的头部索引内容
+- 同时在 prompt 中提供相关记忆文件路径
+- Agent 如需细节，再直接调用 `read_file` 读取对应 md 文件
+
+当前默认 scope chain：
+- `project -> session`
+
+预留但未默认启用：
+- `agent`
+- `workspace`
+
+当前 root final_answer 的 session memory 规则抽取先覆盖少量高价值偏好：
+- 使用中文
+- 优先最少代码
+- 不要兼容层
+
+后续 P2 / P3 可在此基础上继续扩展 reflection、自进化与记忆升级策略。
 
 ## 流式输出与事件系统
 

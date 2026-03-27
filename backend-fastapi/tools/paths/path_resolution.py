@@ -27,6 +27,7 @@ DATA_ROOT: Path = Path(os.environ.get("RAG_DATA_ROOT", str(BACKEND_ROOT / "data"
 
 # ── 一级目录常量 ────────────────────────────────────────────────
 DB_ROOT: Path = DATA_ROOT / "db"
+MEMORY_ROOT: Path = DATA_ROOT / "memory"
 MONITORING_ROOT: Path = DATA_ROOT / "monitoring"
 SESSIONS_ROOT: Path = DATA_ROOT / "sessions"
 
@@ -123,6 +124,22 @@ def get_export_run_root(session_id: str, run_id: str) -> Path:
 
 def get_session_cleanup_root(session_id: str) -> Path:
     return get_session_root(session_id)
+
+
+def get_memory_project_root(project_key: str) -> Path:
+    normalized = (project_key or "").strip()
+    if not normalized:
+        raise ValueError("memory project root 缺少 project_key")
+    return MEMORY_ROOT / "projects" / normalized
+
+
+def get_project_memory_scope_root(project_key: str) -> Path:
+    return get_memory_project_root(project_key) / "project"
+
+
+def get_session_memory_scope_root(session_id: str, project_key: str) -> Path:
+    normalized_session_id = _normalize_session_id(session_id, required=True, feature="memory session 目录")
+    return get_memory_project_root(project_key) / "sessions" / normalized_session_id
 
 
 def _from_display_path(file_path: str) -> Path | None:
@@ -651,6 +668,7 @@ def to_display_path(absolute_path: Path | str) -> str:
 
 _ALL_DIRS = [
     DB_ROOT,
+    MEMORY_ROOT,
     MONITORING_ROOT,
     SESSION_TRACES_ROOT,
     SESSIONS_ROOT,

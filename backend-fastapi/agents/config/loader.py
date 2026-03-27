@@ -264,6 +264,7 @@ class AgentLoader:
 
         filtered_tools = []
         direct_tools = self._tool_registry.get_direct_tools()
+        default_tool_names = {'request_user_input', 'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory'}
         enabled_tools = list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []) or [])
         if enabled_tools:
             filtered_tools.extend([
@@ -273,6 +274,13 @@ class AgentLoader:
             logger.info(f"{agent_config.agent_name} 启用 direct 工具: {enabled_tools}")
         else:
             logger.info(f"{agent_config.agent_name} 未配置 direct 工具")
+
+        existing_direct_names = {t.get('function', {}).get('name') for t in filtered_tools}
+        for tool in direct_tools:
+            tool_name = tool.get('function', {}).get('name')
+            if tool_name in default_tool_names and tool_name not in existing_direct_names:
+                filtered_tools.append(tool)
+                existing_direct_names.add(tool_name)
 
         filtered_skills = []
         skill_loader = get_skill_loader()

@@ -40,6 +40,7 @@ class _FakeStore:
     def __init__(self):
         self.messages = []
         self.updated = []
+        self.recent_messages = []
 
     def add_message(self, **kwargs):
         self.messages.append(kwargs)
@@ -47,6 +48,10 @@ class _FakeStore:
 
     def update_run_steps_message_id(self, session_id, run_id, message_id):
         self.updated.append((session_id, run_id, message_id))
+
+    def get_recent_messages(self, session_id, limit=20, thread_key=None):
+        del session_id, limit, thread_key
+        return list(self.recent_messages)
 
     def insert_compression_message(self, **kwargs):
         return kwargs
@@ -157,4 +162,38 @@ def test_message_handler_final_answer_uses_entry_call_boundary():
     assert len(store.messages) == 1
     assert store.messages[0]['content'] == 'root final'
     assert store.updated[0] == ('session-1', 'run-1', 'msg-1')
+
+
+def test_message_handler_persists_session_memory_after_root_final_answer(monkeypatch):
+    bus = _FakeEventBus()
+    store = _FakeStore()
+    store.recent_messages = [
+        {'role': 'user', 'content': '后续请用中文，优先最少代码，不要兼容层'},
+    ]
+    saved_calls = []
+
+    def _fake_save_memory(self, **kwargs):
+        saved_calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr('execution.persistence.message_handler.MemoryStore.save_memory', _fake_save_memory)
+
+    handler = MessagePersistenceHandler(
+        event_bus=bus,
+        store=store,
+        session_id='session-1',
+        run_id='run-1',
+        cancel_event=ThreadingEvent(),
+        entry_agent_name='orchestrator_agent',
+        thread_key='root',
+        conversation_scope='root',
+        visible_to_user=True,
+        child_agent_id=None,
+    )
+    handler.subscribe_all()
+
+    bus.publish(_event(EventType.AGENT_START, call_id='call-root', parent_call_id=None))
+    bus.publish(_event(EventType.FINAL_ANSWER, call_id='call-root', agent_name='orchestrator_agent', data={'content': '好的，后续我会用中文并优先最少代码。'}))
+
+    assert any(call['scope'] == 'session' for call in saved_calls)
 

@@ -29,6 +29,10 @@ class _FakeConversationStore:
         del session_id, limit, thread_key
         return list(self._messages)
 
+    def get_session(self, session_id: str):
+        del session_id
+        return {"metadata": {}}
+
 
 def _make_runtime_service(messages):
     import agents
@@ -49,7 +53,7 @@ def _make_runtime_service(messages):
 
     from services.agent_api_runtime_service import AgentApiRuntimeService
 
-    return AgentApiRuntimeService(
+    service = AgentApiRuntimeService(
         conversation_store=_FakeConversationStore(messages),
         task_registry_getter=lambda: None,
         session_manager_getter=lambda: None,
@@ -59,6 +63,9 @@ def _make_runtime_service(messages):
         config_manager_getter=lambda: None,
         default_adapter_getter=lambda: None,
     )
+    service._memory_store.load_index_head = lambda **kwargs: f"# {kwargs.get('scope')} memory"
+    service._memory_store.search_memories = lambda **kwargs: []
+    return service
 
 
 def _make_pipeline() -> ContextPipeline:
@@ -150,6 +157,28 @@ def test_load_history_into_context_keeps_react_intermediate_messages():
 
     assert [message.seq for message in context.conversation_history] == [7, 8, 9]
     assert [message.content for message in context.conversation_history] == ["thought", "hello", "world"]
+
+
+def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files():
+    service = _make_runtime_service([])
+    service._memory_store.search_memories = lambda **kwargs: [
+        SimpleNamespace(
+            name='用户偏好-最少代码',
+            description='当前 session 中用户要求优先最少代码',
+            scope='session',
+            memory_type='preference',
+            file_name='preference_用户偏好-最少代码.md',
+            file_path='E:/Python/RAGSystem/backend-fastapi/data/memory/projects/backend-fastapi/sessions/s1/preference_用户偏好-最少代码.md',
+        )
+    ]
+    context = service.build_context(session_id='s1', memory_query='最少代码')
+    pipeline = _make_pipeline()
+
+    prepared = pipeline.inspect_messages('sys', context)
+
+    assert context.metadata['memory_indices']['project'] == '# project memory'
+    assert context.metadata['memory_indices']['session'] == '# session memory'
+    assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
 
 
 def test_pipeline_get_history_raw_uses_message_seq_only():

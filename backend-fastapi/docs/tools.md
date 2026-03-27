@@ -115,12 +115,13 @@ def my_tool(arguments, **kwargs):
 - `agent`：子 Agent delegation 工具（`call_agent` / `send_message`）
 - `mcp`：外部 MCP adapter 例外
 
-已迁移的本地工具（11 个）：
+已迁移的本地工具（15 个）：
 - `local/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `local/code_sandbox.py`: execute_code
 - `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
 - `local/builtin_tools.py`: request_user_input
 - `local/agent_tools.py`: call_agent, list_child_agents, send_message
+- `local/memory_tools.py`: list_memory_index, read_memory_entry, write_memory, archive_memory
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -213,6 +214,40 @@ Agent 可见工具: mcp__server__tool
 
 这保证了“对外工具面不变、对内运行时收口”。
 
+
+### memory 工具（agent-first）
+
+memory 采用 Claude Code 风格的“索引注入 + 明细按需读取”模型，但当前系统是 agent-first，因此除 runtime 自动注入 `MEMORY.md` 索引外，还为 Agent 提供了显式的 memory 操作工具。
+
+其中以下 memory 工具属于 **默认工具**，不需要在 agent 配置页面单独勾选：
+- `list_memory_index`
+- `read_memory_entry`
+- `write_memory`
+- `archive_memory`
+
+这样所有 Agent 默认都具备最小 memory 操作能力；其他 direct 工具仍按 `enabled_tools` 配置过滤。
+
+- `list_memory_index(scope, ...)`
+  - 读取指定作用域 `MEMORY.md` 的头部索引
+  - 适合先了解有哪些记忆，再决定是否读取明细
+- `read_memory_entry(scope, file_name, ...)`
+  - 读取单条具体记忆 md 文件正文
+  - 适合 Agent 在看到索引后按需展开细节
+- `write_memory(scope, name, description, memory_type, content, ...)`
+  - 新增或更新一条记忆，并同步重建 `MEMORY.md`
+- `archive_memory(scope, file_name, ...)`
+  - 将一条记忆标记为 archived，使其不再参与默认索引和检索
+
+当前默认作用域链仍为：
+- `project -> session`
+
+但 Agent 已可以显式操作：
+- `project`
+- `session`
+- `agent`
+- `workspace`
+
+这与纯后台 memory 检索不同：memory 对 Agent 是可见、可读、可操作对象。
 
 ### ToolExecutionResult（contracts/result_models.py）
 

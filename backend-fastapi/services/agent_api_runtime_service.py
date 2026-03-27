@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from pathlib import Path
 from typing import Optional
 
 from runtime.dependencies import get_runtime_dependency
@@ -17,6 +18,7 @@ from agents import AgentContext
 from agents.events import get_session_manager
 from agents.task_registry import get_task_registry
 from services.conversation_store import ConversationStore
+from services.memory_store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ class AgentApiRuntimeService:
         default_adapter_getter=None,
     ):
         self._conversation_store = conversation_store or ConversationStore()
+        self._memory_store = MemoryStore(project_key=Path(__file__).resolve().parent.parent.name)
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
         self._metrics_collector = None
@@ -179,6 +182,7 @@ class AgentApiRuntimeService:
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
         call_id: Optional[str] = None,
+        memory_query: Optional[str] = None,
     ) -> AgentContext:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
         context = AgentContext(session_id=session_id, user_id=user_id, llm_override=llm_override)
@@ -207,6 +211,33 @@ class AgentApiRuntimeService:
             limit=limit,
             thread_key=resolved_thread_key,
         )
+        project_memory = self._memory_store.load_index_head(scope='project')
+        session_memory = self._memory_store.load_index_head(scope='session', session_id=session_id)
+        if project_memory or session_memory:
+            context.metadata['memory_indices'] = {
+                'project': project_memory,
+                'session': session_memory,
+            }
+        if memory_query is not None:
+            retrieved = self._memory_store.search_memories(
+                scope_chain=[
+                    {'scope': 'project'},
+                    {'scope': 'session', 'session_id': session_id},
+                ],
+                query=memory_query,
+                limit=5,
+            )
+            context.metadata['retrieved_memories'] = [
+                {
+                    'name': item.name,
+                    'description': item.description,
+                    'scope': item.scope,
+                    'memory_type': item.memory_type,
+                    'file_name': item.file_name,
+                    'file_path': item.file_path,
+                }
+                for item in retrieved
+            ]
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────

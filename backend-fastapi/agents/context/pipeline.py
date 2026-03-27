@@ -100,7 +100,12 @@ class ContextPipeline:
             )
 
         system_msg = {"role": "system", "content": system_prompt}
-        prepared = [system_msg] + history_resolved + current_session
+        prepared = [system_msg]
+        memory_block = self._build_memory_block(context)
+        if memory_block:
+            prepared.append({"role": "system", "content": memory_block})
+        prepared.extend(history_resolved)
+        prepared.extend(current_session)
         return self._apply_prompt_cache_policy(prepared, llm_config or {})
 
     def inspect_messages(
@@ -123,7 +128,13 @@ class ContextPipeline:
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
         system_msg = {"role": "system", "content": system_prompt}
-        return [system_msg] + history_resolved + (current_session or [])
+        prepared = [system_msg]
+        memory_block = self._build_memory_block(context)
+        if memory_block:
+            prepared.append({"role": "system", "content": memory_block})
+        prepared.extend(history_resolved)
+        prepared.extend(current_session or [])
+        return prepared
 
     def format_summary(self, messages: List[Dict[str, Any]]) -> str:
         """返回消息列表的简要统计字符串（用于日志）"""
@@ -137,6 +148,27 @@ class ContextPipeline:
             f"消息总数: {len(messages)} "
             f"({', '.join(parts)}), 估算 tokens: {tokens}"
         )
+
+    @staticmethod
+    def _build_memory_block(context) -> str:
+        metadata = getattr(context, 'metadata', {}) or {}
+        indices = metadata.get('memory_indices') or {}
+        retrieved = metadata.get('retrieved_memories') or []
+        sections: list[str] = []
+        if indices.get('project'):
+            sections.append("[Project Memory Index]\n" + str(indices['project']).strip())
+        if indices.get('session'):
+            sections.append("[Session Memory Index]\n" + str(indices['session']).strip())
+        if retrieved:
+            lines = ["[Relevant Memory Files]", "如需更多细节，请直接调用 read_file 读取下面文件："]
+            for item in retrieved[:5]:
+                lines.append(
+                    f"- [{item.get('scope')}/{item.get('memory_type')}] {item.get('name')} -> {item.get('file_path')}"
+                )
+            sections.append("\n".join(lines))
+        if not sections:
+            return ""
+        return "\n\n".join(sections)
 
     # ── 内部方法 ──────────────────────────────────────────────────────────────
 
