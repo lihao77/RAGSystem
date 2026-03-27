@@ -193,6 +193,32 @@ def test_build_context_skips_memory_when_agent_memory_disabled():
     assert 'retrieved_memories' not in context.metadata
 
 
+def test_get_session_entry_agent_normalizes_ui_aliases_and_invalid_values():
+    service = _make_runtime_service([])
+    orchestrator = SimpleNamespace(registry=SimpleNamespace(get=lambda name: object() if name in {'orchestrator_agent', 'qa_agent'} else None))
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'entry_agent': 'orchestrator'}}
+    assert service._get_session_entry_agent('s1', orchestrator) == 'orchestrator_agent'
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'entry_agent': 'default'}}
+    assert service._get_session_entry_agent('s1', orchestrator) is None
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'entry_agent': 'missing_agent'}}
+    assert service._get_session_entry_agent('s1', orchestrator) is None
+
+
+def test_apply_session_runtime_overrides_ignores_default_alias_override():
+    service = _make_runtime_service([])
+    orchestrator = SimpleNamespace(
+        agents={},
+        registry=SimpleNamespace(get=lambda name: object() if name == 'orchestrator_agent' else None),
+        set_default_entry_agent=lambda name: (_ for _ in ()).throw(AssertionError(f'unexpected override {name}')),
+    )
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'entry_agent': 'default'}}
+
+    service._apply_session_runtime_overrides(orchestrator, 's1')
+
+
 def test_pipeline_get_history_raw_uses_message_seq_only():
     pipeline = _make_pipeline()
     context = AgentContext(session_id="s1")

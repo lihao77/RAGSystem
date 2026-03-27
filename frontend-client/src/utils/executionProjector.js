@@ -25,6 +25,10 @@ const createExecutionStep = (round = null, stepId = null, parentStepId = null) =
   intent: '',
   toolCalls: [],
   expanded: true,
+  status: 'running',
+  run_status: null,
+  agent_name: 'orchestrator_agent',
+  agent_display_name: 'orchestrator_agent',
   _intentComplete: false,
 });
 
@@ -183,6 +187,7 @@ function handleToolStart(state, step) {
   if (existingRootStep || state.execution_steps.length > 0) {
     const rootStep = existingRootStep || ensureOrchestratorStep(state, step.round, step.parent_step_id || step.step_id || null, null);
     addToolCallOnce(rootStep.toolCalls, toolCall);
+    rootStep.status = 'running';
     if (rootStep.step_id) state.stepMap.set(rootStep.step_id, rootStep);
     return state;
   }
@@ -216,12 +221,30 @@ function ensureSubtaskIntentStep(state, subtask, round = null, stepId = null, pa
   return step;
 }
 
+function handleRunStep(state, step) {
+  const executionStep = ensureOrchestratorStep(
+    state,
+    step.round ?? getLatestRound(state.execution_steps) ?? 1,
+    step.step_id || null,
+    step.parent_step_id || null,
+  );
+  if (step.agent_name) executionStep.agent_name = step.agent_name;
+  if (step.agent_display_name) executionStep.agent_display_name = step.agent_display_name;
+  executionStep.run_status = step.phase === 'end'
+    ? (step.status === 'error' ? 'error' : 'success')
+    : 'running';
+  if (!executionStep.status || executionStep.status === 'running' || step.phase === 'end') {
+    executionStep.status = executionStep.run_status;
+  }
+  return state;
+}
+
 export function applyStep(state, step) {
   if (!state || !step || step.kind == null || step.phase == null) return state;
   state.rawSteps.push(step);
 
   if (step.kind === 'run') {
-    return state;
+    return handleRunStep(state, step);
   }
 
   if (step.kind === 'subtask') {
@@ -270,6 +293,9 @@ export function applyStep(state, step) {
         }
       }
       if (step.phase === 'complete') executionStep._intentComplete = true;
+      executionStep.status = executionStep.toolCalls.some(item => item?.status === 'running')
+        ? 'running'
+        : (executionStep.run_status || executionStep.status || 'success');
       return state;
     }
 
@@ -302,6 +328,10 @@ export function applyStep(state, step) {
         toolCall.raw_result_ref = step.raw_result_ref || null;
         toolCall.raw_result_available = Boolean(step.raw_result_available) || step.raw_result != null;
         toolCall.elapsed_time = step.elapsed_time;
+      }
+      const rootStep = step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null;
+      if (rootStep && rootStep.toolCalls?.every(item => item?.status !== 'running')) {
+        rootStep.status = rootStep.run_status || 'success';
       }
       return state;
     }

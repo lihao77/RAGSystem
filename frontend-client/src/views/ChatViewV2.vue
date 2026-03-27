@@ -196,7 +196,7 @@
                 <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
               </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
-              <div v-else-if="msg.role === 'assistant' && ((msg.subtasks && msg.subtasks.length > 0) || (msg.execution_steps && msg.execution_steps.length > 0))"
+              <div v-else-if="msg.role === 'assistant' && (hasExecutionContent(msg) || !msg.finished)"
                 class="subtasks-container-full">
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
                 <SubtaskStatusTicker :subtasks="msg.subtasks" :execution-steps="msg.execution_steps" :expanded="msg.showFullSubtasks"
@@ -897,6 +897,14 @@ const onScrollToBottomClick = () => {
 
 // execution.step 是执行树唯一事实源
 const isRootEvent = (event) => !(event?.parent_call_id || event?.data?.parent_call_id);
+
+const hasExecutionContent = (msg) => {
+  if (!msg || msg.role !== 'assistant') return false;
+  return Boolean(
+    (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
+    || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
+  );
+};
 
 const ensureExecutionProjector = (msg) => {
   if (!msg._executionProjector) {

@@ -90,7 +90,7 @@ tool 归属规则：
 
 - 子 agent 的 tool 优先按 `parent_call_id -> subtaskMap` 归入对应 `subtask`
 - 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
-- 只有确认 `agent_name` 属于 orchestrator 时，tool 才写入 `execution_steps.toolCalls`
+- 根级 `kind=run` 会先投影成一个 root execution step，占位表示“当前入口 agent 已启动”；后续同轮 `intent/tool` 会继续挂到这个根节点
 - `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
@@ -159,6 +159,10 @@ tool 归属规则：
   round: number,
   intent: string,                // 意图/思考
   toolCalls: [],
+  status: 'running' | 'success' | 'error',
+  run_status: 'running' | 'success' | 'error' | null,
+  agent_name: string,
+  agent_display_name: string,
   _intentComplete: boolean       // 仅用于旧数据兼容去重
 }
 ```
@@ -196,7 +200,7 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 `ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
-- `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`
+- `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
 
 两者都只在 `!currentSessionId` 时展示和编辑；会话创建成功后，前端会从返回的 `session.metadata` 回填本地状态，并在历史会话切换 / 浏览器前进后退时继续恢复。
 

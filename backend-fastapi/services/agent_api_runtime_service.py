@@ -88,7 +88,24 @@ class AgentApiRuntimeService:
         )
         return resolved_workspace_root
 
-    def _get_session_entry_agent(self, session_id: str | None) -> Optional[str]:
+    def _normalize_session_entry_agent(self, entry_agent: str | None, orchestrator=None) -> Optional[str]:
+        normalized_entry_agent = entry_agent.strip() if isinstance(entry_agent, str) and entry_agent.strip() else None
+        if normalized_entry_agent is None:
+            return None
+
+        lowered = normalized_entry_agent.lower()
+        if lowered == 'default':
+            return None
+        if lowered == 'orchestrator':
+            normalized_entry_agent = 'orchestrator_agent'
+
+        registry = getattr(orchestrator, 'registry', None) if orchestrator is not None else None
+        if registry is not None and registry.get(normalized_entry_agent) is None:
+            logger.warning('忽略无效 session entry_agent: raw=%s normalized=%s', entry_agent, normalized_entry_agent)
+            return None
+        return normalized_entry_agent
+
+    def _get_session_entry_agent(self, session_id: str | None, orchestrator=None) -> Optional[str]:
         normalized_session_id = (session_id or '').strip()
         if not normalized_session_id:
             logger.debug('session entry_agent 查询跳过：session_id 为空')
@@ -96,10 +113,11 @@ class AgentApiRuntimeService:
         session = self._conversation_store.get_session(normalized_session_id) or {}
         metadata = session.get('metadata') or {}
         entry_agent = metadata.get('entry_agent')
-        resolved_entry_agent = entry_agent.strip() if isinstance(entry_agent, str) and entry_agent.strip() else None
+        resolved_entry_agent = self._normalize_session_entry_agent(entry_agent, orchestrator)
         logger.debug(
-            'session entry_agent 查询: session_id=%s entry_agent=%s metadata_keys=%s',
+            'session entry_agent 查询: session_id=%s raw_entry_agent=%s resolved_entry_agent=%s metadata_keys=%s',
             normalized_session_id,
+            entry_agent,
             resolved_entry_agent,
             sorted(metadata.keys()),
         )
@@ -129,7 +147,7 @@ class AgentApiRuntimeService:
         else:
             logger.debug('execution orchestrator 未注入 workspace_root: session_id=%s', session_id)
 
-        entry_agent = self._get_session_entry_agent(session_id)
+        entry_agent = self._get_session_entry_agent(session_id, orchestrator)
         if entry_agent:
             orchestrator.set_default_entry_agent(entry_agent)
             logger.debug(

@@ -170,7 +170,9 @@ const executionTree = computed(() => {
         executionStep.intent ||
         executionStep.thinking ||
         executionStep.thought ||
-        (executionStep.toolCalls && executionStep.toolCalls.length > 0)
+        (executionStep.toolCalls && executionStep.toolCalls.length > 0) ||
+        executionStep.status === 'running' ||
+        executionStep.run_status === 'running'
       )
     );
 
@@ -185,9 +187,10 @@ const executionTree = computed(() => {
     const node = {
       type: 'thought',
       agent: executionStep?.agent_name || '',
-      agent_display_name: executionStep?.agent_display_name || executionStep?.agent_name || '主入口 Agent',
+      agent_display_name: executionStep?.agent_display_name || executionStep?.agent_name || 'orchestrator_agent',
       round: round,
       intent: executionStep ? (executionStep.intent || executionStep.thinking || executionStep.thought || '') : '',
+      status: executionStep?.status || executionStep?.run_status || null,
       children: []
     };
 

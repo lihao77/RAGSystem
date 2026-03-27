@@ -16,6 +16,15 @@
              </div>
            </div>
 
+           <!-- 运行中但无活跃工具：入口 Agent 已启动 -->
+           <div v-else-if="running && hasRunningRootExecution" key="run" class="ticker-item active">
+             <span class="agent-badge">{{ rootExecutionAgentLabel }}</span>
+             <span class="action-text">执行中</span>
+             <div class="loading-dots">
+               <span>.</span><span>.</span><span>.</span>
+             </div>
+           </div>
+
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="intent" class="ticker-item active">
              <span class="agent-badge">编排器</span>
@@ -120,6 +129,15 @@ const currentActivity = computed(() => {
   }
 
   return null;
+});
+
+const hasRunningRootExecution = computed(() => {
+  return (props.executionSteps || []).some(step => step?.status === 'running' || step?.run_status === 'running');
+});
+
+const rootExecutionAgentLabel = computed(() => {
+  const runningRoot = (props.executionSteps || []).find(step => step?.status === 'running' || step?.run_status === 'running');
+  return runningRoot?.agent_display_name || runningRoot?.agent_name || 'orchestrator_agent';
 });
 
 // 最近完成的任务

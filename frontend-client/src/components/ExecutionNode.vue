@@ -283,8 +283,11 @@ const toolDisplayName = computed(() => {
 });
 
 const isRunning = computed(() => {
-  if (props.node.type === 'thought' && props.node.children) {
-    return props.node.children.some(child => child.status === 'running');
+  if (props.node.type === 'thought') {
+    if (props.node.status === 'running') return true;
+    if (props.node.children) {
+      return props.node.children.some(child => child.status === 'running');
+    }
   }
   return false;
 });

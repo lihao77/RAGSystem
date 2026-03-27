@@ -3,6 +3,38 @@ import assert from 'node:assert/strict';
 
 import { applyStep, buildExecutionState, createExecutionState } from './executionProjector.js';
 
+function createRunStart(overrides = {}) {
+  return {
+    kind: 'run',
+    phase: 'start',
+    call_id: 'root-call',
+    parent_call_id: null,
+    step_id: 'root-call:run',
+    parent_step_id: null,
+    agent_name: 'orchestrator_agent',
+    agent_display_name: 'orchestrator_agent',
+    round: 1,
+    status: 'running',
+    ...overrides,
+  };
+}
+
+function createRunEnd(overrides = {}) {
+  return {
+    kind: 'run',
+    phase: 'end',
+    call_id: 'root-call',
+    parent_call_id: null,
+    step_id: 'root-call:run',
+    parent_step_id: null,
+    agent_name: 'orchestrator_agent',
+    agent_display_name: 'orchestrator_agent',
+    round: 1,
+    status: 'success',
+    ...overrides,
+  };
+}
+
 function createSubtaskStart(overrides = {}) {
   return {
     kind: 'subtask',
@@ -77,6 +109,29 @@ function createOrchestratorToolStart(overrides = {}) {
     ...overrides,
   };
 }
+
+test('run step 会投影为可显示的根级 execution step', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createRunStart());
+
+  assert.equal(state.execution_steps.length, 1);
+  assert.equal(state.execution_steps[0].step_id, 'root-call:run');
+  assert.equal(state.execution_steps[0].status, 'running');
+  assert.equal(state.execution_steps[0].run_status, 'running');
+  assert.equal(state.execution_steps[0].agent_name, 'orchestrator_agent');
+});
+
+test('run-only 历史步骤回放后仍保留执行节点', () => {
+  const rebuilt = buildExecutionState([
+    createRunStart(),
+    createRunEnd(),
+  ]);
+
+  assert.equal(rebuilt.execution_steps.length, 1);
+  assert.equal(rebuilt.execution_steps[0].status, 'success');
+  assert.equal(rebuilt.execution_steps[0].run_status, 'success');
+});
 
 test('将正常顺序的子 agent 工具调用挂到对应 agent_call 内部', () => {
   const state = createExecutionState();

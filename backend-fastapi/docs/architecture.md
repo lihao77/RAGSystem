@@ -167,6 +167,8 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - runtime 在 `AgentApiRuntimeService._build_orchestrator()` 中把解析结果写入 orchestrator
 - `POST /api/agent/execute` 显式传 `agent` 时直接执行该 Agent；未显式传入时走 `invoke_routed_agent()`，由 orchestrator 的默认入口解析决定
 - session 级 override 预留在 `session.metadata.entry_agent`：`create_execution_orchestrator(session_id=...)` 会在 execution orchestrator 上覆盖默认入口，但不会污染全局 YAML 或 catalog orchestrator
+- `session.metadata.entry_agent='default'` 表示“不覆盖默认入口”；`'orchestrator'` 会在 runtime 归一化为真实 `agent_name` `orchestrator_agent`
+- 若 session 级 `entry_agent` 不是 registry 中存在的真实 agent_name，则 runtime 会忽略该值并保留当前默认入口，避免把 execution orchestrator 覆盖成无效状态
 - 若默认入口缺失，则不会再硬编码回退到 `orchestrator_agent`；后续由 orchestrator 的常规能力路由 / 错误处理语义接管
 
 `application/agent_collaboration.py` 中的回退重试也已不再直调 `orchestrator.execute()`：其中 `rollback_and_retry()` 直接复用 `AgentExecutionService.invoke_routed_agent()`；`recover_session()` 因需要先把 checkpoint messages 重放进临时 context，仍保留“checkpoint 注入上下文 + routed agent.execute(context)”的执行形态，但目标 Agent 的选择也已统一复用 execution service 的路由解析。
@@ -203,7 +205,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录仍是 `./data/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
-- 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；后端会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口
+- 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；该值应优先使用真实 `agent_name`。runtime 会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口，并对 `default/orchestrator` 这类 UI alias 做归一化兜底
 - `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；若配置了 `session.metadata.entry_agent`，也会一并写入 `context.metadata.entry_agent` 作为观测字段
 - `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖；两者都只作用于本次 execution 实例，不污染全局 YAML / 其他会话
 - `tools.local.document_tools._prepare_document_tool_args()` 会直接从 `agent_config.custom_params` 读取 `workspace_root/default_output_space`，并按“显式 run_id 优先，observability fallback”解析 `effective_run_id`
