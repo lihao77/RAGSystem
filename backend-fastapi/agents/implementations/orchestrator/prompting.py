@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from agents.core import BaseAgent
+from agents.core import prompting as core_prompting
 from tools.refs.result_references import (
     is_ref_error,
     resolve_result_path,
@@ -21,7 +21,7 @@ _TOOL_REGISTRY = get_tool_registry()
 
 
 def _format_tool_contract(func: Dict[str, Any]) -> list[str]:
-    return BaseAgent._format_tool_contract(func)
+    return core_prompting.format_tool_contract(func)
 
 
 def get_agent_display_name(agent, agent_name: str) -> str:
@@ -158,7 +158,7 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
             '',
             f"### {func.get('name', '')}",
             f"**描述**: {func.get('description', '')}",
-            f"**调用能力**: {BaseAgent._format_allowed_callers(func)}",
+            f"**调用能力**: {core_prompting.format_allowed_callers(func)}",
         ])
         params = func.get('parameters', {})
         if params and 'properties' in params:
@@ -188,7 +188,7 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
 
     direct_tool_names = [
         tool.get('function', {}).get('name', '')
-        for tool in agent._get_direct_tools_for_prompt()
+        for tool in core_prompting.get_direct_tools_for_prompt(agent)
     ]
     direct_tools_guide = ''
     if direct_tool_names:

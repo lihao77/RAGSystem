@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from agents.core import BaseAgent
+from agents.core import prompting as core_prompting
 from agents.implementations.orchestrator import prompting as orchestrator_prompting
 from tools.bootstrap import bootstrap_tool_system
 from tools.decorators import get_decorated_tools
@@ -34,10 +35,21 @@ def _fake_agent(**overrides):
         ),
         orchestrator=SimpleNamespace(agents={}),
         _format_skills_description=lambda: BaseAgent._format_skills_description(agent),
-        _get_direct_tools_for_prompt=lambda: BaseAgent._get_direct_tools_for_prompt(agent),
-        _build_direct_tools_section=lambda: BaseAgent._build_direct_tools_section(agent),
-        _build_prompt_tool_call_example=lambda: BaseAgent._build_prompt_tool_call_example(agent),
+        _build_prompt_intro=lambda: (agent.base_prompt or "").strip(),
         _build_agent_specific_prompt_sections=lambda: [],
+        _has_tool=lambda tool_name: any(
+            tool.get('function', {}).get('name') == tool_name
+            for tool in (agent.available_tools or [])
+            if isinstance(tool, dict)
+        ),
+        _get_code_callable_tool_names=lambda: [
+            tool.get('function', {}).get('name')
+            for tool in (agent.available_tools or [])
+            if isinstance(tool, dict)
+            and tool.get('function', {}).get('name')
+            and tool.get('function', {}).get('name') != 'execute_code'
+            and 'code_execution' in list(tool.get('function', {}).get('allowed_callers') or ['direct'])
+        ],
         _get_available_agent_tools=lambda: [],
     )
     for key, value in overrides.items():
@@ -65,7 +77,7 @@ def test_react_format_tool_contract_uses_input_payload_and_filters_helper_fields
         }
     }
 
-    lines = BaseAgent._format_tool_contract(tool)
+    lines = core_prompting.format_tool_contract(tool)
     rendered = "\n".join(lines)
 
     assert "<command>pwd</command>" in rendered
@@ -116,7 +128,7 @@ def test_tool_examples_can_render_xml_attrs_without_stringified_nested_tags():
         ],
     }
 
-    lines = BaseAgent._format_tool_contract(func)
+    lines = core_prompting.format_tool_contract(func)
     rendered = "\n".join(lines)
 
     assert '<file_path space="transient">tmp.txt</file_path>' in rendered
@@ -130,7 +142,7 @@ def test_react_prompt_renders_space_examples_as_xml_attributes():
     execute_bash_tool = _decorated_tool("execute_bash")
     fake_agent = _fake_agent(available_tools=[write_file_tool, execute_bash_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert '<file_path space="transient">tmp.txt</file_path>' in prompt
     assert '<file_path_space>transient</file_path_space>' not in prompt
@@ -143,7 +155,7 @@ def test_react_prompt_renders_read_and_edit_file_space_examples_as_xml_attribute
     edit_file_tool = _tool_from_registry("edit_file")
     fake_agent = _fake_agent(available_tools=[read_file_tool, edit_file_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert '<file_path space="transient">tmp.txt</file_path>' in prompt
     assert '<file_path_space>transient</file_path_space>' not in prompt
@@ -155,7 +167,7 @@ def test_react_build_system_prompt_includes_tool_return_contracts():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "### execute_skill_script" in prompt
     assert "**调用能力**:" in prompt
@@ -175,7 +187,7 @@ def test_orchestrator_build_system_prompt_includes_direct_tool_return_contracts(
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "## 可直接调用的工具" in prompt
     assert "### execute_skill_script" in prompt
@@ -195,7 +207,7 @@ def test_react_prompt_includes_file_and_code_tool_contracts():
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[read_file_tool, execute_code_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "### read_file" in prompt
     assert "### execute_code" in prompt
@@ -206,7 +218,7 @@ def test_react_prompt_includes_execute_bash_managed_location_contract():
     execute_bash_tool = _decorated_tool("execute_bash")
     fake_agent = _fake_agent(available_tools=[execute_bash_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "### execute_bash" in prompt
     assert "默认工作目录为当前 effective workspace" in prompt
@@ -218,7 +230,7 @@ def test_react_prompt_includes_skill_tool_contracts():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[activate_skill_tool, execute_skill_script_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "### activate_skill" in prompt
     assert "### execute_skill_script" in prompt
@@ -228,7 +240,7 @@ def test_base_prompt_includes_execute_code_capability_section_when_tool_is_avail
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[execute_code_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "## execute_code 中可调用的工具" in prompt
     assert "当前没有额外工具可从代码中调用" in prompt
@@ -238,7 +250,7 @@ def test_base_prompt_omits_execute_code_capability_section_without_execute_code_
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "## execute_code 中可调用的工具" not in prompt
 
@@ -246,7 +258,7 @@ def test_base_prompt_omits_execute_code_capability_section_without_execute_code_
 def test_base_prompt_uses_single_brace_result_placeholder_syntax():
     fake_agent = _fake_agent()
 
-    prompt = BaseAgent._build_shared_system_prompt(fake_agent)
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "链式调用用 {result_N} 引用同轮第 N 个工具结果" in prompt
     assert "{{result_N}}" not in prompt
@@ -269,7 +281,7 @@ def test_orchestrator_prompt_examples_use_call_agent_and_roster():
     )
     orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
-    prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
+    prompt = core_prompting.build_shared_system_prompt(orchestrator_agent)
 
     assert "call_agent" in prompt
     assert "list_child_agents" in prompt
@@ -304,8 +316,8 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
     )
     orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
-    react_prompt = BaseAgent._build_shared_system_prompt(react_agent)
-    orchestrator_prompt = BaseAgent._build_shared_system_prompt(orchestrator_agent)
+    react_prompt = core_prompting.build_shared_system_prompt(react_agent)
+    orchestrator_prompt = core_prompting.build_shared_system_prompt(orchestrator_agent)
 
     for marker in ["## 工具调用总规则", "## 可直接调用的工具", "## 输出格式", "## 执行规则", "### 受管目录 space 说明"]:
         assert marker in react_prompt
@@ -318,3 +330,12 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
     assert "list_child_agents" in orchestrator_prompt
     assert "send_message" in orchestrator_prompt
     assert "## 当前可委派子 Agent 列表" not in react_prompt
+
+
+def test_shared_prompting_module_matches_base_agent_system_prompt_entry():
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
+
+    assert BaseAgent._build_system_prompt(fake_agent) == core_prompting.build_shared_system_prompt(fake_agent)
+    assert core_prompting.build_direct_tools_section(fake_agent) in core_prompting.build_shared_system_prompt(fake_agent)
+    assert core_prompting.format_tool_contract(execute_skill_script_tool)

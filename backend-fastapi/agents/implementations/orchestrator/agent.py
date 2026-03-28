@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from agents.core import AgentContext, AgentResponse, BaseAgent
+from agents.core import prompting as core_prompting
 from tools.tool_registry import get_tool_registry
 
 from .prompting import (
@@ -124,7 +125,7 @@ class OrchestratorAgent(BaseAgent):
         return build_orchestrator_specific_sections(self)
 
     def _build_system_prompt(self) -> str:
-        return BaseAgent._build_shared_system_prompt(self)
+        return core_prompting.build_shared_system_prompt(self)
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         return execute_orchestrator(self, task, context)

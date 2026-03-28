@@ -107,15 +107,15 @@ POST /api/agent/stream {task, session_id, selected_llm}
 | `_execute_react_task()` | ReAct 主循环（思考→工具→观察） |
 | `_handle_actions()` | 执行工具调用，处理占位符替换 |
 | `_resolve_tool_references()` | 解析 `{result_N.path}` 占位符 |
-| `_build_system_prompt()` | 子类兼容入口，内部统一走共享 prompt skeleton |
-| `_build_shared_system_prompt()` | 共享提示词骨架：intro / goal / principles / tools / skills / output / rules |
-| `_build_direct_tools_section()` | 统一渲染 direct 工具条目、调用能力、参数、returns / usage_contract / examples |
+| `_build_system_prompt()` | BaseAgent 的 system prompt 唯一入口，内部委托 `agents/core/prompting.py` 组装共享 skeleton |
+| `_build_direct_tools_section()` | 共享 prompt 模块中的 direct 工具段渲染函数，负责调用能力、参数、returns / usage_contract / examples |
 | `_setup_react_runtime()` | 初始化上下文管道、观察策略等 |
 
 关键属性：`name`, `description`, `available_tools`, `available_skills`, `max_rounds`, `model_adapter`, `agent_config`, `_publisher`
 
 提示词职责分层：
-- `BaseAgent`：统一维护工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
+- `BaseAgent`：只保留 system prompt 入口与 hook 扩展点（如 `_build_prompt_intro()`、`_build_agent_specific_prompt_sections()`、`_invoke_prompt_hook()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装
+- `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，统一维护 direct 工具段渲染、工具契约渲染、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则
 - `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；主编排器模式下追加 `call_agent` 契约和 `delegation.enabled_agents` 驱动的动态 agent roster，普通 worker 模式下不暴露委派 roster
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
