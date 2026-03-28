@@ -562,12 +562,12 @@
 .session-export-btn {
   gap: 8px;
   border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
+  background: var(--color-interactive);
   color: var(--color-text-primary);
 }
 
 .session-export-btn:hover:not(:disabled) {
-  background: var(--color-bg-secondary);
+  background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
 }
 

@@ -200,6 +200,7 @@ const progressPercentage = computed(() => {
 <style scoped>
 .subtask-status-ticker {
   overflow: hidden;
+  background-color: transparent;
   border: 1px solid transparent;
   /* margin: var(--spacing-sm) 0; */
   /* box-shadow: var(--shadow-sm); */
