@@ -37,6 +37,11 @@ def _parse_selected_llm(selected_llm: str):
     return None
 
 
+def _parse_llm_tier(llm_tier: str):
+    normalized = (llm_tier or '').strip().lower()
+    return normalized or None
+
+
 def _apply_observability(payload: dict, obs: dict) -> None:
     """注入可观测性字段。"""
     try:
@@ -87,6 +92,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
 
     selected_llm_str = request.selected_llm or ''
     llm_override = _parse_selected_llm(selected_llm_str)
+    llm_tier = _parse_llm_tier(request.llm_tier or '')
 
     logger.info('流式执行任务: session_id=%s request_id=%s task=%s', session_id, request_id, task)
 
@@ -106,6 +112,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     session_id=session_id,
                     user_id=user_id,
                     llm_override=llm_override,
+                    llm_tier=llm_tier,
                     request_id=request_id,
                     conversation_store=runtime.get_conversation_store(),
                     orchestrator=runtime.create_execution_orchestrator(session_id=session_id),

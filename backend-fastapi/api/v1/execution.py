@@ -15,6 +15,7 @@ from dependencies import get_execution_service
 from schemas.execution import ExecuteRequest, CollaborateRequest
 from schemas.common import ok
 from services.agent_execution_service import get_agent_execution_service
+from .stream import _parse_llm_tier, _parse_selected_llm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,6 +33,8 @@ async def execute(request: ExecuteRequest):
         agent_execution_service = get_agent_execution_service()
 
         session_id = request.session_id or str(uuid.uuid4())
+        llm_override = _parse_selected_llm(request.selected_llm or '')
+        llm_tier = _parse_llm_tier(request.llm_tier or '')
         await asyncio.to_thread(
             lambda: store.get_session(session_id) or store.create_session(session_id=session_id, user_id=request.user_id)
         )
@@ -44,6 +47,8 @@ async def execute(request: ExecuteRequest):
                 task=request.task,
                 session_id=session_id,
                 user_id=request.user_id,
+                llm_override=llm_override,
+                llm_tier=llm_tier,
                 entrypoint='execute',
                 source='api',
                 persist_user_message=True,
@@ -57,6 +62,8 @@ async def execute(request: ExecuteRequest):
                 session_id=session_id,
                 preferred_agent=None,
                 user_id=request.user_id,
+                llm_override=llm_override,
+                llm_tier=llm_tier,
                 entrypoint='execute',
                 source='api',
                 persist_user_message=True,

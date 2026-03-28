@@ -2,8 +2,11 @@
 
 from types import SimpleNamespace
 
-from agents.config.models import AgentLLMConfig
+import pytest
+
+from agents.config.models import AgentLLMConfig, AgentConfig
 from agents.core.base import BaseAgent
+from agents.core.context import AgentContext
 from agents.core.models import AgentResponse
 from agents.streaming.stream_executor import StreamExecutor
 from model_adapter import ModelAdapter
@@ -67,6 +70,64 @@ class _CaptureProvider(AIProvider):
 
     def is_available(self):
         return True
+
+
+def test_agent_config_rejects_invalid_llm_tier_keys():
+    with pytest.raises(ValueError, match='llm_tiers 仅支持 fast/default/powerful'):
+        AgentConfig(
+            agent_name='demo',
+            llm=AgentLLMConfig(),
+            llm_tiers={'summary': AgentLLMConfig(model_name='demo-model')},
+        )
+
+
+def test_base_agent_prefers_requested_tier_then_falls_back_to_default_tier():
+    agent = _DummyAgent(
+        name='demo',
+        description='demo',
+        model_adapter=None,
+        agent_config=AgentConfig(
+            agent_name='demo',
+            llm=AgentLLMConfig(model_name='base-model'),
+            llm_tiers={
+                'default': AgentLLMConfig(model_name='default-model'),
+                'fast': AgentLLMConfig(model_name='fast-model'),
+            },
+        ),
+        system_config=None,
+    )
+    context = AgentContext(session_id='s1', requested_llm_tier='powerful')
+
+    config = agent.get_llm_config(context)
+
+    assert config['model_name'] == 'default-model'
+
+
+def test_base_agent_selected_llm_overrides_model_identity_only():
+    agent = _DummyAgent(
+        name='demo',
+        description='demo',
+        model_adapter=None,
+        agent_config=AgentConfig(
+            agent_name='demo',
+            llm=AgentLLMConfig(model_name='base-model', temperature=0.2),
+            llm_tiers={
+                'default': AgentLLMConfig(model_name='tier-model', temperature=0.1),
+            },
+        ),
+        system_config=None,
+    )
+    context = AgentContext(
+        session_id='s1',
+        llm_override={'provider': 'demo', 'provider_type': 'custom', 'model_name': 'override-model'},
+    )
+
+    config = agent.get_llm_config(context, task_type='default')
+
+    assert config['provider'] == 'demo'
+    assert config['provider_type'] == 'custom'
+    assert config['model_name'] == 'override-model'
+    assert config['temperature'] == 0.1
 
 
 def test_agent_llm_config_merges_thinking_budget_from_provider_defaults():

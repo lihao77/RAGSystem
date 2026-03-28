@@ -21,12 +21,14 @@ class AgentContext:
         session_id: str,
         user_id: Optional[str] = None,
         parent: Optional['AgentContext'] = None,
-        llm_override: Optional[Dict[str, Any]] = None
+        llm_override: Optional[Dict[str, Any]] = None,
+        requested_llm_tier: Optional[str] = None,
     ):
         self.session_id = session_id
         self.user_id = user_id
         # 请求级 LLM 覆盖：前端通过 llm-select-trigger 选择的模型
         self.llm_override = llm_override
+        self.requested_llm_tier = requested_llm_tier
 
         self.conversation_history: List[Message] = []
         self.metadata: Dict[str, Any] = {}
@@ -36,6 +38,8 @@ class AgentContext:
             self.level = parent.level + 1
             if llm_override is None and getattr(parent, 'llm_override', None):
                 self.llm_override = parent.llm_override
+            if requested_llm_tier is None and getattr(parent, 'requested_llm_tier', None):
+                self.requested_llm_tier = parent.requested_llm_tier
         else:
             self.parent = None
             self.level = 0
@@ -48,7 +52,8 @@ class AgentContext:
             session_id=self.session_id,
             user_id=self.user_id,
             parent=self,
-            llm_override=getattr(self, 'llm_override', None)
+            llm_override=getattr(self, 'llm_override', None),
+            requested_llm_tier=getattr(self, 'requested_llm_tier', None),
         )
 
     def add_message(

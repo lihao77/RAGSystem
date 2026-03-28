@@ -6,8 +6,18 @@
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict, model_validator
 from enum import Enum
+
+try:
+    from pydantic import BaseModel, Field, ConfigDict, model_validator
+    _PYDANTIC_V2 = True
+except ImportError:
+    from pydantic import BaseModel, Field, root_validator
+    ConfigDict = dict
+    model_validator = None
+    _PYDANTIC_V2 = False
+
+_ALLOWED_LLM_TIERS = {'fast', 'default', 'powerful'}
 
 
 class AgentLLMConfig(BaseModel):
@@ -259,21 +269,38 @@ class AgentMemoryConfig(BaseModel):
         description="允许归档的 memory scope 列表"
     )
 
-    @model_validator(mode='after')
-    def validate_scope_relationships(self):
-        allowed_scopes = set(self.allowed_scopes or [])
-        write_scopes = set(self.write_scopes or [])
-        archive_scopes = set(self.archive_scopes or [])
+    if _PYDANTIC_V2:
+        @model_validator(mode='after')
+        def validate_scope_relationships(self):
+            allowed_scopes = set(self.allowed_scopes or [])
+            write_scopes = set(self.write_scopes or [])
+            archive_scopes = set(self.archive_scopes or [])
 
-        invalid_write_scopes = sorted(write_scopes - allowed_scopes)
-        if invalid_write_scopes:
-            raise ValueError(f"write_scopes 必须是 allowed_scopes 的子集: {invalid_write_scopes}")
+            invalid_write_scopes = sorted(write_scopes - allowed_scopes)
+            if invalid_write_scopes:
+                raise ValueError(f"write_scopes 必须是 allowed_scopes 的子集: {invalid_write_scopes}")
 
-        invalid_archive_scopes = sorted(archive_scopes - allowed_scopes)
-        if invalid_archive_scopes:
-            raise ValueError(f"archive_scopes 必须是 allowed_scopes 的子集: {invalid_archive_scopes}")
+            invalid_archive_scopes = sorted(archive_scopes - allowed_scopes)
+            if invalid_archive_scopes:
+                raise ValueError(f"archive_scopes 必须是 allowed_scopes 的子集: {invalid_archive_scopes}")
 
-        return self
+            return self
+    else:
+        @root_validator(pre=False, allow_reuse=True)
+        def validate_scope_relationships(cls, values):
+            allowed_scopes = set(values.get('allowed_scopes') or [])
+            write_scopes = set(values.get('write_scopes') or [])
+            archive_scopes = set(values.get('archive_scopes') or [])
+
+            invalid_write_scopes = sorted(write_scopes - allowed_scopes)
+            if invalid_write_scopes:
+                raise ValueError(f"write_scopes 必须是 allowed_scopes 的子集: {invalid_write_scopes}")
+
+            invalid_archive_scopes = sorted(archive_scopes - allowed_scopes)
+            if invalid_archive_scopes:
+                raise ValueError(f"archive_scopes 必须是 allowed_scopes 的子集: {invalid_archive_scopes}")
+
+            return values
 
 
 class AgentDelegationConfig(BaseModel):
@@ -393,6 +420,23 @@ class AgentConfig(BaseModel):
         default_factory=dict,
         description="智能体特定的自定义参数"
     )
+
+    if _PYDANTIC_V2:
+        @model_validator(mode='after')
+        def validate_llm_tier_keys(self):
+            llm_tiers = self.llm_tiers or {}
+            invalid_keys = sorted(set(llm_tiers.keys()) - _ALLOWED_LLM_TIERS)
+            if invalid_keys:
+                raise ValueError(f"llm_tiers 仅支持 fast/default/powerful: {invalid_keys}")
+            return self
+    else:
+        @root_validator(pre=False, allow_reuse=True)
+        def validate_llm_tier_keys(cls, values):
+            llm_tiers = values.get('llm_tiers') or {}
+            invalid_keys = sorted(set(llm_tiers.keys()) - _ALLOWED_LLM_TIERS)
+            if invalid_keys:
+                raise ValueError(f"llm_tiers 仅支持 fast/default/powerful: {invalid_keys}")
+            return values
 
 
 class AgentConfigPreset(str, Enum):

@@ -14,6 +14,18 @@ class ExecuteRequest(BaseModel):
     session_id: Optional[str] = Field(None, description='会话 ID（可选，不提供则自动生成）')
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
     agent: Optional[str] = Field(None, description='指定智能体名称（可选）')
+    selected_llm: Optional[str] = Field(
+        None,
+        description='前端选择的 LLM，格式: provider|provider_type|model_name',
+        alias='selectedLLM',
+    )
+    llm_tier: Optional[str] = Field(
+        None,
+        description='请求级 LLM 分层：fast/default/powerful',
+        alias='llmTier',
+    )
+
+    model_config = {'populate_by_name': True}
 
 
 class StreamExecuteRequest(BaseModel):
@@ -25,6 +37,11 @@ class StreamExecuteRequest(BaseModel):
         None,
         description='前端选择的 LLM，格式: provider|provider_type|model_name',
         alias='selectedLLM',
+    )
+    llm_tier: Optional[str] = Field(
+        None,
+        description='请求级 LLM 分层：fast/default/powerful',
+        alias='llmTier',
     )
 
     model_config = {'populate_by_name': True}

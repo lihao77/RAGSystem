@@ -77,6 +77,10 @@ class _FakeStore:
     def update_run_steps_message_id(self, session_id, run_id, message_id):
         self.updated_run_steps.append((session_id, run_id, message_id))
 
+    def get_recent_messages(self, session_id, limit=20, thread_key=None):
+        del session_id, limit, thread_key
+        return []
+
 
 class _FakeRuntime:
     def __init__(self):
@@ -101,23 +105,28 @@ class _FakeRuntime:
         run_id=None,
         request_id=None,
         llm_override=None,
+        llm_tier=None,
         thread_key='root',
         parent_run_id=None,
         parent_call_id=None,
         call_id=None,
+        memory_query=None,
+        agent_name=None,
     ):
-        del session_id, limit, parent_run_id
+        del session_id, limit, parent_run_id, memory_query, agent_name
         return SimpleNamespace(
             metadata={
                 'run_id': run_id,
                 'request_id': request_id,
                 'llm_override': llm_override,
+                'requested_llm_tier': llm_tier,
                 'thread_key': thread_key,
                 'parent_call_id': parent_call_id,
                 'call_id': call_id,
             },
             user_id=user_id,
             llm_override=llm_override,
+            requested_llm_tier=llm_tier,
         )
 
 
@@ -212,6 +221,36 @@ def test_invoke_routed_agent_uses_default_entry_when_no_preferred_agent():
     assert runtime.store.messages[1]['metadata']['agent'] == 'demo_agent'
 
 
+
+
+def test_prepare_execution_propagates_llm_tier_to_context():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    handle = service.prepare_execution(
+        agent_name='demo_agent',
+        session_id='session-1',
+        llm_tier='powerful',
+    )
+
+    assert handle.context.requested_llm_tier == 'powerful'
+    assert handle.context.metadata['requested_llm_tier'] == 'powerful'
+
+
+def test_invoke_routed_agent_propagates_llm_tier_to_route_context():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    service.invoke_routed_agent(
+        task='hello',
+        session_id='session-1',
+        llm_tier='fast',
+        persist_user_message=True,
+        persist_final_answer=True,
+        visible_to_user=True,
+    )
+
+    assert runtime.orchestrator.route_calls[0]['context'].requested_llm_tier == 'fast'
 
 
 def test_persist_user_message_uses_mode_scoped_metadata():

@@ -244,6 +244,27 @@
               </label>
 
               <label class="form-item">
+                <span class="field-label-text">Thinking Budget Tokens</span>
+                <NumberInput :model-value="configForm.llm.thinking_budget_tokens" :min="1" :step="1" @update:model-value="configForm.llm.thinking_budget_tokens = $event" />
+              </label>
+
+              <label class="form-item">
+                <span class="field-label-text">Reasoning Effort</span>
+                <CustomSelect
+                  :model-value="configForm.llm.reasoning_effort || ''"
+                  :options="[
+                    { value: '', label: '未设置（使用 Provider 默认）' },
+                    { value: 'low', label: 'low' },
+                    { value: 'medium', label: 'medium' },
+                    { value: 'high', label: 'high' }
+                  ]"
+                  placeholder="未设置（使用 Provider 默认）"
+                  @update:model-value="configForm.llm.reasoning_effort = $event"
+                />
+                <small class="field-hint">仅对支持 reasoning_effort 的推理模型生效；留空则使用 Provider 默认值</small>
+              </label>
+
+              <label class="form-item">
                 <span class="field-label-text">Retry Attempts</span>
                 <NumberInput :model-value="configForm.llm.retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm.retry_attempts = $event" />
               </label>
@@ -258,10 +279,10 @@
           <section id="section-tiers" class="form-section">
             <div class="section-head">
               <h2>LLM 分层配置</h2>
-              <span>可选。fast 用于压缩等简单任务，powerful 用于复杂推理</span>
+              <span>可选。default 用于主推理，fast 用于压缩等简单任务，powerful 用于复杂推理</span>
             </div>
             <div class="section-body">
-              <div v-for="tier in ['fast', 'powerful']" :key="tier" class="tier-block">
+              <div v-for="tier in ['default', 'fast', 'powerful']" :key="tier" class="tier-block">
                 <div class="tier-block__head">
                   <button
                     type="button"
@@ -271,7 +292,7 @@
                   >
                     <span class="tier-toggle__copy">
                       <span class="tier-toggle__name">{{ tier }}</span>
-                      <span class="tier-toggle__desc">{{ tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</span>
+                      <span class="tier-toggle__desc">{{ tier === 'default' ? '主 ReAct 推理默认层' : tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</span>
                     </span>
                     <span class="tier-toggle__indicator" :class="{ active: !!configForm.llm_tiers[tier] }">
                       <span class="tier-toggle__indicator-icon">
@@ -320,6 +341,24 @@
                     <label class="form-item">
                       <span class="field-label-text">Max Context Tokens</span>
                       <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Thinking Budget Tokens</span>
+                      <NumberInput :model-value="configForm.llm_tiers[tier].thinking_budget_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].thinking_budget_tokens = $event" />
+                    </label>
+                    <label class="form-item">
+                      <span class="field-label-text">Reasoning Effort</span>
+                      <CustomSelect
+                        :model-value="configForm.llm_tiers[tier].reasoning_effort || ''"
+                        :options="[
+                          { value: '', label: '未设置（使用 Provider 默认）' },
+                          { value: 'low', label: 'low' },
+                          { value: 'medium', label: 'medium' },
+                          { value: 'high', label: 'high' }
+                        ]"
+                        placeholder="未设置（使用 Provider 默认）"
+                        @update:model-value="configForm.llm_tiers[tier].reasoning_effort = $event"
+                      />
                     </label>
                     <label class="form-item">
                       <span class="field-label-text">Retry Attempts</span>
@@ -814,6 +853,8 @@ function createEmptyLLM() {
     temperature: 0.7,
     max_completion_tokens: 4096,
     max_context_tokens: 128000,
+    thinking_budget_tokens: '',
+    reasoning_effort: '',
     retry_attempts: 10,
     retry_backoff_factor: 2.5
   };
@@ -827,7 +868,7 @@ function createEmptyForm() {
     enabled: true,
     default_entry: false,
     llm: createEmptyLLM(),
-    llm_tiers: { fast: null, powerful: null },
+    llm_tiers: { default: null, fast: null, powerful: null },
     tools: { enabled_tools: [] },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
@@ -851,6 +892,8 @@ function parseTierLLM(tier) {
     temperature: tier.temperature ?? 0.7,
     max_completion_tokens: tier.max_completion_tokens ?? 4096,
     max_context_tokens: tier.max_context_tokens ?? 128000,
+    thinking_budget_tokens: tier.thinking_budget_tokens ?? '',
+    reasoning_effort: tier.reasoning_effort || '',
     retry_attempts: tier.retry_attempts ?? 10,
     retry_backoff_factor: tier.retry_backoff_factor ?? 2.5
   };
@@ -872,10 +915,13 @@ function applyConfigToForm(config) {
       temperature: safeConfig.llm?.temperature ?? 0.7,
       max_completion_tokens: safeConfig.llm?.max_completion_tokens ?? 4096,
       max_context_tokens: safeConfig.llm?.max_context_tokens ?? 128000,
+      thinking_budget_tokens: safeConfig.llm?.thinking_budget_tokens ?? '',
+      reasoning_effort: safeConfig.llm?.reasoning_effort || '',
       retry_attempts: safeConfig.llm?.retry_attempts ?? 10,
       retry_backoff_factor: safeConfig.llm?.retry_backoff_factor ?? 2.5
     },
     llm_tiers: {
+      default: parseTierLLM(safeConfig.llm_tiers?.default),
       fast: parseTierLLM(safeConfig.llm_tiers?.fast),
       powerful: parseTierLLM(safeConfig.llm_tiers?.powerful)
     },
@@ -931,6 +977,8 @@ function buildPayload() {
     temperature: configForm.value.llm.temperature === '' ? null : Number(configForm.value.llm.temperature),
     max_completion_tokens: configForm.value.llm.max_completion_tokens === '' ? null : Number(configForm.value.llm.max_completion_tokens),
     max_context_tokens: configForm.value.llm.max_context_tokens === '' ? null : Number(configForm.value.llm.max_context_tokens),
+    thinking_budget_tokens: configForm.value.llm.thinking_budget_tokens === '' ? null : Number(configForm.value.llm.thinking_budget_tokens),
+    reasoning_effort: configForm.value.llm.reasoning_effort || null,
     retry_attempts: configForm.value.llm.retry_attempts === '' ? null : Number(configForm.value.llm.retry_attempts),
     retry_backoff_factor: configForm.value.llm.retry_backoff_factor === '' ? null : Number(configForm.value.llm.retry_backoff_factor)
   };
@@ -944,12 +992,15 @@ function buildPayload() {
       temperature: tier.temperature === '' ? null : Number(tier.temperature),
       max_completion_tokens: tier.max_completion_tokens === '' ? null : Number(tier.max_completion_tokens),
       max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens),
+      thinking_budget_tokens: tier.thinking_budget_tokens === '' ? null : Number(tier.thinking_budget_tokens),
+      reasoning_effort: tier.reasoning_effort || null,
       retry_attempts: tier.retry_attempts === '' ? null : Number(tier.retry_attempts),
       retry_backoff_factor: tier.retry_backoff_factor === '' ? null : Number(tier.retry_backoff_factor)
     };
   }
   const tiers = configForm.value.llm_tiers;
   const builtTiers = {};
+  if (tiers.default) builtTiers.default = buildTier(tiers.default);
   if (tiers.fast) builtTiers.fast = buildTier(tiers.fast);
   if (tiers.powerful) builtTiers.powerful = buildTier(tiers.powerful);
   merged.llm_tiers = Object.keys(builtTiers).length ? builtTiers : null;
@@ -1055,7 +1106,7 @@ async function handleSave() {
     showToast('请选择主 LLM 的 Provider');
     return;
   }
-  for (const tier of ['fast', 'powerful']) {
+  for (const tier of ['default', 'fast', 'powerful']) {
     const t = configForm.value.llm_tiers[tier];
     if (t && !t.provider) {
       showToast(`请选择 ${tier} 层级的 Provider，或禁用该层级`);
@@ -1104,6 +1155,8 @@ function handleTierProviderChange(tier, key) {
   if (p.temperature != null) t.temperature = Number(p.temperature);
   if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
   if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
+  if (p.thinking_budget_tokens != null) t.thinking_budget_tokens = Number(p.thinking_budget_tokens);
+  if (p.reasoning_effort != null) t.reasoning_effort = p.reasoning_effort;
   if (p.retry_attempts != null) t.retry_attempts = Number(p.retry_attempts);
   if (p.retry_backoff_factor != null) t.retry_backoff_factor = Number(p.retry_backoff_factor);
 }
@@ -1182,6 +1235,12 @@ function syncLLMWithProviderDefaults({ keepCurrentModel = true } = {}) {
   }
   if (provider.max_context_tokens != null) {
     configForm.value.llm.max_context_tokens = Number(provider.max_context_tokens);
+  }
+  if (provider.thinking_budget_tokens != null) {
+    configForm.value.llm.thinking_budget_tokens = Number(provider.thinking_budget_tokens);
+  }
+  if (provider.reasoning_effort != null) {
+    configForm.value.llm.reasoning_effort = provider.reasoning_effort;
   }
   if (provider.retry_attempts != null) {
     configForm.value.llm.retry_attempts = Number(provider.retry_attempts);

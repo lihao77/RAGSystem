@@ -47,7 +47,7 @@ class AgentConfigService:
     def list_configs(self) -> Dict[str, Dict[str, Any]]:
         configs = self._config_manager.get_all_configs()
         return {
-            name: config.model_dump()
+            name: self._normalize_config_dump(config)
             for name, config in configs.items()
         }
 
@@ -55,7 +55,7 @@ class AgentConfigService:
         config = self._config_manager.get_config(agent_name)
         if config is None:
             raise AgentConfigServiceError(f'智能体 "{agent_name}" 不存在', status_code=404)
-        return config.model_dump()
+        return self._normalize_config_dump(config)
 
     def replace_config(self, agent_name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         payload = dict(data or {})
@@ -68,7 +68,7 @@ class AgentConfigService:
 
         self._config_manager.set_config(config, save=True)
         self._reload_agents_safely()
-        return config.model_dump()
+        return self._normalize_config_dump(config)
 
     def patch_config(self, agent_name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         payload = data or {}
@@ -100,7 +100,7 @@ class AgentConfigService:
             raise AgentConfigServiceError(f'智能体 "{agent_name}" 不存在', status_code=404)
 
         self._reload_agents_safely()
-        return updated_config.model_dump()
+        return self._normalize_config_dump(updated_config)
 
     def delete_config(self, agent_name: str) -> None:
         if self._config_manager.get_config(agent_name) is None:
@@ -123,7 +123,7 @@ class AgentConfigService:
             raise AgentConfigServiceError(f'智能体 "{agent_name}" 不存在', status_code=404)
 
         self._reload_agents_safely()
-        return config.model_dump()
+        return self._normalize_config_dump(config)
 
     def export_config(self, agent_name: str, format_name: str = 'yaml') -> Dict[str, str]:
         config_str = self._config_manager.export_config(agent_name, format=format_name)
@@ -144,7 +144,7 @@ class AgentConfigService:
             raise AgentConfigServiceError(str(error), status_code=400) from error
 
         self._reload_agents_safely()
-        return config.model_dump()
+        return self._normalize_config_dump(config)
 
     def validate_config(self, agent_name: str) -> Dict[str, Any]:
         valid, error = self._config_manager.validate_config(agent_name)
@@ -217,6 +217,15 @@ class AgentConfigService:
             }
             for skill in all_skills
         ]
+
+    @staticmethod
+    def _normalize_config_dump(config: AgentConfig) -> Dict[str, Any]:
+        payload = config.model_dump()
+        llm_tiers = payload.get('llm_tiers') or {}
+        if llm_tiers and 'default' not in llm_tiers:
+            llm_tiers['default'] = payload.get('llm') or {}
+            payload['llm_tiers'] = llm_tiers
+        return payload
 
     @staticmethod
     def _merge_model_config(current_config, patch_data: Optional[Dict[str, Any]], model_cls):

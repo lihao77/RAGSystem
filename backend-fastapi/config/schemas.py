@@ -170,22 +170,26 @@ class ConfigValidator:
 
         if self.agents:
             for agent_name, agent_cfg in self.agents.items():
-                llm = getattr(agent_cfg, "llm", None)
-                if not llm:
-                    continue
-                p, pt = getattr(llm, "provider", None), getattr(llm, "provider_type", None)
-                if p is not None and pt is None:
-                    warnings.append(
-                        f"智能体 '{agent_name}' 已设置 llm.provider 但未设置 llm.provider_type，请补全 provider_type 以便正确解析复合键"
-                    )
-                    continue
-                if p is None or pt is None:
-                    continue
-                composite = f"{p}_{pt}"
-                if composite not in provider_keys:
-                    warnings.append(
-                        f"智能体 '{agent_name}' 引用的 provider 不存在: '{composite}'"
-                    )
+                llm_configs = [('llm', getattr(agent_cfg, 'llm', None))]
+                llm_tiers = getattr(agent_cfg, 'llm_tiers', None) or {}
+                for tier_name, tier_cfg in llm_tiers.items():
+                    llm_configs.append((f'llm_tiers.{tier_name}', tier_cfg))
+                for config_name, llm in llm_configs:
+                    if not llm:
+                        continue
+                    p, pt = getattr(llm, 'provider', None), getattr(llm, 'provider_type', None)
+                    if p is not None and pt is None:
+                        warnings.append(
+                            f"智能体 '{agent_name}' 已设置 {config_name}.provider 但未设置 {config_name}.provider_type，请补全 provider_type 以便正确解析复合键"
+                        )
+                        continue
+                    if p is None or pt is None:
+                        continue
+                    composite = f"{p}_{pt}"
+                    if composite not in provider_keys:
+                        warnings.append(
+                            f"智能体 '{agent_name}' 引用的 provider 不存在: '{composite}'（来源 {config_name}）"
+                        )
 
         used = set()
         if self.vectorizers:
@@ -196,6 +200,9 @@ class ConfigValidator:
                 llm = getattr(agent_cfg, "llm", None)
                 if llm and getattr(llm, "provider", None) and getattr(llm, "provider_type", None):
                     used.add(f"{llm.provider}_{llm.provider_type}")
+                for tier_cfg in (getattr(agent_cfg, 'llm_tiers', None) or {}).values():
+                    if getattr(tier_cfg, 'provider', None) and getattr(tier_cfg, 'provider_type', None):
+                        used.add(f"{tier_cfg.provider}_{tier_cfg.provider_type}")
         # 系统配置（config.yaml）中的 llm / embedding 也算作已使用
         try:
             from config import get_config

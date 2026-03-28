@@ -50,11 +50,24 @@ class _FakeStore:
     def update_run_steps_message_id(self, session_id, run_id, message_id):
         self.updated.append((session_id, run_id, message_id))
 
+    def get_recent_messages(self, session_id, limit=20, thread_key=None):
+        del session_id, limit, thread_key
+        return list(self.messages)
+
 
 class _FakeRegistry:
     def __init__(self):
         self.finished = []
         self.cleaned = []
+
+    def register_task(self, **kwargs):
+        return 'task-1'
+
+    def mark_running(self, task_id, thread=None):
+        return None
+
+    def set_task_persistent_subscriptions(self, task_id, subscription_ids, event_bus):
+        return None
 
     def finish_task(self, task_id, status):
         self.finished.append((task_id, status))
@@ -73,9 +86,72 @@ class _FakeAgentExecutionService:
         return SimpleNamespace(response=self.response)
 
 
+class _FakePreparedExecutionService(_FakeAgentExecutionService):
+    def __init__(self, response):
+        super().__init__(response)
+        self.prepare_calls = []
+
+    def persist_user_message(self, **kwargs):
+        return {'id': 'msg-1', 'seq': 1}
+
+    def prepare_execution(self, **kwargs):
+        self.prepare_calls.append(kwargs)
+        return SimpleNamespace(
+            context=SimpleNamespace(
+                user_id='user-1',
+                llm_override=kwargs.get('llm_override'),
+                requested_llm_tier=kwargs.get('llm_tier'),
+                metadata={
+                    'request_id': kwargs.get('request_id'),
+                    'thread_key': 'root',
+                    'conversation_scope': 'root',
+                    'call_id': 'call-root',
+                    'parent_call_id': None,
+                    'cancel_event': kwargs.get('cancel_event'),
+                    'requested_llm_tier': kwargs.get('llm_tier'),
+                },
+            ),
+            agent=_FakeAgent(),
+            run_id=kwargs.get('run_id', 'run-1'),
+            thread_key='root',
+            child_agent_id=None,
+        )
+
+
 class _FakeAgent:
     def __init__(self, name='orchestrator_agent'):
         self.name = name
+
+
+def test_stream_adapter_passes_llm_tier_into_prepare_execution():
+    response = AgentResponse(
+        success=True,
+        content='final content',
+        agent_name='orchestrator_agent',
+        execution_time=0.1,
+    )
+    service = _FakePreparedExecutionService(response)
+    adapter = AgentExecutionAdapter(execution_service=SimpleNamespace(get_task_registry=lambda: _FakeRegistry(), get_session_manager=lambda: SimpleNamespace(get_or_create=lambda run_id, session_id=None: _FakeEventBus()), submit=lambda *args, **kwargs: SimpleNamespace(thread=None)), agent_execution_service=service)
+    conversation_store = SimpleNamespace(
+        get_session=lambda session_id: {'id': session_id},
+        create_session=lambda **kwargs: kwargs,
+    )
+    orchestrator = SimpleNamespace(resolve_default_entry_agent=lambda: _FakeAgent())
+
+    result = adapter.start_stream_execution(
+        task='hello',
+        session_id='session-1',
+        user_id='user-1',
+        llm_override={'provider': 'demo', 'provider_type': 'openai', 'model_name': 'gpt-5.4'},
+        llm_tier='powerful',
+        request_id='req-1',
+        conversation_store=conversation_store,
+        orchestrator=orchestrator,
+        history_loader=lambda context, session_id, limit: None,
+    )
+
+    assert result.started is True
+    assert service.prepare_calls[0]['llm_tier'] == 'powerful'
 
 
 def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_write():
