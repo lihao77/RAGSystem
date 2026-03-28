@@ -193,6 +193,11 @@ class AgentConfigManager:
         """
         return self._configs.copy()
 
+    def _clear_other_default_entries(self, target_agent_name: str) -> None:
+        for name, config in self._configs.items():
+            if name != target_agent_name and getattr(config, 'default_entry', False):
+                config.default_entry = False
+
     def set_config(self, config: AgentConfig, save: bool = True):
         """
         设置智能体配置
@@ -202,6 +207,8 @@ class AgentConfigManager:
             save: 是否立即保存到文件
         """
         # 保存到内存
+        if getattr(config, 'default_entry', False):
+            self._clear_other_default_entries(config.agent_name)
         self._configs[config.agent_name] = config
 
         # 保存到文件
@@ -257,6 +264,9 @@ class AgentConfigManager:
             config.custom_params = custom_params  # 完整替换，不使用 update
         if enabled is not None:
             config.enabled = enabled
+
+        if getattr(config, 'default_entry', False):
+            self._clear_other_default_entries(agent_name)
 
         # 保存
         self.set_config(config, save=save)
