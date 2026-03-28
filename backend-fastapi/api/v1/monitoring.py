@@ -138,7 +138,7 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
             history_tokens = 0
             if session_id:
                 from dependencies import get_agent_runtime_service
-                context = runtime_service.build_context(session_id=session_id)
+                context = runtime_service.build_context(session_id=session_id, agent_name=entry_agent.name)
                 messages = entry_agent.context_pipeline.inspect_messages(system_prompt, context)
                 # 跳过第一条 system prompt（已单独统计）
                 for msg in messages[1:]:

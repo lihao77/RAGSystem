@@ -4,7 +4,6 @@
 
 from typing import Dict, Optional
 
-from agents.config.loader import _MEMORY_DEFAULT_TOOLS
 from tools.contracts.permissions import RiskLevel, ToolPermission
 from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
 from tools.tool_registry import get_tool_registry
@@ -153,8 +152,16 @@ def _get_effective_direct_tool_names(agent_config) -> set[str]:
 
     enabled_tools = set(agent_config.tools.enabled_tools if agent_config.tools else [])
     memory_config = getattr(agent_config, 'memory', None)
-    if memory_config and getattr(memory_config, 'enabled', False):
-        enabled_tools.update(set(getattr(memory_config, 'enabled_tools', []) or []) or _MEMORY_DEFAULT_TOOLS)
+    if memory_config:
+        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or [])
+        write_scopes = set(getattr(memory_config, 'write_scopes', []) or [])
+        archive_scopes = set(getattr(memory_config, 'archive_scopes', []) or [])
+        if allowed_scopes:
+            enabled_tools.update({'list_memory_index', 'read_memory_entry'})
+        if write_scopes:
+            enabled_tools.add('write_memory')
+        if archive_scopes:
+            enabled_tools.add('archive_memory')
     return enabled_tools
 
 

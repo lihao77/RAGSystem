@@ -164,18 +164,6 @@ class AgentConfigService:
         ]
 
     def get_memory_config_metadata(self):
-        memory_tool_names = ['list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory']
-        tool_defs = []
-        for tool_name in memory_tool_names:
-            tool = self._tool_registry.get_tool_by_name(tool_name) or {}
-            function_def = tool.get('function', {})
-            tool_defs.append({
-                'name': tool_name,
-                'display_name': tool_name.replace('_', ' ').title(),
-                'description': function_def.get('description', ''),
-                'usage_contract': list(function_def.get('usage_contract', []) or []),
-            })
-
         scope_defs = [
             {
                 'name': 'project',
@@ -208,7 +196,6 @@ class AgentConfigService:
         ]
 
         return {
-            'tools': tool_defs,
             'scopes': scope_defs,
         }
 

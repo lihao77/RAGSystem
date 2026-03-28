@@ -184,7 +184,7 @@ export async function createAgent(payload) {
 
 /**
  * 获取 Memory 配置元数据
- * @returns {Promise<Object>} Memory 工具与 scope 说明
+ * @returns {Promise<Object>} Memory scope 说明
  */
 export async function getMemoryConfigMetadata() {
   try {
@@ -201,7 +201,7 @@ export async function getMemoryConfigMetadata() {
       throw new Error(result.message || 'Failed to fetch memory config metadata');
     }
 
-    return result.data || { tools: [], scopes: [] };
+    return result.data || { scopes: [] };
   } catch (error) {
     console.error('Error fetching memory config metadata:', error);
     throw error;

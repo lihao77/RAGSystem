@@ -157,10 +157,10 @@ class ContextPipeline:
         scope_capabilities = metadata.get('memory_scope_capabilities') or {}
         sections: list[str] = []
 
-        if scope_capabilities.get('enabled'):
-            allowed_scopes = scope_capabilities.get('allowed_scopes') or []
-            write_scopes = scope_capabilities.get('write_scopes') or []
-            archive_scopes = scope_capabilities.get('archive_scopes') or []
+        allowed_scopes = scope_capabilities.get('allowed_scopes') or []
+        write_scopes = scope_capabilities.get('write_scopes') or []
+        archive_scopes = scope_capabilities.get('archive_scopes') or []
+        if allowed_scopes or write_scopes or archive_scopes:
             sections.append(
                 "[Memory Scope Capabilities]\n"
                 f"- 可读取 scope: {', '.join(allowed_scopes) if allowed_scopes else '无'}\n"

@@ -159,7 +159,26 @@ class AgentApiRuntimeService:
             logger.debug('execution orchestrator 未覆盖默认入口: session_id=%s', session_id)
         return orchestrator
 
-    # ── 会话历史（原 AgentChatApplication） ───────────────
+    def _get_memory_workspace_key(self, session_id: str | None) -> Optional[str]:
+        workspace_root = self._get_session_workspace_root(session_id)
+        if not workspace_root:
+            return None
+        return Path(workspace_root).resolve().name
+
+    def _build_memory_scope_specs(self, *, memory_config, session_id: str, agent_name: Optional[str]):
+        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
+        workspace_key = self._get_memory_workspace_key(session_id)
+        scope_specs = []
+        if 'project' in allowed_scopes:
+            scope_specs.append(('project', {'scope': 'project'}))
+        if 'session' in allowed_scopes:
+            scope_specs.append(('session', {'scope': 'session', 'session_id': session_id}))
+        if 'agent' in allowed_scopes and agent_name:
+            scope_specs.append(('agent', {'scope': 'agent', 'agent_name': agent_name}))
+        if 'workspace' in allowed_scopes and workspace_key:
+            scope_specs.append(('workspace', {'scope': 'workspace', 'workspace_key': workspace_key}))
+        return scope_specs
+
 
     def load_history_into_context(
         self,
@@ -232,11 +251,13 @@ class AgentApiRuntimeService:
             agent_config = get_config_manager().get_config(agent_name)
             memory_config = getattr(agent_config, 'memory', None) if agent_config else None
         if memory_config:
+            allowed_scopes = list(getattr(memory_config, 'allowed_scopes', []) or [])
+            write_scopes = list(getattr(memory_config, 'write_scopes', []) or [])
+            archive_scopes = list(getattr(memory_config, 'archive_scopes', []) or [])
             context.metadata['memory_scope_capabilities'] = {
-                'enabled': bool(getattr(memory_config, 'enabled', False)),
-                'allowed_scopes': list(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session']),
-                'write_scopes': list(getattr(memory_config, 'write_scopes', []) or []),
-                'archive_scopes': list(getattr(memory_config, 'archive_scopes', []) or []),
+                'allowed_scopes': allowed_scopes,
+                'write_scopes': write_scopes,
+                'archive_scopes': archive_scopes,
             }
         self.load_history_into_context(
             context,
@@ -244,38 +265,41 @@ class AgentApiRuntimeService:
             limit=limit,
             thread_key=resolved_thread_key,
         )
-        if memory_config and getattr(memory_config, 'enabled', False) and getattr(memory_config, 'auto_inject', True):
-            project_memory = self._memory_store.load_index_head(scope='project')
-            session_memory = self._memory_store.load_index_head(scope='session', session_id=session_id)
-            if project_memory or session_memory:
-                context.metadata['memory_indices'] = {
-                    'project': project_memory,
-                    'session': session_memory,
-                }
-            if memory_query is not None:
-                allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
-                scope_chain = []
-                if 'project' in allowed_scopes:
-                    scope_chain.append({'scope': 'project'})
-                if 'session' in allowed_scopes:
-                    scope_chain.append({'scope': 'session', 'session_id': session_id})
-                if scope_chain:
-                    retrieved = self._memory_store.search_memories(
-                        scope_chain=scope_chain,
-                        query=memory_query,
-                        limit=5,
-                    )
-                    context.metadata['retrieved_memories'] = [
-                        {
-                            'name': item.name,
-                            'description': item.description,
-                            'scope': item.scope,
-                            'memory_type': item.memory_type,
-                            'file_name': item.file_name,
-                            'file_path': item.file_path,
-                        }
-                        for item in retrieved
-                    ]
+        memory_enabled = bool(memory_config and (
+            (getattr(memory_config, 'allowed_scopes', []) or [])
+            or (getattr(memory_config, 'write_scopes', []) or [])
+            or (getattr(memory_config, 'archive_scopes', []) or [])
+        ))
+        if memory_enabled and getattr(memory_config, 'auto_inject', True):
+            scope_specs = self._build_memory_scope_specs(
+                memory_config=memory_config,
+                session_id=session_id,
+                agent_name=agent_name,
+            )
+            memory_indices = {}
+            for scope_name, scope_spec in scope_specs:
+                content = self._memory_store.load_index_head(**scope_spec)
+                if content:
+                    memory_indices[scope_name] = content
+            if memory_indices:
+                context.metadata['memory_indices'] = memory_indices
+            if memory_query is not None and scope_specs:
+                retrieved = self._memory_store.search_memories(
+                    scope_chain=[scope_spec for _, scope_spec in scope_specs],
+                    query=memory_query,
+                    limit=5,
+                )
+                context.metadata['retrieved_memories'] = [
+                    {
+                        'name': item.name,
+                        'description': item.description,
+                        'scope': item.scope,
+                        'memory_type': item.memory_type,
+                        'file_name': item.file_name,
+                        'file_path': item.file_path,
+                    }
+                    for item in retrieved
+                ]
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────

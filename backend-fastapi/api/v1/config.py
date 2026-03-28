@@ -176,7 +176,7 @@ async def list_available_tools():
 
 @router.get('/memory-metadata')
 async def get_memory_config_metadata():
-    """获取 Memory 配置页所需的工具与 scope 元数据。"""
+    """获取 Memory 配置页所需的 scope 元数据。"""
     try:
         metadata = await asyncio.to_thread(_get_service().get_memory_config_metadata)
         return ok(data=metadata, message='Memory 配置元数据')

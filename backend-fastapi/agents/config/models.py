@@ -6,7 +6,7 @@
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from enum import Enum
 
 
@@ -242,17 +242,9 @@ class AgentMCPConfig(BaseModel):
 class AgentMemoryConfig(BaseModel):
     """智能体的 memory 配置。"""
 
-    enabled: bool = Field(
-        default=False,
-        description="是否为当前 Agent 启用 memory 能力"
-    )
     auto_inject: bool = Field(
         default=True,
         description="是否在构建上下文时自动注入 MEMORY.md 索引头部"
-    )
-    enabled_tools: List[str] = Field(
-        default_factory=list,
-        description="启用的 memory 工具列表，留空表示使用默认 memory 工具集"
     )
     allowed_scopes: List[str] = Field(
         default_factory=lambda: ['project', 'session'],
@@ -266,6 +258,22 @@ class AgentMemoryConfig(BaseModel):
         default_factory=lambda: ['session'],
         description="允许归档的 memory scope 列表"
     )
+
+    @model_validator(mode='after')
+    def validate_scope_relationships(self):
+        allowed_scopes = set(self.allowed_scopes or [])
+        write_scopes = set(self.write_scopes or [])
+        archive_scopes = set(self.archive_scopes or [])
+
+        invalid_write_scopes = sorted(write_scopes - allowed_scopes)
+        if invalid_write_scopes:
+            raise ValueError(f"write_scopes 必须是 allowed_scopes 的子集: {invalid_write_scopes}")
+
+        invalid_archive_scopes = sorted(archive_scopes - allowed_scopes)
+        if invalid_archive_scopes:
+            raise ValueError(f"archive_scopes 必须是 allowed_scopes 的子集: {invalid_archive_scopes}")
+
+        return self
 
 
 class AgentDelegationConfig(BaseModel):

@@ -14,7 +14,6 @@ from services.memory_store import MemoryStore
 
 
 _MEMORY_STORE = MemoryStore()
-_MEMORY_DEFAULT_TOOLS = {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory'}
 
 
 def _resolve_memory_config(agent_name: Optional[str]):
@@ -26,11 +25,13 @@ def _resolve_memory_config(agent_name: Optional[str]):
 
 def _ensure_memory_enabled(tool_name: str, agent_name: Optional[str]):
     memory_config = _resolve_memory_config(agent_name)
-    if memory_config is None or not getattr(memory_config, 'enabled', False):
+    if memory_config is None:
         return f"当前 Agent 未启用 memory 能力: {agent_name or 'unknown'}"
-    enabled_tools = set(getattr(memory_config, 'enabled_tools', []) or []) or _MEMORY_DEFAULT_TOOLS
-    if tool_name not in enabled_tools:
-        return f"当前 Agent 未授权 memory 工具: {tool_name}"
+    allowed_scopes = list(getattr(memory_config, 'allowed_scopes', []) or [])
+    write_scopes = list(getattr(memory_config, 'write_scopes', []) or [])
+    archive_scopes = list(getattr(memory_config, 'archive_scopes', []) or [])
+    if not (allowed_scopes or write_scopes or archive_scopes):
+        return f"当前 Agent 未启用 memory 能力: {agent_name or 'unknown'}"
     return None
 
 

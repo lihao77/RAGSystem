@@ -419,39 +419,13 @@
           <section id="section-memory" class="form-section">
             <div class="section-head">
               <h2>记忆</h2>
-              <span>按 Agent 控制记忆注入、工具启用与 scope 权限</span>
+              <span>按 Agent 配置记忆索引注入与 scope 权限；memory 工具会由 scope 自动推导</span>
             </div>
             <div class="section-body skills-body">
               <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.memory.enabled" type="checkbox" />
-                <span>启用记忆</span>
-              </label>
-              <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.memory.auto_inject" type="checkbox" :disabled="!configForm.memory.enabled" />
+                <input v-model="configForm.memory.auto_inject" type="checkbox" />
                 <span>自动注入记忆索引</span>
               </label>
-
-              <div class="subsection-title">记忆工具</div>
-              <div class="toggle-grid">
-                <div
-                  v-for="tool in memoryToolMeta"
-                  :key="tool.name"
-                  class="toggle-card"
-                  :class="{ active: configForm.memory.enabled_tools.includes(tool.name), disabled: !configForm.memory.enabled }"
-                  @click="configForm.memory.enabled && toggleMemoryTool(tool.name, !configForm.memory.enabled_tools.includes(tool.name))"
-                >
-                  <div class="toggle-card__indicator">
-                    <svg v-if="configForm.memory.enabled_tools.includes(tool.name)"
-                      xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                      viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  </div>
-                  <div class="toggle-card__name">{{ tool.display_name || tool.name }}</div>
-                  <div class="toggle-card__desc">{{ tool.description || tool.name }}</div>
-                </div>
-              </div>
 
               <div class="subsection-title">Scope 权限</div>
               <div class="toggle-grid">
@@ -459,7 +433,6 @@
                   v-for="scope in memoryScopeMeta"
                   :key="scope.name"
                   class="toggle-card memory-scope-card"
-                  :class="{ disabled: !configForm.memory.enabled }"
                 >
                   <div class="memory-scope-card__header">
                     <div class="toggle-card__name">{{ scope.name }}</div>
@@ -470,7 +443,6 @@
                       <input
                         :checked="configForm.memory.allowed_scopes.includes(scope.name)"
                         type="checkbox"
-                        :disabled="!configForm.memory.enabled"
                         @click.stop
                         @change="toggleMemoryScope('allowed_scopes', scope.name, $event.target.checked)"
                       />
@@ -480,7 +452,6 @@
                       <input
                         :checked="configForm.memory.write_scopes.includes(scope.name)"
                         type="checkbox"
-                        :disabled="!configForm.memory.enabled"
                         @click.stop
                         @change="toggleMemoryScope('write_scopes', scope.name, $event.target.checked)"
                       />
@@ -490,7 +461,6 @@
                       <input
                         :checked="configForm.memory.archive_scopes.includes(scope.name)"
                         type="checkbox"
-                        :disabled="!configForm.memory.enabled"
                         @click.stop
                         @change="toggleMemoryScope('archive_scopes', scope.name, $event.target.checked)"
                       />
@@ -797,7 +767,6 @@ const tools = ref([]);
 const skills = ref([]);
 const mcpServers = ref([]);
 const providers = ref([]);
-const memoryToolMeta = ref([]);
 const memoryScopeMeta = ref([]);
 
 const configForm = ref(createEmptyForm());
@@ -829,45 +798,6 @@ function getProviderModels(provider) {
 const providerModelOptions = computed(() => {
   return getProviderModels(selectedProviderEntry.value);
 });
-
-const memoryToolFallbackMeta = [
-  {
-    name: 'list_memory_index',
-    display_name: 'List Memory Index',
-    description: '读取指定作用域的 MEMORY.md 索引头部，让 Agent 先了解可用记忆，再决定是否读取具体记忆文件。',
-    usage_contract: [
-      '先调用 list_memory_index 再决定是否读取具体记忆文件',
-      '该工具只返回 MEMORY.md 头部，不返回所有记忆正文'
-    ]
-  },
-  {
-    name: 'read_memory_entry',
-    display_name: 'Read Memory Entry',
-    description: '按作用域与文件名读取单条记忆正文，供 Agent 在看到 MEMORY.md 索引后按需展开细节。',
-    usage_contract: [
-      '通常先通过 list_memory_index 或 prompt 中给出的 memory 文件路径定位 file_name，再调用本工具',
-      '该工具只读取一条具体记忆，不做全文检索'
-    ]
-  },
-  {
-    name: 'write_memory',
-    display_name: 'Write Memory',
-    description: '为指定作用域新增或更新一条记忆。memory 会写入 Markdown 文件并同步更新该作用域的 MEMORY.md 索引。',
-    usage_contract: [
-      '写入前应确认该记忆属于长期可复用信息，而不是一次性临时任务状态',
-      '写入后系统会自动同步更新该作用域的 MEMORY.md 索引'
-    ]
-  },
-  {
-    name: 'archive_memory',
-    display_name: 'Archive Memory',
-    description: '归档指定作用域下的单条记忆，并同步更新 MEMORY.md 索引。',
-    usage_contract: [
-      '仅归档确认已过时或不再需要主动使用的记忆',
-      '归档前先确认目标 scope 与文件名无误，避免误归档'
-    ]
-  }
-];
 
 const memoryScopeFallbackMeta = [
   { name: 'project', description: '项目级长期记忆，适合跨会话复用的偏好、约束与背景事实。' },
@@ -902,9 +832,7 @@ function createEmptyForm() {
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
     memory: {
-      enabled: false,
       auto_inject: true,
-      enabled_tools: [],
       allowed_scopes: ['project', 'session'],
       write_scopes: ['session'],
       archive_scopes: ['session']
@@ -962,9 +890,7 @@ function applyConfigToForm(config) {
       enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
     },
     memory: {
-      enabled: safeConfig.memory?.enabled ?? false,
       auto_inject: safeConfig.memory?.auto_inject ?? true,
-      enabled_tools: Array.isArray(safeConfig.memory?.enabled_tools) ? [...safeConfig.memory.enabled_tools] : [],
       allowed_scopes: Array.isArray(safeConfig.memory?.allowed_scopes) ? [...safeConfig.memory.allowed_scopes] : ['project', 'session'],
       write_scopes: Array.isArray(safeConfig.memory?.write_scopes) ? [...safeConfig.memory.write_scopes] : ['session'],
       archive_scopes: Array.isArray(safeConfig.memory?.archive_scopes) ? [...safeConfig.memory.archive_scopes] : ['session']
@@ -1045,10 +971,7 @@ function buildPayload() {
   };
 
   merged.memory = {
-    ...(merged.memory || {}),
-    enabled: !!configForm.value.memory.enabled,
     auto_inject: !!configForm.value.memory.auto_inject,
-    enabled_tools: configForm.value.memory.enabled_tools,
     allowed_scopes: configForm.value.memory.allowed_scopes,
     write_scopes: configForm.value.memory.write_scopes,
     archive_scopes: configForm.value.memory.archive_scopes
@@ -1084,9 +1007,6 @@ async function loadInitialData() {
     skills.value = Array.isArray(skillList) ? skillList : [];
     mcpServers.value = Array.isArray(mcpServerList) ? mcpServerList : [];
     providers.value = Array.isArray(providerList) ? providerList : [];
-    memoryToolMeta.value = Array.isArray(memoryMetadata?.tools) && memoryMetadata.tools.length
-      ? memoryMetadata.tools
-      : memoryToolFallbackMeta;
     memoryScopeMeta.value = Array.isArray(memoryMetadata?.scopes) && memoryMetadata.scopes.length
       ? memoryMetadata.scopes
       : memoryScopeFallbackMeta;
@@ -1215,21 +1135,20 @@ function toggleMcpServer(name, checked) {
   }
 }
 
-function toggleMemoryTool(name, checked) {
-  const list = configForm.value.memory.enabled_tools;
-  if (checked && !list.includes(name)) {
-    list.push(name);
-  } else if (!checked) {
-    configForm.value.memory.enabled_tools = list.filter(item => item !== name);
-  }
-}
-
 function toggleMemoryScope(field, scope, checked) {
   const list = configForm.value.memory[field];
   if (checked && !list.includes(scope)) {
     list.push(scope);
   } else if (!checked) {
     configForm.value.memory[field] = list.filter(item => item !== scope);
+  }
+
+  if (field === 'allowed_scopes' && !checked) {
+    configForm.value.memory.write_scopes = configForm.value.memory.write_scopes.filter(item => item !== scope);
+    configForm.value.memory.archive_scopes = configForm.value.memory.archive_scopes.filter(item => item !== scope);
+  }
+  if ((field === 'write_scopes' || field === 'archive_scopes') && checked && !configForm.value.memory.allowed_scopes.includes(scope)) {
+    configForm.value.memory.allowed_scopes.push(scope);
   }
 }
 

@@ -30,7 +30,7 @@ class _FakeRegistry:
         return None
 
 
-def test_agent_loader_injects_memory_tools_by_default():
+def test_agent_loader_injects_read_memory_tools_when_read_scopes_present():
     loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
     loader._tool_registry = _FakeRegistry()
     agent_config = SimpleNamespace(
@@ -39,17 +39,19 @@ def test_agent_loader_injects_memory_tools_by_default():
         skills=None,
         mcp=None,
         delegation=None,
-        memory=SimpleNamespace(enabled=True, enabled_tools=[], allowed_scopes=['project', 'session']),
+        memory=SimpleNamespace(allowed_scopes=['project', 'session'], write_scopes=[], archive_scopes=[]),
     )
 
     tools, skills = loader._resolve_tools_and_skills(agent_config)
 
     tool_names = {tool['function']['name'] for tool in tools}
-    assert {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory', 'request_user_input'} <= tool_names
+    assert {'list_memory_index', 'read_memory_entry', 'request_user_input'} <= tool_names
+    assert 'write_memory' not in tool_names
+    assert 'archive_memory' not in tool_names
     assert skills == []
 
 
-def test_agent_loader_injects_only_configured_memory_tool_subset():
+def test_agent_loader_injects_write_and_archive_memory_tools_from_scope_permissions():
     loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
     loader._tool_registry = _FakeRegistry()
     agent_config = SimpleNamespace(
@@ -58,20 +60,17 @@ def test_agent_loader_injects_only_configured_memory_tool_subset():
         skills=None,
         mcp=None,
         delegation=None,
-        memory=SimpleNamespace(enabled=True, enabled_tools=['read_memory_entry'], allowed_scopes=['project', 'session']),
+        memory=SimpleNamespace(allowed_scopes=['project'], write_scopes=['session'], archive_scopes=['agent']),
     )
 
     tools, skills = loader._resolve_tools_and_skills(agent_config)
 
     tool_names = {tool['function']['name'] for tool in tools}
-    assert {'read_file', 'read_memory_entry', 'request_user_input'} <= tool_names
-    assert 'list_memory_index' not in tool_names
-    assert 'write_memory' not in tool_names
-    assert 'archive_memory' not in tool_names
+    assert {'read_file', 'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory', 'request_user_input'} <= tool_names
     assert skills == []
 
 
-def test_agent_loader_skips_memory_tools_when_memory_disabled():
+def test_agent_loader_skips_memory_tools_when_all_memory_scopes_are_empty():
     loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
     loader._tool_registry = _FakeRegistry()
     agent_config = SimpleNamespace(
@@ -80,7 +79,7 @@ def test_agent_loader_skips_memory_tools_when_memory_disabled():
         skills=None,
         mcp=None,
         delegation=None,
-        memory=SimpleNamespace(enabled=False, enabled_tools=[], allowed_scopes=['project', 'session']),
+        memory=SimpleNamespace(allowed_scopes=[], write_scopes=[], archive_scopes=[]),
     )
 
     tools, _ = loader._resolve_tools_and_skills(agent_config)

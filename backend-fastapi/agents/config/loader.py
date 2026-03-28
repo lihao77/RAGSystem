@@ -14,8 +14,6 @@ from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
 
-_MEMORY_DEFAULT_TOOLS = {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory'}
-
 
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
@@ -258,9 +256,16 @@ class AgentLoader:
     def _get_effective_direct_tool_names(self, agent_config) -> set[str]:
         enabled_tools = set(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []) or [])
         memory_config = getattr(agent_config, 'memory', None)
-        if memory_config and getattr(memory_config, 'enabled', False):
-            memory_tools = set(getattr(memory_config, 'enabled_tools', []) or []) or _MEMORY_DEFAULT_TOOLS
-            enabled_tools.update(memory_tools)
+        if memory_config:
+            allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or [])
+            write_scopes = set(getattr(memory_config, 'write_scopes', []) or [])
+            archive_scopes = set(getattr(memory_config, 'archive_scopes', []) or [])
+            if allowed_scopes:
+                enabled_tools.update({'list_memory_index', 'read_memory_entry'})
+            if write_scopes:
+                enabled_tools.add('write_memory')
+            if archive_scopes:
+                enabled_tools.add('archive_memory')
         return enabled_tools
 
     def _resolve_tools_and_skills(self, agent_config):

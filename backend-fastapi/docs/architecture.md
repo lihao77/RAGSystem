@@ -270,27 +270,32 @@ memory 存储结构：
 - system prompt 还会显式注入当前 Agent 的 memory scope 能力摘要（可读取 / 可写入 / 可归档哪些 scope），降低误操作风险
 
 当前默认 scope chain：
-- 仅当 Agent 的 `memory.enabled=true` 且 `memory.auto_inject=true` 时，按 `allowed_scopes` 自动注入索引
+- 仅当存在任一 memory scope 权限，且 `memory.auto_inject=true` 时，按 `allowed_scopes` 自动注入索引
+- `project` 注入项目级 MEMORY.md
+- `session` 注入当前会话 MEMORY.md
+- `agent` 仅注入当前正在运行的 `agent_name` 对应私有 MEMORY.md
+- `workspace` 仅在当前 session 配置了 `metadata.workspace_root` 时，按其目录名派生 `workspace_key` 并注入对应 MEMORY.md
+- 自动检索相关记忆（`memory_query`）时，scope chain 也与上述规则保持一致
 - 默认推荐 `project -> session`
 
-memory 工具不再对所有 Agent 默认开放，而是像 Skill 一样由配置决定：
-- `memory.enabled`
-- `memory.enabled_tools`
-- `memory.allowed_scopes`
-- `memory.write_scopes`
-- `memory.archive_scopes`
+memory 工具不再对所有 Agent 默认开放，而是完全由 memory 配置中的 scope 权限自动推导：
+- 三个 scope 列表（`allowed_scopes` / `write_scopes` / `archive_scopes`）任一非空：memory 视为启用
+- `allowed_scopes` 非空：自动注入 `list_memory_index`、`read_memory_entry`
+- `write_scopes` 非空：额外自动注入 `write_memory`
+- `archive_scopes` 非空：额外自动注入 `archive_memory`
+- 前端和配置层不再维护 `memory.enabled` 或 `memory.enabled_tools`
 
 运行时的 direct tool 判定已统一到底层 effective direct tools：
 - 产品/配置层仍保留独立的 `memory` 配置区；
-- 但在 `AgentLoader._resolve_tools_and_skills()` 与 `tools/permissions.py:is_tool_enabled()` 中，会把 `memory.enabled=true` 时的 `memory.enabled_tools`（为空则回落默认四件套）折叠并入 effective direct tools；
-- 因此 memory 工具在底层启用语义上与 `tools.enabled_tools` 保持一致，不再出现 loader 已注入但 permissions 未启用的分叉；
-- 这类统一只影响运行时判定，不要求把 memory 工具物理写回 `tools.enabled_tools` 持久化配置。
+- 但在 `AgentLoader._resolve_tools_and_skills()` 与 `tools/permissions.py` 中，memory 工具是否注入完全由三个 scope 列表自动推导；
+- `tools/local/memory_tools.py` 运行时只检查“是否存在任一 memory scope 权限”与对应 scope 权限，不再依赖独立总开关；
+- 因此 prompt 可见工具、loader 注入结果与实际可调用权限保持一致，不再出现配置层/运行时的双重开关分叉。
 
-memory 仍保留双层授权：
-- 外层：`tools/permissions.py` 负责工具入口是否对当前 Agent 开放；
-- 内层：`tools/local/memory_tools.py` 继续负责 `allowed_scopes` / `write_scopes` / `archive_scopes` 等 scope 级细粒度限制。
-- prompt 层：`AgentApiRuntimeService.build_context()` 会把 scope 能力写入 `context.metadata['memory_scope_capabilities']`，`ContextPipeline._build_memory_block()` 再把它渲染进 system prompt，明确告知 Agent 当前可操作哪些 scope。
-- 配置页：`AgentConfigService.get_memory_config_metadata()` 为前端 Memory 区块提供独立元数据，包含 memory 工具描述、usage_contract 与各 scope 说明，避免前端硬编码成仅显示工具名；前端 UI 进一步按 scope 聚合展示读取 / 写入 / 归档三类权限，而不是重复三组 scope 列表。
+memory 当前采用纯 scope 授权模型：
+- `allowed_scopes` / `write_scopes` / `archive_scopes` 直接决定读取 / 写入 / 归档能力；
+- `auto_inject` 只控制是否自动注入记忆索引与检索结果，不承担启停 memory 的职责；
+- prompt 层：`AgentApiRuntimeService.build_context()` 会把 scope 能力写入 `context.metadata['memory_scope_capabilities']`，`ContextPipeline._build_memory_block()` 再把它渲染进 system prompt，明确告知 Agent 当前可操作哪些 scope；
+- 配置页：`AgentConfigService.get_memory_config_metadata()` 仅向前端提供 scope 说明，前端 UI 只管理 scope 权限与 `auto_inject`，不再渲染“启用记忆”总开关。
 
 预留但未默认启用：
 - `agent`

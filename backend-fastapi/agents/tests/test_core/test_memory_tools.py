@@ -17,7 +17,7 @@ def test_memory_tools_list_read_write_and_archive(monkeypatch):
         monkeypatch.setattr('tools.local.memory_tools._MEMORY_STORE', store)
         monkeypatch.setattr(
             'tools.local.memory_tools.get_config_manager',
-            lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=True, enabled_tools=[], allowed_scopes=['project', 'session'], write_scopes=['session'], archive_scopes=['session']))),
+            lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=['project', 'session'], write_scopes=['session'], archive_scopes=['session']))),
         )
 
         write_result = write_memory(
@@ -48,3 +48,15 @@ def test_memory_tools_list_read_write_and_archive(monkeypatch):
         assert '用户偏好-使用中文' not in index_after_archive.content
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_memory_tools_reject_calls_when_all_memory_scopes_are_empty(monkeypatch):
+    monkeypatch.setattr(
+        'tools.local.memory_tools.get_config_manager',
+        lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=[], write_scopes=[], archive_scopes=[]))),
+    )
+
+    result = list_memory_index(scope='session', session_id='session-1', current_agent_name='orchestrator_agent')
+
+    assert result.success is False
+    assert '未启用 memory 能力' in result.summary
