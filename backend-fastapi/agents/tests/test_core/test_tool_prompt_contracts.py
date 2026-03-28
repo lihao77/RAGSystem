@@ -35,22 +35,9 @@ def _fake_agent(**overrides):
         ),
         orchestrator=SimpleNamespace(agents={}),
         _format_skills_description=lambda: BaseAgent._format_skills_description(agent),
-        _build_prompt_intro=lambda: (agent.base_prompt or "").strip(),
         _build_agent_specific_prompt_sections=lambda: [],
-        _has_tool=lambda tool_name: any(
-            tool.get('function', {}).get('name') == tool_name
-            for tool in (agent.available_tools or [])
-            if isinstance(tool, dict)
-        ),
-        _get_code_callable_tool_names=lambda: [
-            tool.get('function', {}).get('name')
-            for tool in (agent.available_tools or [])
-            if isinstance(tool, dict)
-            and tool.get('function', {}).get('name')
-            and tool.get('function', {}).get('name') != 'execute_code'
-            and 'code_execution' in list(tool.get('function', {}).get('allowed_callers') or ['direct'])
-        ],
         _get_available_agent_tools=lambda: [],
+        _build_prompt_hook=lambda method_name, *args: core_prompting._invoke_prompt_hook(agent, method_name, *args),
     )
     for key, value in overrides.items():
         setattr(agent, key, value)
@@ -236,6 +223,18 @@ def test_react_prompt_includes_skill_tool_contracts():
     assert "### execute_skill_script" in prompt
 
 
+def test_output_format_uses_neutral_tool_example_instead_of_first_direct_tool():
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+    output_section = prompt.split("## 输出格式", 1)[1].split("向用户追问缺失信息：", 1)[0]
+
+    assert '<tool name="tool_name">' in output_section
+    assert '<param_name>value</param_name>' in output_section
+    assert '<tool name="execute_skill_script">' not in output_section
+
+
 def test_base_prompt_includes_execute_code_capability_section_when_tool_is_available():
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[execute_code_tool])
@@ -246,13 +245,86 @@ def test_base_prompt_includes_execute_code_capability_section_when_tool_is_avail
     assert "当前没有额外工具可从代码中调用" in prompt
 
 
-def test_base_prompt_omits_execute_code_capability_section_without_execute_code_tool():
+def test_prompt_only_renders_examples_for_whitelisted_complex_tools():
+    read_file_tool = _tool_from_registry("read_file")
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[read_file_tool, execute_skill_script_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    read_file_section = prompt.split("### read_file", 1)[1].split("### execute_skill_script", 1)[0]
+    skill_section = prompt.split("### execute_skill_script", 1)[1].split("## 工具调用总规则", 1)[0]
+
+    assert "**示例**:" in read_file_section
+    assert '<file_path space="transient">tmp.txt</file_path>' in read_file_section
+    assert "**示例**:" not in skill_section
+
+
+def test_execute_code_prompt_uses_neutral_call_tool_example():
+    execute_code_tool = _decorated_tool("execute_code")
+    fake_agent = _fake_agent(available_tools=[execute_code_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+    code_section = prompt.split("## execute_code 中可调用的工具", 1)[1].split("## 子 Agent 委派", 1)[0] if "## 子 Agent 委派" in prompt else prompt.split("## execute_code 中可调用的工具", 1)[1]
+
+    assert "call_tool('tool_name'" in code_section
+    assert "assess_flood_risk" not in code_section
+    assert "['content']" in code_section
+
+
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
     prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
     assert "## execute_code 中可调用的工具" not in prompt
+
+
+def test_prompt_shrinks_skill_descriptions_and_whitelisted_examples():
+    activate_skill_tool = _decorated_tool("activate_skill")
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    execute_bash_tool = _decorated_tool("execute_bash")
+    read_file_tool = _tool_from_registry("read_file")
+    write_file_tool = _tool_from_registry("write_file")
+    execute_code_tool = _decorated_tool("execute_code")
+    fake_agent = _fake_agent(
+        available_tools=[activate_skill_tool, execute_skill_script_tool, execute_bash_tool, read_file_tool, write_file_tool, execute_code_tool]
+    )
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    activate_section = prompt.split("### activate_skill", 1)[1].split("### execute_skill_script", 1)[0]
+    execute_skill_section = prompt.split("### execute_skill_script", 1)[1].split("### execute_bash", 1)[0]
+
+    assert "每个任务通常只需激活一个 Skill" not in activate_section
+    assert "调用格式" not in execute_skill_section
+    assert prompt.count('<tool name="execute_bash">') == 2
+    assert prompt.count('<tool name="read_file">') == 2
+    assert prompt.count('<tool name="write_file">') == 2
+    assert prompt.count('<tool name="execute_code">') == 1
+
+
+    execute_skill_script_tool = _decorated_tool("execute_skill_script")
+    fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    assert "先判断是否能直接回答" in prompt
+    assert "结果足够支持答案时，必须停止继续调用并输出 `<final_answer>`" in prompt
+    assert "不要无变化重复同一失败调用" in prompt
+    assert "补参数、缩小范围、换工具、改为追问用户" in prompt
+    assert "读取已有文件优先 `read_file`" in prompt
+    assert "修改代码或文件前，先读取相关内容并理解当前实现" in prompt
+    assert "只做当前任务需要的最小修改" in prompt
+    assert "高风险动作，要先确认再执行" in prompt
+    assert "能一句说清就不要三句" in prompt
+
+    assert prompt.index("## 工作目标") < prompt.index("## 决策与回答原则")
+    assert prompt.index("## 决策与回答原则") < prompt.index("## 可直接调用的工具")
+    assert prompt.index("## 可直接调用的工具") < prompt.index("## 领域知识 Skills")
+    assert prompt.index("## 领域知识 Skills") < prompt.index("## 输出格式")
+    assert prompt.index("## 输出格式") < prompt.index("## 执行规则")
+    assert prompt.index("## 执行规则") < prompt.index("### 数据文件传递规则")
 
 
 def test_base_prompt_uses_single_brace_result_placeholder_syntax():
@@ -279,6 +351,8 @@ def test_orchestrator_prompt_examples_use_call_agent_and_roster():
         agent_config=SimpleNamespace(delegation=SimpleNamespace(enabled_agents=["chart_agent"])),
         orchestrator=SimpleNamespace(agents={"chart_agent": chart_agent}),
     )
+    orchestrator_agent._build_prompt_goal_section = lambda: "## 工作目标\n\n主编排器目标"
+    orchestrator_agent._build_prompt_principles_section = lambda: "## 编排原则\n\n主编排器原则"
     orchestrator_agent._build_agent_specific_prompt_sections = lambda: orchestrator_prompting.build_orchestrator_specific_sections(orchestrator_agent)
 
     prompt = core_prompting.build_shared_system_prompt(orchestrator_agent)
@@ -289,7 +363,16 @@ def test_orchestrator_prompt_examples_use_call_agent_and_roster():
     assert "chart_agent" in prompt
     assert "图表智能体" in prompt
     assert "图表与地图可视化" in prompt
+    assert "委派决策顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent" in prompt
+    assert "`send_message(child_agent_id, message)` 续接既有子 Agent" in prompt
+    assert "只有任务确实需要目标 Agent 的专长或独立上下文时，才使用 `call_agent`" in prompt
+    assert "子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标" in prompt
     assert "invoke_agent_" not in prompt
+
+    assert prompt.index("## 编排原则") < prompt.index("## 子 Agent 委派")
+    assert prompt.index("## 子 Agent 委派") < prompt.index("## 当前可委派子 Agent 列表")
+    assert prompt.index("## 当前可委派子 Agent 列表") < prompt.index("## 委派规则")
+    assert prompt.index("## 委派规则") < prompt.index("### 数据文件传递规则")
 
 
 def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_extensions():

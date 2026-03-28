@@ -200,12 +200,17 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
     orchestration_section = f"""## 委派规则
 
 - {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足时，才委派子 Agent。'}
+- 委派决策顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent
 - `agent_name` 必须从上面的 allowlist 中选择
+- 只有任务确实需要目标 Agent 的专长或独立上下文时，才使用 `call_agent`
+- 若一个子 Agent 足以完成任务，就不要拆成多个子 Agent；只有自然存在前后依赖或明显并行收益时才做多 Agent 编排
 - `task` 必须写完整上下文；首次创建子 Agent 用 `call_agent`
 - 不确定之前的 `child_agent_id` 时，先用 `list_child_agents(agent_name?)` 找回
-- 已有 `child_agent_id` 时，用 `send_message(child_agent_id, message)` 续接既有子 Agent
+- 已有合适 `child_agent_id` 时，优先用 `send_message(child_agent_id, message)` 续接既有子 Agent，而不是重新创建新会话
 - `context_hint` 用于补充约束、口径、输出格式或边界
 - 需要链式传递时，优先使用 `{{result_N.content}}` 或 `{{result_N.metadata.child_agent_id}}`
+- 子 Agent 已返回足够结果时，主编排器应直接收束并输出最终答案；不要为了“再润色一下”继续委派
+- 子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标；不要原样重发同一委派任务
 
 创建子 Agent：
 <tools>

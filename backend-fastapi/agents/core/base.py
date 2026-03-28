@@ -183,43 +183,6 @@ class BaseAgent(ABC):
             lines.append("")
         return "\n".join(lines)
 
-    @staticmethod
-    def _invoke_prompt_hook(agent: Any, method_name: str, *args: Any) -> Any:
-        instance_method = getattr(agent, method_name, None)
-        if callable(instance_method):
-            return instance_method(*args)
-        method = getattr(type(agent), method_name, None)
-        if callable(method):
-            return method(agent, *args)
-        return getattr(BaseAgent, method_name)(agent, *args)
-
-    def _build_prompt_intro(self) -> str:
-        return (self.base_prompt or "").strip()
-
-    def _has_tool(self, tool_name: str) -> bool:
-        return any(
-            tool.get('function', {}).get('name') == tool_name
-            for tool in getattr(self, 'available_tools', []) or []
-            if isinstance(tool, dict)
-        )
-
-    def _get_code_callable_tool_names(self) -> List[str]:
-        tool_names: List[str] = []
-        for tool in getattr(self, 'available_tools', []) or []:
-            if not isinstance(tool, dict):
-                continue
-            func = tool.get('function', {})
-            tool_name = func.get('name')
-            if not tool_name or tool_name == 'execute_code':
-                continue
-            allowed_callers = list(func.get('allowed_callers') or ['direct'])
-            if 'code_execution' in allowed_callers:
-                tool_names.append(tool_name)
-        return tool_names
-
-    def _build_code_execution_prompt_section(self) -> str:
-        return core_prompting.build_code_execution_prompt_section(self)
-
     def _build_agent_specific_prompt_sections(self) -> List[str]:
         return []
 

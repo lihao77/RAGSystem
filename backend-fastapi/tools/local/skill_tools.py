@@ -129,19 +129,9 @@ def _unwrap_script_response(payload):
     name="activate_skill",
     source="skill",
     description=(
-        "激活一个 Skill 并加载其主文件内容（SKILL.md）。\n\n"
-        "**使用时机**：\n"
-        "- 当你判断用户任务匹配某个 Skill 的适用场景时，首先激活该 Skill\n"
-        "- 激活后你将获得该 Skill 的完整指导流程和工作方法\n\n"
-        "**效果**：\n"
-        "- 加载 SKILL.md 主文件内容\n"
-        "- 系统记录该 Skill 已激活，便于上下文管理\n"
-        "- 返回 Skill 的完整指导内容\n\n"
-        "**后续操作**：\n"
-        "- 根据主文件中的提示，使用 `load_skill_resource` 加载详细文档\n"
-        "- 根据主文件中的指示，使用 `execute_skill_script` 执行脚本\n\n"
-        "**重要**：每个任务通常只需激活一个 Skill。"
-        "如果需要切换到不同的 Skill，再次调用此工具。"
+        "激活一个 Skill 并加载其主文件内容（SKILL.md）。"
+        "通常作为使用 Skill 的第一步；返回的 main_content 可直接作为后续执行依据。"
+        "若主文件提到额外资源，使用 `load_skill_resource`；若主文件要求执行脚本，使用 `execute_skill_script`。"
     ),
     parameters={
         "type": "object",
@@ -246,15 +236,9 @@ def activate_skill(skill_name):
     name="load_skill_resource",
     source="skill",
     description=(
-        "加载 Skill 的引用文件内容（Additional Resources）。\n\n"
-        "**前置条件**：\n"
-        "- 你需要先使用 `activate_skill` 激活 Skill\n"
-        "- 然后根据主文件（SKILL.md）中的提示，加载详细的引用文件\n\n"
-        "**使用场景**：\n"
-        "- 当主文件提到某个引用文件时（如 [report-template.md](report-template.md)）\n"
-        "- 需要查看详细的模板、指南、示例等\n\n"
-        "**重要**：此工具用于加载**额外的引用文件**，不是主文件。"
-        "主文件通过 `activate_skill` 加载。"
+        "加载 Skill 的引用文件内容（Additional Resources）。"
+        "应在 `activate_skill` 之后调用，并使用主文件中提到的相对文件名。"
+        "此工具用于补充文档，不用于加载主文件。"
     ),
     parameters={
         "type": "object",
@@ -360,22 +344,8 @@ def load_skill_resource(skill_name, resource_file):
     name="execute_skill_script",
     source="skill",
     description=(
-        "执行 Skill 的实用脚本（零上下文执行）。"
-        "只返回脚本的输出结果，不加载代码到上下文。\n\n"
-        "**调用格式**：使用 XML 子标签传递参数，例如：\n"
-        "<tool name=\"execute_skill_script\">\n"
-        "  <skill_name>kg-advanced-query</skill_name>\n"
-        "  <script_name>query.py</script_name>\n"
-        "  <arguments>\n"
-        "    <item>--cypher</item>\n"
-        "    <item>MATCH (n) RETURN n</item>\n"
-        "    <item>--limit</item>\n"
-        "    <item>100</item>\n"
-        "  </arguments>\n"
-        "</tool>\n\n"
-        "**arguments 格式说明**：\n"
-        "- 每个命令行参数用 `<item>` 包裹，多行/含特殊字符的内容用 CDATA：`<item><![CDATA[...]]></item>`\n"
-        "- arguments 也可直接传入 JSON 数组字符串，系统会自动解析"
+        "执行 Skill 的实用脚本（零上下文执行），只返回脚本结果，不把代码加载进上下文。"
+        "参数通过 `skill_name`、`script_name` 和 `arguments` 传入；arguments 必须是字符串数组。"
     ),
     parameters={
         "type": "object",
@@ -572,11 +542,8 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
     name="get_skill_info",
     source="skill",
     description=(
-        "获取某个 Skill 的基础信息，不加载主文件内容。\n\n"
-        "**使用场景**：\n"
-        "- 先确认某个 Skill 是否存在\n"
-        "- 查看 Skill 的描述、资源数量、是否带脚本\n"
-        "- 在正式激活前做轻量探查"
+        "获取某个 Skill 的基础信息，不加载主文件内容。"
+        "适合在正式激活前做轻量探查，例如确认 Skill 是否存在、描述和是否带脚本。"
     ),
     parameters={
         "type": "object",

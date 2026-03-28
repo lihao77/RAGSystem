@@ -933,15 +933,6 @@ def preview_data_structure(
     examples=[
         {
             "input": {
-                "content": "{\"city\": \"Nanning\"}",
-            },
-            "result_hint": {
-                "file_path": "/abs/path/to/output.json",
-                "display_path": "./data/sessions/<session_id>/transient/output_xxx.json",
-            },
-        },
-        {
-            "input": {
                 "content": "temporary text",
                 "file_path": "tmp.txt",
             },
@@ -1091,14 +1082,6 @@ def write_file(
         "数据文件（JSON/GeoJSON/CSV）已有路径时，优先用 preview_data_structure 确认结构；需要确认数据完整性时可用 read_file（带 limit）检查，但确认后只传递文件路径，不要把内容输出到 final_answer",
     ],
     examples=[
-        {
-            "input": {
-                "file_path": "./data/output.json",
-            },
-            "result_hint": {
-                "content": "{\"city\": \"Nanning\"}",
-            },
-        },
         {
             "input": {
                 "file_path": "tmp.txt",

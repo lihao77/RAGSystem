@@ -343,18 +343,6 @@ def _request_bash_command_approval(
             "input": {"command": "grep -rn '关键词' .", "working_dir": "."},
             "xml_attrs": {"working_dir": {"space": "workspace"}},
         },
-        {
-            "input": {"command": "find . -name '*.json' | head -20", "working_dir": "."},
-            "xml_attrs": {"working_dir": {"space": "transient"}},
-        },
-        {
-            "input": {"command": "ls -1", "working_dir": "logs"},
-            "xml_attrs": {"working_dir": {"space": "workspace"}},
-        },
-        {
-            "input": {"command": "find . -name '*.md' | wc -l", "working_dir": "."},
-            "xml_attrs": {"working_dir": {"space": "exports"}},
-        },
     ],
 )
 def execute_bash(

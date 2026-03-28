@@ -550,7 +550,6 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
     ],
     examples=[
         {"input": {"code": "text = open('sample.json', 'r', encoding='utf-8').read()\ndata = json.loads(text)\nresult = {'name': data.get('name')}", "description": "在沙箱内读取 JSON 文件并解析"}},
-        {"input": {"code": "request_write_approval('result.txt', '保存处理结果')\nwith open('result.txt', 'w', encoding='utf-8') as f:\n    f.write('done')\nresult = {'saved_to': path_ops.join(SANDBOX_DIR, 'result.txt')}", "description": "在沙箱内申请写权限后保存结果文件"}},
     ],
 )
 def execute_code_sandbox(code: str, description: str = "", timeout: int = 30, agent_config=None, event_bus=None, user_role=None, session_id: Optional[str] = None, cancel_event=None):

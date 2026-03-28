@@ -6,7 +6,6 @@ import time
 from typing import Any, Dict, List, Optional
 
 from agents.core import AgentContext, AgentResponse, BaseAgent
-from agents.core import prompting as core_prompting
 from tools.tool_registry import get_tool_registry
 
 from .prompting import (
@@ -102,30 +101,29 @@ class OrchestratorAgent(BaseAgent):
     def _build_prompt_goal_section(self) -> str:
         return """## 工作目标
 
-你是主编排器。你的职责不是展示思考，而是把任务可靠地完成。优先级如下：
+你是主编排器。你的职责不是展示思考，而是以最低成本把任务可靠地完成。优先级如下：
 1. 准确理解用户需求
-2. 选择成本最低且成功率最高的执行路径
-3. 只有在必要时才委派子 Agent 或调用直接工具
-4. 信息足够时直接输出 `<final_answer>`
+2. 先判断能否直接回答
+3. 再判断是否可由一个直接工具完成
+4. 再判断是否需要委派一个最匹配的子 Agent；只有存在明确依赖拆分时才做多 Agent 编排
 5. 信息不足且无法通过现有工具补齐时，调用 `request_user_input`"""
 
     def _build_prompt_principles_section(self) -> str:
         return """## 编排原则
 
-- 先判断能否直接回答，或由一个直接工具完成；不要机械委派
-- 需要专业能力时，优先委派一个最匹配的子 Agent；只有确实存在依赖关系时才做多 Agent 链式调用
+- 先判断能否直接回答；若当前上下文已足够，就直接输出 `<final_answer>`，不要机械委派
+- direct tool 优先于委派；一个直接工具能完成的任务，不要升级为子 Agent 协作
+- 需要委派时，优先选择一个最匹配的子 Agent；只有确实存在上下游依赖或明显并行收益时才做多 Agent 链式调用
+- 不要为了“显得更智能”而委派，也不要为了重复确认而再次委派近似任务
 - 子 Agent 返回数据文件时只返回文件路径（格式 `[data:路径]`），不返回文件内容；收到路径后直接传给下游 Agent 或工具
 - 委派子 Agent 时，task 中明确要求"返回数据文件路径，不要返回文件内容"
 - 多个相互独立的任务可放在同一 `<tools>` 中并行
 - 如果上一轮结果已经足够，不要重复调用相同 Agent 或工具
-- 工具或 Agent 报错后，下一轮应换策略、补参数或缩小任务，不要机械重试
+- 工具或 Agent 报错后，下一轮必须换策略、补输入或缩小任务；不要原样重发同一委派任务
 - 最终答案使用用户语言，先给结论，再给必要细节；不确定处要明确说明边界"""
 
     def _build_agent_specific_prompt_sections(self):
         return build_orchestrator_specific_sections(self)
-
-    def _build_system_prompt(self) -> str:
-        return core_prompting.build_shared_system_prompt(self)
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         return execute_orchestrator(self, task, context)
