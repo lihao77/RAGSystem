@@ -128,8 +128,21 @@
         <!-- 右侧：主题切换 -->
         <div class="right-controls glass-card">
           <button
+            type="button"
+            class="session-export-btn version-btn top-action-btn"
+            :title="currentSessionId ? '查看当前会话文件' : '上传文件将自动创建会话'"
+            @click="sessionFilesDrawerVisible = true"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span class="version-label">会话文件</span>
+          </button>
+          <button
             @click="exportCurrentSession"
-            class="session-export-btn version-btn"
+            class="session-export-btn version-btn top-action-btn"
             :disabled="!currentSessionId || isExportingSession"
             :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
           >
@@ -410,6 +423,20 @@
       @close="closeExecutionDrawer"
     />
 
+    <SessionFilesDrawer
+      :visible="sessionFilesDrawerVisible"
+      :session-id="currentSessionId || ''"
+      :files="sessionFiles"
+      :loading="sessionFilesLoading"
+      :uploading="uploadingSessionFiles"
+      :deleting-file-id="deletingSessionFileId || ''"
+      @close="sessionFilesDrawerVisible = false"
+      @refresh="currentSessionId && loadSessionFiles(currentSessionId)"
+      @upload="handleSessionFileSelect"
+      @download="downloadSessionFileItem"
+      @delete="removeSessionFile"
+    />
+
     <!-- 确认对话框 -->
     <ConfirmDialog
       ref="confirmDialogRef"
@@ -457,10 +484,12 @@ import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
 import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
+import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import LLMSelector from '../components/LLMSelector.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import { getAllAgentConfigs } from '../api/agentConfig';
+import { listSessionFiles, uploadSessionFiles, deleteSessionFile, getSessionFileDownloadUrl } from '../api/sessionFiles';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
@@ -558,6 +587,11 @@ const historyError = ref('');
 const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const currentSessionId = ref(null);
+const sessionFiles = ref([]);
+const sessionFilesLoading = ref(false);
+const uploadingSessionFiles = ref(false);
+const deletingSessionFileId = ref(null);
+const sessionFileInputRef = ref(null);
 const pendingWorkspaceRoot = ref('');
 const pendingEntryAgent = ref('');
 const entryAgentOptions = ref([]);
@@ -584,6 +618,7 @@ const contextUsage = ref({ used: 0, max: 0 });
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const execDrawerVisible = ref(false);
+const sessionFilesDrawerVisible = ref(false);
 const execDiagnosticsLoading = ref(false);
 const execDiagnosticsError = ref('');
 const sessionTaskInfo = ref(null);
@@ -616,11 +651,13 @@ const handlePopState = () => {
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     loadSessionMessages(sessionId);
+    loadSessionFiles(sessionId);
   }
   if (!sessionId) {
     invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
+    sessionFiles.value = [];
     pendingWorkspaceRoot.value = '';
     pendingEntryAgent.value = '';
     messages.value = [];
@@ -752,6 +789,7 @@ const startNewChat = () => {
   invalidateActiveStream();
   clearExecutionState();
   messages.value = [];
+  sessionFiles.value = [];
   inputMessage.value = '';
   pendingWorkspaceRoot.value = '';
   pendingEntryAgent.value = '';
@@ -1426,6 +1464,66 @@ const _cleanupReconnectPlaceholder = (msgIndex, sessionId) => {
   }
 };
 
+const loadSessionFiles = async (sessionId) => {
+  if (!sessionId) {
+    sessionFiles.value = [];
+    return;
+  }
+  sessionFilesLoading.value = true;
+  try {
+    const res = await listSessionFiles(sessionId);
+    if (currentSessionId.value !== sessionId) return;
+    sessionFiles.value = res.files || [];
+  } catch (error) {
+    showToast(error.message || '加载会话文件失败');
+  } finally {
+    sessionFilesLoading.value = false;
+  }
+};
+
+const triggerSessionFileInput = () => {
+  sessionFileInputRef.value?.click();
+};
+
+const handleSessionFileSelect = async (filesOrEvent) => {
+  const files = filesOrEvent?.target?.files || filesOrEvent;
+  if (!files?.length) return;
+  const sessionId = await ensureSession();
+  if (!sessionId) return;
+  const fd = new FormData();
+  for (const file of files) fd.append('files', file);
+  uploadingSessionFiles.value = true;
+  try {
+    const res = await uploadSessionFiles(sessionId, fd);
+    showToast(`已上传 ${res.files?.length || 0} 个会话文件`, 'success');
+    await loadSessionFiles(sessionId);
+  } catch (error) {
+    showToast(error.message || '上传会话文件失败');
+  } finally {
+    uploadingSessionFiles.value = false;
+    if (sessionFileInputRef.value) sessionFileInputRef.value.value = '';
+  }
+};
+
+const downloadSessionFileItem = (file) => {
+  if (!currentSessionId.value || !file?.id) return;
+  window.open(getSessionFileDownloadUrl(currentSessionId.value, file.id), '_blank');
+};
+
+const removeSessionFile = async (file) => {
+  if (!currentSessionId.value || !file?.id) return;
+  deletingSessionFileId.value = file.id;
+  try {
+    await deleteSessionFile(currentSessionId.value, file.id);
+    sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
+    showToast('会话文件已删除', 'success');
+  } catch (error) {
+    showToast(error.message || '删除会话文件失败');
+  } finally {
+    deletingSessionFileId.value = null;
+  }
+};
+
 const loadSessionMessages = async (sessionId) => {
   if (!sessionId) return;
   invalidateActiveStream();
@@ -1490,6 +1588,7 @@ const selectSession = async (item) => {
   item.unread_count = 0;
   closeMobileSidebar();
   await loadSessionMessages(item.session_id);
+  await loadSessionFiles(item.session_id);
 };
 
 const updateRecentSession = (sessionId, content, timestamp) => {
@@ -1913,6 +2012,7 @@ const ensureSession = async () => {
     pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
     pendingEntryAgent.value = result.data?.metadata?.entry_agent || entryAgent || '';
     window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
+    await loadSessionFiles(currentSessionId.value);
   }
   return currentSessionId.value;
 };
@@ -2744,6 +2844,42 @@ onUnmounted(() => {
     bottom: 70px;
     width: 40px;
     height: 40px;
+  }
+}
+/* 顶部右侧会话文件/导出按钮：桌面端保留文字，移动端收敛为与主题按钮一致的图标态 */
+.top-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.top-action-btn svg {
+  flex-shrink: 0;
+}
+
+.top-action-btn:disabled {
+  opacity: 0.5;
+}
+
+@media (max-width: 767px) {
+  .top-action-btn {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    padding: 0;
+    /* border-radius: 12px; */
+    justify-content: center;
+    gap: 0;
+  }
+
+  .top-action-btn .version-label {
+    display: none;
+  }
+
+  .top-action-btn svg {
+    width: 20px;
+    height: 20px;
   }
 }
 

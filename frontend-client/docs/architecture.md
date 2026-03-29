@@ -218,6 +218,7 @@ SituationScreen (Teleport to body, z-index: 10000)
 `ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
+- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的全局 `/api/files` 文件池严格分离
 
 两者都只在 `!currentSessionId` 时展示和编辑；会话创建成功后，前端会从返回的 `session.metadata` 回填本地状态，并在历史会话切换 / 浏览器前进后退时继续恢复。
 

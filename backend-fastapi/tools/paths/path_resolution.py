@@ -30,6 +30,7 @@ DB_ROOT: Path = DATA_ROOT / "db"
 MEMORY_ROOT: Path = DATA_ROOT / "memory"
 MONITORING_ROOT: Path = DATA_ROOT / "monitoring"
 SESSIONS_ROOT: Path = DATA_ROOT / "sessions"
+UPLOADS_ROOT: Path = DATA_ROOT / "uploads"
 
 # ── 监控/数据库路径常量 ─────────────────────────────────────────
 SESSION_TRACES_ROOT: Path = MONITORING_ROOT / "session_traces"
@@ -105,6 +106,10 @@ def get_session_transient_root(session_id: str) -> Path:
 
 def get_session_uploads_root(session_id: str) -> Path:
     return get_session_root(session_id) / "uploads"
+
+
+def get_uploads_root() -> Path:
+    return UPLOADS_ROOT
 
 
 def get_session_visualizations_root(session_id: str) -> Path:

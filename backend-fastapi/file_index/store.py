@@ -18,21 +18,33 @@ class FileIndex:
         self.index_path = Path(index_path)
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self, *, scope_type: Optional[str] = None, scope_id: Optional[str] = None) -> List[Dict[str, Any]]:
         data = self._read()
         items = list(data.values())
+        if scope_type:
+            items = [
+                item for item in items
+                if item.get('scope_type', 'global') == scope_type and item.get('scope_id') == scope_id
+            ]
         items.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
         return items
 
-    def get(self, file_id: str) -> Optional[Dict[str, Any]]:
-        return self._read().get(file_id)
+    def get(self, file_id: str, *, scope_type: Optional[str] = None, scope_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        rec = self._read().get(file_id)
+        if not rec:
+            return None
+        if scope_type and (rec.get('scope_type', 'global') != scope_type or rec.get('scope_id') != scope_id):
+            return None
+        return rec
 
     def add(self, *,
             original_name: str,
             stored_name: str,
             stored_path: str,
             size: int = 0,
-            mime: str = "") -> Dict[str, Any]:
+            mime: str = "",
+            scope_type: str = 'global',
+            scope_id: Optional[str] = None) -> Dict[str, Any]:
         data = self._read()
         file_id = str(uuid.uuid4())[:10]
         now = datetime.now().isoformat()
@@ -44,6 +56,8 @@ class FileIndex:
             "size": size,
             "mime": mime,
             "uploaded_at": now,
+            "scope_type": scope_type,
+            "scope_id": scope_id,
         }
         data[file_id] = rec
         self._write(data)

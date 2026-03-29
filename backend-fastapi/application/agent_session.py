@@ -85,6 +85,18 @@ class AgentSessionApplication:
         deleted = self._conversation_store.delete_session(session_id=session_id)
 
         try:
+            from file_index import FileIndex
+            file_index = FileIndex()
+            session_files = file_index.list(scope_type='session', scope_id=session_id)
+            for item in session_files:
+                file_index.delete(item.get('id'))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "delete_session: 清理 session 文件索引失败 (session=%s)", session_id, exc_info=True
+            )
+
+        try:
             import shutil
             from tools.paths.path_resolution import get_session_cleanup_root
             cleanup_root = get_session_cleanup_root(session_id)

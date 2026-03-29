@@ -40,12 +40,13 @@ backend-fastapi/
     ├── db/                    # 数据库文件（ragsystem.db, checkpoints.db）
     ├── monitoring/
     │   └── session_traces/    # session/run 级调试追踪
+    ├── uploads/               # 全局上传文件
     └── sessions/
         └── <session_id>/
             ├── sandbox/       # execute_code 沙箱目录
             ├── workspace/     # 默认会话工作空间
             ├── transient/     # 临时中间数据 / observation 落盘
-            ├── uploads/       # 用户上传文件
+            ├── uploads/       # session 上传文件
             ├── visualizations/# 可视化 artifact
             └── exports/       # 导出文件（可包含 <run_id>/ 子目录）
 ```
@@ -59,7 +60,8 @@ backend-fastapi/
 | `workspace` | 默认 `./data/sessions/<session_id>/workspace/`；若 session.metadata.workspace_root 已配置，则指向该外部绝对目录 | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 仅 workspace 工具语义可切到会话级外部目录；uploads 等其他桶不受影响 |
 | `exports` | `./data/sessions/<session_id>/exports/<run_id>/` 或 `./data/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
 | `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录 |
-| `uploads` | `./data/sessions/<session_id>/uploads/` | 用户上传文件 | `api/v1/files.py` | 上传 API 专用目录 |
+| `uploads` | `./data/uploads/` | 全局上传文件 | `api/v1/files.py` | 全局文件池，服务知识库/向量库管理页，不按 session 分桶 |
+| `session_uploads` | `./data/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
 | `monitoring/session_traces` | `./data/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
 | `memory` | `./data/memory/projects/<project_key>/...` | 项目/会话/Agent/workspace 级 Markdown 记忆索引与主题文件 | `services/memory_store.py`、`execution/persistence/message_handler.py` | 参考 Claude Code：启动时注入各作用域 `MEMORY.md` 索引头部，详细记忆由 Agent 按需读取具体 md 文件 |
 | `db` | `./data/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
@@ -527,7 +529,8 @@ Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script
 | `/api/agent-config` | `api/v1/config.py` | Agent 配置 CRUD |
 | `/api/model-adapter` | `api/v1/models.py` | LLM Provider 管理 |
 | `/api/mcp` | `api/v1/mcp.py` | MCP 服务器管理 |
-| `/api/files` | `api/v1/files.py` | 文件上传 |
+| `/api/files` | `api/v1/files.py` | 全局文件池 |
+| `/api/agent/sessions/{session_id}/files` | `api/v1/session_files.py` | 会话文件管理 |
 | `/api/artifacts` | `api/v1/artifacts.py` | 可视化 artifact |
 | `/api/vector-library` | `api/v1/vector.py` | 向量库查询 |
 | `/api/monitoring` | `api/v1/monitoring.py` | 监控与诊断 |

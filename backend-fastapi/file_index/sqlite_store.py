@@ -66,9 +66,17 @@ class FileIndexSQLite:
                     uploaded_by TEXT,
                     indexed_in_vector BOOLEAN DEFAULT FALSE,
                     tags TEXT,
-                    notes TEXT
+                    notes TEXT,
+                    scope_type TEXT NOT NULL DEFAULT 'global',
+                    scope_id TEXT
                 )
             """)
+
+            columns = {row['name'] for row in conn.execute("PRAGMA table_info(uploaded_files)").fetchall()}
+            if 'scope_type' not in columns:
+                conn.execute("ALTER TABLE uploaded_files ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'global'")
+            if 'scope_id' not in columns:
+                conn.execute("ALTER TABLE uploaded_files ADD COLUMN scope_id TEXT")
 
             # 创建索引
             conn.execute("""
@@ -82,8 +90,8 @@ class FileIndexSQLite:
             """)
 
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_indexed
-                ON uploaded_files(indexed_in_vector)
+                CREATE INDEX IF NOT EXISTS idx_scope
+                ON uploaded_files(scope_type, scope_id)
             """)
 
             conn.commit()
@@ -105,7 +113,9 @@ class FileIndexSQLite:
         offset: int = 0,
         mime_filter: Optional[str] = None,
         indexed_only: Optional[bool] = None,
-        search_term: Optional[str] = None
+        search_term: Optional[str] = None,
+        scope_type: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         列出文件
@@ -136,6 +146,15 @@ class FileIndexSQLite:
             if search_term:
                 query += " AND original_name LIKE ?"
                 params.append(f"%{search_term}%")
+
+            if scope_type:
+                query += " AND scope_type = ?"
+                params.append(scope_type)
+                if scope_id is None:
+                    query += " AND scope_id IS NULL"
+                else:
+                    query += " AND scope_id = ?"
+                    params.append(scope_id)
 
             # 排序和分页
             query += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
@@ -176,7 +195,7 @@ class FileIndexSQLite:
             cursor = conn.execute(query, params)
             return cursor.fetchone()["count"]
 
-    def get(self, file_id: str) -> Optional[Dict[str, Any]]:
+    def get(self, file_id: str, *, scope_type: Optional[str] = None, scope_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         获取单个文件记录
 
@@ -187,10 +206,17 @@ class FileIndexSQLite:
             文件记录，不存在返回 None
         """
         with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM uploaded_files WHERE id = ?",
-                (file_id,)
-            )
+            query = "SELECT * FROM uploaded_files WHERE id = ?"
+            params: list[Any] = [file_id]
+            if scope_type:
+                query += " AND scope_type = ?"
+                params.append(scope_type)
+                if scope_id is None:
+                    query += " AND scope_id IS NULL"
+                else:
+                    query += " AND scope_id = ?"
+                    params.append(scope_id)
+            cursor = conn.execute(query, params)
             row = cursor.fetchone()
             return self._row_to_dict(row) if row else None
 
@@ -203,7 +229,9 @@ class FileIndexSQLite:
         size: int = 0,
         mime: str = "",
         uploaded_by: Optional[str] = None,
-        tags: Optional[str] = None
+        tags: Optional[str] = None,
+        scope_type: str = 'global',
+        scope_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         添加文件记录
@@ -228,11 +256,11 @@ class FileIndexSQLite:
                 """
                 INSERT INTO uploaded_files
                 (id, original_name, stored_name, stored_path, size, mime,
-                 uploaded_at, uploaded_by, indexed_in_vector, tags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 uploaded_at, uploaded_by, indexed_in_vector, tags, scope_type, scope_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (file_id, original_name, stored_name, stored_path, size, mime,
-                 now, uploaded_by, False, tags)
+                 now, uploaded_by, False, tags, scope_type, scope_id)
             )
             conn.commit()
 
@@ -344,5 +372,7 @@ class FileIndexSQLite:
             "uploaded_by": row["uploaded_by"],
             "indexed_in_vector": bool(row["indexed_in_vector"]),
             "tags": row["tags"],
-            "notes": row["notes"]
+            "notes": row["notes"],
+            "scope_type": row["scope_type"],
+            "scope_id": row["scope_id"],
         }

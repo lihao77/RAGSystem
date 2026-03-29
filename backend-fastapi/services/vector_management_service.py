@@ -178,6 +178,9 @@ class VectorManagementService:
             if not file_record:
                 raise VectorManagementServiceError(f'文件不存在: {file_id}', status_code=404)
 
+            if file_record.get('scope_type', 'global') != 'global':
+                raise VectorManagementServiceError('session 文件不能直接进入全局知识库索引流程', status_code=400)
+
             file_path = file_record.get('stored_path')
             if not file_path or not self._path_exists(file_path):
                 raise VectorManagementServiceError(f'文件路径无效: {file_path}', status_code=404)

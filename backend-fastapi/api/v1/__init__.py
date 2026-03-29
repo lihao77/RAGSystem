@@ -14,6 +14,7 @@ from .monitoring import router as monitoring_router
 from .models import router as models_router
 from .mcp import router as mcp_router
 from .files import router as files_router
+from .session_files import router as session_files_router
 from .vector import router as vector_router
 from .vector_management import router as vector_management_router
 from .embedding_models import router as embedding_models_router
@@ -47,6 +48,7 @@ router.include_router(mcp_router, prefix='/mcp', tags=['MCP 管理'])
 
 # 文件管理
 router.include_router(files_router, prefix='/files', tags=['文件管理'])
+router.include_router(session_files_router, prefix='/agent/sessions/{session_id}/files', tags=['会话文件管理'])
 
 # 向量库管理
 router.include_router(vector_router, prefix='/vector-library', tags=['向量库'])
