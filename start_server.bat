@@ -20,7 +20,7 @@ timeout /t 1 /nobreak >nul
 :: 2. 后端服务
 if exist "backend-fastapi\" (
     echo [2/2] 启动 FastAPI 后端服务...
-    start "FastAPI后端服务" cmd /k "cd /d "%~dp0backend-fastapi" && call conda activate ragsystem-fastapi && python main.py"
+    start "FastAPI后端服务" cmd /k "cd /d "%~dp0backend-fastapi" && call conda activate ragsystem-fast && python main.py"
 ) else (
     echo [错误] 找不到 backend-fastapi 目录
 )

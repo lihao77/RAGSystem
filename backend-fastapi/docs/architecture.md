@@ -273,11 +273,14 @@ memory 存储结构：
     └── <workspace_key>/...
 ```
 
-当前 P1 已落地：
-- `project` / `session` 两层读取
+P1 已完成，落地能力：
+- 四层 scope 读取：`project` / `session` / `agent` / `workspace`
 - `session` 层 root final_answer 自动写入
-- `MEMORY.md` 作为索引入口
+- `MEMORY.md` 作为索引入口（`load_index_head` 限 200 行 / 25KB）
 - 单条记忆单独 Markdown 文件保存 frontmatter + 正文
+- 按 agent 配置的 `allowed_scopes` / `write_scopes` / `archive_scopes` 精细授权
+- 基于 query 的跨 scope 记忆检索（`search_memories`，默认 top 5）
+- 采用索引注入 + 按需读取模型，不需要全局压缩/淘汰
 
 加载机制参考 Claude Code：
 - 会话开始 / build_context 时，不把所有记忆正文注入 prompt
@@ -314,16 +317,16 @@ memory 当前采用纯 scope 授权模型：
 - prompt 层：`AgentApiRuntimeService.build_context()` 会把 scope 能力写入 `context.metadata['memory_scope_capabilities']`，`ContextPipeline._build_memory_block()` 再把它渲染进 system prompt，明确告知 Agent 当前可操作哪些 scope；
 - 配置页：`AgentConfigService.get_memory_config_metadata()` 仅向前端提供 scope 说明，前端 UI 只管理 scope 权限与 `auto_inject`，不再渲染“启用记忆”总开关。
 
-预留但未默认启用：
-- `agent`
-- `workspace`
+非默认启用 scope（已实现，需在 agent 配置中显式添加）：
+- `agent`：当前运行的 Agent 私有记忆
+- `workspace`：需 session 配置 `metadata.workspace_root` 后自动派生 `workspace_key`
 
 当前 root final_answer 的 session memory 规则抽取先覆盖少量高价值偏好：
 - 使用中文
 - 优先最少代码
 - 不要兼容层
 
-后续 P2 / P3 可在此基础上继续扩展 reflection、自进化与记忆升级策略。
+后续 P2（反思机制）和 P3（自进化）可在此基础上继续扩展。
 
 ## 流式输出与事件系统
 
