@@ -122,7 +122,7 @@
             <IconMenu :size="20" />
           </button>
 
-          <LLMSelector :model-value="selectedLLM" @update:model-value="emit('update:selectedLLM', $event)" />
+          <LLMSelector ref="llmSelectorRef" :model-value="selectedLLM" @update:model-value="emit('update:selectedLLM', $event)" />
         </div>
 
         <!-- 右侧：主题切换 -->
@@ -358,7 +358,7 @@
             />
           </div>
           <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="context-usage-bar">
-            <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="ctxDrawerVisible = true" title="点击查看上下文详情">
+            <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
               <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
                 <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
                 <circle
@@ -407,6 +407,7 @@
     <ContextSnapshotDrawer
       :visible="ctxDrawerVisible"
       :session-id="currentSessionId"
+      :selected-llm="ctxDrawerSelectedLlm"
       @close="ctxDrawerVisible = false"
     />
 
@@ -598,6 +599,7 @@ const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
 const messagesLoading = ref(false);
 const chatInputRef = ref(null);
+const llmSelectorRef = ref(null);
 const confirmDialogRef = ref(null);
 const approvalDialogRef = ref(null);
 const filePreviewDialogRef = ref(null);
@@ -617,6 +619,13 @@ const isExportingSession = ref(false);
 const contextUsage = ref({ used: 0, max: 0 });
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
+const ctxDrawerSelectedLlm = ref('');
+
+function openCtxDrawer() {
+  ctxDrawerSelectedLlm.value = llmSelectorRef.value?.getSelection() || localStorage.getItem('selectedLLMModel') || '';
+  ctxDrawerVisible.value = true;
+}
+
 const execDrawerVisible = ref(false);
 const sessionFilesDrawerVisible = ref(false);
 const execDiagnosticsLoading = ref(false);

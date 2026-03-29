@@ -263,6 +263,11 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('keydown', handleKeydown);
 });
+
+// 获取当前选择（包含 localStorage 回退）
+const getSelection = () => selectedModel.value || localStorage.getItem('selectedLLMModel') || '';
+
+defineExpose({ getSelection });
 </script>
 
 <style scoped>

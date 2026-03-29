@@ -70,11 +70,35 @@ async def reset_metrics(agent_name: Optional[str] = None):
 
 
 @router.get('/context-snapshot')
-async def get_context_snapshot(session_id: Optional[str] = Query(None)):
+async def get_context_snapshot(
+    session_id: Optional[str] = Query(None),
+    selected_llm: Optional[str] = Query(None, description='前端选择的 LLM，格式: provider|provider_type|model_name'),
+    llm_tier: Optional[str] = Query(None, description='LLM 层级: fast/default/powerful'),
+):
     """获取当前默认入口智能体的上下文快照，用于调试和可视化。"""
     try:
+        from agents.core.context import AgentContext
         from dependencies import get_agent_runtime_service
         runtime_service = get_agent_runtime_service()
+
+        # 解析请求级 LLM 选择
+        llm_override = None
+        if selected_llm:
+            parts = selected_llm.strip().split('|')
+            if len(parts) >= 3:
+                llm_override = {'provider': parts[0], 'provider_type': parts[1], 'model_name': parts[2]}
+            elif len(parts) == 2:
+                llm_override = {'provider': parts[0], 'provider_type': parts[1], 'model_name': ''}
+            elif len(parts) == 1 and parts[0]:
+                llm_override = {'provider': parts[0], 'provider_type': '', 'model_name': ''}
+
+        normalized_llm_tier = (llm_tier or '').strip().lower() or None
+        snapshot_ctx = AgentContext(
+            session_id=session_id or '',
+            llm_override=llm_override,
+            requested_llm_tier=normalized_llm_tier,
+        )
+
         orchestrator = (
             runtime_service.create_execution_orchestrator(session_id=session_id)
             if session_id
@@ -130,7 +154,7 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                         'description': getattr(s, 'description', None),
                     })
 
-            llm_cfg = entry_agent.get_llm_config()
+            llm_cfg = entry_agent.get_llm_config(context=snapshot_ctx)
             counter = TokenCounter(model_name=llm_cfg.get('model_name'))
             sp_tokens = counter.count_text(system_prompt)
 
@@ -177,6 +201,10 @@ async def get_context_snapshot(session_id: Optional[str] = Query(None)):
                 },
                 'model': llm_cfg.get('model_name', ''),
             }
+            if llm_override:
+                config_info['llm_override'] = llm_override
+            if normalized_llm_tier:
+                config_info['llm_tier'] = normalized_llm_tier
             if entry_agent.max_rounds is not None:
                 config_info['max_rounds'] = entry_agent.max_rounds
 

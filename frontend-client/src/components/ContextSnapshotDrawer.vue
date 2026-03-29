@@ -121,6 +121,10 @@ import { ref, computed, watch } from 'vue';
 const props = defineProps({
   visible: Boolean,
   sessionId: String,
+  selectedLlm: {
+    type: String,
+    default: '',
+  },
 });
 defineEmits(['close']);
 
@@ -271,7 +275,10 @@ async function fetchSnapshot() {
   loadingMessages.value = {};
   messageErrors.value = {};
   try {
-    const url = `/api/agent/context-snapshot${props.sessionId ? '?session_id=' + encodeURIComponent(props.sessionId) : ''}`;
+    const params = new URLSearchParams();
+    if (props.sessionId) params.set('session_id', props.sessionId);
+    if (props.selectedLlm) params.set('selected_llm', props.selectedLlm);
+    const url = `/api/agent/context-snapshot${params.size ? '?' + params.toString() : ''}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || json.detail || '请求失败');
