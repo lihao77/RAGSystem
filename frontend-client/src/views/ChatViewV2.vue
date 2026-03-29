@@ -1580,7 +1580,10 @@ const loadSessionMessages = async (sessionId) => {
 
 const selectSession = async (item) => {
   if (!item?.session_id) return;
-  if (currentSessionId.value === item.session_id && messages.value.length > 0) return;
+  if (currentSessionId.value === item.session_id) {
+    // 点击已激活会话：清缓存后强制刷新
+    messageCache.value.delete(item.session_id);
+  }
   currentSessionId.value = item.session_id;
   pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
   pendingEntryAgent.value = item.metadata?.entry_agent || '';

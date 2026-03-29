@@ -48,6 +48,34 @@
 
           <!-- 选项列表 -->
           <div class="options-list">
+            <!-- 默认选项：使用智能体配置 -->
+            <div
+              class="option-item"
+              :class="{ 'selected': selectedModel === '' }"
+              @click="selectModel('')"
+            >
+              <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
+              <svg
+                v-if="selectedModel === ''"
+                class="check-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+
+            <!-- 分隔线 -->
+            <div class="options-divider"></div>
+
+            <!-- 模型选项 -->
             <div
               v-for="model in filteredModels"
               :key="model.value"
@@ -119,7 +147,7 @@ const searchInputRef = ref(null);
 const displayText = computed(() => {
   if (loading.value) return 'Loading...';
   if (models.value.length === 0) return 'No models available';
-  if (!selectedModel.value) return 'Select Model';
+  if (!selectedModel.value) return '默认';
   const model = models.value.find(m => m.value === selectedModel.value);
   return model ? model.label : selectedModel.value;
 });
@@ -144,17 +172,18 @@ const loadModels = async () => {
     const availableModels = await getAvailableModels();
     models.value = availableModels;
 
-    // 如果有保存的模型选择，恢复它
+    // 如果已有保存的选择，恢复它
     const savedModel = localStorage.getItem('selectedLLMModel');
-    if (savedModel && availableModels.some(m => m.value === savedModel)) {
-      selectedModel.value = savedModel;
-      emit('update:modelValue', savedModel);
-    } else if (availableModels.length > 0 && !selectedModel.value) {
-      // 默认选择第一个
-      selectedModel.value = availableModels[0].value;
-      emit('update:modelValue', availableModels[0].value);
-      localStorage.setItem('selectedLLMModel', availableModels[0].value);
+    if (savedModel !== null) {
+      if (availableModels.some(m => m.value === savedModel)) {
+        selectedModel.value = savedModel;
+        emit('update:modelValue', savedModel);
+      } else {
+        // 保存的值不在列表中，清除它
+        localStorage.removeItem('selectedLLMModel');
+      }
     }
+    // 不自动选择第一个，保持默认状态由 agent 配置决定
   } catch (err) {
     console.error('Failed to load models:', err);
     error.value = 'Failed to load models';
@@ -187,8 +216,12 @@ const selectModel = (value) => {
   emit('update:modelValue', value);
   emit('change', value);
 
-  // 保存用户选择
-  localStorage.setItem('selectedLLMModel', value);
+  // 保存用户选择（空值 = 清除记录，恢复默认行为）
+  if (value) {
+    localStorage.setItem('selectedLLMModel', value);
+  } else {
+    localStorage.removeItem('selectedLLMModel');
+  }
 
   // 关闭下拉菜单
   dropdownOpen.value = false;
@@ -394,6 +427,19 @@ onUnmounted(() => {
   background: rgba(var(--color-brand-accent-rgb), 0.1);
   color: var(--color-text-primary);
   font-weight: 600;
+}
+
+.option-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.options-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 8px;
 }
 
 .option-label {
