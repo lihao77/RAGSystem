@@ -57,7 +57,7 @@
 /* ===== Scroll-to-bottom floating button ===== */
 .btn-scroll-bottom {
   position: fixed;
-  bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--spacing-2xl) + env(safe-area-inset-bottom, 0px));
   right: var(--spacing-xl);
   width: 44px;
   height: 44px;
@@ -120,17 +120,23 @@
 .config-form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: 0;
   max-width: 1100px;
   margin: 0 auto;
   width: 100%;
 }
 
 .form-section {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-hover-overlay);
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-lg) 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.form-section + .form-section {
+  border-top: 1px solid var(--color-border-hover);
+  margin-top: var(--spacing-lg);
+  padding-top: calc(var(--spacing-lg) * 1.5);
 }
 
 .section-head {
@@ -139,7 +145,6 @@
   gap: 2px;
   padding-bottom: var(--spacing-sm);
   margin-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
 }
 
 .section-head h2 {
@@ -152,6 +157,34 @@
 .section-head span {
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+}
+
+.section-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.section-head__toggle {
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.section-head__toggle:hover {
+  background: var(--color-interactive);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+  transform: translateY(1px);
 }
 
 .section-body {
@@ -178,10 +211,31 @@
   font-weight: 500;
 }
 
-.field-hint {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1.4;
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.extra-param-editor {
+  padding-top: var(--spacing-sm);
+  border-top: 1px dashed var(--color-border);
+}
+
+.extra-param-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.extra-param-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 140px minmax(0, 1.8fr) auto;
+  gap: var(--spacing-sm);
+  align-items: center;
 }
 
 /* ===== Form controls (inputs & selects) ===== */
@@ -716,7 +770,7 @@ input[type='number'].form-control {
 
   .btn-scroll-bottom {
     right: var(--spacing-md);
-    bottom: calc(var(--spacing-md) + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--spacing-2xl) * 1.5 + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -724,12 +778,13 @@ input[type='number'].form-control {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   margin-bottom: 12px;
-  overflow: hidden;
   background: var(--color-hover-overlay);
 }
 
 .tier-block__head {
   display: flex;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  overflow: hidden;
 }
 
 .tier-toggle {
@@ -1011,6 +1066,30 @@ input[type='number'].form-control {
   .section-nav--mobile {
     display: flex;
     gap: 10px;
+  }
+
+  .extra-param-row {
+    grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
+    grid-template-areas:
+      'key type value'
+      'delete delete delete';
+    align-items: stretch;
+  }
+
+  .extra-param-row > :nth-child(1) { grid-area: key; }
+  .extra-param-row > :nth-child(2) { grid-area: type; }
+  .extra-param-row > :nth-child(3) { grid-area: value; }
+  .extra-param-row > :nth-child(4) {
+    grid-area: delete;
+    display: inline-flex;
+    justify-self: end;
+    width: auto;
+    min-width: 0;
+  }
+
+  .field-label-row {
+    flex-direction: row;
+    align-items: center;
   }
 }
 

@@ -77,6 +77,21 @@ class StreamExecutor:
         # 不要传 response_format（XML 模式不需要 json_object）
         kwargs.pop('response_format', None)
 
+        reserved_llm_keys = {
+            'provider',
+            'provider_type',
+            'model_name',
+            'temperature',
+            'max_completion_tokens',
+            'max_context_tokens',
+        }
+        dynamic_kwargs = {
+            key: value
+            for key, value in llm_config.items()
+            if key not in reserved_llm_keys and value is not None
+        }
+        kwargs.update(dynamic_kwargs)
+
         try:
             stream = self.model_adapter.chat_completion_stream(
                 messages=messages,
@@ -84,12 +99,8 @@ class StreamExecutor:
                 model=llm_config.get('model_name'),
                 provider_type=llm_config.get('provider_type'),
                 temperature=llm_config.get('temperature', 0.3),
-                max_tokens=llm_config.get('max_tokens'),
-                retry_attempts=llm_config.get('retry_attempts'),
-                retry_backoff_factor=llm_config.get('retry_backoff_factor'),
+                max_tokens=llm_config.get('max_completion_tokens'),
                 publisher=self.publisher,
-                thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
-                reasoning_effort=llm_config.get('reasoning_effort'),
                 **kwargs,
             )
 

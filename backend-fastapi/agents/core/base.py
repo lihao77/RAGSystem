@@ -242,22 +242,17 @@ class BaseAgent(ABC):
                     'provider_type': getattr(llm_config, 'provider_type', None),
                     'model_name': getattr(llm_config, 'model_name', None),
                     'temperature': getattr(llm_config, 'temperature', 0.7),
-                    'max_tokens': getattr(llm_config, 'max_completion_tokens', None) or getattr(llm_config, 'max_tokens', 4096),
-                    'max_completion_tokens': getattr(llm_config, 'max_completion_tokens', None) or getattr(llm_config, 'max_tokens', 4096),
+                    'max_completion_tokens': getattr(llm_config, 'max_completion_tokens', 4096),
                     'max_context_tokens': getattr(llm_config, 'max_context_tokens', None),
-                    'thinking_budget_tokens': getattr(llm_config, 'thinking_budget_tokens', None),
-                    'reasoning_effort': getattr(llm_config, 'reasoning_effort', None),
-                    'retry_attempts': getattr(llm_config, 'retry_attempts', 10),
-                    'retry_backoff_factor': getattr(llm_config, 'retry_backoff_factor', 2.5),
                 }
+                for key, value in (getattr(llm_config, 'extra_params', None) or {}).items():
+                    if key not in config:
+                        config[key] = value
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
             config = {
                 'temperature': 0.7,
-                'max_tokens': 4096,
                 'max_completion_tokens': 4096,
-                'retry_attempts': 10,
-                'retry_backoff_factor': 2.5,
             }
 
         override = getattr(context, 'llm_override', None) if context else None

@@ -110,9 +110,9 @@ def test_base_agent_selected_llm_overrides_model_identity_only():
         model_adapter=None,
         agent_config=AgentConfig(
             agent_name='demo',
-            llm=AgentLLMConfig(model_name='base-model', temperature=0.2),
+            llm=AgentLLMConfig(model_name='base-model', temperature=0.2, extra_params={'thinking_budget_tokens': 1024}),
             llm_tiers={
-                'default': AgentLLMConfig(model_name='tier-model', temperature=0.1),
+                'default': AgentLLMConfig(model_name='tier-model', temperature=0.1, extra_params={'reasoning_effort': 'medium'}),
             },
         ),
         system_config=None,
@@ -128,26 +128,43 @@ def test_base_agent_selected_llm_overrides_model_identity_only():
     assert config['provider_type'] == 'custom'
     assert config['model_name'] == 'override-model'
     assert config['temperature'] == 0.1
+    assert config['reasoning_effort'] == 'medium'
 
 
-def test_agent_llm_config_merges_thinking_budget_from_provider_defaults():
-    provider = SimpleNamespace(
-        max_completion_tokens=4096,
-        max_context_tokens=128000,
-        thinking_budget_tokens=8192,
-        reasoning_effort="medium",
+def test_agent_llm_config_merges_extra_params_and_protects_base_fields():
+    default_config = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider='demo',
+            provider_type='custom',
+            model_name='demo-model',
+            temperature=0.3,
+            max_completion_tokens=4096,
+            max_context_tokens=128000,
+            extra_params={
+                'top_p': 0.8,
+                'thinking_budget_tokens': 2048,
+                'temperature': 999,
+            },
+        )
     )
-    adapter = SimpleNamespace(providers={"demo_deepseek": provider})
-    config = AgentLLMConfig(provider="demo", provider_type="deepseek", model_name="demo-model")
+    config = AgentLLMConfig(
+        temperature=0.2,
+        extra_params={
+            'thinking_budget_tokens': 4096,
+            'reasoning_effort': 'high',
+            'top_p': 0.2,
+        },
+    )
 
-    merged = config.merge_with_default(default_config=None, model_adapter=adapter)
+    merged = config.merge_with_default(default_config=default_config)
 
-    assert merged["thinking_budget_tokens"] == 8192
-    assert merged["reasoning_effort"] == "medium"
-    assert merged["max_completion_tokens"] == 4096
+    assert merged['temperature'] == 0.2
+    assert merged['top_p'] == 0.8
+    assert merged['thinking_budget_tokens'] == 4096
+    assert merged['reasoning_effort'] == 'high'
 
 
-def test_base_agent_system_default_llm_keeps_thinking_budget_fields():
+def test_base_agent_system_default_llm_keeps_extra_params():
     agent = _DummyAgent(
         name="demo",
         description="demo",
@@ -161,10 +178,10 @@ def test_base_agent_system_default_llm_keeps_thinking_budget_fields():
                 temperature=0.2,
                 max_completion_tokens=3072,
                 max_context_tokens=64000,
-                thinking_budget_tokens=4096,
-                reasoning_effort="high",
-                timeout=30,
-                retry_attempts=2,
+                extra_params={
+                    'thinking_budget_tokens': 4096,
+                    'reasoning_effort': 'high',
+                },
             )
         ),
     )
@@ -176,7 +193,7 @@ def test_base_agent_system_default_llm_keeps_thinking_budget_fields():
     assert config["reasoning_effort"] == "high"
 
 
-def test_stream_executor_passes_thinking_budget_to_model_adapter():
+def test_stream_executor_passes_extra_params_to_model_adapter():
     adapter = _CaptureAdapter()
     executor = StreamExecutor(model_adapter=adapter, publisher=None)
 
@@ -186,7 +203,7 @@ def test_stream_executor_passes_thinking_budget_to_model_adapter():
             "provider": "demo",
             "provider_type": "deepseek",
             "model_name": "demo-model",
-            "max_tokens": 512,
+            "max_completion_tokens": 512,
             "thinking_budget_tokens": 4096,
             "reasoning_effort": "medium",
         },
@@ -194,11 +211,12 @@ def test_stream_executor_passes_thinking_budget_to_model_adapter():
     )
 
     assert result.answer == "ok"
+    assert adapter.last_call["max_tokens"] == 512
     assert adapter.last_call["thinking_budget_tokens"] == 4096
     assert adapter.last_call["reasoning_effort"] == "medium"
 
 
-def test_model_adapter_passes_thinking_budget_kwargs_to_provider():
+def test_model_adapter_passes_extra_kwargs_to_provider():
     adapter = ModelAdapter()
     provider = _CaptureProvider()
     adapter.providers = {"demo_custom": provider}

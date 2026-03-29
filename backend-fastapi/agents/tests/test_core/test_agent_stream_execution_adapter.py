@@ -154,6 +154,36 @@ def test_stream_adapter_passes_llm_tier_into_prepare_execution():
     assert service.prepare_calls[0]['llm_tier'] == 'powerful'
 
 
+def test_stream_adapter_preserves_llm_override_passthrough():
+    response = AgentResponse(
+        success=True,
+        content='final content',
+        agent_name='orchestrator_agent',
+        execution_time=0.1,
+    )
+    service = _FakePreparedExecutionService(response)
+    adapter = AgentExecutionAdapter(execution_service=SimpleNamespace(get_task_registry=lambda: _FakeRegistry(), get_session_manager=lambda: SimpleNamespace(get_or_create=lambda run_id, session_id=None: _FakeEventBus()), submit=lambda *args, **kwargs: SimpleNamespace(thread=None)), agent_execution_service=service)
+    conversation_store = SimpleNamespace(
+        get_session=lambda session_id: {'id': session_id},
+        create_session=lambda **kwargs: kwargs,
+    )
+    orchestrator = SimpleNamespace(resolve_default_entry_agent=lambda: _FakeAgent())
+
+    adapter.start_stream_execution(
+        task='hello',
+        session_id='session-1',
+        user_id='user-1',
+        llm_override={'provider': 'demo', 'provider_type': 'openai', 'model_name': 'gpt-5.4', 'thinking_budget_tokens': 4096},
+        llm_tier='powerful',
+        request_id='req-1',
+        conversation_store=conversation_store,
+        orchestrator=orchestrator,
+        history_loader=lambda context, session_id, limit: None,
+    )
+
+    assert service.prepare_calls[0]['llm_override']['thinking_budget_tokens'] == 4096
+
+
 def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_write():
     event_bus = _FakeEventBus()
     store = _FakeStore()

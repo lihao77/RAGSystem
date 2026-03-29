@@ -195,10 +195,10 @@
 
 :root[data-theme="light"] {
     /* Interactive Accent Colors */
-    --color-interactive: #f0f0f0;
+    --color-interactive: #f9fafb;
     --color-interactive-hover: #e4e4e7;
     --color-interactive-glow: rgba(79, 70, 229, 0.15);
-    --color-interactive-subtle: rgba(100, 100, 100, 0.15);
+    --color-interactive-subtle: rgba(79, 70, 229, 0.14);
     --color-interactive-rgb: 240, 240, 240;
     /* RGB triplet for rgba() usage */
 
@@ -210,7 +210,7 @@
     --color-brand-accent-light-rgb: 99, 102, 241;
 
     /* Background Layers - Light */
-    --color-bg-app: #eaeaec;
+    --color-bg-app: #f7f7fb;
     /* 主背景：中灰，拉开与卡片的对比 */
     --color-bg-primary: #ffffff;
     /* 侧边栏/卡片：纯白，在 app 背景上清晰"浮起" */
@@ -231,14 +231,12 @@
     --color-text-inverse: #ffffff;
 
     /* Message Backgrounds */
-    --color-bg-message-user: #e4e4e7;
+    --color-bg-message-user: #eef2ff;
     --color-bg-message-assistant: transparent;
 
     /* Borders */
-    --color-border: #d4d4d8;
-    /* Zinc 300 */
-    --color-border-hover: #a1a1aa;
-    /* Zinc 400 */
+    --color-border: #e5e7eb;        /* 更贴近 Tailwind slate-200，整体更干净 */
+    --color-border-hover: #cbd5f5;  /* hover 时略偏蓝，弱化灰感 */
     --color-border-focus: rgba(var(--color-brand-accent-rgb), 0.4);
 
     /* Status Colors - Light Theme */

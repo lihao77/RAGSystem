@@ -106,7 +106,7 @@ POST /api/agent/stream {task, session_id, selected_llm, llm_tier}
 |------|------|
 | `execute(task, context) → AgentResponse` | 抽象方法，子类必须实现 |
 | `can_handle(task, context) → bool` | 判断能否处理任务 |
-| `get_llm_config(context=None, task_type=None)` | 统一解析最终 LLM 配置：按 `task_type/requested_llm_tier` 选择 `llm_tiers`，再叠加请求级 `selected_llm` 的模型身份覆盖 |
+| `get_llm_config(context=None, task_type=None)` | 统一解析最终 LLM 配置：按 `task_type/requested_llm_tier` 选择 `llm_tiers`，再叠加请求级 `selected_llm` 的模型身份覆盖；agent 侧仅管理模型选择与直接影响交互的参数，provider-specific 字段通过 `extra_params` 透传 |
 | `_execute_react_task()` | ReAct 主循环（思考→工具→观察），主推理默认走 `default` tier |
 | `_handle_actions()` | 执行工具调用，处理占位符替换 |
 | `_resolve_tool_references()` | 解析 `{result_N.path}` 占位符 |
@@ -121,7 +121,11 @@ POST /api/agent/stream {task, session_id, selected_llm, llm_tier}
 LLM 分层配置约定：
 - `agent_config.llm`：Agent 主默认模型配置，也是 tier fallback
 - `agent_config.llm_tiers`：只承认 `fast/default/powerful` 三档
-- 请求级 `selected_llm`：强覆盖 `provider/provider_type/model_name`，但不覆盖温度、预算、重试等运行参数
+- agent 级 `llm` 配置只负责模型身份选择与直接影响交互的通用参数：`provider/provider_type/model_name/temperature/max_completion_tokens/max_context_tokens`，
+  其他采样或 provider-specific 字段统一通过 `llm.extra_params` / `llm_tiers.*.extra_params` 透传（如 `top_p`、`thinking_budget_tokens`、`reasoning_effort` 等）
+- provider-specific 字段统一经 `llm.extra_params` / `llm_tiers.*.extra_params` 透传；`thinking_budget_tokens`、`reasoning_effort` 等能力不再作为 agent 级固定字段
+- provider 运行策略（如 timeout、retry_attempts、retry_backoff_factor、prompt cache 策略）不再属于 agent 配置职责，由 provider/runtime 统一管理
+- 请求级 `selected_llm`：仅覆盖 `provider/provider_type/model_name`，不覆盖温度、上下文窗口、输出长度或 `extra_params`
 - 请求级 `llm_tier`：写入 `AgentContext.requested_llm_tier`，在未显式传 `task_type` 时参与 tier 选择
 - 当前已落地两条执行语义：主 ReAct 推理默认走 `default`，上下文压缩摘要走 `fast`
 
@@ -187,6 +191,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `POST /api/agent/execute` 显式传 `agent` 时直接执行该 Agent；未显式传入时走 `invoke_routed_agent()`，由 orchestrator 的默认入口解析决定。同步/流式执行请求都支持请求级 LLM 选择：
 - `selected_llm`：API 边缘层解析为结构化模型身份三元组，并透传到 `AgentContext.llm_override`
 - `llm_tier`：透传为 `AgentContext.requested_llm_tier`，供运行时在未显式指定 `task_type` 时选择 `fast/default/powerful`
+- agent 配置中的 `llm` / `llm_tiers` 仅管理模型身份与直接影响交互的通用参数；provider-specific payload 字段通过 `extra_params` 下传
 - session 级 override 预留在 `session.metadata.entry_agent`：`create_execution_orchestrator(session_id=...)` 会在 execution orchestrator 上覆盖默认入口，但不会污染全局 YAML 或 catalog orchestrator
 - `session.metadata.entry_agent='default'` 表示“不覆盖默认入口”；`'orchestrator'` 会在 runtime 归一化为真实 `agent_name` `orchestrator_agent`
 - 若 session 级 `entry_agent` 不是 registry 中存在的真实 agent_name，则 runtime 会忽略该值并保留当前默认入口，避免把 execution orchestrator 覆盖成无效状态

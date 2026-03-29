@@ -45,62 +45,27 @@ class AgentLLMConfig(BaseModel):
         le=2.0,
         description="生成温度，None 表示使用系统默认"
     )
-    max_tokens: Optional[int] = Field(
-        default=None,
-        ge=1,
-        description="（已废弃，请使用 max_completion_tokens）最大生成 token 数，None 表示使用系统默认"
-    )
     max_completion_tokens: Optional[int] = Field(
         default=None,
         ge=1,
-        description="单次输出的最大 token 数（如 4096），None 表示使用系统默认。优先级高于 max_tokens"
+        description="单次输出的最大 token 数（如 4096），None 表示使用系统默认"
     )
     max_context_tokens: Optional[int] = Field(
         default=None,
         ge=1,
         description="模型支持的最大上下文窗口（如 128000），None 表示自动推断或使用系统默认"
     )
-    thinking_budget_tokens: Optional[int] = Field(
-        default=None,
-        ge=1,
-        description="扩展思考预算 token 数；独立于上下文预算，None 表示使用系统默认或 Provider 默认"
-    )
-    reasoning_effort: Optional[str] = Field(
-        default=None,
-        description="推理努力级别占位字段，如 low/medium/high；具体语义由 Provider 决定"
-    )
-    prompt_cache_enabled: Optional[bool] = Field(
-        default=None,
-        description="是否启用 prompt cache；None 表示跟随 Provider 默认能力"
-    )
-    top_p: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="Top-p 采样参数"
-    )
-    timeout: Optional[int] = Field(
-        default=None,
-        ge=1,
-        le=300,
-        description="超时时间（秒），None 表示使用系统默认"
-    )
-    retry_attempts: Optional[int] = Field(
-        default=None,
-        ge=0,
-        le=20,
-        description="重试次数，None 表示使用系统默认"
-    )
-    retry_backoff_factor: Optional[float] = Field(
-        default=None,
-        ge=1.0,
-        le=10.0,
-        description="指数退避因子，None 表示使用系统默认"
+    extra_params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="额外的 provider-specific payload 字段，将透传给模型调用"
     )
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典，过滤 None 值"""
-        return {k: v for k, v in self.model_dump().items() if v is not None}
+        return {
+            k: v for k, v in self.model_dump().items()
+            if v is not None and (k != 'extra_params' or v)
+        }
 
     def merge_with_default(self, default_config, model_adapter=None) -> Dict[str, Any]:
         """
@@ -113,98 +78,35 @@ class AgentLLMConfig(BaseModel):
         Returns:
             合并后的配置字典
         """
+        del model_adapter
         result = {}
 
-        # 使用智能体配置优先，否则使用系统默认
         default_llm = getattr(default_config, 'llm', None) if default_config else None
         result['provider'] = self.provider or getattr(default_llm, 'provider', None)
         result['provider_type'] = self.provider_type or getattr(default_llm, 'provider_type', None)
         result['model_name'] = self.model_name or getattr(default_llm, 'model_name', None)
         result['temperature'] = self.temperature if self.temperature is not None else getattr(default_llm, 'temperature', 0.7)
-
-        # 输出 token 限制：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
-        completion_tokens = self.max_completion_tokens or self.max_tokens
-        if not completion_tokens and model_adapter and result['provider'] and result['provider_type']:
-            # 尝试从 ModelAdapter 获取 Provider 配置
-            try:
-                provider_key = f"{result['provider']}_{result['provider_type']}"
-                provider = model_adapter.providers.get(provider_key)
-                if provider and hasattr(provider, 'max_completion_tokens'):
-                    completion_tokens = provider.max_completion_tokens
-            except Exception:
-                pass  # 静默失败，使用默认值
-
-        default_completion_tokens = (
-            getattr(default_llm, 'max_completion_tokens', None)
-            or getattr(default_llm, 'max_tokens', 4096)
+        result['max_completion_tokens'] = (
+            self.max_completion_tokens
+            if self.max_completion_tokens is not None
+            else getattr(default_llm, 'max_completion_tokens', 4096)
         )
-        result['max_tokens'] = completion_tokens or default_completion_tokens
-        result['max_completion_tokens'] = result['max_tokens']
+        result['max_context_tokens'] = self.max_context_tokens or getattr(default_llm, 'max_context_tokens', None)
 
-        # 上下文窗口：优先级 Agent配置 > ModelAdapter Provider配置 > 系统默认
-        context_tokens = self.max_context_tokens
-        if not context_tokens and model_adapter and result['provider'] and result['provider_type']:
-            # 尝试从 ModelAdapter 获取 Provider 配置
-            try:
-                provider_key = f"{result['provider']}_{result['provider_type']}"
-                provider = model_adapter.providers.get(provider_key)
-                if provider and hasattr(provider, 'max_context_tokens'):
-                    context_tokens = provider.max_context_tokens
-            except Exception:
-                pass  # 静默失败，使用默认值
-
-        result['max_context_tokens'] = context_tokens or getattr(default_llm, 'max_context_tokens', None)
-
-        thinking_budget_tokens = self.thinking_budget_tokens
-        if thinking_budget_tokens is None and model_adapter and result['provider'] and result['provider_type']:
-            try:
-                provider_key = f"{result['provider']}_{result['provider_type']}"
-                provider = model_adapter.providers.get(provider_key)
-                if provider and hasattr(provider, 'thinking_budget_tokens'):
-                    thinking_budget_tokens = provider.thinking_budget_tokens
-            except Exception:
-                pass
-        if thinking_budget_tokens is None:
-            thinking_budget_tokens = getattr(default_llm, 'thinking_budget_tokens', None)
-        if thinking_budget_tokens is not None:
-            result['thinking_budget_tokens'] = thinking_budget_tokens
-
-        reasoning_effort = self.reasoning_effort
-        if reasoning_effort is None and model_adapter and result['provider'] and result['provider_type']:
-            try:
-                provider_key = f"{result['provider']}_{result['provider_type']}"
-                provider = model_adapter.providers.get(provider_key)
-                if provider and hasattr(provider, 'reasoning_effort'):
-                    reasoning_effort = provider.reasoning_effort
-            except Exception:
-                pass
-        if reasoning_effort is None:
-            reasoning_effort = getattr(default_llm, 'reasoning_effort', None)
-        if reasoning_effort is not None:
-            result['reasoning_effort'] = reasoning_effort
-
-        prompt_cache_enabled = self.prompt_cache_enabled
-        if prompt_cache_enabled is None and model_adapter and result['provider'] and result['provider_type']:
-            try:
-                provider_key = f"{result['provider']}_{result['provider_type']}"
-                provider = model_adapter.providers.get(provider_key)
-                if provider and hasattr(provider, 'supports_prompt_caching'):
-                    prompt_cache_enabled = bool(provider.supports_prompt_caching)
-            except Exception:
-                pass
-        if prompt_cache_enabled is not None:
-            result['prompt_cache_enabled'] = prompt_cache_enabled
-
-        result['timeout'] = self.timeout or getattr(default_llm, 'timeout', 30)
-        result['retry_attempts'] = self.retry_attempts if self.retry_attempts is not None else getattr(default_llm, 'retry_attempts', 10)
-        result['retry_backoff_factor'] = (
-            self.retry_backoff_factor
-            if self.retry_backoff_factor is not None
-            else getattr(default_llm, 'retry_backoff_factor', 2.5)
-        )
-
-        if self.top_p is not None:
-            result['top_p'] = self.top_p
+        reserved_keys = {
+            'provider',
+            'provider_type',
+            'model_name',
+            'temperature',
+            'max_completion_tokens',
+            'max_context_tokens',
+        }
+        merged_extra_params = dict(getattr(default_llm, 'extra_params', None) or {})
+        merged_extra_params.update(self.extra_params or {})
+        for key, value in merged_extra_params.items():
+            if key in reserved_keys:
+                continue
+            result[key] = value
 
         return result
 
@@ -332,10 +234,11 @@ class AgentConfig(BaseModel):
                     "temperature": 0.3,
                     "max_completion_tokens": 4096,
                     "max_context_tokens": 128000,
-                    "thinking_budget_tokens": 8192,
-                    "reasoning_effort": "medium",
-                    "retry_attempts": 10,
-                    "retry_backoff_factor": 2.5
+                    "extra_params": {
+                        "thinking_budget_tokens": 4096,
+                        "reasoning_effort": "medium",
+                        "top_p": 0.9
+                    }
                 },
                 "tools": {
                     "enabled_tools": ["query_kg", "semantic_search"]

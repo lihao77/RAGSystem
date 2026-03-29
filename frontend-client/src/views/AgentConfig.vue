@@ -200,178 +200,182 @@
               <h2>LLM 配置</h2>
               <span>Provider 自动同步默认参数，可按需覆盖</span>
             </div>
-            <div class="section-body form-grid">
-              <label class="form-item">
-                <span class="field-label-text">Provider</span>
-                <CustomSelect
-                  :model-value="selectedProviderKey"
-                  :options="[{ value: '', label: '未设置（使用默认）' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
-                  placeholder="未设置（使用默认）"
-                  @update:model-value="selectedProviderKey = $event; handleProviderChange()"
-                />
-              </label>
+            <div class="section-body">
+              <div class="form-grid">
+                <label class="form-item">
+                  <span class="field-label-text">Provider</span>
+                  <CustomSelect
+                    :model-value="selectedProviderKey"
+                    :options="[{ value: '', label: '未设置（使用默认）' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                    placeholder="未设置（使用默认）"
+                    @update:model-value="selectedProviderKey = $event; handleProviderChange()"
+                  />
+                </label>
 
-              <label class="form-item">
-                <span class="field-label-text">Provider Type</span>
-                <input :value="configForm.llm.provider_type || '未设置'" type="text" class="form-control" disabled />
-                <small class="field-hint">只读字段，随 Provider 自动更新</small>
-              </label>
+                <label class="form-item">
+                  <span class="field-label-text">Provider Type</span>
+                  <input :value="configForm.llm.provider_type || '未设置'" type="text" class="form-control" disabled />
+                  <small class="field-hint">只读字段，随 Provider 自动更新</small>
+                </label>
 
-              <label class="form-item">
-                <span class="field-label-text">Model Name</span>
-                <CustomSelect
-                  :model-value="configForm.llm.model_name"
-                  :options="[{ value: '', label: '选择模型' }, ...providerModelOptions.map(m => ({ value: m, label: m }))]"
-                  placeholder="选择模型"
-                  @update:model-value="configForm.llm.model_name = $event; handleModelChange()"
-                />
-                <small class="field-hint">可从列表选择，或保存后手动编辑配置文件指定自定义模型</small>
-              </label>
+                <label class="form-item">
+                  <span class="field-label-text">Model Name</span>
+                  <CustomSelect
+                    :model-value="configForm.llm.model_name"
+                    :options="[{ value: '', label: '选择模型' }, ...providerModelOptions.map(m => ({ value: m, label: m }))]"
+                    placeholder="选择模型"
+                    @update:model-value="configForm.llm.model_name = $event; handleModelChange()"
+                  />
+                  <small class="field-hint">可从列表选择，或保存后手动编辑配置文件指定自定义模型</small>
+                </label>
 
-              <label class="form-item">
-                <span class="field-label-text">Temperature</span>
-                <NumberInput :model-value="configForm.llm.temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm.temperature = $event" />
-              </label>
+                <label class="form-item">
+                  <span class="field-label-text">Temperature</span>
+                  <NumberInput :model-value="configForm.llm.temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm.temperature = $event" />
+                </label>
 
-              <label class="form-item">
-                <span class="field-label-text">Max Completion Tokens</span>
-                <NumberInput :model-value="configForm.llm.max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_completion_tokens = $event" />
-              </label>
+                <label class="form-item">
+                  <span class="field-label-text">Max Completion Tokens</span>
+                  <NumberInput :model-value="configForm.llm.max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_completion_tokens = $event" />
+                </label>
 
-              <label class="form-item">
-                <span class="field-label-text">Max Context Tokens</span>
-                <NumberInput :model-value="configForm.llm.max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_context_tokens = $event" />
-              </label>
+                <label class="form-item">
+                  <span class="field-label-text">Max Context Tokens</span>
+                  <NumberInput :model-value="configForm.llm.max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm.max_context_tokens = $event" />
+                </label>
+              </div>
 
-              <label class="form-item">
-                <span class="field-label-text">Thinking Budget Tokens</span>
-                <NumberInput :model-value="configForm.llm.thinking_budget_tokens" :min="1" :step="1" @update:model-value="configForm.llm.thinking_budget_tokens = $event" />
-              </label>
-
-              <label class="form-item">
-                <span class="field-label-text">Reasoning Effort</span>
-                <CustomSelect
-                  :model-value="configForm.llm.reasoning_effort || ''"
-                  :options="[
-                    { value: '', label: '未设置（使用 Provider 默认）' },
-                    { value: 'low', label: 'low' },
-                    { value: 'medium', label: 'medium' },
-                    { value: 'high', label: 'high' }
-                  ]"
-                  placeholder="未设置（使用 Provider 默认）"
-                  @update:model-value="configForm.llm.reasoning_effort = $event"
-                />
-                <small class="field-hint">仅对支持 reasoning_effort 的推理模型生效；留空则使用 Provider 默认值</small>
-              </label>
-
-              <label class="form-item">
-                <span class="field-label-text">Retry Attempts</span>
-                <NumberInput :model-value="configForm.llm.retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm.retry_attempts = $event" />
-              </label>
-
-              <label class="form-item">
-                <span class="field-label-text">退避指数</span>
-                <NumberInput :model-value="configForm.llm.retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm.retry_backoff_factor = $event" />
-              </label>
-            </div>
+              <div class="extra-param-editor">
+                <div class="field-label-row">
+                  <span class="field-label-text">额外参数</span>
+                  <button type="button" class="pl-btn" @click="addExtraParam(configForm.llm)">新增参数</button>
+                </div>
+                <div v-if="configForm.llm.extra_params_entries.length" class="extra-param-list">
+                  <div v-for="(entry, index) in configForm.llm.extra_params_entries" :key="`main-${index}`" class="extra-param-row">
+                    <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
+                    <CustomSelect
+                      :model-value="entry.type"
+                      :options="extraParamTypeOptions"
+                      placeholder="type"
+                      @update:model-value="entry.type = $event"
+                    />
+                    <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
+                    <button type="button" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm, index)">删除</button>
+                  </div>
+                </div>
+                <div v-else class="state-panel state-panel--empty state-panel--compact">
+                  <p>暂无额外参数</p>
+                </div>
+                <small class="field-hint">type 可选 string / number / boolean / json，json 类型的 value 需填写合法 JSON</small>
+              </div>
+              </div>
           </section>
 
           <section id="section-tiers" class="form-section">
             <div class="section-head">
-              <h2>LLM 分层配置</h2>
-              <span>可选。default 用于主推理，fast 用于压缩等简单任务，powerful 用于复杂推理</span>
-            </div>
-            <div class="section-body">
-              <div v-for="tier in ['default', 'fast', 'powerful']" :key="tier" class="tier-block">
-                <div class="tier-block__head">
-                  <button
-                    type="button"
-                    class="tier-toggle"
-                    :class="{ active: !!configForm.llm_tiers[tier] }"
-                    @click="configForm.llm_tiers[tier] = configForm.llm_tiers[tier] ? null : createEmptyLLM()"
-                  >
-                    <span class="tier-toggle__copy">
-                      <span class="tier-toggle__name">{{ tier }}</span>
-                      <span class="tier-toggle__desc">{{ tier === 'default' ? '主 ReAct 推理默认层' : tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</span>
-                    </span>
-                    <span class="tier-toggle__indicator" :class="{ active: !!configForm.llm_tiers[tier] }">
-                      <span class="tier-toggle__indicator-icon">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                          viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </span>
-                    </span>
-                  </button>
+              <div class="section-head__row">
+                <div>
+                  <h2>LLM 分层配置</h2>
+                  <span>可选。default 用于主推理，fast 用于压缩等简单任务，powerful 用于复杂推理</span>
                 </div>
-                <Transition name="tier-expand">
-                  <div v-if="configForm.llm_tiers[tier]" class="form-grid tier-block__body">
-                    <label class="form-item">
-                      <span class="field-label-text">Provider</span>
-                      <CustomSelect
-                        :model-value="getTierProviderKey(tier)"
-                        :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
-                        placeholder="未设置"
-                        @update:model-value="handleTierProviderChange(tier, $event)"
-                      />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Provider Type</span>
-                      <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Model Name</span>
-                      <CustomSelect
-                        :model-value="configForm.llm_tiers[tier].model_name"
-                        :options="[{ value: '', label: '选择模型' }, ...getTierModelOptions(tier).map(m => ({ value: m, label: m }))]"
-                        placeholder="选择模型"
-                        @update:model-value="configForm.llm_tiers[tier].model_name = $event"
-                      />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Temperature</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm_tiers[tier].temperature = $event" />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Max Completion Tokens</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_completion_tokens = $event" />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Max Context Tokens</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Thinking Budget Tokens</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].thinking_budget_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].thinking_budget_tokens = $event" />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Reasoning Effort</span>
-                      <CustomSelect
-                        :model-value="configForm.llm_tiers[tier].reasoning_effort || ''"
-                        :options="[
-                          { value: '', label: '未设置（使用 Provider 默认）' },
-                          { value: 'low', label: 'low' },
-                          { value: 'medium', label: 'medium' },
-                          { value: 'high', label: 'high' }
-                        ]"
-                        placeholder="未设置（使用 Provider 默认）"
-                        @update:model-value="configForm.llm_tiers[tier].reasoning_effort = $event"
-                      />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">Retry Attempts</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].retry_attempts" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].retry_attempts = $event" />
-                    </label>
-                    <label class="form-item">
-                      <span class="field-label-text">退避指数</span>
-                      <NumberInput :model-value="configForm.llm_tiers[tier].retry_backoff_factor" :min="1" :max="10" :step="0.1" @update:model-value="configForm.llm_tiers[tier].retry_backoff_factor = $event" />
-                    </label>
-                  </div>
-                </Transition>
+                <button type="button" class="section-head__toggle" @click="tiersCollapsed = !tiersCollapsed">
+                  {{ tiersCollapsed ? '展开配置' : '收起配置' }}
+                </button>
               </div>
             </div>
+            <Transition name="tier-expand">
+              <div v-if="!tiersCollapsed" class="section-body">
+                <div v-for="tier in ['default', 'fast', 'powerful']" :key="tier" class="tier-block">
+                  <div class="tier-block__head">
+                    <button
+                      type="button"
+                      class="tier-toggle"
+                      :class="{ active: !!configForm.llm_tiers[tier] }"
+                      @click="configForm.llm_tiers[tier] = configForm.llm_tiers[tier] ? null : createEmptyLLM()"
+                    >
+                      <span class="tier-toggle__copy">
+                        <span class="tier-toggle__name">{{ tier }}</span>
+                        <span class="tier-toggle__desc">{{ tier === 'default' ? '主 ReAct 推理默认层' : tier === 'fast' ? '简单任务（压缩、格式化等），成本优化' : '复杂推理任务（可选）' }}</span>
+                      </span>
+                      <span class="tier-toggle__indicator" :class="{ active: !!configForm.llm_tiers[tier] }">
+                        <span class="tier-toggle__indicator-icon">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                            viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                  <Transition name="tier-expand">
+                    <div v-if="configForm.llm_tiers[tier]" class="tier-block__body">
+                      <div class="form-grid">
+                        <label class="form-item">
+                          <span class="field-label-text">Provider</span>
+                          <CustomSelect
+                            :model-value="getTierProviderKey(tier)"
+                            :options="[{ value: '', label: '未设置' }, ...providers.map(p => ({ value: p.key || p.name, label: p.name + (p.provider_type ? ` (${p.provider_type})` : '') }))]"
+                            placeholder="未设置"
+                            @update:model-value="handleTierProviderChange(tier, $event)"
+                          />
+                        </label>
+                        <label class="form-item">
+                          <span class="field-label-text">Provider Type</span>
+                          <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
+                        </label>
+                        <label class="form-item">
+                          <span class="field-label-text">Model Name</span>
+                          <CustomSelect
+                            :model-value="configForm.llm_tiers[tier].model_name"
+                            :options="[{ value: '', label: '选择模型' }, ...getTierModelOptions(tier).map(m => ({ value: m, label: m }))]"
+                            placeholder="选择模型"
+                            @update:model-value="configForm.llm_tiers[tier].model_name = $event"
+                          />
+                        </label>
+                        <label class="form-item">
+                          <span class="field-label-text">Temperature</span>
+                          <NumberInput :model-value="configForm.llm_tiers[tier].temperature" :min="0" :max="2" :step="0.1" @update:model-value="configForm.llm_tiers[tier].temperature = $event" />
+                        </label>
+                        <label class="form-item">
+                          <span class="field-label-text">Max Completion Tokens</span>
+                          <NumberInput :model-value="configForm.llm_tiers[tier].max_completion_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_completion_tokens = $event" />
+                        </label>
+                        <label class="form-item">
+                          <span class="field-label-text">Max Context Tokens</span>
+                          <NumberInput :model-value="configForm.llm_tiers[tier].max_context_tokens" :min="1" :step="1" @update:model-value="configForm.llm_tiers[tier].max_context_tokens = $event" />
+                        </label>
+                      </div>
+
+                      <div class="extra-param-editor">
+                        <div class="field-label-row">
+                          <span class="field-label-text">额外参数</span>
+                          <button type="button" class="pl-btn" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</button>
+                        </div>
+                        <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
+                          <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
+                            <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
+                            <CustomSelect
+                              :model-value="entry.type"
+                              :options="extraParamTypeOptions"
+                              placeholder="type"
+                              @update:model-value="entry.type = $event"
+                            />
+                            <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
+                            <button type="button" :style="{width: '100%'}" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</button>
+                          </div>
+                        </div>
+                        <div v-else class="state-panel state-panel--empty state-panel--compact">
+                          <p>暂无额外参数</p>
+                        </div>
+                        <small class="field-hint">type 可选 string / number / boolean / json，json 类型的 value 需填写合法 JSON</small>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+            </Transition>
           </section>
 
           <section id="section-prompt" class="form-section">
@@ -705,6 +709,7 @@ const sections = [
   { id: 'section-delegation', label: '委派' }
 ];
 const activeSection = ref('section-basic');
+const tiersCollapsed = ref(false);
 let observer = null;
 let isClickScrolling = false;
 let scrollTimeout = null;
@@ -845,6 +850,13 @@ const memoryScopeFallbackMeta = [
   { name: 'workspace', description: '当前工作区记忆，适合绑定具体 workspace 的本地约定和上下文。' }
 ];
 
+const extraParamTypeOptions = [
+  { value: 'string', label: 'string' },
+  { value: 'number', label: 'number' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'json', label: 'json' }
+];
+
 function createEmptyLLM() {
   return {
     provider: '',
@@ -853,11 +865,34 @@ function createEmptyLLM() {
     temperature: 0.7,
     max_completion_tokens: 4096,
     max_context_tokens: 128000,
-    thinking_budget_tokens: '',
-    reasoning_effort: '',
-    retry_attempts: 10,
-    retry_backoff_factor: 2.5
+    extra_params_entries: []
   };
+}
+
+function createExtraParamEntry(key = '', type = 'string', value = '') {
+  return { key, type, value };
+}
+
+function parseExtraParamEntries(extraParams) {
+  if (!extraParams || typeof extraParams !== 'object' || Array.isArray(extraParams)) {
+    return [];
+  }
+  return Object.entries(extraParams).map(([key, value]) => {
+    if (typeof value === 'number') {
+      return createExtraParamEntry(key, 'number', String(value));
+    }
+    if (typeof value === 'boolean') {
+      return createExtraParamEntry(key, 'boolean', value ? 'true' : 'false');
+    }
+    if (value && typeof value === 'object') {
+      try {
+        return createExtraParamEntry(key, 'json', JSON.stringify(value));
+      } catch {
+        return createExtraParamEntry(key, 'json', '{}');
+      }
+    }
+    return createExtraParamEntry(key, 'string', value == null ? '' : String(value));
+  });
 }
 
 function createEmptyForm() {
@@ -892,10 +927,7 @@ function parseTierLLM(tier) {
     temperature: tier.temperature ?? 0.7,
     max_completion_tokens: tier.max_completion_tokens ?? 4096,
     max_context_tokens: tier.max_context_tokens ?? 128000,
-    thinking_budget_tokens: tier.thinking_budget_tokens ?? '',
-    reasoning_effort: tier.reasoning_effort || '',
-    retry_attempts: tier.retry_attempts ?? 10,
-    retry_backoff_factor: tier.retry_backoff_factor ?? 2.5
+    extra_params_entries: parseExtraParamEntries(tier.extra_params)
   };
 }
 
@@ -915,10 +947,7 @@ function applyConfigToForm(config) {
       temperature: safeConfig.llm?.temperature ?? 0.7,
       max_completion_tokens: safeConfig.llm?.max_completion_tokens ?? 4096,
       max_context_tokens: safeConfig.llm?.max_context_tokens ?? 128000,
-      thinking_budget_tokens: safeConfig.llm?.thinking_budget_tokens ?? '',
-      reasoning_effort: safeConfig.llm?.reasoning_effort || '',
-      retry_attempts: safeConfig.llm?.retry_attempts ?? 10,
-      retry_backoff_factor: safeConfig.llm?.retry_backoff_factor ?? 2.5
+      extra_params_entries: parseExtraParamEntries(safeConfig.llm?.extra_params)
     },
     llm_tiers: {
       default: parseTierLLM(safeConfig.llm_tiers?.default),
@@ -961,6 +990,67 @@ function applyConfigToForm(config) {
   nextTick(() => autoResizeSystemPrompt());
 }
 
+function addExtraParam(target) {
+  if (!target.extra_params_entries) {
+    target.extra_params_entries = [];
+  }
+  target.extra_params_entries.push(createExtraParamEntry());
+}
+
+function removeExtraParam(target, index) {
+  if (!target?.extra_params_entries) {
+    return;
+  }
+  target.extra_params_entries.splice(index, 1);
+}
+
+function parseExtraParamsInput(entries, scopeLabel) {
+  const result = {};
+  for (const entry of entries || []) {
+    const key = (entry?.key || '').trim();
+    if (!key) {
+      continue;
+    }
+    const type = entry?.type || 'string';
+    const rawValue = entry?.value ?? '';
+
+    if (type === 'string') {
+      result[key] = String(rawValue);
+      continue;
+    }
+    if (type === 'number') {
+      const parsedNumber = Number(rawValue);
+      if (rawValue === '' || Number.isNaN(parsedNumber)) {
+        throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是数字`);
+      }
+      result[key] = parsedNumber;
+      continue;
+    }
+    if (type === 'boolean') {
+      const normalized = String(rawValue).trim().toLowerCase();
+      if (normalized === 'true') {
+        result[key] = true;
+        continue;
+      }
+      if (normalized === 'false') {
+        result[key] = false;
+        continue;
+      }
+      throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是 true 或 false`);
+    }
+    if (type === 'json') {
+      try {
+        result[key] = JSON.parse(String(rawValue || '{}'));
+      } catch {
+        throw new Error(`${scopeLabel}参数 ${key} 的 value 必须是合法 JSON`);
+      }
+      continue;
+    }
+    throw new Error(`${scopeLabel}参数 ${key} 的 type 无效`);
+  }
+  return result;
+}
+
 function buildPayload() {
   const merged = JSON.parse(JSON.stringify(rawConfig.value || {}));
   merged.agent_name = selectedAgent.value;
@@ -977,13 +1067,10 @@ function buildPayload() {
     temperature: configForm.value.llm.temperature === '' ? null : Number(configForm.value.llm.temperature),
     max_completion_tokens: configForm.value.llm.max_completion_tokens === '' ? null : Number(configForm.value.llm.max_completion_tokens),
     max_context_tokens: configForm.value.llm.max_context_tokens === '' ? null : Number(configForm.value.llm.max_context_tokens),
-    thinking_budget_tokens: configForm.value.llm.thinking_budget_tokens === '' ? null : Number(configForm.value.llm.thinking_budget_tokens),
-    reasoning_effort: configForm.value.llm.reasoning_effort || null,
-    retry_attempts: configForm.value.llm.retry_attempts === '' ? null : Number(configForm.value.llm.retry_attempts),
-    retry_backoff_factor: configForm.value.llm.retry_backoff_factor === '' ? null : Number(configForm.value.llm.retry_backoff_factor)
+    extra_params: parseExtraParamsInput(configForm.value.llm.extra_params_entries, '主 LLM')
   };
 
-  function buildTier(tier) {
+  function buildTier(tier, tierName) {
     if (!tier) return null;
     return {
       provider: tier.provider || null,
@@ -992,17 +1079,14 @@ function buildPayload() {
       temperature: tier.temperature === '' ? null : Number(tier.temperature),
       max_completion_tokens: tier.max_completion_tokens === '' ? null : Number(tier.max_completion_tokens),
       max_context_tokens: tier.max_context_tokens === '' ? null : Number(tier.max_context_tokens),
-      thinking_budget_tokens: tier.thinking_budget_tokens === '' ? null : Number(tier.thinking_budget_tokens),
-      reasoning_effort: tier.reasoning_effort || null,
-      retry_attempts: tier.retry_attempts === '' ? null : Number(tier.retry_attempts),
-      retry_backoff_factor: tier.retry_backoff_factor === '' ? null : Number(tier.retry_backoff_factor)
+      extra_params: parseExtraParamsInput(tier.extra_params_entries, `${tierName} 层级`)
     };
   }
   const tiers = configForm.value.llm_tiers;
   const builtTiers = {};
-  if (tiers.default) builtTiers.default = buildTier(tiers.default);
-  if (tiers.fast) builtTiers.fast = buildTier(tiers.fast);
-  if (tiers.powerful) builtTiers.powerful = buildTier(tiers.powerful);
+  if (tiers.default) builtTiers.default = buildTier(tiers.default, 'default');
+  if (tiers.fast) builtTiers.fast = buildTier(tiers.fast, 'fast');
+  if (tiers.powerful) builtTiers.powerful = buildTier(tiers.powerful, 'powerful');
   merged.llm_tiers = Object.keys(builtTiers).length ? builtTiers : null;
 
   merged.tools = {
@@ -1155,10 +1239,6 @@ function handleTierProviderChange(tier, key) {
   if (p.temperature != null) t.temperature = Number(p.temperature);
   if (p.max_completion_tokens != null) t.max_completion_tokens = Number(p.max_completion_tokens);
   if (p.max_context_tokens != null) t.max_context_tokens = Number(p.max_context_tokens);
-  if (p.thinking_budget_tokens != null) t.thinking_budget_tokens = Number(p.thinking_budget_tokens);
-  if (p.reasoning_effort != null) t.reasoning_effort = p.reasoning_effort;
-  if (p.retry_attempts != null) t.retry_attempts = Number(p.retry_attempts);
-  if (p.retry_backoff_factor != null) t.retry_backoff_factor = Number(p.retry_backoff_factor);
 }
 
 function toggleTool(name, checked) {
@@ -1236,17 +1316,8 @@ function syncLLMWithProviderDefaults({ keepCurrentModel = true } = {}) {
   if (provider.max_context_tokens != null) {
     configForm.value.llm.max_context_tokens = Number(provider.max_context_tokens);
   }
-  if (provider.thinking_budget_tokens != null) {
-    configForm.value.llm.thinking_budget_tokens = Number(provider.thinking_budget_tokens);
-  }
-  if (provider.reasoning_effort != null) {
-    configForm.value.llm.reasoning_effort = provider.reasoning_effort;
-  }
-  if (provider.retry_attempts != null) {
-    configForm.value.llm.retry_attempts = Number(provider.retry_attempts);
-  }
-  if (provider.retry_backoff_factor != null) {
-    configForm.value.llm.retry_backoff_factor = Number(provider.retry_backoff_factor);
+  if (provider.top_p != null) {
+    configForm.value.llm.top_p = Number(provider.top_p);
   }
 }
 

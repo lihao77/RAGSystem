@@ -237,6 +237,27 @@ def test_prepare_execution_propagates_llm_tier_to_context():
     assert handle.context.metadata['requested_llm_tier'] == 'powerful'
 
 
+def test_prepare_execution_preserves_llm_override_identity_only_contract():
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    handle = service.prepare_execution(
+        agent_name='demo_agent',
+        session_id='session-1',
+        llm_override={
+            'provider': 'demo',
+            'provider_type': 'openai',
+            'model_name': 'gpt-5.4',
+            'thinking_budget_tokens': 4096,
+        },
+    )
+
+    assert handle.context.llm_override['provider'] == 'demo'
+    assert handle.context.llm_override['provider_type'] == 'openai'
+    assert handle.context.llm_override['model_name'] == 'gpt-5.4'
+    assert handle.context.llm_override['thinking_budget_tokens'] == 4096
+
+
 def test_invoke_routed_agent_propagates_llm_tier_to_route_context():
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
