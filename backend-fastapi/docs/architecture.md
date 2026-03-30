@@ -78,6 +78,8 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → AgentExecutionAdapter.start_stream_execution()
       └─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把附件元数据写入 user message.metadata.attachments
   → AgentExecutionService.invoke_agent(mode=root)
+  → BaseAgent._prepare_execution_state()
+      └─ 用 context.metadata.current_attachments 构造当前轮 `current_session[0].metadata.attachments`，确保“本轮消息”而不只是历史消息能被 provider 看到
   → AgentApiRuntimeService.build_context()
       ├─ 读取历史消息到 AgentContext
       ├─ 保留 user message.metadata.attachments 供 provider 边界读取

@@ -564,6 +564,13 @@ class BaseAgent(ABC):
                 metadata['max_rounds'] = self.max_rounds
             publisher.agent_start(task, metadata=metadata)
 
+        user_message: Dict[str, Any] = {"role": "user", "content": task}
+        current_attachments = []
+        if hasattr(context, 'metadata'):
+            current_attachments = list(context.metadata.get('current_attachments') or [])
+        if current_attachments:
+            user_message['metadata'] = {'attachments': current_attachments}
+
         return {
             'start_time': start_time,
             'event_bus': event_bus,
@@ -571,7 +578,7 @@ class BaseAgent(ABC):
             'call_id': current_call_id,
             'parent_call_id': parent_call_id,
             'run_id': run_id,
-            'current_session': [{"role": "user", "content": task}],
+            'current_session': [user_message],
             'tool_calls_history': [],
             'rounds': 0,
         }

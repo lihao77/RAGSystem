@@ -67,6 +67,56 @@ def test_orchestrator_prepare_execution_state_preserves_start_time():
     assert state["run_id"]
 
 
+def test_prepare_execution_state_injects_current_attachments_into_current_session():
+    agent = _make_uninitialized_orchestrator()
+
+    def _resolve_event_bus(self, context):
+        del context
+        return None
+
+    def _ensure_publisher(self, context, **kwargs):
+        del context, kwargs
+        return None
+
+    agent._resolve_event_bus = MethodType(_resolve_event_bus, agent)
+    agent._ensure_publisher = MethodType(_ensure_publisher, agent)
+
+    context = SimpleNamespace(
+        metadata={
+            'current_attachments': [
+                {
+                    'file_id': 'file-1',
+                    'mime': 'image/png',
+                    'original_name': 'demo.png',
+                    'stored_path': '/tmp/demo.png',
+                    'kind': 'image',
+                }
+            ]
+        },
+        session_id='session-1',
+    )
+
+    state = agent._prepare_execution_state('look at image', context, 1.0)
+
+    assert state['current_session'] == [
+        {
+            'role': 'user',
+            'content': 'look at image',
+            'metadata': {
+                'attachments': [
+                    {
+                        'file_id': 'file-1',
+                        'mime': 'image/png',
+                        'original_name': 'demo.png',
+                        'stored_path': '/tmp/demo.png',
+                        'kind': 'image',
+                    }
+                ]
+            },
+        }
+    ]
+
+
 def test_orchestrator_handle_execution_error_tolerates_incomplete_state():
     agent = _make_uninitialized_orchestrator()
     agent._publisher = _DummyPublisher()
