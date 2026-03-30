@@ -1,69 +1,75 @@
 /* ===== Ultra-Premium Minimalist Design System ===== */
 :root {
     /* Interactive Accent Colors */
-    --color-interactive: #2d2d2d;
+    --color-interactive: #1c1c1e;
     /* Primary interactive elements (buttons, icons) */
-    --color-interactive-hover: #414141;
+    --color-interactive-hover: #2c2c2e;
     /* Hover state */
     --color-interactive-glow: rgba(71, 71, 71, 0.18);
     --color-interactive-subtle: rgba(255, 255, 255, 0.2);
-    --color-interactive-rgb: 45, 45, 45;
+    --color-interactive-rgb: 28, 28, 30;
     /* RGB triplet for rgba() usage */
 
     /* Brand Accent Colors - For decorative glows and highlights */
-    --color-brand-accent: #6366f1;
-    /* Brand indigo for decorative elements */
-    --color-brand-accent-rgb: 99, 102, 241;
+    --color-brand-accent: #0a84ff;
+    /* Apple Blue for dark mode */
+    --color-brand-accent-rgb: 10, 132, 255;
     /* RGB triplet for rgba() usage */
-    --color-brand-accent-light: #818cf8;
-    --color-brand-accent-light-rgb: 129, 140, 248;
+    --color-brand-accent-light: #409cff;
+    --color-brand-accent-light-rgb: 64, 156, 255;
 
     /* Background Layers - Matte Deep Space */
-    --color-bg-app: #09090b;
-    /* Zinc 950 - 最深背景 */
-    --color-bg-primary: #181818;
-    /* Zinc 900 - 卡片背景 */
-    --color-bg-secondary: #212121;
-    /* Zinc 800 - 悬停/次级背景 */
-    --color-bg-tertiary: #303030;
-    /* Zinc 700 - 激活状态 */
-    --color-bg-elevated: #27272a;
+    --color-bg-app: #000000;
+    /* Pure black - Apple style */
+    --color-bg-primary: #1c1c1e;
+    /* System Gray 6 - 卡片背景 */
+    --color-bg-secondary: #2c2c2e;
+    /* System Gray 5 - 悬停/次级背景 */
+    --color-bg-tertiary: #3a3a3c;
+    /* System Gray 4 - 激活状态 */
+    --color-bg-elevated: #1c1c1e;
     /* 浮层 */
 
     /* Text Colors - Crisp Hierarchy */
     --color-text-primary: #ffffff;
-    --color-text-secondary: #a1a1aa;
-    /* Zinc 400 — 明确的次要层级，与 primary 拉开差距 */
-    --color-text-muted: #71717a;
-    /* Zinc 500 — 提升对比度，保持可读性 */
-    --color-text-inverse: #09090b;
+    --color-text-secondary: #98989d;
+    /* System Gray - Apple style */
+    --color-text-muted: #636366;
+    /* System Gray 2 - 更柔和 */
+    --color-text-inverse: #000000;
 
     /* Message Backgrounds */
-    --color-bg-message-user: #27272a;
+    --color-bg-message-user: #2c2c2e;
     --color-bg-message-assistant: transparent;
 
     /* Borders - Subtle but Visible */
-    --color-border: rgba(255, 255, 255, 0.08);
-    --color-border-hover: rgba(255, 255, 255, 0.14);
-    --color-border-focus: rgba(var(--color-brand-accent-light-rgb), 0.45);
+    --color-border: rgba(255, 255, 255, 0.1);
+    --color-border-hover: rgba(255, 255, 255, 0.16);
+    --color-border-focus: rgba(10, 132, 255, 0.5);
+    /* Apple Blue focus */
 
     /* Status Colors - Muted */
-    --color-success: #34d399;
-    --color-success-bg: rgba(52, 211, 153, 0.1);
-    --color-success-rgb: 52, 211, 153;
-    --color-warning: #fbbf24;
-    --color-warning-bg: rgba(251, 191, 36, 0.1);
-    --color-warning-rgb: 251, 191, 36;
-    --color-error: #f87171;
-    --color-error-bg: rgba(248, 113, 113, 0.1);
-    --color-error-rgb: 248, 113, 113;
-    --color-active: #60a5fa;
-    --color-active-bg: rgba(96, 165, 250, 0.1);
-    --color-active-rgb: 96, 165, 250;
+    --color-success: #30d158;
+    /* Apple Green */
+    --color-success-bg: rgba(48, 209, 88, 0.1);
+    --color-success-rgb: 48, 209, 88;
+    --color-warning: #ffd60a;
+    /* Apple Yellow */
+    --color-warning-bg: rgba(255, 214, 10, 0.1);
+    --color-warning-rgb: 255, 214, 10;
+    --color-error: #ff453a;
+    /* Apple Red */
+    --color-error-bg: rgba(255, 69, 58, 0.1);
+    --color-error-rgb: 255, 69, 58;
+    --color-active: #0a84ff;
+    /* Apple Blue */
+    --color-active-bg: rgba(10, 132, 255, 0.1);
+    --color-active-rgb: 10, 132, 255;
 
     /* Link Color */
-    --color-link: #818cf8;
-    --color-link-hover: #a5b4fc;
+    --color-link: #0a84ff;
+    /* Apple Blue */
+    --color-link-hover: #409cff;
 
     /* Semantic Agent Colors */
     --color-agent-master: #c084fc;
@@ -81,11 +87,13 @@
     --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
 
     /* Minimal Glass - Tinted Transparency */
-    --glass-bg: rgba(20, 20, 24, 0.55);
-    --glass-bg-light: rgba(24, 24, 30, 0.45);
-    --color-glass-border: rgba(255, 255, 255, 0.1);
-    --glass-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.25);
-    --glass-blur: 24px;
+    --glass-bg: rgba(28, 28, 30, 0.72);
+    /* Apple style glass */
+    --glass-bg-light: rgba(28, 28, 30, 0.5);
+    --color-glass-border: rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 8px 32px rgba(0, 0, 0, 0.4);
+    --glass-blur: 40px;
+    /* Apple style blur */
 
     /* Refined Shadows — Apple-style layered shadows */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
@@ -199,67 +207,75 @@
 
 :root[data-theme="light"] {
     /* Interactive Accent Colors */
-    --color-interactive: #f9fafb;
-    --color-interactive-hover: #e4e4e7;
-    --color-interactive-glow: rgba(79, 70, 229, 0.15);
-    --color-interactive-subtle: rgba(79, 70, 229, 0.14);
-    --color-interactive-rgb: 240, 240, 240;
+    --color-interactive: #f5f5f7;
+    /* Apple Light Gray */
+    --color-interactive-hover: #e8e8ed;
+    --color-interactive-glow: rgba(0, 0, 0, 0.08);
+    --color-interactive-subtle: rgba(0, 0, 0, 0.06);
+    --color-interactive-rgb: 245, 245, 247;
     /* RGB triplet for rgba() usage */
 
     /* Brand Accent Colors - For decorative glows and highlights */
-    --color-brand-accent: #4f46e5;
-    /* Brand indigo for light theme */
-    --color-brand-accent-rgb: 79, 70, 229;
-    --color-brand-accent-light: #6366f1;
-    --color-brand-accent-light-rgb: 99, 102, 241;
+    --color-brand-accent: #007aff;
+    /* Apple Blue for light mode */
+    --color-brand-accent-rgb: 0, 122, 255;
+    --color-brand-accent-light: #0a84ff;
+    --color-brand-accent-light-rgb: 10, 132, 255;
 
     /* Background Layers - Light */
-    --color-bg-app: #f7f7fb;
-    /* 主背景：中灰，拉开与卡片的对比 */
+    --color-bg-app: #f5f5f7;
+    /* Apple Light Gray */
     --color-bg-primary: #ffffff;
-    /* 侧边栏/卡片：纯白，在 app 背景上清晰"浮起" */
-    --color-bg-secondary: #f4f4f5;
-    /* 次级背景：略深于卡片，用于内嵌区域 */
-    --color-bg-tertiary: #e4e4e7;
-    /* 激活/用户消息气泡，比次级更深 */
+    /* Pure white */
+    --color-bg-secondary: #f5f5f7;
+    /* Light Gray */
+    --color-bg-tertiary: #e8e8ed;
+    /* Slightly darker */
     --color-bg-elevated: #ffffff;
     /* 浮层用纯白+阴影 */
 
     /* Text Colors */
-    --color-text-primary: #18181b;
-    /* Zinc 900 */
-    --color-text-secondary: #52525b;
-    /* Zinc 600 */
-    --color-text-muted: #a1a1aa;
-    /* Zinc 400 */
+    --color-text-primary: #1d1d1f;
+    /* Apple Dark Gray */
+    --color-text-secondary: #86868b;
+    /* System Gray */
+    --color-text-muted: #a1a1a6;
+    /* System Gray 2 */
     --color-text-inverse: #ffffff;
 
     /* Message Backgrounds */
-    --color-bg-message-user: #eef2ff;
+    --color-bg-message-user: #e8e8ed;
     --color-bg-message-assistant: transparent;
 
     /* Borders */
-    --color-border: #e5e7eb;        /* 更贴近 Tailwind slate-200，整体更干净 */
-    --color-border-hover: #cbd5f5;  /* hover 时略偏蓝，弱化灰感 */
-    --color-border-focus: rgba(var(--color-brand-accent-rgb), 0.4);
+    --color-border: #d2d2d7;
+    /* Apple Light Border */
+    --color-border-hover: #b0b0b5;
+    --color-border-focus: rgba(0, 122, 255, 0.5);
+    /* Apple Blue focus */
 
     /* Status Colors - Light Theme */
-    --color-success: #10b981;
-    --color-success-bg: rgba(16, 185, 129, 0.1);
-    --color-success-rgb: 16, 185, 129;
-    --color-warning: #f59e0b;
-    --color-warning-bg: rgba(245, 158, 11, 0.1);
-    --color-warning-rgb: 245, 158, 11;
-    --color-error: #ef4444;
-    --color-error-bg: rgba(239, 68, 68, 0.1);
-    --color-error-rgb: 239, 68, 68;
-    --color-active: #3b82f6;
-    --color-active-bg: rgba(59, 130, 246, 0.1);
-    --color-active-rgb: 59, 130, 246;
+    --color-success: #28cd41;
+    /* Apple Green Light */
+    --color-success-bg: rgba(40, 205, 65, 0.1);
+    --color-success-rgb: 40, 205, 65;
+    --color-warning: #ffd60a;
+    /* Apple Yellow */
+    --color-warning-bg: rgba(255, 214, 10, 0.1);
+    --color-warning-rgb: 255, 214, 10;
+    --color-error: #ff3b30;
+    /* Apple Red Light */
+    --color-error-bg: rgba(255, 59, 48, 0.1);
+    --color-error-rgb: 255, 59, 48;
+    --color-active: #007aff;
+    /* Apple Blue */
+    --color-active-bg: rgba(0, 122, 255, 0.1);
+    --color-active-rgb: 0, 122, 255;
 
     /* Link Color */
-    --color-link: #4f46e5;
-    --color-link-hover: #4338ca;
+    --color-link: #007aff;
+    /* Apple Blue */
+    --color-link-hover: #0a84ff;
 
     /* Semantic Agent Colors */
     --color-agent-master: #9333ea;
@@ -277,10 +293,11 @@
     --color-hover-overlay-lg: rgba(0, 0, 0, 0.08);
 
     /* Glass - Light：用深色边框 + 更不透明的白色背景，在白底上产生层次感 */
-    --glass-bg: rgba(255, 255, 255, 0.88);
-    --glass-bg-light: rgba(160, 160, 160, 0);
-    --color-glass-border: rgba(0, 0, 0, 0.08);
-    --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.05);
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    /* Apple style glass */
+    --glass-bg-light: rgba(255, 255, 255, 0.6);
+    --color-glass-border: rgba(0, 0, 0, 0.1);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
 
     /* Refined Shadows — Apple-style layered shadows for light mode */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -324,8 +341,8 @@ body::before {
     pointer-events: none;
     z-index: 0;
     background:
-        radial-gradient(ellipse 60% 50% at 15% 20%, rgba(var(--color-brand-accent-rgb), 0.04), transparent),
-        radial-gradient(ellipse 50% 60% at 85% 80%, rgba(var(--color-brand-accent-rgb), 0.03), transparent);
+        radial-gradient(ellipse 60% 50% at 15% 20%, rgba(10, 132, 255, 0.06), transparent),
+        radial-gradient(ellipse 50% 60% at 85% 80%, rgba(10, 132, 255, 0.04), transparent);
 }
 
 body {

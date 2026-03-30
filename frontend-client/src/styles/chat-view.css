@@ -160,11 +160,11 @@
   /* 新聊天图标 20px，中心在 10px
      左边距 = (中心线 - 图标半径) - header padding
      = (32 - 10) - 8 = 14px */
-  padding: 10px calc(var(--icon-center-line) - var(--spacing-sm) - 11px);
+  padding: 12px calc(var(--icon-center-line) - var(--spacing-sm) - 11px);
   background: none;
   color: var(--color-text-primary);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   font-weight: 500;
   font-size: var(--font-size-base);
   /* 0.9rem -> 1rem */
@@ -173,10 +173,11 @@
   justify-content: left;
   gap: var(--spacing-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   white-space: nowrap;
   overflow: hidden;
   width: 100%;
+  box-shadow: none;
 }
 
 .sidebar-btn .icon {
@@ -184,7 +185,7 @@
   height: 20px; */
   flex-shrink: 0;
   color: var(--color-text-primary);
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
 }
 
 .sidebar-btn .btn-text {
@@ -217,6 +218,8 @@
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar-btn-monitor {
@@ -240,9 +243,9 @@
   background: none;
   color: var(--color-text-secondary);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -266,6 +269,7 @@
   background: var(--color-bg-tertiary);
   border-color: var(--color-border);
   color: var(--color-text-primary);
+  transform: scale(1.05);
 }
 
 .history-list {
@@ -297,16 +301,16 @@
 
 .history-item {
   /* 历史记录图标 18px，中心在 9px，左边距 = 24 - 9 = 15px */
-  padding: 8px var(--spacing-sm);
+  padding: 10px var(--spacing-sm);
   margin: 0 var(--spacing-sm);
   margin-bottom: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   font-size: var(--font-size-sm);
   /* 0.85rem -> 0.875rem */
   border: 1px solid transparent;
@@ -317,11 +321,14 @@
 .history-item:hover {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .history-item.active {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
   /* border-color: var(--color-border); */
 }
 
@@ -375,38 +382,36 @@
   color: var(--color-text-muted);
 }
 
-/* #7: 非 hover 时折叠为 0 宽度，消除占位空间 */
 .history-delete-btn {
   width: 0;
   padding: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  height: 28px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: width var(--transition-fast), padding var(--transition-fast),
-              opacity var(--transition-fast), background var(--transition-fast),
-              color var(--transition-fast);
+  transition: all var(--transition-normal);
 }
 
 .history-delete-btn:hover {
-  background: var(--color-bg-tertiary);
+  background: rgba(239, 68, 68, 0.12);
   color: var(--color-error);
+  transform: scale(1.1);
 }
 
 /* 桌面端：hover 时展开 */
 @media (hover: hover) {
   .history-item:hover .history-delete-btn {
-    width: 28px;
-    padding: 4px;
+    width: 32px;
+    padding: 6px;
     opacity: 1;
     pointer-events: auto;
   }
@@ -431,8 +436,8 @@
 }
 
 .avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   background: var(--color-text-primary);
   color: var(--color-bg-primary);
   border-radius: var(--radius-full);
@@ -442,6 +447,13 @@
   font-weight: 600;
   font-size: 0.9rem;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-normal);
+}
+
+.user-profile:hover .avatar {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
 }
 
 .user-info {
@@ -545,8 +557,8 @@
 }
 
 .theme-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -554,10 +566,18 @@
   box-shadow: none;
 }
 
+.theme-btn:hover {
+  transform: scale(1.1) rotate(15deg);
+}
+
+.theme-btn:active {
+  transform: scale(0.95);
+}
+
 .version-btn {
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -570,11 +590,18 @@
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .session-export-btn:hover:not(:disabled) {
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.session-export-btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .session-export-btn:disabled {
@@ -762,9 +789,9 @@
 /* #3: 正常态气泡 */
 .user-text {
   background: var(--color-bg-tertiary);
-  padding: 12px 16px;
-  border-radius: var(--radius-lg);
-  border-bottom-right-radius: var(--user-bubble-corner);
+  padding: 14px 18px;
+  border-radius: var(--radius-xl);
+  border-bottom-right-radius: 6px;
   border: 1px solid transparent;
   color: var(--color-text-primary);
   line-height: 1.6;
@@ -776,13 +803,14 @@
   min-height: 0;
   max-height: none;
   overflow: visible;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
   /* 过渡全部属性，编辑态切换时平滑 */
   transition:
     border-color 0.22s cubic-bezier(0.34, 1.3, 0.64, 1),
     box-shadow   0.22s cubic-bezier(0.34, 1.3, 0.64, 1),
     min-height   0.25s cubic-bezier(0.34, 1.3, 0.64, 1),
-    background   0.2s ease;
+    background   0.2s ease,
+    transform    var(--transition-normal);
 }
 
 /* 编辑态：同一个元素，切换样式 */
@@ -1809,8 +1837,8 @@
 
 /* ===== 汉堡菜单按钮（移动端） ===== */
 .hamburger-menu-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
@@ -1822,15 +1850,18 @@
   cursor: pointer;
   transition: all var(--transition-normal);
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .hamburger-menu-btn:hover {
   background-color: var(--color-interactive-hover);
-  box-shadow: var(--shadow-glow);
+  box-shadow: var(--shadow-md);
+  transform: scale(1.05);
 }
 
 .hamburger-menu-btn:active {
   transform: scale(0.95);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 遮罩层 */

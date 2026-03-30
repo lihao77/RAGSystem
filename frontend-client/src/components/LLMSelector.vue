@@ -280,16 +280,16 @@ defineExpose({ getSelection });
 
 /* 触发按钮 */
 .llm-select-trigger {
-  height: 40px;
+  height: 44px;
   min-width: 180px;
-  padding: 0 40px 0 16px;
-  border-radius: 20px;
+  padding: 0 44px 0 18px;
+  border-radius: 22px;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: -0.01em;
   cursor: pointer;
   transition: all var(--transition-normal);
   display: flex;
@@ -297,15 +297,24 @@ defineExpose({ getSelection });
   gap: 8px;
   position: relative;
   user-select: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .llm-select-trigger:hover:not(.disabled) {
   background-color: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.llm-select-trigger:active:not(.disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .llm-select-trigger.open {
   border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .llm-select-trigger.disabled {
@@ -366,7 +375,8 @@ defineExpose({ getSelection });
   min-width: 220px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   z-index: var(--z-overlay);
   overflow: hidden;
 }
@@ -384,19 +394,20 @@ defineExpose({ getSelection });
 
 .search-input {
   width: 100%;
-  height: 36px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
   font-size: 13px;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   outline: none;
 }
 
 .search-input:focus {
   border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .search-input::placeholder {
@@ -414,10 +425,10 @@ defineExpose({ getSelection });
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 500;
@@ -426,12 +437,14 @@ defineExpose({ getSelection });
 
 .option-item:hover {
   background: var(--color-interactive-hover);
+  transform: translateX(2px);
 }
 
 .option-item.selected {
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
   color: var(--color-text-primary);
   font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 .option-sub {
