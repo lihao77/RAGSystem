@@ -245,19 +245,22 @@ SituationScreen (Teleport to body, z-index: 10000)
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
 - `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的全局 `/api/files` 文件池严格分离
-- `pendingAttachments`：本轮待发送的消息级附件；来源于 session 文件上传结果或从现有 session 文件列表中“附加到本轮”
+- `pendingAttachments`：仅底部输入框中新消息的待发送附件
+- `editingDraft` / `editingAttachmentsDraft`：当前正在原地编辑的消息文本与附件草稿
+- `sessionFilesDrawerTarget`：附件抽屉当前服务对象（底部输入框 composer 或消息原地编辑）
 
 当前多模态输入约定：
 - 顶部“会话文件”主入口已收敛，附件入口下沉到 `ChatInput.vue` 左侧按钮
-- `SessionFilesDrawer.vue` 现在承担“输入区附件对话框”角色，而不是单纯的会话级资源抽屉
+- `SessionFilesDrawer.vue` 同时服务底部输入区新消息附件和“消息气泡原地编辑”两种场景，通过本地 `target/mode` 区分操作目标
 - 用户可以发送“纯文本”、“文本+附件”或“纯附件”消息
 - 用户消息历史回放时，附件通过 `message.metadata.attachments` 重建并在消息气泡下方回显
+- 编辑用户消息时，文本继续使用消息气泡内 `contenteditable`，附件也在消息气泡边上原地增删，确认后仍走 rollback + resend
 
 | 操作 | 流程 |
 |------|------|
 | 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 构建 subtasks/steps |
 | 重连 | checkSessionTaskStatus() → 有运行中任务 → reconnectToRunningTask() |
-| 编辑重发 | confirmEditAndResend() → POST rollback → 以编辑内容重新流式发送 |
+| 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → confirmEditAndResend() 调用 POST rollback → 通过 `/api/agent/stream` 以编辑后的内容和 `attachments[]` 重新流式发送 |
 | 重试 | rollbackAndRetry() → POST rollback → 以原问题重新发送 |
 
 ## 主题系统

@@ -5,8 +5,8 @@
         <div class="ctx-drawer ctx-drawer--dialog" @click.stop>
           <div class="ctx-drawer-header">
             <div>
-              <h3>添加附件</h3>
-              <div class="ctx-subtitle">{{ sessionId ? '上传后将附加到本轮消息' : '上传附件将自动创建会话' }}</div>
+              <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
+              <div class="ctx-subtitle">{{ subtitleText }}</div>
             </div>
             <button class="ctx-close-btn" @click="$emit('close')">&times;</button>
           </div>
@@ -28,7 +28,7 @@
 
             <div v-if="uploading" class="ctx-loading">正在上传附件...</div>
             <section v-if="pendingFiles.length" class="ctx-section">
-              <div class="ctx-section-title">本轮待发送</div>
+              <div class="ctx-section-title">{{ pendingTitle }}</div>
               <div class="ctx-file-list">
                 <div v-for="file in pendingFiles" :key="file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
                   <div class="ctx-file-main">
@@ -60,7 +60,7 @@
                   </div>
                   <div class="ctx-file-actions">
                     <button class="ctx-inline-btn" @click="$emit('download', file)">下载</button>
-                    <button class="ctx-inline-btn" @click="$emit('reuse', file)">附加到本轮</button>
+                    <button class="ctx-inline-btn" @click="$emit('reuse', file)">{{ reuseButtonText }}</button>
                     <button class="ctx-inline-btn ctx-inline-btn--danger" :disabled="deletingFileId === file.id" @click="$emit('delete', file)">
                       {{ deletingFileId === file.id ? '删除中...' : '删除' }}
                     </button>
@@ -70,7 +70,7 @@
             </section>
             <div v-else class="ctx-empty-state">
               <div class="ctx-empty-title">还没有附件</div>
-              <div class="ctx-empty-desc">上传图片或文件后，它会附加到你接下来发送的这条消息。</div>
+              <div class="ctx-empty-desc">{{ emptyDesc }}</div>
             </div>
           </div>
 
@@ -84,10 +84,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-defineProps({
+const props = defineProps({
   visible: Boolean,
+  mode: { type: String, default: 'composer' },
   sessionId: { type: String, default: '' },
   files: { type: Array, default: () => [] },
   pendingFiles: { type: Array, default: () => [] },
@@ -98,6 +99,27 @@ defineProps({
 
 const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'reuse', 'removePending']);
 const fileInputRef = ref(null);
+
+const subtitleText = computed(() => {
+  if (!props.sessionId) return '上传附件将自动创建会话';
+  return props.mode === 'message-edit'
+    ? '上传或复用会话文件到当前编辑中的消息'
+    : '上传后将附加到本轮消息';
+});
+
+const pendingTitle = computed(() => (
+  props.mode === 'message-edit' ? '当前编辑消息附件' : '本轮待发送'
+));
+
+const reuseButtonText = computed(() => (
+  props.mode === 'message-edit' ? '附加到当前消息' : '附加到本轮'
+));
+
+const emptyDesc = computed(() => (
+  props.mode === 'message-edit'
+    ? '上传图片或文件后，它会附加到当前正在编辑的这条消息。'
+    : '上传图片或文件后，它会附加到你接下来发送的这条消息。'
+));
 
 const onFileChange = (event) => {
   const files = event.target.files;

@@ -266,14 +266,27 @@
                     @keydown.esc="cancelEdit"
                     @input="e => { if (editingMessage === msg) editingDraft = e.currentTarget.innerText }"
                   >{{ msg.content }}</div>
-                  <div v-if="msg.role === 'user' && msg.attachments?.length" class="user-attachments">
-                    <div v-for="attachment in msg.attachments" :key="attachment.file_id || attachment.id" class="user-attachment-card">
+                  <div v-if="msg.role === 'user' && (getEditingAttachments(msg)?.length || editingMessage === msg)" class="user-attachments" :class="{ 'is-editing': editingMessage === msg }">
+                    <div v-for="attachment in getEditingAttachments(msg)" :key="attachment.file_id || attachment.id" class="user-attachment-card">
                       <img v-if="isImageAttachment(attachment)" :src="getAttachmentPreviewUrl(attachment)" :alt="attachment.original_name || attachment.stored_name" class="user-attachment-image" />
                       <div v-else class="user-attachment-file-icon">文件</div>
                       <div class="user-attachment-info">
                         <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
                         <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
                       </div>
+                      <button
+                        v-if="editingMessage === msg"
+                        type="button"
+                        class="user-attachment-remove-btn"
+                        @click="removeEditingAttachment(attachment)"
+                      >
+                        移除
+                      </button>
+                    </div>
+                    <div v-if="editingMessage === msg" class="user-attachments-toolbar">
+                      <button type="button" class="msg-action-btn btn-edit-attachment" @click="openSessionFilesDrawer('message-edit')">
+                        添加附件
+                      </button>
                     </div>
                   </div>
 
@@ -398,7 +411,7 @@
             :isLoading="isLoading"
             @send="handleSend"
             @stop="handleStop"
-            @openAttachments="openSessionFilesDrawer"
+            @openAttachments="() => openSessionFilesDrawer('composer')"
             @removeAttachment="removePendingAttachment"
           />
         </div>
@@ -432,19 +445,20 @@
 
     <SessionFilesDrawer
       :visible="sessionFilesDrawerVisible"
+      :mode="sessionFilesDrawerTarget"
       :session-id="currentSessionId || ''"
       :files="sessionFiles"
-      :pending-files="pendingAttachments"
+      :pending-files="currentDrawerPendingFiles"
       :loading="sessionFilesLoading"
       :uploading="uploadingSessionFiles"
       :deleting-file-id="deletingSessionFileId || ''"
-      @close="sessionFilesDrawerVisible = false"
+      @close="() => { sessionFilesDrawerVisible = false; sessionFilesDrawerTarget = 'composer'; }"
       @refresh="currentSessionId && loadSessionFiles(currentSessionId)"
       @upload="handleSessionFileSelect"
       @download="downloadSessionFileItem"
       @delete="removeSessionFile"
       @reuse="reuseSessionFileAsAttachment"
-      @removePending="removePendingAttachment"
+      @removePending="sessionFilesDrawerTarget === 'message-edit' ? removeEditingAttachment($event) : removePendingAttachment($event)"
     />
 
     <!-- 确认对话框 -->
@@ -665,6 +679,8 @@ const situationInfo = ref(null);
 const messageActionsVisible = ref(null);
 const editingMessageIndex = ref(null);
 const editingDraft = ref('');
+const editingAttachmentsDraft = ref([]);
+const sessionFilesDrawerTarget = ref('composer');
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const expandedSummarySeq = ref(null);
 const handlePopState = () => {
@@ -1177,18 +1193,46 @@ const getAttachmentPreviewUrl = (attachment) => {
   return getSessionFileDownloadUrl(currentSessionId.value, attachment.file_id);
 };
 
-const removePendingAttachment = (attachment) => {
+const removeAttachmentFromList = (list, attachment) => {
   const fileId = attachment?.file_id || attachment?.id;
-  pendingAttachments.value = pendingAttachments.value.filter(item => (item.file_id || item.id) !== fileId);
+  return list.filter(item => (item.file_id || item.id) !== fileId);
+};
+
+const currentDrawerPendingFiles = computed(() => (
+  sessionFilesDrawerTarget.value === 'message-edit'
+    ? editingAttachmentsDraft.value
+    : pendingAttachments.value
+));
+
+const getEditingAttachments = (msg) => (
+  editingMessage.value === msg ? editingAttachmentsDraft.value : (msg.attachments || [])
+);
+
+const removePendingAttachment = (attachment) => {
+  pendingAttachments.value = removeAttachmentFromList(pendingAttachments.value, attachment);
+};
+
+const removeEditingAttachment = (attachment) => {
+  editingAttachmentsDraft.value = removeAttachmentFromList(editingAttachmentsDraft.value, attachment);
 };
 
 const reuseSessionFileAsAttachment = (file) => {
   const normalized = normalizeAttachment(file);
+  if (!normalized) return;
+  const targetList = sessionFilesDrawerTarget.value === 'message-edit'
+    ? editingAttachmentsDraft.value
+    : pendingAttachments.value;
   const fileId = normalized.file_id;
-  if (!pendingAttachments.value.some(item => (item.file_id || item.id) === fileId)) {
-    pendingAttachments.value = [...pendingAttachments.value, normalized];
+  if (!targetList.some(item => (item.file_id || item.id) === fileId)) {
+    const nextList = [...targetList, normalized];
+    if (sessionFilesDrawerTarget.value === 'message-edit') {
+      editingAttachmentsDraft.value = nextList;
+    } else {
+      pendingAttachments.value = nextList;
+    }
   }
   sessionFilesDrawerVisible.value = false;
+  sessionFilesDrawerTarget.value = 'composer';
 };
 
 const focusInput = async () => {
@@ -1567,7 +1611,8 @@ const loadSessionFiles = async (sessionId) => {
   }
 };
 
-const openSessionFilesDrawer = () => {
+const openSessionFilesDrawer = (target = 'composer') => {
+  sessionFilesDrawerTarget.value = target;
   if (currentSessionId.value) {
     loadSessionFiles(currentSessionId.value);
   }
@@ -1590,7 +1635,17 @@ const handleSessionFileSelect = async (filesOrEvent) => {
   try {
     const res = await uploadSessionFiles(sessionId, fd);
     const createdFiles = (res.files || []).map(normalizeAttachment).filter(Boolean);
-    pendingAttachments.value = [...pendingAttachments.value, ...createdFiles.filter(file => !pendingAttachments.value.some(item => (item.file_id || item.id) === file.file_id))];
+    const isEditingTarget = sessionFilesDrawerTarget.value === 'message-edit';
+    const targetList = isEditingTarget ? editingAttachmentsDraft.value : pendingAttachments.value;
+    const mergedFiles = [
+      ...targetList,
+      ...createdFiles.filter(file => !targetList.some(item => (item.file_id || item.id) === file.file_id))
+    ];
+    if (isEditingTarget) {
+      editingAttachmentsDraft.value = mergedFiles;
+    } else {
+      pendingAttachments.value = mergedFiles;
+    }
     showToast(`已添加 ${res.files?.length || 0} 个附件`, 'success');
     await loadSessionFiles(sessionId);
     sessionFilesDrawerVisible.value = true;
@@ -1922,9 +1977,14 @@ const copyToClipboard = async (text) => {
 };
 
 const startEditMessage = (msg, index) => {
+  if (!msg || msg.role !== 'user') return;
   const idx = messages.value.findIndex(m => m === msg);
   editingMessageIndex.value = idx >= 0 ? idx : index;
   editingDraft.value = msg.content || '';
+  editingAttachmentsDraft.value = Array.isArray(msg.attachments)
+    ? msg.attachments.map(normalizeAttachment).filter(Boolean)
+    : [];
+  sessionFilesDrawerTarget.value = 'composer';
   nextTick(() => {
     const el = document.querySelector(`.user-text.is-editing[data-msg-id="${msg.id}"]`)
               || document.querySelector('.user-text.is-editing');
@@ -1943,6 +2003,11 @@ const startEditMessage = (msg, index) => {
 const cancelEdit = () => {
   editingMessageIndex.value = null;
   editingDraft.value = '';
+  editingAttachmentsDraft.value = [];
+  if (sessionFilesDrawerTarget.value === 'message-edit') {
+    sessionFilesDrawerVisible.value = false;
+  }
+  sessionFilesDrawerTarget.value = 'composer';
 };
 
 /** 编辑后确定：先回退到该条之前，再以编辑后的内容流式发送（保持原有流式体验） */
@@ -1955,8 +2020,9 @@ const confirmEditAndResend = async () => {
     return;
   }
   const content = (editingDraft.value || '').trim();
-  if (!content) {
-    showToast('内容不能为空');
+  const attachments = editingAttachmentsDraft.value.slice();
+  if (!content && !attachments.length) {
+    showToast('内容和附件不能同时为空');
     return;
   }
   const sessionId = currentSessionId.value;
@@ -1981,10 +2047,9 @@ const confirmEditAndResend = async () => {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || '回退失败');
     }
-    inputMessage.value = content;
     cancelEdit();
     await nextTick();
-    handleSend();
+    await handleSend({ content, attachments });
   } catch (e) {
     messages.value = prevMessages;
     cacheMessages(sessionId, prevMessages);
@@ -2719,15 +2784,40 @@ onUnmounted(() => {
   gap: 10px;
   margin-top: 10px;
 }
+.user-attachments.is-editing {
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+.user-attachments-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  margin-top: 2px;
+}
 .user-attachment-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: min(420px, 100%);
+  width: min(420px, 100%);
+  box-sizing: border-box;
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
+}
+.user-attachment-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-error);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0 4px 8px;
+  flex-shrink: 0;
+}
+.user-attachment-remove-btn:hover {
+  opacity: 0.8;
 }
 .user-attachment-image {
   width: 56px;
