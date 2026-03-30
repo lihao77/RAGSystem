@@ -376,10 +376,10 @@ a:focus:not(:focus-visible) {
     z-index: 1;
 }
 
-/* ===== Minimal Scrollbar ===== */
+/* ===== Minimal Scrollbar - Apple style ===== */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -389,10 +389,13 @@ a:focus:not(:focus-visible) {
 ::-webkit-scrollbar-thumb {
     background: var(--color-bg-tertiary);
     border-radius: var(--radius-full);
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--color-text-muted);
+    background-clip: padding-box;
 }
 
 /* ===== Number Input — 隐藏原生上下箭头 ===== */

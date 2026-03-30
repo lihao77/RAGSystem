@@ -96,8 +96,8 @@ defineExpose({
 .dialog-container {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
   max-width: 420px;
   width: 100%;
   overflow: hidden;
@@ -134,49 +134,55 @@ defineExpose({
 }
 
 .dialog-btn {
-  padding: 10px 20px;
-  border-radius: var(--radius-sm);
+  padding: 12px 24px;
+  border-radius: var(--radius-lg);
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   border: none;
   outline: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .dialog-btn-cancel {
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
 }
 
 .dialog-btn-cancel:hover {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .dialog-btn-confirm {
   background: var(--color-error);
   color: white;
+  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3);
 }
 
 .dialog-btn-confirm:hover {
-  filter: brightness(0.9);
-  box-shadow: 0 0 12px rgba(var(--color-error-rgb), 0.4);
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(var(--color-error-rgb), 0.4);
 }
 
 .dialog-btn:active {
-  transform: scale(0.98);
+  transform: scale(0.98) translateY(0);
 }
 
 /* 动画 */
 .dialog-fade-enter-active,
 .dialog-fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-normal) ease;
 }
 
 .dialog-fade-enter-active .dialog-container,
 .dialog-fade-leave-active .dialog-container {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform var(--transition-spring) ease, opacity var(--transition-normal) ease;
 }
 
 .dialog-fade-enter-from,
@@ -186,7 +192,7 @@ defineExpose({
 
 .dialog-fade-enter-from .dialog-container,
 .dialog-fade-leave-to .dialog-container {
-  transform: scale(0.95);
+  transform: scale(0.9) translateY(20px);
   opacity: 0;
 }
 

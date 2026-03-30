@@ -149,16 +149,18 @@ defineExpose({ focus });
 
 .input-container {
   background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 24px;
-  padding: 8px;
+  border: 2px solid var(--color-border);
+  border-radius: 28px;
+  padding: 10px;
   transition: all var(--transition-normal);
   transform: translateY(0);
+  box-shadow: var(--shadow-md);
 }
 
 .input-container:focus-within {
-  border-color: var(--color-border-hover);
-  box-shadow: var(--shadow-md);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12);
+  transform: translateY(-2px);
 }
 
 .attachment-preview-list {
@@ -171,14 +173,21 @@ defineExpose({ focus });
 .attachment-preview-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
-  padding: 6px 10px;
+  padding: 8px 14px;
   border-radius: 999px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
   font-size: 0.82rem;
+  transition: all var(--transition-normal);
+  box-shadow: var(--shadow-sm);
+}
+
+.attachment-preview-chip:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .attachment-preview-name {
@@ -193,9 +202,22 @@ defineExpose({ focus });
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1;
   padding: 0;
+  transition: all var(--transition-normal);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attachment-preview-remove:hover {
+  color: var(--color-error);
+  background: rgba(var(--color-error-rgb), 0.1);
+  transform: scale(1.1);
 }
 
 .input-wrapper {
@@ -207,25 +229,32 @@ defineExpose({ focus });
 }
 
 .attachment-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   margin-bottom: 4px;
   margin-left: 4px;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .attachment-btn:hover:not(:disabled) {
   background: var(--color-bg-secondary);
   border-color: var(--color-border-hover);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.attachment-btn:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .attachment-btn:disabled {
@@ -262,33 +291,39 @@ textarea::placeholder {
 }
 
 .send-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
-  border-radius: 12px;
+  border: none;
+  background: var(--color-brand-accent);
+  color: white;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   margin-bottom: 4px;
   margin-right: 4px;
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--color-interactive);
-  border-color: var(--color-interactive);
-  color: white;
+  background: var(--color-brand-accent-light);
+  transform: scale(1.05);
+  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
+}
+
+.send-btn:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .send-btn:disabled {
-  background: transparent;
+  background: var(--color-bg-secondary);
   color: var(--color-text-muted);
   cursor: not-allowed;
-  border-color: transparent;
+  border: 1px solid var(--color-border);
   opacity: 0.5;
+  box-shadow: none;
 }
 
 .send-icon {
@@ -297,15 +332,22 @@ textarea::placeholder {
 }
 
 .stop-btn {
-  background: var(--color-interactive) !important;
-  border-color: var(--color-interactive) !important;
+  background: var(--color-error) !important;
+  border: none !important;
   color: white !important;
   opacity: 1 !important;
   cursor: pointer !important;
+  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3) !important;
 }
 
 .stop-btn:hover {
-  opacity: 0.85 !important;
+  opacity: 0.9 !important;
+  transform: scale(1.05) !important;
+  box-shadow: 0 4px 16px rgba(var(--color-error-rgb), 0.4) !important;
+}
+
+.stop-btn:active {
+  transform: scale(0.95) !important;
 }
 
 .stop-icon {

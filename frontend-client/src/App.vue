@@ -96,33 +96,35 @@ onMounted(() => {
   height: 100%;
 }
 
-/* 向右进入（从右滑入 + 淡入） */
+/* 向右进入（从右滑入 + 淡入） - Apple style */
 .slide-forward-enter-active,
 .slide-forward-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
+  transition: transform var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              opacity var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94);
   position: absolute;
   width: 100%;
   height: 100%;
   top: 0;
   left: 0;
 }
-.slide-forward-enter-from { transform: translateX(40px); opacity: 0; }
-.slide-forward-enter-to   { transform: translateX(0);    opacity: 1; }
-.slide-forward-leave-from { transform: translateX(0);    opacity: 1; }
-.slide-forward-leave-to   { transform: translateX(-40px); opacity: 0; }
+.slide-forward-enter-from { transform: translateX(60px) scale(0.98); opacity: 0; }
+.slide-forward-enter-to   { transform: translateX(0) scale(1);       opacity: 1; }
+.slide-forward-leave-from { transform: translateX(0) scale(1);       opacity: 1; }
+.slide-forward-leave-to   { transform: translateX(-60px) scale(0.98); opacity: 0; }
 
-/* 向左返回（从左滑入 + 淡入） */
+/* 向左返回（从左滑入 + 淡入） - Apple style */
 .slide-backward-enter-active,
 .slide-backward-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
+  transition: transform var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              opacity var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94);
   position: absolute;
   width: 100%;
   height: 100%;
   top: 0;
   left: 0;
 }
-.slide-backward-enter-from { transform: translateX(-40px); opacity: 0; }
-.slide-backward-enter-to   { transform: translateX(0);     opacity: 1; }
-.slide-backward-leave-from { transform: translateX(0);     opacity: 1; }
-.slide-backward-leave-to   { transform: translateX(40px);  opacity: 0; }
+.slide-backward-enter-from { transform: translateX(-60px) scale(0.98); opacity: 0; }
+.slide-backward-enter-to   { transform: translateX(0) scale(1);        opacity: 1; }
+.slide-backward-leave-from { transform: translateX(0) scale(1);        opacity: 1; }
+.slide-backward-leave-to   { transform: translateX(60px) scale(0.98);  opacity: 0; }
 </style>

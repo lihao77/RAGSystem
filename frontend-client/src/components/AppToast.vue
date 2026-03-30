@@ -41,36 +41,68 @@ defineExpose({ show });
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: 14px 20px;
   max-width: min(90vw, 420px);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-glass-border);
-  border-left-width: 3px;
+  border-left-width: 4px;
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--shadow-lg);
   font-size: var(--font-size-sm);
+  font-weight: 500;
   color: var(--color-text-primary);
 }
 
-.app-toast.success { border-left-color: var(--color-success); background: var(--color-success-bg); }
-.app-toast.error   { border-left-color: var(--color-error);   background: var(--color-error-bg); }
-.app-toast.warning { border-left-color: var(--color-warning); background: var(--color-warning-bg); }
+.app-toast.success {
+  border-left-color: var(--color-success);
+  background: var(--color-success-bg);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(var(--color-success-rgb), 0.2);
+}
+
+.app-toast.error {
+  border-left-color: var(--color-error);
+  background: var(--color-error-bg);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(var(--color-error-rgb), 0.2);
+}
+
+.app-toast.warning {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-bg);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(var(--color-warning-rgb), 0.2);
+}
 
 .app-toast span { flex: 1; }
 
 .app-toast__action {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
+  font-weight: 600;
   cursor: pointer;
+  transition: all var(--transition-normal);
 }
 
-.toast-enter-active, .toast-leave-active { transition: opacity var(--transition-normal), transform var(--transition-normal); }
-.toast-enter-from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
-.toast-leave-to   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+.app-toast__action:hover {
+  background: var(--color-hover-overlay);
+  transform: scale(1.05);
+}
+
+.toast-enter-active, .toast-leave-active {
+  transition: opacity var(--transition-normal), transform var(--transition-spring);
+}
+
+.toast-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px) scale(0.9);
+}
+
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px) scale(0.9);
+}
 </style>
