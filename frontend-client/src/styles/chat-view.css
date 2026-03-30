@@ -1909,7 +1909,7 @@
 
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    overflow: auto;
+    overflow: visible;
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
@@ -2027,11 +2027,7 @@
   /* 移动端消息布局调整 */
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    overflow: auto;
-    scrollbar-width: none;
-    /* Firefox */
-    -ms-overflow-style: none;
-    /* IE 10+ */
+    overflow: visible;
   }
 
   /* 移动端欢迎屏幕调整 */
@@ -2152,11 +2148,7 @@
   /* 小屏手机上保持按钮一致性 */
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + 69.33px);
-    overflow: auto;
-    scrollbar-width: none;
-    /* Firefox */
-    -ms-overflow-style: none;
-    /* IE 10+ */
+    overflow: visible;
   }
 
   .subtasks-full-view {

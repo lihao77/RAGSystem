@@ -324,7 +324,7 @@
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <transition name="scroll-btn-fade">
-          <button v-if="(!isUserAtBottom || !shouldAutoScroll) && messages.length > 0" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
+          <button v-if="showScrollToBottomButton" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
@@ -590,6 +590,9 @@ const history = ref([]);
 const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
 const shouldAutoScroll = ref(true);
+const keepScrollButtonVisible = ref(false);
+const scrollBottomGap = ref(0);
+const showScrollToBottomButton = computed(() => messages.value.length > 0 && (scrollBottomGap.value > (isMobile.value ? 120 : 80) || keepScrollButtonVisible.value));
 const sidebarCollapsed = ref(false);
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
@@ -882,12 +885,24 @@ const checkIfAtBottom = () => {
   return container.scrollHeight - container.scrollTop - container.clientHeight < 80;
 };
 
+const updateScrollBottomGap = () => {
+  if (!messagesRef.value) {
+    scrollBottomGap.value = 0;
+    return;
+  }
+  const container = messagesRef.value;
+  scrollBottomGap.value = Math.max(0, container.scrollHeight - container.scrollTop - container.clientHeight);
+};
+
 const scrollToBottom = async (force = false) => {
   await nextTick();
   if (!messagesRef.value) return;
   if (force || shouldAutoScroll.value) {
     _isProgrammaticScroll = true;
-    messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
+    messagesRef.value.scrollTo({
+      top: messagesRef.value.scrollHeight,
+      behavior: force ? 'smooth' : 'auto'
+    });
   }
 };
 
@@ -902,13 +917,18 @@ const handleScroll = () => {
   const container = messagesRef.value;
   if (!container) return;
 
+  updateScrollBottomGap();
+
   if (_isProgrammaticScroll) {
-    // 程序触发的滚动，重置累计，保持在底部
-    _isProgrammaticScroll = false;
+    const atBottom = checkIfAtBottom();
     _lastScrollTop = container.scrollTop;
     _userScrollUpAccum = 0;
-    isUserAtBottom.value = checkIfAtBottom();
-    shouldAutoScroll.value = isUserAtBottom.value;
+    isUserAtBottom.value = atBottom;
+    shouldAutoScroll.value = atBottom;
+    keepScrollButtonVisible.value = !atBottom;
+    if (atBottom) {
+      _isProgrammaticScroll = false;
+    }
   } else if (isLoading.value) {
     // 流式输出中
     const delta = container.scrollTop - _lastScrollTop;
@@ -950,8 +970,7 @@ const handleScroll = () => {
 };
 
 const onScrollToBottomClick = () => {
-  isUserAtBottom.value = true;
-  shouldAutoScroll.value = true;
+  keepScrollButtonVisible.value = true;
   _userScrollUpAccum = 0;
   scrollToBottom(true);
 };
@@ -2637,6 +2656,7 @@ onMounted(() => {
 
   // 初始化移动端检测
   checkMobile();
+  updateScrollBottomGap();
   loadEntryAgentOptions();
 
   // 监听窗口大小变化
@@ -2949,34 +2969,43 @@ onUnmounted(() => {
 
 /* ===== Scroll to Bottom Button ===== */
 .scroll-to-bottom-btn {
-  position: sticky;
-  bottom: 80px;
-  align-self: center;
-  z-index: var(--z-sticky, 10);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
+  position: absolute;
+  left: 50%;
+  right: auto;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 112px);
+  transform: translateX(-50%);
+  z-index: calc(var(--z-sticky, 10) + 2);
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-primary) 88%, var(--color-bg-secondary));
+  color: var(--color-text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.15s ease;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
   pointer-events: auto;
-  margin: 0 auto -36px;
 }
 
 .scroll-to-bottom-btn:hover {
-  background: var(--color-bg-tertiary);
+  background: color-mix(in srgb, var(--color-bg-primary) 72%, var(--color-bg-tertiary));
   border-color: var(--color-border-hover);
-  transform: scale(1.08);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+  transform: translateX(-50%) translateY(-2px);
 }
 
-.scroll-to-bottom-btn:active {
-  transform: scale(0.95);
+/* .scroll-to-bottom-btn:active {
+  transform: translateX(-50%) scale(0.96);
+} */
+
+.scroll-to-bottom-btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 3px;
 }
 
 .scroll-btn-fade-enter-active,
@@ -2987,14 +3016,18 @@ onUnmounted(() => {
 .scroll-btn-fade-enter-from,
 .scroll-btn-fade-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateX(-50%) translateY(10px) scale(0.92);
 }
 
 @media (max-width: 767px) {
   .scroll-to-bottom-btn {
-    bottom: 70px;
-    width: 40px;
-    height: 40px;
+    position: fixed;
+    left: 50%;
+    right: auto;
+    /* bottom: calc(env(safe-area-inset-bottom, 0px) + 148px); */
+    width: 30px;
+    height: 30px;
+    z-index: calc(var(--z-sticky, 10) + 4);
   }
 }
 /* 顶部右侧会话文件/导出按钮：桌面端保留文字，移动端收敛为与主题按钮一致的图标态 */

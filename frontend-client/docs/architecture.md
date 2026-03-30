@@ -99,6 +99,10 @@ tool 归属规则：
 - `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
 - 所有 UI 展示 agent 名称时统一优先使用 `agent_display_name`，没有时再回退 `agent_name`；`SubtaskStatusTicker.vue` 与执行树节点都直接消费 projector 的投影结果，不再各自硬编码“编排器”等标签
 
+`ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
+
+`ChatViewV2.vue` 在消息区和输入区之间额外渲染一个“滚动到底部”悬浮按钮：仅当用户离开底部或关闭自动滚动时显示；桌面端按钮以 `chat-main` 为定位容器，在其底部区域居中悬浮并抬高 z-index，避免被 sticky 输入区遮挡；移动端改为 fixed 居中悬浮，并额外考虑 safe-area 与输入框高度，避免被底部输入区盖住。按钮显示优先依据消息容器与底部的实际距离判断，而不是只依赖自动滚动状态，减少移动端状态判断偏差。点击按钮时对消息容器执行平滑滚动动画，并在滚动真正到达底部前保持按钮可见，避免出现先消失又重新出现的闪烁；进出场动画也改为以居中悬浮点为基准的淡入淡出与轻微上浮。
+
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 
 - 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
