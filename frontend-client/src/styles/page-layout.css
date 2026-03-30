@@ -9,24 +9,32 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-xs);
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 20px;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 22px;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-normal);
   user-select: none;
   white-space: nowrap;
+  box-shadow: var(--shadow-sm);
 }
 
 .pl-btn:hover:not(:disabled) {
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.pl-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .pl-btn:focus-visible {
@@ -44,11 +52,19 @@
   background: var(--color-brand-accent);
   border-color: var(--color-brand-accent);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
 .pl-btn--primary:hover:not(:disabled) {
   background: var(--color-brand-accent-light);
   border-color: var(--color-brand-accent-light);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.35);
+}
+
+.pl-btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
 /* 危险按钮（删除、重置） */
@@ -65,7 +81,7 @@
 
 /* 仅图标按钮 */
 .pl-btn--icon {
-  width: 40px;
+  width: 44px;
   padding: 0;
 }
 
@@ -179,31 +195,39 @@
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
+  transition: all var(--transition-normal);
+}
+
+.pl-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
 }
 
 .pl-card__head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--spacing-md) var(--spacing-lg);
+  gap: 4px;
+  padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-hover-overlay);
 }
 
 .pl-card__head h2 {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: 600;
+  letter-spacing: -0.02em;
   color: var(--color-text-primary);
 }
 
 .pl-card__head span {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  letter-spacing: -0.01em;
 }
 
 .pl-card__body {
-  padding: var(--spacing-lg);
+  padding: var(--spacing-xl);
 }

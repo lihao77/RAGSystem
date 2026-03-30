@@ -134,20 +134,21 @@ onMounted(async () => {
 .msg-edit-box {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   width: 100%;
   box-sizing: border-box;
-  padding: 18px;
+  padding: 20px;
   background: var(--color-bg-secondary);
   border: 2px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-normal);
 }
 
 .msg-edit-box:focus-within {
   border-color: var(--color-brand-accent);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12);
+  transform: translateY(-2px);
 }
 
 .msg-edit-textarea-wrapper {
@@ -158,9 +159,9 @@ onMounted(async () => {
   width: 100%;
   min-height: 80px;
   max-height: 320px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   outline: none;
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
@@ -171,7 +172,7 @@ onMounted(async () => {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: all var(--transition-normal);
 }
 
 .msg-edit-textarea::placeholder {
@@ -182,6 +183,7 @@ onMounted(async () => {
 .msg-edit-textarea:focus {
   border-color: var(--color-brand-accent);
   background: var(--color-bg-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .msg-edit-textarea:disabled {
@@ -200,36 +202,36 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  transition: all 0.2s ease;
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-normal);
 }
 
 .msg-edit-att-card:hover {
   border-color: var(--color-border-hover);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
 }
 
 .msg-edit-att-img {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   object-fit: cover;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .msg-edit-att-file-icon {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
@@ -250,8 +252,8 @@ onMounted(async () => {
 }
 
 .msg-edit-att-remove {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -259,15 +261,15 @@ onMounted(async () => {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-normal);
   flex-shrink: 0;
 }
 
 .msg-edit-att-remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
   color: rgb(239, 68, 68);
-  transform: scale(1.1);
+  transform: scale(1.15);
 }
 
 .msg-edit-att-remove:active:not(:disabled) {
@@ -305,15 +307,16 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 10px 18px;
   border-radius: var(--radius-full);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-normal);
   outline: none;
   white-space: nowrap;
+  box-shadow: var(--shadow-sm);
 }
 
 .msg-edit-btn svg {
@@ -329,6 +332,7 @@ onMounted(async () => {
   background: transparent;
   color: var(--color-text-secondary);
   border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .msg-edit-btn-attach:hover:not(:disabled) {
@@ -336,16 +340,19 @@ onMounted(async () => {
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
   transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .msg-edit-btn-attach:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: none;
 }
 
 .msg-edit-btn-cancel {
   background: transparent;
   color: var(--color-text-secondary);
   border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .msg-edit-btn-cancel:hover:not(:disabled) {
@@ -353,28 +360,30 @@ onMounted(async () => {
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
   transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .msg-edit-btn-cancel:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: none;
 }
 
 .msg-edit-btn-confirm {
   background: var(--color-brand-accent);
   color: white;
   border-color: var(--color-brand-accent);
-  box-shadow: 0 2px 4px rgba(var(--color-brand-accent-rgb), 0.2);
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
 .msg-edit-btn-confirm:hover:not(:disabled) {
   opacity: 0.92;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(var(--color-brand-accent-rgb), 0.35);
+  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
 }
 
 .msg-edit-btn-confirm:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(var(--color-brand-accent-rgb), 0.2);
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
 @keyframes spin {
