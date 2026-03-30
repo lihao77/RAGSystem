@@ -143,7 +143,7 @@ const formatNumber = (num) => {
   background: var(--color-hover-overlay);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .stat-card:hover {
@@ -201,7 +201,7 @@ const formatNumber = (num) => {
   cursor: pointer;
   font-size: var(--font-size-xs);
   font-weight: 500;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .exit-btn:hover {

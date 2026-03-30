@@ -139,7 +139,7 @@ defineExpose({
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   border: none;
   outline: none;
   box-shadow: var(--shadow-sm);
@@ -177,12 +177,12 @@ defineExpose({
 /* 动画 */
 .dialog-fade-enter-active,
 .dialog-fade-leave-active {
-  transition: opacity var(--transition-normal) ease;
+  transition: opacity 0.3s ease;
 }
 
 .dialog-fade-enter-active .dialog-container,
 .dialog-fade-leave-active .dialog-container {
-  transition: transform var(--transition-spring) ease, opacity var(--transition-normal) ease;
+  transition: transform 0.4s ease, opacity 0.3s ease;
 }
 
 .dialog-fade-enter-from,

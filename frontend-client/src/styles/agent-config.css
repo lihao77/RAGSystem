@@ -6,30 +6,46 @@
   background: var(--color-bg-app);
   position: relative;
 }
-
+/* 优化头部布局 - Apple 风格 */
 .config-top {
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-app);
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .config-top__inner {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: var(--spacing-md) var(--spacing-xl);
+  padding: var(--spacing-lg) var(--spacing-xl);
 }
 
 .header-left {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-md);
+  gap: var(--spacing-lg);
 }
 
 .header-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+.config-title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.config-subtitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
 .header-actions {
@@ -37,12 +53,14 @@
   align-items: center;
   gap: var(--spacing-sm);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .config-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg) var(--spacing-xl);
+  padding: var(--spacing-xl) var(--spacing-xl);
+  background: var(--color-bg-app);
 }
 
 /* config-bottom removed — save button is now in-flow at form bottom */
@@ -72,7 +90,7 @@
   align-items: center;
   justify-content: center;
   z-index: var(--z-sidebar);
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
@@ -90,21 +108,6 @@
 }
 
 /* ===== Header ===== */
-.config-title {
-  margin: 0;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.config-subtitle {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-
-/* ===== Main Card (legacy - removed) ===== */
 
 /* legacy - no longer used */
 .config-card__head { display: none; }
@@ -126,71 +129,82 @@
   width: 100%;
 }
 
+/* 优化表单区块 - Apple 风格 */
 .form-section {
-  padding: var(--spacing-lg) 0;
+  padding: var(--spacing-xl) 0;
   border: none;
   border-radius: 0;
   background: transparent;
 }
 
 .form-section + .form-section {
-  border-top: 1px solid var(--color-border-hover);
-  margin-top: var(--spacing-lg);
-  padding-top: calc(var(--spacing-lg) * 1.5);
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-xl);
 }
 
 .section-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-bottom: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
+  gap: 6px;
+  padding-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
 }
 
 .section-head h2 {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
   color: var(--color-text-primary);
+  letter-spacing: -0.01em;
 }
 
 .section-head span {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .section-head__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
 }
 
 .section-head__toggle {
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  background: var(--color-interactive);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+  font-weight: 600;
   cursor: pointer;
-  padding: 4px 10px;
+  padding: 6px 14px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-shadow: var(--shadow-sm);
 }
 
 .section-head__toggle:hover {
-  background: var(--color-interactive);
+  background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
-  transform: translateY(1px);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.section-head__toggle:active {
+  transform: scale(0.98);
 }
 
 .section-body {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-lg);
 }
 
 .form-grid {
@@ -222,6 +236,7 @@
 
 .extra-param-editor {
   padding-top: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
   border-top: 1px dashed var(--color-border);
 }
 
@@ -239,36 +254,46 @@
 }
 
 /* ===== Form controls (inputs & selects) ===== */
+/* 优化表单控件 - Apple 风格 */
 .form-control {
   width: 100%;
-  height: 42px;
-  padding: 0 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
+  height: 44px;
+  padding: 0 16px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: inherit;
-  transition: all var(--transition-fast);
+  font-size: var(--font-size-base);
+  font-family: var(--font-sans);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.form-control::placeholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .form-control:hover {
   border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .form-control:focus {
   outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .form-control:disabled {
   color: var(--color-text-muted);
   background: var(--color-bg-secondary);
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 input[type='number'].form-control {
@@ -335,12 +360,12 @@ input[type='number'].form-control {
   width: 42px;
   height: 24px;
   padding: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   display: inline-flex;
   align-items: center;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .switch-control__thumb {
@@ -348,7 +373,7 @@ input[type='number'].form-control {
   height: 18px;
   border-radius: 50%;
   background: var(--color-text-muted);
-  transition: transform var(--transition-fast), background var(--transition-fast);
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .switch-control input:checked + .switch-control__track {
@@ -362,7 +387,7 @@ input[type='number'].form-control {
 }
 
 .switch-control input:focus-visible + .switch-control__track {
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
+  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
 }
 
 .skills-body {
@@ -386,7 +411,7 @@ input[type='number'].form-control {
   border-radius: var(--radius-md);
   background: var(--color-hover-overlay);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   user-select: none;
 }
 
@@ -412,7 +437,7 @@ input[type='number'].form-control {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   color: var(--color-brand-accent-light);
   flex-shrink: 0;
 }
@@ -445,7 +470,7 @@ input[type='number'].form-control {
   flex-direction: column;
   gap: 2px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
 
@@ -461,11 +486,11 @@ input[type='number'].form-control {
   align-items: center;
   max-width: 100%;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.35;
 }
 
@@ -508,9 +533,9 @@ input[type='number'].form-control {
   font-size: var(--font-size-xs);
   padding: 6px 10px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-bg-secondary);
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   cursor: pointer;
 }
 
@@ -531,7 +556,7 @@ input[type='number'].form-control {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   cursor: pointer;
   position: relative;
 }
@@ -543,7 +568,7 @@ input[type='number'].form-control {
   border-radius: 50%;
   background: var(--color-brand-accent-light);
   transform: scale(0);
-  transition: transform var(--transition-fast);
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .memory-scope-card__permission input[type='checkbox']:checked {
@@ -575,7 +600,7 @@ input[type='number'].form-control {
   padding: 6px 12px;
   border: 1px solid rgba(var(--color-success-rgb), 0.3);
   background: rgba(var(--color-success-rgb), 0.08);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
 }
 
 /* ===== State panels ===== */
@@ -621,11 +646,13 @@ input[type='number'].form-control {
 }
 
 /* ===== Mobile nav bar ===== */
+/* 优化移动端导航栏 - Apple 风格 */
 .mobile-nav {
   display: none;
   align-items: center;
-  height: 52px;
+  height: 56px;
   position: relative;
+  padding: 0 var(--spacing-sm);
 }
 
 .mobile-nav__title {
@@ -634,15 +661,21 @@ input[type='number'].form-control {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 40px;
+  gap: 6px;
+  height: 44px;
   border: none;
   background: transparent;
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
-  padding: 0 var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-lg);
+  transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.mobile-nav__title:hover {
+  background: var(--color-hover-overlay);
 }
 
 .mobile-nav__title-text {
@@ -654,43 +687,52 @@ input[type='number'].form-control {
 
 .mobile-nav__back,
 .mobile-nav__more {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-interactive);
   color: var(--color-text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-shadow: var(--shadow-sm);
 }
 
 .mobile-nav__back:hover,
 .mobile-nav__more:hover {
-  background: var(--color-interactive);
+  background: var(--color-interactive-hover);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
 }
 
-/* Agent 切换列表 */
+.mobile-nav__back:active,
+.mobile-nav__more:active {
+  transform: scale(0.95);
+}
+
+/* Agent 切换列表 - Apple 风格 */
 .mobile-picker {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-dropdown, 200);
-  min-width: 200px;
+  min-width: 240px;
   max-width: calc(100vw - 32px);
 }
 
 .mobile-picker__list {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
-  padding: 4px;
+  padding: 6px;
+  backdrop-filter: blur(20px);
 }
 
 .mobile-picker__item {
@@ -698,32 +740,32 @@ input[type='number'].form-control {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 10px 14px;
+  padding: 12px 16px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .mobile-picker__item:hover {
-  background: var(--color-interactive);
+  background: var(--color-hover-overlay);
+  transform: translateX(2px);
 }
 
 .mobile-picker__item.active {
-  color: var(--color-brand-accent-light);
+  color: var(--color-brand-accent);
   font-weight: 600;
+  background: var(--color-interactive);
 }
 
 .mobile-picker__item svg {
   flex-shrink: 0;
-  color: var(--color-brand-accent-light);
+  color: var(--color-brand-accent);
 }
-
-/* 三点菜单容器（定位保留，内部菜单项样式由 page-layout.css 的 pl-menu-item 提供） */
 .mobile-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -799,7 +841,7 @@ input[type='number'].form-control {
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .tier-toggle:hover {
@@ -841,7 +883,7 @@ input[type='number'].form-control {
   justify-content: center;
   color: var(--color-brand-accent-light);
   flex-shrink: 0;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .tier-toggle__indicator-icon {
@@ -947,7 +989,7 @@ input[type='number'].form-control {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: color var(--transition-fast);
+  transition: color 0.2s;
   text-decoration: none;
   white-space: nowrap;
   z-index: 2;
@@ -967,7 +1009,7 @@ input[type='number'].form-control {
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
-  transition: transform 0.2s;
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .section-nav--desktop a.active .section-nav__dot {
@@ -989,7 +1031,7 @@ input[type='number'].form-control {
   backdrop-filter: blur(32px) saturate(240%);
   -webkit-backdrop-filter: blur(32px) saturate(240%);
   border: 1px solid var(--color-glass-border);
-  border-radius: 40px;
+  border-radius: var(--radius-2xl);
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.25),
     0 2px 8px rgba(0, 0, 0, 0.15),
@@ -1006,11 +1048,11 @@ input[type='number'].form-control {
   align-items: center;
   justify-content: center;
   padding: 8px 6px;
-  border-radius: 40px;
+  border-radius: var(--radius-2xl);
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -1043,7 +1085,7 @@ input[type='number'].form-control {
   width: var(--slider-width);
   height: calc(100% - 12px);
   background: var(--color-bg-elevated);
-  border-radius: 40px;
+  border-radius: var(--radius-2xl);
   border: 1px solid var(--color-border-hover);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.1),
@@ -1181,7 +1223,7 @@ input[type='number'].form-control {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   flex-shrink: 0;
 }
 

@@ -553,7 +553,7 @@ onUnmounted(() => {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 
 .stat-card:hover {
@@ -647,7 +647,7 @@ onUnmounted(() => {
 .agent-card {
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .agent-card:last-child {
@@ -762,7 +762,7 @@ onUnmounted(() => {
   width: 100%;
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: border-color 0.2s, background 0.2s;
 }
 
 .running-task-item:hover,

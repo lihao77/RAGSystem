@@ -396,7 +396,7 @@ const handleRegisteredText = computed(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .ed-header-icon.is-running {
@@ -447,7 +447,7 @@ const handleRegisteredText = computed(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .ed-close-btn:hover {
@@ -503,7 +503,7 @@ const handleRegisteredText = computed(() => {
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 
 .ed-status-hero.is-running {
@@ -627,7 +627,7 @@ const handleRegisteredText = computed(() => {
   gap: 12px;
   padding: 9px 14px;
   border-bottom: 1px solid var(--color-border);
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .ed-kv-item:last-child {
@@ -675,7 +675,7 @@ const handleRegisteredText = computed(() => {
   justify-content: center;
   flex-shrink: 0;
   opacity: 0;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .ed-kv-item:hover .ed-copy-btn {
@@ -707,7 +707,7 @@ const handleRegisteredText = computed(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 
 .ed-runtime-card:hover {

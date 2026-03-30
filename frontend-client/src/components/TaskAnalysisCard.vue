@@ -50,7 +50,7 @@ const toggleExpanded = () => {
   -webkit-backdrop-filter: blur(var(--glass-blur));
   animation: fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--glass-shadow);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .task-analysis-card:hover {
@@ -68,7 +68,7 @@ const toggleExpanded = () => {
   align-items: center;
   gap: var(--spacing-sm);
   font-weight: 600;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .card-header:hover {

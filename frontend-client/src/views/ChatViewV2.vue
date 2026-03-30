@@ -1976,7 +1976,7 @@ const startEditMessage = (msg, index) => {
     : [];
   editingSubmitting.value = false;
   sessionFilesDrawerTarget.value = 'composer';
-  
+
   console.log('[edit-debug] 开始编辑:', {
     msgId: msg.id,
     editingMessageIndex: editingMessageIndex.value,
@@ -1990,7 +1990,7 @@ const startEditMessage = (msg, index) => {
     const previewWrap = msgEl?.querySelector('.user-bubble-preview-wrap');
     const editWrap = msgEl?.querySelector('.user-edit-detail-wrap');
     const editBox = msgEl?.querySelector('.msg-edit-box');
-    
+
     console.log('[edit-debug] DOM 状态（立即）:', {
       msgEl: msgEl?.className,
       wrapperEl: {
@@ -2013,7 +2013,7 @@ const startEditMessage = (msg, index) => {
         computedWidth: editBox ? getComputedStyle(editBox).width : null,
       }
     });
-    
+
     // 等待动画完成后再检查
     setTimeout(() => {
       console.log('[edit-debug] DOM 状态（动画后 500ms）:', {
@@ -2825,7 +2825,7 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: var(--font-size-sm);
   user-select: none;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background 0.2s, border-color 0.2s;
   outline: none;
 }
 .compression-summary-label:hover {
@@ -2993,35 +2993,54 @@ onUnmounted(() => {
   font-size: var(--font-size-sm);
 }
 
-/* #10: 上下文指示器 - 字体调大至满足可读性，加 hover 反馈 */
+/* 优化后的 workspace-root-input-row 样式 */
 .workspace-root-input-row {
   width: 100%;
   max-width: 800px;
-  margin: 0 auto 8px;
+  margin: 0 auto 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .workspace-root-input-label {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .workspace-root-input {
   width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--color-border);
+  background: var(--color-bg-primary);
   color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-sans);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-shadow: var(--shadow-sm);
+}
+
+.workspace-root-input::placeholder {
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+}
+
+.workspace-root-input:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .workspace-root-input:focus {
   outline: none;
-  border-color: var(--color-border-focus);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .context-usage-bar {
@@ -3034,7 +3053,7 @@ onUnmounted(() => {
   padding: 3px 8px;
   width: 100%;
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
+  transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .execution-pill {
@@ -3047,7 +3066,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
   cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: border-color 0.2s, background 0.2s;
   font-size: 12px;
   color: var(--color-text-secondary);
 }
@@ -3192,7 +3211,7 @@ onUnmounted(() => {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
   pointer-events: auto;
 }
 

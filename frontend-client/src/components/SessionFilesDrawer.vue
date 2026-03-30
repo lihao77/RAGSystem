@@ -173,7 +173,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
   background: transparent; border: none; border-radius: var(--radius-sm);
   font-size: 18px; line-height: 1; cursor: pointer;
   color: var(--color-text-secondary);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .ctx-close-btn:hover { background: var(--color-bg-secondary); color: var(--color-text-primary); }
 
@@ -197,7 +197,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
   color: var(--color-text-secondary);
   font-size: 13px; font-weight: 500;
   cursor: pointer; white-space: nowrap;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .ctx-action-btn:hover:not(:disabled) {
   background: var(--color-interactive-hover);
@@ -235,7 +235,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   position: relative;
 }
 .ctx-file-item--pending {
@@ -257,7 +257,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
 .ctx-file-actions {
   display: flex; gap: 4px;
   opacity: 0;
-  transition: opacity var(--transition-fast);
+  transition: opacity 0.2s;
 }
 .ctx-file-item:hover .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
@@ -270,7 +270,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
   color: var(--color-text-secondary);
   font-size: 12px; font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .ctx-inline-btn:hover {
   background: var(--color-bg-tertiary);

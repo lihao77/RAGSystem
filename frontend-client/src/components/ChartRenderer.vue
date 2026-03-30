@@ -283,7 +283,7 @@ onUnmounted(() => {
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--glass-shadow);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   container-type: inline-size; /* 启用容器查询 */
 }
 
@@ -299,7 +299,7 @@ onUnmounted(() => {
   padding: var(--spacing-md);
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   gap: var(--spacing-sm);
   min-width: 0;
 }
@@ -339,7 +339,7 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   color: var(--color-text-secondary);
   display: flex;
   align-items: center;
@@ -367,7 +367,7 @@ onUnmounted(() => {
   min-height: 300px;
   max-height: 600px;
   padding: var(--spacing-md);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   background: var(--color-bg-primary);
 }
 

@@ -206,9 +206,9 @@ const progressPercentage = computed(() => {
   /* box-shadow: var(--shadow-sm); */
   /* 增加 transition-property 和 duration 以匹配展开动画 */
   transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              background var(--transition-normal),
-              border var(--transition-normal),
-              box-shadow var(--transition-normal),
+              background 0.3s,
+              border 0.3s,
+              box-shadow 0.3s,
               margin 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
   position: relative;
   z-index: 2; /* Ensure it stays on top */
@@ -329,7 +329,7 @@ const progressPercentage = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   margin-left: 12px;
   flex-shrink: 0;
 }

@@ -99,8 +99,8 @@ onMounted(() => {
 /* 向右进入（从右滑入 + 淡入） - Apple style */
 .slide-forward-enter-active,
 .slide-forward-leave-active {
-  transition: transform var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94),
-              opacity var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   position: absolute;
   width: 100%;
   height: 100%;
@@ -115,8 +115,8 @@ onMounted(() => {
 /* 向左返回（从左滑入 + 淡入） - Apple style */
 .slide-backward-enter-active,
 .slide-backward-leave-active {
-  transition: transform var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94),
-              opacity var(--transition-normal) cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+              opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   position: absolute;
   width: 100%;
   height: 100%;

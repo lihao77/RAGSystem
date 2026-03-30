@@ -1312,7 +1312,7 @@ onMounted(() => refreshAll());
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
-    transition: border-color var(--transition-fast);
+    transition: border-color 0.2s;
 }
 
 .summary-card:hover {
@@ -1418,7 +1418,7 @@ onMounted(() => refreshAll());
     font: inherit;
     font-size: var(--font-size-sm);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
     white-space: nowrap;
 }
 
@@ -1584,7 +1584,7 @@ onMounted(() => refreshAll());
     font-size: var(--font-size-sm);
     font-weight: 600;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
     white-space: nowrap;
 }
 
@@ -1612,7 +1612,7 @@ onMounted(() => refreshAll());
     font-size: var(--font-size-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .btn-secondary:hover {
@@ -1628,7 +1628,7 @@ onMounted(() => refreshAll());
     font: inherit;
     font-size: var(--font-size-sm);
     text-decoration: underline;
-    transition: opacity var(--transition-fast);
+    transition: opacity 0.2s;
 }
 
 .btn-link:hover {
@@ -1658,7 +1658,7 @@ onMounted(() => refreshAll());
     background: var(--color-interactive);
     color: var(--color-text-secondary);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .act-btn:hover:not(:disabled) {
@@ -1848,7 +1848,7 @@ onMounted(() => refreshAll());
     font: inherit;
     font-size: 12px;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
     white-space: nowrap;
 }
 
@@ -1891,7 +1891,7 @@ onMounted(() => refreshAll());
     background: var(--color-bg-secondary);
     padding: var(--spacing-xl);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
     text-align: center;
 }
 
@@ -1951,7 +1951,7 @@ onMounted(() => refreshAll());
     font: inherit;
     font-size: var(--font-size-md);
     outline: none;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .search-input:focus {
@@ -2151,7 +2151,7 @@ onMounted(() => refreshAll());
     cursor: pointer;
     font-size: 20px;
     line-height: 1;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .modal-close:hover {
@@ -2190,7 +2190,7 @@ onMounted(() => refreshAll());
     font: inherit;
     font-size: var(--font-size-sm);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .mode-tab:hover {
@@ -2217,7 +2217,7 @@ onMounted(() => refreshAll());
     min-height: 44px;
     font-size: var(--font-size-sm);
     color: var(--color-text-muted);
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
 }
 
 .mini-upload-zone:hover {
@@ -2275,7 +2275,7 @@ onMounted(() => refreshAll());
     padding: 0 12px;
     font: inherit;
     font-size: var(--font-size-sm);
-    transition: border-color var(--transition-fast);
+    transition: border-color 0.2s;
 }
 
 .field textarea {

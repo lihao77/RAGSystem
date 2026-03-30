@@ -84,7 +84,7 @@ defineExpose({ show });
   font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .app-toast__action:hover {
@@ -93,7 +93,7 @@ defineExpose({ show });
 }
 
 .toast-enter-active, .toast-leave-active {
-  transition: opacity var(--transition-normal), transform var(--transition-spring);
+  transition: opacity 0.3s, transform 0.4s;
 }
 
 .toast-enter-from {

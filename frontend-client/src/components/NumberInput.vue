@@ -95,7 +95,7 @@ function onBlur(e) {
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   overflow: hidden;
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 
 .number-input:focus-within {
@@ -119,7 +119,7 @@ function onBlur(e) {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background 0.2s, color 0.2s;
 }
 
 .step-btn:hover:not(:disabled) {

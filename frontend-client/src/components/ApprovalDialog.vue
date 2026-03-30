@@ -432,7 +432,7 @@ defineExpose({ show, hide });
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   background: transparent;
   color: var(--color-text-secondary);
 }
@@ -482,7 +482,7 @@ defineExpose({ show, hide });
   resize: none;
   outline: none;
   box-sizing: border-box;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color 0.2s, box-shadow 0.2s;
   font-family: inherit;
 }
 
@@ -505,7 +505,7 @@ defineExpose({ show, hide });
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   border: none;
   outline: none;
   width: 100%;

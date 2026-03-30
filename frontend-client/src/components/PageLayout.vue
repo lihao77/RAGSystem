@@ -151,7 +151,7 @@ const shellStyle = computed(() => ({
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   user-select: none;
   white-space: nowrap;
 }
@@ -201,7 +201,7 @@ const shellStyle = computed(() => ({
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .page-mobile-nav__back:hover,

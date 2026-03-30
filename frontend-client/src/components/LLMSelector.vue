@@ -291,7 +291,7 @@ defineExpose({ getSelection });
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -336,7 +336,7 @@ defineExpose({ getSelection });
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  transition: transform var(--transition-normal);
+  transition: transform 0.3s;
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -401,7 +401,7 @@ defineExpose({ getSelection });
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
   font-size: 13px;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   outline: none;
 }
 
@@ -428,7 +428,7 @@ defineExpose({ getSelection });
   padding: 12px 14px;
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 500;

@@ -142,7 +142,7 @@ onMounted(async () => {
   border: 2px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .msg-edit-box:focus-within {
@@ -172,7 +172,7 @@ onMounted(async () => {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .msg-edit-textarea::placeholder {
@@ -206,7 +206,7 @@ onMounted(async () => {
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .msg-edit-att-card:hover {
@@ -262,7 +262,7 @@ onMounted(async () => {
   color: var(--color-text-muted);
   cursor: pointer;
   border-radius: var(--radius-md);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   flex-shrink: 0;
 }
 
@@ -313,7 +313,7 @@ onMounted(async () => {
   font-weight: 500;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   outline: none;
   white-space: nowrap;
   box-shadow: var(--shadow-sm);

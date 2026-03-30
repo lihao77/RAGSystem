@@ -819,7 +819,7 @@ onMounted(() => {
     font-size: var(--font-size-sm);
     font-weight: 600;
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s;
     white-space: nowrap;
 }
 
@@ -977,7 +977,7 @@ onMounted(() => {
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-family: inherit;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   appearance: none;
   -webkit-appearance: none;
   box-sizing: border-box;
@@ -1037,7 +1037,7 @@ input[type='number'].form-control { padding-right: 8px; }
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 500;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .dialog-panel :deep(.select-trigger:hover) {
   border-color: var(--color-border-hover);

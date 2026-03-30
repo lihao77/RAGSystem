@@ -1340,7 +1340,7 @@ onMounted(async () => {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 .summary-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); }
 
@@ -1392,7 +1392,7 @@ onMounted(async () => {
   font: inherit;
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   white-space: nowrap;
 }
 .tab-btn:hover { color: var(--color-text-primary); background: var(--color-hover-overlay); }
@@ -1449,7 +1449,7 @@ onMounted(async () => {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .btn-accent:hover:not(:disabled) {
   background: rgba(var(--color-brand-accent-rgb), 0.22);
@@ -1477,7 +1477,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 .server-card:hover {
   border-color: rgba(var(--color-brand-accent-rgb), 0.35);
@@ -1597,7 +1597,7 @@ onMounted(async () => {
   font: inherit;
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .act-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-hover); background: var(--color-hover-overlay); }
 .act-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
@@ -1670,7 +1670,7 @@ onMounted(async () => {
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   margin-bottom: 2px;
 }
 .template-item:hover { background: var(--color-hover-overlay); }
@@ -1769,7 +1769,7 @@ onMounted(async () => {
   padding: 0 14px;
   font: inherit;
   font-size: var(--font-size-sm);
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 .field input:hover,
 .field select:hover,
@@ -1809,7 +1809,7 @@ onMounted(async () => {
   border-radius: var(--radius-full);
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   cursor: pointer;
   position: relative;
 }
@@ -1822,7 +1822,7 @@ onMounted(async () => {
   height: 14px;
   border-radius: 50%;
   background: var(--color-text-muted);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 .toggle-input:checked + .toggle-track {
   background: rgba(var(--color-brand-accent-rgb), 0.3);
@@ -1892,7 +1892,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  transition: border-color var(--transition-fast);
+  transition: border-color 0.2s;
 }
 .registry-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); }
 
@@ -1979,7 +1979,7 @@ onMounted(async () => {
   color: var(--color-text-muted);
   text-decoration: none;
   border: 1px solid transparent;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   cursor: pointer;
 }
 .ext-link:hover { color: var(--color-text-primary); border-color: var(--color-border); background: var(--color-hover-overlay); }
@@ -2055,7 +2055,7 @@ onMounted(async () => {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   flex-shrink: 0;
 }
 .modal-close-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-hover); background: var(--color-hover-overlay); }

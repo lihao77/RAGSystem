@@ -152,7 +152,7 @@ defineExpose({ focus });
   border: 2px solid var(--color-border);
   border-radius: 28px;
   padding: 10px;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   transform: translateY(0);
   box-shadow: var(--shadow-md);
 }
@@ -181,7 +181,7 @@ defineExpose({ focus });
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
   font-size: 0.82rem;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   box-shadow: var(--shadow-sm);
 }
 
@@ -205,7 +205,7 @@ defineExpose({ focus });
   font-size: 18px;
   line-height: 1;
   padding: 0;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   border-radius: 50%;
   width: 20px;
   height: 20px;
@@ -239,7 +239,7 @@ defineExpose({ focus });
   color: var(--color-text-primary);
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   margin-bottom: 4px;
   margin-left: 4px;
   flex-shrink: 0;
@@ -301,7 +301,7 @@ textarea::placeholder {
   color: white;
   border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   margin-bottom: 4px;
   margin-right: 4px;
   box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);

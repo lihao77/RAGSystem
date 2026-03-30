@@ -122,7 +122,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   letter-spacing: 0.05em;
   cursor: pointer;
   user-select: none;
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
   position: relative;
 }
 
@@ -156,7 +156,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   right: 14px;
   top: 50%;
   transform: translateY(-50%);
-  transition: transform var(--transition-normal);
+  transition: transform 0.3s;
   pointer-events: none;
   color: var(--color-text-secondary);
   flex-shrink: 0;
@@ -198,7 +198,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   font-size: 13px;
   font-weight: 500;
   color: var(--color-text-primary);
-  transition: background var(--transition-fast);
+  transition: background 0.2s;
 }
 
 .option-item:hover {

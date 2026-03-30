@@ -832,7 +832,7 @@ watch(() => props.mapData, () => {
   overflow: hidden;
   margin: 0;
   border: 1px solid var(--color-border);
-  transition: all var(--transition-normal);
+  transition: all 0.3s;
 }
 
 .map-renderer:hover {
@@ -847,7 +847,7 @@ watch(() => props.mapData, () => {
   padding: var(--spacing-md) var(--spacing-lg);
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   gap: var(--spacing-sm);
   min-width: 0;
   position: relative;
@@ -901,7 +901,7 @@ watch(() => props.mapData, () => {
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   color: var(--color-text-secondary);
   display: flex;
   align-items: center;

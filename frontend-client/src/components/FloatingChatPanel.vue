@@ -216,7 +216,7 @@ watch(isCollapsed, (val) => {
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .panel-collapse-btn:hover {
@@ -349,7 +349,7 @@ watch(isCollapsed, (val) => {
   border: 1px solid var(--color-border);
   border-radius: 24px;
   padding: 4px;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
 }
 
 .input-wrapper:focus-within {
@@ -388,7 +388,7 @@ watch(isCollapsed, (val) => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all var(--transition-fast);
+  transition: all 0.2s;
   margin-bottom: 2px;
   margin-right: 2px;
 }
