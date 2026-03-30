@@ -97,29 +97,18 @@ class OpenAIProvider(OpenAICompatibleProvider):
 
     def _attachment_to_content_part(self, attachment: Dict[str, Any]) -> List[Dict[str, Any]]:
         stored_path = attachment.get('stored_path')
-        original_name = attachment.get('original_name') or attachment.get('stored_name') or 'attachment'
         mime = str(attachment.get('mime') or '')
-        if not stored_path:
+        kind = str(attachment.get('kind') or '')
+        if not stored_path or (not mime.startswith('image/') and kind != 'image'):
             return []
         path = Path(stored_path)
         if not path.exists() or not path.is_file():
-            return [{'type': 'text', 'text': f'[附件缺失] 名称: {original_name}; 路径不存在: {stored_path}'}]
-        if mime.startswith('image/'):
-            data = base64.b64encode(self._read_attachment_bytes(stored_path)).decode('ascii')
-            return [{
-                'type': 'image_url',
-                'image_url': {'url': f'data:{mime};base64,{data}'},
-            }]
-        text_like_suffixes = {'.txt', '.md', '.json', '.yaml', '.yml', '.csv', '.py', '.js', '.ts', '.vue'}
-        suffix = path.suffix.lower()
-        if suffix in text_like_suffixes:
-            try:
-                snippet = path.read_text(encoding='utf-8', errors='ignore')[:12000]
-            except Exception:
-                snippet = ''
-            if snippet:
-                return [{'type': 'text', 'text': f'[文件附件内容: {original_name}]\n{snippet}'}]
-        return [{'type': 'text', 'text': f'[文件附件] 名称: {original_name}; MIME: {mime or "unknown"}; 路径: {stored_path}'}]
+            return []
+        data = base64.b64encode(self._read_attachment_bytes(stored_path)).decode('ascii')
+        return [{
+            'type': 'image_url',
+            'image_url': {'url': f'data:{mime};base64,{data}'},
+        }]
 
     def _normalize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []

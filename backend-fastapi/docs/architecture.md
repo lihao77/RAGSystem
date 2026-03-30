@@ -76,20 +76,22 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
       ├─ 将附件补齐为 {file_id, original_name, stored_name, stored_path, mime, size, kind}
       └─ 允许“纯附件消息”：task 为空时，只要 attachments 非空即可发送
   → AgentExecutionAdapter.start_stream_execution()
-      └─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把附件元数据写入 user message.metadata.attachments
+      └─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把完整附件元数据写入 user message.metadata.attachments 以供历史回显
   → AgentExecutionService.invoke_agent(mode=root)
   → BaseAgent._prepare_execution_state()
-      └─ 用 context.metadata.current_attachments 构造当前轮 `current_session[0].metadata.attachments`，确保“本轮消息”而不只是历史消息能被 provider 看到
+      ├─ 将图片附件放入当前轮 `user_message.metadata.attachments`，供 provider 自动转为多模态输入
+      ├─ 将普通文件放入 `user_message.metadata.file_references`
+      └─ 额外注入一条 system 提示，告诉 agent 当前有哪些普通文件可按需通过 `read_file` / `preview_data_structure` 读取
   → AgentApiRuntimeService.build_context()
       ├─ 读取历史消息到 AgentContext
-      ├─ 保留 user message.metadata.attachments 供 provider 边界读取
+      ├─ 保留 user message.metadata.attachments 供前端历史回显
       ├─ 注入 project/session MEMORY.md 索引头部（Claude Code 风格 eager-load）
       ├─ 根据当前 task 选出相关 memory 文件路径供 Agent 后续按需 read_file
       └─ 注入请求级 LLM 选择：selected_llm（模型身份三元组）/ requested_llm_tier（fast/default/powerful）
   → ModelAdapter.chat_completion_stream()
       └─ provider-specific request build
-          ├─ AnthropicProvider._to_content_blocks()：图片附件转 `image/base64` block；常见文本文件（txt/md/json/yaml/csv/py/js/ts/vue）直接读取前 12KB 注入 text block
-          └─ OpenAIProvider._normalize_messages()：图片附件转 `image_url(data:...)` content part；常见文本文件读取前 12KB 注入 text part
+          ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
+          └─ OpenAIProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
   → SSEAdapter 转发事件 → 前端
 ```
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
+import tempfile
 import time
 import types
 from enum import Enum
@@ -306,3 +308,54 @@ def test_openai_provider_uses_sdk_for_stream_and_embeddings(monkeypatch):
     assert embedding.embeddings == [[0.1, 0.2], [0.3, 0.4]]
     assert fake_client.embeddings.calls[0]['dimensions'] == 256
     assert provider.is_available() is True
+
+
+def test_openai_provider_only_inlines_image_attachments(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    temp_dir = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    try:
+        image_path = temp_dir / 'demo.png'
+        image_path.write_bytes(b'png-bytes')
+        text_path = temp_dir / 'notes.txt'
+        text_path.write_text('hello file', encoding='utf-8')
+
+        provider = provider_module.OpenAIProvider(
+            api_key='demo',
+            name='OpenAI',
+            model='gpt-5.4',
+            api_endpoint='https://api.openai.com/v1',
+        )
+
+        provider.chat_completion(
+            messages=[
+                {
+                    'role': 'user',
+                    'content': 'check attachments',
+                    'metadata': {
+                        'attachments': [
+                            {
+                                'file_id': 'img-1',
+                                'mime': 'image/png',
+                                'stored_path': str(image_path),
+                                'kind': 'image',
+                            },
+                            {
+                                'file_id': 'file-1',
+                                'mime': 'text/plain',
+                                'stored_path': str(text_path),
+                                'kind': 'file',
+                            },
+                        ]
+                    },
+                }
+            ],
+        )
+
+        payload = fake_client.chat.completions.calls[-1]
+        assert payload['messages'][0]['content'][0] == {'type': 'text', 'text': 'check attachments'}
+        assert payload['messages'][0]['content'][1]['type'] == 'image_url'
+        assert len(payload['messages'][0]['content']) == 2
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

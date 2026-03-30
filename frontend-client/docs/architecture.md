@@ -64,6 +64,7 @@ handleSend({ content, attachments })
       ├─ 先走 /api/agent/sessions/{session_id}/files/upload 上传到 session 文件池
       └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）
   → POST /api/agent/stream             # 发起流式请求，body = { task, attachments[], session_id, selected_llm }
+      └─ 后端按附件类型分流：图片继续自动进入多模态模型；普通文件只作为引用保留，由 agent 按需读取
   → processSSEStream()                 # 逐 chunk 解析 SSE 事件
       ├─ reader.read() 循环
       ├─ 事件序号 gap 检测（lastSeenSeq 追踪）

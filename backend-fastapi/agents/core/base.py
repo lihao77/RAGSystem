@@ -186,6 +186,41 @@ class BaseAgent(ABC):
     def _build_agent_specific_prompt_sections(self) -> List[str]:
         return []
 
+    @staticmethod
+    def _is_image_attachment(attachment: Dict[str, Any]) -> bool:
+        mime = str((attachment or {}).get('mime') or '')
+        kind = str((attachment or {}).get('kind') or '')
+        return mime.startswith('image/') or kind == 'image'
+
+    @classmethod
+    def _split_current_attachments(cls, attachments: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        image_attachments: List[Dict[str, Any]] = []
+        file_references: List[Dict[str, Any]] = []
+        for attachment in attachments or []:
+            if cls._is_image_attachment(attachment):
+                image_attachments.append(dict(attachment))
+            else:
+                file_references.append(dict(attachment))
+        return image_attachments, file_references
+
+    @staticmethod
+    def _build_file_references_context_suffix(file_references: List[Dict[str, Any]]) -> str:
+        if not file_references:
+            return ''
+        lines = [
+            '[普通文件附件引用]',
+        ]
+        for item in file_references:
+            lines.append(
+                '- '
+                f"file_id={item.get('file_id') or ''} | "
+                f"name={item.get('original_name') or item.get('stored_name') or 'attachment'} | "
+                f"mime={item.get('mime') or 'unknown'} | "
+                f"size={item.get('size') or 'unknown'} | "
+                f"file_path={item.get('stored_path') or ''}"
+            )
+        return '\n'.join(lines)
+
     def _build_system_prompt(self) -> str:
         return core_prompting.build_shared_system_prompt(self)
 
@@ -568,8 +603,16 @@ class BaseAgent(ABC):
         current_attachments = []
         if hasattr(context, 'metadata'):
             current_attachments = list(context.metadata.get('current_attachments') or [])
-        if current_attachments:
-            user_message['metadata'] = {'attachments': current_attachments}
+        image_attachments, file_references = self._split_current_attachments(current_attachments)
+        if file_references:
+            content_suffix = self._build_file_references_context_suffix(file_references)
+            user_message['content'] = f"{task}\n\n{content_suffix}" if task else content_suffix
+        if image_attachments or file_references:
+            user_message['metadata'] = {}
+        if image_attachments:
+            user_message['metadata']['attachments'] = image_attachments
+        if file_references:
+            user_message['metadata']['file_references'] = file_references
 
         return {
             'start_time': start_time,

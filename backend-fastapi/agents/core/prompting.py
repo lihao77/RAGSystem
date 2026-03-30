@@ -187,6 +187,7 @@ def build_data_file_rules_section() -> str:
 - 工具返回的 `file_path` 是绝对路径，后续工具调用应直接复用；`display_path` 仅用于展示
 - 需要确认结构时优先用 `preview_data_structure`；需要抽样确认内容时，可用 `read_file(limit=...)` 后仍只传路径
 - 需要处理/转换数据时，用 `execute_code` 读取并写出新文件
+- 当前轮若存在普通文件附件引用，这些文件默认不会自动注入模型正文；需要内容时，显式调用 `read_file(file_path=...)` 或 `preview_data_structure(file_path=...)`
 - `<final_answer>` 中引用数据文件格式：`[data:文件路径]`
 - 不要在 `<final_answer>` 中输出超过 20 行原始数据"""
 

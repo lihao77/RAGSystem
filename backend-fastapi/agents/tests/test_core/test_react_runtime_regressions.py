@@ -90,18 +90,26 @@ def test_prepare_execution_state_injects_current_attachments_into_current_sessio
                     'original_name': 'demo.png',
                     'stored_path': '/tmp/demo.png',
                     'kind': 'image',
-                }
+                },
+                {
+                    'file_id': 'file-2',
+                    'mime': 'text/plain',
+                    'original_name': 'notes.txt',
+                    'stored_path': '/tmp/notes.txt',
+                    'kind': 'file',
+                    'size': 128,
+                },
             ]
         },
         session_id='session-1',
     )
 
-    state = agent._prepare_execution_state('look at image', context, 1.0)
+    state = agent._prepare_execution_state('look at image and file', context, 1.0)
 
     assert state['current_session'] == [
         {
             'role': 'user',
-            'content': 'look at image',
+            'content': 'look at image and file\n\n[普通文件附件引用]\n- file_id=file-2 | name=notes.txt | mime=text/plain | size=128 | file_path=/tmp/notes.txt',
             'metadata': {
                 'attachments': [
                     {
@@ -111,7 +119,17 @@ def test_prepare_execution_state_injects_current_attachments_into_current_sessio
                         'stored_path': '/tmp/demo.png',
                         'kind': 'image',
                     }
-                ]
+                ],
+                'file_references': [
+                    {
+                        'file_id': 'file-2',
+                        'mime': 'text/plain',
+                        'original_name': 'notes.txt',
+                        'stored_path': '/tmp/notes.txt',
+                        'kind': 'file',
+                        'size': 128,
+                    }
+                ],
             },
         }
     ]
