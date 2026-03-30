@@ -1,7 +1,33 @@
 <template>
   <div class="chat-input-area">
     <div class="input-container">
+      <div v-if="attachments.length" class="attachment-preview-list">
+        <div v-for="attachment in attachments" :key="attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
+          <span class="attachment-preview-name">{{ attachment.original_name || attachment.stored_name }}</span>
+          <button
+            type="button"
+            class="attachment-preview-remove"
+            @click="emit('removeAttachment', attachment)"
+            :disabled="isLoading"
+            aria-label="移除附件"
+          >
+            ×
+          </button>
+        </div>
+      </div>
       <div class="input-wrapper">
+        <button
+          type="button"
+          class="attachment-btn"
+          :disabled="isLoading"
+          @click="emit('openAttachments')"
+          aria-label="打开附件面板"
+          title="添加图片或文件"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
+          </svg>
+        </button>
         <textarea
           v-model="inputText"
           @keydown.enter.prevent="handleEnter"
@@ -20,7 +46,7 @@
         <button
           v-else
           class="send-btn"
-          :disabled="!inputText.trim()"
+          :disabled="sendDisabled"
           @click="handleSend"
           aria-label="Send message"
         >
@@ -37,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, watch, nextTick } from 'vue';
+import { ref, defineProps, defineEmits, watch, nextTick, computed } from 'vue';
 
 const props = defineProps({
   modelValue: {
@@ -47,13 +73,19 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+  attachments: {
+    type: Array,
+    default: () => []
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send', 'stop']);
+const emit = defineEmits(['update:modelValue', 'send', 'stop', 'openAttachments', 'removeAttachment']);
 
 const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
+
+const sendDisabled = computed(() => props.isLoading || (!inputText.value.trim() && !props.attachments.length));
 
 watch(() => props.modelValue, (newValue) => {
   inputText.value = newValue;
@@ -81,9 +113,12 @@ const handleEnter = (event) => {
 
 const handleSend = () => {
   const content = inputText.value.trim();
-  if (!content || props.isLoading) return;
+  if (props.isLoading || (!content && !props.attachments.length)) return;
 
-  emit('send', content);
+  emit('send', {
+    content,
+    attachments: props.attachments,
+  });
   inputText.value = '';
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto';
@@ -113,10 +148,9 @@ defineExpose({ focus });
 }
 
 .input-container {
-  /* background: var(--color-bg-secondary); */
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 31px;
+  border-radius: 24px;
   padding: 8px;
   transition: all var(--transition-normal);
   transform: translateY(0);
@@ -124,8 +158,44 @@ defineExpose({ focus });
 
 .input-container:focus-within {
   border-color: var(--color-border-hover);
-  /* background: var(--color-bg-primary); */
   box-shadow: var(--shadow-md);
+}
+
+.attachment-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 6px 10px;
+}
+
+.attachment-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 0.82rem;
+}
+
+.attachment-preview-name {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-remove {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
 }
 
 .input-wrapper {
@@ -134,6 +204,38 @@ defineExpose({ focus });
   gap: var(--spacing-sm);
   background-color: transparent;
   padding: 0;
+}
+
+.attachment-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: 4px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.attachment-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-hover);
+}
+
+.attachment-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.attachment-icon {
+  width: 18px;
+  height: 18px;
 }
 
 textarea {

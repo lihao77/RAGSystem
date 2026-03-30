@@ -355,6 +355,7 @@ class AgentExecutionService:
         thread_key: Optional[str] = None,
         child_agent_id: Optional[str] = None,
         visible_to_user: Optional[bool] = None,
+        attachments: Optional[list] = None,
     ):
         store = self._runtime.get_conversation_store()
         effective_visible = visible_to_user if visible_to_user is not None else (mode == 'root')
@@ -375,6 +376,7 @@ class AgentExecutionService:
                 'conversation_scope': effective_scope,
                 'visible_to_user': effective_visible,
                 'child_agent_id': child_agent_id,
+                'attachments': list(attachments or []),
             },
             thread_key=effective_thread_key,
             child_agent_id=child_agent_id,

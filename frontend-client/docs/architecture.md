@@ -56,11 +56,14 @@ frontend-client/src/
 ### 核心流程
 
 ```text
-handleSend()
+handleSend({ content, attachments })
   → ensureSession()                    # 获取/创建会话
       ├─ 读取新会话初始化参数：workspace_root / entry_agent
       └─ POST /api/agent/sessions      # 持久化 session metadata
-  → POST /api/agent/stream             # 发起流式请求
+  → 附件面板（SessionFilesDrawer 已改造成输入区附件对话框）
+      ├─ 先走 /api/agent/sessions/{session_id}/files/upload 上传到 session 文件池
+      └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）
+  → POST /api/agent/stream             # 发起流式请求，body = { task, attachments[], session_id, selected_llm }
   → processSSEStream()                 # 逐 chunk 解析 SSE 事件
       ├─ reader.read() 循环
       ├─ 事件序号 gap 检测（lastSeenSeq 追踪）
@@ -123,6 +126,24 @@ tool 归属规则：
 - 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
 
 ## 消息数据结构
+
+### 用户消息
+
+```javascript
+{
+  role: 'user',
+  id: string, seq: number,
+  content: string,
+  attachments: [
+    {
+      file_id, original_name, stored_name, mime, size, kind
+    }
+  ],
+  metadata: {
+    attachments: []
+  }
+}
+```
 
 ### 助手消息
 
@@ -219,8 +240,13 @@ SituationScreen (Teleport to body, z-index: 10000)
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
 - `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的全局 `/api/files` 文件池严格分离
+- `pendingAttachments`：本轮待发送的消息级附件；来源于 session 文件上传结果或从现有 session 文件列表中“附加到本轮”
 
-两者都只在 `!currentSessionId` 时展示和编辑；会话创建成功后，前端会从返回的 `session.metadata` 回填本地状态，并在历史会话切换 / 浏览器前进后退时继续恢复。
+当前多模态输入约定：
+- 顶部“会话文件”主入口已收敛，附件入口下沉到 `ChatInput.vue` 左侧按钮
+- `SessionFilesDrawer.vue` 现在承担“输入区附件对话框”角色，而不是单纯的会话级资源抽屉
+- 用户可以发送“纯文本”、“文本+附件”或“纯附件”消息
+- 用户消息历史回放时，附件通过 `message.metadata.attachments` 重建并在消息气泡下方回显
 
 | 操作 | 流程 |
 |------|------|

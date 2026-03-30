@@ -8,9 +8,18 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class AttachmentRef(BaseModel):
+    file_id: str = Field(..., description='会话文件 ID')
+    original_name: Optional[str] = Field(None, description='原始文件名')
+    stored_name: Optional[str] = Field(None, description='存储文件名')
+    mime: Optional[str] = Field(None, description='MIME 类型')
+    size: Optional[int] = Field(None, description='文件大小')
+    kind: Optional[str] = Field(None, description='附件类型：image/file')
+
+
 class ExecuteRequest(BaseModel):
     """同步执行请求。"""
-    task: str = Field(..., description='任务描述', min_length=1)
+    task: str = Field('', description='任务描述')
     session_id: Optional[str] = Field(None, description='会话 ID（可选，不提供则自动生成）')
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
     agent: Optional[str] = Field(None, description='指定智能体名称（可选）')
@@ -24,13 +33,14 @@ class ExecuteRequest(BaseModel):
         description='请求级 LLM 分层：fast/default/powerful',
         alias='llmTier',
     )
+    attachments: List[AttachmentRef] = Field(default_factory=list, description='本轮消息附件')
 
     model_config = {'populate_by_name': True}
 
 
 class StreamExecuteRequest(BaseModel):
     """流式执行请求。"""
-    task: str = Field(..., description='任务描述', min_length=1)
+    task: str = Field('', description='任务描述')
     session_id: Optional[str] = Field(None, description='会话 ID（可选，不提供则自动生成）')
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
     selected_llm: Optional[str] = Field(
@@ -43,6 +53,7 @@ class StreamExecuteRequest(BaseModel):
         description='请求级 LLM 分层：fast/default/powerful',
         alias='llmTier',
     )
+    attachments: List[AttachmentRef] = Field(default_factory=list, description='本轮消息附件')
 
     model_config = {'populate_by_name': True}
 

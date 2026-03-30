@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from schemas.common import ok
+from .stream import _parse_selected_llm, _parse_llm_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,17 +83,8 @@ async def get_context_snapshot(
         runtime_service = get_agent_runtime_service()
 
         # 解析请求级 LLM 选择
-        llm_override = None
-        if selected_llm:
-            parts = selected_llm.strip().split('|')
-            if len(parts) >= 3:
-                llm_override = {'provider': parts[0], 'provider_type': parts[1], 'model_name': parts[2]}
-            elif len(parts) == 2:
-                llm_override = {'provider': parts[0], 'provider_type': parts[1], 'model_name': ''}
-            elif len(parts) == 1 and parts[0]:
-                llm_override = {'provider': parts[0], 'provider_type': '', 'model_name': ''}
-
-        normalized_llm_tier = (llm_tier or '').strip().lower() or None
+        llm_override = _parse_selected_llm(selected_llm) if selected_llm else None
+        normalized_llm_tier = _parse_llm_tier(llm_tier)
         snapshot_ctx = AgentContext(
             session_id=session_id or '',
             llm_override=llm_override,

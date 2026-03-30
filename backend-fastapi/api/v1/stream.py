@@ -42,6 +42,45 @@ def _parse_llm_tier(llm_tier: str):
     return normalized or None
 
 
+def _build_attachment_records(attachments) -> list[dict]:
+    return [
+        {
+            'file_id': item.file_id,
+            'original_name': item.original_name,
+            'stored_name': item.stored_name,
+            'mime': item.mime,
+            'size': item.size,
+            'kind': item.kind,
+        }
+        for item in (attachments or [])
+    ]
+
+
+def _validate_session_attachments(session_id: str, attachments: list[dict]) -> list[dict]:
+    if not attachments:
+        return []
+    from dependencies import get_file_index
+    index = get_file_index()
+    validated = []
+    for item in attachments:
+        file_id = (item.get('file_id') or '').strip()
+        if not file_id:
+            raise HTTPException(status_code=400, detail='附件 file_id 不能为空')
+        record = index.get(file_id, scope_type='session', scope_id=session_id)
+        if not record:
+            raise HTTPException(status_code=400, detail=f'附件不存在或不属于当前会话: {file_id}')
+        validated.append({
+            'file_id': record.get('id') or file_id,
+            'original_name': record.get('original_name'),
+            'stored_name': record.get('stored_name'),
+            'stored_path': record.get('stored_path'),
+            'mime': record.get('mime') or item.get('mime') or '',
+            'size': record.get('size') or item.get('size'),
+            'kind': item.get('kind') or ('image' if str(record.get('mime') or '').startswith('image/') else 'file'),
+        })
+    return validated
+
+
 def _apply_observability(payload: dict, obs: dict) -> None:
     """注入可观测性字段。"""
     try:
@@ -83,10 +122,11 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     Response: text/event-stream
     """
     task = request.task.strip()
-    if not task:
-        raise HTTPException(status_code=400, detail='任务描述不能为空')
-
     session_id = request.session_id or str(uuid.uuid4())
+    attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
+    if not task and not attachment_records:
+        raise HTTPException(status_code=400, detail='任务描述和附件不能同时为空')
+
     user_id = request.user_id
     request_id = _ensure_request_id(http_request.headers.get('X-Request-ID'))
 
@@ -94,7 +134,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     llm_override = _parse_selected_llm(selected_llm_str)
     llm_tier = _parse_llm_tier(request.llm_tier or '')
 
-    logger.info('流式执行任务: session_id=%s request_id=%s task=%s', session_id, request_id, task)
+    logger.info('流式执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
 
     def _sse_line(payload: dict, **dumps_kwargs) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
@@ -117,6 +157,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     conversation_store=runtime.get_conversation_store(),
                     orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
                     history_loader=runtime.load_history_into_context,
+                    current_attachments=attachment_records,
                 )
 
             started = await asyncio.to_thread(_start_stream)

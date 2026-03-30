@@ -128,19 +128,6 @@
         <!-- 右侧：主题切换 -->
         <div class="right-controls glass-card">
           <button
-            type="button"
-            class="session-export-btn version-btn top-action-btn"
-            :title="currentSessionId ? '查看当前会话文件' : '上传文件将自动创建会话'"
-            @click="sessionFilesDrawerVisible = true"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-            </svg>
-            <span class="version-label">会话文件</span>
-          </button>
-          <button
             @click="exportCurrentSession"
             class="session-export-btn version-btn top-action-btn"
             :disabled="!currentSessionId || isExportingSession"
@@ -279,6 +266,16 @@
                     @keydown.esc="cancelEdit"
                     @input="e => { if (editingMessage === msg) editingDraft = e.currentTarget.innerText }"
                   >{{ msg.content }}</div>
+                  <div v-if="msg.role === 'user' && msg.attachments?.length" class="user-attachments">
+                    <div v-for="attachment in msg.attachments" :key="attachment.file_id || attachment.id" class="user-attachment-card">
+                      <img v-if="isImageAttachment(attachment)" :src="getAttachmentPreviewUrl(attachment)" :alt="attachment.original_name || attachment.stored_name" class="user-attachment-image" />
+                      <div v-else class="user-attachment-file-icon">文件</div>
+                      <div class="user-attachment-info">
+                        <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
+                        <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
+                      </div>
+                    </div>
+                  </div>
 
                   <!-- Status Updates -->
                   <div v-if="msg.status && msg.status.length > 0" class="status-updates">
@@ -394,7 +391,16 @@
               <span class="execution-pill-kind">{{ executionKindLabel }}</span>
             </button>
           </div>
-          <ChatInput ref="chatInputRef" v-model="inputMessage" :isLoading="isLoading" @send="handleSend" @stop="handleStop" />
+          <ChatInput
+            ref="chatInputRef"
+            v-model="inputMessage"
+            :attachments="pendingAttachments"
+            :isLoading="isLoading"
+            @send="handleSend"
+            @stop="handleStop"
+            @openAttachments="openSessionFilesDrawer"
+            @removeAttachment="removePendingAttachment"
+          />
         </div>
       </div>
 
@@ -428,6 +434,7 @@
       :visible="sessionFilesDrawerVisible"
       :session-id="currentSessionId || ''"
       :files="sessionFiles"
+      :pending-files="pendingAttachments"
       :loading="sessionFilesLoading"
       :uploading="uploadingSessionFiles"
       :deleting-file-id="deletingSessionFileId || ''"
@@ -436,6 +443,8 @@
       @upload="handleSessionFileSelect"
       @download="downloadSessionFileItem"
       @delete="removeSessionFile"
+      @reuse="reuseSessionFileAsAttachment"
+      @removePending="removePendingAttachment"
     />
 
     <!-- 确认对话框 -->
@@ -589,6 +598,7 @@ const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const currentSessionId = ref(null);
 const sessionFiles = ref([]);
+const pendingAttachments = ref([]);
 const sessionFilesLoading = ref(false);
 const uploadingSessionFiles = ref(false);
 const deletingSessionFileId = ref(null);
@@ -621,8 +631,12 @@ const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
 
+function getCurrentSelectedLlm() {
+  return llmSelectorRef.value?.getSelection() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+}
+
 function openCtxDrawer() {
-  ctxDrawerSelectedLlm.value = llmSelectorRef.value?.getSelection() || localStorage.getItem('selectedLLMModel') || '';
+  ctxDrawerSelectedLlm.value = getCurrentSelectedLlm();
   ctxDrawerVisible.value = true;
 }
 
@@ -659,8 +673,8 @@ const handlePopState = () => {
     const matched = history.value.find(item => item.session_id === sessionId);
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
+    pendingAttachments.value = [];
     loadSessionMessages(sessionId);
-    loadSessionFiles(sessionId);
   }
   if (!sessionId) {
     invalidateActiveStream();
@@ -798,10 +812,10 @@ const startNewChat = () => {
   invalidateActiveStream();
   clearExecutionState();
   messages.value = [];
-  sessionFiles.value = [];
   inputMessage.value = '';
   pendingWorkspaceRoot.value = '';
   pendingEntryAgent.value = '';
+  pendingAttachments.value = [];
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
@@ -1112,6 +1126,50 @@ const clearLlmRetryState = () => {
   retryClockMs.value = Date.now();
   syncActiveMessageRetryStatus();
   stopRetryTicker();
+};
+
+const normalizeAttachment = (file) => {
+  if (!file || typeof file !== 'object') return null;
+  return {
+    ...file,
+    file_id: file.file_id || file.id,
+    kind: String(file?.mime || '').startsWith('image/') ? 'image' : 'file',
+  };
+};
+
+const isImageAttachment = (attachment) => String(attachment?.mime || '').startsWith('image/');
+
+const formatAttachmentSize = (size) => {
+  const num = Number(size || 0);
+  if (!num) return '0 B';
+  if (num < 1024) return `${num} B`;
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
+  return `${(num / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatAttachmentMeta = (attachment) => {
+  const parts = [formatAttachmentSize(attachment?.size)];
+  if (attachment?.mime) parts.push(attachment.mime);
+  return parts.join(' · ');
+};
+
+const getAttachmentPreviewUrl = (attachment) => {
+  if (!currentSessionId.value || !attachment?.file_id) return '';
+  return getSessionFileDownloadUrl(currentSessionId.value, attachment.file_id);
+};
+
+const removePendingAttachment = (attachment) => {
+  const fileId = attachment?.file_id || attachment?.id;
+  pendingAttachments.value = pendingAttachments.value.filter(item => (item.file_id || item.id) !== fileId);
+};
+
+const reuseSessionFileAsAttachment = (file) => {
+  const normalized = normalizeAttachment(file);
+  const fileId = normalized.file_id;
+  if (!pendingAttachments.value.some(item => (item.file_id || item.id) === fileId)) {
+    pendingAttachments.value = [...pendingAttachments.value, normalized];
+  }
+  sessionFilesDrawerVisible.value = false;
 };
 
 const focusInput = async () => {
@@ -1490,23 +1548,35 @@ const loadSessionFiles = async (sessionId) => {
   }
 };
 
+const openSessionFilesDrawer = () => {
+  if (currentSessionId.value) {
+    loadSessionFiles(currentSessionId.value);
+  }
+  sessionFilesDrawerVisible.value = true;
+};
+
 const triggerSessionFileInput = () => {
   sessionFileInputRef.value?.click();
 };
 
 const handleSessionFileSelect = async (filesOrEvent) => {
   const files = filesOrEvent?.target?.files || filesOrEvent;
-  if (!files?.length) return;
+  const normalizedFiles = Array.from(files || []).filter(file => file instanceof File);
+  if (!normalizedFiles.length) return;
   const sessionId = await ensureSession();
   if (!sessionId) return;
   const fd = new FormData();
-  for (const file of files) fd.append('files', file);
+  for (const file of normalizedFiles) fd.append('files', file);
   uploadingSessionFiles.value = true;
   try {
     const res = await uploadSessionFiles(sessionId, fd);
-    showToast(`已上传 ${res.files?.length || 0} 个会话文件`, 'success');
+    const createdFiles = (res.files || []).map(normalizeAttachment).filter(Boolean);
+    pendingAttachments.value = [...pendingAttachments.value, ...createdFiles.filter(file => !pendingAttachments.value.some(item => (item.file_id || item.id) === file.file_id))];
+    showToast(`已添加 ${res.files?.length || 0} 个附件`, 'success');
     await loadSessionFiles(sessionId);
+    sessionFilesDrawerVisible.value = true;
   } catch (error) {
+    console.error('handleSessionFileSelect failed:', { sessionId, fileCount: normalizedFiles.length, error });
     showToast(error.message || '上传会话文件失败');
   } finally {
     uploadingSessionFiles.value = false;
@@ -1568,7 +1638,10 @@ const loadSessionMessages = async (sessionId) => {
           metadata: item.metadata || {}
         };
       }
-      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {} };
+      const attachments = Array.isArray(item.metadata?.attachments)
+        ? item.metadata.attachments.map(normalizeAttachment).filter(Boolean)
+        : [];
+      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
     });
     messages.value = mapped;
     expandedSummarySeq.value = null;
@@ -1581,6 +1654,7 @@ const loadSessionMessages = async (sessionId) => {
     // ── 检查该会话是否有正在执行的任务 ──
     await checkSessionTaskStatus(sessionId);
   } catch (error) {
+    console.error('loadSessionMessages failed:', { sessionId, error });
     showToast('加载会话失败', () => loadSessionMessages(sessionId));
   } finally {
     messagesLoading.value = false;
@@ -1596,6 +1670,7 @@ const selectSession = async (item) => {
   currentSessionId.value = item.session_id;
   pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
   pendingEntryAgent.value = item.metadata?.entry_agent || '';
+  pendingAttachments.value = [];
   window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
   item.unread_count = 0;
   closeMobileSidebar();
@@ -2442,9 +2517,10 @@ const handleEnterSituation = ({ artifactId, mapData, vizData }) => {
   situationScreenActive.value = true;
 };
 
-const handleSend = async () => {
-  const content = inputMessage.value.trim();
-  if (!content || isLoading.value) return;
+const handleSend = async (payload = null) => {
+  const content = (payload?.content ?? inputMessage.value).trim();
+  const attachments = Array.isArray(payload?.attachments) ? payload.attachments.slice() : pendingAttachments.value.slice();
+  if ((!content && !attachments.length) || isLoading.value) return;
 
   const sessionId = await ensureSession();
 
@@ -2465,8 +2541,9 @@ const handleSend = async () => {
   } catch (_) { /* 查询失败不阻塞发送 */ }
 
   lastFailedSendContent.value = content;
-  messages.value.push({ role: 'user', content: content });
+  messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {} });
   inputMessage.value = '';
+  pendingAttachments.value = [];
   isUserAtBottom.value = true;
   shouldAutoScroll.value = true;
   _userScrollUpAccum = 0;
@@ -2487,10 +2564,18 @@ const handleSend = async () => {
     const body = {
       task: content,
       session_id: sessionId,
-      use_v2: true
+      use_v2: true,
+      attachments: attachments.map(({ file_id, original_name, stored_name, mime, size, kind }) => ({
+        file_id,
+        original_name,
+        stored_name,
+        mime,
+        size,
+        kind,
+      })),
     };
     // 前端 llm-select-trigger 选择：临时指定默认主智能体及未配置 LLM 的智能体使用的模型（格式 provider|provider_type|model_name）
-    const selectedLlm = props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+    const selectedLlm = getCurrentSelectedLlm();
     if (selectedLlm) {
       body.selected_llm = selectedLlm;
     }
@@ -2607,6 +2692,60 @@ onUnmounted(() => {
 .compression-summary-label:hover {
   background: var(--color-bg-tertiary);
   border-color: var(--color-border-hover);
+}
+.user-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.user-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+}
+.user-attachment-image {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.user-attachment-file-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.user-attachment-info {
+  min-width: 0;
+  flex: 1;
+}
+.user-attachment-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-attachment-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
 }
 .compression-summary-label:active {
   transform: scale(0.995);

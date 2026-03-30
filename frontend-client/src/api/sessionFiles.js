@@ -1,7 +1,12 @@
 async function parseResponse(response) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.detail || result.message || `请求失败: ${response.status}`);
+    const detail = typeof result.detail === 'string'
+      ? result.detail
+      : Array.isArray(result.detail)
+        ? result.detail.map(item => item?.msg || JSON.stringify(item)).join('; ')
+        : result.message;
+    throw new Error(detail || `请求失败: ${response.status}`);
   }
   return result;
 }

@@ -2,11 +2,11 @@
   <Teleport to="body">
     <Transition name="drawer-fade">
       <div v-if="visible" class="ctx-drawer-overlay" @click="$emit('close')">
-        <div class="ctx-drawer" @click.stop>
+        <div class="ctx-drawer ctx-drawer--dialog" @click.stop>
           <div class="ctx-drawer-header">
             <div>
-              <h3>会话文件</h3>
-              <div class="ctx-subtitle">{{ sessionId ? `${files.length} 个文件` : '上传文件将自动创建会话' }}</div>
+              <h3>添加附件</h3>
+              <div class="ctx-subtitle">{{ sessionId ? '上传后将附加到本轮消息' : '上传附件将自动创建会话' }}</div>
             </div>
             <button class="ctx-close-btn" @click="$emit('close')">&times;</button>
           </div>
@@ -17,21 +17,38 @@
                 <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
                 <button class="ctx-action-btn ctx-action-btn--primary" :disabled="uploading" @click="fileInputRef?.click()">
                   <span class="ctx-action-btn__icon">+</span>
-                  <span>{{ uploading ? '上传中...' : '上传文件' }}</span>
+                  <span>{{ uploading ? '上传中...' : '选择图片或文件' }}</span>
                 </button>
                 <button v-if="sessionId" class="ctx-action-btn ctx-action-btn--ghost" :disabled="loading" @click="$emit('refresh')">
                   <span class="ctx-action-btn__icon">↻</span>
-                  <span>刷新</span>
+                  <span>刷新会话文件</span>
                 </button>
               </div>
             </section>
 
+            <div v-if="uploading" class="ctx-loading">正在上传附件...</div>
+            <section v-if="pendingFiles.length" class="ctx-section">
+              <div class="ctx-section-title">本轮待发送</div>
+              <div class="ctx-file-list">
+                <div v-for="file in pendingFiles" :key="file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
+                  <div class="ctx-file-main">
+                    <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
+                    <div class="ctx-file-meta">
+                      <span>{{ formatSize(file.size) }}</span>
+                      <span v-if="file.mime">{{ file.mime }}</span>
+                      <span>{{ isImage(file) ? '图片' : '文件' }}</span>
+                    </div>
+                  </div>
+                  <div class="ctx-file-actions ctx-file-actions--visible">
+                    <button class="ctx-inline-btn ctx-inline-btn--danger" @click="$emit('removePending', file)">移除</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <div v-if="loading" class="ctx-loading">加载文件中...</div>
-            <div v-else-if="!files.length" class="ctx-empty-state">
-              <div class="ctx-empty-title">暂无会话文件</div>
-              <div class="ctx-empty-desc">{{ sessionId ? '你可以上传文件，让当前会话直接使用。' : '上传文件后会自动创建一个新的会话。' }}</div>
-            </div>
-            <section v-else class="ctx-section">
+            <section v-else-if="files.length" class="ctx-section">
+              <div class="ctx-section-title">当前会话文件</div>
               <div class="ctx-file-list">
                 <div v-for="file in files" :key="file.id" class="ctx-file-item">
                   <div class="ctx-file-main">
@@ -43,6 +60,7 @@
                   </div>
                   <div class="ctx-file-actions">
                     <button class="ctx-inline-btn" @click="$emit('download', file)">下载</button>
+                    <button class="ctx-inline-btn" @click="$emit('reuse', file)">附加到本轮</button>
                     <button class="ctx-inline-btn ctx-inline-btn--danger" :disabled="deletingFileId === file.id" @click="$emit('delete', file)">
                       {{ deletingFileId === file.id ? '删除中...' : '删除' }}
                     </button>
@@ -50,6 +68,14 @@
                 </div>
               </div>
             </section>
+            <div v-else class="ctx-empty-state">
+              <div class="ctx-empty-title">还没有附件</div>
+              <div class="ctx-empty-desc">上传图片或文件后，它会附加到你接下来发送的这条消息。</div>
+            </div>
+          </div>
+
+          <div class="ctx-dialog-footer">
+            <button class="ctx-action-btn ctx-action-btn--ghost" @click="$emit('close')">关闭</button>
           </div>
         </div>
       </div>
@@ -64,12 +90,13 @@ defineProps({
   visible: Boolean,
   sessionId: { type: String, default: '' },
   files: { type: Array, default: () => [] },
+  pendingFiles: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   uploading: { type: Boolean, default: false },
   deletingFileId: { type: String, default: '' },
 });
 
-const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh']);
+const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'reuse', 'removePending']);
 const fileInputRef = ref(null);
 
 const onFileChange = (event) => {
@@ -85,34 +112,38 @@ const formatSize = (size) => {
   if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
   return `${(num / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+const isImage = (file) => String(file?.mime || '').startsWith('image/');
 </script>
 
 <style scoped>
-/* ── overlay ── */
 .ctx-drawer-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,.5);
+  background: rgba(0,0,0,.55);
   z-index: var(--z-modal);
-  display: flex; justify-content: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
 }
 
-/* ── panel ── */
 .ctx-drawer {
-  width: min(480px, 90vw); height: 100%;
+  width: min(720px, 96vw);
+  max-height: 88vh;
   background: var(--color-bg-primary);
   display: flex; flex-direction: column;
-  border-left: 1px solid var(--color-border);
-  box-shadow: -4px 0 32px rgba(0,0,0,.2);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.28);
 }
 
-/* ── header ── */
 .ctx-drawer-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-.ctx-drawer-header h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.ctx-drawer-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
 .ctx-subtitle { margin-top: 3px; font-size: 12px; color: var(--color-text-muted); }
 .ctx-close-btn {
   width: 28px; height: 28px;
@@ -124,15 +155,20 @@ const formatSize = (size) => {
 }
 .ctx-close-btn:hover { background: var(--color-bg-secondary); color: var(--color-text-primary); }
 
-/* ── body ── */
-.ctx-drawer-body { flex: 1; overflow-y: auto; padding: 12px; }
-.ctx-section { margin-bottom: 16px; }
-
-/* ── action buttons（与 sidebar-btn 同语言）── */
+.ctx-drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+.ctx-section { margin-bottom: 18px; }
+.ctx-section-title {
+  margin: 0 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .ctx-actions-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 8px; }
 .ctx-action-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 14px;
+  height: 36px; padding: 0 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
@@ -151,7 +187,7 @@ const formatSize = (size) => {
   border-color: var(--color-brand-accent);
   color: #fff;
 }
-.ctx-action-btn--primary:hover:not(:disabled) { opacity: 0.85; }
+.ctx-action-btn--primary:hover:not(:disabled) { opacity: 0.88; }
 .ctx-action-btn--ghost {
   background: transparent;
   border-color: var(--color-border);
@@ -164,27 +200,25 @@ const formatSize = (size) => {
 .ctx-action-btn__icon { font-size: 14px; line-height: 1; }
 .ctx-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── loading / empty ── */
-.ctx-loading { padding: 48px 20px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
-.ctx-empty-state { padding: 48px 20px; text-align: center; }
+.ctx-loading { padding: 36px 20px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
+.ctx-empty-state { padding: 36px 20px; text-align: center; }
 .ctx-empty-title { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); }
 .ctx-empty-desc { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--color-text-muted); }
 
-/* ── file list（平铺风格，与 history-item 对齐）── */
 .ctx-file-list { display: flex; flex-direction: column; }
 .ctx-file-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px var(--spacing-sm);
-  margin: 0 var(--spacing-sm) 2px;
+  padding: 10px var(--spacing-sm);
+  margin: 0 var(--spacing-sm) 6px;
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
   transition: all var(--transition-fast);
   position: relative;
 }
-.ctx-file-item:hover {
-  background: var(--color-bg-secondary);
-  border-color: var(--color-border);
+.ctx-file-item--pending {
+  background: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.08);
+  border-color: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.24);
 }
 .ctx-file-main { min-width: 0; flex: 1; }
 .ctx-file-name {
@@ -195,17 +229,18 @@ const formatSize = (size) => {
 .ctx-file-meta {
   display: flex; gap: 8px; margin-top: 2px;
   font-size: 11px; color: var(--color-text-muted);
+  flex-wrap: wrap;
 }
 
-/* ── 行内操作按钮（hover 时淡入）── */
 .ctx-file-actions {
   display: flex; gap: 4px;
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
 .ctx-file-item:hover .ctx-file-actions { opacity: 1; }
+.ctx-file-actions--visible { opacity: 1; }
 .ctx-inline-btn {
-  height: 26px; padding: 0 8px;
+  height: 28px; padding: 0 8px;
   display: flex; align-items: center;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
@@ -227,11 +262,17 @@ const formatSize = (size) => {
 }
 .ctx-inline-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── 过渡动画 ── */
+.ctx-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
 .drawer-fade-enter-active, .drawer-fade-leave-active { transition: opacity .2s; }
 .drawer-fade-enter-active .ctx-drawer, .drawer-fade-leave-active .ctx-drawer {
   transition: transform .2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .drawer-fade-enter-from, .drawer-fade-leave-to { opacity: 0; }
-.drawer-fade-enter-from .ctx-drawer, .drawer-fade-leave-to .ctx-drawer { transform: translateX(100%); }
+.drawer-fade-enter-from .ctx-drawer, .drawer-fade-leave-to .ctx-drawer { transform: translateY(16px) scale(0.98); }
 </style>

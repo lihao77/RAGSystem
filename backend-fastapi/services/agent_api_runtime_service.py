@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from runtime.dependencies import get_runtime_dependency
 from agents import AgentContext
@@ -223,6 +223,8 @@ class AgentApiRuntimeService:
         call_id: Optional[str] = None,
         memory_query: Optional[str] = None,
         agent_name: Optional[str] = None,
+        current_user_input: Optional[str] = None,
+        current_attachments: Optional[List[dict]] = None,
     ) -> AgentContext:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
         normalized_llm_tier = (llm_tier or '').strip().lower() or None
@@ -255,6 +257,10 @@ class AgentApiRuntimeService:
             context.metadata['call_id'] = call_id
         if agent_name:
             context.metadata['agent_name'] = agent_name
+        if current_user_input is not None:
+            context.metadata['current_user_input'] = current_user_input
+        if current_attachments:
+            context.metadata['current_attachments'] = list(current_attachments)
         memory_config = None
         if agent_name:
             agent_config = get_config_manager().get_config(agent_name)

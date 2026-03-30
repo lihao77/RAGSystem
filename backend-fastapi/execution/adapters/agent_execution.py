@@ -62,6 +62,7 @@ class AgentExecutionAdapter:
         orchestrator,
         history_loader: Callable[[AgentContext, str, int], None],
         history_limit: int = 200,
+        current_attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentStreamStartResult:
         del history_loader
         registry = self._execution_service.get_task_registry()
@@ -128,6 +129,9 @@ class AgentExecutionAdapter:
                 source='api',
             )
             context = execution_handle.context
+            context.metadata['current_user_input'] = task
+            if current_attachments:
+                context.metadata['current_attachments'] = list(current_attachments)
             context.metadata.update({
                 'task_id': task_id,
                 'session_id': session_id,
@@ -181,6 +185,7 @@ class AgentExecutionAdapter:
                 thread_key=execution_handle.thread_key,
                 child_agent_id=execution_handle.child_agent_id,
                 visible_to_user=True,
+                attachments=current_attachments,
             )
 
             target = self._create_agent_task_target(

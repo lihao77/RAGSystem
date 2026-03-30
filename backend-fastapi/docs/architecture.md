@@ -70,31 +70,24 @@ backend-fastapi/
 ## 请求数据流
 
 ```
-POST /api/agent/stream {task, session_id, selected_llm, llm_tier}
+POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → api/v1/stream.py
+      ├─ 校验 attachments.file_id 是否属于当前 session
+      ├─ 将附件补齐为 {file_id, original_name, stored_name, stored_path, mime, size, kind}
+      └─ 允许“纯附件消息”：task 为空时，只要 attachments 非空即可发送
   → AgentExecutionAdapter.start_stream_execution()
+      └─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把附件元数据写入 user message.metadata.attachments
   → AgentExecutionService.invoke_agent(mode=root)
   → AgentApiRuntimeService.build_context()
       ├─ 读取历史消息到 AgentContext
+      ├─ 保留 user message.metadata.attachments 供 provider 边界读取
       ├─ 注入 project/session MEMORY.md 索引头部（Claude Code 风格 eager-load）
       ├─ 根据当前 task 选出相关 memory 文件路径供 Agent 后续按需 read_file
       └─ 注入请求级 LLM 选择：selected_llm（模型身份三元组）/ requested_llm_tier（fast/default/powerful）
-  → AgentOrchestrator.route_task()
-  → OrchestratorAgent.execute()
-  → _execute_react_task() 主循环
-      ├─ get_llm_config(context, task_type='default')  # 主推理默认走 default tier
-      ├─ context_pipeline.prepare_messages()  # 构建提示词+历史+memory index
-      │   └─ _apply_prompt_cache_policy()     # 仅标注稳定前缀缓存策略
-      ├─ StreamExecutor.execute_llm_stream()  # LLM 流式调用
-      │   ├─ ModelAdapter.chat_completion_stream()
-      │   ├─ provider-specific request build   # OpenAI/Anthropic 在 provider 边界适配缓存协议
-      │   ├─ StreamingXMLParser 增量解析 <intent>/<tools>/<final_answer>
-      │   └─ tool_xml_parser.parse_tools_xml() 解析工具参数
-      ├─ _handle_actions()                    # 执行工具/委派 Agent
-      │   ├─ 占位符替换 {result_N.content.xxx}
-      │   └─ route_direct_tool()       → execute_tool()
-      └─ _handle_final_answer()               # 返回最终答案
-          └─ MessagePersistenceHandler        # root final_answer 后抽取并写入 session memory md
+  → ModelAdapter.chat_completion_stream()
+      └─ provider-specific request build
+          ├─ AnthropicProvider._to_content_blocks()：图片附件转 `image/base64` block；常见文本文件（txt/md/json/yaml/csv/py/js/ts/vue）直接读取前 12KB 注入 text block
+          └─ OpenAIProvider._normalize_messages()：图片附件转 `image_url(data:...)` content part；常见文本文件读取前 12KB 注入 text part
   → SSEAdapter 转发事件 → 前端
 ```
 

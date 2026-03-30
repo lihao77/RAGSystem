@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from model_adapter.base import AIProviderType, EmbeddingResponse, ModelResponse
@@ -89,6 +91,56 @@ class OpenAIProvider(OpenAICompatibleProvider):
             raise error[0]
         return result[0]
 
+    @staticmethod
+    def _read_attachment_bytes(stored_path: str) -> bytes:
+        return Path(stored_path).read_bytes()
+
+    def _attachment_to_content_part(self, attachment: Dict[str, Any]) -> List[Dict[str, Any]]:
+        stored_path = attachment.get('stored_path')
+        original_name = attachment.get('original_name') or attachment.get('stored_name') or 'attachment'
+        mime = str(attachment.get('mime') or '')
+        if not stored_path:
+            return []
+        path = Path(stored_path)
+        if not path.exists() or not path.is_file():
+            return [{'type': 'text', 'text': f'[附件缺失] 名称: {original_name}; 路径不存在: {stored_path}'}]
+        if mime.startswith('image/'):
+            data = base64.b64encode(self._read_attachment_bytes(stored_path)).decode('ascii')
+            return [{
+                'type': 'image_url',
+                'image_url': {'url': f'data:{mime};base64,{data}'},
+            }]
+        text_like_suffixes = {'.txt', '.md', '.json', '.yaml', '.yml', '.csv', '.py', '.js', '.ts', '.vue'}
+        suffix = path.suffix.lower()
+        if suffix in text_like_suffixes:
+            try:
+                snippet = path.read_text(encoding='utf-8', errors='ignore')[:12000]
+            except Exception:
+                snippet = ''
+            if snippet:
+                return [{'type': 'text', 'text': f'[文件附件内容: {original_name}]\n{snippet}'}]
+        return [{'type': 'text', 'text': f'[文件附件] 名称: {original_name}; MIME: {mime or "unknown"}; 路径: {stored_path}'}]
+
+    def _normalize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for message in messages:
+            role = message.get('role')
+            if role not in ('system', 'user', 'assistant', 'tool'):
+                continue
+            metadata = message.get('metadata') or {}
+            content = message.get('content')
+            attachments = metadata.get('attachments') or []
+            if attachments and role in ('user', 'assistant'):
+                parts = []
+                if isinstance(content, str) and content:
+                    parts.append({'type': 'text', 'text': content})
+                for attachment in attachments:
+                    parts.extend(self._attachment_to_content_part(attachment))
+                normalized.append({'role': role, 'content': parts or [{'type': 'text', 'text': ''}]})
+                continue
+            normalized.append({'role': role, 'content': content})
+        return normalized
+
     def _build_chat_request(
         self,
         *,
@@ -114,9 +166,10 @@ class OpenAIProvider(OpenAICompatibleProvider):
             self.max_completion_tokens if self._prefers_max_completion_tokens() else self.max_tokens
         )
 
+        normalized_messages = self._normalize_messages(messages)
         payload: Dict[str, Any] = {
             'model': model,
-            'messages': messages,
+            'messages': normalized_messages,
             'temperature': temperature,
             max_token_field: max_token_value,
         }
