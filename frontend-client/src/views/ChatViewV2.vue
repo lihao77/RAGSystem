@@ -185,7 +185,7 @@
 
           <!-- Message Stream -->
           <div v-else class="message-stream">
-            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role]" :data-msg-index="index"
+            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role, { 'just-sent': msg._justSent }]" :data-msg-index="index"
               @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
               <!-- 持久化压缩：历史摘要占位，详情默认折叠 -->
               <div v-if="msg.role === 'system' && msg.metadata && msg.metadata.compression" class="message-content-wrapper compression-summary">
@@ -218,7 +218,7 @@
 
               </div>
 
-              <div v-if="!(msg.role === 'system' && msg.metadata && msg.metadata.compression)" class="message-content-wrapper">
+              <div v-if="!(msg.role === 'system' && msg.metadata && msg.metadata.compression)" class="message-content-wrapper" >
                 <div class="message-content">
                   <!-- Loading State -->
                   <div
@@ -255,66 +255,56 @@
                   </template>
 
                   <!-- User Message -->
-                  <div
-                    v-if="msg.role === 'user'"
-                    class="user-text"
-                    :class="{ 'is-editing': editingMessage === msg }"
-                    :contenteditable="editingMessage === msg ? 'plaintext-only' : 'false'"
-                    :data-msg-id="msg.id"
-                    @keydown.ctrl.enter.prevent="confirmEditAndResend"
-                    @keydown.meta.enter.prevent="confirmEditAndResend"
-                    @keydown.esc="cancelEdit"
-                    @input="e => { if (editingMessage === msg) editingDraft = e.currentTarget.innerText }"
-                  >{{ msg.content }}</div>
-                  <div v-if="msg.role === 'user' && (getEditingAttachments(msg)?.length || editingMessage === msg)" class="user-attachments" :class="{ 'is-editing': editingMessage === msg }">
-                    <div v-for="attachment in getEditingAttachments(msg)" :key="attachment.file_id || attachment.id" class="user-attachment-card">
-                      <img v-if="isImageAttachment(attachment)" :src="getAttachmentPreviewUrl(attachment)" :alt="attachment.original_name || attachment.stored_name" class="user-attachment-image" />
-                      <div v-else class="user-attachment-file-icon">文件</div>
-                      <div class="user-attachment-info">
-                        <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
-                        <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
+                  <template v-if="msg.role === 'user'">
+                    <!-- 非编辑态：气泡 -->
+                    <div v-if="editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
+                      <div class="user-text">{{ msg.content }}</div>
+                      <div v-if="msg.attachments?.length" class="user-attachments">
+                        <div v-for="attachment in msg.attachments" :key="attachment.file_id || attachment.id" class="user-attachment-card">
+                          <img v-if="isImageAttachment(attachment)" :src="getAttachmentPreviewUrl(attachment)" :alt="attachment.original_name || attachment.stored_name" class="user-attachment-image" />
+                          <div v-else class="user-attachment-file-icon">文件</div>
+                          <div class="user-attachment-info">
+                            <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
+                            <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
+                          </div>
+                        </div>
                       </div>
-                      <button
-                        v-if="editingMessage === msg"
-                        type="button"
-                        class="user-attachment-remove-btn"
-                        @click="removeEditingAttachment(attachment)"
-                      >
-                        移除
-                      </button>
+                      <!-- Status Updates -->
+                      <div v-if="msg.status && msg.status.length > 0" class="status-updates">
+                        <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-tag" :class="status.type">
+                          <span v-if="status.type === 'error'" class="status-icon">⚠️</span>
+                          {{ status.content }}
+                        </div>
+                      </div>
                     </div>
-                    <div v-if="editingMessage === msg" class="user-attachments-toolbar">
-                      <button type="button" class="msg-action-btn btn-edit-attachment" @click="openSessionFilesDrawer('message-edit')">
-                        添加附件
-                      </button>
-                    </div>
-                  </div>
 
-                  <!-- Status Updates -->
-                  <div v-if="msg.status && msg.status.length > 0" class="status-updates">
-                    <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-tag" :class="status.type">
-                      <span v-if="status.type === 'error'" class="status-icon">⚠️</span>
-                      {{ status.content }}
+                    <!-- 编辑态：编辑框 -->
+                    <div v-else class="message-edit-mode">
+                      <MessageEditBox
+                        v-model="editingDraft"
+                        :attachments="editingAttachmentsDraft"
+                        :submitting="editingSubmitting"
+                        :session-id="currentSessionId"
+                        @confirm="confirmEditAndResend"
+                        @cancel="cancelEdit"
+                        @open-attachments="openSessionFilesDrawer('message-edit')"
+                        @remove-attachment="removeEditingAttachment"
+                      />
                     </div>
-                  </div>
+                  </template>
                 </div>
               </div>
 
+
               <!-- 消息操作 -->
               <div class="message-actions" :class="{ 'visible': messageActionsVisible === index || editingMessage === msg }">
-                <template v-if="msg.role === 'user'">
-                  <template v-if="editingMessage === msg">
-                    <button type="button" class="btn-editor btn-save" @click="confirmEditAndResend">确定</button>
-                    <button type="button" class="btn-editor btn-cancel" @click="cancelEdit">取消</button>
-                  </template>
-                  <template v-else>
-                    <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
-                      编辑
-                    </button>
-                    <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
-                      复制
-                    </button>
-                  </template>
+                <template v-if="msg.role === 'user' && editingMessage !== msg">
+                  <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
+                    编辑
+                  </button>
+                  <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
+                    复制
+                  </button>
                 </template>
                 <template v-if="msg.role === 'assistant' && msg.finished">
                   <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
@@ -344,7 +334,7 @@
             </svg>
           </button>
         </transition>
-        <div class="input-area-wrapper">
+        <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
             <label class="workspace-root-input-label" for="entry-agent-select">入口 Agent</label>
             <CustomSelect
@@ -512,6 +502,7 @@ import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import LLMSelector from '../components/LLMSelector.vue';
 import CustomSelect from '../components/CustomSelect.vue';
+import MessageEditBox from '../components/MessageEditBox.vue';
 import { getAllAgentConfigs } from '../api/agentConfig';
 import { listSessionFiles, uploadSessionFiles, deleteSessionFile, getSessionFileDownloadUrl } from '../api/sessionFiles';
 
@@ -596,6 +587,7 @@ const router = useRouter();
 const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
+const inputSending = ref(false);
 const messagesRef = ref(null);
 const topControlsBarRef = ref(null);
 const sidebarRef = ref(null);
@@ -680,6 +672,7 @@ const messageActionsVisible = ref(null);
 const editingMessageIndex = ref(null);
 const editingDraft = ref('');
 const editingAttachmentsDraft = ref([]);
+const editingSubmitting = ref(false);
 const sessionFilesDrawerTarget = ref('composer');
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const expandedSummarySeq = ref(null);
@@ -1204,9 +1197,6 @@ const currentDrawerPendingFiles = computed(() => (
     : pendingAttachments.value
 ));
 
-const getEditingAttachments = (msg) => (
-  editingMessage.value === msg ? editingAttachmentsDraft.value : (msg.attachments || [])
-);
 
 const removePendingAttachment = (attachment) => {
   pendingAttachments.value = removeAttachmentFromList(pendingAttachments.value, attachment);
@@ -1984,36 +1974,90 @@ const startEditMessage = (msg, index) => {
   editingAttachmentsDraft.value = Array.isArray(msg.attachments)
     ? msg.attachments.map(normalizeAttachment).filter(Boolean)
     : [];
+  editingSubmitting.value = false;
   sessionFilesDrawerTarget.value = 'composer';
+  
+  console.log('[edit-debug] 开始编辑:', {
+    msgId: msg.id,
+    editingMessageIndex: editingMessageIndex.value,
+    editingDraft: editingDraft.value?.substring(0, 50),
+    attachmentsCount: editingAttachmentsDraft.value.length
+  });
+
   nextTick(() => {
-    const el = document.querySelector(`.user-text.is-editing[data-msg-id="${msg.id}"]`)
-              || document.querySelector('.user-text.is-editing');
-    if (!el) return;
-    el.focus();
-    // 光标移到末尾
-    const range = document.createRange();
-    const sel = window.getSelection();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
+    const msgEl = document.querySelector(`.message[data-msg-index="${editingMessageIndex.value}"]`);
+    const wrapperEl = msgEl?.querySelector('.message-content-wrapper');
+    const previewWrap = msgEl?.querySelector('.user-bubble-preview-wrap');
+    const editWrap = msgEl?.querySelector('.user-edit-detail-wrap');
+    const editBox = msgEl?.querySelector('.msg-edit-box');
+    
+    console.log('[edit-debug] DOM 状态（立即）:', {
+      msgEl: msgEl?.className,
+      wrapperEl: {
+        className: wrapperEl?.className,
+        computedMaxWidth: wrapperEl ? getComputedStyle(wrapperEl).maxWidth : null,
+        computedWidth: wrapperEl ? getComputedStyle(wrapperEl).width : null,
+      },
+      previewWrap: {
+        className: previewWrap?.className,
+        computedGridRows: previewWrap ? getComputedStyle(previewWrap).gridTemplateRows : null,
+        computedOpacity: previewWrap ? getComputedStyle(previewWrap).opacity : null,
+      },
+      editWrap: {
+        className: editWrap?.className,
+        computedGridRows: editWrap ? getComputedStyle(editWrap).gridTemplateRows : null,
+        computedOpacity: editWrap ? getComputedStyle(editWrap).opacity : null,
+      },
+      editBox: {
+        exists: !!editBox,
+        computedWidth: editBox ? getComputedStyle(editBox).width : null,
+      }
+    });
+    
+    // 等待动画完成后再检查
+    setTimeout(() => {
+      console.log('[edit-debug] DOM 状态（动画后 500ms）:', {
+        wrapperEl: {
+          computedMaxWidth: wrapperEl ? getComputedStyle(wrapperEl).maxWidth : null,
+          computedWidth: wrapperEl ? getComputedStyle(wrapperEl).width : null,
+        },
+        previewWrap: {
+          computedGridRows: previewWrap ? getComputedStyle(previewWrap).gridTemplateRows : null,
+          computedOpacity: previewWrap ? getComputedStyle(previewWrap).opacity : null,
+        },
+        editWrap: {
+          computedGridRows: editWrap ? getComputedStyle(editWrap).gridTemplateRows : null,
+          computedOpacity: editWrap ? getComputedStyle(editWrap).opacity : null,
+        },
+        editBox: {
+          computedWidth: editBox ? getComputedStyle(editBox).width : null,
+        }
+      });
+    }, 500);
   });
 };
 
-const cancelEdit = () => {
+
+const resetEditingState = ({ closeDrawer = true } = {}) => {
   editingMessageIndex.value = null;
   editingDraft.value = '';
   editingAttachmentsDraft.value = [];
-  if (sessionFilesDrawerTarget.value === 'message-edit') {
+  editingSubmitting.value = false;
+  if (closeDrawer && sessionFilesDrawerTarget.value === 'message-edit') {
     sessionFilesDrawerVisible.value = false;
   }
   sessionFilesDrawerTarget.value = 'composer';
 };
 
+const cancelEdit = () => {
+  if (editingSubmitting.value) return;
+  resetEditingState();
+};
+
 /** 编辑后确定：先回退到该条之前，再以编辑后的内容流式发送（保持原有流式体验） */
 const confirmEditAndResend = async () => {
   const idx = editingMessageIndex.value;
-  if (idx == null) return;
+  if (idx == null || editingSubmitting.value) return;
   const msg = messages.value[idx];
   if (!msg || msg.role !== 'user') {
     cancelEdit();
@@ -2027,9 +2071,7 @@ const confirmEditAndResend = async () => {
   }
   const sessionId = currentSessionId.value;
   if (!sessionId) { cancelEdit(); return; }
-  const prevMessages = messages.value.slice();
-  messages.value = messages.value.slice(0, idx);
-  cacheMessages(sessionId, messages.value);
+  editingSubmitting.value = true;
   try {
     let body;
     if (idx === 0) {
@@ -2047,13 +2089,9 @@ const confirmEditAndResend = async () => {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || '回退失败');
     }
-    cancelEdit();
-    await nextTick();
-    await handleSend({ content, attachments });
+    await handleSend({ content, attachments, replaceFromIndex: idx, clearEditing: true });
   } catch (e) {
-    messages.value = prevMessages;
-    cacheMessages(sessionId, prevMessages);
-    cancelEdit();
+    editingSubmitting.value = false;
     showToast(e.message || '操作失败');
   }
 };
@@ -2604,11 +2642,12 @@ const handleEnterSituation = ({ artifactId, mapData, vizData }) => {
 const handleSend = async (payload = null) => {
   const content = (payload?.content ?? inputMessage.value).trim();
   const attachments = Array.isArray(payload?.attachments) ? payload.attachments.slice() : pendingAttachments.value.slice();
+  const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
+  const clearEditing = payload?.clearEditing === true;
   if ((!content && !attachments.length) || isLoading.value) return;
 
   const sessionId = await ensureSession();
 
-  // ── 后端双重检查：防止并发 ──
   try {
     const statusResp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
     if (statusResp.ok) {
@@ -2624,8 +2663,17 @@ const handleSend = async (payload = null) => {
     }
   } catch (_) { /* 查询失败不阻塞发送 */ }
 
+  if (replaceFromIndex != null) {
+    messages.value = messages.value.slice(0, replaceFromIndex);
+    cacheMessages(sessionId, messages.value);
+    if (clearEditing) {
+      resetEditingState({ closeDrawer: false });
+    }
+  }
+
+  inputSending.value = true;
   lastFailedSendContent.value = content;
-  messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {} });
+  messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {}, _justSent: true });
   inputMessage.value = '';
   pendingAttachments.value = [];
   isUserAtBottom.value = true;
@@ -2633,6 +2681,12 @@ const handleSend = async (payload = null) => {
   _userScrollUpAccum = 0;
   scrollToBottom(true);
   updateRecentSession(sessionId, content, new Date().toISOString());
+
+  const justSentMessage = messages.value[messages.value.length - 1];
+  window.setTimeout(() => {
+    if (justSentMessage) delete justSentMessage._justSent;
+    inputSending.value = false;
+  }, 220);
 
   const assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
 
@@ -2778,15 +2832,58 @@ onUnmounted(() => {
   background: var(--color-bg-tertiary);
   border-color: var(--color-border-hover);
 }
+.user-edit-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transform-origin: top right;
+  transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+  will-change: transform, opacity;
+}
+.user-edit-shell.is-editing {
+  transform: translateY(-1px);
+}
+.user-edit-shell.is-submitting {
+  opacity: 0.86;
+  filter: saturate(0.96);
+  transform: translateY(-1px);
+}
+.user-text {
+  transition:
+    background-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    border-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    box-shadow var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    min-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
+    filter var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1));
+  will-change: transform, opacity, min-height, max-height;
+}
+.user-text.is-editing {
+  transform: none;
+}
+.user-text.is-submitting {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
 .user-attachments {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 0;
+  transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+  will-change: transform, opacity;
 }
 .user-attachments.is-editing {
   align-items: flex-end;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+.user-attachments.is-submitting {
+  opacity: 1;
+  filter: none;
+  transform: none;
 }
 .user-attachments-toolbar {
   display: flex;
@@ -2794,6 +2891,18 @@ onUnmounted(() => {
   width: min(420px, 100%);
   box-sizing: border-box;
   margin-top: 2px;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)), max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)), transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1));
+}
+.user-attachments-toolbar.is-visible {
+  opacity: 1;
+  max-height: 40px;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .user-attachment-card {
   display: flex;
@@ -2805,19 +2914,24 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, opacity 220ms ease, filter 220ms ease;
 }
-.user-attachment-remove-btn {
-  border: none;
-  background: transparent;
-  color: var(--color-error);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 4px 0 4px 8px;
-  flex-shrink: 0;
+.user-attachment-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
-.user-attachment-remove-btn:hover {
-  opacity: 0.8;
+.btn-editor {
+  transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+.btn-editor:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn-editor:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.btn-editor:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .user-attachment-image {
   width: 56px;
@@ -3176,5 +3290,21 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 消息查看/编辑模式切换动画 */
+.message-view-mode,
+.message-edit-mode {
+  animation: messageSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 </style>

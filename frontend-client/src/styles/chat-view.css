@@ -1,5 +1,11 @@
 /* Chat View Styles */
 
+:root {
+  --edit-transition-duration: 240ms;
+  --edit-transition-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --user-message-edit-width: min(920px, 95%);
+}
+
 /* ===== CSS 局部变量补充（消除魔法数字） ===== */
 .chat-view {
   /* 代码块主题色 */
@@ -688,7 +694,13 @@
 
 .message.user {
   align-items: flex-end;
+  width: 100%;
+  transition: opacity var(--edit-transition-duration) var(--edit-transition-ease), transform var(--edit-transition-duration) var(--edit-transition-ease);
+  will-change: transform, opacity;
   /* 用户消息靠右 */
+}
+.message.user.just-sent {
+  animation: userMessageSendIn 220ms var(--edit-transition-ease) both;
 }
 
 .message.assistant {
@@ -728,18 +740,21 @@
 .message.user .message-content-wrapper {
   max-width: var(--user-message-max-width);
   width: auto;
-  transition: max-width 0.3s cubic-bezier(0.34, 1.4, 0.64, 1), width 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+  transform-origin: top right;
+  transition:
+    max-width 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    width 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity var(--edit-transition-duration) cubic-bezier(0.4, 0, 0.2, 1),
+    transform var(--edit-transition-duration) cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: max-width, width, transform, opacity;
 }
-/* 编辑态时撑宽到 100% */
-.message.user .message-content-wrapper:has(.user-text.is-editing) {
-  max-width: 100%;
-  width: 100%;
-}
+/* 编辑态时撑宽到编辑框宽度，而不是整行铺满 */
 
 .message-content {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  transition: gap var(--edit-transition-duration) var(--edit-transition-ease), opacity var(--edit-transition-duration) var(--edit-transition-ease), transform var(--edit-transition-duration) var(--edit-transition-ease);
 }
 
 /* ===== User 消息气泡 & 单元素编辑过渡 ===== */
@@ -771,39 +786,6 @@
 }
 
 /* 编辑态：同一个元素，切换样式 */
-.user-text.is-editing {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.45);
-  box-shadow:
-    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12),
-    0 2px 12px rgba(var(--color-brand-accent-rgb), 0.08);
-  background: color-mix(in srgb, var(--color-bg-tertiary) 85%, rgba(var(--color-brand-accent-rgb), 0.15));
-  cursor: text;
-  min-height: 80px;
-  white-space: pre-wrap;
-  overflow-y: auto;
-  max-height: 320px;
-  /* 进入编辑时的弹入动画 */
-  animation: editPulse 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.user-text.is-editing:focus {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.7);
-  box-shadow:
-    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.18),
-    0 4px 16px rgba(var(--color-brand-accent-rgb), 0.12);
-}
-
-/* 进入编辑时轻微"呼吸"弹入 */
-@keyframes editPulse {
-  0%   { box-shadow: 0 0 0 0   rgba(var(--color-brand-accent-rgb), 0.35); }
-  50%  { box-shadow: 0 0 0 6px rgba(var(--color-brand-accent-rgb), 0.15); }
-  100% { box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12),
-                     0 2px 12px rgba(var(--color-brand-accent-rgb), 0.08); }
-}
-
-@keyframes btnPop {
-  0%   { opacity: 0; transform: scale(0.72) translateY(4px); }
-  100% { opacity: 1; transform: scale(1)    translateY(0); }
-}
 
 /* 编辑态确定/取消按钮 */
 .user-edit-actions {
@@ -817,48 +799,16 @@
   letter-spacing: 0.01em;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
+  transition:
+    background var(--edit-transition-duration) var(--edit-transition-ease),
+    color var(--edit-transition-duration) var(--edit-transition-ease),
+    border-color var(--edit-transition-duration) var(--edit-transition-ease),
+    opacity var(--edit-transition-duration) var(--edit-transition-ease),
+    transform var(--edit-transition-duration) var(--edit-transition-ease);
   outline: none;
   white-space: nowrap;
-  animation: btnPop 0.28s cubic-bezier(0.34, 1.7, 0.64, 1) both;
-}
-.btn-editor:nth-child(2) { animation-delay: 0.04s; }
-.btn-editor:active { transform: scale(0.94); }
-/* #1: 确定按钮 - 品牌色 */
-.btn-editor.btn-save {
-  background: rgba(var(--color-brand-accent-rgb), 0.15);
-  color: var(--color-brand-accent-light);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-}
-.btn-editor.btn-save:hover {
-  background: rgba(var(--color-brand-accent-rgb), 0.25);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.55);
-}
-/* 取消按钮 - 中性 ghost */
-.btn-editor.btn-cancel {
-  background: transparent;
-  color: var(--color-text-muted);
-  border-color: transparent;
-}
-.btn-editor.btn-cancel:hover {
-  background: var(--color-hover-overlay);
-  border-color: var(--color-hover-overlay-md);
-  color: var(--color-text-secondary);
 }
 
-/* #4: 消息操作按钮 */
-.message-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-.message-actions.visible {
-  opacity: 1;
-}
 .msg-action-btn {
   display: inline-flex;
   align-items: center;
@@ -1815,11 +1765,14 @@
   isolation: isolate;
   width: 100%;
   z-index: var(--z-sticky);
-  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  /* display: flex;
-  justify-content: center; */
+  transition: opacity 220ms var(--edit-transition-ease), transform 220ms var(--edit-transition-ease), filter 220ms var(--edit-transition-ease), background 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
   /* Allow clicks to pass through the gradient area */
+}
+.input-area-wrapper.is-sending {
+  opacity: 0.86;
+  transform: translateY(6px) scale(0.985);
+  filter: saturate(0.96);
 }
 
 .input-area-wrapper>* {
@@ -1839,6 +1792,19 @@
 
 .input-area-wrapper.centered>* {
   pointer-events: auto;
+}
+
+@keyframes userMessageSendIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+    filter: saturate(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: none;
+  }
 }
 
 /* ===== 汉堡菜单按钮（移动端） ===== */
@@ -2313,4 +2279,106 @@
       box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
     }
   }
+}
+
+/* ===== User 消息气泡容器 ===== */
+.user-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.user-attachment-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.user-attachment-image {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.user-attachment-file-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.user-attachment-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-attachment-name {
+  font-size: 0.85rem;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-attachment-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+
+/* ===== User 消息编辑动画（简单淡入淡出 + 轻微位移）===== */
+
+/* 气泡容器 */
+.user-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Vue Transition 钩子 */
+.v-enter-active,
+.v-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.v-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.v-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* 编辑态时容器宽度扩展 */
+.message.user:has(.msg-edit-box) .message-content-wrapper {
+  max-width: 100%;
+  width: 100%;
+  transition: max-width 0.3s ease, width 0.3s ease;
 }
