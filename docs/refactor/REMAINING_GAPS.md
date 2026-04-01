@@ -1,10 +1,10 @@
 # 工具体系剩余差距清单（2026-04-01）
 
-> **当前对标度**：~75%
+> **当前对标度**：~85%（从 ~75% 提升，大结果落盘已完成）
 >
 > **核心架构**：已对齐 Claude Code
 >
-> **剩余差距**：主要为工程细节和可选优化
+> **剩余差距**：主要为可选优化和体验增强
 
 ---
 
@@ -59,46 +59,54 @@
 
 ---
 
-### 2. 大结果落盘闭环 🔧 中优先级（按需）
+### 2. 大结果落盘闭环 ✅ 已完成
 
-**当前状态**：已移除 executor 里的落盘逻辑
+**当前状态**：已有完整的 observation-based 大结果落盘机制
 
-**Claude Code 实现**：
-- 在查询边界（发送给 LLM 前）通过 `enforceToolResultBudget` 统一处理
-- 超过阈值的结果自动落盘到文件
-- 返回文件引用 + preview 给 LLM
-- 提供标准回读 API
+**实现情况**：
+- ✅ `ObservationPolicy` 决策系统（inline / artifact_ref 两阶段）
+- ✅ `ArtifactStore` 持久化层（save_json / save_text）
+- ✅ `LargePayloadFormatter` 格式化器（自动落盘 + 预览）
+- ✅ 基于预算的阈值判定（compact/balanced/expansive）
+- ✅ TTL 管理和自动清理
+- ✅ 索引文件（artifact_index.jsonl）
+- ✅ 存储路径：`data/sessions/{session_id}/transient/data_*.json`
 
-**差距**：
-- 无统一的结果大小判定规则
-- 无查询边界的自动落盘机制
-- 无标准的结果引用协议（除了 artifact）
-- 无通用的结果回读 API
-
-**影响**：
-- 大结果可能导致 LLM 上下文溢出
-- 无法统一管理工具结果的持久化
-- 前端回读结果依赖具体子域实现
-
-**实现建议**：
+**决策规则**：
 ```python
-# 在 base.py 发送给 LLM 前
-def _prepare_tool_results_for_llm(results):
-    for result in results:
-        if len(str(result.content)) > MAX_RESULT_SIZE:
-            # 落盘到 data/sessions/{session_id}/tool_results/{result_id}.json
-            ref = materialize_large_result(result)
-            result.content = {
-                "type": "file_ref",
-                "ref": ref,
-                "preview": str(result.content)[:500]
-            }
-    return results
+# ObservationPolicy.decide()
+1. force_artifact → artifact_ref（强制落盘）
+2. error → inline（错误始终内联）
+3. chart/map → inline（可视化内联）
+4. skills 文档工具 → inline（激活文档需完整注入）
+5. read_file → inline（不重复落盘）
+6. 大小判定：
+   - text: <= 1600 chars → inline
+   - json: <= 2400 chars → inline
+   - geojson: <= 960 chars → inline（降低阈值）
+   - 超过阈值 → artifact_ref
 ```
 
+**落盘流程**：
+```
+BaseAgent._format_tool_observation()
+  → ObservationPolicy.decide() → ObservationDecision(mode="artifact_ref")
+  → LargePayloadFormatter.format()
+    → ArtifactStore.save_json/save_text()
+    → 返回文件引用 + 预览 + 数据结构
+```
+
+**对比 Claude Code**：
+- Claude Code: 在查询边界（发送给 LLM 前）通过 `enforceToolResultBudget` 处理
+- 当前系统: 在 observation 格式化阶段处理
+- **差异**：时机不同，但效果相同，都能防止大结果溢出上下文
+
 **参考文件**：
-- Claude Code: `src/core/tools/enforceToolResultBudget.ts`
-- 当前系统：已移除 `tools/refs/result_references.py::_materialize_result_envelope`
+- `agents/context/observation_policy.py` - 决策系统
+- `agents/artifacts/artifact_store.py` - 持久化层
+- `agents/context/observation_formatters/large_payload.py` - 格式化器
+
+**结论**：✅ 已完成，无需额外实现
 
 ---
 
@@ -296,29 +304,30 @@ def test_tool_execution_with_approval():
 
 ### 按优先级分类
 
-| 优先级 | 差距项 | 影响范围 | 实现成本 |
-|--------|--------|----------|----------|
-| ⚠️ 高（按需） | Hooks 系统 | 扩展能力 | 中 |
-| 🔧 中（按需） | 大结果落盘闭环 | 上下文管理 | 中 |
-| 🔧 低（体验） | 可观测语义统一 | 用户体验 | 低 |
-| 🔧 低（安全） | MCP 细粒度权限 | 安全控制 | 低 |
-| 🔧 低（性能） | Exposure 缓存 | 性能优化 | 低 |
-| 🔧 低（扩展） | PermissionDecision 扩展 | 可扩展性 | 低 |
-| 📝 低（文档） | 流程可视化 | 文档质量 | 低 |
-| 🧪 低（测试） | 集成测试覆盖 | 测试质量 | 中 |
+| 优先级 | 差距项 | 影响范围 | 实现成本 | 状态 |
+|--------|--------|----------|----------|------|
+| ⚠️ 高（按需） | Hooks 系统 | 扩展能力 | 中 | 待实现 |
+| ✅ 已完成 | 大结果落盘闭环 | 上下文管理 | - | 已完成 |
+| 🔧 低（体验） | 可观测语义统一 | 用户体验 | 低 | 可选 |
+| 🔧 低（安全） | MCP 细粒度权限 | 安全控制 | 低 | 可选 |
+| 🔧 低（性能） | Exposure 缓存 | 性能优化 | 低 | 可选 |
+| 🔧 低（扩展） | PermissionDecision 扩展 | 可扩展性 | 低 | 可选 |
+| 📝 低（文档） | 流程可视化 | 文档质量 | 低 | 可选 |
+| 🧪 低（测试） | 集成测试覆盖 | 测试质量 | 中 | 可选 |
 
 ### 核心结论
 
-1. **架构层面**：核心架构已对齐 Claude Code（~75%），剩余主要是 Hooks 和大结果落盘两个可选特性
-2. **体验层面**：可观测语义和 MCP 权限是体验优化项，不影响核心功能
-3. **性能层面**：当前性能已足够，缓存优化是锦上添花
-4. **文档测试**：文档已较完善，可视化和集成测试是增强项
+1. **架构层面**：核心架构已对齐 Claude Code（~85%），剩余主要是 Hooks 一个可选特性
+2. **大结果落盘**：✅ 已完成，通过 ObservationPolicy + ArtifactStore 实现
+3. **体验层面**：可观测语义和 MCP 权限是体验优化项，不影响核心功能
+4. **性能层面**：当前性能已足够，缓存优化是锦上添花
+5. **文档测试**：文档已较完善，可视化和集成测试是增强项
 
 ### 实施建议
 
-- **短期**：保持当前架构，按需实现 Hooks 或大结果落盘
-- **中期**：优化可观测语义和 MCP 权限，提升用户体验
-- **长期**：完善文档可视化和集成测试，提升项目质量
+- **短期**：保持当前架构，专注业务功能
+- **中期**：按需实现 Hooks（如果需要自定义工具执行行为）
+- **长期**：逐步完善体验优化和测试覆盖
 
 ---
 
