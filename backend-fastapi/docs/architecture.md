@@ -138,7 +138,7 @@ LLM 分层配置约定：
 - `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；在共享 skeleton 之上只覆盖主编排器特有的目标/原则，并在主编排器模式下追加 `call_agent` 契约、委派门槛与 `delegation.enabled_agents` 驱动的动态 agent roster；普通 worker 模式下不暴露委派 roster
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
-- 工具系统已完成分层收敛：`tools/contracts` 负责纯模型，`tools/runtime` 负责 discovery / execute 主链，`tools/local` 承载工具实现，`tools/refs` / `tools/artifacts` / `tools/paths` 分别承载结果引用、artifact、路径子域；MCP 额外采用“外部展开、内部单网关”——Agent 继续看到 `mcp__<server>__<tool>`，运行时命名解析、执行入口与 observability 透传统一收敛到 `tools.runtime.mcp_gateway`
+- 工具 runtime 已进一步收敛到 Claude Code 风格语义：`tools/runtime/exposure.py` 负责工具暴露真源，`tools/runtime/models.py` 提供统一 `ToolUseContext / ToolExposureDecision / PermissionDecision`，`tools/runtime/executor.py` 以 context 为中心串联 approval / dispatcher / MCP gateway / hooks / result materialization，`execution.step` 与前端 projector 统一消费 `result_envelope`
 
 ### MCP 运行时收口
 

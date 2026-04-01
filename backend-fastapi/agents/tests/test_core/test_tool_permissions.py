@@ -11,6 +11,7 @@ from tools.permissions import (
     TOOL_PERMISSIONS,
     RiskLevel,
     check_tool_permission,
+    evaluate_tool_permission,
     get_tool_permission,
 )
 
@@ -86,10 +87,10 @@ def test_memory_tools_are_enabled_via_effective_direct_tools():
         mcp=None,
     )
 
-    allowed, error = check_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
+    decision = evaluate_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
 
-    assert allowed is True
-    assert error is None
+    assert decision.execution_allowed is True
+    assert decision.deny_reason == ""
 
 
 def test_memory_tools_respect_configured_subset():
@@ -123,6 +124,21 @@ def test_memory_tools_are_rejected_when_memory_disabled():
 
     assert allowed is False
     assert error == "Tool list_memory_index is not enabled for this agent"
+
+
+def test_permission_decision_distinguishes_exposure_and_execution():
+    agent_config = SimpleNamespace(
+        tools=SimpleNamespace(enabled_tools=[]),
+        memory=SimpleNamespace(enabled=False, allowed_scopes=[], write_scopes=[], archive_scopes=[]),
+        skills=None,
+        delegation=None,
+        mcp=None,
+    )
+
+    decision = evaluate_tool_permission("write_memory", agent_config=agent_config, caller="direct")
+
+    assert decision.execution_allowed is False
+    assert decision.deny_reason == "Tool write_memory is not enabled for this agent"
 
 
 def test_mcp_permission_rejects_disabled_server(monkeypatch):

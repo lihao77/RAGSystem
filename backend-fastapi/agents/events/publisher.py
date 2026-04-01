@@ -355,6 +355,7 @@ class EventPublisher:
         success: bool = True,
         round: Optional[int] = None,
         agent_display_name: Optional[str] = None,
+        approval_message: Optional[str] = None,
     ):
         """工具调用结束"""
         data = {
@@ -367,6 +368,7 @@ class EventPublisher:
                 "raw_result_available": raw_result is not None,
                 "execution_time": execution_time,
                 "elapsed_time": execution_time,
+                "approval_message": approval_message or "",
             }
         if round is not None:
             data["round"] = round

@@ -66,7 +66,7 @@ def materialize_result_reference(result: Any) -> Any:
             "answer": result.answer,
             "output_type": result.output_type,
             "content": result.content,
-            "metadata": result.metadata,
+            "metadata": dict(result.metadata) if result.metadata else {},
             "artifacts": [materialize_result_reference(item) for item in result.artifacts],
         }
         if error_message is not None:
@@ -283,3 +283,4 @@ def _collect_available_keys(value: Any, json_path: str) -> list[str]:
         return [f"type={type(current).__name__}"]
     # 路径完全遍历但结果为 None（不应到达此处，但兜底）
     return []
+

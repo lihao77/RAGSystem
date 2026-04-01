@@ -5,7 +5,9 @@
 from typing import Dict, Optional
 
 from tools.contracts.permissions import RiskLevel, ToolPermission
+from tools.runtime.exposure import get_tool_exposure_decision
 from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
+from tools.runtime.models import PermissionDecision
 from tools.tool_registry import get_tool_registry
 
 # 工具权限配置表
@@ -140,58 +142,8 @@ def sync_mcp_tool_permissions(
 _TOOL_REGISTRY = get_tool_registry()
 
 
-def _get_effective_direct_tool_names(agent_config) -> set[str]:
-    if not agent_config or not hasattr(agent_config, 'tools'):
-        return set()
-
-    enabled_tools = set(agent_config.tools.enabled_tools if agent_config.tools else [])
-    memory_config = getattr(agent_config, 'memory', None)
-    if memory_config:
-        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or [])
-        write_scopes = set(getattr(memory_config, 'write_scopes', []) or [])
-        archive_scopes = set(getattr(memory_config, 'archive_scopes', []) or [])
-        if allowed_scopes:
-            enabled_tools.update({'list_memory_index', 'read_memory_entry'})
-        if write_scopes:
-            enabled_tools.add('write_memory')
-        if archive_scopes:
-            enabled_tools.add('archive_memory')
-    return enabled_tools
-
-
 def is_tool_enabled(tool_name: str, agent_config) -> bool:
-    """
-    检查工具是否在智能体配置中启用
-
-    Args:
-        tool_name: 工具名称
-        agent_config: 智能体配置对象
-
-    Returns:
-        bool: 是否启用
-    """
-    if not agent_config:
-        return False
-
-    # builtin / agent 工具由独立配置域控制，不属于 tools.enabled_tools
-    source = _TOOL_REGISTRY.get_tool_source(tool_name)
-    if source in {"builtin", "agent"}:
-        if source == "agent":
-            delegation = getattr(agent_config, 'delegation', None)
-            enabled_agents = getattr(delegation, 'enabled_agents', []) if delegation else []
-            return bool(enabled_agents)
-        return True
-
-    # Skills 系统工具是动态注入的，不在 enabled_tools 列表里
-    # 只要智能体启用了任意 Skill，这三个工具就自动可用
-    if tool_name in _TOOL_REGISTRY.get_skill_tool_names():
-        skills_config = getattr(agent_config, 'skills', None)
-        if skills_config:
-            enabled_skills = getattr(skills_config, 'enabled_skills', [])
-            return bool(enabled_skills)
-        return False
-
-    return tool_name in _get_effective_direct_tool_names(agent_config)
+    return get_tool_exposure_decision(tool_name, agent_config).visible
 
 
 def is_mcp_server_enabled_for_agent(tool_name: str, agent_config) -> bool:
@@ -209,13 +161,17 @@ def is_mcp_server_enabled_for_agent(tool_name: str, agent_config) -> bool:
     return server_name in enabled_servers
 
 
-def check_tool_permission(
+def evaluate_tool_permission(
     tool_name: str,
     agent_config=None,
     user_role: str = None,
-    caller: str = "direct"
-) -> tuple[bool, Optional[str]]:
-    """Check tool permission."""
+    caller: str = "direct",
+) -> PermissionDecision:
+    """
+    三态权限评估：返回 PermissionDecision。
+    execution_allowed=True  → allow
+    execution_allowed=False → deny（deny_reason 非空）
+    """
     permission = get_tool_permission(tool_name)
     if not permission:
         from mcp.config_store import get_mcp_config_store
@@ -233,20 +189,66 @@ def check_tool_permission(
                     )
                     permission = get_tool_permission(tool_name)
 
-        if not permission:
-            return False, f"Unknown tool: {tool_name}"
+    if not permission:
+        return PermissionDecision(
+            tool_name=tool_name,
+            execution_allowed=False,
+            deny_reason=f"Unknown tool: {tool_name}",
+            resolved_from=["permission_registry"],
+        )
 
     if caller not in permission.allowed_callers:
-        return False, f"Tool {tool_name} is not allowed from caller {caller}"
+        return PermissionDecision(
+            tool_name=tool_name,
+            execution_allowed=False,
+            deny_reason=f"Tool {tool_name} is not allowed from caller {caller}",
+            risk_level=permission.risk_level.value,
+            resolved_from=["permission_registry"],
+        )
 
     if agent_config:
-        if is_mcp_tool(tool_name):
-            if not is_mcp_server_enabled_for_agent(tool_name, agent_config):
-                return False, f"MCP tool {tool_name} is not enabled for this agent"
-        elif not is_tool_enabled(tool_name, agent_config):
-            return False, f"Tool {tool_name} is not enabled for this agent"
+        exposure = get_tool_exposure_decision(tool_name, agent_config)
+        if not exposure.visible:
+            if is_mcp_tool(tool_name):
+                deny_reason = f"MCP tool {tool_name} is not enabled for this agent"
+            else:
+                deny_reason = f"Tool {tool_name} is not enabled for this agent"
+            return PermissionDecision(
+                tool_name=tool_name,
+                execution_allowed=False,
+                deny_reason=deny_reason,
+                risk_level=permission.risk_level.value,
+                resolved_from=[exposure.source, "permission_registry"],
+            )
 
     if permission.allowed_roles and user_role and user_role not in permission.allowed_roles:
-        return False, f"Role {user_role} cannot use tool {tool_name}"
+        return PermissionDecision(
+            tool_name=tool_name,
+            execution_allowed=False,
+            deny_reason=f"Role {user_role} cannot use tool {tool_name}",
+            risk_level=permission.risk_level.value,
+            resolved_from=["permission_registry"],
+        )
 
-    return True, None
+    return PermissionDecision(
+        tool_name=tool_name,
+        execution_allowed=True,
+        risk_level=permission.risk_level.value,
+        resolved_from=["permission_registry"],
+    )
+
+
+def check_tool_permission(
+    tool_name: str,
+    agent_config=None,
+    user_role: str = None,
+    caller: str = "direct"
+) -> tuple[bool, Optional[str]]:
+    """Check tool permission."""
+    decision = evaluate_tool_permission(
+        tool_name=tool_name,
+        agent_config=agent_config,
+        user_role=user_role,
+        caller=caller,
+    )
+    return decision.execution_allowed, (decision.deny_reason or None)

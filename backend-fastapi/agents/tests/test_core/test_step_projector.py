@@ -115,8 +115,9 @@ def test_project_run_end_preserves_display_name():
             'result_preview': '读取成功',
             'raw_result': {'content': 'ok'},
             'raw_result_ref': {'call_id': 'tool-1'},
+            'raw_result_available': True,
+            'approval_message': 'ok',
             'elapsed_time': 0.3,
-            'resource_refs': [{'resource_id': 'res-1'}],
             'round': 1,
             '_execution': {'run_id': 'run-1'},
         },
@@ -148,7 +149,7 @@ def test_project_run_end_preserves_display_name():
     assert tool_end['tool_name'] == 'read_file'
     assert tool_end['result_preview'] == '读取成功'
     assert tool_end['raw_result_available'] is True
-    assert tool_end['resource_refs'] == [{'resource_id': 'res-1'}]
+    assert tool_end['approval_message'] == 'ok'
     assert tool_end['step_id'] == 'tool-1:tool'
     assert tool_end['parent_step_id'] == 'call-subtask:round:1'
 

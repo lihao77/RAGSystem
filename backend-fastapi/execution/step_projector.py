@@ -330,9 +330,7 @@ class StepProjector:
             }
 
         if event.type == EventType.CALL_TOOL_END:
-            preview = data.get('result_preview')
-            if preview is None:
-                preview = data.get('result')
+            preview = data.get('result_preview') or data.get('result')
             raw_result = data.get('raw_result')
             step_id, parent_step_id = self._resolve_step_ids(
                 kind='tool',
@@ -357,8 +355,8 @@ class StepProjector:
                 'raw_result': raw_result,
                 'raw_result_ref': data.get('raw_result_ref') or {},
                 'raw_result_available': bool(data.get('raw_result_available') or raw_result is not None),
+                'approval_message': data.get('approval_message') or '',
                 'elapsed_time': data.get('elapsed_time') or data.get('execution_time'),
-                'resource_refs': data.get('resource_refs') or [],
             }
 
         if event.type in (EventType.CHART_GENERATED, EventType.MAP_GENERATED):

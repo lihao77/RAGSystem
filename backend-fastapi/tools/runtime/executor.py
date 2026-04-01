@@ -10,6 +10,7 @@ import time
 from tools.contracts.result_models import ToolExecutionResult
 from tools.runtime.approvals import _obs_suffix, request_user_approval_if_needed
 from tools.runtime.dispatcher import build_handler_call_arguments, execute_mcp_tool, get_tool_handler
+from tools.runtime.models import ToolUseContext
 from tools.runtime.registration import TOOL_HANDLERS
 from tools.runtime.response_builder import error_result, success_result
 from tools.tool_registry import get_tool_registry
@@ -64,18 +65,47 @@ def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
     return success_result(content=str(result), tool_name=tool_name)
 
 
-def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_role=None, caller="direct", session_id=None, run_id=None, cancel_event=None, parent_call_id=None, current_agent_name=None, tool_call_id=None, round=None, order=None, round_index=None):
+def execute_tool(
+    tool_name,
+    arguments,
+    agent_config=None,
+    event_bus=None,
+    user_role=None,
+    caller="direct",
+    session_id=None,
+    run_id=None,
+    cancel_event=None,
+    parent_call_id=None,
+    current_agent_name=None,
+    tool_call_id=None,
+    round=None,
+    order=None,
+    round_index=None,
+    request_id=None,
+    agent_display_name=None,
+) -> ToolExecutionResult:
     """执行指定工具。"""
+    context = ToolUseContext(
+        tool_name=tool_name,
+        arguments=dict(arguments or {}),
+        agent_config=agent_config,
+        event_bus=event_bus,
+        user_role=user_role,
+        caller=caller,
+        session_id=session_id,
+        run_id=run_id,
+        request_id=request_id,
+        cancel_event=cancel_event,
+        parent_call_id=parent_call_id,
+        current_agent_name=current_agent_name,
+        agent_display_name=agent_display_name or current_agent_name,
+        tool_call_id=tool_call_id,
+        round=round,
+        order=order,
+        round_index=round_index,
+    )
     try:
-        allowed, approval_error_result, approval_message = request_user_approval_if_needed(
-            tool_name,
-            arguments,
-            agent_config=agent_config,
-            event_bus=event_bus,
-            user_role=user_role,
-            caller=caller,
-            session_id=session_id,
-        )
+        allowed, approval_error_result, approval_message = request_user_approval_if_needed(context)
         if not allowed:
             return approval_error_result
 
@@ -86,29 +116,13 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
         handler = get_tool_handler(tool_name)
 
         if handler is not None:
-            call_arguments = build_handler_call_arguments(
-                handler,
-                arguments,
-                session_id=session_id,
-                run_id=run_id,
-                agent_config=agent_config,
-                event_bus=event_bus,
-                user_role=user_role,
-                caller=caller,
-                cancel_event=cancel_event,
-                parent_call_id=parent_call_id,
-                current_agent_name=current_agent_name,
-                tool_call_id=tool_call_id,
-                round=round,
-                order=order,
-                round_index=round_index,
-            )
+            call_arguments = build_handler_call_arguments(handler, context)
             if tool_name == "execute_code":
                 result = handler(**call_arguments)
             else:
                 result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
-            result = execute_mcp_tool(tool_name, arguments, session_id=session_id, run_id=run_id)
+            result = execute_mcp_tool(context)
         else:
             result = error_result(f"未知的工具: {tool_name}", tool_name=tool_name)
 
@@ -119,7 +133,6 @@ def execute_tool(tool_name, arguments, agent_config=None, event_bus=None, user_r
     except Exception as error:
         logger.error(f"执行工具 {tool_name} 失败: {error}{_obs_suffix()}")
         import traceback
-
         traceback.print_exc()
         return error_result(str(error), tool_name=tool_name)
 

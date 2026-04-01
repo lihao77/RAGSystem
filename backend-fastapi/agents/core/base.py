@@ -739,7 +739,7 @@ class BaseAgent(ABC):
     ) -> None:
         """默认动作处理：直接工具执行。"""
         from tools.runtime.response_builder import success_result, error_result
-        from tools.refs.result_references import result_event_payload
+        from tools.refs.result_references import result_event_payload, result_display_text
         from tools.runtime.executor import execute_tool
         from tools.tool_registry import get_tool_registry
 
@@ -822,12 +822,13 @@ class BaseAgent(ABC):
             )
 
             if publisher:
-                preview_text = f"[{tool_name}]\n{observation}" if observation else ""
+                preview_text = result_display_text(result)
                 tool_success = getattr(result, 'success', True) if result is not None else True
+                approval_message = result.metadata.get('approval_message', '') if result and hasattr(result, 'metadata') else ''
                 publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
-                    result=preview_text,
+                    result=f"[{tool_name}]\n{observation}" if observation else "",
                     result_preview=preview_text,
                     raw_result=result_event_payload(result),
                     raw_result_ref={
@@ -840,6 +841,7 @@ class BaseAgent(ABC):
                     success=tool_success,
                     round=rounds,
                     agent_display_name=self.display_name or self.name,
+                    approval_message=approval_message,
                 )
 
             self._record_visualization_result(tool_name, result, state)

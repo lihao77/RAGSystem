@@ -134,7 +134,21 @@ Claude Code 风格会区分：
 | 大结果持久化与回读 | artifact 较稳定，通用大结果闭环仍不足 | 明显缺口 |
 | direct / skill / MCP 语义收敛 | 已同宇宙但仍有展示和语义分层问题 | 收敛问题 |
 
-## 5. 逐能力域分析
+## 6. 当前收敛状态更新（2026-04-01）
+
+本轮已按“最少代码、无兼容层扩散”的原则推进一版收敛式升级：
+
+- P1：新增 `tools/runtime/exposure.py`，loader 与 permissions 共享同一工具暴露真源，direct/memory/skill/builtin/delegation/MCP 暴露语义不再分散推导
+- P2：`execute_tool()` 内部统一先构造 `ToolUseContext`，dispatcher / approval / MCP gateway 改为围绕 context 取数
+- P3：权限已升级为结构化 `PermissionDecision`，并补入轻量 hooks phase 骨架，审批只负责 approval 子阶段
+- P4：结果协议新增 `result_envelope` / `result_ref` / `resource_refs` / `artifacts` / `approval_message`，大结果支持落盘后回注引用；`step_projector.py` 与 `frontend-client/src/utils/executionProjector.js` 已同步消费统一 envelope
+
+仍可继续完善的点：
+
+- hooks 目前是首版骨架，尚未引入可配置 registry / priority / per-tool pattern 过滤
+- `ToolUseContext` 已成为 runtime 主承载，但尚未覆盖更细粒度遥测与 stop-reason 语义
+- 大结果回读闭环已具备通用 `result_ref`，但专门的 raw result 读取 API/UX 还可以继续细化
+
 
 ### 5.1 工具注册与暴露
 

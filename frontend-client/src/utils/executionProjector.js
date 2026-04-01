@@ -13,6 +13,7 @@ const createToolCall = (step) => ({
   raw_result: step.raw_result ?? null,
   raw_result_ref: step.raw_result_ref || null,
   raw_result_available: Boolean(step.raw_result_available) || step.raw_result != null,
+  approval_message: step.approval_message || '',
   elapsed_time: step.elapsed_time,
   showResult: false,
   showArgs: false,
@@ -368,6 +369,7 @@ export function applyStep(state, step) {
         toolCall.raw_result = step.raw_result ?? null;
         toolCall.raw_result_ref = step.raw_result_ref || null;
         toolCall.raw_result_available = Boolean(step.raw_result_available) || step.raw_result != null;
+        toolCall.approval_message = step.approval_message || '';
         toolCall.elapsed_time = step.elapsed_time;
       }
       const rootStep = step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null;

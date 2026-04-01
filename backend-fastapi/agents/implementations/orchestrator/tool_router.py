@@ -50,7 +50,7 @@ def route_direct_tool(
     orchestrator_call_id: str,
     log_prefix: str,
 ) -> Dict[str, object]:
-    from tools.refs.result_references import result_event_payload, result_success
+    from tools.refs.result_references import result_event_payload, result_success, result_display_text
 
     tool_name = action.get('tool')
     arguments = action.get('arguments', {})
@@ -114,11 +114,13 @@ def route_direct_tool(
         observation = f"[{tool_name}]\n{observation}"
 
     if publisher:
+        preview_text = result_display_text(result)
+        approval_message = result.metadata.get('approval_message', '') if result and hasattr(result, 'metadata') else ''
         publisher.tool_call_end(
             call_id=tool_call_id,
             tool_name=tool_name,
             result=observation or '',
-            result_preview=observation or '',
+            result_preview=preview_text,
             raw_result=result_event_payload(result),
             raw_result_ref={
                 'session_id': context.session_id,
@@ -130,6 +132,7 @@ def route_direct_tool(
             success=result_success(result),
             round=rounds,
             agent_display_name=getattr(agent, 'display_name', None) or getattr(agent, 'name', None),
+            approval_message=approval_message,
         )
 
     return {

@@ -10,6 +10,7 @@ from typing import Dict, Optional, Type
 from agents.core import BaseAgent
 from agents.implementations import OrchestratorAgent
 from .manager import get_config_manager
+from tools.runtime.exposure import resolve_effective_tool_exposure
 from tools.tool_registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
@@ -253,21 +254,6 @@ class AgentLoader:
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'orchestrator'")
         return 'orchestrator'
 
-    def _get_effective_direct_tool_names(self, agent_config) -> set[str]:
-        enabled_tools = set(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []) or [])
-        memory_config = getattr(agent_config, 'memory', None)
-        if memory_config:
-            allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or [])
-            write_scopes = set(getattr(memory_config, 'write_scopes', []) or [])
-            archive_scopes = set(getattr(memory_config, 'archive_scopes', []) or [])
-            if allowed_scopes:
-                enabled_tools.update({'list_memory_index', 'read_memory_entry'})
-            if write_scopes:
-                enabled_tools.add('write_memory')
-            if archive_scopes:
-                enabled_tools.add('archive_memory')
-        return enabled_tools
-
     def _resolve_tools_and_skills(self, agent_config):
         """
         根据 agent_config 过滤工具列表并注入 Skills/MCP/delegation 工具
@@ -277,35 +263,37 @@ class AgentLoader:
         """
         from agents.skills.skill_loader import get_skill_loader
 
+        exposure = resolve_effective_tool_exposure(agent_config)
+        decisions = exposure['decisions']
         filtered_tools = []
+
         direct_tools = self._tool_registry.get_direct_tools()
-        enabled_tools = self._get_effective_direct_tool_names(agent_config)
-        if enabled_tools:
+        direct_tool_names = set(exposure['direct_tool_names'])
+        if direct_tool_names:
             filtered_tools.extend([
                 tool for tool in direct_tools
-                if tool.get('function', {}).get('name') in enabled_tools
+                if tool.get('function', {}).get('name') in direct_tool_names
             ])
-            logger.info(f"{agent_config.agent_name} 启用 direct 工具: {sorted(enabled_tools)}")
+            logger.info(f"{agent_config.agent_name} 启用 direct 工具: {sorted(direct_tool_names)}")
         else:
             logger.info(f"{agent_config.agent_name} 未配置 direct 工具")
 
         filtered_skills = []
         skill_loader = get_skill_loader()
         all_skills = skill_loader.load_all_skills()
-        if agent_config and agent_config.skills and agent_config.skills.enabled_skills:
-            enabled_skill_names = agent_config.skills.enabled_skills
+        enabled_skill_names = exposure['enabled_skill_names']
+        if enabled_skill_names:
             filtered_skills = [
                 skill for skill in all_skills
                 if skill.name in enabled_skill_names
             ]
             logger.info(f"{agent_config.agent_name} 启用 Skills: {enabled_skill_names}")
 
-            auto_inject = agent_config.skills.auto_inject if agent_config.skills else True
-            if auto_inject:
+            if exposure['inject_skill_tools']:
                 existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
                 for skill_tool in self._tool_registry.get_skill_tools():
                     tool_name = skill_tool.get('function', {}).get('name')
-                    if tool_name not in existing_tool_names:
+                    if tool_name and decisions.get(tool_name) and tool_name not in existing_tool_names:
                         filtered_tools.append(skill_tool)
         else:
             logger.info(f"{agent_config.agent_name} 未配置 Skills")
@@ -332,20 +320,20 @@ class AgentLoader:
             except Exception as e:
                 logger.warning(f"注入 MCP 工具失败（{agent_config.agent_name}）: {e}")
 
-        delegation_config = getattr(agent_config, 'delegation', None)
-        enabled_agents = list(getattr(delegation_config, 'enabled_agents', []) or [])
+        enabled_agents = getattr(getattr(agent_config, 'delegation', None), 'enabled_agents', []) or []
         if enabled_agents:
             existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
             for agent_tool in self._tool_registry.get_agent_tools():
                 tool_name = agent_tool.get('function', {}).get('name')
-                if tool_name and tool_name not in existing_tool_names:
+                if tool_name and decisions.get(tool_name) and tool_name not in existing_tool_names:
                     filtered_tools.append(agent_tool)
             logger.info(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
 
-        builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
-        request_user_input_tool = self._tool_registry.get_tool_by_name('request_user_input')
-        if request_user_input_tool and 'request_user_input' not in builtin_tool_names:
-            filtered_tools.append(request_user_input_tool)
+        if decisions.get('request_user_input'):
+            builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+            request_user_input_tool = self._tool_registry.get_tool_by_name('request_user_input')
+            if request_user_input_tool and 'request_user_input' not in builtin_tool_names:
+                filtered_tools.append(request_user_input_tool)
 
         return filtered_tools, filtered_skills
 

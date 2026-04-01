@@ -86,6 +86,7 @@ function createToolEnd(overrides = {}) {
     raw_result: { ok: true },
     raw_result_ref: { call_id: 'tool-1' },
     raw_result_available: true,
+    approval_message: 'allow',
     elapsed_time: 0.2,
     round: 1,
     status: 'success',
@@ -169,6 +170,7 @@ test('将正常顺序的子 agent 工具调用挂到对应 agent_call 内部', (
   assert.equal(subtask.tool_calls[0].call_id, 'tool-1');
   assert.equal(subtask.tool_calls[0].status, 'success');
   assert.equal(subtask.tool_calls[0].result_preview, 'done');
+  assert.equal(subtask.tool_calls[0].approval_message, 'allow');
 });
 
 test('子 agent 后续 intent/tool 未显式携带中文名时仍沿用已记忆的 display name', () => {

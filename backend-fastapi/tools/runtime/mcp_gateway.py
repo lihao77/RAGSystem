@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 MCP_TOOL_PREFIX = "mcp__"
 
 
+def build_mcp_tool_name(server_name: str, tool_name: str) -> str:
+    return f"{MCP_TOOL_PREFIX}{server_name}__{tool_name}"
+
+
 def parse_mcp_tool_name(tool_name: str) -> Optional[Tuple[str, str]]:
     """Parse expanded MCP tool names like ``mcp__server__tool``."""
     if not isinstance(tool_name, str) or not tool_name.startswith(MCP_TOOL_PREFIX):
@@ -32,15 +36,14 @@ def is_mcp_tool(tool_name: str) -> bool:
     return parse_mcp_tool_name(tool_name) is not None
 
 
-def execute_mcp_tool(
-    tool_name: str,
-    arguments: dict[str, Any],
-    *,
-    session_id: Optional[str] = None,
-    run_id: Optional[str] = None,
-    request_id: Optional[str] = None,
-):
+def execute_mcp_tool(context):
     """Execute an expanded MCP tool via the shared runtime gateway."""
+    tool_name = context.tool_name
+    arguments = dict(context.arguments or {})
+    session_id = context.session_id
+    run_id = context.run_id
+    request_id = context.request_id
+
     parsed = parse_mcp_tool_name(tool_name)
     if not parsed:
         return error_result(f"无效的 MCP 工具名: {tool_name}", tool_name=tool_name)
@@ -66,7 +69,7 @@ def execute_mcp_tool(
     return get_mcp_service().call_tool(
         server_name,
         original_tool_name,
-        arguments or {},
+        arguments,
         session_id=effective_session_id,
         run_id=effective_run_id,
         request_id=effective_request_id,
@@ -75,6 +78,7 @@ def execute_mcp_tool(
 
 __all__ = [
     "MCP_TOOL_PREFIX",
+    "build_mcp_tool_name",
     "execute_mcp_tool",
     "is_mcp_tool",
     "parse_mcp_tool_name",

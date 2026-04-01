@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
 from tools.permission_manager import set_permission_policy
 from tools.runtime.approvals import request_user_approval_if_needed
+from tools.runtime.models import ToolUseContext
 
 
 class _FakeApprovalRegistry:
@@ -26,11 +27,22 @@ class _FakeApprovalRegistry:
 
 
 def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
     registry = _FakeApprovalRegistry()
     published = {}
 
     monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: registry)
     set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+    # 注册测试工具权限
+    TOOL_PERMISSIONS['execute_bash'] = ToolPermission(
+        tool_name='execute_bash',
+        risk_level=RiskLevel.HIGH,
+        description='Execute bash command',
+        allowed_callers=['direct'],
+    )
 
     event_bus = MagicMock()
 
@@ -46,12 +58,13 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
 
     event_bus.publish = fake_publish
 
-    allowed, result, approval_message = request_user_approval_if_needed(
-        'execute_bash',
-        {'command': 'rm demo.txt'},
+    context = ToolUseContext(
+        tool_name='execute_bash',
+        arguments={'command': 'rm demo.txt'},
         event_bus=event_bus,
         session_id='session-approval-payload',
     )
+    allowed, result, approval_message = request_user_approval_if_needed(context)
 
     assert allowed is True
     assert result is None
@@ -61,3 +74,6 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
     assert event.data['tool_name'] == 'execute_bash'
     assert event.data['permission_mode'] == 'standard'
     assert event.data['approval_reason'] == '标准模式：high 风险工具需要审批'
+
+    # 清理
+    del TOOL_PERMISSIONS['execute_bash']
