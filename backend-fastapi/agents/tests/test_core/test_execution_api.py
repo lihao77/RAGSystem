@@ -81,8 +81,13 @@ def _build_client(monkeypatch):
     runtime = _FakeRuntime()
     execution_service = _FakeExecutionService()
 
+    # Mock 依赖注入
     monkeypatch.setattr(dependencies, 'get_agent_runtime_service', lambda: runtime)
     monkeypatch.setattr(agent_exec_module, 'get_agent_execution_service', lambda: execution_service)
+
+    # 也需要 mock api.v1.execution 中直接调用的 get_agent_execution_service
+    import api.v1.execution as execution_module
+    monkeypatch.setattr(execution_module, 'get_agent_execution_service', lambda: execution_service)
 
     app = FastAPI()
     app.include_router(execution_router, prefix='/api/agent')
