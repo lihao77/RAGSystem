@@ -159,7 +159,7 @@ def test_agent_llm_config_merges_extra_params_and_protects_base_fields():
     merged = config.merge_with_default(default_config=default_config)
 
     assert merged['temperature'] == 0.2
-    assert merged['top_p'] == 0.8
+    assert merged['top_p'] == 0.2  # config 的 extra_params 覆盖 default
     assert merged['thinking_budget_tokens'] == 4096
     assert merged['reasoning_effort'] == 'high'
 

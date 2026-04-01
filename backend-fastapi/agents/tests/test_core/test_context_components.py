@@ -204,7 +204,6 @@ def test_build_context_injects_memory_scope_capabilities_into_prompt():
     memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
 
     assert context.metadata['memory_scope_capabilities'] == {
-        'enabled': True,
         'allowed_scopes': ['project', 'session', 'workspace'],
         'write_scopes': ['session', 'workspace'],
         'archive_scopes': ['project'],
@@ -238,8 +237,7 @@ def test_build_context_exposes_disabled_memory_scope_capabilities():
     merged_block = '\n\n'.join(memory_blocks)
 
     assert context.metadata['memory_scope_capabilities'] == {
-        'enabled': False,
-        'allowed_scopes': ['project', 'session'],
+        'allowed_scopes': [],
         'write_scopes': [],
         'archive_scopes': [],
     }

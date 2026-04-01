@@ -7,6 +7,8 @@ pytest.importorskip('fastapi')
 pytest.importorskip('fastapi.testclient')
 pytest.importorskip('schemas.execution')
 
+from schemas.execution import ExecuteRequest
+
 
 class _FakeStore:
     def __init__(self):
@@ -74,6 +76,18 @@ def _build_client(monkeypatch):
 
     from api.v1.execution import router as execution_router
     import api.v1.execution as execution_module
+
+    runtime = _FakeRuntime()
+    execution_service = _FakeExecutionService()
+
+    monkeypatch.setattr(execution_module, 'get_runtime_service', lambda: runtime)
+    monkeypatch.setattr(execution_module, 'get_execution_service', lambda: execution_service)
+
+    app = FastAPI()
+    app.include_router(execution_router, prefix='/api/agent')
+    client = TestClient(app)
+
+    return client, execution_service
 
 
 def test_execute_without_agent_uses_invoke_routed_agent(monkeypatch):

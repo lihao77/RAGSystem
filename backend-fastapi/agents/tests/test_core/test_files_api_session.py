@@ -16,10 +16,10 @@ class _FakeFileIndex:
         self._records = {}
         self._seq = 0
 
-    def list(self):
+    def list(self, scope_type='global', scope_id=None):
         return list(self._records.values())
 
-    def get(self, file_id):
+    def get(self, file_id, scope_type='global', scope_id=None):
         return self._records.get(file_id)
 
     def add(self, **kwargs):

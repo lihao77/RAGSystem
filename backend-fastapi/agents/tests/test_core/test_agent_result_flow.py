@@ -205,12 +205,15 @@ class _StubRuntimeService:
         run_id=None,
         request_id=None,
         llm_override=None,
+        llm_tier=None,
         thread_key='root',
         parent_run_id=None,
         parent_call_id=None,
         call_id=None,
+        agent_name=None,
+        memory_query=None,
     ):
-        del limit, request_id, llm_override
+        del limit, request_id, llm_override, llm_tier, agent_name, memory_query
         context = AgentContext(session_id=session_id, user_id=user_id)
         context.metadata.update({
             'run_id': run_id,
