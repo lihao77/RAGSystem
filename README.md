@@ -90,10 +90,9 @@ npm run build
 
 ## 文档导航 / Documentation
 
-- [docs/README.md](docs/README.md) — 文档入口 / documentation index
-- [backend-fastapi/docs/architecture.md](backend-fastapi/docs/architecture.md) — 后端架构 / backend architecture
-- [backend-fastapi/docs/tools.md](backend-fastapi/docs/tools.md) — 工具系统 / tools system
-- [frontend-client/docs/architecture.md](frontend-client/docs/architecture.md) — 前端架构 / frontend architecture
+- [docs/README.md](docs/README.md) — 仓库正式文档中心 / canonical repository documentation center
+- [backend-fastapi/docs/README.md](backend-fastapi/docs/README.md) — 后端文档入口 / backend documentation entry
+- [frontend-client/docs/README.md](frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运行与验证 / operations guide
 
 ## 贡献 / Contributing
@@ -194,11 +193,10 @@ npm run build
 
 ### Documentation
 
-- [docs/README.md](docs/README.md)
-- [backend-fastapi/docs/architecture.md](backend-fastapi/docs/architecture.md)
-- [backend-fastapi/docs/tools.md](backend-fastapi/docs/tools.md)
-- [frontend-client/docs/architecture.md](frontend-client/docs/architecture.md)
-- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/README.md](docs/README.md) — canonical repository documentation center
+- [backend-fastapi/docs/README.md](backend-fastapi/docs/README.md) — backend documentation entry
+- [frontend-client/docs/README.md](frontend-client/docs/README.md) — frontend documentation entry
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — operations guide
 
 ### Contributing
 

@@ -1,30 +1,39 @@
-# 文档中心 / Documentation Index
+# 文档中心 / Documentation Center
 
-本目录用于提供仓库级文档导航。系统实现细节请优先查看后端与前端架构文档。
+本目录是仓库级正式文档中心，负责统一索引主线文档、当前专题文档与历史归档文档。
 
-This directory provides top-level documentation navigation. For implementation details, start with the backend and frontend architecture documents.
+This directory is the canonical repository-level documentation center for mainline docs, active topic docs, and archived docs.
 
-## 核心文档 / Core documents
+## 主线文档 / Mainline documents
 
 - [../README.md](../README.md) — 仓库入口与快速开始 / repository entry and quick start
-- [../backend-fastapi/docs/architecture.md](../backend-fastapi/docs/architecture.md) — 后端架构 / backend architecture
-- [../backend-fastapi/docs/tools.md](../backend-fastapi/docs/tools.md) — 工具系统 / tools system
-- [../frontend-client/docs/architecture.md](../frontend-client/docs/architecture.md) — 前端架构 / frontend architecture
+- [../backend-fastapi/docs/README.md](../backend-fastapi/docs/README.md) — 后端文档入口 / backend documentation entry
+- [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 
-## 其他文档 / Additional documents
+## 专题文档 / Topic documents
 
-- [geoplus/README.md](geoplus/README.md) — GeoPLUS 相关说明 / GeoPLUS documentation
-- [refactor/README.md](refactor/README.md) — 重构文档索引 / refactor documentation index
-- [refactor/AGENT_FIRST_REFACTOR_PLAN.md](refactor/AGENT_FIRST_REFACTOR_PLAN.md) — 历史重构方案 / historical refactor plan
-- [../frontend-client/README.md](../frontend-client/README.md) — 前端单独说明 / frontend-specific guide
+- [refactor/README.md](refactor/README.md) — 当前重构与演进专题 / active refactor and evolution topics
+- [geoplus/README.md](geoplus/README.md) — GeoPLUS 扩展专题 / GeoPLUS extension topics
+
+当前主线专题文档：
+- [refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md](refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md) — Claude Code 对标演进路线图 / alignment roadmap vs Claude Code
+- [refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md](refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md) — 工具体系差异分析 / tooling gap analysis vs Claude Code
+
+## 归档文档 / Archived documents
+
+- [archive/README.md](archive/README.md) — 历史文档归档入口 / archive entry
 
 ## 维护约定 / Maintenance rules
 
-- 修改系统代码后，请同步更新对应架构文档。
-- 保持 README 负责总览，详细设计放在深层文档中。
+- 仓库级正式文档索引以本文件为唯一入口。
+- README 负责总览与导航，详细设计与实现说明放在对应 `docs/` 文档中。
+- 修改系统行为后，请同步更新对应架构文档或专题文档。
+- archive 中的历史文档只保留参考价值，不作为当前主线依据。
 - 不在示例配置或文档中提交真实密钥、令牌或部署地址。
 
-- Update the matching architecture document whenever system behavior changes.
-- Keep the root README high-level and put detailed design notes in deeper docs.
+- This file is the single repository-level documentation index.
+- Keep README files high-level and place detailed design notes in `docs/`.
+- Update the matching architecture or topic docs whenever system behavior changes.
+- Archived docs are reference-only and should not be treated as current guidance.
 - Never commit real keys, tokens, or deployment addresses to docs or example configs.

@@ -29,7 +29,17 @@ npm run dev
 npm run build
 ```
 
-更多实现细节请查看 [docs/architecture.md](docs/architecture.md)。
+## 文档 / Documentation
+
+- [docs/README.md](docs/README.md) — 前端文档入口
+- [docs/architecture.md](docs/architecture.md) — 前端架构总览
+- [../docs/README.md](../docs/README.md) — 仓库文档中心
+
+## 维护约定 / Maintenance
+
+- 本 README 只负责前端子项目入口与开发说明，不承担完整 docs 索引职责。
+- 详细设计、通信链路与实现说明统一写在 `docs/` 中。
+- 修改前端系统行为后，需同步更新对应文档，避免实现与文档语义漂移。
 
 ---
 
@@ -62,4 +72,14 @@ The dev server runs on `http://localhost:5174` by default and proxies `/api` to 
 npm run build
 ```
 
-See [docs/architecture.md](docs/architecture.md) for implementation details.
+### Documentation
+
+- [docs/README.md](docs/README.md) — frontend documentation entry
+- [docs/architecture.md](docs/architecture.md) — frontend architecture overview
+- [../docs/README.md](../docs/README.md) — repository documentation center
+
+### Maintenance
+
+- This README is only the frontend project entry and development guide, not the full docs index.
+- Put detailed design and implementation notes in `docs/`.
+- Update the matching docs whenever frontend behavior changes.
