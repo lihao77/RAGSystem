@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from tools.runtime.mcp_gateway import execute_mcp_tool, is_mcp_tool, parse_mcp_tool_name
+from tools.runtime.models import ToolUseContext
 
 
 class _FakeMCPService:
@@ -41,7 +42,11 @@ def test_mcp_gateway_executes_via_service_with_observability_fallback(monkeypatc
         lambda: {"session_id": "obs-session", "run_id": "obs-run", "request_id": "obs-request"},
     )
 
-    result = execute_mcp_tool("mcp__demo__search", {"query": "flood"})
+    context = ToolUseContext(
+        tool_name="mcp__demo__search",
+        arguments={"query": "flood"},
+    )
+    result = execute_mcp_tool(context)
 
     assert result == {"ok": True}
     assert fake_service.calls == [
@@ -68,13 +73,14 @@ def test_mcp_gateway_prefers_explicit_runtime_fields(monkeypatch):
         lambda: {"session_id": "obs-session", "run_id": "obs-run", "request_id": "obs-request"},
     )
 
-    execute_mcp_tool(
-        "mcp__demo__search",
-        {"query": "rain"},
+    context = ToolUseContext(
+        tool_name="mcp__demo__search",
+        arguments={"query": "rain"},
         session_id="explicit-session",
         run_id="explicit-run",
         request_id="explicit-request",
     )
+    execute_mcp_tool(context)
 
     assert fake_service.calls[0]["session_id"] == "explicit-session"
     assert fake_service.calls[0]["run_id"] == "explicit-run"
@@ -82,7 +88,11 @@ def test_mcp_gateway_prefers_explicit_runtime_fields(monkeypatch):
 
 
 def test_mcp_gateway_rejects_invalid_tool_name():
-    result = execute_mcp_tool("search", {"query": "rain"})
+    context = ToolUseContext(
+        tool_name="search",
+        arguments={"query": "rain"},
+    )
+    result = execute_mcp_tool(context)
 
     assert result.success is False
     assert result.tool_name == "search"
