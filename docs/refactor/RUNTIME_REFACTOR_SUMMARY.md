@@ -1,5 +1,9 @@
 # 工具 Runtime 重构总结（2026-04-01）
 
+> **当前对标度**：~85%
+>
+> **当前主要剩余差距**：Hooks 系统、可观测语义统一
+
 ## 重构目标
 
 对照 Claude Code 源码架构，修复当前工具执行链路中的设计问题，消除不必要的复杂度和耦合。
@@ -23,7 +27,7 @@
 
 ### 3. 移除 executor 里的 result envelope 包装
 
-**问题**：`_materialize_result_envelope` 在 executor 中被调用两次（正常路径 + 异常路径），且做了 `result.metadata.update()` 这种 side-effect mutation。Claude Code 的大结果落盘是在查询边界（API 调用前）通过 `enforceToolResultBudget` 做的，不是在 executor 里。
+**问题**：`_materialize_result_envelope` 在 executor 中被调用两次（正常路径 + 异常路径），且做了 `result.metadata.update()` 这种 side-effect mutation。Claude Code 的大结果预算控制通常在查询边界处理；当前系统则已将该能力收敛到 Observation 路径，而不是继续放在 executor 里。
 
 **修复**：
 - 移除 `_materialize_result_envelope` 和 `_materialize_large_payload`
@@ -93,7 +97,7 @@
 |------|--------|---------------------------|
 | Hooks | 空函数骨架插入主链路 | 移除，未来需要时再加真实 registry |
 | ToolUseContext | mutable accumulator | 只读输入袋 |
-| 大结果落盘 | executor 里 `_materialize_result_envelope` | 移除，未来在查询边界做 |
+| 大结果落盘 | executor 里 `_materialize_result_envelope` | Observation 路径承接（`ObservationPolicy` + `LargePayloadFormatter` + `ArtifactStore`） |
 | PermissionDecision | 9 个字段，内部推导暴露 | 3 态决策（allow/deny/ask） |
 | Exposure 查询 | 每次全量遍历 | 单工具快速路径 |
 | Result envelope | 事件链路反复拆装 | 移除，只传 preview + raw_result |
@@ -109,9 +113,10 @@
 ## 后续建议
 
 1. **Hooks 系统**：当前已移除空壳，未来需要时参考 Claude Code 实现真实的 shell 命令执行 + registry
-2. **大结果落盘**：当前已移除 executor 里的落盘逻辑，未来可在查询边界（发送给 LLM 前）实现类似 `enforceToolResultBudget` 的机制
-3. **Exposure 缓存**：当前已优化为快速路径，未来可考虑在 agent_config 级别做 LRU 缓存（但要注意 MCP 工具动态性）
-4. **PermissionDecision 扩展**：当前已精简为三态，未来如需更细粒度的权限元数据（如 hook 来源、classifier 结果），可通过 `resolved_from` 或新增 `metadata` 字段扩展
+2. **可观测语义统一**：统一 direct/skill 的前端展示语义，避免暴露底层 `execute_skill_script`
+3. **MCP 细粒度权限**：从 server 级进一步演进到 tool 级 override
+4. **Exposure 缓存**：当前已优化为快速路径，未来可考虑在 agent_config 级别做 LRU 缓存（但要注意 MCP 工具动态性）
+5. **PermissionDecision 扩展**：当前已精简为三态，未来如需更细粒度的权限元数据（如 hook 来源、classifier 结果），可通过 `resolved_from` 或新增 `metadata` 字段扩展
 
 ## 影响范围
 

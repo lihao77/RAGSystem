@@ -13,8 +13,9 @@
 - MCP 已形成“外部展开、内部单 gateway”模型
 - 前端已形成 `execution.step` + artifact 渲染链
 - memory 已落地为“索引注入 + 按需读取”的轻量模型
+- Observation 路径已具备大结果预算控制、持久化与回读基础
 
-因此，本次对标不是推倒重来，而是在现有基础上继续收敛语义、补齐运行时核心对象、权限分层、hooks 与大结果回读闭环。
+因此，本次对标不是推倒重来，而是在现有基础上继续收敛语义、补齐剩余的 hooks 与可观测语义统一等差距。
 
 目标是建立一套更统一的工具运行时语义，使 direct / skill / builtin / agent / MCP 能力共享一致的暴露、执行、审批、观测和结果回读模型。
 
@@ -111,7 +112,7 @@
 - session / run / workspace / agent / caller
 - permission mode / policy decision / approval state
 - observability fields / call tree / parent_call_id
-- artifact store / result store / managed paths
+- artifact store / managed paths
 - hooks 上下文
 
 这样 hooks、权限分层、大结果物化与前端可观测协议都能挂在同一个运行时核心对象上，而不是散落在 executor、dispatcher、approval、path resolution 与前端 projector 之间。
@@ -144,13 +145,12 @@
 
 当前项目与 Claude Code 风格相比，关键差距主要集中在以下方面：
 
-1. 缺少统一的厚 `ToolUseContext`
-2. 缺少“工具暴露权限”和“执行权限”的双层模型
-3. hooks 尚未成为工具生命周期一等机制
-4. direct / skill / MCP / agent 虽已同宇宙化，但仍未形成完整统一协议
-5. progress / result / approval 仍未收敛为完整结构化协议
-6. 大结果物化与标准回读闭环仍不稳定
-7. 前端执行树对 skill / direct tool 的观测语义仍可能存在错位
+1. hooks 尚未成为工具生命周期一等机制
+2. direct / skill / MCP / agent 虽已同宇宙化，但可观测语义仍未完全统一
+3. progress / result / approval 仍可继续向更完整结构化协议演进
+4. 前端执行树对 skill / direct tool 的观测语义仍可能存在错位
+5. MCP 权限仍偏 server 级，尚未细化到 tool 级 override
+6. Exposure 缓存与工具并发能力仍属可选增强项
 
 ## 6. 分阶段执行计划
 
@@ -232,15 +232,15 @@
 - `backend-fastapi/tools/runtime/executor.py`
 - 后续新增的 hooks 模块
 
-### Phase 4：统一 Tool Universe 与结果回读闭环
+### Phase 4：可观测语义与 Tool Universe 收口
 
-目标：完成 Claude Code 风格工具宇宙收口。
+目标：完成 Claude Code 风格工具宇宙的体验层收口。
 
 重点工作：
 
 - 为现有 direct / skill / builtin / agent / MCP 能力进一步统一执行协议
-- 建立大结果物化 + 标准引用 + 前端回读展示闭环
-- 让执行树展示逻辑反映“工具语义”，而不是仅显示底层 `execute_skill_script`
+- 统一前端展示语义，让执行树反映“工具语义”，而不是仅显示底层 `execute_skill_script`
+- 视需要补 MCP tool 级权限覆盖与标准展示元信息
 
 涉及关键模块：
 

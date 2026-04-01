@@ -365,7 +365,7 @@ EventPublisher.tool_call_end()
 ### 4. 结果不做 envelope 包装
 - ✅ executor 直接返回 `ToolExecutionResult`
 - ✅ 事件链路用 `result_display_text` + `result_event_payload` 提取
-- ✅ 大结果落盘逻辑已移除（未来在查询边界实现）
+- ✅ 大结果预算控制已由 Observation 路径承接：`ObservationPolicy` 决策，`LargePayloadFormatter` 在 observation 格式化阶段落盘
 
 ### 5. 无 hooks 骨架
 - ✅ 已移除空函数 `_run_hooks`
@@ -506,7 +506,6 @@ except Exception as error:
 ## 未来扩展点
 
 1. **Hooks 系统**：参考 Claude Code 实现真实的 shell 命令执行 + registry
-2. **大结果落盘**：在查询边界（发送给 LLM 前）实现 `enforceToolResultBudget`
-3. **Exposure 缓存**：在 agent_config 级别做 LRU 缓存（注意 MCP 工具动态性）
-4. **工具并发执行**：参考 Claude Code 的 `isConcurrencySafe` 机制
-5. **工具结果预算**：参考 Claude Code 的 `ContentReplacementState` 机制
+2. **Exposure 缓存**：在 agent_config 级别做 LRU 缓存（注意 MCP 工具动态性）
+3. **工具并发执行**：参考 Claude Code 的 `isConcurrencySafe` 机制
+4. **工具结果预算增强**：如需进一步贴近 Claude Code，可补查询边界层的统一 budget/enforcement

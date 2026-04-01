@@ -140,10 +140,10 @@ def my_tool(arguments, **kwargs):
 
 - `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
 - `tools/permissions.py` 明确拆分“暴露权限”与“执行权限”，并输出结构化 `PermissionDecision`
-- `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway / result materialization 均复用该上下文
-- runtime 已加入一等 hooks phase 骨架：`before_permission -> after_permission -> before_execute -> after_execute -> on_error`
-- `tools/refs/result_references.py` 统一输出 `ToolResultEnvelope` 风格结构；大结果优先落盘到 `data/sessions/<session_id>/transient/tool_results/`，再通过 `result_ref` 回注 preview/ref
-- `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_envelope / result_preview / result_ref / resource_refs / artifacts / approval_message` 工作
+- `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway 复用该上下文
+- hooks 空壳骨架已移除；未来需要时再按 Claude Code 模式补真实 shell hook registry
+- Observation 路径已承接大结果预算控制：`ObservationPolicy` 输出 `inline / artifact_ref` 两阶段决策，`PromptMaterializer` + `LargePayloadFormatter` 在 observation 格式化阶段完成落盘
+- `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_preview / raw_result / raw_result_ref / approval_message` 工作
 
 这意味着 direct / skill / MCP 工具虽然实现来源不同，但运行时都尽量复用同一条 context / permission / result 主链，避免再次分叉出第二套 runtime。
 

@@ -2,7 +2,7 @@
 
 > **最后更新**：2026-04-01（重构后）
 >
-> **当前对标度**：~75%（从重构前的 ~55% 提升）
+> **当前对标度**：~85%（从重构前的 ~55% 提升；大结果落盘闭环已完成）
 
 本文档用于分析当前项目工具体系与 Claude Code 风格工具运行时之间的差异，并为后续 `CLAUDE_CODE_ALIGNMENT_PLAN.md` 提供事实依据。
 
@@ -28,7 +28,6 @@
 ### ⚠️ 仍需完善
 
 - **Hooks 系统**：已移除空壳，需要时再实现真实 shell 命令执行 + registry
-- **大结果落盘**：需在查询边界（发送给 LLM 前）实现类似 `enforceToolResultBudget`
 - **可观测语义**：direct/skill 在前端展示上仍有两层
 
 ## 1. 分析范围与对照口径
@@ -162,7 +161,7 @@ Claude Code 风格会区分：
 | 可观测与结果协议 | 已有 execution.step、ToolExecutionResult、artifact | 🔧 移除 envelope，简化事件结构 | 80% |
 | 大结果持久化与回读 | artifact 较稳定，通用大结果闭环仍不足 | 🔧 移除 executor 落盘，待查询边界实现 | 60% |
 
-**总体对标度：从 ~55% 提升到 ~75%**
+**总体对标度：从 ~55% 提升到 ~85%**
 
 ## 6. 当前收敛状态更新（2026-04-01 重构后）
 
@@ -210,7 +209,6 @@ Claude Code 风格会区分：
 #### ⚠️ 仍需完善
 
 - **Hooks 系统**：当前已移除空壳，未来需要时参考 Claude Code 实现真实的 shell 命令执行 + registry
-- **大结果落盘**：当前已移除 executor 里的落盘逻辑，未来可在查询边界（发送给 LLM 前）实现类似 `enforceToolResultBudget` 的机制
 - **可观测语义**：direct/skill 在可观测上仍有两层，前端某些场景看到的是 `execute_skill_script` 而非用户理解的工具语义
 
 
@@ -378,20 +376,22 @@ class PermissionDecision:
 
 这说明项目已经具备”轻索引 + 按需展开 + 落盘引用”的思路。
 
-#### ⚠️ 明显缺口（2026-04-01 重构后）
+#### ✅ 已完成（2026-04-01 后续收敛）
 
-**已移除 executor 里的落盘逻辑**：
-- 删除 `_materialize_result_envelope` 和 `_materialize_large_payload`
-- Claude Code 的大结果落盘是在查询边界（API 调用前）通过 `enforceToolResultBudget` 做的
+**Observation 路径已承接大结果预算控制与落盘**：
+- `ObservationPolicy` 统一判定哪些结果 inline、哪些转为 `artifact_ref`
+- `PromptMaterializer` 在 observation 格式化阶段复用该决策
+- `LargePayloadFormatter` 负责大结果落盘、生成预览与后续使用提示
+- `ArtifactStore` 提供会话感知的持久化、TTL 与索引能力
 
-**通用工具大结果仍缺少稳定闭环**：
-- 哪些结果应该物化没有统一规则
-- 物化后的标准引用协议仍不统一
-- 前端如何回读、下载或展开结果仍主要依赖具体子域实现
+**与 Claude Code 的差异**：
+- Claude Code 更偏向在查询边界统一做 budget enforcement
+- 当前系统把同类能力收敛到 observation materialization 阶段
+- **差异在时机，不在能力闭环**；当前系统已具备稳定的大结果持久化与回读路径
 
 #### 评价
 
-这是后续可选优化项。当前 artifact 持久化已经满足主要场景，通用大结果落盘可在需要时参考 Claude Code 在查询边界实现。
+这一能力已完成，不再属于当前主要差距。若后续要继续对齐 Claude Code，可考虑把预算控制时机进一步上移到查询边界，但这属于可选演进，不是缺口。
 
 ## 7. 四类结论归纳（2026-04-01 重构后）
 
@@ -419,7 +419,6 @@ class PermissionDecision:
 ### 7.3 明显缺口 ⚠️
 
 - **Hooks 系统**：已移除空壳，需要时再实现真实 shell 命令执行 + registry
-- **大结果落盘闭环**：需在查询边界（发送给 LLM 前）实现类似 `enforceToolResultBudget`
 - **可观测语义统一**：direct/skill 在前端展示上仍有两层
 
 ### 7.4 收敛问题（已大幅改善）
@@ -447,17 +446,20 @@ class PermissionDecision:
 - 真实的 shell 命令执行系统
 - Hook registry + priority + per-tool pattern 过滤
 
-#### P4：大结果落盘闭环（按需实现）
-
-当前已移除 executor 里的落盘逻辑，未来可在查询边界实现：
-- 类似 `enforceToolResultBudget` 的机制
-- 在发送给 LLM 前统一处理大结果
-- 标准回读 API/UX
-
-#### P5：可观测语义统一（体验优化）
+#### P4：可观测语义统一（体验优化）
 
 - 前端展示层统一 direct/skill 的工具语义节点
 - 避免用户看到底层 `execute_skill_script` 调用
+
+#### P5：MCP 细粒度权限（可选安全增强）
+
+- 从 server 级启用/禁用进一步演进到 tool 级覆盖
+- 支持单个 MCP 工具的 enabled / disabled / risk_level override
+
+#### P6：Exposure 缓存 / 并发能力（性能与工程增强）
+
+- 在 agent_config 级别做 LRU 缓存（注意 MCP 工具动态性）
+- 参考 Claude Code 的 `isConcurrencySafe` 机制补工具并发能力
 
 ## 8. 与主规划文档的关系
 

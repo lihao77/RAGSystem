@@ -67,7 +67,7 @@
 
 ### 5. 移除 executor 里的 envelope 包装 ✅
 
-**问题**：`_materialize_result_envelope` 在 executor 中被调用两次（正常路径 + 异常路径），且做了 `result.metadata.update()` 这种 side-effect mutation。Claude Code 的大结果落盘是在查询边界（API 调用前）通过 `enforceToolResultBudget` 做的，不是在 executor 里。
+**问题**：`_materialize_result_envelope` 在 executor 中被调用两次（正常路径 + 异常路径），且做了 `result.metadata.update()` 这种 side-effect mutation。Claude Code 的大结果预算控制通常在查询边界处理；当前系统则已将该能力收敛到 Observation 路径，而不是继续放在 executor 里。
 
 **修复**：
 - 移除 `_materialize_result_envelope` 和 `_materialize_large_payload`
@@ -78,7 +78,7 @@
 **收益**：
 - 事件链路简化，从 10+ 字段精简到 5 字段
 - 无反复拆装，数据流清晰
-- 大结果落盘逻辑已移除（未来在查询边界实现）
+- 大结果预算控制与落盘已收敛到 Observation 路径
 
 ---
 
@@ -153,7 +153,7 @@
 | **Hooks 系统** | 空函数骨架 | 已移除 | ✅ 对齐（未来需要时再加真实 registry） |
 | **权限决策** | 9 字段 | 3 态决策 | ✅ 对齐（allow/deny/ask） |
 | **Exposure 查询** | 全量遍历 | 快速路径 | ✅ 对齐（单工具查询） |
-| **大结果落盘** | executor 里落盘 | 已移除 | ✅ 对齐（未来在查询边界做） |
+| **大结果落盘** | executor 里落盘 | Observation 路径承接 | ✅ 对齐（预算控制与持久化闭环已具备） |
 | **事件结构** | envelope 反复拆装 | 扁平结构 | ✅ 对齐（直接传递 result） |
 
 ---
@@ -195,10 +195,10 @@
 ## 后续建议
 
 1. **Hooks 系统**：当前已移除空壳，未来需要时参考 Claude Code 实现真实的 shell 命令执行 + registry
-2. **大结果落盘**：当前已移除 executor 里的落盘逻辑，未来可在查询边界（发送给 LLM 前）实现类似 `enforceToolResultBudget` 的机制
+2. **可观测语义统一**：统一 direct/skill 的前端展示语义，避免暴露底层 `execute_skill_script`
 3. **Exposure 缓存**：当前已优化为快速路径，未来可考虑在 agent_config 级别做 LRU 缓存（但要注意 MCP 工具动态性）
 4. **工具并发执行**：参考 Claude Code 的 `isConcurrencySafe` 机制
-5. **工具结果预算**：参考 Claude Code 的 `ContentReplacementState` 机制
+5. **工具结果预算增强**：参考 Claude Code 的 `ContentReplacementState` / 查询边界 budget enforcement 思路
 
 ---
 

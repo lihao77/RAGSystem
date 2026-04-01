@@ -822,13 +822,13 @@ class BaseAgent(ABC):
             )
 
             if publisher:
-                preview_text = result_display_text(result)
+                preview_text = f"[{tool_name}]\n{observation}" if observation else ""
                 tool_success = getattr(result, 'success', True) if result is not None else True
                 approval_message = result.metadata.get('approval_message', '') if result and hasattr(result, 'metadata') else ''
                 publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
-                    result=f"[{tool_name}]\n{observation}" if observation else "",
+                    result=preview_text,
                     result_preview=preview_text,
                     raw_result=result_event_payload(result),
                     raw_result_ref={

@@ -190,7 +190,7 @@
 
             <div v-if="previewResult" class="detail-block">
               <div class="detail-header">
-                <span>{{ resultViewMode === 'raw' ? '原始结果' : '预览结果' }}</span>
+                <span>{{ resultViewMode === 'raw' ? 'Tool Raw Result' : 'Agent Observation' }}</span>
                 <div class="detail-header-actions">
                   <button
                     v-if="canLoadRawResult || hasLoadedRawResult"
@@ -198,15 +198,14 @@
                     :class="`is-${resultViewMode}`"
                     :disabled="rawResultLoading"
                     @click.stop="handleResultAction"
-                    :title="resultViewMode === 'raw' ? '切回预览' : '切换到原始结果'"
+                    :title="resultViewMode === 'raw' ? '切换到 Agent Observation' : '切换到 Tool Raw Result'"
                   >
                     <span class="result-view-switch-track">
                       <span class="result-view-switch-thumb"></span>
-                      <span class="result-view-switch-label is-left">PREVIEW</span>
+                      <span class="result-view-switch-label is-left">OBS</span>
                       <span class="result-view-switch-label is-right">RAW</span>
                     </span>
                   </button>
-                  <span class="code-tag result-tag">{{ resultViewMode === 'raw' ? 'RAW' : 'PREVIEW' }}</span>
                 </div>
               </div>
               <div class="code-wrapper">
@@ -506,8 +505,9 @@ const formatResultContent = (value) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .result-view-switch {
@@ -528,63 +528,59 @@ const formatResultContent = (value) => {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
   align-items: center;
-  width: 125px;
-  height: 26px;
-  padding: 3px;
+  width: 84px;
+  height: 28px;
+  padding: 2px;
   border-radius: var(--radius-full, 999px);
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    border-color 0.22s ease,
+    background-color 0.22s ease,
+    transform 0.22s ease;
 }
 
 .result-view-switch:hover .result-view-switch-track {
-  border-color: var(--color-interactive);
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.08),
-    0 0 0 2px var(--color-interactive-subtle);
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-secondary);
 }
 
 .result-view-switch-thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  height: calc(100% - 6px);
+  top: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  height: calc(100% - 4px);
   border-radius: var(--radius-full, 999px);
   background: var(--color-bg-primary);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.12),
-    0 1px 2px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   border: 1px solid var(--color-border);
-}
-
-.result-view-switch:hover .result-view-switch-thumb {
-  box-shadow:
-    0 3px 8px rgba(0, 0, 0, 0.15),
-    0 1px 3px rgba(0, 0, 0, 0.1);
+  transition:
+    transform 0.24s cubic-bezier(0.2, 0.9, 0.2, 1),
+    background-color 0.22s ease,
+    border-color 0.22s ease;
 }
 
 .result-view-switch-label {
   position: relative;
   z-index: 1;
   text-align: center;
-  font-size: 0.5625rem;
+  font-size: 0.68rem;
+  line-height: 1;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.01em;
+  transition: all 0.22s ease;
   user-select: none;
+  white-space: nowrap;
 }
 
 .result-view-switch.is-preview .result-view-switch-label.is-left {
   color: var(--color-text-primary);
-  transform: scale(1.05);
+  transform: scale(1.01);
 }
 
 .result-view-switch.is-preview .result-view-switch-label.is-right {
   color: var(--color-text-tertiary);
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .result-view-switch.is-raw .result-view-switch-thumb {
@@ -593,12 +589,24 @@ const formatResultContent = (value) => {
 
 .result-view-switch.is-raw .result-view-switch-label.is-left {
   color: var(--color-text-tertiary);
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .result-view-switch.is-raw .result-view-switch-label.is-right {
   color: var(--color-text-primary);
-  transform: scale(1.05);
+  transform: scale(1.01);
+}
+
+.result-view-switch:focus-visible .result-view-switch-track {
+  outline: none;
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-secondary);
+}
+
+.tool-result-error {
+  margin-top: 10px;
+  color: var(--color-error);
+  font-size: 12px;
 }
 
 .tool-result-error {
@@ -1383,9 +1391,15 @@ const formatResultContent = (value) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--spacing-sm);
   background: var(--color-bg-app);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.detail-header > span:first-child {
+  min-width: 0;
+  flex: 1;
 }
 
 .code-tag {

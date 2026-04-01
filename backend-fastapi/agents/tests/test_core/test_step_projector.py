@@ -112,7 +112,7 @@ def test_project_run_end_preserves_display_name():
             'tool_name': 'read_file',
             'agent_display_name': '知识图谱代理',
             'success': True,
-            'result_preview': '读取成功',
+            'result_preview': '[read_file]\n✅ 读取成功',
             'raw_result': {'content': 'ok'},
             'raw_result_ref': {'call_id': 'tool-1'},
             'raw_result_available': True,
@@ -147,7 +147,7 @@ def test_project_run_end_preserves_display_name():
     assert tool_end['phase'] == 'end'
     assert tool_end['agent_display_name'] == '知识图谱代理'
     assert tool_end['tool_name'] == 'read_file'
-    assert tool_end['result_preview'] == '读取成功'
+    assert tool_end['result_preview'] == '[read_file]\n✅ 读取成功'
     assert tool_end['raw_result_available'] is True
     assert tool_end['approval_message'] == 'ok'
     assert tool_end['step_id'] == 'tool-1:tool'

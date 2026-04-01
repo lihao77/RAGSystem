@@ -114,7 +114,7 @@ def route_direct_tool(
         observation = f"[{tool_name}]\n{observation}"
 
     if publisher:
-        preview_text = result_display_text(result)
+        preview_text = observation or ''
         approval_message = result.metadata.get('approval_message', '') if result and hasattr(result, 'metadata') else ''
         publisher.tool_call_end(
             call_id=tool_call_id,
