@@ -34,6 +34,17 @@
               <div class="action-description">{{ actionDescription }}</div>
             </div>
 
+            <div v-if="hasPermissionMode || hasApprovalReason" class="approval-extra-box">
+              <div v-if="hasPermissionMode" class="approval-extra-item">
+                <span class="approval-extra-label">当前权限模式</span>
+                <span class="approval-extra-value">{{ permissionModeLabel }}</span>
+              </div>
+              <div v-if="hasApprovalReason" class="approval-extra-item">
+                <span class="approval-extra-label">审批触发原因</span>
+                <span class="approval-extra-value">{{ approvalReasonText }}</span>
+              </div>
+            </div>
+
             <!-- 调用参数 -->
             <div v-if="hasArguments" class="approval-args-box">
               <div class="args-label">
@@ -113,6 +124,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
 
 const emit = defineEmits(['approve', 'deny']);
 
@@ -122,6 +134,8 @@ const actionDescription = ref('');
 const toolName = ref('');
 const riskLevel = ref('');
 const toolArguments = ref(null);
+const permissionMode = ref('');
+const approvalReason = ref('');
 const activeMode = ref('approve');
 const approveMessage = ref('');
 const denyMessage = ref('');
@@ -134,6 +148,11 @@ const riskLabel = computed(() => {
   const map = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险' };
   return map[riskLevel.value?.toUpperCase()] || riskLevel.value;
 });
+
+const permissionModeLabel = computed(() => getPermissionModeLabel(permissionMode.value));
+const approvalReasonText = computed(() => getApprovalReasonText(approvalReason.value));
+const hasPermissionMode = computed(() => Boolean(permissionMode.value));
+const hasApprovalReason = computed(() => Boolean(approvalReasonText.value));
 
 const hasArguments = computed(() => {
   if (!toolArguments.value) return false;
@@ -150,7 +169,7 @@ const formattedArguments = computed(() => {
 
 /**
  * 显示审批对话框
- * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name }
+ * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name, permission_mode, approval_reason }
  * @param {function} onApprove - (approvalId, message) => void
  * @param {function} onDeny   - (approvalId, message) => void
  */
@@ -161,6 +180,8 @@ const show = (data, onApprove, onDeny) => {
   riskLevel.value = data.risk_level || '';
   actionDescription.value = data.description || `请求执行工具: ${data.tool_name || '未知工具'}`;
   toolArguments.value = data.arguments || null;
+  permissionMode.value = data.permission_mode || '';
+  approvalReason.value = data.approval_reason || '';
   activeMode.value = 'approve';
   approveMessage.value = '';
   denyMessage.value = '';
@@ -359,6 +380,36 @@ defineExpose({ show, hide });
   line-height: 1.6;
   color: var(--color-text-primary);
   font-weight: 500;
+}
+
+/* 额外审批信息 */
+.approval-extra-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+}
+
+.approval-extra-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-extra-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.approval-extra-value {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  line-height: 1.6;
 }
 
 /* 调用参数 */

@@ -303,12 +303,10 @@ defineExpose({ getSelection });
 .llm-select-trigger:hover:not(.disabled) {
   background-color: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
 
 .llm-select-trigger:active:not(.disabled) {
-  transform: translateY(0);
   box-shadow: var(--shadow-sm);
 }
 
@@ -525,7 +523,7 @@ defineExpose({ getSelection });
 /* 移动端优化 */
 @media (max-width: 767px) {
   .llm-select-trigger {
-    height: 40px;
+    height: 44px;
     min-width: 140px;
     font-size: 12px;
     padding: 0 36px 0 12px;

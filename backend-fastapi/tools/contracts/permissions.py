@@ -18,7 +18,6 @@ class ToolPermission(BaseModel):
 
     tool_name: str
     risk_level: RiskLevel = RiskLevel.LOW
-    requires_approval: bool = False
     description: str = ""
     allowed_roles: list = []
     allowed_callers: list = ["direct", "code_execution"]

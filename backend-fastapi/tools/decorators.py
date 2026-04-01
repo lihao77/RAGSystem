@@ -18,7 +18,6 @@ def tool(
     description: str = "",
     parameters: dict[str, Any] | None = None,
     risk_level: RiskLevel = RiskLevel.LOW,
-    requires_approval: bool = False,
     timeout_seconds: int = 60,
     allowed_callers: list[str] | None = None,
     allowed_roles: list[str] | None = None,
@@ -63,7 +62,6 @@ def tool(
         permission = ToolPermission(
             tool_name=tool_name,
             risk_level=risk_level,
-            requires_approval=requires_approval,
             description=description,
             allowed_callers=_allowed_callers,
             allowed_roles=allowed_roles or [],

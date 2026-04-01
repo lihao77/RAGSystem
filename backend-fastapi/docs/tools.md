@@ -138,7 +138,7 @@ def my_tool(arguments, **kwargs):
 execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event, parent_call_id, current_agent_name, tool_call_id)
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
-  │   └─ 如果 requires_approval → 发布事件等待用户确认
+  │   └─ 根据 auto-accept 规则 + risk_level + permission mode 判断是否需要审批，若需要则发布 `user.approval_required` 事件并携带 `permission_mode`、`approval_reason` 后等待用户确认
   ├─ 获取 timeout_seconds（来自 ToolPermission，默认 60s）
   ├─ 分发
   │   ├─ tool_name in TOOL_HANDLERS
@@ -150,6 +150,13 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
   └─ 返回 ToolExecutionResult
 ```
+
+### 全局权限模式
+
+- 当前权限模式由 `tools.permission_manager` 的全局 `PermissionPolicy` 统一管理。
+- `/api/permissions/policy`、`/api/permissions/mode` 只操作全局策略，不区分 session。
+- `dangerously_skip_permissions` 表示“跳过审批”。
+- 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode` 与 `approval_reason`，供前端展示。
 
 ### builtin 与 agent delegation
 
@@ -286,20 +293,33 @@ class ToolContract:
     source: str                      # decorator/skill/document/builtin/agent/mcp
 ```
 
-### 权限配置（permissions.py）
+### 权限配置（permissions.py / contracts/permission_modes.py）
 
 ```python
 class ToolPermission:
     tool_name: str
     risk_level: RiskLevel            # LOW / MEDIUM / HIGH
-    requires_approval: bool          # 是否需要用户审批
     description: str
     allowed_roles: list              # 空=所有角色
     allowed_callers: list            # direct / code_execution
     timeout_seconds: int             # 执行超时秒数（默认 60，0=不限制）
+
+class PermissionMode(str, Enum):
+    STRICT = "strict"                        # 全部风险工具需审批；命中 auto-accept 时仍可跳过
+    STANDARD = "standard"                    # 默认 MEDIUM/HIGH 风险需审批；命中 auto-accept 时可跳过
+    RELAXED = "relaxed"                      # 仅 HIGH 风险需审批；命中 auto-accept 时可跳过
+    DANGEROUSLY_SKIP_PERMISSIONS = "dangerously_skip_permissions"  # 跳过所有审批
 ```
 
-慢工具超时配置：`execute_skill_script` 设为 120s。
+当前审批语义：
+- 先做 `check_tool_permission()`，处理 caller / role / server enablement 等授权约束
+- 再按 `auto-accept 规则 -> permission mode -> risk_level` 判断是否需要用户审批
+- `strict`：LOW / MEDIUM / HIGH 全部需要审批
+- `standard`：MEDIUM / HIGH 需要审批（默认档）
+- `relaxed`：仅 HIGH 需要审批
+- `dangerously_skip_permissions`：全部不审批
+- `auto-accept` 优先级高于模式判断，因此即使在 `strict` 模式下，命中规则的工具仍可自动通过
+- 慢工具超时配置：`execute_skill_script` 设为 120s
 
 ### 结果规范化（dispatcher._normalize_tool_result）
 

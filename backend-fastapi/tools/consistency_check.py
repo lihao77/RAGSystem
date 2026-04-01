@@ -47,11 +47,6 @@ def check_tool_consistency() -> list[str]:
                     f"工具 '{tool_name}' 的 risk_level 不一致: "
                     f"装饰器={dec_perm.risk_level}, 手动注册={reg_perm.risk_level}"
                 )
-            if dec_perm.requires_approval != reg_perm.requires_approval:
-                warnings.append(
-                    f"工具 '{tool_name}' 的 requires_approval 不一致: "
-                    f"装饰器={dec_perm.requires_approval}, 手动注册={reg_perm.requires_approval}"
-                )
 
     # 记录日志
     if warnings:

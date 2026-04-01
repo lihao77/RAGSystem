@@ -32,7 +32,6 @@ MCP_SERVER_TEMPLATES: List[Dict[str, Any]] = [
             "auto_connect": True,
             "timeout": 30,
             "risk_level": "medium",
-            "requires_approval": False,
         },
     },
     {
@@ -59,7 +58,6 @@ MCP_SERVER_TEMPLATES: List[Dict[str, Any]] = [
             "auto_connect": True,
             "timeout": 30,
             "risk_level": "low",
-            "requires_approval": False,
         },
     },
     {
@@ -86,7 +84,6 @@ MCP_SERVER_TEMPLATES: List[Dict[str, Any]] = [
             "auto_connect": True,
             "timeout": 60,
             "risk_level": "medium",
-            "requires_approval": False,
         },
     },
 ]
@@ -118,7 +115,6 @@ def build_server_config(template_id: str, payload: Dict[str, Any]) -> MCPServerC
         "auto_connect": payload.get("auto_connect", defaults.get("auto_connect", True)),
         "timeout": payload.get("timeout", defaults.get("timeout", 30)),
         "risk_level": payload.get("risk_level", defaults.get("risk_level", "medium")),
-        "requires_approval": payload.get("requires_approval", defaults.get("requires_approval", False)),
     }
 
     if template_id == "filesystem":

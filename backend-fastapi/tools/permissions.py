@@ -60,7 +60,6 @@ def _build_default_permission(tool_name: str) -> Optional[ToolPermission]:
     return ToolPermission(
         tool_name=tool_name,
         risk_level=risk_level,
-        requires_approval=False,
         description=function_def.get("description", "") or f"Tool {tool_name}",
         allowed_callers=list(function_def.get("allowed_callers", ["direct", "code_execution"])),
     )
@@ -78,7 +77,6 @@ def _infer_default_risk_level(tool_name: str, source: str, category: str) -> Ris
 def register_mcp_tool_permission(
     tool_name: str,
     risk_level: str = "medium",
-    requires_approval: bool = False,
     description: str = "",
     allowed_callers: list = None
 ) -> None:
@@ -88,7 +86,6 @@ def register_mcp_tool_permission(
     Args:
         tool_name: 完整工具名，如 "mcp__filesystem__read_file"
         risk_level: 风险等级字符串 "low" / "medium" / "high"
-        requires_approval: 是否需要用户审批
         description: 工具描述
         allowed_callers: 允许的调用来源列表
     """
@@ -101,7 +98,6 @@ def register_mcp_tool_permission(
     TOOL_PERMISSIONS[tool_name] = ToolPermission(
         tool_name=tool_name,
         risk_level=level,
-        requires_approval=requires_approval,
         description=description,
         allowed_callers=allowed_callers
     )
@@ -124,7 +120,6 @@ def sync_mcp_tool_permissions(
     server_name: str,
     mcp_tools: list,
     risk_level: str = "medium",
-    requires_approval: bool = False
 ) -> None:
     """根据当前发现到的 MCP 工具列表，重建指定 server 的工具权限。"""
     unregister_mcp_tool_permissions(server_name)
@@ -138,7 +133,6 @@ def sync_mcp_tool_permissions(
         register_mcp_tool_permission(
             tool_name=f"mcp__{server_name}__{original_tool_name}",
             risk_level=risk_level,
-            requires_approval=requires_approval,
             description=description
         )
 
@@ -235,7 +229,6 @@ def check_tool_permission(
                     register_mcp_tool_permission(
                         tool_name,
                         risk_level=srv_cfg.get("risk_level", "medium"),
-                        requires_approval=srv_cfg.get("requires_approval", False),
                         description=f"MCP tool ({server_name})"
                     )
                     permission = get_tool_permission(tool_name)

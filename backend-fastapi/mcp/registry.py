@@ -100,7 +100,6 @@ def build_server_config_from_registry_install(install_option: Dict[str, Any], pa
     display_name = (payload.get("display_name") or install_option.get("default_display_name") or server_name).strip()
     timeout = int(payload.get("timeout") or install_option.get("default_timeout") or 30)
     risk_level = (payload.get("risk_level") or install_option.get("default_risk_level") or "medium").strip() or "medium"
-    requires_approval = bool(payload.get("requires_approval", install_option.get("default_requires_approval", False)))
 
     common = {
         "name": server_name,
@@ -109,7 +108,6 @@ def build_server_config_from_registry_install(install_option: Dict[str, Any], pa
         "auto_connect": bool(payload.get("auto_connect", True)),
         "timeout": timeout,
         "risk_level": risk_level,
-        "requires_approval": requires_approval,
     }
 
     if kind == "package":
@@ -231,7 +229,6 @@ def _normalize_package_option(server: Dict[str, Any], package: Dict[str, Any], i
             command_preview = None
 
     default_risk_level = "high" if runtime_hint == "docker" else "medium"
-    default_requires_approval = runtime_hint == "docker"
 
     return {
         "id": f"pkg-{index}",
@@ -249,7 +246,6 @@ def _normalize_package_option(server: Dict[str, Any], package: Dict[str, Any], i
         "default_display_name": (server.get("title") or server.get("name") or "").strip(),
         "default_timeout": 60 if runtime_hint == "docker" else 30,
         "default_risk_level": default_risk_level,
-        "default_requires_approval": default_requires_approval,
     }
 
 
@@ -277,7 +273,6 @@ def _normalize_remote_option(server: Dict[str, Any], remote: Dict[str, Any], ind
         "default_display_name": (server.get("title") or server.get("name") or "").strip(),
         "default_timeout": 60,
         "default_risk_level": "medium",
-        "default_requires_approval": False,
     }
 
 

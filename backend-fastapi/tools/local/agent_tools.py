@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
         "required": ["agent_name", "task"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=0,
     allowed_callers=["direct"],
     returns={
@@ -249,7 +248,6 @@ def call_agent(
         },
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=0,
     allowed_callers=["direct"],
     returns={
@@ -345,7 +343,6 @@ def list_child_agents(
         "required": ["child_agent_id", "message"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=0,
     allowed_callers=["direct"],
     returns={

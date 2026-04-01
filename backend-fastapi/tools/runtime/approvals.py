@@ -32,8 +32,17 @@ def request_user_approval_if_needed(tool_name, arguments, *, agent_config=None, 
 
     approval_message = ""
     permission = get_tool_permission(tool_name)
-    if not (permission and permission.requires_approval):
+    if not permission:
         return True, None, approval_message
+
+    from tools.permission_manager import get_permission_policy, should_require_approval
+    requires, reason = should_require_approval(tool_name, permission, arguments)
+    if not requires:
+        if reason:
+            logger.info(f"工具 {tool_name} 审批跳过: {reason}{_obs_suffix()}")
+        return True, None, approval_message
+
+    permission_mode = get_permission_policy().mode.value
 
     logger.info(f"工具 {tool_name} 需要用户审批{_obs_suffix()}")
     if not event_bus:
@@ -61,6 +70,8 @@ def request_user_approval_if_needed(tool_name, arguments, *, agent_config=None, 
                 "arguments": arguments,
                 "risk_level": permission.risk_level.value,
                 "description": permission.description,
+                "permission_mode": permission_mode,
+                "approval_reason": reason,
             }
         ))
         logger.info(f"已发布工具 {tool_name} 的审批请求事件 approval_id={approval_id}{_obs_suffix()}")

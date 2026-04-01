@@ -5,12 +5,13 @@ from types import SimpleNamespace
 import pytest
 
 from tools.bootstrap import bootstrap_tool_system
+from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
+from tools.permission_manager import add_auto_accept_pattern, set_permission_policy, should_require_approval
 from tools.permissions import (
     TOOL_PERMISSIONS,
     RiskLevel,
     check_tool_permission,
     get_tool_permission,
-    _merge_decorated_permissions,
 )
 
 
@@ -18,6 +19,12 @@ from tools.permissions import (
 def _bootstrap_decorated_tools():
     """触发装饰器工具的自动发现和权限合并，模拟应用启动流程。"""
     bootstrap_tool_system()
+
+
+@pytest.fixture(autouse=True)
+def _reset_permission_policy():
+    """重置全局权限策略，避免测试间互相污染。"""
+    set_permission_policy(PermissionPolicy())
 
 
 def test_activate_skill_has_registered_permission():
@@ -29,7 +36,6 @@ def test_activate_skill_has_registered_permission():
     permission = get_tool_permission("activate_skill")
     assert permission is not None
     assert permission.risk_level == RiskLevel.LOW
-    assert permission.requires_approval is False
     assert permission.allowed_callers == ["direct"]
 
 
@@ -53,7 +59,7 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
     class _FakeStore:
         def get_server(self, server_name):
             if server_name == "demo":
-                return {"risk_level": "high", "requires_approval": True}
+                return {"risk_level": "high"}
             return None
 
     import mcp.config_store as config_store_module
@@ -69,13 +75,12 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
     permission = get_tool_permission("mcp__demo__search")
     assert permission is not None
     assert permission.risk_level == RiskLevel.HIGH
-    assert permission.requires_approval is True
 
 
 def test_memory_tools_are_enabled_via_effective_direct_tools():
     agent_config = SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=[]),
-        memory=SimpleNamespace(enabled=True, enabled_tools=[]),
+        memory=SimpleNamespace(enabled=True, allowed_scopes=["project"], write_scopes=[], archive_scopes=[]),
         skills=None,
         delegation=None,
         mcp=None,
@@ -90,7 +95,7 @@ def test_memory_tools_are_enabled_via_effective_direct_tools():
 def test_memory_tools_respect_configured_subset():
     agent_config = SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=[]),
-        memory=SimpleNamespace(enabled=True, enabled_tools=["read_memory_entry"]),
+        memory=SimpleNamespace(enabled=True, allowed_scopes=["project"], write_scopes=[], archive_scopes=[]),
         skills=None,
         delegation=None,
         mcp=None,
@@ -100,15 +105,15 @@ def test_memory_tools_respect_configured_subset():
     assert allowed is True
     assert error is None
 
-    denied, denied_error = check_tool_permission("list_memory_index", agent_config=agent_config, caller="direct")
+    denied, denied_error = check_tool_permission("write_memory", agent_config=agent_config, caller="direct")
     assert denied is False
-    assert denied_error == "Tool list_memory_index is not enabled for this agent"
+    assert denied_error == "Tool write_memory is not enabled for this agent"
 
 
 def test_memory_tools_are_rejected_when_memory_disabled():
     agent_config = SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=[]),
-        memory=SimpleNamespace(enabled=False, enabled_tools=[]),
+        memory=SimpleNamespace(enabled=False, allowed_scopes=[], write_scopes=[], archive_scopes=[]),
         skills=None,
         delegation=None,
         mcp=None,
@@ -126,7 +131,7 @@ def test_mcp_permission_rejects_disabled_server(monkeypatch):
     class _FakeStore:
         def get_server(self, server_name):
             if server_name == "demo":
-                return {"risk_level": "medium", "requires_approval": False}
+                return {"risk_level": "medium"}
             return None
 
     import mcp.config_store as config_store_module
@@ -138,3 +143,53 @@ def test_mcp_permission_rejects_disabled_server(monkeypatch):
 
     assert allowed is False
     assert error == "MCP tool mcp__demo__search is not enabled for this agent"
+
+
+def test_permission_mode_matrix():
+    low_permission = get_tool_permission("activate_skill")
+    medium_permission = get_tool_permission("execute_skill_script")
+    high_permission = get_tool_permission("execute_bash")
+
+    assert low_permission is not None
+    assert medium_permission is not None
+    assert high_permission is not None
+    assert low_permission.risk_level == RiskLevel.LOW
+    assert medium_permission.risk_level == RiskLevel.MEDIUM
+    assert high_permission.risk_level == RiskLevel.HIGH
+
+    cases = [
+        (PermissionMode.STRICT, low_permission, True, "严格模式：low 风险工具需要审批"),
+        (PermissionMode.STRICT, medium_permission, True, "严格模式：medium 风险工具需要审批"),
+        (PermissionMode.STRICT, high_permission, True, "严格模式：high 风险工具需要审批"),
+        (PermissionMode.STANDARD, low_permission, False, ""),
+        (PermissionMode.STANDARD, medium_permission, True, "标准模式：medium 风险工具需要审批"),
+        (PermissionMode.STANDARD, high_permission, True, "标准模式：high 风险工具需要审批"),
+        (PermissionMode.RELAXED, low_permission, False, ""),
+        (PermissionMode.RELAXED, medium_permission, False, ""),
+        (PermissionMode.RELAXED, high_permission, True, "宽松模式：高风险工具需要审批"),
+        (PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS, low_permission, False, "dangerously_skip_permissions 模式，跳过审批"),
+        (PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS, medium_permission, False, "dangerously_skip_permissions 模式，跳过审批"),
+        (PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS, high_permission, False, "dangerously_skip_permissions 模式，跳过审批"),
+    ]
+
+    for mode, permission, expected_requires, expected_reason in cases:
+        set_permission_policy(PermissionPolicy(mode=mode))
+        requires, reason = should_require_approval(permission.tool_name, permission, {})
+        assert requires is expected_requires
+        assert reason == expected_reason
+
+
+def test_strict_mode_allows_auto_accept_override():
+    permission = get_tool_permission("execute_bash")
+    assert permission is not None
+    assert permission.risk_level == RiskLevel.HIGH
+
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STRICT))
+    add_auto_accept_pattern("tool_name", "execute_bash")
+
+    requires, reason = should_require_approval("execute_bash", permission, {})
+
+    assert requires is False
+    assert "自动接受" in reason
+
+

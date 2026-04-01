@@ -739,7 +739,6 @@ def merge_extracted_data(
         "required": ["file_path"]
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=60,
     allowed_callers=["direct", "code_execution"],
     returns={
@@ -909,7 +908,6 @@ def preview_data_structure(
         "required": ["content"]
     },
     risk_level=RiskLevel.HIGH,
-    requires_approval=True,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={
@@ -1054,7 +1052,6 @@ def write_file(
         "required": ["file_path"]
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={
@@ -1325,7 +1322,6 @@ def read_file(
         "required": ["file_path", "old_string", "new_string"]
     },
     risk_level=RiskLevel.HIGH,
-    requires_approval=True,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={

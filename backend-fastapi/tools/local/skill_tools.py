@@ -144,7 +144,6 @@ def _unwrap_script_response(payload):
         "required": ["skill_name"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={
@@ -255,7 +254,6 @@ def activate_skill(skill_name):
         "required": ["skill_name", "resource_file"],
     },
     risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={
@@ -370,7 +368,6 @@ def load_skill_resource(skill_name, resource_file):
         "required": ["skill_name", "script_name"],
     },
     risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
     timeout_seconds=120,
     allowed_callers=["direct"],
     returns={
@@ -556,7 +553,6 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
         "required": ["skill_name"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={

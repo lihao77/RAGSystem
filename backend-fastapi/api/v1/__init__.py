@@ -19,6 +19,7 @@ from .vector import router as vector_router
 from .vector_management import router as vector_management_router
 from .embedding_models import router as embedding_models_router
 from .artifacts import router as artifacts_router
+from .permissions import router as permissions_router
 
 router = APIRouter()
 
@@ -61,3 +62,6 @@ router.include_router(embedding_models_router, prefix='/embedding-models', tags=
 
 # Artifact 管理（可视化等）
 router.include_router(artifacts_router, prefix='/artifacts', tags=['Artifact 管理'])
+
+# 权限策略管理
+router.include_router(permissions_router, prefix='/permissions', tags=['权限管理'])

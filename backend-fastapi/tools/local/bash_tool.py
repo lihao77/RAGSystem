@@ -311,8 +311,7 @@ def _request_bash_command_approval(
         },
         "required": ["command"],
     },
-    risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
+    risk_level=RiskLevel.HIGH,
     timeout_seconds=30,
     allowed_callers=["direct"],
     returns={

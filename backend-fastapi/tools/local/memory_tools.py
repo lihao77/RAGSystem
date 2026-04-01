@@ -65,7 +65,6 @@ def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]
         "required": ["scope"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     allowed_callers=["direct"],
     returns={
         "type": "object",
@@ -141,7 +140,6 @@ def list_memory_index(
         "required": ["scope", "file_name"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     allowed_callers=["direct"],
     returns={
         "type": "object",
@@ -222,7 +220,6 @@ def read_memory_entry(
         "required": ["scope", "name", "description", "memory_type", "content"],
     },
     risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
     allowed_callers=["direct"],
     returns={
         "type": "object",
@@ -308,7 +305,6 @@ def write_memory(
         "required": ["scope", "file_name"],
     },
     risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
     allowed_callers=["direct"],
     returns={
         "type": "object",

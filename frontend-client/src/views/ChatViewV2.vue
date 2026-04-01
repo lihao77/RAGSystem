@@ -127,6 +127,7 @@
 
         <!-- 右侧：主题切换 -->
         <div class="right-controls glass-card">
+          <PermissionModeSelector />
           <button
             @click="exportCurrentSession"
             class="session-export-btn version-btn top-action-btn"
@@ -503,6 +504,7 @@ import SituationScreen from '../components/SituationScreen.vue';
 import LLMSelector from '../components/LLMSelector.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import MessageEditBox from '../components/MessageEditBox.vue';
+import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import { getAllAgentConfigs } from '../api/agentConfig';
 import { listSessionFiles, uploadSessionFiles, deleteSessionFile, getSessionFileDownloadUrl } from '../api/sessionFiles';
 
@@ -3271,9 +3273,9 @@ onUnmounted(() => {
 
 @media (max-width: 767px) {
   .top-action-btn {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     padding: 0;
     /* border-radius: 12px; */
     justify-content: center;

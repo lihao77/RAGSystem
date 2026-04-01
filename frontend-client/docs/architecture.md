@@ -25,6 +25,7 @@ frontend-client/src/
 │   ├── MultimodalContent.vue  # 多模态内容渲染
 │   ├── ChatInput.vue          # 消息输入框
 │   ├── ApprovalDialog.vue     # 工具审批确认
+│   ├── PermissionModeSelector.vue # 权限模式与 auto-accept 规则切换
 │   ├── UserInputDialog.vue    # 用户输入请求
 │   ├── LLMSelector.vue        # LLM 模型选择器
 │   └── ...
@@ -119,7 +120,7 @@ tool 归属规则：
 | `output.chunk` | 流式追加根最终答案 |
 | `output.final_answer` | 标记根 assistant 消息完成 |
 | `output.message_saved` | 补全消息 id/seq |
-| `user.approval_required` | 弹出审批对话框 |
+| `user.approval_required` | 弹出审批对话框，原样透传后端事件 data（含 `permission_mode`、`approval_reason`） |
 | `user.input_required` | 弹出用户输入对话框 |
 | `context.usage` | 更新上下文用量 |
 | `agent.error` | 添加错误状态 |
@@ -129,6 +130,14 @@ tool 归属规则：
 - 不再使用 raw event 状态机构建执行树。
 - 不再处理 `react.intermediate`。
 - 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
+
+### 权限审批展示
+
+- `PermissionModeSelector.vue` 仅负责全局权限模式与 auto-accept 规则，不与 session 绑定。
+- `src/api/permissions.js` 统一调用全局 `/api/permissions/*` 接口，不传 session 参数。
+- `ChatViewV2.vue` 在收到 `user.approval_required` 时继续原样透传 `event.data` 给 `ApprovalDialog.show(...)`。
+- `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件。
+- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”。
 
 ## 消息数据结构
 
@@ -242,6 +251,8 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 
 `ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
+- 顶部右侧控制区新增 `PermissionModeSelector`，用于切换审批模式并维护 auto-accept 规则
+- 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为高风险档（仅高风险工具需审批）；三者在命中 auto-accept 规则时都可自动通过，`dangerously_skip_permissions` 则跳过所有权限检查；前端下拉按“严格 → 默认 → 高风险 → 全开放”顺序展示
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
 - `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的全局 `/api/files` 文件池严格分离

@@ -522,8 +522,7 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
         },
         "required": ["code"]
     },
-    risk_level=RiskLevel.MEDIUM,
-    requires_approval=False,
+    risk_level=RiskLevel.HIGH,
     timeout_seconds=60,
     allowed_callers=["direct"],
     returns={

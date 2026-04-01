@@ -47,7 +47,6 @@ logger = logging.getLogger(__name__)
         "required": ["prompt"],
     },
     risk_level=RiskLevel.LOW,
-    requires_approval=False,
     timeout_seconds=0,
     allowed_callers=["direct"],
     returns={

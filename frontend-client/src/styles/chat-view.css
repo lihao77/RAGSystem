@@ -552,7 +552,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px;
+  padding: 2px;
   border-radius: 28px;
   background-color: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
@@ -585,7 +585,7 @@
 }
 
 .theme-btn:hover {
-  transform: scale(1.1) rotate(15deg);
+  transform: scale(1.1);
 }
 
 .theme-btn:active {
@@ -614,12 +614,12 @@
 .session-export-btn:hover:not(:disabled) {
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
+  transform: scale(1.1);
 }
 
 .session-export-btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: scale(0.95);
 }
 
 .session-export-btn:disabled {
@@ -1941,7 +1941,7 @@
 .hamburger-menu-btn:hover {
   background-color: var(--color-interactive-hover);
   box-shadow: var(--shadow-md);
-  transform: scale(1.05);
+  transform: scale(1.1);
 }
 
 .hamburger-menu-btn:active {
@@ -2019,14 +2019,14 @@
     padding: 2px;
   }
 
-  /* 移动端按钮保持 40px 高度，触摸友好 */
+  /* 移动端顶部按钮统一 44px 高度 */
   .theme-btn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
 
   .version-btn {
-    height: 40px;
+    height: 44px;
     padding: 0 12px;
   }
 

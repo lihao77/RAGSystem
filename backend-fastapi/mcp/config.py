@@ -26,7 +26,6 @@ class MCPServerConfig(BaseModel):
     auto_connect: bool = Field(default=True, description="启动时自动连接")
     timeout: int = Field(default=30, ge=1, le=300, description="超时（秒）")
     risk_level: str = Field(default="medium", description="默认风险等级")
-    requires_approval: bool = Field(default=False, description="是否需要用户审批")
 
 
 class MCPConfig(BaseModel):

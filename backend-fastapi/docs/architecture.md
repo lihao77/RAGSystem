@@ -198,6 +198,16 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 `application/agent_collaboration.py` 中的回退重试也已不再直调 `orchestrator.execute()`：其中 `rollback_and_retry()` 直接复用 `AgentExecutionService.invoke_routed_agent()`；`recover_session()` 因需要先把 checkpoint messages 重放进临时 context，仍保留“checkpoint 注入上下文 + routed agent.execute(context)”的执行形态，但目标 Agent 的选择也已统一复用 execution service 的路由解析。
 
+### 全局权限策略与审批事件
+
+- 当前权限策略仅有全局作用域，唯一状态源为 `tools.permission_manager` 内的全局 `_current_policy`。
+- `/api/permissions/policy` 与 `/api/permissions/mode` 只读写全局策略，不引入 session 级权限模式。
+- `dangerously_skip_permissions` 的中文语义统一为“跳过审批”。
+- `tools.runtime.approvals.request_user_approval_if_needed()` 在发布 `USER_APPROVAL_REQUIRED` 时，会追加：
+  - `permission_mode`：当前全局权限模式
+  - `approval_reason`：后端最终审批判定理由
+- 前端直接展示后端给出的 `approval_reason`，不自行推导。
+
 ## 占位符系统
 
 两层占位符替换，均在工具执行前完成：
@@ -364,7 +374,7 @@ memory 当前采用纯 scope 授权模型：
 | 系统 | RUN_START, RUN_END, SESSION_END, ERROR |
 
 `USER_APPROVAL_REQUIRED` 当前承载多类审批场景：
-- dispatcher 基于 `ToolPermission.requires_approval` 的通用工具审批
+- dispatcher 基于 `check_tool_permission() + auto-accept 规则 + permission mode + risk_level` 的通用工具审批（四档模式：`strict` 全部审批、`standard` 默认中/高风险审批、`relaxed` 仅高风险审批、`dangerously_skip_permissions` 全部跳过；`auto-accept` 始终优先）
 - `execute_code` / 沙箱内的模块导入、文件写入等审批
 - `read_file` 大文件完整读取确认
 - `execute_bash` 对所有非白名单命令的临时放行审批（payload 中 `approval_type=bash_command`，并携带原始 command、命中的非白名单分段、解析后的 working_dir）；若命中高风险命令，还会额外携带 `dangerous_command_segments` 并提升审批文案风险级别
