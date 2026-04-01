@@ -89,6 +89,10 @@ def _build_client(monkeypatch):
     import api.v1.execution as execution_module
     monkeypatch.setattr(execution_module, 'get_agent_execution_service', lambda: execution_service)
 
+    # Mock cleanup_run 避免访问未初始化的 RuntimeContainer
+    from agents.events import session_manager
+    monkeypatch.setattr(session_manager, 'cleanup_run', lambda run_id: None)
+
     app = FastAPI()
     app.include_router(execution_router, prefix='/api/agent')
     client = TestClient(app)
