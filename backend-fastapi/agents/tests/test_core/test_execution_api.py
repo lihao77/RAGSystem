@@ -75,13 +75,14 @@ def _build_client(monkeypatch):
     TestClient = testclient_mod.TestClient
 
     from api.v1.execution import router as execution_router
-    import api.v1.execution as execution_module
+    import dependencies
+    import services.agent_execution_service as agent_exec_module
 
     runtime = _FakeRuntime()
     execution_service = _FakeExecutionService()
 
-    monkeypatch.setattr(execution_module, 'get_runtime_service', lambda: runtime)
-    monkeypatch.setattr(execution_module, 'get_execution_service', lambda: execution_service)
+    monkeypatch.setattr(dependencies, 'get_agent_runtime_service', lambda: runtime)
+    monkeypatch.setattr(agent_exec_module, 'get_agent_execution_service', lambda: execution_service)
 
     app = FastAPI()
     app.include_router(execution_router, prefix='/api/agent')
