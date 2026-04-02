@@ -7,6 +7,8 @@ import asyncio
 import concurrent.futures
 import logging
 import time
+from collections.abc import Coroutine
+from typing import Any
 
 from tools.contracts.result_models import ToolExecutionResult
 from tools.runtime.approvals import _obs_suffix, request_user_approval_if_needed
@@ -64,6 +66,37 @@ def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
     if isinstance(result, dict):
         return success_result(content=result, tool_name=tool_name)
     return success_result(content=str(result), tool_name=tool_name)
+
+
+def _run_coroutine_sync(coro: Coroutine[Any, Any, Any]):
+    """Run a coroutine from sync code, even if another event loop is already running."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(lambda: asyncio.run(coro))
+        return future.result()
+
+
+def _merge_hook_data(result: ToolExecutionResult, hook_result, *, phase: str) -> None:
+    if not hook_result:
+        return
+
+    if hook_result.additional_context:
+        result.metadata.setdefault("hook_additional_context", {})[phase] = list(hook_result.additional_context)
+    if hook_result.ui_message:
+        result.metadata.setdefault("hook_message", {})[phase] = hook_result.ui_message
+    if hook_result.ui_metadata:
+        result.metadata.setdefault("hook_metadata", {})[phase] = dict(hook_result.ui_metadata)
+    if hook_result.tags:
+        phase_tags = result.metadata.setdefault("hook_tags", {}).setdefault(phase, [])
+        for tag in hook_result.tags:
+            if tag not in phase_tags:
+                phase_tags.append(tag)
+    if hook_result.metadata:
+        result.metadata.setdefault("hook_phase_metadata", {})[phase] = dict(hook_result.metadata)
 
 
 def execute_tool(
@@ -140,9 +173,9 @@ def execute_tool(
         timeout = permission.timeout_seconds if permission else _DEFAULT_TIMEOUT
 
         # Phase 3: before_execute hooks
-        hook_result = _run_hooks_sync("tool.before_execute", context)
-        if hook_result and hook_result.block_execution:
-            return error_result(hook_result.block_reason, tool_name=tool_name)
+        before_execute_hook_result = _run_hooks_sync("tool.before_execute", context)
+        if before_execute_hook_result and before_execute_hook_result.block_execution:
+            return error_result(before_execute_hook_result.block_reason, tool_name=tool_name)
 
         # Execute tool
         handler = get_tool_handler(tool_name)
@@ -159,15 +192,12 @@ def execute_tool(
             result = error_result(f"未知的工具: {tool_name}", tool_name=tool_name)
 
         result = _normalize_tool_result(result, tool_name)
+        _merge_hook_data(result, before_execute_hook_result, phase="before_execute")
 
         # Phase 4: after_execute hooks
         hook_result = _run_hooks_sync("tool.after_execute", context, result=result)
         if hook_result:
-            # Merge hook UI enhancements
-            if hook_result.ui_message:
-                result.metadata.setdefault("hook_message", hook_result.ui_message)
-            if hook_result.ui_metadata:
-                result.metadata.setdefault("hook_metadata", hook_result.ui_metadata)
+            _merge_hook_data(result, hook_result, phase="after_execute")
 
         if approval_message and result.success:
             result.metadata.setdefault("approval_message", approval_message)
@@ -225,21 +255,8 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
             error_snapshot=_build_error_snapshot(kwargs.get("error")),
         )
 
-        # Run hooks asynchronously but wait for result
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-
-        if loop is not None:
-            # We're in an async context, create task
-            future = asyncio.ensure_future(run_hooks(hook_context))
-            # Wait for completion (this blocks the current coroutine)
-            return asyncio.get_event_loop().run_until_complete(future)
-        else:
-            # We're in sync context, create new event loop
-            return asyncio.run(run_hooks(hook_context))
+        # Run hooks synchronously in the current sync flow
+        return _run_coroutine_sync(run_hooks(hook_context))
 
     except Exception as e:
         logger.warning(f"Hook execution failed for {event_name}: {e}")

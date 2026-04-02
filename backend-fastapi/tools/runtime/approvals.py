@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from tools.runtime.models import ToolUseContext
@@ -11,6 +12,12 @@ from tools.runtime.response_builder import error_result
 from utils.timeout_pause import pause_current, resume_current
 
 logger = logging.getLogger(__name__)
+
+
+def _run_hook_coroutine(coro) -> None:
+    from tools.runtime.executor import _run_coroutine_sync
+
+    _run_coroutine_sync(coro)
 
 
 def _obs_suffix() -> str:
@@ -155,8 +162,6 @@ def _run_approval_hook(
         error: Exception if approval failed
     """
     try:
-        import asyncio
-        import time
         from hooks.executor import run_hooks
         from hooks.models import HookContext
 
@@ -190,13 +195,7 @@ def _run_approval_hook(
             },
         )
 
-        # Run hooks asynchronously
-        try:
-            loop = asyncio.get_running_loop()
-            asyncio.ensure_future(run_hooks(hook_context))
-        except RuntimeError:
-            # Not in async context, run in new loop
-            asyncio.run(run_hooks(hook_context))
+        _run_hook_coroutine(run_hooks(hook_context))
 
     except Exception as e:
         logger.warning(f"Approval hook execution failed for {event_name}: {e}")

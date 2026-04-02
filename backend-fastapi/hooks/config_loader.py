@@ -19,6 +19,16 @@ from hooks.models import (
 logger = logging.getLogger(__name__)
 
 
+_DECISION_EVENTS = {
+    "tool.before_permission",
+    "tool.after_permission",
+    "approval.required",
+    "approval.resolved",
+    "approval.denied",
+    "approval.error",
+}
+
+
 class HookConfigLoader:
     """Loads and validates hook configurations from YAML files."""
 
@@ -96,11 +106,9 @@ class HookConfigLoader:
         source = config.get("source", "system")
         priority = config.get("priority", 100)
         timeout_ms = config.get("timeout_ms", defaults.get("timeout_ms", 1000))
-        fail_open = config.get(
-            "fail_open",
-            defaults.get("fail_mode", "closed_for_decision_open_for_observation")
-            == "open",
-        )
+        fail_open = config.get("fail_open")
+        if fail_open is None:
+            fail_open = self._resolve_default_fail_open(events, defaults)
         broadcast = config.get("broadcast", defaults.get("broadcast", True))
 
         # Parse matcher
@@ -181,6 +189,18 @@ class HookConfigLoader:
             target=target,
             config=backend_config,
         )
+
+    def _resolve_default_fail_open(
+        self, events: tuple[str, ...], defaults: Dict[str, Any]
+    ) -> bool:
+        fail_mode = defaults.get("fail_mode", "closed_for_decision_open_for_observation")
+        if fail_mode == "open":
+            return True
+        if fail_mode == "closed":
+            return False
+        if fail_mode == "closed_for_decision_open_for_observation":
+            return not any(event in _DECISION_EVENTS for event in events)
+        return False
 
     def load_agent_overrides(
         self, agent_config: Dict[str, Any]

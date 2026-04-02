@@ -1,8 +1,36 @@
 # Hook 系统文档
 
+## 当前状态
+
+当前实现是 **Phase 1 原型版**，已打通 Tool Runtime 与 Approval 生命周期的基础 Hook 链路，但还没有达到 Claude Code 那种完整、严格的 Hook 语义。
+
+### 已实现
+
+- Tool Runtime 事件接入：`tool.before_permission`、`tool.after_permission`、`tool.before_execute`、`tool.after_execute`、`tool.on_error`
+- Approval 事件接入：`approval.required`、`approval.resolved`、`approval.denied`、`approval.error`
+- Hook 子系统基础设施：`models / registry / config_loader / matcher / executor / broadcast / bootstrap`
+- Backend 类型：`function`、`prompt`、`callback`
+- 结果合并：`block_execution`、`permission_decision`、`additional_context`、`ui_message`、`ui_metadata`、`tags`、`metadata`
+- Hook 生命周期广播：`hook.started`、`hook.response`、`hook.error`
+- `before_execute.additional_context` 已落入 `ToolExecutionResult.metadata["hook_additional_context"]`，便于实际测试与观察
+
+### 部分实现
+
+- `hook.progress` 事件类型已定义，但默认执行链路还未主动发送 progress 事件
+- `fail_mode: closed_for_decision_open_for_observation` 已做基础语义映射：决策型事件默认 fail-closed，观察型事件默认 fail-open；但还不是按更细粒度事件协议驱动
+- `workspace_trust` 字段已进入 `HookContext` 和 matcher，但 runtime 当前仍写死为 `"trusted"`，尚未形成真实安全边界
+
+### 未实现 / 计划中
+
+- 真正把 `additional_context` 注入到 AI prompt / observation 上下文链路，而不仅是 metadata 可见化
+- 更严格的 per-event 输入/输出协议
+- 非 `function/prompt/callback` 的 backend（如 http / agent）
+- Agent lifecycle hooks、bash/memory/skill/artifact 子域 hooks
+- 安全表达式求值器替代当前 `if_expr` 的直接 `eval`
+
 ## 概述
 
-RAGSystem 的 Hook 系统提供了事件驱动的扩展机制，允许在工具执行、Agent 生命周期和子系统操作的关键点注入自定义逻辑。
+RAGSystem 的 Hook 系统提供了事件驱动的扩展机制，允许在工具执行、审批流程等关键点注入自定义逻辑。
 
 ## 设计原则
 
@@ -194,7 +222,8 @@ backend:
 
 - `additional_context: list[str]` - 附加上下文列表
   - 会被合并并去重
-  - 可用于向 AI 提供额外信息
+  - 当前 Phase 1 会先落到 `ToolExecutionResult.metadata["hook_additional_context"]`
+  - 后续再接入真正的 AI prompt / observation 上下文链路
 
 ### UI 增强
 
