@@ -214,6 +214,8 @@ def _eval_ast_node(node: ast.AST, context: HookContext) -> Any:
 
 
 def _resolve_attribute(base: Any, attr: str) -> Any:
+    if attr.startswith("__"):
+        raise AttributeError(f"Access to attribute '{attr}' not allowed")
     if isinstance(base, _SafeContextProxy):
         return getattr(base, attr)
     if isinstance(base, dict):

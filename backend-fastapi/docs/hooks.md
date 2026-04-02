@@ -264,6 +264,8 @@ backend:
 | `approval.error` | approval reason / risk / permission mode / error | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision`, `additional_context` |
 
 > 当前 Phase 1 仍使用统一 `HookResult` 模型；上表描述的是 runtime / approval 主链“实际消费哪些字段”，不是 schema 层面的强校验。
+>
+> 其中 runtime 侧的 `tool.before_permission / after_permission / before_execute / after_execute` 已接入执行层 phase 过滤；`tool.on_error` 也只保留 `tags / metadata`。approval 侧当前仅完成轻量语义收口，过滤结果尚未形成与 runtime 同等级的消费闭环。
 
 ## 内建 Hooks
 

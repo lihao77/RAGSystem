@@ -79,8 +79,6 @@ def request_user_approval_if_needed(
             logger.info(f"工具 {context.tool_name} 审批跳过: {reason}{_obs_suffix()}")
         return True, None, approval_message
 
-    permission_mode = get_permission_policy().mode.value
-
     # Hook: approval.required
     _run_approval_hook("approval.required", context, permission, reason)
 

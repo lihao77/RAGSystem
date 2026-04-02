@@ -267,7 +267,10 @@ def execute_tool(
 
     except Exception as error:
         # Phase 5: on_error hooks
-        _run_hooks_sync("tool.on_error", context, error=error)
+        _filter_hook_result_for_phase(
+            _run_hooks_sync("tool.on_error", context, error=error),
+            phase="on_error",
+        )
 
         logger.error(f"执行工具 {tool_name} 失败: {error}{_obs_suffix()}")
         import traceback
