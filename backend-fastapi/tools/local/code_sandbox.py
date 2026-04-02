@@ -178,12 +178,20 @@ def _request_sandbox_approval(
     risk_level: str,
     description: str,
 ) -> str:
-    from tools.permission_manager import get_permission_policy
-    from tools.contracts.permission_modes import PermissionMode
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permission_manager import get_permission_policy, should_require_approval
 
     policy = get_permission_policy()
-    if policy.mode == PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS:
-        logger.info('沙箱审批已跳过（dangerously_skip_permissions）: %s', description)
+    # 用沙箱文件写入的实际风险等级构造临时 permission，复用主链路审批决策逻辑
+    _risk_map = {'low': RiskLevel.LOW, 'medium': RiskLevel.MEDIUM, 'high': RiskLevel.HIGH}
+    _perm = ToolPermission(
+        tool_name=tool_name,
+        risk_level=_risk_map.get(risk_level.lower(), RiskLevel.HIGH),
+        description=description,
+    )
+    needs_approval, skip_reason = should_require_approval(tool_name, _perm, arguments)
+    if not needs_approval:
+        logger.info('沙箱审批已跳过（%s）: %s', skip_reason or policy.mode.value, description)
         return ''
 
     if not event_bus:
@@ -504,7 +512,7 @@ def _terminate_process(process, *, wait_timeout: float = 1.0) -> None:
 def _sandbox_worker(conn, payload: dict):
     stdout_capture = io.StringIO()
     tool_calls_count = [0]
-    approval_granted = [False]
+    approval_granted = [payload.get('pre_approved', False)]
     approved_imports = set(ALLOWED_IMPORT_NAMES)
     code = payload['code']
 
@@ -680,10 +688,18 @@ def execute_code_sandbox(code: str, description: str = "", timeout: int = 30, ag
 
     ctx = multiprocessing.get_context('spawn')
     parent_conn, child_conn = ctx.Pipe(duplex=True)
+
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permission_manager import should_require_approval
+    _sandbox_perm = ToolPermission(tool_name='sandbox_file_write', risk_level=RiskLevel.HIGH)
+    _needs, _ = should_require_approval('sandbox_file_write', _sandbox_perm, {})
+    pre_approved = not _needs
+
     process = ctx.Process(
         target=_sandbox_worker,
         args=(child_conn, {
             'code': code,
+            'pre_approved': pre_approved,
             'session_id': session_id,
             'run_id': current_run_id,
             'workspace_root': workspace_root,

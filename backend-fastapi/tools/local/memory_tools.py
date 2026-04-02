@@ -219,7 +219,7 @@ def read_memory_entry(
         },
         "required": ["scope", "name", "description", "memory_type", "content"],
     },
-    risk_level=RiskLevel.MEDIUM,
+    risk_level=RiskLevel.LOW,
     allowed_callers=["direct"],
     returns={
         "type": "object",
@@ -304,7 +304,7 @@ def write_memory(
         },
         "required": ["scope", "file_name"],
     },
-    risk_level=RiskLevel.MEDIUM,
+    risk_level=RiskLevel.LOW,
     allowed_callers=["direct"],
     returns={
         "type": "object",
