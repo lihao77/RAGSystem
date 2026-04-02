@@ -102,6 +102,15 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('工具系统 bootstrap 失败（不影响核心功能）: %s', e)
 
+    # ── 第 4.6 步：bootstrap Hook 系统 ──────────────────────────────────────
+    try:
+        from hooks.bootstrap import bootstrap_hook_system
+
+        bootstrap_hook_system()
+        logger.info('✓ Hook 系统 bootstrap 完成')
+    except Exception as e:
+        logger.warning('Hook 系统 bootstrap 失败（不影响核心功能）: %s', e)
+
     # ── 第五步（新增）：加载外部扩展 ──────────────────────────────────────
     loaded_extensions = []
     try:

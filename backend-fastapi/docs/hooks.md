@@ -1,0 +1,528 @@
+# Hook 系统文档
+
+## 概述
+
+RAGSystem 的 Hook 系统提供了事件驱动的扩展机制，允许在工具执行、Agent 生命周期和子系统操作的关键点注入自定义逻辑。
+
+## 设计原则
+
+1. **观察优先**：Phase 1 专注于观察和决策，不支持业务参数变异
+2. **最小侵入**：Hook 作为旁路决策层，不破坏现有 runtime 收敛
+3. **安全边界**：严格的权限控制和超时机制
+4. **统一广播**：所有 Hook 事件通过现有 EventBus 发布
+
+## 架构
+
+### 核心组件
+
+```
+hooks/
+├── models.py           # 数据模型（HookContext, HookResult, HookDefinition）
+├── registry.py         # Hook 注册表
+├── config_loader.py    # 配置加载器
+├── matcher.py          # Hook 匹配器
+├── executor.py         # Hook 执行器
+├── broadcast.py        # 事件广播
+├── bootstrap.py        # 启动引导
+└── builtin/           # 内建 Hook handlers
+    ├── __init__.py
+    └── tool_hooks.py
+```
+
+### 执行流程
+
+```
+1. 事件触发（如 tool.before_execute）
+2. 从 Registry 获取候选 Hooks
+3. Matcher 过滤（结构化字段 + if 表达式）
+4. 按优先级排序
+5. 依次执行 Hook handlers
+6. 合并 HookResult
+7. 广播 Hook 生命周期事件
+8. 返回合并结果
+```
+
+## 事件类型
+
+### Tool Runtime 事件（Phase 1）
+
+- `tool.before_permission` - 权限评估前
+- `tool.after_permission` - 权限评估后
+- `tool.before_execute` - 工具执行前
+- `tool.after_execute` - 工具执行后
+- `tool.on_error` - 工具执行异常
+
+### Approval 事件（Phase 1）
+
+- `approval.required` - 审批请求发布
+- `approval.resolved` - 审批通过
+- `approval.denied` - 审批拒绝
+- `approval.error` - 审批异常
+
+### Hook 广播事件（Phase 1）
+
+- `hook.started` - Hook 开始执行
+- `hook.progress` - Hook 执行进度（可选）
+- `hook.response` - Hook 执行完成
+- `hook.error` - Hook 执行失败
+
+## Hook 定义
+
+### 配置文件格式
+
+```yaml
+version: 1
+
+defaults:
+  enabled: true
+  timeout_ms: 1000
+  fail_mode: closed_for_decision_open_for_observation
+  broadcast: true
+
+hooks:
+  - id: tool-risk-audit
+    name: "High-Risk Tool Audit"
+    description: "Audit all high-risk tool executions"
+    enabled: true
+    source: system
+    priority: 100
+    events:
+      - tool.before_permission
+      - tool.after_execute
+    matcher:
+      tool_names:
+        - execute_bash
+        - write_memory
+      callers:
+        - direct
+    backend:
+      type: function
+      target: "hooks.builtin.tool_hooks:handle_risk_audit"
+    ui:
+      title: "高风险工具审计"
+      description: "记录高风险工具的执行情况"
+```
+
+### Matcher 字段
+
+结构化匹配字段：
+- `tool_names` - 工具名称列表
+- `agent_names` - Agent 名称列表
+- `callers` - 调用者类型（direct/skill/agent）
+- `risk_levels` - 风险等级（low/medium/high/critical）
+- `workspace_trust` - 工作区信任级别
+- `session_ids` - 会话 ID 列表
+- `user_roles` - 用户角色列表
+- `when_result_success` - 结果成功状态过滤
+- `when_permission_mode` - 权限模式过滤
+- `sources` - 来源过滤
+- `tags` - 标签过滤
+
+If 表达式（二次过滤）：
+```yaml
+if: "context.current_agent_name != 'chart_agent'"
+```
+
+允许的表达式字段：
+- `context.event_name`
+- `context.phase`
+- `context.session_id`
+- `context.agent_name`
+- `context.tool_name`
+- `context.caller`
+- `context.workspace_trust`
+- `context.metadata`
+
+### Backend 类型
+
+#### Function Backend
+
+执行 Python 函数：
+
+```yaml
+backend:
+  type: function
+  target: "module.path:function_name"
+  config:
+    custom_param: value
+```
+
+Handler 签名：
+```python
+def handler(context: HookContext, config: dict) -> HookResult:
+    # 处理逻辑
+    return HookResult(...)
+```
+
+#### Prompt Backend
+
+返回附加上下文：
+
+```yaml
+backend:
+  type: prompt
+  target: "prompt_template"
+  config:
+    prompt: "Additional context for {tool_name}"
+```
+
+#### Callback Backend
+
+仅观察，不影响执行：
+
+```yaml
+backend:
+  type: callback
+  target: "noop"
+```
+
+## HookResult 字段
+
+### 执行控制
+
+- `continue_execution: bool` - 是否继续执行（默认 True）
+- `block_execution: bool` - 是否阻止执行（默认 False）
+- `block_reason: str` - 阻止原因
+
+### 权限覆盖
+
+- `permission_decision: str` - 权限决策（allow/ask/deny）
+  - 只能收窄权限，不能放宽
+  - deny > ask > allow
+
+### 附加上下文
+
+- `additional_context: list[str]` - 附加上下文列表
+  - 会被合并并去重
+  - 可用于向 AI 提供额外信息
+
+### UI 增强
+
+- `ui_message: str` - UI 消息
+- `ui_metadata: dict` - UI 元数据
+
+### 元数据
+
+- `tags: list[str]` - 标签
+- `metadata: dict` - 自定义元数据
+- `broadcast_progress: str` - 进度消息（可选）
+
+## 内建 Hooks
+
+### tool-risk-audit
+
+审计高风险工具执行：
+
+```yaml
+id: tool-risk-audit
+events:
+  - tool.before_permission
+  - tool.after_execute
+matcher:
+  tool_names:
+    - execute_bash
+    - write_memory
+    - edit_file
+    - write_file
+  callers:
+    - direct
+```
+
+功能：
+- 记录工具执行详情
+- 生成审计日志
+- 不影响执行流程
+
+### approval-ui-enhancement
+
+增强审批 UI：
+
+```yaml
+id: approval-ui-enhancement
+events:
+  - approval.required
+matcher:
+  risk_levels:
+    - high
+    - critical
+```
+
+功能：
+- 添加工具特定警告
+- 增强审批提示文案
+- 提供风险分类信息
+
+### bash-command-validation
+
+验证 Bash 命令：
+
+```yaml
+id: bash-command-validation
+events:
+  - tool.before_execute
+matcher:
+  tool_names:
+    - execute_bash
+fail_open: false
+```
+
+功能：
+- 检测危险命令模式
+- 阻止潜在破坏性操作
+- Untrusted workspace 强制审批
+
+### memory-write-guard
+
+守护记忆写入：
+
+```yaml
+id: memory-write-guard
+events:
+  - tool.before_execute
+matcher:
+  tool_names:
+    - write_memory
+```
+
+功能：
+- 添加记忆写入上下文
+- 提醒持久化影响
+
+## Agent 级配置覆盖
+
+在 `agents/configs/agent_configs.yaml` 中：
+
+```yaml
+agents:
+  chart_agent:
+    hooks:
+      disable_ids:
+        - tool-risk-audit
+      enable_ids:
+        - custom-hook
+      priority_overrides:
+        memory-write-guard: 220
+```
+
+限制：
+- 只能开关已有 Hook
+- 只能调整优先级
+- 不能替换 backend.target
+- 不能添加新 Hook
+
+## 安全约束
+
+### Phase 1 限制
+
+1. **只读上下文**：HookContext 是 frozen dataclass
+2. **无参数变异**：不允许修改工具 arguments
+3. **无结果变异**：不允许修改工具原始输出
+4. **本地 Handler**：只支持 Python function backend
+5. **超时保护**：默认 1 秒超时
+6. **Fail 模式**：观察型 fail-open，决策型 fail-closed
+
+### Workspace Trust
+
+- Trusted workspace：所有 Hook 正常执行
+- Untrusted workspace：
+  - 某些 Hook 自动升级为 ask
+  - 未来的 http/agent backend 被禁用
+
+### 权限合并规则
+
+```
+基础权限（tools.permissions）
+    ↓
+Hook 权限覆盖（只能收窄）
+    ↓
+最终决策
+```
+
+Hook 不能：
+- 把 deny 放宽成 allow
+- 绕过基础权限检查
+
+Hook 可以：
+- 把 allow 收窄成 ask
+- 把 allow 收窄成 deny
+- 把 ask 收窄成 deny
+
+## 使用示例
+
+### 创建自定义 Hook Handler
+
+```python
+# hooks/builtin/custom_hooks.py
+
+from hooks.models import HookContext, HookResult
+
+def my_custom_handler(context: HookContext, config: dict) -> HookResult:
+    """自定义 Hook handler."""
+
+    # 检查条件
+    if context.tool_name == "sensitive_tool":
+        # 阻止执行
+        return HookResult(
+            block_execution=True,
+            block_reason="Sensitive tool blocked by policy",
+        )
+
+    # 添加上下文
+    return HookResult(
+        additional_context=[
+            f"Tool {context.tool_name} called by {context.agent_name}",
+        ],
+        tags=["custom_audit"],
+    )
+```
+
+### 注册 Hook
+
+在 `config/yaml/hooks.yaml` 中：
+
+```yaml
+hooks:
+  - id: my-custom-hook
+    name: "My Custom Hook"
+    description: "Custom hook for sensitive tools"
+    enabled: true
+    source: system
+    priority: 150
+    events:
+      - tool.before_execute
+    matcher:
+      tool_names:
+        - sensitive_tool
+    backend:
+      type: function
+      target: "hooks.builtin.custom_hooks:my_custom_handler"
+```
+
+### 异步 Handler
+
+```python
+async def async_handler(context: HookContext, config: dict) -> HookResult:
+    """异步 Hook handler."""
+
+    # 可以调用异步 API
+    result = await some_async_check(context.tool_name)
+
+    if not result.allowed:
+        return HookResult(
+            permission_decision="deny",
+            block_reason=result.reason,
+        )
+
+    return HookResult()
+```
+
+## 调试
+
+### 日志
+
+Hook 执行日志：
+
+```
+INFO: Executing 2 hooks for event tool.before_execute
+DEBUG: Hook tool-risk-audit matched for event tool.before_execute
+INFO: [AUDIT] High-risk tool execution: {...}
+DEBUG: Broadcasted hook event: hook.started for hook tool-risk-audit
+```
+
+### 事件追踪
+
+Hook 事件通过 EventBus 广播，可在前端查看：
+
+```json
+{
+  "type": "hook.response",
+  "data": {
+    "hook_id": "tool-risk-audit",
+    "hook_name": "High-Risk Tool Audit",
+    "matched_event": "tool.before_execute",
+    "backend": "function",
+    "decision": "continue",
+    "duration_ms": 12.5
+  }
+}
+```
+
+## 性能考虑
+
+### 优化建议
+
+1. **Matcher 优先级**：结构化字段匹配比 if 表达式快
+2. **超时设置**：观察型 Hook 可以设置更短超时
+3. **广播控制**：高频 Hook 可以禁用 broadcast
+4. **优先级排序**：决策型 Hook 优先级高于观察型
+
+### 性能指标
+
+- Hook 匹配：< 1ms
+- Function backend 执行：< 10ms（典型）
+- 事件广播：< 5ms
+- 总开销：< 20ms（单个 Hook）
+
+## 未来扩展（Phase 2+）
+
+### Agent Lifecycle Hooks
+
+- `agent.run_start/end/error`
+- `agent.round_start/end`
+- `agent.intent_generated`
+- `agent.call_agent_start/end`
+
+### 子域 Hooks
+
+- Skill: `skill.activate/script.before/after/error`
+- Memory: `memory.read/write/archive.before/after`
+- Artifact: `artifact.create/revise.before/after`
+- Bash: `bash.validate/before/after_execute/on_error`
+
+### 受控变异型 Hooks（Phase 3）
+
+允许有限变异：
+- `updated_input`：仅限 UI 层字段
+- `updated_output`：仅限展示层字段
+
+明确禁止：
+- 任意修改工具 arguments
+- 任意修改 MCP 原始输出
+- 自动重放/重试
+
+### 高级 Backend（Phase 4）
+
+- HTTP backend：调用外部 API
+- Agent backend：委派给子 Agent
+- 更严格的安全审查
+
+## 故障排查
+
+### Hook 未执行
+
+1. 检查 Hook 是否启用：`enabled: true`
+2. 检查事件名称是否匹配
+3. 检查 Matcher 字段是否匹配
+4. 检查 if 表达式是否正确
+5. 查看日志中的匹配信息
+
+### Hook 执行失败
+
+1. 检查 backend.target 路径是否正确
+2. 检查 Handler 签名是否正确
+3. 查看 hook.error 事件
+4. 检查超时设置
+5. 查看 fail_open 配置
+
+### 权限决策不生效
+
+1. 确认 Hook 返回了 `permission_decision`
+2. 检查权限合并规则（deny > ask > allow）
+3. 确认基础权限允许执行
+4. 查看 tool.after_permission 事件
+
+## 参考
+
+- 设计文档：`docs/refactor/HOOK_SYSTEM_DESIGN.md`
+- 实施计划：见本文档开头
+- Claude Code 对标：`docs/refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md`

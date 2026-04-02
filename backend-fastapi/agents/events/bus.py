@@ -89,6 +89,12 @@ class EventType(str, Enum):
     CODE_EXECUTION_START = "code.execution.start"
     CODE_EXECUTION_END = "code.execution.end"
 
+    # Hook 生命周期事件
+    HOOK_STARTED = "hook.started"
+    HOOK_PROGRESS = "hook.progress"
+    HOOK_RESPONSE = "hook.response"
+    HOOK_ERROR = "hook.error"
+
     # 系统事件
     SESSION_END = "session.end"
     ERROR = "system.error"

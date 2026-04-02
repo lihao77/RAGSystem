@@ -20,9 +20,14 @@ def _obs_suffix() -> str:
 
 def request_user_approval_if_needed(
     context: ToolUseContext,
+    force_ask: bool = False,
 ) -> tuple[bool, object, str]:
     """
     检查工具权限并在需要时请求用户审批。
+
+    Args:
+        context: Tool use context
+        force_ask: Force approval request (used by hooks)
 
     Returns:
         (allowed, error_result_or_none, approval_message)
@@ -46,12 +51,15 @@ def request_user_approval_if_needed(
         return True, None, approval_message
 
     requires, reason = should_require_approval(context.tool_name, permission, context.arguments)
-    if not requires:
+    if not requires and not force_ask:
         if reason:
             logger.info(f"工具 {context.tool_name} 审批跳过: {reason}{_obs_suffix()}")
         return True, None, approval_message
 
     permission_mode = get_permission_policy().mode.value
+
+    # Hook: approval.required
+    _run_approval_hook("approval.required", context, permission, reason)
 
     logger.info(f"工具 {context.tool_name} 需要用户审批{_obs_suffix()}")
     if not context.event_bus:
@@ -98,7 +106,11 @@ def request_user_approval_if_needed(
         finally:
             resume_current()
         approved, approval_note = registry.get_approval_result(context.session_id, approval_id)
+
         if not approved:
+            # Hook: approval.denied
+            _run_approval_hook("approval.denied", context, permission, reason, approved=False)
+
             logger.info(f"工具 {context.tool_name} 审批被拒绝或任务已停止{_obs_suffix()}")
             deny_reason = approval_note if approval_note else "用户拒绝执行此操作"
             return False, error_result(
@@ -106,11 +118,85 @@ def request_user_approval_if_needed(
                 tool_name=context.tool_name,
             ), ""
 
+        # Hook: approval.resolved
+        _run_approval_hook("approval.resolved", context, permission, reason, approved=True, approval_note=approval_note)
+
         logger.info(f"工具 {context.tool_name} 审批通过，继续执行{_obs_suffix()}")
         if approval_note:
             approval_message = approval_note
             logger.info(f"用户审批附言: {approval_note}{_obs_suffix()}")
         return True, None, approval_message
     except Exception as error:
+        # Hook: approval.error
+        _run_approval_hook("approval.error", context, permission, reason, error=error)
+
         logger.error(f"审批流程异常: {error}{_obs_suffix()}")
         return False, error_result(f"审批流程异常: {error}", tool_name=context.tool_name), ""
+
+
+def _run_approval_hook(
+    event_name: str,
+    context: ToolUseContext,
+    permission,
+    approval_reason: str,
+    approved: bool = None,
+    approval_note: str = None,
+    error: Exception = None,
+) -> None:
+    """Run approval lifecycle hooks.
+
+    Args:
+        event_name: Hook event name (approval.required/resolved/denied/error)
+        context: Tool use context
+        permission: Tool permission object
+        approval_reason: Reason for approval requirement
+        approved: Whether approval was granted (for resolved/denied)
+        approval_note: User's approval note
+        error: Exception if approval failed
+    """
+    try:
+        import asyncio
+        import time
+        from hooks.executor import run_hooks
+        from hooks.models import HookContext
+
+        # Build hook context
+        hook_context = HookContext(
+            event_name=event_name,
+            phase=event_name.split(".")[-1],
+            timestamp=time.time(),
+            session_id=context.session_id,
+            run_id=context.run_id,
+            request_id=context.request_id,
+            agent_name=context.current_agent_name,
+            agent_display_name=context.agent_display_name,
+            caller=context.caller,
+            user_role=context.user_role,
+            tool_name=context.tool_name,
+            tool_call_id=context.tool_call_id,
+            parent_call_id=context.parent_call_id,
+            round=context.round,
+            order=context.order,
+            round_index=context.round_index,
+            workspace_trust="trusted",
+            source="approval",
+            tool_context=context,
+            metadata={
+                "approval_reason": approval_reason,
+                "risk_level": permission.risk_level.value if permission else "unknown",
+                "approved": approved,
+                "approval_note": approval_note,
+                "error": str(error) if error else None,
+            },
+        )
+
+        # Run hooks asynchronously
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.ensure_future(run_hooks(hook_context))
+        except RuntimeError:
+            # Not in async context, run in new loop
+            asyncio.run(run_hooks(hook_context))
+
+    except Exception as e:
+        logger.warning(f"Approval hook execution failed for {event_name}: {e}")

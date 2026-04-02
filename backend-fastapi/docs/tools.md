@@ -139,9 +139,9 @@ def my_tool(arguments, **kwargs):
 当前工具 runtime 已完成进一步收敛，语义上更贴近 Claude Code：
 
 - `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
-- `tools/permissions.py` 明确拆分“暴露权限”与“执行权限”，并输出结构化 `PermissionDecision`
+- `tools/permissions.py` 明确拆分”暴露权限”与”执行权限”，并输出结构化 `PermissionDecision`
 - `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway 复用该上下文
-- hooks 空壳骨架已移除；未来需要时再按 Claude Code 模式补真实 shell hook registry
+- **Hook 系统已实现**：参考 Claude Code 的事件驱动 Hook 机制，支持在工具执行、审批流程的关键点注入自定义逻辑（详见 `docs/hooks.md`）
 - Observation 路径已承接大结果预算控制：`ObservationPolicy` 输出 `inline / artifact_ref` 两阶段决策，`PromptMaterializer` + `LargePayloadFormatter` 在 observation 格式化阶段完成落盘
 - `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_preview / raw_result / raw_result_ref / approval_message` 工作
 
@@ -152,10 +152,19 @@ def my_tool(arguments, **kwargs):
 
 ```
 execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event, parent_call_id, current_agent_name, tool_call_id)
+  ├─ Hook: tool.before_permission
+  │   └─ 可阻止执行或添加上下文
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
+  │   ├─ Hook: approval.required（审批请求发布时）
   │   └─ 根据 auto-accept 规则 + risk_level + permission mode 判断是否需要审批，若需要则发布 `user.approval_required` 事件并携带 `permission_mode`、`approval_reason` 后等待用户确认
+  │   ├─ Hook: approval.resolved（审批通过）
+  │   └─ Hook: approval.denied（审批拒绝）
+  ├─ Hook: tool.after_permission
+  │   └─ 可收窄权限决策（allow → ask/deny）
   ├─ 获取 timeout_seconds（来自 ToolPermission，默认 60s）
+  ├─ Hook: tool.before_execute
+  │   └─ 可阻止执行或添加上下文
   ├─ 分发
   │   ├─ tool_name in TOOL_HANDLERS
   │   │   ├─ execute_code → 直接调用 handler（子进程内部自管理 timeout/cancel）
@@ -163,7 +172,10 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   │   └─ 其他工具 → _run_with_timeout(handler, timeout)（自动注入上下文参数）
   │   ├─ is_mcp_tool(tool_name) → dispatcher.execute_mcp_tool() → runtime.mcp_gateway.execute_mcp_tool()
   │   └─ else → error_result()
+  ├─ Hook: tool.after_execute
+  │   └─ 可添加 UI 增强或审计信息
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
+  ├─ Hook: tool.on_error（执行异常时）
   └─ 返回 ToolExecutionResult
 ```
 
