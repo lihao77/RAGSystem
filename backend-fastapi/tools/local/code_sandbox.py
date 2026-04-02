@@ -178,6 +178,14 @@ def _request_sandbox_approval(
     risk_level: str,
     description: str,
 ) -> str:
+    from tools.permission_manager import get_permission_policy
+    from tools.contracts.permission_modes import PermissionMode
+
+    policy = get_permission_policy()
+    if policy.mode == PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS:
+        logger.info('沙箱审批已跳过（dangerously_skip_permissions）: %s', description)
+        return ''
+
     if not event_bus:
         raise PermissionError("当前上下文无事件总线，无法发起审批")
     if not session_id:
@@ -287,6 +295,14 @@ def _make_request_write_approval(approval_granted: list, approval_requester, *, 
         return True
 
     return request_write_approval
+
+
+def _make_call_tool_function(tool_caller, tool_calls_count: list):
+    def call_tool(tool_name: str, arguments: dict) -> Any:
+        tool_calls_count[0] += 1
+        return tool_caller(tool_name, arguments)
+
+    return call_tool
 
 
 def _make_save_file(approval_granted: list, approval_requester, *, session_id=None, run_id=None, workspace_root=None):

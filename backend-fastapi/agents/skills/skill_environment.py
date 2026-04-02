@@ -123,6 +123,10 @@ class SkillEnvironment:
         env['PYTHONIOENCODING'] = 'utf-8'  # Python I/O 编码
         env['PYTHONUTF8'] = '1'            # Python 3.7+ 强制 UTF-8 模式
 
+        # 注入数据根目录，供脚本解析 display path
+        from tools.paths.path_resolution import DATA_ROOT
+        env['RAG_DATA_ROOT'] = str(DATA_ROOT.resolve())
+
         try:
             result = subprocess.run(
                 command,
