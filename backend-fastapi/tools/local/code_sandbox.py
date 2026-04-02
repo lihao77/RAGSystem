@@ -41,6 +41,7 @@ from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
 from tools.paths.path_resolution import (
     resolve_managed_path,
+    to_display_path,
     get_effective_workspace_root,
     get_session_sandbox_root,
     get_session_workspace_root,
@@ -288,7 +289,63 @@ def _make_request_write_approval(approval_granted: list, approval_requester, *, 
     return request_write_approval
 
 
-def _make_call_tool_function(tool_caller, tool_calls_count: list):
+def _make_save_file(approval_granted: list, approval_requester, *, session_id=None, run_id=None, workspace_root=None):
+    def save_file(content, filename: str, space: str = 'workspace') -> str:
+        """将沙箱处理结果保存到受管目录，返回其他工具可直接使用的 display path。
+
+        Args:
+            content: str、bytes 或可 JSON 序列化的对象
+            filename: 目标文件名（不含目录）
+            space: 目标空间，可选 'workspace'（默认）/ 'transient' / 'exports'
+
+        Returns:
+            display path 字符串，格式 ./data/...，可直接传给 read_file / create_chart 等工具
+        """
+        valid_spaces = ('workspace', 'transient', 'exports')
+        if space not in valid_spaces:
+            raise ValueError(f"space 必须是 {valid_spaces} 之一，当前: {space!r}")
+
+        resolved = resolve_managed_path(
+            filename,
+            session_id=session_id,
+            run_id=run_id,
+            caller='code_execution',
+            operation='write',
+            explicit_space=space,
+            workspace_root=workspace_root,
+        )
+
+        if not approval_granted[0]:
+            try:
+                approval_requester(
+                    approval_type='sandbox_file_write',
+                    tool_name='sandbox_file_write',
+                    arguments={'path': str(resolved), 'reason': f'沙箱代码保存文件到 {space}'},
+                    risk_level='high',
+                    description=f"沙箱代码请求保存文件: {resolved.name}（→ {space}）",
+                )
+                approval_granted[0] = True
+            except PermissionError as e:
+                raise PermissionError(f'文件保存被拒绝: {e}')
+
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            with open(resolved, 'wb') as f:
+                f.write(content)
+        elif isinstance(content, str):
+            with open(resolved, 'w', encoding='utf-8') as f:
+                f.write(content)
+        else:
+            with open(resolved, 'w', encoding='utf-8') as f:
+                json.dump(content, f, ensure_ascii=False, indent=2)
+
+        display = to_display_path(resolved)
+        logger.info('沙箱保存文件: %s -> %s', resolved, display)
+        return display
+
+    return save_file
+
+
     def call_tool(tool_name: str, arguments: dict) -> Any:
         tool_calls_count[0] += 1
         return tool_caller(tool_name, arguments)
@@ -320,12 +377,13 @@ def _build_safe_builtins(safe_import):
     }
 
 
-def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
+def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, save_file_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
     return {
         '__builtins__': _build_safe_builtins(safe_import),
         **ALLOWED_MODULES,
         'call_tool': call_tool_func,
         'open': safe_open_func,
+        'save_file': save_file_func,
         'SANDBOX_DIR': str(sandbox_root),
         'DATA_DIR': str(workspace_root or visualizations_root or sandbox_root),
         'SESSION_TRANSIENT_DIR': str(transient_root or sandbox_root),
@@ -436,6 +494,7 @@ def _sandbox_worker(conn, payload: dict):
 
     approval_requester = _make_ipc_approval_requester(conn)
     safe_open_func = _make_safe_open(approval_granted, approval_requester, session_id=payload.get('session_id'), run_id=payload.get('run_id'), workspace_root=payload.get('workspace_root'))
+    save_file_func = _make_save_file(approval_granted, approval_requester, session_id=payload.get('session_id'), run_id=payload.get('run_id'), workspace_root=payload.get('workspace_root'))
     call_tool_func = _make_call_tool_function(_make_ipc_tool_caller(conn), tool_calls_count)
     real_import = __import__
 
@@ -462,6 +521,7 @@ def _sandbox_worker(conn, payload: dict):
         safe_import=_safe_import,
         call_tool_func=call_tool_func,
         safe_open_func=safe_open_func,
+        save_file_func=save_file_func,
         sandbox_root=Path(payload['sandbox_root']),
         workspace_root=Path(payload['current_workspace_root']) if payload.get('current_workspace_root') else None,
         transient_root=Path(payload['current_transient_root']) if payload.get('current_transient_root') else None,
@@ -547,6 +607,8 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
         "不要对 call_tool(...) 再取 ['content']；当前拿到的就是工具主内容，需要自行处理",
         "在沙箱内读取文件请直接使用受限 open(path, mode='r')；路径会按 code_execution 的受管边界解析",
         "在沙箱内写文件直接使用 open(path, 'w'/'a'/...)；后端会自动向用户发起审批，批准后写入；无需手动调用任何审批函数",
+        "处理完数据后需要保存供其他工具使用时，调用 save_file(content, filename, space='workspace')；content 可以是 str/bytes/dict/list；返回 display path（./data/... 格式），可直接传给 read_file/create_chart 等工具",
+        "save_file 的 space 参数：'workspace'（持久工作区，默认）/ 'transient'（临时）/ 'exports'（导出，需 run_id）",
         "如果返回内容是标准 JSON 字符串（双引号），用 json.loads() 解析",
         "如果文件内容是 Python 字面量格式（单引号），用 ast.literal_eval() 解析（需先 import ast）",
         "禁止导入 os/sys/subprocess/shutil/socket，路径操作使用内置的 path_ops（如 path_ops.join, path_ops.basename）",
