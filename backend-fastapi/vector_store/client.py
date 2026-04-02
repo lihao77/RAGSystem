@@ -83,11 +83,14 @@ class VectorStoreClient:
 
     def _init_sqlite_store(self, config):
         """初始化 SQLite 向量存储"""
-        # 确保路径是绝对路径
-        db_path = Path(config.database_path)
-        if not db_path.is_absolute():
-            # 相对于 backend/ 目录
-            db_path = Path(__file__).parent.parent / db_path
+        raw = (config.database_path or "").strip()
+        if not raw:
+            from tools.paths.path_resolution import RAGSYSTEM_DB
+            db_path = RAGSYSTEM_DB
+        else:
+            db_path = Path(raw)
+            if not db_path.is_absolute():
+                db_path = Path(__file__).parent.parent / db_path
 
         logger.info(f"初始化 SQLite 向量存储: {db_path}")
 

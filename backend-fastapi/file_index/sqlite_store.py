@@ -40,8 +40,18 @@ class FileIndexSQLite:
                     这样可以与向量数据库共享连接，便于跨表查询
         """
         if db_path is None:
+            from config import get_config
             from tools.paths.path_resolution import RAGSYSTEM_DB
-            db_path = RAGSYSTEM_DB
+            try:
+                config = get_config()
+                raw = (config.vector_store.sqlite_vec.database_path or "").strip()
+                if raw:
+                    p = Path(raw)
+                    db_path = p if p.is_absolute() else Path(__file__).resolve().parent.parent / p
+                else:
+                    db_path = RAGSYSTEM_DB
+            except Exception:
+                db_path = RAGSYSTEM_DB
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

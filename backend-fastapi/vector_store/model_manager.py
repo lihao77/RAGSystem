@@ -41,6 +41,31 @@ class EmbeddingModelManager:
 
     def _init_tables(self):
         """初始化模型管理表"""
+        # collections / documents 是基础表，document_vectors 外键依赖 documents，须先建
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS collections (
+                name TEXT PRIMARY KEY,
+                vector_dimension INTEGER NOT NULL DEFAULT 0,
+                distance_metric TEXT NOT NULL DEFAULT 'cosine',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id, collection)
+            )
+        """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)
+        """)
+
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS embedding_models (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
