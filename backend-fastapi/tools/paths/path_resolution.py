@@ -226,7 +226,10 @@ def _relative_candidate_roots(
     if caller == "code_execution":
         sandbox_root = get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox"
         if operation in _WRITE_OPERATIONS:
-            return [sandbox_root.resolve()]
+            return _dedupe_paths([
+                sandbox_root,
+                *_session_read_roots(session_id, run_id, workspace_root),
+            ])
         session_roots = _session_read_roots(session_id, run_id, workspace_root)
         return _dedupe_paths([
             sandbox_root,
@@ -256,8 +259,10 @@ def _allowed_roots_for_access(
 
     if caller == "code_execution":
         if operation in _WRITE_OPERATIONS:
-            sandbox_root = get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox"
-            return [sandbox_root.resolve()]
+            return _dedupe_paths([
+                get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",
+                *_session_read_roots(session_id, run_id, workspace_root),
+            ])
         return _dedupe_paths([
             effective_workspace,
             get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",

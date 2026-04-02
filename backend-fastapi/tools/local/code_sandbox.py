@@ -223,7 +223,7 @@ def _request_sandbox_approval(
     return approval_message or ''
 
 
-def _make_safe_open(approval_granted: list, *, session_id=None, run_id=None, workspace_root=None):
+def _make_safe_open(approval_granted: list, approval_requester, *, session_id=None, run_id=None, workspace_root=None):
     def safe_open(path, mode='r', encoding=None, **kwargs):
         normalized = mode.replace('t', '')
         is_write = normalized in _WRITE_MODES
@@ -237,7 +237,17 @@ def _make_safe_open(approval_granted: list, *, session_id=None, run_id=None, wor
         )
         if is_write:
             if not approval_granted[0]:
-                raise PermissionError('文件写操作需要用户审批，请先调用 request_write_approval(path) 获取授权')
+                try:
+                    approval_requester(
+                        approval_type='sandbox_file_write',
+                        tool_name='sandbox_file_write',
+                        arguments={'path': str(resolved), 'reason': '沙箱代码写文件'},
+                        risk_level='high',
+                        description=f"沙箱代码请求写入文件: {resolved.name}",
+                    )
+                    approval_granted[0] = True
+                except PermissionError as e:
+                    raise PermissionError(f'文件写入被拒绝: {e}')
             resolved.parent.mkdir(parents=True, exist_ok=True)
             logger.info('沙箱写文件: %s', resolved)
 
@@ -310,13 +320,12 @@ def _build_safe_builtins(safe_import):
     }
 
 
-def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, request_write_approval_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
+def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
     return {
         '__builtins__': _build_safe_builtins(safe_import),
         **ALLOWED_MODULES,
         'call_tool': call_tool_func,
         'open': safe_open_func,
-        'request_write_approval': request_write_approval_func,
         'SANDBOX_DIR': str(sandbox_root),
         'DATA_DIR': str(workspace_root or visualizations_root or sandbox_root),
         'SESSION_TRANSIENT_DIR': str(transient_root or sandbox_root),
@@ -425,9 +434,8 @@ def _sandbox_worker(conn, payload: dict):
     approved_imports = set(ALLOWED_IMPORT_NAMES)
     code = payload['code']
 
-    safe_open_func = _make_safe_open(approval_granted, session_id=payload.get('session_id'), run_id=payload.get('run_id'), workspace_root=payload.get('workspace_root'))
     approval_requester = _make_ipc_approval_requester(conn)
-    request_write_approval_func = _make_request_write_approval(approval_granted, approval_requester, session_id=payload.get('session_id'), run_id=payload.get('run_id'), workspace_root=payload.get('workspace_root'))
+    safe_open_func = _make_safe_open(approval_granted, approval_requester, session_id=payload.get('session_id'), run_id=payload.get('run_id'), workspace_root=payload.get('workspace_root'))
     call_tool_func = _make_call_tool_function(_make_ipc_tool_caller(conn), tool_calls_count)
     real_import = __import__
 
@@ -454,7 +462,6 @@ def _sandbox_worker(conn, payload: dict):
         safe_import=_safe_import,
         call_tool_func=call_tool_func,
         safe_open_func=safe_open_func,
-        request_write_approval_func=request_write_approval_func,
         sandbox_root=Path(payload['sandbox_root']),
         workspace_root=Path(payload['current_workspace_root']) if payload.get('current_workspace_root') else None,
         transient_root=Path(payload['current_transient_root']) if payload.get('current_transient_root') else None,
@@ -539,7 +546,7 @@ def _static_code_check(code: str) -> tuple[bool, Optional[str]]:
         "call_tool() 只能调用 allowed_callers 包含 code_execution 的工具；read_file/write_file/edit_file 不再允许从 execute_code 中调用",
         "不要对 call_tool(...) 再取 ['content']；当前拿到的就是工具主内容，需要自行处理",
         "在沙箱内读取文件请直接使用受限 open(path, mode='r')；路径会按 code_execution 的受管边界解析",
-        "在沙箱内写文件前，必须先调用 request_write_approval(path, reason) 获取授权；获批后再用 open(path, 'w'/'a'/...) 写入",
+        "在沙箱内写文件直接使用 open(path, 'w'/'a'/...)；后端会自动向用户发起审批，批准后写入；无需手动调用任何审批函数",
         "如果返回内容是标准 JSON 字符串（双引号），用 json.loads() 解析",
         "如果文件内容是 Python 字面量格式（单引号），用 ast.literal_eval() 解析（需先 import ast）",
         "禁止导入 os/sys/subprocess/shutil/socket，路径操作使用内置的 path_ops（如 path_ops.join, path_ops.basename）",

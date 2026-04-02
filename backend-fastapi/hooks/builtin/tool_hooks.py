@@ -8,6 +8,7 @@ from hooks.models import (
     ContextHookResult,
     DecisionHookResult,
     HookContext,
+    HookResult,
     ObservationHookResult,
 )
 
@@ -130,19 +131,8 @@ def _get_tool_category(tool_name: str) -> str:
         return "other"
 
 
-def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> ObservationHookResult:
-    """Test hook handler: Log all tool executions.
-
-    This is a test hook to demonstrate the hook system in action.
-
-    Args:
-        context: Hook execution context
-        config: Hook configuration
-
-    Returns:
-        HookResult with logging metadata
-    """
-    # Build log message
+def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> HookResult:
+    """Test hook handler: Log all tool executions."""
     phase_emoji = {
         "before_execute": "▶️",
         "after_execute": "✅",
@@ -155,24 +145,23 @@ def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> Observat
         f"Caller: {context.caller}"
     )
 
-    # Add result info for after_execute
     if context.phase == "after_execute":
         success = context.result_snapshot.get("success", False)
-        status_emoji = "✅" if success else "❌"
-        log_message += f" | Status: {status_emoji}"
+        log_message += f" | Status: {'✅' if success else '❌'}"
 
     logger.info(f"[TEST HOOK] {log_message}")
 
-    # Return result with metadata
-    return ObservationHookResult(
-        tags=["test_logged"],
-        metadata={
-            "test_hook": "tool_logger",
-            "logged_at": context.timestamp,
-            "tool_name": context.tool_name,
-            "phase": context.phase,
-        },
-    )
+    tags = ["test_logged"]
+    metadata = {
+        "test_hook": "tool_logger",
+        "logged_at": context.timestamp,
+        "tool_name": context.tool_name,
+        "phase": context.phase,
+    }
+
+    if context.event_name == "tool.before_execute":
+        return ContextHookResult(tags=tags, metadata=metadata)
+    return ObservationHookResult(tags=tags, metadata=metadata)
 
 
 def handle_bash_command_validation(
