@@ -64,11 +64,11 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
         event_bus=event_bus,
         session_id='session-approval-payload',
     )
-    allowed, result, approval_message = request_user_approval_if_needed(context)
+    outcome = request_user_approval_if_needed(context)
 
-    assert allowed is True
-    assert result is None
-    assert approval_message == '允许执行'
+    assert outcome.allowed is True
+    assert outcome.error_result is None
+    assert outcome.approval_message == '允许执行'
 
     event = published['event']
     assert event.data['tool_name'] == 'execute_bash'

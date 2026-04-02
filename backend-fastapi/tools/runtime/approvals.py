@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from execution.observability import format_observability_for_log, get_current_execution_observability_fields
 from tools.runtime.models import ToolUseContext
@@ -14,6 +16,15 @@ from utils.timeout_pause import pause_current, resume_current
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ApprovalOutcome:
+    allowed: bool
+    error_result: object = None
+    approval_message: str = ""
+    approval_metadata: dict[str, Any] = field(default_factory=dict)
+    approval_hook: dict[str, Any] = field(default_factory=dict)
+
+
 def _run_hook_coroutine(coro):
     from tools.runtime.executor import _run_coroutine_sync
 
@@ -21,17 +32,45 @@ def _run_hook_coroutine(coro):
 
 
 def _filter_approval_hook_result(hook_result):
+    """Defensive clamp for approval hook results."""
     if not hook_result:
         return hook_result
 
-    from hooks.models import HookResult
+    from hooks.models import ApprovalHookResult
 
-    filtered = HookResult()
-    filtered.ui_message = hook_result.ui_message
-    filtered.ui_metadata = dict(hook_result.ui_metadata)
-    filtered.tags = list(hook_result.tags)
-    filtered.metadata = dict(hook_result.metadata)
-    return filtered
+    return ApprovalHookResult(
+        ui_message=getattr(hook_result, "ui_message", None),
+        ui_metadata=dict(getattr(hook_result, "ui_metadata", {}) or {}),
+        tags=list(getattr(hook_result, "tags", []) or []),
+        metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+    )
+
+
+def _approval_hook_payload(hook_result) -> dict[str, Any]:
+    if not hook_result:
+        return {}
+    return {
+        "ui_message": hook_result.ui_message,
+        "ui_metadata": dict(hook_result.ui_metadata),
+        "tags": list(hook_result.tags),
+        "metadata": dict(hook_result.metadata),
+    }
+
+
+def _build_approval_metadata(
+    *,
+    reason: str,
+    note: str = "",
+    hook_result=None,
+) -> dict[str, Any]:
+    metadata = {
+        "reason": reason,
+        "note": note or "",
+    }
+    hook_payload = _approval_hook_payload(hook_result)
+    if hook_payload:
+        metadata["hook"] = hook_payload
+    return metadata
 
 
 def _obs_suffix() -> str:
@@ -42,17 +81,8 @@ def _obs_suffix() -> str:
 def request_user_approval_if_needed(
     context: ToolUseContext,
     force_ask: bool = False,
-) -> tuple[bool, object, str]:
-    """
-    检查工具权限并在需要时请求用户审批。
-
-    Args:
-        context: Tool use context
-        force_ask: Force approval request (used by hooks)
-
-    Returns:
-        (allowed, error_result_or_none, approval_message)
-    """
+) -> ApprovalOutcome:
+    """检查工具权限并在需要时请求用户审批。"""
     from tools.permission_manager import get_permission_policy, should_require_approval
     from tools.permissions import evaluate_tool_permission, get_tool_permission
 
@@ -66,60 +96,88 @@ def request_user_approval_if_needed(
     )
     if not decision.execution_allowed:
         logger.warning(f"工具权限检查失败: {decision.deny_reason}{_obs_suffix()}")
-        return False, error_result(decision.deny_reason, tool_name=context.tool_name), ""
+        return ApprovalOutcome(
+            allowed=False,
+            error_result=error_result(decision.deny_reason, tool_name=context.tool_name),
+        )
 
-    approval_message = ""
     permission = get_tool_permission(context.tool_name)
     if not permission:
-        return True, None, approval_message
+        return ApprovalOutcome(allowed=True)
 
     requires, reason = should_require_approval(context.tool_name, permission, context.arguments)
     if not requires and not force_ask:
         if reason:
             logger.info(f"工具 {context.tool_name} 审批跳过: {reason}{_obs_suffix()}")
-        return True, None, approval_message
+        return ApprovalOutcome(allowed=True)
 
-    # Hook: approval.required
-    _run_approval_hook("approval.required", context, permission, reason)
+    approval_required_hook = _run_approval_hook("approval.required", context, permission, reason)
+    approval_hook_payload = _approval_hook_payload(approval_required_hook)
 
     logger.info(f"工具 {context.tool_name} 需要用户审批{_obs_suffix()}")
     if not context.event_bus:
         logger.warning(f"工具 {context.tool_name} 需要审批但无事件总线，拒绝执行{_obs_suffix()}")
-        return False, error_result(
-            f"工具 {context.tool_name} 需要用户授权，但当前上下文不支持审批",
-            tool_name=context.tool_name,
-        ), ""
+        return ApprovalOutcome(
+            allowed=False,
+            error_result=error_result(
+                f"工具 {context.tool_name} 需要用户授权，但当前上下文不支持审批",
+                tool_name=context.tool_name,
+                metadata={
+                    "approval": _build_approval_metadata(
+                        reason=reason,
+                        hook_result=approval_required_hook,
+                    )
+                },
+            ),
+            approval_hook=approval_hook_payload,
+            approval_metadata=_build_approval_metadata(
+                reason=reason,
+                hook_result=approval_required_hook,
+            ),
+        )
 
     try:
         import uuid as _uuid
-        from agents.events import Event, EventType
+        from agents.events.bus import Event, EventType
         from agents.task_registry import get_task_registry
 
         approval_id = str(_uuid.uuid4())
         registry = get_task_registry()
         wait_evt = registry.add_pending_approval(context.session_id, approval_id) if context.session_id else None
 
+        event_data = {
+            "approval_id": approval_id,
+            "tool_name": context.tool_name,
+            "arguments": context.arguments,
+            "risk_level": permission.risk_level.value,
+            "description": permission.description,
+            "permission_mode": permission_mode,
+            "approval_reason": reason,
+            "approval_hook": approval_hook_payload,
+        }
         context.event_bus.publish(Event(
             type=EventType.USER_APPROVAL_REQUIRED,
             session_id=context.session_id,
-            data={
-                "approval_id": approval_id,
-                "tool_name": context.tool_name,
-                "arguments": context.arguments,
-                "risk_level": permission.risk_level.value,
-                "description": permission.description,
-                "permission_mode": permission_mode,
-                "approval_reason": reason,
-            }
+            data=event_data,
         ))
         logger.info(f"已发布工具 {context.tool_name} 的审批请求事件 approval_id={approval_id}{_obs_suffix()}")
 
         if wait_evt is None:
             logger.warning(f"工具 {context.tool_name} 需要审批但缺少 session_id，拒绝执行{_obs_suffix()}")
-            return False, error_result(
-                f"工具 {context.tool_name} 需要用户授权，但当前上下文无法等待审批",
-                tool_name=context.tool_name,
-            ), ""
+            approval_metadata = _build_approval_metadata(
+                reason=reason,
+                hook_result=approval_required_hook,
+            )
+            return ApprovalOutcome(
+                allowed=False,
+                error_result=error_result(
+                    f"工具 {context.tool_name} 需要用户授权，但当前上下文无法等待审批",
+                    tool_name=context.tool_name,
+                    metadata={"approval": approval_metadata},
+                ),
+                approval_hook=approval_hook_payload,
+                approval_metadata=approval_metadata,
+            )
 
         pause_current()
         try:
@@ -129,30 +187,73 @@ def request_user_approval_if_needed(
         approved, approval_note = registry.get_approval_result(context.session_id, approval_id)
 
         if not approved:
-            # Hook: approval.denied
-            _run_approval_hook("approval.denied", context, permission, reason, approved=False)
+            denied_hook = _run_approval_hook(
+                "approval.denied",
+                context,
+                permission,
+                reason,
+                approved=False,
+            )
+            approval_metadata = _build_approval_metadata(
+                reason=reason,
+                note=approval_note,
+                hook_result=denied_hook,
+            )
 
             logger.info(f"工具 {context.tool_name} 审批被拒绝或任务已停止{_obs_suffix()}")
             deny_reason = approval_note if approval_note else "用户拒绝执行此操作"
-            return False, error_result(
-                f"工具 {context.tool_name} 执行已被拒绝：{deny_reason}",
-                tool_name=context.tool_name,
-            ), ""
+            return ApprovalOutcome(
+                allowed=False,
+                error_result=error_result(
+                    f"工具 {context.tool_name} 执行已被拒绝：{deny_reason}",
+                    tool_name=context.tool_name,
+                    metadata={"approval": approval_metadata},
+                ),
+                approval_hook=_approval_hook_payload(denied_hook),
+                approval_metadata=approval_metadata,
+            )
 
-        # Hook: approval.resolved
-        _run_approval_hook("approval.resolved", context, permission, reason, approved=True, approval_note=approval_note)
+        resolved_hook = _run_approval_hook(
+            "approval.resolved",
+            context,
+            permission,
+            reason,
+            approved=True,
+            approval_note=approval_note,
+        )
+        approval_metadata = _build_approval_metadata(
+            reason=reason,
+            note=approval_note,
+            hook_result=resolved_hook,
+        )
 
         logger.info(f"工具 {context.tool_name} 审批通过，继续执行{_obs_suffix()}")
         if approval_note:
-            approval_message = approval_note
             logger.info(f"用户审批附言: {approval_note}{_obs_suffix()}")
-        return True, None, approval_message
+        return ApprovalOutcome(
+            allowed=True,
+            approval_message=approval_note or "",
+            approval_metadata=approval_metadata,
+            approval_hook=_approval_hook_payload(resolved_hook),
+        )
     except Exception as error:
-        # Hook: approval.error
-        _run_approval_hook("approval.error", context, permission, reason, error=error)
+        error_hook = _run_approval_hook("approval.error", context, permission, reason, error=error)
+        approval_metadata = _build_approval_metadata(
+            reason=reason,
+            hook_result=error_hook,
+        )
 
         logger.error(f"审批流程异常: {error}{_obs_suffix()}")
-        return False, error_result(f"审批流程异常: {error}", tool_name=context.tool_name), ""
+        return ApprovalOutcome(
+            allowed=False,
+            error_result=error_result(
+                f"审批流程异常: {error}",
+                tool_name=context.tool_name,
+                metadata={"approval": approval_metadata},
+            ),
+            approval_hook=_approval_hook_payload(error_hook),
+            approval_metadata=approval_metadata,
+        )
 
 
 def _run_approval_hook(
@@ -163,24 +264,19 @@ def _run_approval_hook(
     approved: bool = None,
     approval_note: str = None,
     error: Exception = None,
-) -> None:
-    """Run approval lifecycle hooks.
-
-    Args:
-        event_name: Hook event name (approval.required/resolved/denied/error)
-        context: Tool use context
-        permission: Tool permission object
-        approval_reason: Reason for approval requirement
-        approved: Whether approval was granted (for resolved/denied)
-        approval_note: User's approval note
-        error: Exception if approval failed
-    """
+):
+    """Run approval lifecycle hooks and return filtered result."""
     try:
+        from hooks.config_loader import resolve_workspace_trust
         from hooks.executor import run_hooks
         from hooks.models import HookContext
         from tools.permission_manager import get_permission_policy
 
-        # Build hook context
+        workspace_root = None
+        if context.agent_config is not None:
+            custom_params = getattr(context.agent_config, "custom_params", None) or {}
+            workspace_root = custom_params.get("workspace_root")
+
         hook_context = HookContext(
             event_name=event_name,
             phase=event_name.split(".")[-1],
@@ -198,7 +294,7 @@ def _run_approval_hook(
             round=context.round,
             order=context.order,
             round_index=context.round_index,
-            workspace_trust="trusted",
+            workspace_trust=resolve_workspace_trust(workspace_root),
             source="approval",
             tool_context=context,
             metadata={
@@ -211,7 +307,8 @@ def _run_approval_hook(
             },
         )
 
-        _filter_approval_hook_result(_run_hook_coroutine(run_hooks(hook_context)))
+        return _filter_approval_hook_result(_run_hook_coroutine(run_hooks(hook_context)))
 
     except Exception as e:
         logger.warning(f"Approval hook execution failed for {event_name}: {e}")
+        return None

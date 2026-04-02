@@ -141,7 +141,7 @@ def my_tool(arguments, **kwargs):
 - `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
 - `tools/permissions.py` 明确拆分”暴露权限”与”执行权限”，并输出结构化 `PermissionDecision`
 - `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway 复用该上下文
-- **Hook 系统已实现**：参考 Claude Code 的事件驱动 Hook 机制，支持在工具执行、审批流程的关键点注入自定义逻辑（详见 `docs/hooks.md`）
+- **Hook 系统已实现**：runtime 与 approval 主链都已接入 Hook，approval hook 结果会进入审批事件 payload / 最终结果 metadata，`workspace_trust` 也已从配置真实注入（详见 `docs/hooks.md`）
 - Observation 路径已承接大结果预算控制：`ObservationPolicy` 输出 `inline / artifact_ref` 两阶段决策，`PromptMaterializer` + `LargePayloadFormatter` 在 observation 格式化阶段完成落盘
 - `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_preview / raw_result / raw_result_ref / approval_message` 工作
 
@@ -156,10 +156,10 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   └─ 可阻止执行或添加上下文
   ├─ _request_user_approval_if_needed()
   │   ├─ check_tool_permission()  → (allowed, error_msg)
-  │   ├─ Hook: approval.required（审批请求发布时）
-  │   └─ 根据 auto-accept 规则 + risk_level + permission mode 判断是否需要审批，若需要则发布 `user.approval_required` 事件并携带 `permission_mode`、`approval_reason` 后等待用户确认
-  │   ├─ Hook: approval.resolved（审批通过）
-  │   └─ Hook: approval.denied（审批拒绝）
+  │   ├─ Hook: approval.required（审批请求发布前触发；hook 结果会并入 `user.approval_required.data["approval_hook"]`）
+  │   └─ 根据 auto-accept 规则 + risk_level + permission mode 判断是否需要审批，若需要则发布 `user.approval_required` 事件并携带 `permission_mode`、`approval_reason`、`approval_hook` 后等待用户确认
+  │   ├─ Hook: approval.resolved（审批通过后触发；hook 结果会并入成功结果 `metadata["approval"]`）
+  │   └─ Hook: approval.denied（审批拒绝后触发；hook 结果会并入 error result `metadata["approval"]`）
   ├─ Hook: tool.after_permission
   │   └─ 可收窄权限决策（allow → ask/deny）
   ├─ 获取 timeout_seconds（来自 ToolPermission，默认 60s）
@@ -175,6 +175,8 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   ├─ Hook: tool.after_execute
   │   └─ 可添加 UI 增强或审计信息
   ├─ _normalize_tool_result() → 统一为 ToolExecutionResult
+  ├─ 审批结果 metadata 合并
+  │   └─ 无论工具最终成功或失败，都会保留 `metadata["approval"]` 与可选 `approval_message`
   ├─ Hook: tool.on_error（执行异常时）
   └─ 返回 ToolExecutionResult
 ```
@@ -184,7 +186,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - 当前权限模式由 `tools.permission_manager` 的全局 `PermissionPolicy` 统一管理。
 - `/api/permissions/policy`、`/api/permissions/mode` 只操作全局策略，不区分 session。
 - `dangerously_skip_permissions` 表示“跳过审批”。
-- 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode` 与 `approval_reason`，供前端展示。
+- 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode`、`approval_reason` 与 `approval_hook`，供前端展示。
 
 ### builtin 与 agent delegation
 

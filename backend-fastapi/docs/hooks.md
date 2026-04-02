@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前实现是 **Phase 1 原型版**，已打通 Tool Runtime 与 Approval 生命周期的基础 Hook 链路，但还没有达到 Claude Code 那种完整、严格的 Hook 语义。
+当前实现已打通 Tool Runtime 与 Approval 生命周期的主链 Hook 闭环，并把关键事件语义从“文档约定 + phase filter”进一步收紧为“结果类型协议 + runtime defensive clamp”的双约束；但整体仍保持 Phase 1 范围，尚未扩展到更多 backend 与子域 Hook。
 
 ### 已实现
 
@@ -10,15 +10,22 @@
 - Approval 事件接入：`approval.required`、`approval.resolved`、`approval.denied`、`approval.error`
 - Hook 子系统基础设施：`models / registry / config_loader / matcher / executor / broadcast / bootstrap`
 - Backend 类型：`function`、`prompt`、`callback`
-- 结果合并：`block_execution`、`permission_decision`、`additional_context`、`ui_message`、`ui_metadata`、`tags`、`metadata`
-- Hook 生命周期广播：`hook.started`、`hook.response`、`hook.error`
-- `before_execute.additional_context` 已落入 `ToolExecutionResult.metadata["hook_additional_context"]`，便于实际测试与观察
+- 结果协议已按事件族收紧：`DecisionHookResult`、`ContextHookResult`、`ObservationHookResult`、`ErrorHookResult`、`ApprovalHookResult`
+- Approval hook 结果已进入审批主链：
+  - `approval.required` 会把 hook 数据并入 `user.approval_required.data["approval_hook"]`
+  - `approval.resolved / denied / error` 会把 hook 数据并入 `metadata["approval"]`
+- `before_execute.additional_context` 已落入 `ToolExecutionResult.metadata["hook_additional_context"]`，并在 observation 物化阶段以 `[Hook Context]` 前缀块进入模型主链
+- `after_execute.additional_context` 当前仍只保留在 metadata，不进入 observation 主链
+- `workspace_trust` 已从 `hooks.yaml` 顶层配置真实解析，并在 runtime / approval 两条主链统一注入 `HookContext.workspace_trust`
+  - 路径规则按“路径边界匹配”而不是纯字符串前缀匹配，避免 `E:/Python/RAGSystem2` 误命中 `E:/Python/RAGSystem`
+  - trust resolver 每次按当前配置重新加载，避免模块级单例缓存导致配置陈旧
+- Hook 生命周期广播已覆盖：`hook.started`、`hook.progress`、`hook.response`、`hook.error`
 
 ### 部分实现
 
-- `hook.progress` 事件类型已定义，但默认执行链路还未主动发送 progress 事件
-- `fail_mode: closed_for_decision_open_for_observation` 已做基础语义映射：决策型事件默认 fail-closed，观察型事件默认 fail-open；但还不是按更细粒度事件协议驱动
-- `workspace_trust` 字段已进入 `HookContext` 和 matcher，但 runtime 当前仍写死为 `"trusted"`，尚未形成真实安全边界
+- `fail_mode: closed_for_decision_open_for_observation` 已做基础语义映射；当前又增加了“事件 -> 结果类型”校验，非法结果在 fail-open hook 下回退为空结果，在 fail-closed hook 下按原 fail 语义阻断
+- `workspace_trust` 当前先收紧为二值：`trusted` / `untrusted`；规则集也只支持 `workspace_root_prefix` + `default`
+- `hook.progress` 当前支持的是“hook 返回 progress 字段后发出一次 progress 事件”；它仍不是执行过程中的流式增量协议
 
 ### 未实现 / 计划中
 
@@ -26,7 +33,6 @@
 - 更严格的 per-event 输入/输出协议
 - 非 `function/prompt/callback` 的 backend（如 http / agent）
 - Agent lifecycle hooks、bash/memory/skill/artifact 子域 hooks
-- 安全表达式求值器替代当前 `if_expr` 的直接 `eval`
 
 ## 概述
 
@@ -106,6 +112,13 @@ defaults:
   timeout_ms: 1000
   fail_mode: closed_for_decision_open_for_observation
   broadcast: true
+
+workspace_trust:
+  default: trusted
+  rules:
+    - matcher:
+        workspace_root_prefix: "E:/Python/RAGSystem"
+      trust: trusted
 
 hooks:
   - id: tool-risk-audit
@@ -208,38 +221,41 @@ backend:
   target: "noop"
 ```
 
-## HookResult 字段
+## Hook Result 协议
 
-### 执行控制
+### 公共控制字段
 
 - `continue_execution: bool` - 是否继续执行（默认 True）
 - `block_execution: bool` - 是否阻止执行（默认 False）
 - `block_reason: str` - 阻止原因
 
-### 权限覆盖
+### 事件族结果类型
 
-- `permission_decision: str` - 权限决策（allow/ask/deny）
-  - 只能收窄权限，不能放宽
-  - deny > ask > allow
+- `DecisionHookResult`
+  - 用于：`tool.before_permission`、`tool.after_permission`
+  - 允许字段：`permission_decision`、`ui_message`、`ui_metadata`、`tags`、`metadata`、`broadcast_progress`
+- `ContextHookResult`
+  - 用于：`tool.before_execute`
+  - 允许字段：`additional_context`、`ui_message`、`ui_metadata`、`tags`、`metadata`、`broadcast_progress`
+- `ObservationHookResult`
+  - 用于：`tool.after_execute`
+  - 允许字段：`additional_context`、`ui_message`、`ui_metadata`、`tags`、`metadata`、`broadcast_progress`
+- `ErrorHookResult`
+  - 用于：`tool.on_error`
+  - 允许字段：`tags`、`metadata`、`broadcast_progress`
+- `ApprovalHookResult`
+  - 用于：`approval.required`、`approval.resolved`、`approval.denied`、`approval.error`
+  - 允许字段：`ui_message`、`ui_metadata`、`tags`、`metadata`
+  - 明确禁止：`permission_decision`、`additional_context`、`block_execution` 之外的审批决策语义扩展
 
-### 附加上下文
+### additional_context 注入语义
 
-- `additional_context: list[str]` - 附加上下文列表
-  - 会被合并并去重
-  - `tool.before_execute.additional_context` 当前会先落到 `ToolExecutionResult.metadata["hook_additional_context"]`
+- `tool.before_execute.additional_context`
+  - 会被合并去重
+  - 先落到 `ToolExecutionResult.metadata["hook_additional_context"]`
   - 随后在 observation 物化阶段被消费，并以前缀块形式进入下一轮模型可见的 tool observation
-  - `tool.after_execute.additional_context` 当前仍只保留在 metadata，不进入模型主链
-
-### UI 增强
-
-- `ui_message: str` - UI 消息
-- `ui_metadata: dict` - UI 元数据
-
-### 元数据
-
-- `tags: list[str]` - 标签
-- `metadata: dict` - 自定义元数据
-- `broadcast_progress: str` - 进度消息（可选）
+- `tool.after_execute.additional_context`
+  - 当前仍只保留在 metadata，不进入模型主链
 
 ### Matcher 表达式
 
@@ -258,14 +274,14 @@ backend:
 | `tool.before_execute` | input / permission / risk | `block_execution`, `ui_message`, `ui_metadata`, `tags`, `metadata`, `additional_context`（会进入 observation 主链） | result/error 相关字段 |
 | `tool.after_execute` | result_snapshot | `ui_message`, `ui_metadata`, `tags`, `metadata`, `additional_context`（当前仅保留 metadata） | `permission_decision` |
 | `tool.on_error` | error_snapshot | `tags`, `metadata` | `permission_decision`, `additional_context` |
-| `approval.required` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata` | tool result 相关字段 |
-| `approval.resolved` | approval reason / risk / permission mode / note | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision` |
-| `approval.denied` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision` |
-| `approval.error` | approval reason / risk / permission mode / error | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision`, `additional_context` |
+| `approval.required` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata`；并进入 `user.approval_required.data["approval_hook"]` | tool result 相关字段 |
+| `approval.resolved` | approval reason / risk / permission mode / note | `ui_message`, `ui_metadata`, `tags`, `metadata`；并进入成功结果 `metadata["approval"]` | `permission_decision` |
+| `approval.denied` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata`；并进入 error result `metadata["approval"]` | `permission_decision` |
+| `approval.error` | approval reason / risk / permission mode / error | `ui_message`, `ui_metadata`, `tags`, `metadata`；并进入 error result `metadata["approval"]` | `permission_decision`, `additional_context` |
 
-> 当前 Phase 1 仍使用统一 `HookResult` 模型；上表描述的是 runtime / approval 主链“实际消费哪些字段”，不是 schema 层面的强校验。
+> 当前主链不再只依赖统一宽 `HookResult` + 文档约定；runtime 会按事件族校验结果类型，并在消费侧继续做 defensive clamp。
 >
-> 其中 runtime 侧的 `tool.before_permission / after_permission / before_execute / after_execute` 已接入执行层 phase 过滤；`tool.on_error` 也只保留 `tags / metadata`。approval 侧当前仅完成轻量语义收口，过滤结果尚未形成与 runtime 同等级的消费闭环。
+> runtime 侧的 `tool.before_permission / after_permission / before_execute / after_execute / on_error` 与 approval 侧的 `approval.required / resolved / denied / error` 都已形成真实消费闭环。
 
 ## 内建 Hooks
 

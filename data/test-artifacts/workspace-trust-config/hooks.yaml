@@ -1,0 +1,8 @@
+version: 1
+workspace_trust:
+  default: trusted
+  rules:
+    - matcher:
+        workspace_root_prefix: 'E:/Beta'
+      trust: untrusted
+hooks: []

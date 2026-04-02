@@ -1,9 +1,11 @@
 """Core data models for the hook system."""
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional
 
-from tools.runtime.models import ToolUseContext, PermissionDecision
+from tools.runtime.models import PermissionDecision, ToolUseContext
+
+WorkspaceTrustValue = Literal["trusted", "untrusted"]
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,7 @@ class HookContext:
     round_index: Optional[int] = None
 
     # Security context
-    workspace_trust: str = "trusted"
+    workspace_trust: WorkspaceTrustValue = "trusted"
     source: str = "runtime"
 
     # Rich context objects
@@ -56,32 +58,69 @@ class HookContext:
 
 @dataclass
 class HookResult:
-    """Result returned by hook handlers.
+    """Minimal common result returned by hook handlers."""
 
-    Phase 1: Conservative - observation and decision only, no mutation.
-    """
-
-    # Execution control
     continue_execution: bool = True
     block_execution: bool = False
     block_reason: str = ""
 
-    # Permission override (can only narrow, not widen)
+
+@dataclass
+class DecisionHookResult(HookResult):
+    """Hook result for tool.before_permission / tool.after_permission."""
+
     permission_decision: Optional[str] = None  # allow / ask / deny
-
-    # Additional context for AI or downstream hooks
-    additional_context: list[str] = field(default_factory=list)
-
-    # UI enhancements
     ui_message: Optional[str] = None
     ui_metadata: dict[str, Any] = field(default_factory=dict)
-
-    # Metadata and tags
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    # Progress reporting
     broadcast_progress: Optional[str] = None
+
+
+@dataclass
+class ContextHookResult(HookResult):
+    """Hook result for tool.before_execute."""
+
+    additional_context: list[str] = field(default_factory=list)
+    ui_message: Optional[str] = None
+    ui_metadata: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    broadcast_progress: Optional[str] = None
+
+
+@dataclass
+class ObservationHookResult(HookResult):
+    """Hook result for tool.after_execute."""
+
+    additional_context: list[str] = field(default_factory=list)
+    ui_message: Optional[str] = None
+    ui_metadata: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    broadcast_progress: Optional[str] = None
+
+
+@dataclass
+class ErrorHookResult(HookResult):
+    """Hook result for tool.on_error."""
+
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    broadcast_progress: Optional[str] = None
+
+
+@dataclass
+class ApprovalHookResult(HookResult):
+    """Hook result for approval.* lifecycle events.
+
+    Approval hooks are UI/audit enhancements only.
+    """
+
+    ui_message: Optional[str] = None
+    ui_metadata: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -147,3 +186,15 @@ class HookDefinition:
 
     # Tags
     tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkspaceTrustRule:
+    workspace_root_prefix: str
+    trust: WorkspaceTrustValue
+
+
+@dataclass(frozen=True)
+class WorkspaceTrustConfig:
+    default: WorkspaceTrustValue = "trusted"
+    rules: tuple[WorkspaceTrustRule, ...] = ()

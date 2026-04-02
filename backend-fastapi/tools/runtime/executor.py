@@ -84,7 +84,14 @@ def _filter_hook_result_for_phase(hook_result, *, phase: str):
     if not hook_result:
         return hook_result
 
-    from hooks.models import HookResult
+    from hooks.models import (
+        ApprovalHookResult,
+        ContextHookResult,
+        DecisionHookResult,
+        ErrorHookResult,
+        HookResult,
+        ObservationHookResult,
+    )
 
     filtered = HookResult(
         continue_execution=hook_result.continue_execution,
@@ -93,33 +100,65 @@ def _filter_hook_result_for_phase(hook_result, *, phase: str):
     )
 
     if phase in {"before_permission", "after_permission"}:
-        filtered.permission_decision = hook_result.permission_decision
-        filtered.ui_message = hook_result.ui_message
-        filtered.ui_metadata = dict(hook_result.ui_metadata)
-        filtered.tags = list(hook_result.tags)
-        filtered.metadata = dict(hook_result.metadata)
-        return filtered
+        decision_result = DecisionHookResult(
+            continue_execution=filtered.continue_execution,
+            block_execution=filtered.block_execution,
+            block_reason=filtered.block_reason,
+            permission_decision=getattr(hook_result, "permission_decision", None),
+            ui_message=getattr(hook_result, "ui_message", None),
+            ui_metadata=dict(getattr(hook_result, "ui_metadata", {}) or {}),
+            tags=list(getattr(hook_result, "tags", []) or []),
+            metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+            broadcast_progress=getattr(hook_result, "broadcast_progress", None),
+        )
+        return decision_result
 
     if phase == "before_execute":
-        filtered.additional_context = list(hook_result.additional_context)
-        filtered.ui_message = hook_result.ui_message
-        filtered.ui_metadata = dict(hook_result.ui_metadata)
-        filtered.tags = list(hook_result.tags)
-        filtered.metadata = dict(hook_result.metadata)
-        return filtered
+        return ContextHookResult(
+            continue_execution=filtered.continue_execution,
+            block_execution=filtered.block_execution,
+            block_reason=filtered.block_reason,
+            additional_context=list(getattr(hook_result, "additional_context", []) or []),
+            ui_message=getattr(hook_result, "ui_message", None),
+            ui_metadata=dict(getattr(hook_result, "ui_metadata", {}) or {}),
+            tags=list(getattr(hook_result, "tags", []) or []),
+            metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+            broadcast_progress=getattr(hook_result, "broadcast_progress", None),
+        )
 
     if phase == "after_execute":
-        filtered.additional_context = list(hook_result.additional_context)
-        filtered.ui_message = hook_result.ui_message
-        filtered.ui_metadata = dict(hook_result.ui_metadata)
-        filtered.tags = list(hook_result.tags)
-        filtered.metadata = dict(hook_result.metadata)
-        return filtered
+        return ObservationHookResult(
+            continue_execution=filtered.continue_execution,
+            block_execution=filtered.block_execution,
+            block_reason=filtered.block_reason,
+            additional_context=list(getattr(hook_result, "additional_context", []) or []),
+            ui_message=getattr(hook_result, "ui_message", None),
+            ui_metadata=dict(getattr(hook_result, "ui_metadata", {}) or {}),
+            tags=list(getattr(hook_result, "tags", []) or []),
+            metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+            broadcast_progress=getattr(hook_result, "broadcast_progress", None),
+        )
 
     if phase == "on_error":
-        filtered.tags = list(hook_result.tags)
-        filtered.metadata = dict(hook_result.metadata)
-        return filtered
+        return ErrorHookResult(
+            continue_execution=filtered.continue_execution,
+            block_execution=filtered.block_execution,
+            block_reason=filtered.block_reason,
+            tags=list(getattr(hook_result, "tags", []) or []),
+            metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+            broadcast_progress=getattr(hook_result, "broadcast_progress", None),
+        )
+
+    if phase.startswith("approval"):
+        return ApprovalHookResult(
+            continue_execution=filtered.continue_execution,
+            block_execution=filtered.block_execution,
+            block_reason=filtered.block_reason,
+            ui_message=getattr(hook_result, "ui_message", None),
+            ui_metadata=dict(getattr(hook_result, "ui_metadata", {}) or {}),
+            tags=list(getattr(hook_result, "tags", []) or []),
+            metadata=dict(getattr(hook_result, "metadata", {}) or {}),
+        )
 
     return filtered
 
@@ -128,19 +167,33 @@ def _merge_hook_data(result: ToolExecutionResult, hook_result, *, phase: str) ->
     if not hook_result:
         return
 
-    if hook_result.additional_context:
+    if getattr(hook_result, "additional_context", None):
         result.metadata.setdefault("hook_additional_context", {})[phase] = list(hook_result.additional_context)
-    if hook_result.ui_message:
+    if getattr(hook_result, "ui_message", None):
         result.metadata.setdefault("hook_message", {})[phase] = hook_result.ui_message
-    if hook_result.ui_metadata:
-        result.metadata.setdefault("hook_metadata", {})[phase] = dict(hook_result.ui_metadata)
-    if hook_result.tags:
+    if getattr(hook_result, "ui_metadata", None):
+        if hook_result.ui_metadata:
+            result.metadata.setdefault("hook_metadata", {})[phase] = dict(hook_result.ui_metadata)
+    if getattr(hook_result, "tags", None):
         phase_tags = result.metadata.setdefault("hook_tags", {}).setdefault(phase, [])
         for tag in hook_result.tags:
             if tag not in phase_tags:
                 phase_tags.append(tag)
-    if hook_result.metadata:
-        result.metadata.setdefault("hook_phase_metadata", {})[phase] = dict(hook_result.metadata)
+    if getattr(hook_result, "metadata", None):
+        if hook_result.metadata:
+            result.metadata.setdefault("hook_phase_metadata", {})[phase] = dict(hook_result.metadata)
+
+
+def _merge_approval_metadata(result: ToolExecutionResult, approval_metadata: dict | None, approval_message: str = "") -> None:
+    if not approval_metadata and not approval_message:
+        return
+
+    existing = dict(result.metadata.get("approval", {}))
+    if approval_metadata:
+        existing.update(approval_metadata)
+    if approval_message and not existing.get("note"):
+        existing["note"] = approval_message
+    result.metadata["approval"] = existing
 
 
 def execute_tool(
@@ -184,7 +237,6 @@ def execute_tool(
     )
 
     try:
-        # Phase 1: before_permission hooks
         hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.before_permission", context),
             phase="before_permission",
@@ -192,10 +244,9 @@ def execute_tool(
         if hook_result and hook_result.block_execution:
             return error_result(hook_result.block_reason, tool_name=tool_name)
 
-        # Existing permission flow
-        allowed, approval_error_result, approval_message = request_user_approval_if_needed(context)
-        if not allowed:
-            return approval_error_result
+        approval_outcome = request_user_approval_if_needed(context)
+        if not approval_outcome.allowed:
+            return approval_outcome.error_result
 
         from tools.permissions import evaluate_tool_permission, get_tool_permission
 
@@ -207,7 +258,6 @@ def execute_tool(
             caller=caller,
         )
 
-        # Phase 2: after_permission hooks (can override permission decision)
         hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.after_permission", context, permission_decision=permission_decision),
             phase="after_permission",
@@ -215,20 +265,15 @@ def execute_tool(
         if hook_result:
             if hook_result.block_execution:
                 return error_result(hook_result.block_reason, tool_name=tool_name)
-            # Hook can narrow permission (e.g., allow -> ask)
             if hook_result.permission_decision == "deny":
                 return error_result("Hook denied tool execution", tool_name=tool_name)
             elif hook_result.permission_decision == "ask":
-                # Re-request approval if hook upgraded to ask
-                allowed, approval_error_result, approval_message = request_user_approval_if_needed(
-                    context, force_ask=True
-                )
-                if not allowed:
-                    return approval_error_result
+                approval_outcome = request_user_approval_if_needed(context, force_ask=True)
+                if not approval_outcome.allowed:
+                    return approval_outcome.error_result
 
         timeout = permission.timeout_seconds if permission else _DEFAULT_TIMEOUT
 
-        # Phase 3: before_execute hooks
         before_execute_hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.before_execute", context),
             phase="before_execute",
@@ -236,7 +281,6 @@ def execute_tool(
         if before_execute_hook_result and before_execute_hook_result.block_execution:
             return error_result(before_execute_hook_result.block_reason, tool_name=tool_name)
 
-        # Execute tool
         handler = get_tool_handler(tool_name)
 
         if handler is not None:
@@ -253,7 +297,6 @@ def execute_tool(
         result = _normalize_tool_result(result, tool_name)
         _merge_hook_data(result, before_execute_hook_result, phase="before_execute")
 
-        # Phase 4: after_execute hooks
         hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.after_execute", context, result=result),
             phase="after_execute",
@@ -261,13 +304,13 @@ def execute_tool(
         if hook_result:
             _merge_hook_data(result, hook_result, phase="after_execute")
 
-        if approval_message and result.success:
-            result.metadata.setdefault("approval_message", approval_message)
+        _merge_approval_metadata(result, approval_outcome.approval_metadata, approval_outcome.approval_message)
+        if approval_outcome.approval_message:
+            result.metadata.setdefault("approval_message", approval_outcome.approval_message)
         return result
 
     except Exception as error:
-        # Phase 5: on_error hooks
-        _filter_hook_result_for_phase(
+        hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.on_error", context, error=error),
             phase="on_error",
         )
@@ -275,21 +318,18 @@ def execute_tool(
         logger.error(f"执行工具 {tool_name} 失败: {error}{_obs_suffix()}")
         import traceback
         traceback.print_exc()
-        return error_result(str(error), tool_name=tool_name)
+        result = error_result(str(error), tool_name=tool_name)
+        _merge_approval_metadata(result, approval_outcome.approval_metadata, approval_outcome.approval_message)
+        if approval_outcome.approval_message:
+            result.metadata.setdefault("approval_message", approval_outcome.approval_message)
+        _merge_hook_data(result, hook_result, phase="on_error")
+        return result
 
 
-def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "HookResult | None":
-    """Run hooks synchronously in the tool execution flow.
-
-    Args:
-        event_name: Hook event name (e.g., "tool.before_permission")
-        context: Tool use context
-        **kwargs: Additional context (permission_decision, result, error)
-
-    Returns:
-        Merged HookResult or None if hooks disabled
-    """
+def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> Any:
+    """Run hooks synchronously in the tool execution flow."""
     try:
+        from hooks.config_loader import resolve_workspace_trust
         from hooks.executor import run_hooks
         from hooks.models import HookContext
         from tools.permission_manager import get_permission_policy
@@ -298,11 +338,14 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
         permission = get_tool_permission(context.tool_name)
         permission_risk_level = permission.risk_level.value if permission else None
         permission_mode = get_permission_policy().mode.value
+        workspace_root = None
+        if context.agent_config is not None:
+            custom_params = getattr(context.agent_config, "custom_params", None) or {}
+            workspace_root = custom_params.get("workspace_root")
 
-        # Build hook context
         hook_context = HookContext(
             event_name=event_name,
-            phase=event_name.split(".")[-1],  # before_permission, after_execute, etc.
+            phase=event_name.split(".")[-1],
             timestamp=time.time(),
             session_id=context.session_id,
             run_id=context.run_id,
@@ -317,7 +360,7 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
             round=context.round,
             order=context.order,
             round_index=context.round_index,
-            workspace_trust="trusted",  # TODO: Get from config
+            workspace_trust=resolve_workspace_trust(workspace_root),
             source="runtime",
             tool_context=context,
             permission_decision=kwargs.get("permission_decision"),
@@ -330,7 +373,6 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
             },
         )
 
-        # Run hooks synchronously in the current sync flow
         return _run_coroutine_sync(run_hooks(hook_context))
 
     except Exception as e:

@@ -19,6 +19,7 @@ async def broadcast_hook_event(
     duration_ms: Optional[float] = None,
     ui_message: Optional[str] = None,
     error_message: Optional[str] = None,
+    progress_message: Optional[str] = None,
 ) -> None:
     """Broadcast a hook lifecycle event to the event bus.
 
@@ -82,6 +83,8 @@ async def broadcast_hook_event(
             payload["ui_message"] = ui_message
         if error_message:
             payload["error_message"] = error_message
+        if progress_message:
+            payload["progress_message"] = progress_message
 
         # Map hook event type to EventType
         event_type_map = {

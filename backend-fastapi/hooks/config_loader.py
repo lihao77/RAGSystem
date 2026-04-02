@@ -14,6 +14,8 @@ from hooks.models import (
     HookBackendDefinition,
     HookDefinition,
     HookMatcher,
+    WorkspaceTrustConfig,
+    WorkspaceTrustRule,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ _DECISION_EVENTS = {
     "approval.error",
 }
 
+_WORKSPACE_TRUST_VALUES = {"trusted", "untrusted"}
+
 
 class HookConfigLoader:
     """Loads and validates hook configurations from YAML files."""
@@ -40,6 +44,7 @@ class HookConfigLoader:
         """
         self.config_dir = config_dir
         self.hooks_file = config_dir / "hooks.yaml"
+        self.workspace_trust_config = WorkspaceTrustConfig()
 
     def load_system_hooks(self) -> List[HookDefinition]:
         """Load system-level hook definitions.
@@ -49,6 +54,7 @@ class HookConfigLoader:
         """
         if not self.hooks_file.exists():
             logger.warning(f"Hooks config file not found: {self.hooks_file}")
+            self.workspace_trust_config = WorkspaceTrustConfig()
             return []
 
         try:
@@ -56,7 +62,12 @@ class HookConfigLoader:
                 config = yaml.safe_load(f)
 
             if not config:
+                self.workspace_trust_config = WorkspaceTrustConfig()
                 return []
+
+            self.workspace_trust_config = self._parse_workspace_trust_config(
+                config.get("workspace_trust", {})
+            )
 
             # Get defaults
             defaults = config.get("defaults", {})
@@ -80,6 +91,7 @@ class HookConfigLoader:
 
         except Exception as e:
             logger.error(f"Failed to load hooks config: {e}", exc_info=True)
+            self.workspace_trust_config = WorkspaceTrustConfig()
             return []
 
     def _parse_hook_definition(
@@ -202,6 +214,48 @@ class HookConfigLoader:
             return not any(event in _DECISION_EVENTS for event in events)
         return False
 
+    def _parse_workspace_trust_config(self, config: Dict[str, Any]) -> WorkspaceTrustConfig:
+        default = config.get("default", "trusted")
+        if default not in _WORKSPACE_TRUST_VALUES:
+            raise ValueError(f"Invalid workspace_trust.default: {default}")
+
+        rules: list[WorkspaceTrustRule] = []
+        for rule in config.get("rules", []):
+            matcher = rule.get("matcher", {})
+            workspace_root_prefix = matcher.get("workspace_root_prefix")
+            trust = rule.get("trust")
+            if not workspace_root_prefix:
+                raise ValueError("workspace_trust rule missing matcher.workspace_root_prefix")
+            if trust not in _WORKSPACE_TRUST_VALUES:
+                raise ValueError(f"Invalid workspace_trust rule trust: {trust}")
+            rules.append(
+                WorkspaceTrustRule(
+                    workspace_root_prefix=str(workspace_root_prefix),
+                    trust=trust,
+                )
+            )
+
+        return WorkspaceTrustConfig(default=default, rules=tuple(rules))
+
+    def resolve_workspace_trust(self, workspace_root: Optional[str]) -> str:
+        if workspace_root:
+            normalized_root = self._normalize_path(workspace_root)
+            for rule in self.workspace_trust_config.rules:
+                normalized_prefix = self._normalize_path(rule.workspace_root_prefix)
+                if self._path_matches_prefix(normalized_root, normalized_prefix):
+                    return rule.trust
+        return self.workspace_trust_config.default
+
+    @staticmethod
+    def _path_matches_prefix(path: str, prefix: str) -> bool:
+        if path == prefix:
+            return True
+        return path.startswith(f"{prefix}/")
+
+    @staticmethod
+    def _normalize_path(value: str) -> str:
+        return str(Path(value)).replace("\\", "/").rstrip("/").lower()
+
     def load_agent_overrides(
         self, agent_config: Dict[str, Any]
     ) -> tuple[List[str], List[str], Dict[str, int]]:
@@ -239,3 +293,15 @@ def load_hooks_config(config_dir: Optional[Path] = None) -> List[HookDefinition]
 
     loader = HookConfigLoader(config_dir)
     return loader.load_system_hooks()
+
+
+_DEFAULT_CONFIG_DIR = Path(__file__).parent.parent / "config" / "yaml"
+
+
+def resolve_workspace_trust(workspace_root: Optional[str], config_dir: Optional[Path] = None) -> str:
+    """Resolve workspace trust from configured prefix rules."""
+    if config_dir is None:
+        config_dir = _DEFAULT_CONFIG_DIR
+    loader = HookConfigLoader(config_dir)
+    loader.load_system_hooks()
+    return loader.resolve_workspace_trust(workspace_root)

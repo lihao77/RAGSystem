@@ -3,12 +3,18 @@
 import logging
 from typing import Any, Dict
 
-from hooks.models import HookContext, HookResult
+from hooks.models import (
+    ApprovalHookResult,
+    ContextHookResult,
+    DecisionHookResult,
+    HookContext,
+    ObservationHookResult,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def handle_risk_audit(context: HookContext, config: Dict[str, Any]) -> HookResult:
+def handle_risk_audit(context: HookContext, config: Dict[str, Any]) -> ObservationHookResult:
     """Audit high-risk tool executions.
 
     Logs tool execution details for security and compliance.
@@ -46,7 +52,7 @@ def handle_risk_audit(context: HookContext, config: Dict[str, Any]) -> HookResul
     logger.info(f"[AUDIT] High-risk tool execution: {audit_entry}")
 
     # Return empty result - this is observation only
-    return HookResult(
+    return ObservationHookResult(
         tags=["audited"],
         metadata={"audit_logged": True},
     )
@@ -54,7 +60,7 @@ def handle_risk_audit(context: HookContext, config: Dict[str, Any]) -> HookResul
 
 def handle_high_risk_approval_enhancement(
     context: HookContext, config: Dict[str, Any]
-) -> HookResult:
+) -> ApprovalHookResult:
     """Enhance approval UI for high-risk tools.
 
     Adds additional context and warnings to the approval prompt
@@ -103,7 +109,7 @@ def handle_high_risk_approval_enhancement(
         "tool_category": _get_tool_category(tool_name),
     }
 
-    return HookResult(
+    return ApprovalHookResult(
         ui_message=ui_message,
         ui_metadata=ui_metadata,
         tags=["approval_enhanced"],
@@ -124,7 +130,7 @@ def _get_tool_category(tool_name: str) -> str:
         return "other"
 
 
-def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> HookResult:
+def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> ObservationHookResult:
     """Test hook handler: Log all tool executions.
 
     This is a test hook to demonstrate the hook system in action.
@@ -158,7 +164,7 @@ def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> HookResu
     logger.info(f"[TEST HOOK] {log_message}")
 
     # Return result with metadata
-    return HookResult(
+    return ObservationHookResult(
         tags=["test_logged"],
         metadata={
             "test_hook": "tool_logger",
@@ -171,7 +177,7 @@ def handle_test_logger(context: HookContext, config: Dict[str, Any]) -> HookResu
 
 def handle_bash_command_validation(
     context: HookContext, config: Dict[str, Any]
-) -> HookResult:
+) -> DecisionHookResult:
     """Validate bash commands before execution.
 
     Checks for potentially dangerous patterns and can block execution.
@@ -185,12 +191,12 @@ def handle_bash_command_validation(
     """
     # Only run on before_execute phase
     if context.phase != "before_execute":
-        return HookResult()
+        return DecisionHookResult()
 
     # Get command from input snapshot
     command = context.input_snapshot.get("command", "")
     if not command:
-        return HookResult()
+        return DecisionHookResult()
 
     # Check for dangerous patterns
     dangerous_patterns = [
@@ -203,7 +209,7 @@ def handle_bash_command_validation(
 
     for pattern in dangerous_patterns:
         if pattern in command:
-            return HookResult(
+            return DecisionHookResult(
                 block_execution=True,
                 block_reason=f"Dangerous command pattern detected: {pattern}",
                 ui_message=f"⛔ Command blocked: Contains dangerous pattern '{pattern}'",
@@ -213,18 +219,18 @@ def handle_bash_command_validation(
     # Check for untrusted workspace
     if context.workspace_trust == "untrusted":
         # In untrusted workspace, require approval for all bash commands
-        return HookResult(
+        return DecisionHookResult(
             permission_decision="ask",
             ui_message="⚠️ Bash command in untrusted workspace requires approval",
             tags=["untrusted_workspace"],
         )
 
-    return HookResult()
+    return DecisionHookResult()
 
 
 def handle_memory_write_guard(
     context: HookContext, config: Dict[str, Any]
-) -> HookResult:
+) -> ContextHookResult:
     """Guard memory write operations.
 
     Adds context about what's being written to memory.
@@ -238,7 +244,7 @@ def handle_memory_write_guard(
     """
     # Only run on before_execute phase
     if context.phase != "before_execute":
-        return HookResult()
+        return ContextHookResult()
 
     # Get memory write details
     memory_type = context.input_snapshot.get("type", "unknown")
@@ -249,7 +255,7 @@ def handle_memory_write_guard(
         "This will persist across conversations.",
     ]
 
-    return HookResult(
+    return ContextHookResult(
         additional_context=additional_context,
         tags=["memory_write"],
     )
