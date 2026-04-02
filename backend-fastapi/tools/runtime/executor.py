@@ -80,6 +80,50 @@ def _run_coroutine_sync(coro: Coroutine[Any, Any, Any]):
         return future.result()
 
 
+def _filter_hook_result_for_phase(hook_result, *, phase: str):
+    if not hook_result:
+        return hook_result
+
+    from hooks.models import HookResult
+
+    filtered = HookResult(
+        continue_execution=hook_result.continue_execution,
+        block_execution=hook_result.block_execution,
+        block_reason=hook_result.block_reason,
+    )
+
+    if phase in {"before_permission", "after_permission"}:
+        filtered.permission_decision = hook_result.permission_decision
+        filtered.ui_message = hook_result.ui_message
+        filtered.ui_metadata = dict(hook_result.ui_metadata)
+        filtered.tags = list(hook_result.tags)
+        filtered.metadata = dict(hook_result.metadata)
+        return filtered
+
+    if phase == "before_execute":
+        filtered.additional_context = list(hook_result.additional_context)
+        filtered.ui_message = hook_result.ui_message
+        filtered.ui_metadata = dict(hook_result.ui_metadata)
+        filtered.tags = list(hook_result.tags)
+        filtered.metadata = dict(hook_result.metadata)
+        return filtered
+
+    if phase == "after_execute":
+        filtered.additional_context = list(hook_result.additional_context)
+        filtered.ui_message = hook_result.ui_message
+        filtered.ui_metadata = dict(hook_result.ui_metadata)
+        filtered.tags = list(hook_result.tags)
+        filtered.metadata = dict(hook_result.metadata)
+        return filtered
+
+    if phase == "on_error":
+        filtered.tags = list(hook_result.tags)
+        filtered.metadata = dict(hook_result.metadata)
+        return filtered
+
+    return filtered
+
+
 def _merge_hook_data(result: ToolExecutionResult, hook_result, *, phase: str) -> None:
     if not hook_result:
         return
@@ -141,7 +185,10 @@ def execute_tool(
 
     try:
         # Phase 1: before_permission hooks
-        hook_result = _run_hooks_sync("tool.before_permission", context)
+        hook_result = _filter_hook_result_for_phase(
+            _run_hooks_sync("tool.before_permission", context),
+            phase="before_permission",
+        )
         if hook_result and hook_result.block_execution:
             return error_result(hook_result.block_reason, tool_name=tool_name)
 
@@ -150,12 +197,21 @@ def execute_tool(
         if not allowed:
             return approval_error_result
 
-        from tools.permissions import get_tool_permission
+        from tools.permissions import evaluate_tool_permission, get_tool_permission
 
         permission = get_tool_permission(tool_name)
+        permission_decision = evaluate_tool_permission(
+            tool_name=tool_name,
+            agent_config=agent_config,
+            user_role=user_role,
+            caller=caller,
+        )
 
         # Phase 2: after_permission hooks (can override permission decision)
-        hook_result = _run_hooks_sync("tool.after_permission", context, permission_decision=permission)
+        hook_result = _filter_hook_result_for_phase(
+            _run_hooks_sync("tool.after_permission", context, permission_decision=permission_decision),
+            phase="after_permission",
+        )
         if hook_result:
             if hook_result.block_execution:
                 return error_result(hook_result.block_reason, tool_name=tool_name)
@@ -173,7 +229,10 @@ def execute_tool(
         timeout = permission.timeout_seconds if permission else _DEFAULT_TIMEOUT
 
         # Phase 3: before_execute hooks
-        before_execute_hook_result = _run_hooks_sync("tool.before_execute", context)
+        before_execute_hook_result = _filter_hook_result_for_phase(
+            _run_hooks_sync("tool.before_execute", context),
+            phase="before_execute",
+        )
         if before_execute_hook_result and before_execute_hook_result.block_execution:
             return error_result(before_execute_hook_result.block_reason, tool_name=tool_name)
 
@@ -195,7 +254,10 @@ def execute_tool(
         _merge_hook_data(result, before_execute_hook_result, phase="before_execute")
 
         # Phase 4: after_execute hooks
-        hook_result = _run_hooks_sync("tool.after_execute", context, result=result)
+        hook_result = _filter_hook_result_for_phase(
+            _run_hooks_sync("tool.after_execute", context, result=result),
+            phase="after_execute",
+        )
         if hook_result:
             _merge_hook_data(result, hook_result, phase="after_execute")
 
@@ -227,6 +289,12 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
     try:
         from hooks.executor import run_hooks
         from hooks.models import HookContext
+        from tools.permission_manager import get_permission_policy
+        from tools.permissions import get_tool_permission
+
+        permission = get_tool_permission(context.tool_name)
+        permission_risk_level = permission.risk_level.value if permission else None
+        permission_mode = get_permission_policy().mode.value
 
         # Build hook context
         hook_context = HookContext(
@@ -253,6 +321,10 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> "Hook
             input_snapshot=dict(context.arguments),
             result_snapshot=_build_result_snapshot(kwargs.get("result")),
             error_snapshot=_build_error_snapshot(kwargs.get("error")),
+            metadata={
+                "risk_level": permission_risk_level,
+                "permission_mode": permission_mode,
+            },
         )
 
         # Run hooks synchronously in the current sync flow

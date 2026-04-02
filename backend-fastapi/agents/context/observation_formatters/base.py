@@ -38,6 +38,7 @@ class FormatContext:
     observation_window: Optional[Any] = None  # ObservationWindowCollector
     large_data_threshold: int = 8000
     artifact_ttl_seconds: Optional[int] = None
+    hook_additional_context: list[str] = None
 
 
 class BaseObservationFormatter(ABC):

@@ -14,10 +14,24 @@ from utils.timeout_pause import pause_current, resume_current
 logger = logging.getLogger(__name__)
 
 
-def _run_hook_coroutine(coro) -> None:
+def _run_hook_coroutine(coro):
     from tools.runtime.executor import _run_coroutine_sync
 
-    _run_coroutine_sync(coro)
+    return _run_coroutine_sync(coro)
+
+
+def _filter_approval_hook_result(hook_result):
+    if not hook_result:
+        return hook_result
+
+    from hooks.models import HookResult
+
+    filtered = HookResult()
+    filtered.ui_message = hook_result.ui_message
+    filtered.ui_metadata = dict(hook_result.ui_metadata)
+    filtered.tags = list(hook_result.tags)
+    filtered.metadata = dict(hook_result.metadata)
+    return filtered
 
 
 def _obs_suffix() -> str:
@@ -41,6 +55,8 @@ def request_user_approval_if_needed(
     """
     from tools.permission_manager import get_permission_policy, should_require_approval
     from tools.permissions import evaluate_tool_permission, get_tool_permission
+
+    permission_mode = get_permission_policy().mode.value
 
     decision = evaluate_tool_permission(
         tool_name=context.tool_name,
@@ -164,6 +180,7 @@ def _run_approval_hook(
     try:
         from hooks.executor import run_hooks
         from hooks.models import HookContext
+        from tools.permission_manager import get_permission_policy
 
         # Build hook context
         hook_context = HookContext(
@@ -189,13 +206,14 @@ def _run_approval_hook(
             metadata={
                 "approval_reason": approval_reason,
                 "risk_level": permission.risk_level.value if permission else "unknown",
+                "permission_mode": get_permission_policy().mode.value,
                 "approved": approved,
                 "approval_note": approval_note,
                 "error": str(error) if error else None,
             },
         )
 
-        _run_hook_coroutine(run_hooks(hook_context))
+        _filter_approval_hook_result(_run_hook_coroutine(run_hooks(hook_context)))
 
     except Exception as e:
         logger.warning(f"Approval hook execution failed for {event_name}: {e}")

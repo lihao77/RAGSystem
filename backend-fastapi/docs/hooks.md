@@ -138,11 +138,15 @@ hooks:
 - `agent_names` - Agent 名称列表
 - `callers` - 调用者类型（direct/skill/agent）
 - `risk_levels` - 风险等级（low/medium/high/critical）
+  - 当前优先从 `HookContext.metadata.risk_level` 读取
+  - fallback 到 `permission_decision.risk_level`
 - `workspace_trust` - 工作区信任级别
 - `session_ids` - 会话 ID 列表
 - `user_roles` - 用户角色列表
 - `when_result_success` - 结果成功状态过滤
 - `when_permission_mode` - 权限模式过滤
+  - 当前优先从 `HookContext.metadata.permission_mode` 读取
+  - fallback 到 `permission_decision.permission_mode`
 - `sources` - 来源过滤
 - `tags` - 标签过滤
 
@@ -222,8 +226,9 @@ backend:
 
 - `additional_context: list[str]` - 附加上下文列表
   - 会被合并并去重
-  - 当前 Phase 1 会先落到 `ToolExecutionResult.metadata["hook_additional_context"]`
-  - 后续再接入真正的 AI prompt / observation 上下文链路
+  - `tool.before_execute.additional_context` 当前会先落到 `ToolExecutionResult.metadata["hook_additional_context"]`
+  - 随后在 observation 物化阶段被消费，并以前缀块形式进入下一轮模型可见的 tool observation
+  - `tool.after_execute.additional_context` 当前仍只保留在 metadata，不进入模型主链
 
 ### UI 增强
 
@@ -235,6 +240,30 @@ backend:
 - `tags: list[str]` - 标签
 - `metadata: dict` - 自定义元数据
 - `broadcast_progress: str` - 进度消息（可选）
+
+### Matcher 表达式
+
+- `if_expr` 当前使用 AST 白名单求值器，不再使用 `eval`
+- 支持操作：`==`、`!=`、`in`、`not in`、`and`、`or`、`not`
+- 支持字面量：字符串、布尔值、`None`、list、tuple、dict
+- 支持访问：`context.xxx`、`context.metadata.xxx`、`context.metadata.get(...)`
+- 非法字段访问、非法调用或不支持的 AST 节点会 fail-safe 返回 `False`
+
+## Event Semantics
+
+| 事件 | 可读上下文 | 当前允许消费字段 | 当前忽略/未接入字段 |
+|---|---|---|---|
+| `tool.before_permission` | tool/input/caller/risk | `block_execution`, `permission_decision`, `ui_message`, `ui_metadata`, `tags`, `metadata` | `additional_context`, result/error 相关字段 |
+| `tool.after_permission` | permission decision / mode / risk | `block_execution`, `permission_decision`, `ui_message`, `ui_metadata`, `tags`, `metadata` | `additional_context` |
+| `tool.before_execute` | input / permission / risk | `block_execution`, `ui_message`, `ui_metadata`, `tags`, `metadata`, `additional_context`（会进入 observation 主链） | result/error 相关字段 |
+| `tool.after_execute` | result_snapshot | `ui_message`, `ui_metadata`, `tags`, `metadata`, `additional_context`（当前仅保留 metadata） | `permission_decision` |
+| `tool.on_error` | error_snapshot | `tags`, `metadata` | `permission_decision`, `additional_context` |
+| `approval.required` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata` | tool result 相关字段 |
+| `approval.resolved` | approval reason / risk / permission mode / note | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision` |
+| `approval.denied` | approval reason / risk / permission mode | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision` |
+| `approval.error` | approval reason / risk / permission mode / error | `ui_message`, `ui_metadata`, `tags`, `metadata` | `permission_decision`, `additional_context` |
+
+> 当前 Phase 1 仍使用统一 `HookResult` 模型；上表描述的是 runtime / approval 主链“实际消费哪些字段”，不是 schema 层面的强校验。
 
 ## 内建 Hooks
 
