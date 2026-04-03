@@ -1,174 +1,127 @@
 # -*- coding: utf-8 -*-
 """
-受限 Bash 命令执行工具
+Bash 命令执行工具
 
-提供只读类 shell 命令执行能力，用于搜索文件内容、统计行数、定位关键信息。
-- 命令策略：白名单命令直接执行；非白名单命令先审批，通过后仅本次放行
-- 管道安全：逐段检查；若包含非白名单命令则整体进入审批
-- 禁止重定向写入（> >>），允许 2>/dev/null 和 2>&1
-- 默认工作目录：当前 effective workspace
-- 路径语义：working_dir 与 direct 文件工具共享 space="workspace|transient|exports"
-- 超时保护：30 秒
+重构目标：
+- 用“命令分类 + 安全规则”替代白名单
+- 支持后台执行
+- 长命令前台执行期间上报 TOOL_PROGRESS
+- 返回结构化结果
 """
+
+from __future__ import annotations
 
 import logging
 import os
 import platform
-import re
 import shlex
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 
-from tools.decorators import tool
+from execution.observability import get_current_execution_observability_fields
 from tools.contracts.permissions import RiskLevel
+from tools.decorators import tool
+from tools.paths.path_resolution import (
+    get_session_sandbox_root,
+    get_session_transient_root,
+    resolve_managed_directory,
+    to_display_path,
+)
+from tools.runtime.approvals import request_inline_approval
+from tools.runtime.background_tasks import get_background_task_manager
+from tools.runtime.bash_security import (
+    CommandCategory,
+    _split_shell_chain,
+    _split_shell_pipeline,
+    classify_command_name,
+    classify_pipeline,
+    get_category_label,
+    get_category_risk,
+    validate_command_security,
+)
+from tools.runtime.persistent_shell import get_persistent_shell_manager
 from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
-from tools.paths.path_resolution import resolve_managed_directory
-from execution.observability import get_current_execution_observability_fields
+_MAX_TIMEOUT = 600
+_DEFAULT_TIMEOUT = 120
+_MAX_OUTPUT = 50000
 
 
 def _find_bash_executable() -> Optional[str]:
-    """在 Windows 上查找 bash 可执行文件路径，非 Windows 返回 None（使用系统默认）。"""
     if platform.system() != "Windows":
         return None
-    # 优先 Git Bash
     git_bash = Path(r"C:\Program Files\Git\bin\bash.exe")
     if git_bash.exists():
         return str(git_bash)
-    # fallback: PATH 中查找
-    found = shutil.which("bash")
-    return found
+    return shutil.which("bash")
 
 
 _BASH_EXECUTABLE = _find_bash_executable()
-
-# 允许的命令白名单（无需审批，直接执行）
-ALLOWED_COMMANDS = frozenset({
-    # 文件搜索与内容查看
-    "grep", "find", "head", "tail", "wc", "cat", "ls",
-    "echo", "sort", "uniq", "cut", "awk", "sed",
-    # 路径与环境
-    "pwd", "which", "whereis", "realpath", "dirname", "basename",
-    # 文件信息
-    "file", "stat", "du", "df",
-    # 文本处理
-    "tr", "tee", "xargs", "diff", "comm", "paste", "column",
-    # 其他只读
-    "env", "printenv", "date", "uname",
-})
-
-# 高风险命令：不再硬拒绝，但审批时需要更强提示
-DANGEROUS_APPROVAL_COMMANDS = frozenset({
-    "rm", "rmdir", "dd", "format", "del",
-    "curl", "wget",
-    "python", "python3", "node", "npm", "pip",
-    "bash", "sh", "powershell", "cmd",
-    "shutdown", "reboot", "kill", "pkill",
-})
-DANGEROUS_APPROVAL_COMMAND_PREFIXES = ("mkfs.",)
 
 VALIDATION_ALLOWED = "allowed"
 VALIDATION_APPROVAL_REQUIRED = "approval_required"
 VALIDATION_BLOCKED = "blocked"
 
-# 禁止的重定向操作符
-_REDIRECT_OPERATORS = {">", ">>"}
 
-# 安全的 stderr 重定向模式（剥离后再检查写重定向）
-_SAFE_STDERR_RE = re.compile(r'2>\s*/dev/null|2>&1')
-
-
-def _split_shell_pipeline(command: str) -> list[str]:
-    """按真正的 shell 管道符分段，忽略引号内或被转义的 |。"""
-    segments: list[str] = []
-    current: list[str] = []
-    in_single_quote = False
-    in_double_quote = False
-    escaped = False
-
-    for ch in command:
-        if escaped:
-            current.append(ch)
-            escaped = False
-            continue
-
-        if ch == "\\" and not in_single_quote:
-            current.append(ch)
-            escaped = True
-            continue
-
-        if ch == "'" and not in_double_quote:
-            in_single_quote = not in_single_quote
-            current.append(ch)
-            continue
-
-        if ch == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
-            current.append(ch)
-            continue
-
-        if ch == "|" and not in_single_quote and not in_double_quote:
-            segments.append("".join(current))
-            current = []
-            continue
-
-        current.append(ch)
-
-    segments.append("".join(current))
-    return segments
-
-
-def _is_dangerous_approval_command(cmd_name: str) -> bool:
-    return cmd_name in DANGEROUS_APPROVAL_COMMANDS or any(
-        cmd_name.startswith(prefix) for prefix in DANGEROUS_APPROVAL_COMMAND_PREFIXES
-    )
-
-
-def _validate_command(command: str) -> tuple[str, str, list[str]]:
+def _validate_command(command: str) -> tuple[str, str, list[str], CommandCategory]:
     """
-    校验命令安全性。
+    校验命令安全性并分类。
 
     Returns:
-        (分类结果, 消息, 需要审批的命令列表)
+        (status, error_message, approval_commands, classification)
     """
-    # 先剥离安全的 stderr 重定向，再检查是否有写重定向
-    stripped = _SAFE_STDERR_RE.sub('', command)
-    for op in _REDIRECT_OPERATORS:
-        if op in stripped:
-            return VALIDATION_BLOCKED, f"禁止使用重定向操作符: {op}", []
+    passed, error = validate_command_security(command)
+    if not passed:
+        return VALIDATION_BLOCKED, error or "命令安全检查失败", [], CommandCategory.UNKNOWN
 
     approval_commands: list[str] = []
-
-    # 按真正的 shell 管道分段检查
-    segments = _split_shell_pipeline(command)
-    for seg in segments:
+    seg_categories: list[CommandCategory] = []
+    for seg in _split_shell_chain(command):
         seg = seg.strip()
         if not seg:
             continue
         try:
             tokens = shlex.split(seg)
         except ValueError:
-            # shlex 解析失败，尝试简单空格分割
             tokens = seg.split()
         if not tokens:
             continue
-
-        cmd_name = Path(tokens[0]).name  # 处理 /usr/bin/grep 这种路径
-        if cmd_name not in ALLOWED_COMMANDS and cmd_name not in approval_commands:
+        cmd_name = Path(tokens[0]).name
+        category = classify_pipeline(seg)
+        seg_categories.append(category)
+        if category != CommandCategory.READ_ONLY and cmd_name not in approval_commands:
             approval_commands.append(cmd_name)
+
+    # 整体分类取各段最高风险，避免对完整 command 重复调用 classify_pipeline
+    _CATEGORY_ORDER = [
+        CommandCategory.READ_ONLY,
+        CommandCategory.WRITE,
+        CommandCategory.UNKNOWN,
+        CommandCategory.NETWORK,
+        CommandCategory.INTERPRETER,
+        CommandCategory.DESTRUCTIVE,
+    ]
+    _FALLBACK_INDEX = _CATEGORY_ORDER.index(CommandCategory.UNKNOWN)  # 未知类别默认为 UNKNOWN 风险级别
+    if seg_categories:
+        classification = max(seg_categories, key=lambda c: _CATEGORY_ORDER.index(c) if c in _CATEGORY_ORDER else _FALLBACK_INDEX)
+    else:
+        classification = classify_pipeline(command)
 
     if approval_commands:
         return (
             VALIDATION_APPROVAL_REQUIRED,
             f"命令需要用户审批后才能执行: {', '.join(approval_commands)}",
             approval_commands,
+            classification,
         )
+    return VALIDATION_ALLOWED, "", [], classification
 
-    return VALIDATION_ALLOWED, "", []
 
 
 def _resolve_work_dir(
@@ -179,12 +132,6 @@ def _resolve_work_dir(
     workspace_root: Optional[str] = None,
     run_id: Optional[str] = None,
 ) -> tuple[bool, str, Optional[Path]]:
-    """
-    解析并校验工作目录。
-
-    Returns:
-        (通过, 错误消息, 解析后的路径)
-    """
     raw_working_dir = None if working_dir is None else str(working_dir).strip()
     requested_dir = raw_working_dir if raw_working_dir else "."
     try:
@@ -216,153 +163,191 @@ def _request_bash_command_approval(
     *,
     command: str,
     approval_commands: list[str],
+    classification: CommandCategory,
     working_dir: str | None,
     working_dir_space: str | None,
     cwd: Path,
+    description: str,
     event_bus=None,
     session_id: str | None = None,
-) -> tuple[bool, str, str]:
-    if not event_bus:
-        return False, '命令需要用户授权，但当前上下文不支持审批', ''
-    if not session_id:
-        return False, '命令需要用户授权，但当前上下文无法等待审批', ''
-
-    dangerous_commands = [cmd for cmd in approval_commands if _is_dangerous_approval_command(cmd)]
-    danger_summary = ''
+) -> tuple[bool, str]:
+    # 使用 classify_command_name 对单个命令名保守分类（无参数上下文）
+    dangerous_commands = [
+        cmd for cmd in approval_commands
+        if classify_command_name(cmd) in {
+            CommandCategory.DESTRUCTIVE,
+            CommandCategory.NETWORK,
+            CommandCategory.INTERPRETER,
+        }
+    ]
+    desc = f"execute_bash 申请执行{get_category_label(classification)}：{description or command[:120]}"
     if dangerous_commands:
-        danger_summary = (
-            '【高风险命令】本次申请包含潜在危险操作：'
-            + ', '.join(dangerous_commands)
-            + '。这类命令可能导致删除文件、下载远程内容、启动解释器/子 shell、终止进程或影响系统状态，请谨慎确认。'
-        )
+        desc += "。高风险命令可能导致删除文件、下载远程内容、启动解释器/子 shell 或影响系统状态。"
 
+    approved, note = request_inline_approval(
+        event_bus=event_bus,
+        session_id=session_id,
+        tool_name="execute_bash",
+        approval_type="bash_command",
+        arguments={
+            "command": command,
+            "working_dir": working_dir if working_dir is not None else ".",
+            "working_dir_space": working_dir_space or "workspace",
+            "description": description or "",
+            "classification": classification.value,
+            "command_segments": approval_commands,
+            "dangerous_command_segments": dangerous_commands,
+        },
+        risk_level=get_category_risk(classification).value,
+        description=desc,
+    )
+    return approved, note or ""
+
+
+
+def _publish_progress(event_bus, session_id: Optional[str], *, command: str, elapsed: float, cwd: Path):
+    if not event_bus:
+        return
     try:
-        import uuid as _uuid
-        from agents.events import Event, EventType
-        from agents.task_registry import get_task_registry
-        from utils.timeout_pause import pause_current, resume_current
-
-        approval_id = str(_uuid.uuid4())
-        registry = get_task_registry()
-        wait_evt = registry.add_pending_approval(session_id, approval_id)
-
+        from agents.events.bus import Event, EventType
         event_bus.publish(Event(
-            type=EventType.USER_APPROVAL_REQUIRED,
+            type=EventType.TOOL_PROGRESS,
             session_id=session_id,
             data={
-                'approval_id': approval_id,
-                'tool_name': 'execute_bash',
-                'approval_type': 'bash_command',
-                'arguments': {
-                    'command': command,
-                    'working_dir': working_dir if working_dir is not None else '.',
-                    'working_dir_space': working_dir_space or 'workspace',
-                },
-                'risk_level': RiskLevel.HIGH.value if dangerous_commands else RiskLevel.MEDIUM.value,
-                'description': (
-                    f"execute_bash 申请临时放行非白名单命令：{', '.join(approval_commands)}"
-                    + (f"\n{danger_summary}" if danger_summary else '')
-                ),
-                'command': command,
-                'command_segments': approval_commands,
-                'dangerous_command_segments': dangerous_commands,
-                'working_dir': str(cwd),
-            }
+                "tool_name": "execute_bash",
+                "command": command,
+                "elapsed_seconds": round(elapsed, 1),
+                "working_dir": str(cwd),
+            },
         ))
+    except Exception as exc:
+        logger.debug("发布 bash 进度事件失败: %s", exc)
 
-        if wait_evt is None:
-            return False, '命令需要用户授权，但当前上下文无法等待审批', ''
 
-        pause_current()
+def _run_foreground_command(
+    command: str,
+    *,
+    cwd: Path,
+    timeout: int,
+    event_bus=None,
+    session_id: Optional[str] = None,
+) -> tuple[str, str, int, bool]:
+    env = {**os.environ, "LC_ALL": "C.UTF-8"}
+    interrupted = False
+
+    if _BASH_EXECUTABLE:
+        proc = subprocess.Popen(
+            [_BASH_EXECUTABLE, "-c", command],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    else:
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+
+    started_at = time.monotonic()
+    last_progress = started_at
+
+    try:
+        while True:
+            try:
+                stdout, stderr = proc.communicate(timeout=0.2)
+                return stdout or "", stderr or "", proc.returncode or 0, interrupted
+            except subprocess.TimeoutExpired:
+                now = time.monotonic()
+                elapsed = now - started_at
+                if elapsed >= timeout:
+                    interrupted = True
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+                    return stdout or "", stderr or "", proc.returncode or -1, interrupted
+                if now - last_progress >= 2.0:
+                    _publish_progress(event_bus, session_id, command=command, elapsed=elapsed, cwd=cwd)
+                    last_progress = now
+    finally:
         try:
-            wait_evt.wait()
-        finally:
-            resume_current()
-
-        approved, approval_note = registry.get_approval_result(session_id, approval_id)
-        if not approved:
-            deny_reason = approval_note if approval_note else '用户拒绝执行此操作'
-            return False, f'execute_bash 执行已被拒绝：{deny_reason}', ''
-        return True, '', approval_note or ''
-    except Exception as error:
-        logger.error('bash 审批流程异常: %s', error)
-        return False, f'审批流程异常: {error}', ''
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            pass
 
 
 @tool(
     name="execute_bash",
-    description="执行受限 bash 命令。白名单命令可直接执行；所有非白名单命令都会触发一次性用户审批；其中删除、远程下载、解释器/子 shell、进程控制等高风险命令会在审批提示中额外高亮。默认工作目录为当前 workspace；working_dir 支持与 direct 文件工具一致的 space=\"workspace|transient|exports\" 语义。支持管道和 2>/dev/null 屏蔽 stderr",
+    description="执行 bash 命令。基于命令分类和安全规则决定风险：只读命令直接执行，写操作/未知命令通常需审批，破坏性/网络/解释器命令为高风险审批。支持后台执行、超时控制和进度事件。",
     parameters={
         "type": "object",
         "properties": {
             "command": {
                 "type": "string",
-                "description": "要执行的 bash 命令。白名单命令直接执行；所有非白名单命令需审批；若涉及删除、下载、解释器、子 shell、进程控制等高风险操作，审批提示会额外高亮。支持管道和 2>/dev/null、2>&1",
+                "description": "要执行的 bash 命令。禁止使用命令替换、写重定向、换行隐藏命令。链式命令（&&/||/;）中每段独立分类和审批。",
             },
             "working_dir": {
                 "type": "string",
-                "description": "工作目录（可选）。相对目录默认按当前 workspace 解析；也可配合 XML 写法 <working_dir space=\"workspace|transient|exports\">...</working_dir> 显式指定受管目录桶。",
+                "description": "工作目录（可选）。相对目录默认按 workspace 解析。",
             },
             "working_dir_space": {
                 "type": "string",
                 "enum": ["workspace", "transient", "exports"],
-                "description": "working_dir 的可选目录空间。仅影响相对 working_dir 的解析根；绝对路径仍只做受管边界校验。推荐通过 XML 属性 <working_dir space=\"...\">...</working_dir> 传入。",
+                "description": "working_dir 的目录空间。",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "超时时间，默认 120 秒，最大 600 秒。",
+                "minimum": 1,
+                "maximum": 600,
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "是否后台执行。true 时立即返回 background_task_id。",
+            },
+            "description": {
+                "type": "string",
+                "description": "对本次命令用途的简短描述，用于审批和后台任务展示。",
             },
         },
         "required": ["command"],
     },
     risk_level=RiskLevel.HIGH,
-    timeout_seconds=30,
+    timeout_seconds=120,
     allowed_callers=["direct"],
-    returns={
-        "type": "object",
-        "description": "命令执行结果",
-        "shape": {
-            "content": "stdout 输出文本",
-            "metadata": {
-                "return_code": "number",
-                "stderr": "string",
-                "command": "string",
-                "working_dir": "string",
-            },
-        },
-    },
-    usage_contract=[
-        "白名单命令可直接执行；所有非白名单命令都会先请求用户审批，审批仅对本次命令生效",
-        "删除、远程下载、解释器/子 shell、进程控制、系统控制等高风险命令不会再被直接拦截，但审批提示会明确高亮风险",
-        "禁止重定向写入（> >>），但允许 2>/dev/null 和 2>&1",
-        "管道中的任一非白名单命令都会触发整条命令审批",
-        "工作目录支持 workspace/transient/exports 三个受管目录；统一规则见下方“受管目录 space 说明”",
-        "working_dir_space=exports 需要当前运行上下文提供 run_id",
-        "超时 30 秒自动终止",
-    ],
-    examples=[
-        {"input": {"command": "pwd"}},
-        {
-            "input": {"command": "grep -rn '关键词' .", "working_dir": "."},
-            "xml_attrs": {"working_dir": {"space": "workspace"}},
-        },
-    ],
 )
 def execute_bash(
     command: str,
     working_dir: str = None,
     working_dir_space: str = None,
+    timeout: int = _DEFAULT_TIMEOUT,
+    run_in_background: bool = False,
+    description: str = "",
     session_id: str = None,
     agent_config=None,
     event_bus=None,
+    caller: str = "direct",
+    cancel_event: "threading.Event | None" = None,
     **kwargs,
 ):
-    """执行受限 bash 命令。"""
     del kwargs
+
+    timeout = max(1, min(int(timeout or _DEFAULT_TIMEOUT), _MAX_TIMEOUT))
+
     workspace_root = None
     if agent_config and hasattr(agent_config, "custom_params"):
         custom_params = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
         workspace_root = custom_params.get("workspace_root")
+
     current_fields = get_current_execution_observability_fields()
     run_id = current_fields.get("run_id")
 
-    # 1. 解析工作目录
     ok, dir_err, cwd = _resolve_work_dir(
         working_dir,
         working_dir_space=working_dir_space,
@@ -381,96 +366,145 @@ def execute_bash(
             },
         )
 
-    # 2. 校验命令安全性 / 触发审批
-    validation_status, message, approval_commands = _validate_command(command)
+    validation_status, security_error, approval_commands, classification = _validate_command(command)
     if validation_status == VALIDATION_BLOCKED:
-        return error_result(message, tool_name="execute_bash")
+        return error_result(
+            f"命令安全检查失败: {security_error}",
+            tool_name="execute_bash",
+            metadata={"command": command},
+        )
+
+    risk_level = get_category_risk(classification)
     approval_message = ""
+
     if validation_status == VALIDATION_APPROVAL_REQUIRED:
-        approved, approval_error, approval_message = _request_bash_command_approval(
+        approved, note = _request_bash_command_approval(
             command=command,
             approval_commands=approval_commands,
+            classification=classification,
             working_dir=working_dir,
             working_dir_space=working_dir_space,
             cwd=cwd,
+            description=description,
             event_bus=event_bus,
             session_id=session_id,
         )
         if not approved:
             return error_result(
-                approval_error,
+                f"execute_bash 执行已被拒绝：{note or '用户拒绝执行此操作'}",
                 tool_name="execute_bash",
                 metadata={
                     "command": command,
                     "working_dir": str(cwd),
+                    "classification": classification.value,
                     "approval_required_commands": approval_commands,
                 },
             )
+        approval_message = note or ""
 
-    # 3. 执行命令
-    logger.info("execute_bash: command=%r, cwd=%s", command, cwd)
+    if run_in_background:
+        if not session_id:
+            return error_result(
+                "后台执行需要 session_id（无 session_id 时无法路由完成通知）",
+                tool_name="execute_bash",
+                metadata={"command": command},
+            )
+        output_dir = get_session_transient_root(session_id)
+        task = get_background_task_manager().spawn_bash(
+            command,
+            bash_executable=_BASH_EXECUTABLE,
+            cwd=cwd,
+            output_dir=output_dir,
+            description=description or command[:80],
+            max_runtime_seconds=timeout,
+            event_bus=event_bus,
+            session_id=session_id,
+        )
+        return success_result(
+            content={
+                "stdout": "",
+                "stderr": "",
+                "return_code": None,
+                "interrupted": False,
+                "background_task_id": task.task_id,
+                "classification": classification.value,
+            },
+            summary="后台任务已启动",
+            output_type="json",
+            metadata={
+                "command": command,
+                "working_dir": str(cwd),
+                "classification": classification.value,
+                "risk_level": risk_level.value,
+                "background_task_id": task.task_id,
+                "background_output_path": to_display_path(task.output_path),
+                "cwd_isolated": caller != "direct",
+                **({"approval_required_commands": approval_commands} if approval_commands else {}),
+                **({"approval_message": approval_message} if approval_message else {}),
+            },
+            tool_name="execute_bash",
+        )
+
     try:
-        if _BASH_EXECUTABLE:
-            # Windows: 直接调用 bash -c，避免 shell=True 路径空格问题
-            proc = subprocess.run(
-                [_BASH_EXECUTABLE, "-c", command],
-                cwd=str(cwd),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env={**os.environ, "LC_ALL": "C.UTF-8"},
+        if session_id:
+            shell = get_persistent_shell_manager().get_session(
+                session_id,
+                event_bus=event_bus,
+                bash_executable=_BASH_EXECUTABLE,
+            )
+            cd_prefix = f"cd '{cwd}' && " if cwd else ""
+            stdout, stderr, return_code, interrupted = shell.execute(
+                cd_prefix + command,
+                timeout=timeout,
+                cancel_event=cancel_event,
+                event_bus=event_bus,
+                session_id=session_id,
             )
         else:
-            # Linux/macOS: 使用系统默认 shell
-            proc = subprocess.run(
+            stdout, stderr, return_code, interrupted = _run_foreground_command(
                 command,
-                shell=True,
-                cwd=str(cwd),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env={**os.environ, "LC_ALL": "C.UTF-8"},
+                cwd=cwd,
+                timeout=timeout,
+                event_bus=event_bus,
+                session_id=session_id,
             )
-    except subprocess.TimeoutExpired:
-        return error_result("命令执行超时（超过 30 秒）", tool_name="execute_bash")
-    except Exception as e:
-        return error_result(f"命令执行失败: {e}", tool_name="execute_bash")
+    except Exception as exc:
+        return error_result(f"命令执行失败: {exc}", tool_name="execute_bash")
 
-    # 4. 构建返回
-    stdout = proc.stdout or ""
-    stderr = proc.stderr or ""
-
-    # 截断过长输出（保留前 50000 字符）
-    max_output = 50000
     truncated = False
-    if len(stdout) > max_output:
-        stdout = stdout[:max_output]
+    if len(stdout) > _MAX_OUTPUT:
+        stdout = stdout[:_MAX_OUTPUT]
         truncated = True
+    if len(stderr) > 2000:
+        stderr = stderr[:2000]
 
-    content = stdout
-    if not content and stderr:
-        content = f"[stderr] {stderr}"
-
-    summary = f"命令执行完成，返回码 {proc.returncode}"
-    if truncated:
-        summary += "（输出已截断）"
-
-    metadata = {
-        "return_code": proc.returncode,
-        "stderr": stderr[:2000] if stderr else "",
-        "command": command,
-        "working_dir": str(cwd),
-        "truncated": truncated,
+    content = {
+        "stdout": stdout,
+        "stderr": stderr,
+        "return_code": return_code,
+        "interrupted": interrupted,
+        "background_task_id": None,
+        "classification": classification.value,
     }
-    if validation_status == VALIDATION_APPROVAL_REQUIRED:
-        metadata["approval_required_commands"] = approval_commands
-    if approval_message:
-        metadata["approval_message"] = approval_message
+    summary = f"命令执行完成，返回码 {return_code}"
+    if interrupted:
+        summary = f"命令执行超时（{timeout} 秒），进程已终止"
+    elif truncated:
+        summary += "（stdout 已截断）"
 
     return success_result(
         content=content,
         summary=summary,
-        output_type="text",
-        metadata=metadata,
+        output_type="json",
+        metadata={
+            "command": command,
+            "working_dir": str(cwd),
+            "classification": classification.value,
+            "risk_level": risk_level.value,
+            "truncated": truncated,
+            "cwd_isolated": caller != "direct",
+            **({"approval_required_commands": approval_commands} if approval_commands else {}),
+            **({"approval_message": approval_message} if approval_message else {}),
+        },
         tool_name="execute_bash",
     )

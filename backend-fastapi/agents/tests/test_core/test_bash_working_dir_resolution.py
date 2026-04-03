@@ -39,7 +39,7 @@ def test_split_shell_pipeline_preserves_regex_pipe_inside_double_quotes():
 def test_validate_command_allows_escaped_regex_pipe_in_grep_pattern():
     command = 'find . -name "*.json" | grep -i "nanning\\|南宁\\|boundary\\|admin" | head -20'
 
-    status, err, approval_commands = _validate_command(command)
+    status, err, approval_commands, classification = _validate_command(command)
 
     assert status == VALIDATION_ALLOWED
     assert err == ""
@@ -47,7 +47,7 @@ def test_validate_command_allows_escaped_regex_pipe_in_grep_pattern():
 
 
 def test_validate_command_still_marks_non_whitelisted_pipeline_command_for_approval():
-    status, err, approval_commands = _validate_command('find . -name "*.json" | python -V')
+    status, err, approval_commands, classification = _validate_command('find . -name "*.json" | python -V')
 
     assert status == VALIDATION_APPROVAL_REQUIRED
     assert "需要用户审批" in err

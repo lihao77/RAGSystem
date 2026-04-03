@@ -167,9 +167,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
   │   └─ 可阻止执行或添加上下文
   ├─ 分发
   │   ├─ tool_name in TOOL_HANDLERS
-  │   │   ├─ execute_code → 直接调用 handler（子进程内部自管理 timeout/cancel）
-  │   │   ├─ execute_bash → 先进入 bash_tool 内部命令校验（三态：直通 / 审批 / 硬拒绝）
-  │   │   └─ 其他工具 → _run_with_timeout(handler, timeout)（自动注入上下文参数）
+  │   │   └─ 所有本地工具统一走 _run_with_timeout(handler, timeout)（自动注入上下文参数）
   │   ├─ is_mcp_tool(tool_name) → dispatcher.execute_mcp_tool() → runtime.mcp_gateway.execute_mcp_tool()
   │   └─ else → error_result()
   ├─ Hook: tool.after_execute
@@ -223,7 +221,8 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
 - `preview_data_structure` 仍允许 `code_execution` 调用
-- 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件先 `request_write_approval()` 再 `open()`，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
+- 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件通过共享审批函数 `request_inline_approval()` 触发审批后再写入，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
+- 沙箱内推荐优先使用 `save_file(content, filename, space='workspace|transient|exports')` 显式保存结果：中间产物写 `transient`，面向用户的导出结果写 `exports`，明确属于工作区资产的文件写 `workspace`
 - `content.file_path` 为内部绝对路径（供链式调用），`content.display_path` 为可读展示路径（供用户展示）
 - 链式调用占位符统一使用单花括号：`{result_N}`、`{result_N.content.file_path}`；不要写成双花括号 `{{result_N}}`
 
@@ -418,14 +417,15 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - 子进程只负责构造受限 globals 并执行 `exec(code, globals_dict)`
 - 主子进程之间通过 `multiprocessing.Pipe` 传递最小 IPC 消息
 - `call_tool`、模块导入审批、文件写审批都由子进程发消息给主进程代理完成
+- 超时可配置：默认 60 秒，最大 300 秒
 - 超时或取消时，主进程会对沙箱子进程执行 `terminate()`，必要时再 `kill()`，确保底层执行体被真正回收
-- 审批等待继续复用 `_request_sandbox_approval()`，因此等待用户审批的时间**不计入 timeout**
+- 审批等待通过共享 `tools.runtime.approvals.request_inline_approval()` 统一实现
 
-沙箱内可用：`call_tool(tool_name, args)`, `open(path)`, `request_write_approval(path, reason)`, `path_ops`（安全路径操作）。
+沙箱内可用：`call_tool(tool_name, args)`, `open(path)`, `save_file(content, filename, space='workspace')`, `path_ops`（安全路径操作）。
 
 `call_tool` 返回工具主内容（不是完整响应壳）。只能调用 `allowed_callers` 包含 `"code_execution"` 的工具；`read_file` / `write_file` / `edit_file` 不再允许在 `execute_code` 中通过 `call_tool` 调用。
 
-代码侧文件访问统一走沙箱内置能力：读取文件直接使用受限 `open()`；写入文件先调用 `request_write_approval()`，获批后再使用 `open()` 写入。路径仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束。
+代码侧文件访问统一走沙箱内置能力：读取文件直接使用受限 `open()`；写入文件会触发共享审批后再写入。路径仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束。
 
 白名单模块：math, json, re, csv, datetime, collections, itertools, functools, statistics, time, io, string, decimal, operator, copy, textwrap, hashlib, base64, struct。
 
@@ -437,64 +437,49 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 ### Bash 工具（bash_tool.py）
 
-`execute_bash(command, working_dir, working_dir_space)` — 受限 bash 命令执行，采用“两段式命令策略”：白名单直通、非白名单审批。
+`execute_bash(command, working_dir, working_dir_space, timeout, run_in_background, description)` — 受限 bash 命令执行，采用“命令分类 + 安全规则”策略。
 
-白名单命令（直接执行）：
-- 文件搜索与内容查看：grep, find, head, tail, wc, cat, ls, echo, sort, uniq, cut, awk, sed
-- 路径与环境：pwd, which, whereis, realpath, dirname, basename
-- 文件信息：file, stat, du, df
-- 文本处理：tr, tee, xargs, diff, comm, paste, column
-- 其他只读：env, printenv, date, uname
+命令分类：
+- `READ_ONLY`：只读命令，直接执行
+- `WRITE`：写操作命令，中风险审批
+- `DESTRUCTIVE`：破坏性命令，高风险审批
+- `NETWORK`：网络命令，高风险审批
+- `INTERPRETER`：解释器 / 系统控制命令，高风险审批
+- `UNKNOWN`：未知命令，按中风险审批处理
 
-所有非白名单命令都会触发一次性审批：
-- `execute_bash` 在工具内部发布 `user.approval_required` 事件，复用现有通用审批弹窗
-- 审批通过后，仅本次命令放行，不会加入白名单，也不会影响后续调用
-- 审批拒绝时返回标准错误结果，metadata 中会带上 `approval_required_commands`
-- 管道中任一非白名单命令都会让整条命令进入审批
-- 若命中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令，审批事件会提升为更明显的风险提示，并附带 `dangerous_command_segments`
+安全规则：
+- 禁止命令替换 `$()` / 反引号
+- 禁止写重定向 `>` `>>`
+- 禁止 IFS 注入、危险环境变量赋值、控制字符、Unicode 伪空格
+- 禁止换行隐藏命令、花括号路径穿越、`/proc/*/environ` 访问
+- 禁止反斜杠转义换行
+- 链式命令（`&&` / `||` / `;`）不再被整体拦截：`_split_shell_chain` 对每段独立分类和审批，取最高风险段决策
+- 安全检查失败直接拒绝执行
+
+持久化 Shell（`tools/runtime/persistent_shell.py`）：
+- 每个 `session_id` 维护一个长生命周期 bash 进程，跨 `execute_bash` 调用保留 cwd 和环境变量，对标 Claude Code BashTool sentinel 模式
+- sentinel 包裹格式：`( {command} ); _EC=$?; echo '__SENTINEL_{uuid}_EXIT_'$_EC'__'`，从 stdout 读取到 sentinel 行解析退出码
+- 有 `session_id` 时走持久 shell 路径；无 `session_id` 时降级为 `_run_foreground_command`（单次 Popen）
+- `cancel_event: threading.Event` 置位后发送 SIGINT（Linux）/ CTRL_C_EVENT（Windows）中断当前命令
+- `PersistentShellManager` 单例，首次 `get_session` 时订阅 `SESSION_END` 事件自动调用 `close_session` 清理进程
+- Windows 需要 `creationflags=CREATE_NEW_PROCESS_GROUP` 才能接收 Ctrl+C 信号
+
+执行特性：
+- `execute_bash` 在工具内部发布审批事件，复用现有通用审批弹窗
+- 长命令每 2 秒发布一次 `tool.progress` 事件（持久 shell 和前台模式均支持）
+- 支持 `run_in_background=true` 后台执行，返回 `background_task_id`
+- 后台任务由 `tools.runtime.background_tasks.BackgroundTaskManager` 管理，完成后发布 `background.task.completed` 事件
+- **后台执行约束**：必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）；stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
+- 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, classification}`
+- stdout 保留 50K 截断；更大结果仍由 observation 层负责持久化与预览
 
 `execute_bash` 与 direct 文件工具共享同一套 managed location language：
 - 默认工作目录是当前 effective workspace，不再默认指向 `backend-fastapi/`
 - 相对 `working_dir` 默认按 workspace 解析
-- 可显式使用 `space="workspace|transient|exports"` 指定相对目录根，例如：
-
-```xml
-<tool name="execute_bash">
-  <command>pwd</command>
-  <working_dir space="workspace">.</working_dir>
-</tool>
-```
-
-```xml
-<tool name="execute_bash">
-  <command>find . -name '*.json' | head -20</command>
-  <working_dir space="transient">.</working_dir>
-</tool>
-```
-
-```xml
-<tool name="execute_bash">
-  <command>find . -name '*.md' | wc -l</command>
-  <working_dir space="exports">.</working_dir>
-</tool>
-```
-
-```xml
-<tool name="execute_bash">
-  <command>cp data.json backup.json</command>
-  <working_dir space="workspace">.</working_dir>
-</tool>
-```
-
-规则说明：
-- `space` 仅影响相对 `working_dir` 的解析根
-- 绝对 `working_dir` 不受 `space` 改写，仍只做受管边界校验
+- 可显式使用 `space="workspace|transient|exports"` 指定相对目录根
 - `working_dir_space=exports` 需要当前运行上下文提供 `run_id`
-- 若使用默认受管目录根（`working_dir` 省略、为空或为 `.`），共享路径层会在需要时自动补建对应的 `workspace/transient/exports` 根目录，避免新会话首次执行时直接报“工作目录不存在”
+- 绝对 `working_dir` 不受 `space` 改写，仍只做受管边界校验
 - 若未提供 `session_id` 且没有可用 `workspace_root`，默认 workspace 解析会返回清晰错误
-- 支持管道，支持 `2>/dev/null` 和 `2>&1` 屏蔽 stderr，禁止 `>` `>>` 写重定向
-- 管道解析会忽略引号内或被转义的 `|`（如 `grep` 正则中的 `\|`）
-- 等待 bash 审批的时间不计入工具超时；命令本体执行超时仍为 30 秒
 
 ## 可视化 Artifact 流程
 

@@ -300,6 +300,15 @@ def test_re_compile_not_blocked():
 
 
 
+def test_execute_code_tool_contract_timeout_supports_longer_internal_timeout():
+    from tools.decorators import get_decorated_tools
+
+    permission = get_decorated_tools()["execute_code"]["permission"]
+    # 外层 safety-net 超时（600s）= 内层最大值（300s）+ 审批等待 buffer
+    assert permission.timeout_seconds == 600
+
+
+
 def test_execute_code_while_true_timeout_process_cleanup():
     result = execute_code_sandbox(
         code="while True:\n    pass",

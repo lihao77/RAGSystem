@@ -25,7 +25,6 @@ hooks:
     source: system
     priority: 100
     events:
-      - tool.before_permission
       - tool.after_execute
     matcher:
       tool_names:
@@ -64,6 +63,8 @@ hooks:
       description: "为高风险操作添加额外的警告信息"
 
   # Bash command validation hook
+  # 注意：绑定 tool.before_permission 而非 tool.before_execute，
+  # 确保安全规则检查先于权限决策执行，防止命令注入在权限层被绕过。
   - id: bash-command-validation
     name: "Bash Command Validation"
     description: "Validate bash commands for dangerous patterns"
@@ -71,7 +72,7 @@ hooks:
     source: system
     priority: 300
     events:
-      - tool.before_execute
+      - tool.before_permission
     matcher:
       tool_names:
         - execute_bash

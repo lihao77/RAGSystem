@@ -17,7 +17,7 @@ from tools.runtime.models import ToolUseContext
 from tools.runtime.registration import TOOL_HANDLERS
 from tools.runtime.response_builder import error_result, success_result
 from tools.tool_registry import get_tool_registry
-from utils.timeout_pause import get_current_timer, set_current_timer
+from utils.timeout_pause import PausableTimer, get_current_timer, set_current_timer
 
 logger = logging.getLogger(__name__)
 _TOOL_REGISTRY = get_tool_registry()
@@ -30,29 +30,25 @@ def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
         return fn()
 
     parent_timer = get_current_timer()
+    # 始终使用 PausableTimer：无父 timer 时新建，有父 timer 时复用。
+    # 这确保子线程里 pause_current() / resume_current() 始终有效，
+    # 外层超时判断也始终扣除审批等待时间（pause-aware），不再依赖父上下文是否存在。
+    timer = parent_timer if parent_timer is not None else PausableTimer()
 
     def _wrapped():
-        if parent_timer is not None:
-            set_current_timer(parent_timer)
+        set_current_timer(timer)
         return fn()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_wrapped)
-        if parent_timer is None:
-            try:
-                return future.result(timeout=timeout)
-            except concurrent.futures.TimeoutError:
-                logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
-                return error_result(f"工具 {tool_name} 执行超时（{timeout}秒）", tool_name=tool_name)
-
         start = time.monotonic()
-        paused_at_start = parent_timer.paused_duration
+        paused_at_start = timer.paused_duration
         while True:
             try:
                 return future.result(timeout=0.5)
             except concurrent.futures.TimeoutError:
                 pass
-            elapsed = time.monotonic() - start - (parent_timer.paused_duration - paused_at_start)
+            elapsed = time.monotonic() - start - (timer.paused_duration - paused_at_start)
             if elapsed >= timeout:
                 logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
                 return error_result(f"工具 {tool_name} 执行超时（{timeout}秒）", tool_name=tool_name)
@@ -285,10 +281,7 @@ def execute_tool(
 
         if handler is not None:
             call_arguments = build_handler_call_arguments(handler, context)
-            if tool_name == "execute_code":
-                result = handler(**call_arguments)
-            else:
-                result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
+            result = _run_with_timeout(lambda: handler(**call_arguments), timeout, tool_name)
         elif _TOOL_REGISTRY.is_mcp_tool(tool_name):
             result = execute_mcp_tool(context)
         else:

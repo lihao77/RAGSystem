@@ -95,6 +95,12 @@ class EventType(str, Enum):
     HOOK_RESPONSE = "hook.response"
     HOOK_ERROR = "hook.error"
 
+    # 工具执行进度（长命令实时上报）
+    TOOL_PROGRESS = "tool.progress"
+
+    # 后台任务完成通知
+    BACKGROUND_TASK_COMPLETED = "background.task.completed"
+
     # 系统事件
     SESSION_END = "session.end"
     ERROR = "system.error"

@@ -256,6 +256,95 @@ def request_user_approval_if_needed(
         )
 
 
+def request_inline_approval(
+    *,
+    event_bus,
+    session_id: str | None,
+    tool_name: str,
+    approval_type: str,
+    arguments: dict,
+    risk_level: str,
+    description: str,
+    registry_getter=None,
+) -> tuple[bool, str]:
+    """
+    内联审批：供 bash_tool / code_sandbox 在工具内部自行发起用户审批。
+
+    不走 ToolUseContext，直接使用 event_bus + session_id。
+
+    Returns:
+        (approved: bool, approval_note: str)
+    """
+    from tools.contracts.permissions import RiskLevel as _RL, ToolPermission
+    from tools.permission_manager import get_permission_policy, should_require_approval
+
+    _risk_map = {"low": _RL.LOW, "medium": _RL.MEDIUM, "high": _RL.HIGH}
+    _perm = ToolPermission(
+        tool_name=tool_name,
+        risk_level=_risk_map.get(risk_level.lower(), _RL.HIGH),
+        description=description,
+    )
+    needs, skip_reason = should_require_approval(tool_name, _perm, arguments)
+    if not needs:
+        logger.info("内联审批跳过（%s）: %s", skip_reason or get_permission_policy().mode.value, description)
+        return True, ""
+
+    if not event_bus:
+        logger.warning("内联审批：无事件总线，拒绝执行")
+        return False, "当前上下文不支持审批"
+    if not session_id:
+        logger.warning("内联审批：无 session_id，拒绝执行")
+        return False, "当前上下文无法等待审批"
+
+    try:
+        import uuid as _uuid
+        from agents.events.bus import Event, EventType
+        if registry_getter is None:
+            from agents.task_registry import get_task_registry as _default_registry_getter
+            registry_getter = _default_registry_getter
+
+        approval_id = str(_uuid.uuid4())
+        registry = registry_getter()
+        wait_evt = registry.add_pending_approval(session_id, approval_id)
+        if wait_evt is None:
+            return False, "当前上下文无法注册审批请求"
+
+        event_payload = {
+            "approval_id": approval_id,
+            "approval_type": approval_type,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "risk_level": risk_level,
+            "description": description,
+        }
+
+        event_bus.publish(Event(
+            type=EventType.USER_APPROVAL_REQUIRED,
+            session_id=session_id,
+            data=event_payload,
+        ))
+
+        try:
+            pause_current()
+            paused = True
+        except Exception:
+            paused = False
+        try:
+            wait_evt.wait()
+        finally:
+            if paused:
+                try:
+                    resume_current()
+                except Exception:
+                    pass
+
+        approved, note = registry.get_approval_result(session_id, approval_id)
+        return approved, note or ""
+    except Exception as exc:
+        logger.error("内联审批流程异常: %s", exc)
+        return False, f"审批流程异常: {exc}"
+
+
 def _run_approval_hook(
     event_name: str,
     context: ToolUseContext,

@@ -166,7 +166,38 @@ def build_tool_calling_global_rules() -> str:
 
 - 每个工具条目中的 `调用能力` 字段是唯一准则：`direct` 表示可直接输出为 XML 工具调用；`code_execution` 表示仅可在 `execute_code` 中通过 `call_tool(tool_name, arguments)` 调用
 - 如果某个工具没有标注 `code_execution`，就不要假设它能在 `execute_code` 中调用
-- 路径类工具统一使用 `workspace / transient / exports` 三个受管目录空间；`space` 只影响相对 `file_path` / `working_dir` 的解析根"""
+- 路径类工具统一使用 `workspace / transient / exports` 三个受管目录空间；`space` 只影响相对 `file_path` / `working_dir` 的解析根
+
+### 后台执行（execute_bash）
+
+`execute_bash` 支持 `run_in_background=true` 后台执行，适合耗时较长、不需要立即获取输出的命令（如数据处理脚本、批量转换、长时间构建等）。
+
+使用规则：
+- 后台执行需要当前存在有效 `session_id`，否则会直接报错
+- 启动后立即返回，结果中包含 `background_task_id`，命令继续在后台运行
+- 后台任务完成后系统会发布通知，可在后续轮次中告知用户任务已完成
+- 建议同时传 `description` 参数，让审批弹窗和后台任务列表显示可读描述
+- 后台任务的 stdout/stderr 写入 transient 目录的日志文件，路径在返回的 `background_output_path` 中
+
+何时使用后台执行：
+- 预计执行时间超过 30 秒的命令
+- 不需要立即消费输出、只关心是否完成的批量操作
+- 需要并行启动多条命令时
+
+何时不用后台执行（保持前台）：
+- 需要立即读取 stdout 结果并传给下一步工具
+- 简短命令（查看文件、统计行数、grep 搜索等）
+- 需要根据返回码决定下一步操作
+
+示例：
+```xml
+<tool name="execute_bash">
+  <command>python process_data.py --input data.csv --output result.json</command>
+  <run_in_background>true</run_in_background>
+  <description>批量处理 data.csv 并输出结果</description>
+  <timeout>300</timeout>
+</tool>
+```"""
 
 
 def build_managed_space_rules() -> str:
@@ -371,12 +402,34 @@ result = {
 
 `call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`；如果需要完整响应壳，不要假设它会返回 `content / summary / metadata` 结构。
 
-三个受管目录 `space` 与 direct 文件工具、`execute_bash` 一致：`workspace` / `transient` / `exports`。在代码里优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径。
+三个受管目录 `space` 与 direct 文件工具、`execute_bash` 一致：`workspace` / `transient` / `exports`。在代码里优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径，也不要拼接 `data/sessions/...` 这类内部路径。
 
-文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。`execute_code` 内应直接使用受限 `open()` 读取文件，写入前先调用 `request_write_approval()`，再用 `open()` 写入。
+文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。在 `execute_code` 里直接使用受限 `open()` 读写文件。
+
+沙箱内禁止 `import os/sys/subprocess/shutil/socket`。如果需要拼路径、判断文件是否存在、取文件名等操作，请使用已注入的 `path_ops`。
+
+保存规则：
+- 临时中间产物：写到 `SESSION_TRANSIENT_DIR`
+- 需要给用户下载/查看的结果文件：优先使用 `save_file(content, filename, space='exports')`
+- 明确属于当前工作区内容的文件：写到 `SESSION_WORKSPACE_DIR`
+
+文件示例：
+```python
+file_path = path_ops.join(SESSION_TRANSIENT_DIR, 'demo.txt')
+with open(file_path, 'w', encoding='utf-8') as f:
+    f.write('hello')
+with open(file_path, 'r', encoding='utf-8') as f:
+    content = f.read()
+result = {{'content': content}}
+```
+
+导出结果示例：
+```python
+display_path = save_file({{'ok': True}}, 'report.json', space='exports')
+result = {{'display_path': display_path}}
+```
 
 工具调用示例：
-{tool_call_example}
 
 文件读取：
 ```python

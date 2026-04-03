@@ -251,7 +251,7 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），其中 `default_output_space=workspace` 会落到当前 effective workspace，而不是固定写死到 session/workspace
 - `read_file` / `write_file` / `edit_file` 仅允许 `direct` 调用，不再对 `caller=code_execution` 开放；`preview_data_structure` 仍允许 `code_execution`
 - `read_file` 仍保留大文件确认、分页与 direct 调用语义
-- sandbox（`tools/local/code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取文件、先 `request_write_approval()` 再 `open()` 写文件，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
+- sandbox（`tools/local/code_sandbox.py`）保留独立的运行时文件边界：代码中直接使用受限 `open()` 读取和写入文件，写操作由沙箱运行时统一做审批与受管路径校验，底层同样通过 `resolve_managed_path(..., caller='code_execution')` 落到当前 session 的受管目录；其中 `SESSION_WORKSPACE_DIR` / `DATA_DIR` 也会指向同一个 effective workspace
 - `execute_bash` 不接入 document 特殊链；它通过 dispatcher 自动注入的 `session_id`、`agent_config.custom_params.workspace_root` 以及 `get_current_execution_observability_fields().run_id` 在工具内部完成统一路径语义解析
 - 默认受管目录根的自动补建统一下沉到 `tools/paths/path_resolution.py`：当 direct 工具以目录根语义访问 `workspace/transient/exports`（如 `working_dir` 省略、为空或为 `.`）且目标根目录尚未创建时，共享路径层会先补建对应根目录，再返回解析结果；这样 `execute_bash` 不需要单独维护目录创建分支
 - `execute_bash` 在工具内部额外维护一条 bash 专用审批链：白名单命令直接执行，所有非白名单命令统一触发 `user.approval_required`；其中删除、远程下载、解释器 / 子 shell、进程控制、系统控制等高风险命令会在审批 payload 中额外标记并提升风险提示，但不再硬拒绝
