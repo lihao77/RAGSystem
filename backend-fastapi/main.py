@@ -7,6 +7,12 @@ import logging
 import os
 from pathlib import Path
 
+# 必须在所有子模块导入之前加载 .env，否则 path_resolution.py
+# 的模块级 DATA_ROOT 赋值会在 load_dotenv 之前执行，导致
+# RAG_DATA_ROOT 等环境变量无法生效。
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env", override=False)
+
 os.environ['ANONYMIZED_TELEMETRY'] = 'False'
 os.environ['CHROMA_TELEMETRY_ENABLED'] = 'False'
 
@@ -24,6 +30,7 @@ from middleware.error_handler import register_exception_handlers
 from middleware.logging import LoggingMiddleware
 
 from api.v1 import router as api_v1_router
+from tools.paths.path_resolution import UPLOADS_ROOT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,7 +46,7 @@ DEFAULT_CORS_ORIGINS = [
     'http://127.0.0.1:8081',
 ]
 
-DEFAULT_UPLOAD_FOLDER = os.path.join(BACKEND_FASTAPI_DIR, 'uploads')
+DEFAULT_UPLOAD_FOLDER = str(UPLOADS_ROOT)
 DEFAULT_FRONTEND_DIST = os.path.join(PROJECT_ROOT, 'frontend-client', 'dist')
 
 

@@ -423,7 +423,8 @@ class VectorLibraryService:
             return str(RAGSYSTEM_DB)
         path = Path(raw)
         if not path.is_absolute():
-            path = Path(__file__).resolve().parent.parent / path
+            from tools.paths.path_resolution import BACKEND_ROOT
+            path = BACKEND_ROOT / path
         return str(path)
 
     def _get_vectorizer_store(self):

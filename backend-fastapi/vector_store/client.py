@@ -90,7 +90,8 @@ class VectorStoreClient:
         else:
             db_path = Path(raw)
             if not db_path.is_absolute():
-                db_path = Path(__file__).parent.parent / db_path
+                from tools.paths.path_resolution import BACKEND_ROOT
+                db_path = BACKEND_ROOT / db_path
 
         logger.info(f"初始化 SQLite 向量存储: {db_path}")
 

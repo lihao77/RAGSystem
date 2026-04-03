@@ -226,10 +226,10 @@ if __name__ == '__main__':
     if args.db_path:
         db_path = Path(args.db_path)
     else:
-        base_dir = Path(__file__).parent.parent
-        db_path = base_dir / "data" / "ragsystem.db"
+        from tools.paths.path_resolution import RAGSYSTEM_DB
+        db_path = RAGSYSTEM_DB
 
-    backup_dir = Path(args.backup_dir)
+    backup_dir = Path(args.backup_dir) if Path(args.backup_dir).is_absolute() else Path(args.backup_dir)
 
     # 恢复模式
     if args.restore:

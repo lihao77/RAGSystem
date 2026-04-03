@@ -40,9 +40,11 @@ def migrate_yaml_to_sqlite():
     4. 写入 SQLite
     5. 验证数据一致性
     """
-    base_dir = Path(__file__).parent.parent / "file_index"
-    yaml_path = base_dir / "files.yaml"
-    db_path = base_dir / "files.db"
+    from tools.paths.path_resolution import DB_ROOT
+    # YAML 历史数据仍在旧位置，SQLite 目标迁移到 DATA_ROOT/db/
+    old_base = Path(__file__).parent.parent / "file_index"
+    yaml_path = old_base / "files.yaml"
+    db_path = DB_ROOT / "ragsystem.db"
 
     logger.info("=" * 60)
     logger.info("开始文件索引数据迁移：YAML → SQLite")
@@ -153,16 +155,18 @@ def rollback_migration():
 
     从最新的备份文件恢复 YAML，删除 SQLite 数据库
     """
-    base_dir = Path(__file__).parent.parent / "file_index"
-    yaml_path = base_dir / "files.yaml"
-    db_path = base_dir / "files.db"
+    # 回滚针对旧版历史文件位置（file_index/ 目录），与迁移目标路径一致
+    old_base = Path(__file__).parent.parent / "file_index"
+    yaml_path = old_base / "files.yaml"
+    from tools.paths.path_resolution import DB_ROOT
+    db_path = DB_ROOT / "ragsystem.db"
 
     logger.info("=" * 60)
     logger.info("开始回滚迁移...")
     logger.info("=" * 60)
 
     # 查找最新的备份文件
-    backup_files = sorted(base_dir.glob("files.backup_*.yaml"), reverse=True)
+    backup_files = sorted(old_base.glob("files.backup_*.yaml"), reverse=True)
 
     if not backup_files:
         logger.error("❌ 未找到备份文件，无法回滚")

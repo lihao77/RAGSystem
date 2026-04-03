@@ -34,7 +34,8 @@ class ConversationStore:
 
         db_path = Path(db_path)
         if not db_path.is_absolute():
-            db_path = Path(__file__).parent / db_path
+            from tools.paths.path_resolution import BACKEND_ROOT
+            db_path = BACKEND_ROOT / db_path
 
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

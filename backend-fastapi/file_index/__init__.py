@@ -10,6 +10,7 @@
 from pathlib import Path
 from .store import FileIndex as FileIndexYAML
 from .sqlite_store import FileIndexSQLite
+from tools.paths.path_resolution import DB_ROOT
 
 
 def get_file_index(use_sqlite: bool = True, **kwargs):
@@ -25,11 +26,11 @@ def get_file_index(use_sqlite: bool = True, **kwargs):
     """
     if use_sqlite:
         # 检查 SQLite 数据库是否存在
-        db_path = kwargs.get('db_path') or (Path(__file__).parent / "files.db")
+        db_path = kwargs.get('db_path') or (DB_ROOT / "ragsystem.db")
         if Path(db_path).exists():
             return FileIndexSQLite(**kwargs)
         else:
-            # 数据库不存在，检查是否有 YAML 数据需要迁移
+            # 数据库不存在，检查是否有旧版 YAML 数据需要迁移（兼容历史路径）
             yaml_path = Path(__file__).parent / "files.yaml"
             if yaml_path.exists():
                 import logging
