@@ -81,98 +81,133 @@
       <button class="pl-btn" @click="loadMetrics">重试</button>
     </div>
 
-      <template v-else>
-        <div v-if="!selectedAgent && executionOverview" class="detail-card">
-          <div class="detail-card__head">
-            <h2>执行平面概览</h2>
-            <span>基于统一 execution plane 的运行态聚合视图</span>
-          </div>
-
-          <div class="metrics-grid metrics-grid--compact">
-            <div class="stat-card">
-              <div class="stat-body">
-                <div class="stat-label">运行中任务</div>
-                <div class="stat-value">{{ executionOverview.count ?? 0 }}</div>
-              </div>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-body">
-                <div class="stat-label">活跃会话</div>
-                <div class="stat-value">{{ executionOverview.sessions?.length ?? 0 }}</div>
-              </div>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-body">
-                <div class="stat-label">Agent 执行</div>
-                <div class="stat-value">{{ executionOverview.by_execution_kind?.agent_stream ?? 0 }}</div>
-              </div>
-            </div>
-
-            <div class="stat-card">
-              <div class="stat-body">
-                <div class="stat-label">MCP 调用</div>
-                <div class="stat-value">{{ executionOverview.by_execution_kind?.mcp_tool_call ?? 0 }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="runningTasks.length > 0" class="sub-section">
-            <h4 class="sub-section__title">运行中任务列表</h4>
-            <div class="running-task-list">
-              <button
-                v-for="task in runningTasks.slice(0, 8)"
-                :key="task.task_id"
-                type="button"
-                class="running-task-item"
-                :class="{ 'is-active': selectedTaskId === task.task_id }"
-                @click="selectTask(task.task_id)"
-              >
-                <div class="running-task-main">
-                  <span class="badge">{{ task.execution_kind }}</span>
-                  <span class="running-task-title">{{ task.task || task.task_id }}</span>
+        <template v-else>
+          <div v-if="!selectedAgent && executionOverview" class="execution-overview">
+            <div class="metrics-grid">
+              <div class="stat-card">
+                <div class="stat-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
                 </div>
-                <div class="running-task-meta">
-                  <span>{{ task.session_id || '无会话' }}</span>
-                  <span>{{ task.run_id }}</span>
-                  <span>{{ task.elapsed_seconds }}s</span>
+                <div class="stat-body">
+                  <div class="stat-label">运行中任务</div>
+                  <div class="stat-value">{{ executionOverview.count ?? 0 }}</div>
                 </div>
-              </button>
-            </div>
-          </div>
-
-          <div v-if="selectedTaskId" class="sub-section">
-            <div class="detail-inline-head">
-              <h4 class="sub-section__title">任务详情</h4>
-              <button type="button" class="btn-inline" @click="clearSelectedTask">关闭</button>
-            </div>
-
-            <div v-if="taskDetailLoading" class="inline-state">加载任务详情中...</div>
-            <div v-else-if="taskDetailError" class="inline-state inline-state--error">{{ taskDetailError }}</div>
-            <div v-else-if="selectedTaskStatus" class="task-detail-grid">
-              <div class="task-detail-card">
-                <div class="task-detail-title">状态快照</div>
-                <div class="task-detail-row"><span>task_id</span><code>{{ selectedTaskStatus.task_id }}</code></div>
-                <div class="task-detail-row"><span>session_id</span><code>{{ selectedTaskStatus.session_id || '—' }}</code></div>
-                <div class="task-detail-row"><span>run_id</span><code>{{ selectedTaskStatus.run_id || '—' }}</code></div>
-                <div class="task-detail-row"><span>request_id</span><code>{{ selectedTaskStatus.request_id || '—' }}</code></div>
-                <div class="task-detail-row"><span>execution_kind</span><code>{{ selectedTaskStatus.execution_kind }}</code></div>
-                <div class="task-detail-row"><span>status</span><strong>{{ selectedTaskStatus.status }}</strong></div>
-                <div class="task-detail-row"><span>elapsed</span><span>{{ selectedTaskStatus.elapsed_seconds }}s</span></div>
               </div>
 
-              <div v-if="selectedTaskDiagnostics" class="task-detail-card">
-                <div class="task-detail-title">执行诊断</div>
-                <div class="task-detail-row"><span>handle_registered</span><strong>{{ selectedTaskDiagnostics.handle_registered ? '是' : '否' }}</strong></div>
-                <div class="task-detail-row"><span>is_running</span><strong>{{ selectedTaskDiagnostics.is_running ? '是' : '否' }}</strong></div>
-                <div class="task-detail-row"><span>runner.status</span><code>{{ selectedTaskDiagnostics.runner?.status || '—' }}</code></div>
-                <div class="task-detail-row"><span>runner.thread_alive</span><code>{{ selectedTaskDiagnostics.runner?.thread_alive ?? '—' }}</code></div>
-                <div class="task-detail-row"><span>observability</span><code>{{ formatObservability(selectedTaskDiagnostics.observability) }}</code></div>
+              <div class="stat-card">
+                <div class="stat-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                  </svg>
+                </div>
+                <div class="stat-body">
+                  <div class="stat-label">活跃会话</div>
+                  <div class="stat-value">{{ executionOverview.sessions?.length ?? 0 }}</div>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                </div>
+                <div class="stat-body">
+                  <div class="stat-label">Agent 执行</div>
+                  <div class="stat-value">{{ executionOverview.by_execution_kind?.agent_stream ?? 0 }}</div>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                </div>
+                <div class="stat-body">
+                  <div class="stat-label">MCP 调用</div>
+                  <div class="stat-value">{{ executionOverview.by_execution_kind?.mcp_tool_call ?? 0 }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="runningTasks.length > 0 || selectedTaskId" class="detail-card">
+              <div class="detail-card__head">
+                <h2>执行平面详情</h2>
+                <span>运行中任务与诊断信息</span>
+              </div>
+
+              <div class="detail-card__body">
+              <div v-if="runningTasks.length > 0" class="sub-section">
+                <h4 class="sub-section__title">运行中任务列表</h4>
+                <div class="running-task-list">
+                  <button
+                    v-for="task in runningTasks.slice(0, 8)"
+                    :key="task.task_id"
+                    type="button"
+                    class="running-task-item"
+                    :class="{ 'is-active': selectedTaskId === task.task_id }"
+                    @click="selectTask(task.task_id)"
+                  >
+                    <div class="running-task-main">
+                      <span class="badge">{{ task.execution_kind }}</span>
+                      <span class="running-task-title">{{ task.task || task.task_id }}</span>
+                    </div>
+                    <div class="running-task-meta">
+                      <span>{{ task.session_id || '无会话' }}</span>
+                      <span>{{ task.run_id }}</span>
+                      <span>{{ task.elapsed_seconds }}s</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="selectedTaskId" class="sub-section">
+                <div class="detail-inline-head">
+                  <h4 class="sub-section__title">任务详情</h4>
+                  <button type="button" class="btn-inline" @click="clearSelectedTask">关闭</button>
+                </div>
+
+                <div v-if="taskDetailLoading" class="inline-state">加载任务详情中...</div>
+                <div v-else-if="taskDetailError" class="inline-state inline-state--error">{{ taskDetailError }}</div>
+                <div v-else-if="selectedTaskStatus" class="task-detail-grid">
+                  <div class="task-detail-card">
+                    <div class="task-detail-title">状态快照</div>
+                    <div class="task-detail-row"><span>task_id</span><code>{{ selectedTaskStatus.task_id }}</code></div>
+                    <div class="task-detail-row"><span>session_id</span><code>{{ selectedTaskStatus.session_id || '—' }}</code></div>
+                    <div class="task-detail-row"><span>run_id</span><code>{{ selectedTaskStatus.run_id || '—' }}</code></div>
+                    <div class="task-detail-row"><span>request_id</span><code>{{ selectedTaskStatus.request_id || '—' }}</code></div>
+                    <div class="task-detail-row"><span>execution_kind</span><code>{{ selectedTaskStatus.execution_kind }}</code></div>
+                    <div class="task-detail-row"><span>status</span><strong>{{ selectedTaskStatus.status }}</strong></div>
+                    <div class="task-detail-row"><span>elapsed</span><span>{{ selectedTaskStatus.elapsed_seconds }}s</span></div>
+                  </div>
+
+                  <div v-if="selectedTaskDiagnostics" class="task-detail-card">
+                    <div class="task-detail-title">执行诊断</div>
+                    <div class="task-detail-row"><span>handle_registered</span><strong>{{ selectedTaskDiagnostics.handle_registered ? '是' : '否' }}</strong></div>
+                    <div class="task-detail-row"><span>is_running</span><strong>{{ selectedTaskDiagnostics.is_running ? '是' : '否' }}</strong></div>
+                    <div class="task-detail-row"><span>runner.status</span><code>{{ selectedTaskDiagnostics.runner?.status || '—' }}</code></div>
+                    <div class="task-detail-row"><span>runner.thread_alive</span><code>{{ selectedTaskDiagnostics.runner?.thread_alive ?? '—' }}</code></div>
+                    <div class="task-detail-row"><span>observability</span><code>{{ formatObservability(selectedTaskDiagnostics.observability) }}</code></div>
+                  </div>
+                </div>
+              </div>
               </div>
             </div>
           </div>
-        </div>
 
         <!-- 系统级概览指标 -->
         <div v-if="!selectedAgent && systemMetrics" class="metrics-grid">
@@ -521,9 +556,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ===== Page shell ===== */
-.metrics-grid--compact {
-  margin-bottom: var(--spacing-md);
+.execution-overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
 }
 
 /* ===== hint in header ===== */
@@ -629,6 +665,10 @@ onUnmounted(() => {
 .detail-card__head span {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+
+.detail-card__body {
+  padding: var(--spacing-md) var(--spacing-lg);
 }
 
 .empty-state {

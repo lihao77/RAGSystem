@@ -29,43 +29,35 @@
           <IconNewConversation :size="22" class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-monitor" @click="goToMonitor" title="智能体性能监控">
+        <button class="sidebar-btn sidebar-btn-secondary" @click="goToModelProviders" title="模型 Provider 管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/>
           </svg>
-          <span class="btn-text">监控面板</span>
+          <span class="btn-text">模型管理</span>
         </button>
         <button class="sidebar-btn sidebar-btn-secondary" @click="goToAgentConfig" title="智能体配置">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 20h9"></path>
-            <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"></path>
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/>
           </svg>
           <span class="btn-text">Agent配置</span>
         </button>
         <button class="sidebar-btn sidebar-btn-secondary" @click="goToMCPManager" title="MCP 服务管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 22v-5"></path>
-            <path d="M9 8V2"></path>
-            <path d="M15 8V2"></path>
-            <path d="M18 8H6a2 2 0 0 0-2 2v3a7 7 0 0 0 14 0v-3a2 2 0 0 0-2-2z"></path>
+            <path d="M12 22v-5"/><rect x="6" y="9" width="12" height="6" rx="2"/><path d="M10 9V2"/><path d="M14 9V2"/>
           </svg>
           <span class="btn-text">MCP管理</span>
         </button>
         <button class="sidebar-btn sidebar-btn-secondary" @click="goToVectorLibrary" title="知识库管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
           </svg>
           <span class="btn-text">知识库</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToModelProviders" title="模型 Provider 管理">
+        <button class="sidebar-btn sidebar-btn-monitor" @click="goToMonitor" title="智能体性能监控">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            <path d="M4.93 4.93a10 10 0 0 0 0 14.14"></path>
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
           </svg>
-          <span class="btn-text">模型管理</span>
+          <span class="btn-text">监控面板</span>
         </button>
       </div>
 
@@ -300,26 +292,26 @@
               <!-- 消息操作 -->
               <div class="message-actions" :class="{ 'visible': messageActionsVisible === index || editingMessage === msg }">
                 <template v-if="msg.role === 'user' && editingMessage !== msg">
-                  <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑后确定将替换该条并重新生成回复" @click="startEditMessage(msg)">
-                    编辑
+                  <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑" @click="startEditMessage(msg)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                   </button>
-                  <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
-                    复制
+                  <button type="button" class="msg-action-btn btn-copy" title="复制" @click="copyMessage(msg)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                   </button>
                 </template>
                 <template v-if="msg.role === 'assistant' && msg.finished">
-                  <button type="button" class="msg-action-btn btn-copy" title="复制内容" @click="copyMessage(msg)">
-                    复制
+                  <button type="button" class="msg-action-btn btn-copy" title="复制" @click="copyMessage(msg)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                   </button>
                   <button
                     v-if="visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null) != null"
                     type="button"
                     class="msg-action-btn btn-retry"
                     :disabled="isLoading"
-                    title="删除此条之后的对话并用原问题重新执行（流式输出）"
+                    title="重试"
                     @click="rollbackAndRetry(visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null))"
                   >
-                    重试
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
                   </button>
                 </template>
               </div>

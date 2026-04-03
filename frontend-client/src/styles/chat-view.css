@@ -906,53 +906,45 @@
 .msg-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: 6px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: color 0.2s ease;
   outline: none;
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
+}
+
+.msg-action-btn:first-child {
+  margin-left: 0;
 }
 
 .msg-action-btn:hover {
-  background: var(--color-hover-overlay);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  background: transparent;
+  color: var(--color-text-secondary);
 }
 
 .msg-action-btn:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
+  transform: scale(0.92);
 }
 
 /* 重试 - 品牌蓝 */
 .msg-action-btn.btn-retry:hover {
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
-  border-color: var(--color-brand-accent);
   color: var(--color-brand-accent);
 }
 
 /* 编辑 - 中性 */
 .msg-action-btn.btn-edit:hover {
-  background: var(--color-hover-overlay-md);
-  border-color: var(--color-border-hover);
   color: var(--color-text-primary);
 }
 
 /* 复制 - 成功绿 */
 .msg-action-btn.btn-copy:hover {
-  background: rgba(var(--color-success-rgb), 0.1);
-  border-color: var(--color-success);
   color: var(--color-success);
 }
 
