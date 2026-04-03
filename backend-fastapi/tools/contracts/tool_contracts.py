@@ -21,6 +21,7 @@ class ToolContract:
     examples: list[dict[str, Any]] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     source: str = "decorator"
+    extended_usage: str = ""  # 扩展使用说明，用于在 prompt 中提供详细指导
 
 
 def build_function_tool(contract: ToolContract | Mapping[str, Any]) -> dict[str, Any]:
@@ -44,6 +45,8 @@ def build_function_tool(contract: ToolContract | Mapping[str, Any]) -> dict[str,
         function_def["tags"] = list(resolved.tags)
     if resolved.source:
         function_def["source"] = resolved.source
+    if resolved.extended_usage:
+        function_def["extended_usage"] = resolved.extended_usage
 
     return {
         "type": "function",

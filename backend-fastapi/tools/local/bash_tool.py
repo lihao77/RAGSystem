@@ -321,6 +321,58 @@ def _run_foreground_command(
     risk_level=RiskLevel.HIGH,
     timeout_seconds=120,
     allowed_callers=["direct"],
+    extended_usage="""### 后台执行说明
+
+设置 `run_in_background: true` 后，命令在后台执行，立即返回 `background_task_id`。后台任务完成后，系统会发送完成事件，包含 stdout、stderr、exit_code。
+
+**后台执行示例**：
+```xml
+<execute_bash>
+<command>npm run build</command>
+<run_in_background>true</run_in_background>
+<description>构建前端项目</description>
+</execute_bash>
+```
+
+返回：`{"background_task_id": "task_123"}`
+
+### 工作目录说明
+
+三个受管目录空间：`workspace`（默认）、`transient`（临时）、`exports`（导出）。
+
+- 相对路径：默认按 `workspace` 解析
+- 绝对路径：必须在受管目录内
+- 指定空间：使用 `working_dir_space` 参数
+
+**示例**：
+```xml
+<execute_bash>
+<command>ls -la</command>
+<working_dir>data</working_dir>
+<working_dir_space>transient</working_dir_space>
+</execute_bash>
+```
+
+### 安全限制
+
+**禁止的操作**：
+- 命令替换：`$(...)` 或反引号
+- 写重定向：`>` 或 `>>`
+- IFS 变量修改
+- 危险环境变量赋值（PATH、LD_PRELOAD 等）
+- 换行字符（隐藏命令）
+- Brace expansion 路径遍历
+
+**链式命令处理**：
+使用 `&&`、`||`、`;` 连接的命令会独立分类。如果任何一段是高风险命令，整体需要审批。
+
+**命令分类**：
+- `READ_ONLY`：grep, ls, cat, head, tail 等 → 直接执行
+- `WRITE`：cp, mv, mkdir, sed 等 → 中风险审批
+- `DESTRUCTIVE`：rm, dd, shred 等 → 高风险审批
+- `NETWORK`：curl, wget, ssh, git 等 → 高风险审批
+- `INTERPRETER`：python, node, docker, sudo 等 → 高风险审批
+- `UNKNOWN`：未知命令 → 中风险审批""",
 )
 def execute_bash(
     command: str,

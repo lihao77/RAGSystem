@@ -26,6 +26,7 @@ def tool(
     examples: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
     source: str = "decorator",
+    extended_usage: str = "",
 ) -> Callable:
     """
     工具注册装饰器。
@@ -57,6 +58,7 @@ def tool(
             examples=examples or [],
             tags=tags or [],
             source=source,
+            extended_usage=extended_usage,
         )
 
         permission = ToolPermission(

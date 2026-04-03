@@ -421,7 +421,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - 超时或取消时，主进程会对沙箱子进程执行 `terminate()`，必要时再 `kill()`，确保底层执行体被真正回收
 - 审批等待通过共享 `tools.runtime.approvals.request_inline_approval()` 统一实现
 
-沙箱内可用：`call_tool(tool_name, args)`, `open(path)`, `save_file(content, filename, space='workspace')`, `path_ops`（安全路径操作）。
+沙箱内已注入的全局变量（无需 import，直接使用）：`call_tool(tool_name, args)`、`open(path)`、`save_file(content, filename, space='workspace')`、`path_ops`（安全路径操作）、目录常量 `SESSION_*_DIR`。
 
 `call_tool` 返回工具主内容（不是完整响应壳）。只能调用 `allowed_callers` 包含 `"code_execution"` 的工具；`read_file` / `write_file` / `edit_file` 不再允许在 `execute_code` 中通过 `call_tool` 调用。
 
@@ -433,7 +433,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 禁止导入：os, sys, subprocess, shutil, socket。路径操作使用 `path_ops` 替代。
 
-`path_ops` 提供 `join`, `basename`, `dirname`, `splitext`, `exists`, `isfile`, `isdir`, `abspath`, `normpath`，替代被禁的 `os.path`。
+`path_ops` 是已注入的全局变量（不是模块，无需 import），提供 `join`, `basename`, `dirname`, `splitext`, `exists`, `isfile`, `isdir`, `abspath`, `normpath`，替代被禁的 `os.path`。
 
 ### Bash 工具（bash_tool.py）
 

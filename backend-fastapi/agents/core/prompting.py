@@ -136,6 +136,12 @@ def format_tool_contract(tool_or_func: Dict[str, Any], *, include_examples: bool
     func = tool_or_func.get('function', tool_or_func)
     lines: List[str] = []
 
+    # 扩展使用说明（如果存在）
+    extended_usage = func.get('extended_usage', '').strip()
+    if extended_usage:
+        lines.append(extended_usage)
+        lines.append("")  # 空行分隔
+
     returns = func.get('returns')
     if returns:
         lines.append("**成功返回**:")
@@ -374,6 +380,10 @@ def build_prompt_rules_section(agent) -> str:
 
 
 def build_code_execution_prompt_section(agent) -> str:
+    """生成 execute_code 中可调用的工具列表（动态部分）。
+
+    静态说明（模块、全局变量、文件操作规则）已在 execute_code 工具的 extended_usage 中定义。
+    """
     if not _invoke_prompt_hook(agent, '_has_tool', 'execute_code'):
         return ""
 
@@ -383,71 +393,18 @@ def build_code_execution_prompt_section(agent) -> str:
         if code_callable_tools
         else "当前没有额外工具可从代码中调用"
     )
-    tool_call_example = """```python
-preview = call_tool('tool_name', {
-    'param_name': 'value'
-})
-result = {
-    'tool_output': preview
-}
-```""" if code_callable_tools else """```python
-result = {
-    'message': '当前没有额外工具可从代码中调用，请直接在沙箱内处理数据或读取文件'
-}
-```"""
+    
+    if not code_callable_tools:
+        return f"""## execute_code 中可调用的工具
+
+在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，{tools_list}。请直接在沙箱内处理数据或读取文件。"""
+    
     return f"""## execute_code 中可调用的工具
 
 在 `execute_code` 的代码中使用 `call_tool(tool_name, arguments)` 时，只能调用以下工具：
 {tools_list}
 
-`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`；如果需要完整响应壳，不要假设它会返回 `content / summary / metadata` 结构。
-
-三个受管目录 `space` 与 direct 文件工具、`execute_bash` 一致：`workspace` / `transient` / `exports`。在代码里优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径，也不要拼接 `data/sessions/...` 这类内部路径。
-
-文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。在 `execute_code` 里直接使用受限 `open()` 读写文件。
-
-沙箱内禁止 `import os/sys/subprocess/shutil/socket`。如果需要拼路径、判断文件是否存在、取文件名等操作，请使用已注入的 `path_ops`。
-
-保存规则：
-- 临时中间产物：写到 `SESSION_TRANSIENT_DIR`
-- 需要给用户下载/查看的结果文件：优先使用 `save_file(content, filename, space='exports')`
-- 明确属于当前工作区内容的文件：写到 `SESSION_WORKSPACE_DIR`
-
-文件示例：
-```python
-file_path = path_ops.join(SESSION_TRANSIENT_DIR, 'demo.txt')
-with open(file_path, 'w', encoding='utf-8') as f:
-    f.write('hello')
-with open(file_path, 'r', encoding='utf-8') as f:
-    content = f.read()
-result = {{'content': content}}
-```
-
-导出结果示例：
-```python
-display_path = save_file({{'ok': True}}, 'report.json', space='exports')
-result = {{'display_path': display_path}}
-```
-
-工具调用示例：
-
-文件读取：
-```python
-text = open('sample.json', 'r', encoding='utf-8').read()
-data = json.loads(text)
-result = {{
-    'count': len(data.get('river', []))
-}}
-```
-
-错误示例：
-```python
-value = call_tool('tool_name', {{
-    'param_name': 'value'
-}})['content']
-```
-
-未列出的工具不能从代码中调用，只能直接作为 action 使用。"""
+详细使用说明（模块、全局变量、文件操作规则）见 execute_code 工具的扩展说明。"""
 
 
 def build_shared_system_prompt(agent) -> str:

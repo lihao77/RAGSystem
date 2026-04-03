@@ -574,6 +574,64 @@ def _publish_execution_event(event_bus, phase: str, **kwargs):
     # 外层 safety-net 超时应大于内层最大值（_MAX_TIMEOUT=300）加审批等待 buffer
     timeout_seconds=600,
     allowed_callers=["direct"],
+    extended_usage="""### 模块与全局变量
+
+**禁止导入的模块**：`os`、`sys`、`subprocess`、`shutil`、`socket`。
+
+**允许导入的模块**（白名单）：`math`、`json`、`re`、`csv`、`datetime`、`collections`、`itertools`、`functools`、`statistics`、`time`、`io`、`string`、`decimal`、`operator`、`copy`、`textwrap`、`hashlib`、`base64`、`struct`、`ast`（用于 `ast.literal_eval`）。
+
+**已注入的全局变量**（无需 import，直接使用）：
+- `path_ops` — 安全路径操作，提供 `join`、`basename`、`dirname`、`splitext`、`exists`、`isfile`、`isdir`、`abspath`、`normpath`，替代被禁的 `os.path`
+- `call_tool(tool_name, arguments)` — 调用其他工具（仅限 `allowed_callers` 包含 `"code_execution"` 的工具）
+- `save_file(content, filename, space='workspace')` — 保存文件到受管目录
+- `open(path, mode='r', ...)` — 受限文件读写
+- `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`、`SESSION_UPLOADS_DIR`、`SESSION_VISUALIZATIONS_DIR`、`SANDBOX_DIR`、`DATA_DIR` — 目录路径常量
+
+### 文件操作规则
+
+三个受管目录 `space` 与 direct 文件工具、`execute_bash` 一致：`workspace` / `transient` / `exports`。在代码里优先使用 `SESSION_WORKSPACE_DIR`、`SESSION_TRANSIENT_DIR`、`SESSION_EXPORTS_DIR`，不要自己猜路径，也不要拼接 `data/sessions/...` 这类内部路径。
+
+文件读写不要再通过 `call_tool('read_file'/'write_file'/'edit_file', ...)` 完成；这 3 个工具现在只允许 direct 调用。在 `execute_code` 里直接使用受限 `open()` 读写文件。
+
+**保存规则**：
+- 临时中间产物：写到 `SESSION_TRANSIENT_DIR`
+- 需要给用户下载/查看的结果文件：优先使用 `save_file(content, filename, space='exports')`
+- 明确属于当前工作区内容的文件：写到 `SESSION_WORKSPACE_DIR`
+
+**文件示例**：
+```python
+file_path = path_ops.join(SESSION_TRANSIENT_DIR, 'demo.txt')
+with open(file_path, 'w', encoding='utf-8') as f:
+    f.write('hello')
+with open(file_path, 'r', encoding='utf-8') as f:
+    content = f.read()
+result = {'content': content}
+```
+
+**导出结果示例**：
+```python
+display_path = save_file({'ok': True}, 'report.json', space='exports')
+result = {'display_path': display_path}
+```
+
+### call_tool 使用说明
+
+`call_tool()` 只返回工具的主内容，也就是 `ToolExecutionResult.content`；如果需要完整响应壳，不要假设它会返回 `content / summary / metadata` 结构。
+
+**错误示例**：
+```python
+value = call_tool('tool_name', {
+    'param_name': 'value'
+})['content']  # ❌ call_tool 已经返回主内容，不要再访问 ['content']
+```
+
+**正确示例**：
+```python
+value = call_tool('tool_name', {
+    'param_name': 'value'
+})  # ✅ 直接使用返回值
+result = {'tool_output': value}
+```""",
 )
 def execute_code_sandbox(
     code: str,
