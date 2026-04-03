@@ -234,23 +234,20 @@ defineExpose({ focus });
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.3s;
-  margin-bottom: 4px;
-  margin-left: 4px;
+  /* margin-bottom: 4px;
+  margin-left: 4px; */
   flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
 }
 
 .attachment-btn:hover:not(:disabled) {
-  background: var(--color-bg-secondary);
-  border-color: var(--color-border-hover);
-  transform: scale(1.05);
-  box-shadow: var(--shadow-md);
+  color: var(--color-text-primary);
+  background: var(--color-hover-overlay);
 }
 
 .attachment-btn:active:not(:disabled) {

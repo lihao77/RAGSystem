@@ -702,8 +702,15 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  transition: border-color 0.2s;
+}
+.provider-card:hover {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
 }
 .provider-card-header {
   display: flex;

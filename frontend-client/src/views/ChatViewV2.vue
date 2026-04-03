@@ -94,13 +94,9 @@
         </div>
       </div>
 
-      <a class="user-profile">
-        <div class="avatar">U</div>
-        <div class="user-info">
-          <div class="username">User</div>
-          <div class="user-status">Pro Plan</div>
-        </div>
-      </a>
+      <div class="sidebar-footer">
+        <span class="sidebar-footer__version">RAG Agent System</span>
+      </div>
     </aside>
 
     <!-- Main Chat Area -->
@@ -329,23 +325,23 @@
         </transition>
         <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
-            <label class="workspace-root-input-label" for="entry-agent-select">入口 Agent</label>
+            <label class="workspace-root-input-label">入口 Agent</label>
             <CustomSelect
-              id="entry-agent-select"
               v-model="pendingEntryAgent"
               :options="entryAgentOptions"
               :disabled="entryAgentLoading"
-              placeholder="可选：使用配置默认入口 Agent"
+              placeholder="使用配置默认入口 Agent"
+              style="flex: 1"
             />
           </div>
           <div v-if="!currentSessionId" class="workspace-root-input-row">
-            <label class="workspace-root-input-label" for="workspace-root-input">工作区根目录</label>
+            <label class="workspace-root-input-label" for="workspace-root-input">根目录</label>
             <input
               id="workspace-root-input"
               v-model="pendingWorkspaceRoot"
               type="text"
               class="workspace-root-input"
-              placeholder="可选：如 E:/Users/.../Desktop，仅对新会话生效"
+              placeholder="可选，如 E:/Users/.../Desktop"
               autocomplete="off"
               spellcheck="false"
             />
@@ -2991,50 +2987,45 @@ onUnmounted(() => {
 .workspace-root-input-row {
   width: 100%;
   max-width: 800px;
-  margin: 0 auto 12px;
+  margin: 0 auto 6px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
 }
 
 .workspace-root-input-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  min-width: 72px;
+  flex-shrink: 0;
 }
 
 .workspace-root-input {
-  width: 100%;
-  padding: 12px 16px;
+  flex: 1;
+  padding: 8px 14px;
   border-radius: var(--radius-lg);
-  border: 2px solid var(--color-border);
-  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  background: transparent;
   color: var(--color-text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
   font-family: var(--font-sans);
   transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  box-shadow: var(--shadow-sm);
 }
 
 .workspace-root-input::placeholder {
   color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
 }
 
 .workspace-root-input:hover {
   border-color: var(--color-border-hover);
-  box-shadow: var(--shadow-md);
 }
 
 .workspace-root-input:focus {
   outline: none;
-  border-color: var(--color-brand-accent);
-  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
-  transform: translateY(-1px);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
 .context-usage-bar {

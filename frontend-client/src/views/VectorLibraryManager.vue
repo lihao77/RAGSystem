@@ -292,7 +292,15 @@
                                 </div>
                             </div>
                         </div>
-                        <div v-else-if="searchPerformed" class="empty-state" style="padding: var(--spacing-lg)">未找到相关结果
+                        <div v-else-if="searchPerformed" class="empty-state" style="padding: var(--spacing-lg)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                <line x1="8" y1="11" x2="14" y2="11" />
+                            </svg>
+                            <p>未找到相关结果，尝试更换关键词或切换集合</p>
                         </div>
                     </div>
                 </div>
@@ -337,7 +345,8 @@
                                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                                 <polyline points="14 2 14 8 20 8" />
                             </svg>
-                            <p>暂无文件，请先上传</p>
+                            <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
+                            <button class="btn-primary" @click="triggerFileInput">上传文件</button>
                         </div>
                         <table v-else class="data-table">
                             <thead>
@@ -553,7 +562,14 @@
                         </div>
                     </div>
                     <div v-else-if="searchPerformed" class="empty-state glass-card" style="padding: var(--spacing-xl)">
-                        未找到相关结果
+                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            <line x1="8" y1="11" x2="14" y2="11" />
+                        </svg>
+                        <p>未找到相关结果，尝试更换关键词或切换集合</p>
                     </div>
                 </div>
 

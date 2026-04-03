@@ -428,70 +428,31 @@
   }
 }
 
-.user-profile {
-  /* Avatar 32px，中心 16px，左边距 = 32 - 16 = 16px */
-  padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+.sidebar-footer {
+  padding: var(--spacing-md) var(--spacing-lg);
   margin-top: auto;
-  /* 固定在底部 */
-}
-
-.sidebar.collapsed .user-profile {
-  /* 折叠时保持相同的 padding，avatar 位置不变 */
-  padding-left: calc(var(--icon-center-line) - 16px);
-  padding-right: calc(var(--icon-center-line) - 16px);
-  justify-content: flex-start;
-}
-
-.avatar {
-  width: 36px;
-  height: 36px;
-  background: var(--color-text-primary);
-  color: var(--color-bg-primary);
-  border-radius: var(--radius-full);
+  border-top: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 0.9rem;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.user-profile:hover .avatar {
-  transform: scale(1.05);
-  box-shadow: var(--shadow-md);
+.sidebar.collapsed .sidebar-footer {
+  padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
 }
 
-.user-info {
-  flex: 1;
-  overflow: hidden;
-  opacity: 1;
-  max-width: 200px;
+.sidebar-footer__version {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   white-space: nowrap;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), max-width 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.3s;
 }
 
-.sidebar.collapsed .user-info {
+.sidebar.collapsed .sidebar-footer__version {
   opacity: 0;
   max-width: 0;
-}
-
-.username {
-  font-weight: 500;
-  font-size: var(--font-size-base);
-  /* 0.9rem -> 1rem */
-  color: var(--color-text-primary);
-}
-
-.user-status {
-  font-size: var(--font-size-xs);
-  /* 0.75rem */
-  color: var(--color-text-muted);
 }
 
 /* ===== Chat Main Area ===== */
@@ -2074,7 +2035,7 @@
     max-height: 100%;
   }
 
-  .sidebar.mobile-open .user-info {
+  .sidebar.mobile-open .sidebar-footer__version {
     opacity: 1;
     max-width: 200px;
   }
