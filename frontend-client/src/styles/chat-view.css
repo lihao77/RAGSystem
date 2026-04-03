@@ -216,8 +216,8 @@
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
-  transform: translateX(2px);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .sidebar-btn-monitor {
@@ -339,8 +339,8 @@
 .history-item.active {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm);
-  /* border-color: var(--color-border); */
+  box-shadow: var(--shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .history-item.active .history-icon {
@@ -637,7 +637,19 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  position: relative;
   animation: logoFloat 4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.logo-placeholder::after {
+  content: '';
+  position: absolute;
+  width: 120%;
+  height: 120%;
+  background: radial-gradient(circle, rgba(var(--color-brand-accent-rgb), 0.15) 0%, transparent 70%);
+  filter: blur(30px);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .logo-placeholder svg {

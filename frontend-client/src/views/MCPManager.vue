@@ -1340,9 +1340,9 @@ onMounted(async () => {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.summary-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); }
+.summary-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
 
 .summary-icon {
   display: flex;
@@ -1481,7 +1481,8 @@ onMounted(async () => {
 }
 .server-card:hover {
   border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .server-card-head {
@@ -1892,9 +1893,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.registry-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); }
+.registry-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
 
 .registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .registry-card-title { flex: 1; }

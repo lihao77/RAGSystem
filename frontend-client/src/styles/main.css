@@ -361,6 +361,7 @@ input,
 textarea,
 [role="button"] {
   -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
 }
 
 /* 2. 去掉鼠标/触摸的 focus 轮廓，保留键盘导航的 focus-visible */
@@ -411,13 +412,13 @@ input[type='number'] {
 
 /* ===== Selection Styling ===== */
 ::selection {
-    background: var(--color-interactive-subtle);
+    background: rgba(var(--color-brand-accent-rgb), 0.3);
     color: var(--color-text-primary);
 }
 
 /* ===== Focus Outline ===== */
 :focus-visible {
-    outline: 2px solid var(--color-interactive);
+    outline: 2px solid rgba(var(--color-brand-accent-rgb), 0.6);
     outline-offset: 2px;
 }
 

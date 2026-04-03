@@ -201,8 +201,8 @@
 }
 
 .pl-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .pl-card__head {
