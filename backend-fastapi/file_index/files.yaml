@@ -1,3 +1,0 @@
-# 此文件已废弃（旧版 YAML 文件索引，历史遗留数据路径均已失效）。
-# 文件索引已迁移到 SQLite：DATA_ROOT/db/ragsystem.db
-# 如需迁移历史数据，请运行：python -m utils.migrate_file_index
