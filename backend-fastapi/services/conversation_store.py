@@ -29,12 +29,12 @@ class ConversationStore:
             db_path = config.vector_store.sqlite_vec.database_path
 
         if not db_path:
-            from tools.paths.path_resolution import RAGSYSTEM_DB
+            from core.path_resolution import RAGSYSTEM_DB
             db_path = str(RAGSYSTEM_DB)
 
         db_path = Path(db_path)
         if not db_path.is_absolute():
-            from tools.paths.path_resolution import BACKEND_ROOT
+            from core.path_resolution import BACKEND_ROOT
             db_path = BACKEND_ROOT / db_path
 
         self.db_path = db_path
@@ -1396,7 +1396,7 @@ class ConversationStore:
 
     def _infer_scope(self, path: str, *, session_id: Optional[str] = None) -> str:
         """根据文件路径推断资源 scope。"""
-        from tools.paths.path_resolution import infer_resource_scope
+        from core.path_resolution import infer_resource_scope
 
         workspace_root = None
         if session_id:

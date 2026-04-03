@@ -53,12 +53,11 @@ class AgentConfigManager:
         初始化配置管理器
 
         Args:
-            config_dir: 配置文件目录，默认为 backend/agents/configs/
+            config_dir: 配置文件目录，默认为 DATA_ROOT/config/agents/
         """
         if config_dir is None:
-            # 默认配置目录：agents 模块内的 configs 子目录
-            agents_dir = Path(__file__).parent.parent
-            config_dir = agents_dir / "configs"
+            from core.path_resolution import CONFIG_ROOT
+            config_dir = CONFIG_ROOT / "agents"
 
         self.config_dir = Path(config_dir)
         self.config_file = self.config_dir / "agent_configs.yaml"

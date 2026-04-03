@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def merge_databases():
     """合并文件索引数据库到向量存储数据库"""
 
-    from tools.paths.path_resolution import RAGSYSTEM_DB, DB_ROOT
+    from core.path_resolution import RAGSYSTEM_DB, DB_ROOT
     unified_db = RAGSYSTEM_DB
     vector_db_old = DB_ROOT / "vector_store.db"
     file_index_db = DB_ROOT / "ragsystem.db"  # file_index 已迁移到 ragsystem.db

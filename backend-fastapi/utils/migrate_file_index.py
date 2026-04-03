@@ -40,7 +40,7 @@ def migrate_yaml_to_sqlite():
     4. 写入 SQLite
     5. 验证数据一致性
     """
-    from tools.paths.path_resolution import DB_ROOT
+    from core.path_resolution import DB_ROOT
     # YAML 历史数据仍在旧位置，SQLite 目标迁移到 DATA_ROOT/db/
     old_base = Path(__file__).parent.parent / "file_index"
     yaml_path = old_base / "files.yaml"
@@ -158,7 +158,7 @@ def rollback_migration():
     # 回滚针对旧版历史文件位置（file_index/ 目录），与迁移目标路径一致
     old_base = Path(__file__).parent.parent / "file_index"
     yaml_path = old_base / "files.yaml"
-    from tools.paths.path_resolution import DB_ROOT
+    from core.path_resolution import DB_ROOT
     db_path = DB_ROOT / "ragsystem.db"
 
     logger.info("=" * 60)

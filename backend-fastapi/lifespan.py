@@ -43,11 +43,18 @@ async def _startup(app: FastAPI) -> None:
 
     # ── 第零步：初始化数据目录结构 ──────────────────────────────────────
     try:
-        from tools.paths.path_resolution import ensure_directories
+        from core.path_resolution import ensure_directories
         ensure_directories()
         logger.info('✓ 数据目录结构已初始化')
     except Exception as e:
         logger.warning('数据目录初始化失败: %s', e)
+
+    # ── 第零·五步：迁移配置文件到 CONFIG_ROOT ──────────────────────────
+    try:
+        _migrate_configs()
+        logger.info('✓ 配置文件位置已确认')
+    except Exception as e:
+        logger.warning('配置文件迁移失败: %s', e)
 
     # ── 第一步：初始化 RuntimeContainer（所有其他服务的前置依赖）──────────
     try:
@@ -176,3 +183,46 @@ async def _shutdown(app: FastAPI) -> None:
             await ext.on_shutdown(container)
         except Exception as e:
             logger.warning('扩展 %s.on_shutdown 失败: %s', ext.name, e)
+
+
+def _migrate_configs() -> None:
+    """
+    将旧版配置文件（源码目录内）迁移到 CONFIG_ROOT。
+    仅当目标不存在时执行拷贝，已存在则跳过（不覆盖用户修改）。
+
+    迁移映射：
+      agents/configs/agent_configs.yaml    → CONFIG_ROOT/agents/agent_configs.yaml
+      mcp/configs/mcp_servers.yaml         → CONFIG_ROOT/mcp/mcp_servers.yaml
+      model_adapter/configs/providers.yaml → CONFIG_ROOT/model_adapter/providers.yaml
+      config/yaml/config.yaml              → CONFIG_ROOT/app/config.yaml
+    """
+    import shutil
+    from pathlib import Path
+    from core.path_resolution import CONFIG_ROOT, BACKEND_ROOT
+
+    migrations = [
+        (
+            BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml",
+            CONFIG_ROOT / "agents" / "agent_configs.yaml",
+        ),
+        (
+            BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml",
+            CONFIG_ROOT / "mcp" / "mcp_servers.yaml",
+        ),
+        (
+            BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml",
+            CONFIG_ROOT / "model_adapter" / "providers.yaml",
+        ),
+        (
+            BACKEND_ROOT / "config" / "yaml" / "config.yaml",
+            CONFIG_ROOT / "app" / "config.yaml",
+        ),
+    ]
+
+    for src, dst in migrations:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            continue  # 目标已存在，跳过（不覆盖）
+        if src.exists():
+            shutil.copy2(src, dst)
+            logger.info('配置文件已迁移: %s → %s', src.name, dst)

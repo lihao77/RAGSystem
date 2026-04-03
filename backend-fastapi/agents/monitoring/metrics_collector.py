@@ -21,7 +21,7 @@ from .models import AgentMetrics, ToolMetrics, ErrorMetrics, SystemMetrics
 
 logger = logging.getLogger(__name__)
 
-from tools.paths.path_resolution import MONITORING_ROOT
+from core.path_resolution import MONITORING_ROOT
 
 # 默认持久化路径
 _DEFAULT_STORAGE_DIR = MONITORING_ROOT

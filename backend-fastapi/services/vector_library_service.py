@@ -419,11 +419,11 @@ class VectorLibraryService:
         config = self._config_getter()
         raw = (config.vector_store.sqlite_vec.database_path or "").strip()
         if not raw:
-            from tools.paths.path_resolution import RAGSYSTEM_DB
+            from core.path_resolution import RAGSYSTEM_DB
             return str(RAGSYSTEM_DB)
         path = Path(raw)
         if not path.is_absolute():
-            from tools.paths.path_resolution import BACKEND_ROOT
+            from core.path_resolution import BACKEND_ROOT
             path = BACKEND_ROOT / path
         return str(path)
 

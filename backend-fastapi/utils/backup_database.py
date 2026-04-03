@@ -226,7 +226,7 @@ if __name__ == '__main__':
     if args.db_path:
         db_path = Path(args.db_path)
     else:
-        from tools.paths.path_resolution import RAGSYSTEM_DB
+        from core.path_resolution import RAGSYSTEM_DB
         db_path = RAGSYSTEM_DB
 
     backup_dir = Path(args.backup_dir) if Path(args.backup_dir).is_absolute() else Path(args.backup_dir)

@@ -98,7 +98,7 @@ class AgentSessionApplication:
 
         try:
             import shutil
-            from tools.paths.path_resolution import get_session_cleanup_root
+            from core.path_resolution import get_session_cleanup_root
             cleanup_root = get_session_cleanup_root(session_id)
             if cleanup_root.exists():
                 shutil.rmtree(cleanup_root, ignore_errors=True)

@@ -16,9 +16,11 @@ from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_
 
 from .config import MCPServerConfig
 
+from core.path_resolution import CONFIG_ROOT
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_DIR = Path(__file__).parent / "configs"
+DEFAULT_CONFIG_DIR = CONFIG_ROOT / "mcp"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "mcp_servers.yaml"
 
 

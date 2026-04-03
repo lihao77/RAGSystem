@@ -23,7 +23,11 @@ class ModelAdapterConfigStore:
     
     def __init__(self, config_file: Optional[str | Path] = None):
         """初始化配置存储管理器"""
-        self.config_file = Path(config_file) if config_file else Path(__file__).parent / "configs" / "providers.yaml"
+        if config_file:
+            self.config_file = Path(config_file)
+        else:
+            from core.path_resolution import CONFIG_ROOT
+            self.config_file = CONFIG_ROOT / "model_adapter" / "providers.yaml"
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Model Adapter 配置文件: {self.config_file}")
     

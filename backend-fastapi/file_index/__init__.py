@@ -10,7 +10,7 @@
 from pathlib import Path
 from .store import FileIndex as FileIndexYAML
 from .sqlite_store import FileIndexSQLite
-from tools.paths.path_resolution import DB_ROOT
+from core.path_resolution import DB_ROOT
 
 
 def get_file_index(use_sqlite: bool = True, **kwargs):

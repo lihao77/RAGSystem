@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from tools.paths.path_resolution import DATA_ROOT
+from core.path_resolution import DATA_ROOT
 
 _lock = threading.Lock()
 

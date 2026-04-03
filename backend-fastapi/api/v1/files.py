@@ -13,7 +13,7 @@ from typing import List, Optional
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from tools.paths.path_resolution import get_uploads_root
+from core.path_resolution import get_uploads_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

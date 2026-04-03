@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from tools.paths.path_resolution import BACKEND_ROOT, get_memory_project_root, get_project_memory_scope_root, get_session_memory_scope_root
+from core.path_resolution import BACKEND_ROOT, get_memory_project_root, get_project_memory_scope_root, get_session_memory_scope_root
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)

@@ -91,7 +91,7 @@ class VectorDimensionMigrator:
         # 1. 获取数据库路径
         db_path = Path(self.config.vector_store.sqlite_vec.database_path)
         if not db_path.is_absolute():
-            from tools.paths.path_resolution import BACKEND_ROOT
+            from core.path_resolution import BACKEND_ROOT
             db_path = BACKEND_ROOT / db_path
 
         if not db_path.exists():

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from execution.observability import get_current_execution_observability_fields
 from tools.decorators import tool
-from tools.paths.path_resolution import resolve_managed_path, to_display_path
+from core.path_resolution import resolve_managed_path, to_display_path
 from tools.contracts.permissions import RiskLevel
 from tools.runtime.response_builder import error_result, success_result
 

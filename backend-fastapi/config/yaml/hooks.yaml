@@ -8,12 +8,10 @@ defaults:
   broadcast: true
 
 # Workspace trust configuration
+# rules 由运行时根据 DATA_ROOT / RAG_DATA_ROOT 动态注入，此处不硬编码路径
 workspace_trust:
   default: trusted
-  rules:
-    - matcher:
-        workspace_root_prefix: "E:/Python/RAGSystem"
-      trust: trusted
+  rules: []
 
 # System-level hook definitions
 hooks:

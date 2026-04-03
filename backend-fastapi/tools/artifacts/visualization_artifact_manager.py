@@ -15,7 +15,7 @@ from typing import Any, Dict
 
 from agents.artifacts import ArtifactStore
 from tools.contracts.result_models import ArtifactRef
-from tools.paths.path_resolution import SESSIONS_ROOT, get_session_visualizations_root
+from core.path_resolution import SESSIONS_ROOT, get_session_visualizations_root
 
 logger = logging.getLogger(__name__)
 _INDEX_FILE = 'viz_index.jsonl'

@@ -30,7 +30,7 @@ from middleware.error_handler import register_exception_handlers
 from middleware.logging import LoggingMiddleware
 
 from api.v1 import router as api_v1_router
-from tools.paths.path_resolution import UPLOADS_ROOT
+from core.path_resolution import UPLOADS_ROOT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,23 +59,12 @@ def _parse_csv_env(name: str, default: list) -> list:
 
 def _build_reload_excludes() -> list[str]:
     """构建 uvicorn 热更新排除项，避免 Skill 目录和虚拟环境触发重载。"""
-    skills_path = Path(SKILLS_DIR)
-    patterns = {
-        str(skills_path),
-        skills_path.as_posix(),
+    return [
         "agents/skills",
         "agents/skills/*",
         "agents/skills/**",
-        "*/agents/skills/*",
-        "*/agents/skills/**",
-        ".venv",
-        ".venv/*",
-        ".venv/**",
-        "**/.venv",
-        "**/.venv/*",
         "**/.venv/**",
-    }
-    return sorted(patterns)
+    ]
 
 
 def create_app() -> FastAPI:

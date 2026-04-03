@@ -41,7 +41,7 @@ from agents.task_registry import get_task_registry  # 兼容现有测试 monkeyp
 
 from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
-from tools.paths.path_resolution import (
+from core.path_resolution import (
     get_effective_workspace_root,
     get_session_exports_root,
     get_session_sandbox_root,

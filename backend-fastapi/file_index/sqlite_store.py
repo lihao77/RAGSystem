@@ -41,13 +41,17 @@ class FileIndexSQLite:
         """
         if db_path is None:
             from config import get_config
-            from tools.paths.path_resolution import RAGSYSTEM_DB
+            from core.path_resolution import RAGSYSTEM_DB
             try:
                 config = get_config()
                 raw = (config.vector_store.sqlite_vec.database_path or "").strip()
                 if raw:
                     p = Path(raw)
-                    db_path = p if p.is_absolute() else Path(__file__).resolve().parent.parent / p
+                    if p.is_absolute():
+                        db_path = p
+                    else:
+                        from core.path_resolution import BACKEND_ROOT
+                        db_path = BACKEND_ROOT / p
                 else:
                     db_path = RAGSYSTEM_DB
             except Exception:

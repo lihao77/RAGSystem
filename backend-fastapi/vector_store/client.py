@@ -85,12 +85,12 @@ class VectorStoreClient:
         """初始化 SQLite 向量存储"""
         raw = (config.database_path or "").strip()
         if not raw:
-            from tools.paths.path_resolution import RAGSYSTEM_DB
+            from core.path_resolution import RAGSYSTEM_DB
             db_path = RAGSYSTEM_DB
         else:
             db_path = Path(raw)
             if not db_path.is_absolute():
-                from tools.paths.path_resolution import BACKEND_ROOT
+                from core.path_resolution import BACKEND_ROOT
                 db_path = BACKEND_ROOT / db_path
 
         logger.info(f"初始化 SQLite 向量存储: {db_path}")

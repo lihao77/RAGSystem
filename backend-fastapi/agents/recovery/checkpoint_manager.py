@@ -32,7 +32,7 @@ class CheckpointManager:
             db_path: SQLite 数据库路径
         """
         if db_path is None:
-            from tools.paths.path_resolution import CHECKPOINTS_DB
+            from core.path_resolution import CHECKPOINTS_DB
             db_path = str(CHECKPOINTS_DB)
         self.db_path = db_path
         self._ensure_db_exists()

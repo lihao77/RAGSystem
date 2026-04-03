@@ -25,7 +25,7 @@ from typing import Optional
 from execution.observability import get_current_execution_observability_fields
 from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
-from tools.paths.path_resolution import (
+from core.path_resolution import (
     get_session_sandbox_root,
     get_session_transient_root,
     resolve_managed_directory,
