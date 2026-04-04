@@ -86,6 +86,12 @@
     --color-hover-overlay-md: rgba(255, 255, 255, 0.08);
     --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
 
+    /* Dot Grid Background */
+    --dot-color: rgba(255, 255, 255, 0.1);
+    --dot-spacing: 18px;
+    --glow-color: rgba(10, 132, 255, 0.12);
+    --glow-size: 350px;
+
     /* Minimal Glass - Tinted Transparency */
     --glass-bg: rgba(28, 28, 30, 0.72);
     /* Apple style glass */
@@ -292,6 +298,12 @@
     --color-hover-overlay-md: rgba(0, 0, 0, 0.06);
     --color-hover-overlay-lg: rgba(0, 0, 0, 0.08);
 
+    /* Dot Grid Background */
+    --dot-color: rgba(0, 0, 0, 0.08);
+    --dot-spacing: 18px;
+    --glow-color: rgba(0, 122, 255, 0.06);
+    --glow-size: 300px;
+
     /* Glass - Light：用深色边框 + 更不透明的白色背景，在白底上产生层次感 */
     --glass-bg: rgba(255, 255, 255, 0.8);
     /* Apple style glass */
@@ -343,6 +355,18 @@ body::before {
     background:
         radial-gradient(ellipse 60% 50% at 15% 20%, rgba(10, 132, 255, 0.06), transparent),
         radial-gradient(ellipse 50% 60% at 85% 80%, rgba(10, 132, 255, 0.04), transparent);
+}
+
+/* 点阵背景 — 为背景添加微妙的网格纹理 */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image: radial-gradient(circle, var(--dot-color) 1.2px, transparent 1.2px);
+    background-size: var(--dot-spacing) var(--dot-spacing);
+    opacity: 0.9;
 }
 
 body {

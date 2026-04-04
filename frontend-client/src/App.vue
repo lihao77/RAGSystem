@@ -1,5 +1,6 @@
 <template>
   <div id="app">
+    <div class="mouse-glow" aria-hidden="true"></div>
     <RouterView v-slot="{ Component, route }">
       <Transition :name="transitionName">
         <component
@@ -85,6 +86,18 @@ onMounted(() => {
   if (savedLLM) {
     selectedLLM.value = savedLLM;
   }
+
+  // Mouse glow tracking
+  const root = document.documentElement;
+  const mouseGlow = document.querySelector('.mouse-glow');
+  window.addEventListener('mousemove', (e) => {
+    root.style.setProperty('--mouse-x', `${e.clientX}px`);
+    root.style.setProperty('--mouse-y', `${e.clientY}px`);
+    if (mouseGlow) mouseGlow.style.opacity = '1';
+  }, { passive: true });
+  window.addEventListener('mouseleave', () => {
+    if (mouseGlow) mouseGlow.style.opacity = '0';
+  });
 });
 </script>
 
@@ -94,6 +107,26 @@ onMounted(() => {
   overflow: hidden;
   width: 100%;
   height: 100%;
+}
+
+/* 鼠标光晕 — 跟随鼠标的柔和照亮效果 */
+.mouse-glow {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  width: var(--glow-size);
+  height: var(--glow-size);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glow-color) 0%, transparent 70%);
+  transform: translate(
+    calc(var(--mouse-x, -9999px) - 50%),
+    calc(var(--mouse-y, -9999px) - 50%)
+  );
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  will-change: transform;
 }
 
 /* 向右进入（从右滑入 + 淡入） - Apple style */

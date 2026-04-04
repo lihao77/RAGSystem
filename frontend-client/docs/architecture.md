@@ -106,7 +106,7 @@ tool 归属规则：
 
 `ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
 
-`ChatViewV2.vue` 在消息区和输入区之间额外渲染一个“滚动到底部”悬浮按钮：仅当用户离开底部或关闭自动滚动时显示；桌面端按钮以 `chat-main` 为定位容器，在其底部区域居中悬浮并抬高 z-index，避免被 sticky 输入区遮挡；移动端改为 fixed 居中悬浮，并额外考虑 safe-area 与输入框高度，避免被底部输入区盖住。按钮显示优先依据消息容器与底部的实际距离判断，而不是只依赖自动滚动状态，减少移动端状态判断偏差。点击按钮时对消息容器执行平滑滚动动画，并在滚动真正到达底部前保持按钮可见，避免出现先消失又重新出现的闪烁；进出场动画也改为以居中悬浮点为基准的淡入淡出与轻微上浮。
+`ChatViewV2.vue` 在消息区底部使用单一 `chat-messages-wrapper` 作为滚动容器，并在其底部放置一个 `bottom-dock` sticky 容器，内部同时承载输入区和“滚动到底部”按钮。按钮只用 JS 判断是否显示；位置完全由 CSS 控制，始终相对输入区使用 `bottom: calc(100% + 12px)` 悬浮，因此 textarea 自增高、附件预览展开、移动端输入区高度变化时都会自动跟随上移，不再依赖 `getBoundingClientRect()` 或 viewport/safe-area 的手工 bottom 计算。点击按钮时仍对消息容器执行平滑滚动，并在真正回到底部前保持按钮可见，避免闪烁。
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 
@@ -266,6 +266,8 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 当前多模态输入约定：
 - 顶部“会话文件”主入口已收敛，附件入口下沉到 `ChatInput.vue` 左侧按钮
+- `ChatInput.vue` 现为双层输入结构：上层仅承载文本输入区，下层承载附件按钮、发送按钮、上下文预算与 execution pill 等状态操作区
+- `ChatViewV2.vue` 通过 `ChatInput` 的 `footerMeta` slot 将上下文预算与执行状态注入输入框底部，而不是在输入框外单独渲染状态条
 - `SessionFilesDrawer.vue` 同时服务底部输入区新消息附件和“消息气泡原地编辑”两种场景，通过本地 `target/mode` 区分操作目标
 - 用户可以发送“纯文本”、“文本+附件”或“纯附件”消息
 - 用户消息历史回放时，附件通过 `message.metadata.attachments` 重建并在消息气泡下方回显

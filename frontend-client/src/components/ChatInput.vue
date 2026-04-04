@@ -15,49 +15,61 @@
           </button>
         </div>
       </div>
-      <div class="input-wrapper">
-        <button
-          type="button"
-          class="attachment-btn"
-          :disabled="isLoading"
-          @click="emit('openAttachments')"
-          aria-label="打开附件面板"
-          title="添加图片或文件"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
-          </svg>
-        </button>
-        <textarea
-          v-model="inputText"
-          @keydown.enter.prevent="handleEnter"
-          placeholder="Ask anything..."
-          rows="1"
-          ref="textareaRef"
-        ></textarea>
-        <button
-          v-if="isLoading"
-          class="send-btn stop-btn"
-          @click="handleStop"
-          aria-label="Stop generation"
-        >
-          <span class="stop-icon">■</span>
-        </button>
-        <button
-          v-else
-          class="send-btn"
-          :disabled="sendDisabled"
-          @click="handleSend"
-          aria-label="Send message"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
-            <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-          </svg>
-        </button>
+
+      <div class="composer-shell">
+        <div class="input-wrapper">
+          <textarea
+            v-model="inputText"
+            @keydown.enter.prevent="handleEnter"
+            placeholder="Ask anything..."
+            rows="1"
+            ref="textareaRef"
+          ></textarea>
+        </div>
+
+        <div class="input-footer">
+          <div class="input-footer-left">
+            <button
+              type="button"
+              class="attachment-btn"
+              :disabled="isLoading"
+              @click="emit('openAttachments')"
+              aria-label="打开附件面板"
+              title="添加图片或文件"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
+              </svg>
+            </button>
+
+            <div v-if="$slots.footerMeta" class="input-footer-meta">
+              <slot name="footerMeta" />
+            </div>
+          </div>
+
+          <div class="input-footer-right">
+            <button
+              v-if="isLoading"
+              class="send-btn stop-btn"
+              @click="handleStop"
+              aria-label="Stop generation"
+            >
+              <span class="stop-icon">■</span>
+            </button>
+            <button
+              v-else
+              class="send-btn"
+              :disabled="sendDisabled"
+              @click="handleSend"
+              aria-label="Send message"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="disclaimer">
-      AI can make mistakes. Please verify important information.
     </div>
   </div>
 </template>
@@ -163,6 +175,12 @@ defineExpose({ focus });
   transform: translateY(-2px);
 }
 
+.composer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .attachment-preview-list {
   display: flex;
   flex-wrap: wrap;
@@ -222,10 +240,67 @@ defineExpose({ focus });
 
 .input-wrapper {
   display: flex;
-  align-items: flex-end;
-  gap: var(--spacing-sm);
+  align-items: stretch;
+  min-height: 72px;
   background-color: transparent;
-  padding: 0;
+}
+
+textarea {
+  width: 100%;
+  padding: 8px 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 0.96rem;
+  font-family: inherit;
+  resize: none;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  min-height: 64px;
+}
+
+textarea:focus {
+  outline: none;
+}
+
+textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 4px 2px;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: nowrap;
+}
+
+.input-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.input-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.input-footer-right {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
 }
 
 .attachment-btn {
@@ -234,20 +309,19 @@ defineExpose({ focus });
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: transparent;
+  border: 1px solid transparent;
+  background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   cursor: pointer;
   transition: all 0.3s;
-  /* margin-bottom: 4px;
-  margin-left: 4px; */
   flex-shrink: 0;
 }
 
 .attachment-btn:hover:not(:disabled) {
   color: var(--color-text-primary);
   background: var(--color-hover-overlay);
+  border-color: var(--color-border);
 }
 
 .attachment-btn:active:not(:disabled) {
@@ -264,43 +338,19 @@ defineExpose({ focus });
   height: 18px;
 }
 
-textarea {
-  flex: 1;
-  padding: 10px 14px;
-  border: none;
-  background: transparent;
-  font-size: 0.95rem;
-  font-family: inherit;
-  resize: none;
-  max-height: 200px;
-  overflow-y: auto;
-  line-height: 1.5;
-  color: var(--color-text-primary);
-  min-height: 44px;
-}
-
-textarea:focus {
-  outline: none;
-}
-
-textarea::placeholder {
-  color: var(--color-text-muted);
-}
-
 .send-btn {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: var(--color-brand-accent);
   color: white;
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   cursor: pointer;
   transition: all 0.3s;
-  margin-bottom: 4px;
-  margin-right: 4px;
+  margin: 0;
   box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);
 }
 
@@ -361,17 +411,29 @@ textarea::placeholder {
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+@media (max-width: 640px) {
+  .input-container {
+    border-radius: 24px;
+    padding: 8px;
+  }
+
+  textarea {
+    min-height: 56px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .input-footer {
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .input-footer-left {
+    gap: 8px;
+  }
 }
 
-.disclaimer {
-  margin: var(--spacing-sm) 0;
-  text-align: center;
-  font-size: 0.7rem;
-  color: var(--color-text-muted);
-  opacity: 0.5;
-  font-weight: 400;
-  letter-spacing: 0.02em;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

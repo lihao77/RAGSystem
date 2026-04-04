@@ -100,7 +100,7 @@
     </aside>
 
     <!-- Main Chat Area -->
-    <main class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
+    <main ref="chatMainRef" class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
       <!-- 顶部控制栏 -->
       <div class="top-controls-bar glass-card" ref="topControlsBarRef">
         <!-- 左侧：汉堡菜单 + LLM 选择器 -->
@@ -315,15 +315,16 @@
           </div>
         </div>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
-        <transition name="scroll-btn-fade">
-          <button v-if="showScrollToBottomButton" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
-        </transition>
-        <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
+        <div class="bottom-dock">
+          <transition name="scroll-btn-fade">
+            <button v-if="showScrollToBottomButton" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </transition>
+          <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
             <label class="workspace-root-input-label">入口 Agent</label>
             <CustomSelect
@@ -346,43 +347,6 @@
               spellcheck="false"
             />
           </div>
-          <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="context-usage-bar">
-            <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
-              <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
-                <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
-                <circle
-                  cx="11"
-                  cy="11"
-                  r="9"
-                  fill="none"
-                  :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
-                  stroke-dashoffset="0"
-                  :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
-                />
-              </svg>
-              <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
-              <span v-if="isCompressing" class="compressing-indicator">
-                <span class="compressing-dot"></span>
-                压缩中
-              </span>
-            </div>
-
-            <button
-              v-if="showExecutionPill"
-              type="button"
-              class="execution-pill"
-              :class="executionStatusClass"
-              :title="executionStatusTooltip"
-              @click="openExecutionDrawer"
-            >
-              <span class="execution-pill-dot"></span>
-              <span class="execution-pill-text">{{ executionStatusText }}</span>
-              <span class="execution-pill-kind">{{ executionKindLabel }}</span>
-            </button>
-          </div>
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -392,9 +356,47 @@
             @stop="handleStop"
             @openAttachments="() => openSessionFilesDrawer('composer')"
             @removeAttachment="removePendingAttachment"
-          />
+          >
+            <template #footerMeta>
+              <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="composer-status-row">
+                <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
+                  <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+                    <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
+                    <circle
+                      cx="11"
+                      cy="11"
+                      r="9"
+                      fill="none"
+                      :stroke="contextUsageClass === 'danger' ? 'var(--ctx-ring-danger)' : contextUsageClass === 'warning' ? 'var(--ctx-ring-warning)' : 'var(--ctx-ring-success)'"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      :stroke-dasharray="`${contextUsagePct * 0.5655} 56.55`"
+                      stroke-dashoffset="0"
+                      :style="{ transform: 'rotate(90deg) scaleX(-1)', transformOrigin: '50% 50%' }"
+                    />
+                  </svg>
+                  <span class="context-usage-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }} tokens</span>
+                  <span v-if="isCompressing" class="compressing-indicator">
+                    <span class="compressing-dot"></span>
+                    压缩中
+                  </span>
+                </div>
+
+                <button
+                  v-if="showExecutionPill"
+                  type="button"
+                  class="execution-pill"
+                  :class="executionStatusClass"
+                  :title="executionStatusTooltip"
+                  :aria-label="`查看执行状态：${executionStatusText}`"
+                  @click="openExecutionDrawer"
+                ></button>
+              </div>
+            </template>
+          </ChatInput>
         </div>
       </div>
+    </div>
 
 
 
@@ -579,6 +581,7 @@ const inputMessage = ref('');
 const isLoading = ref(false);
 const inputSending = ref(false);
 const messagesRef = ref(null);
+const chatMainRef = ref(null);
 const topControlsBarRef = ref(null);
 const sidebarRef = ref(null);
 const historyListRef = ref(null);
@@ -1823,7 +1826,6 @@ const executionStatusClass = computed(() => {
   return 'is-running';
 });
 
-/** pill 常驻显示当前会话最近一次 execution 快照；运行中优先，其次保留完成态 */
 const showExecutionPill = computed(() => {
   if (!currentSessionId.value) return false;
   if (isLoading.value) return true;
@@ -1831,20 +1833,6 @@ const showExecutionPill = computed(() => {
   const status = sessionTaskInfo.value?.status;
   return status === 'running' || status === 'cancel_requested'
     || status === 'interrupted' || status === 'failed' || status === 'completed';
-});
-
-const executionKindLabel = computed(() => {
-  const kind = sessionExecutionObservability.value?.execution_kind || 'agent_stream';
-  const labels = {
-    agent_stream: 'Agent Stream',
-    node_execute: 'Node Execute',
-    mcp_tool_call: 'MCP Tool',
-    mcp_connect: 'MCP Connect',
-    mcp_disconnect: 'MCP Disconnect',
-    mcp_refresh: 'MCP Refresh',
-    mcp_test: 'MCP Test'
-  };
-  return labels[kind] || kind;
 });
 
 const executionStatusTooltip = computed(() => {
@@ -3028,106 +3016,93 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
-.context-usage-bar {
+.composer-status-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  max-width: 800px;
-  margin: 0 auto 6px;
-  padding: 3px 8px;
   width: 100%;
-  border-radius: var(--radius-sm);
-  transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .execution-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   margin-left: auto;
-  padding: 3px 10px 3px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-  font-size: 12px;
-  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  transition: opacity 0.2s ease;
 }
 
-.execution-pill:hover {
-  background: var(--color-hover-overlay);
-}
-
-.execution-pill-dot {
+.execution-pill::before {
+  content: '';
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--color-text-muted);
-}
-
-.execution-pill-text {
-  font-weight: 600;
-  line-height: 1;
-}
-
-.execution-pill-kind {
-  font-size: 11px;
-  line-height: 1;
-  color: var(--color-text-muted);
+  background: currentColor;
+  opacity: 0.9;
 }
 
 .execution-pill.is-running {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.3);
-}
-
-.execution-pill.is-running .execution-pill-dot {
-  background: var(--color-brand-accent-light);
-}
-
-.execution-pill.is-running .execution-pill-text {
   color: var(--color-brand-accent-light);
 }
 
+.execution-pill.is-running::before {
+  animation: execution-pill-breathe 1.8s ease-in-out infinite;
+}
+
 .execution-pill.is-warning {
-  border-color: rgba(var(--color-warning-rgb), 0.3);
-}
-
-.execution-pill.is-warning .execution-pill-dot {
-  background: var(--color-warning);
-}
-
-.execution-pill.is-warning .execution-pill-text {
   color: var(--color-warning);
 }
 
+.execution-pill.is-warning::before {
+  animation: execution-pill-breathe 1.6s ease-in-out infinite;
+}
+
 .execution-pill.is-error {
-  border-color: rgba(var(--color-error-rgb), 0.3);
-}
-
-.execution-pill.is-error .execution-pill-dot {
-  background: var(--color-error);
-}
-
-.execution-pill.is-error .execution-pill-text {
   color: var(--color-error);
 }
 
-.execution-pill.is-success .execution-pill-dot {
-  background: var(--color-success);
+.execution-pill.is-error::before {
+  animation: execution-pill-breathe 1.35s ease-in-out infinite;
+}
+
+.execution-pill.is-success {
+  color: var(--color-success);
+}
+
+@keyframes execution-pill-breathe {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 /* .context-usage-bar:hover {
   background: var(--color-bg-secondary);
 } */
 
 .context-usage-content {
-  display: inline-flex;  /* 关键：只包裹内容，不撑满宽度 */
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;       /* 只在这里设置手型 */
-  /* 可选：增加一点点击热区，但不要过大 */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  cursor: pointer;
   padding: 4px;
   margin: -4px;
 }
@@ -3136,6 +3111,8 @@ onUnmounted(() => {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
 }
 
@@ -3165,9 +3142,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 600px) {
-  .context-usage-bar {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+  .composer-status-row {
+    align-items: center;
   }
 
   .execution-pill {
@@ -3175,12 +3151,23 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 480px) {
+  .context-usage-content {
+    flex: 0 0 auto;
+  }
+
+  .context-usage-label,
+  .compressing-indicator {
+    display: none;
+  }
+}
+
 /* ===== Scroll to Bottom Button ===== */
 .scroll-to-bottom-btn {
   position: absolute;
   left: 50%;
+  bottom: calc(100% + 12px);
   right: auto;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 112px);
   transform: translateX(-50%);
   z-index: calc(var(--z-sticky, 10) + 2);
   width: 40px;
@@ -3229,12 +3216,9 @@ onUnmounted(() => {
 
 @media (max-width: 767px) {
   .scroll-to-bottom-btn {
-    position: fixed;
-    left: 50%;
-    right: auto;
-    /* bottom: calc(env(safe-area-inset-bottom, 0px) + 148px); */
     width: 30px;
     height: 30px;
+    bottom: calc(100% + 10px);
     z-index: calc(var(--z-sticky, 10) + 4);
   }
 }

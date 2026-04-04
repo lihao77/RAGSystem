@@ -48,19 +48,23 @@
   width: 100vw;
   background-color: transparent;
   overflow: hidden;
+  padding: 6px;
+  gap: 6px;
 }
 
 /* ===== Sidebar ===== */
 .sidebar {
   width: 260px;
-  background: var(--color-bg-primary);
-  border-right: 1px solid var(--color-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   z-index: var(--z-sidebar);
   transition: width 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  box-shadow: var(--shadow-sm);
 
   /* 展开状态：图标中心线位置 */
   --icon-center-line: 25px;
@@ -462,7 +466,11 @@
   flex-direction: column;
   position: relative;
   min-width: 0;
-  background-color: var(--color-bg-secondary);
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
 }
 
 /* ===== 顶部控制栏 ===== */
@@ -474,6 +482,9 @@
   pointer-events: none;
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   position: relative;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   /* 允许点击穿透到下层 */
 }
 
@@ -1832,20 +1843,28 @@
 }
 
 /* ===== Input Area ===== */
-.input-area-wrapper {
-  background: linear-gradient(to bottom, transparent 60px, var(--color-bg-secondary) 60px);
-  border-top: none;
-  backdrop-filter: none;
-  padding: 0px var(--input-area-padding-x);
+.bottom-dock {
   position: sticky;
   bottom: 0;
   left: 0;
-  isolation: isolate;
   width: 100%;
   z-index: var(--z-sticky);
-  transition: opacity 220ms var(--edit-transition-ease), transform 220ms var(--edit-transition-ease), filter 220ms var(--edit-transition-ease), background 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
-  /* Allow clicks to pass through the gradient area */
+}
+
+.bottom-dock > * {
+  pointer-events: auto;
+}
+
+.input-area-wrapper {
+  position: relative;
+  background: transparent;
+  padding: 0px var(--input-area-padding-x);
+  padding-bottom: var(--spacing-md);
+  isolation: isolate;
+  width: 100%;
+  pointer-events: none;
+  transition: opacity 220ms var(--edit-transition-ease), transform 220ms var(--edit-transition-ease), filter 220ms var(--edit-transition-ease);
 }
 .input-area-wrapper.is-sending {
   opacity: 0.86;
@@ -1853,9 +1872,8 @@
   filter: saturate(0.96);
 }
 
-.input-area-wrapper>* {
+.input-area-wrapper > * {
   pointer-events: auto;
-  /* Re-enable clicks on the input component itself */
   width: 100%;
 }
 
@@ -1966,6 +1984,11 @@
 
 /* 移动端（<768px） */
 @media (max-width: 767px) {
+  .chat-view {
+    padding: 0;
+    gap: 0;
+  }
+
   .top-controls-bar.scrolled::after {
     opacity: 1;
   }
@@ -2012,7 +2035,10 @@
     /* 高于汉堡菜单按钮，确保能盖住按钮 */
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+    border-radius: 0;
+    border-left: none;
+    border-top: none;
+    border-bottom: none;
   }
 
   .sidebar.mobile-open {
@@ -2064,6 +2090,7 @@
   .chat-main {
     width: 100vw;
     margin-left: 0;
+    border-radius: 0;
   }
 
   :deep(.step-tools) {
@@ -2325,9 +2352,9 @@
 
 /* ===== 亮色主题补充覆盖 ===== */
 :root[data-theme="light"] {
-  /* 侧边栏在亮色下用阴影代替深色背景来产生层次感 */
+  /* 侧边栏在亮色下磨砂玻璃用更不透明背景 */
   .sidebar {
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+    background: var(--glass-bg);
   }
 
   /* 顶部控制栏 glass 在白底下要更不透明、有边框 */
@@ -2360,9 +2387,7 @@
       box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
     }
   }
-}
-
-/* ===== User 消息气泡容器 ===== */
+}/* ===== User 消息气泡容器 ===== */
 .user-bubble-wrapper {
   display: flex;
   flex-direction: column;
