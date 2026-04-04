@@ -327,9 +327,9 @@ const svgHeight = computed(() => {
 
 /* 深色主题适配 */
 :root[data-theme="dark"] .node-circle {
-  background: #1e293b;
+  background: var(--color-bg-secondary);
 }
 :root[data-theme="dark"] .node-circle.master {
-  background: #1e1b4b;
+  background: rgba(76, 29, 149, 0.72);
 }
 </style>

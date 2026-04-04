@@ -266,7 +266,7 @@ onUnmounted(() => {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md, 12px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-xl);
   z-index: var(--z-dropdown, 100);
   padding: 8px 0;
 }

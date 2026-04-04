@@ -2040,7 +2040,7 @@ onMounted(async () => {
 .badge-success { background: rgba(var(--color-success-rgb), 0.12); color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.25); }
 .badge-warning { background: rgba(var(--color-warning-rgb), 0.12); color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), 0.25); }
 .badge-error   { background: rgba(var(--color-error-rgb), 0.12);   color: var(--color-error);   border-color: rgba(var(--color-error-rgb), 0.25); }
-.badge-neutral { background: rgba(255,255,255,0.06); color: var(--color-text-secondary); }
+.badge-neutral { background: var(--color-hover-overlay); color: var(--color-text-secondary); border-color: var(--color-border); }
 
 .text-warning { color: var(--color-warning); }
 
@@ -2066,7 +2066,7 @@ onMounted(async () => {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.04);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255,255,255,0.04);
   display: flex;
   flex-direction: column;
 }

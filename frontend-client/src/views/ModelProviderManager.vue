@@ -851,13 +851,13 @@ onMounted(() => {
   cursor: pointer;
   transition: background .15s;
 }
-.btn-secondary:hover { background: rgba(255,255,255,.06); }
+.btn-secondary:hover { background: var(--color-hover-overlay); }
 
 .btn-danger {
   padding: 8px 16px;
   border-radius: 8px;
   border: none;
-  background: #ef4444;
+  background: var(--color-error);
   color: #fff;
   font-size: 0.85rem;
   font-weight: 600;
@@ -904,7 +904,7 @@ onMounted(() => {
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,.6);
+  background: rgba(0,0,0,.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1087,9 +1087,10 @@ input[type='number'].form-control { padding-right: 8px; }
 
 /* ── glass-card fallback ──────────────────────────── */
 .glass-card {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--glass-bg-light);
+  border: 1px solid var(--color-glass-border);
   border-radius: 14px;
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 </style>

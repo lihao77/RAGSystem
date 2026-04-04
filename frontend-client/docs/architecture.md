@@ -284,6 +284,8 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 - 全局背景纹理由 `src/styles/main.css` 的 `body::after` 提供，页面级容器默认应保持透明或使用玻璃半透明背景，避免用 `var(--color-bg-app)` 之类实底整块覆盖，否则会遮挡点阵背景。
 - 管理页统一通过 `components/PageLayout.vue` 承载页面外壳；其外层 `page-layout` 负责留白与滚动，不再提供实底背景，具体内容区域使用 `glass-card` / `var(--glass-bg)` 系列半透明面板承载。
+- 若组件同时需要主题色实体面板与半透明玻璃面板，应显式区分：实体面板使用 `--color-bg-primary/secondary/tertiary/elevated`，玻璃面板使用 `--glass-bg` / `--glass-bg-light`；不要混用，避免浅色模式下出现仍偏暗的背景。
+- 需要对玻璃面板做透明度微调时，优先基于 `--color-bg-elevated-rgb` 生成 `rgba(...)`，确保深浅主题都能同步切换。
 
 CSS 变量驱动，支持亮色/暗色切换：
 

@@ -2360,9 +2360,18 @@
   /* 顶部控制栏 glass 在白底下要更不透明、有边框 */
   .left-controls,
   .right-controls {
-    background-color: rgba(255, 255, 255, 0.88);
+    background-color: rgba(var(--color-bg-elevated-rgb), 0.88);
     border-color: var(--color-border);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  .chat-main {
+    background: rgba(var(--color-bg-elevated-rgb), 0.68);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+
+  .sidebar-backdrop {
+    background: rgba(255, 255, 255, 0.42);
   }
 
   /* 代码块：亮色下需要明显的边框区分代码区域 */
