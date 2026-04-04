@@ -87,7 +87,7 @@
     </section>
 
     <!-- ── Tab 导航 ───────────────────────────────────────── -->
-    <nav class="tab-nav glass-card">
+    <nav class="tab-nav glass-card" ref="tabNavRef">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -800,7 +800,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import AppToast from '../components/AppToast.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
@@ -822,6 +822,22 @@ import {
 // ── Refs ─────────────────────────────────────────────────
 const toastRef = ref(null);
 const activeTab = ref('installed');
+const tabNavRef = ref(null);
+
+const updateTabSlider = () => {
+  nextTick(() => {
+    if (!tabNavRef.value) return;
+    const activeBtn = tabNavRef.value.querySelector('.tab-btn--active');
+    if (activeBtn) {
+      const navRect = tabNavRef.value.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      tabNavRef.value.style.setProperty('--slider-left', `${btnRect.left - navRect.left}px`);
+      tabNavRef.value.style.setProperty('--slider-width', `${btnRect.width}px`);
+    }
+  });
+};
+
+watch(activeTab, updateTabSlider);
 const templateFilter = ref('');
 
 const loadingTemplates = ref(false);
@@ -1319,6 +1335,7 @@ onMounted(async () => {
   await loadTemplates();
   await loadServers();
   await searchRegistryServers();
+  updateTabSlider();
 });
 </script>
 
@@ -1368,6 +1385,7 @@ onMounted(async () => {
 
 /* ─── Tab 导航 ──────────────────────────────────────────── */
 .tab-nav {
+  position: relative;
   display: flex;
   gap: 2px;
   padding: 4px;
@@ -1378,6 +1396,25 @@ onMounted(async () => {
   -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--glass-shadow);
   width: fit-content;
+}
+
+.tab-nav::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: var(--slider-left, 4px);
+  width: var(--slider-width, 0px);
+  height: calc(100% - 8px);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-hover);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .tab-btn {
@@ -1392,15 +1429,17 @@ onMounted(async () => {
   font: inherit;
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.2s;
   white-space: nowrap;
+  position: relative;
+  z-index: 1;
 }
-.tab-btn:hover { color: var(--color-text-primary); background: var(--color-hover-overlay); }
+.tab-btn:hover { color: var(--color-text-primary); }
 .tab-btn--active {
-  background: var(--color-bg-tertiary);
+  background: transparent;
   color: var(--color-text-primary);
   font-weight: 500;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .tab-icon { display: flex; align-items: center; }
