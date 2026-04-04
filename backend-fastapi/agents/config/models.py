@@ -228,16 +228,19 @@ class AgentConfig(BaseModel):
                 "description": "通过配置定义的智能体",
                 "enabled": True,
                 "default_entry": False,
-                "llm": {
-                    "provider": "deepseek",
-                    "model_name": "deepseek-chat",
-                    "temperature": 0.3,
-                    "max_completion_tokens": 4096,
-                    "max_context_tokens": 128000,
-                    "extra_params": {
-                        "thinking_budget_tokens": 4096,
-                        "reasoning_effort": "medium",
-                        "top_p": 0.9
+                "llm_tiers": {
+                    "default": {
+                        "provider": "deepseek",
+                        "model_name": "deepseek-chat",
+                        "temperature": 0.3,
+                        "max_completion_tokens": 4096,
+                        "max_context_tokens": 128000,
+                    },
+                    "fast": {
+                        "provider": "deepseek",
+                        "model_name": "deepseek-chat",
+                        "temperature": 0.2,
+                        "max_completion_tokens": 1000,
                     }
                 },
                 "tools": {
@@ -284,14 +287,9 @@ class AgentConfig(BaseModel):
         description="是否作为默认入口智能体。显式指定的 preferred_agent 优先级更高"
     )
 
-    llm: AgentLLMConfig = Field(
-        default_factory=AgentLLMConfig,
-        description="默认 LLM 配置（用于主任务）"
-    )
-
     llm_tiers: Optional[Dict[str, AgentLLMConfig]] = Field(
         default=None,
-        description="多层级 LLM 配置（可选）。支持 fast/default/powerful 三个层级，用于不同复杂度的任务"
+        description="多层级 LLM 配置。支持 fast/default/powerful 三个层级，用于不同复杂度的任务。default 为必配主层级"
     )
 
     tools: AgentToolConfig = Field(
@@ -355,44 +353,34 @@ class AgentConfigPreset(str, Enum):
     CHEAP = "cheap"         # 经济模式（便宜模型）
 
 
-# 预设配置定义
+# 预设配置定义（应用到 llm_tiers.default）
 PRESET_CONFIGS = {
     AgentConfigPreset.FAST: {
-        "llm": {
-            "temperature": 0.1,
-            "max_completion_tokens": 2048
-        }
+        "temperature": 0.1,
+        "max_completion_tokens": 2048
     },
     AgentConfigPreset.BALANCED: {
-        "llm": {
-            "temperature": 0.5,
-            "max_completion_tokens": 4096
-        }
+        "temperature": 0.5,
+        "max_completion_tokens": 4096
     },
     AgentConfigPreset.ACCURATE: {
-        "llm": {
-            "temperature": 0.1,
-            "max_completion_tokens": 8192
-        }
+        "temperature": 0.1,
+        "max_completion_tokens": 8192
     },
     AgentConfigPreset.CREATIVE: {
-        "llm": {
-            "temperature": 0.9,
-            "max_completion_tokens": 4096
-        }
+        "temperature": 0.9,
+        "max_completion_tokens": 4096
     },
     AgentConfigPreset.CHEAP: {
-        "llm": {
-            "temperature": 0.5,
-            "max_completion_tokens": 2048
-        }
+        "temperature": 0.5,
+        "max_completion_tokens": 2048
     }
 }
 
 
 def apply_preset(config: AgentConfig, preset: AgentConfigPreset) -> AgentConfig:
     """
-    应用预设配置到智能体配置
+    应用预设配置到智能体配置的 llm_tiers.default
 
     Args:
         config: 智能体配置
@@ -403,9 +391,12 @@ def apply_preset(config: AgentConfig, preset: AgentConfigPreset) -> AgentConfig:
     """
     preset_data = PRESET_CONFIGS.get(preset, {})
 
-    # 更新 LLM 配置
-    if 'llm' in preset_data:
-        for key, value in preset_data['llm'].items():
-            setattr(config.llm, key, value)
+    if preset_data:
+        tiers = config.llm_tiers or {}
+        default_tier = tiers.get('default') or AgentLLMConfig()
+        for key, value in preset_data.items():
+            setattr(default_tier, key, value)
+        tiers['default'] = default_tier
+        config.llm_tiers = tiers
 
     return config

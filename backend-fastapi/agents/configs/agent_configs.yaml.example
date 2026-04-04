@@ -1,6 +1,6 @@
 # 智能体配置示例（与 AgentConfig 模型一致）
 # 可选：不存在时由 AgentConfigManager 创建默认。复制为 agent_configs.yaml 后按需修改。
-# llm.provider + llm.provider_type 对应 providers.yaml 中的复合键（如 my_deepseek）
+# llm_tiers 中 provider + provider_type 对应 providers.yaml 中的复合键（如 my_deepseek）
 
 agents:
   qa_agent:
@@ -9,35 +9,30 @@ agents:
     description: "示例智能体"
     enabled: true
     default_entry: false
-    llm:
-      provider: my
-      provider_type: deepseek
-      model_name: deepseek-chat
-      temperature: 0.3
-      max_completion_tokens: 4096      # 单次输出的最大 token 数
-      max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
-      # thinking_budget_tokens: 8192   # 可选：扩展思考预算，独立于上下文预算
-      # reasoning_effort: medium       # 可选：推理努力级别，占位字段，具体语义由 Provider 决定
-      timeout: 30
-      retry_attempts: 10
-      retry_backoff_factor: 2.5
 
-    # 可选：多层级 LLM 配置（类似 Claude Code 的 sonnet/haiku/opus 设计）
-    # 不配置时所有任务都使用上面的默认 llm 配置
+    # 多层级 LLM 配置（必配 default 层级作为主模型）
     llm_tiers:
+      # default: 主模型（必配）
+      default:
+        provider: my
+        provider_type: deepseek
+        model_name: deepseek-chat
+        temperature: 0.3
+        max_completion_tokens: 4096      # 单次输出的最大 token 数
+        max_context_tokens: 128000       # 模型支持的最大上下文窗口（128K）
+        # extra_params:                  # 可选：provider-specific 字段透传
+        #   thinking_budget_tokens: 8192
+        #   reasoning_effort: medium
+
       # fast: 快速模型，用于简单任务（压缩、格式化、简单判断）
       fast:
         provider: my
         provider_type: deepseek
-        model_name: deepseek-chat      # 或使用更便宜的模型如 glm-4-flash
+        model_name: deepseek-chat
         temperature: 0.2
         max_completion_tokens: 1000
 
-      # default: 默认模型（不配置时使用主 llm 配置）
-      # default:
-      #   provider: null  # 留空表示使用主 llm 配置
-
-      # powerful: 强力模型，用于复杂推理和困难任务
+      # powerful: 强力模型，用于复杂推理和困难任务（可选）
       # powerful:
       #   provider: my
       #   provider_type: openrouter
@@ -66,7 +61,7 @@ agents:
         # max_rounds: 10                     # 可选：仅配置时才限制最大推理轮数（兼容 rounds）
         auto_execute_tools: true
         # max_context_tokens: 80000           # 可选：显式指定对话历史的上下文预算（覆盖自动计算）
-        # 注意：这里的 max_context_tokens 是“对话历史预算”，不是模型原始 context window
+        # 注意：这里的 max_context_tokens 是"对话历史预算"，不是模型原始 context window
         # compression_trigger_ratio: 0.85     # 可选：触发压缩的 token 比例（默认 0.85）
         # summarize_max_tokens: 300           # 可选：LLM 摘要的最大 token 数（默认 300）
         # preserve_recent_turns: 3            # 可选：保留最近 N 轮对话不压缩（默认 3）
@@ -78,24 +73,24 @@ agents:
     description: 动态智能体编排器，将 Agent 当作工具使用，通过 ReAct 模式实时决策
     enabled: true
     default_entry: true
-    llm:
-      provider: my
-      provider_type: deepseek
-      model_name: deepseek-chat
-      temperature: 0.3
-      max_completion_tokens: 4096
-      max_context_tokens: 128000
-      # thinking_budget_tokens: 8192
-      # reasoning_effort: medium
-      timeout: 60
-      retry_attempts: 10
-      retry_backoff_factor: 2.5
-    # llm_tiers:                              # 可选：多层级 LLM 配置
-    #   fast:
-    #     provider: my
-    #     provider_type: deepseek
-    #     model_name: deepseek-chat
-    #     max_completion_tokens: 1000
+
+    llm_tiers:
+      default:
+        provider: my
+        provider_type: deepseek
+        model_name: deepseek-chat
+        temperature: 0.3
+        max_completion_tokens: 4096
+        max_context_tokens: 128000
+        # extra_params:
+        #   thinking_budget_tokens: 8192
+        #   reasoning_effort: medium
+      # fast:
+      #   provider: my
+      #   provider_type: deepseek
+      #   model_name: deepseek-chat
+      #   max_completion_tokens: 1000
+
     tools:
       enabled_tools: []                       # 留空；工具由运行时动态注入（invoke_agent_xxx 等）
     skills:

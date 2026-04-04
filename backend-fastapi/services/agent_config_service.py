@@ -13,7 +13,6 @@ from agents.config import (
     PRESET_CONFIGS,
     AgentConfig,
     AgentConfigPreset,
-    AgentLLMConfig,
     AgentMCPConfig,
     AgentSkillConfig,
     AgentToolConfig,
@@ -77,7 +76,6 @@ class AgentConfigService:
             raise AgentConfigServiceError(f'智能体 "{agent_name}" 不存在', status_code=404)
 
         try:
-            llm = self._merge_model_config(config.llm, payload.get('llm'), AgentLLMConfig)
             tools = self._merge_model_config(config.tools, payload.get('tools'), AgentToolConfig)
             skills = self._merge_model_config(config.skills, payload.get('skills'), AgentSkillConfig)
             mcp = self._merge_model_config(config.mcp, payload.get('mcp'), AgentMCPConfig)
@@ -85,9 +83,28 @@ class AgentConfigService:
         except Exception as error:
             raise AgentConfigServiceError(str(error), status_code=400) from error
 
+        # llm_tiers 单独处理（嵌套 dict）
+        llm_tiers_patch = payload.get('llm_tiers')
+        if llm_tiers_patch is not None and config.llm_tiers is not None:
+            from agents.config.models import AgentLLMConfig
+            merged_tiers = dict(config.llm_tiers)
+            for tier_name, tier_data in llm_tiers_patch.items():
+                existing = merged_tiers.get(tier_name)
+                if existing:
+                    merged = existing.model_dump()
+                    merged.update(tier_data)
+                    merged_tiers[tier_name] = AgentLLMConfig(**merged)
+                else:
+                    merged_tiers[tier_name] = AgentLLMConfig(**tier_data)
+            config.llm_tiers = merged_tiers
+        elif llm_tiers_patch is not None:
+            from agents.config.models import AgentLLMConfig
+            config.llm_tiers = {
+                k: AgentLLMConfig(**v) for k, v in llm_tiers_patch.items()
+            }
+
         updated_config = self._config_manager.update_config(
             agent_name=agent_name,
-            llm=llm,
             tools=tools,
             skills=skills,
             mcp=mcp,
@@ -220,12 +237,7 @@ class AgentConfigService:
 
     @staticmethod
     def _normalize_config_dump(config: AgentConfig) -> Dict[str, Any]:
-        payload = config.model_dump()
-        llm_tiers = payload.get('llm_tiers') or {}
-        if llm_tiers and 'default' not in llm_tiers:
-            llm_tiers['default'] = payload.get('llm') or {}
-            payload['llm_tiers'] = llm_tiers
-        return payload
+        return config.model_dump()
 
     @staticmethod
     def _merge_model_config(current_config, patch_data: Optional[Dict[str, Any]], model_cls):

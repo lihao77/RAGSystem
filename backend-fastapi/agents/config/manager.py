@@ -219,7 +219,6 @@ class AgentConfigManager:
     def update_config(
         self,
         agent_name: str,
-        llm: Optional[AgentLLMConfig] = None,
         tools: Optional[AgentToolConfig] = None,
         skills: Optional['AgentSkillConfig'] = None,
         mcp: Optional['AgentMCPConfig'] = None,
@@ -233,7 +232,6 @@ class AgentConfigManager:
 
         Args:
             agent_name: 智能体名称
-            llm: LLM 配置（可选）
             tools: 工具配置（可选）
             skills: Skills 配置（可选）
             custom_params: 自定义参数（可选）
@@ -249,8 +247,6 @@ class AgentConfigManager:
             return None
 
         # 更新字段
-        if llm is not None:
-            config.llm = llm
         if tools is not None:
             config.tools = tools
         if skills is not None:

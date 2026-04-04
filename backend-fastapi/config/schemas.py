@@ -197,9 +197,6 @@ class ConfigValidator:
                 used.add(v.provider_key)
         if self.agents:
             for agent_cfg in self.agents.values():
-                llm = getattr(agent_cfg, "llm", None)
-                if llm and getattr(llm, "provider", None) and getattr(llm, "provider_type", None):
-                    used.add(f"{llm.provider}_{llm.provider_type}")
                 for tier_cfg in (getattr(agent_cfg, 'llm_tiers', None) or {}).values():
                     if getattr(tier_cfg, 'provider', None) and getattr(tier_cfg, 'provider_type', None):
                         used.add(f"{tier_cfg.provider}_{tier_cfg.provider_type}")

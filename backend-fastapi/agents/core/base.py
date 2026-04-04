@@ -161,7 +161,9 @@ class BaseAgent(ABC):
         if self.agent_config:
             info['config'] = {
                 'enabled': self.agent_config.enabled,
-                'llm': self.agent_config.llm.to_dict(),
+                'llm_tiers': {
+                    k: v.to_dict() for k, v in (self.agent_config.llm_tiers or {}).items()
+                } if self.agent_config.llm_tiers else None,
                 'custom_params': self.agent_config.custom_params
             }
         return info
@@ -267,9 +269,7 @@ class BaseAgent(ABC):
                     config = _merge_agent_llm(default_tier_config)
                     self.logger.debug(f"[{self.name}] {effective_tier} 层级未配置，回退到 default 层级")
 
-        if not config and self.agent_config and self.agent_config.llm:
-            config = _merge_agent_llm(self.agent_config.llm)
-        elif not config and self.system_config:
+        if not config and self.system_config:
             llm_config = getattr(self.system_config, 'llm', None)
             if llm_config:
                 config = {
