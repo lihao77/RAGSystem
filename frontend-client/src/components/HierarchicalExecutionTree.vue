@@ -113,6 +113,11 @@ const getDisplayExecutionStep = (steps = []) => {
   return [...steps].reverse().find(hasThoughtContent) || null;
 };
 
+const getDisplayAgentStep = (steps = []) => {
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  return [...steps].reverse().find(step => step?.agent_display_name || step?.agent_name) || null;
+};
+
 /**
  * 将 execution_steps 和 subtasks 合并为层次化的执行树
  *
@@ -156,6 +161,7 @@ const executionTree = computed(() => {
   sortedRounds.forEach(round => {
     const executionStepsInRound = executionByRound[round] || [];
     const executionStep = getDisplayExecutionStep(executionStepsInRound);
+    const displayAgentStep = getDisplayAgentStep(executionStepsInRound);
     const mergedToolCalls = executionStepsInRound.flatMap(step => (
       Array.isArray(step?.toolCalls) ? step.toolCalls : []
     ));
@@ -182,11 +188,11 @@ const executionTree = computed(() => {
     // 创建编排器 intent 节点
     const node = {
       type: 'thought',
-      agent: executionStep?.agent_name || '',
-      agent_display_name: executionStep?.agent_display_name || executionStep?.agent_name || 'orchestrator_agent',
+      agent: displayAgentStep?.agent_name || executionStep?.agent_name || '',
+      agent_display_name: displayAgentStep?.agent_display_name || displayAgentStep?.agent_name || executionStep?.agent_display_name || executionStep?.agent_name || 'orchestrator_agent',
       round: round,
       intent: executionStep ? (executionStep.intent || executionStep.thinking || executionStep.thought || '') : '',
-      status: executionStep?.status || executionStep?.run_status || null,
+      status: executionStep?.status || executionStep?.run_status || displayAgentStep?.status || displayAgentStep?.run_status || null,
       children: []
     };
 
