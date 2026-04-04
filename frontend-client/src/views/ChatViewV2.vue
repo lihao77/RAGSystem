@@ -465,6 +465,14 @@ const props = defineProps({
   isDark: {
     type: Boolean,
     default: true
+  },
+  onSessionCreated: {
+    type: Function,
+    default: null,
+  },
+  onSessionUpdated: {
+    type: Function,
+    default: null,
   }
 });
 
@@ -487,6 +495,10 @@ const isUserAtBottom = ref(true);
 const shouldAutoScroll = ref(true);
 const keepScrollButtonVisible = ref(false);
 const scrollBottomGap = ref(0);
+const showScrollToBottomButton = computed(() => {
+  if (!messages.value.length) return false;
+  return !isUserAtBottom.value || scrollBottomGap.value > 80 || keepScrollButtonVisible.value;
+});
 const currentSessionId = ref(null);
 const sessionFiles = ref([]);
 const pendingAttachments = ref([]);
@@ -745,16 +757,20 @@ const waitForScrollLayout = async () => {
   await new Promise(resolve => requestAnimationFrame(() => resolve()));
 };
 
-const scrollToBottom = async (force = false) => {
+const scrollToBottom = async (force = false, behavior = 'auto') => {
   await waitForScrollLayout();
   if (!messagesRef.value) return;
   if (force || shouldAutoScroll.value) {
     const container = messagesRef.value;
     _isProgrammaticScroll = true;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: force ? 'smooth' : 'auto'
-    });
+    if (behavior === 'smooth') {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
     _lastScrollTop = container.scrollTop;
     updateScrollBottomGap();
   }
@@ -811,6 +827,7 @@ const handleScroll = () => {
     _userScrollUpAccum = 0;
     isUserAtBottom.value = checkIfAtBottom();
     shouldAutoScroll.value = isUserAtBottom.value;
+    keepScrollButtonVisible.value = !isUserAtBottom.value;
   }
 
   // 控制 top-controls-bar 的边框显示
@@ -826,7 +843,7 @@ const handleScroll = () => {
 const onScrollToBottomClick = () => {
   keepScrollButtonVisible.value = true;
   _userScrollUpAccum = 0;
-  scrollToBottom(true);
+  scrollToBottom(true, 'smooth');
 };
 
 // execution.step 是执行树唯一事实源
@@ -1490,6 +1507,8 @@ const loadSessionMessages = async (sessionId) => {
       messagesLoading.value = false;
       await nextTick();
       await scrollToBottom(true);
+      await waitForScrollLayout();
+      await scrollToBottom(true);
       focusInput();
       await loadContextSnapshot(sessionId);
       // 缓存命中也需检查是否有运行中任务
@@ -1524,6 +1543,8 @@ const loadSessionMessages = async (sessionId) => {
     messagesLoading.value = false;
     await nextTick();
     await scrollToBottom(true);
+    await waitForScrollLayout();
+    await scrollToBottom(true);
     focusInput();
     await loadContextSnapshot(sessionId);
     // ── 检查该会话是否有正在执行的任务 ──
@@ -1555,32 +1576,37 @@ const selectSession = async (item) => {
 const updateRecentSession = (sessionId, content, timestamp) => {
   if (!sessionId) return;
   const time = timestamp || new Date().toISOString();
+  const normalizedContent = (content || '').toString();
+  const summary = normalizedContent.slice(0, 30);
   const currentMetadata = currentSessionId.value === sessionId
     ? {
         ...(pendingWorkspaceRoot.value.trim() ? { workspace_root: pendingWorkspaceRoot.value.trim() } : {}),
         ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
       }
     : {};
+  const nextItem = {
+    session_id: sessionId,
+    title: summary,
+    first_message: summary,
+    last_message: normalizedContent,
+    last_message_at: time,
+    unread_count: 0,
+    metadata: currentMetadata,
+  };
   const idx = history.value.findIndex(h => h.session_id === sessionId);
   if (idx >= 0) {
     const item = history.value[idx];
-    item.last_message = content;
-    item.last_message_at = time;
-    if (!item.title) {
-      item.title = (item.title || content || '').toString().slice(0, 30);
-    }
-    item.metadata = { ...(item.metadata || {}), ...currentMetadata };
+    Object.assign(item, nextItem, {
+      title: summary || item.title || '',
+      first_message: item.first_message || summary,
+      metadata: { ...(item.metadata || {}), ...currentMetadata },
+    });
     history.value.splice(idx, 1);
     history.value.unshift(item);
+    props.onSessionUpdated?.(item);
   } else {
-    history.value.unshift({
-      session_id: sessionId,
-      title: content ? content.slice(0, 30) : '',
-      last_message: content,
-      last_message_at: time,
-      unread_count: 0,
-      metadata: currentMetadata
-    });
+    history.value.unshift(nextItem);
+    props.onSessionUpdated?.(nextItem);
   }
 };
 
@@ -2013,6 +2039,15 @@ const ensureSession = async () => {
   const result = await response.json();
   currentSessionId.value = result.data?.session_id || null;
   if (currentSessionId.value) {
+    const now = new Date().toISOString();
+    props.onSessionCreated?.({
+      session_id: currentSessionId.value,
+      title: result.data?.title || 'New Conversation',
+      first_message: '',
+      last_message: '',
+      last_message_at: result.data?.last_message_at || now,
+      unread_count: 0,
+    });
     pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
     pendingEntryAgent.value = result.data?.metadata?.entry_agent || entryAgent || '';
     await router.push(getChatSessionPath(currentSessionId.value));

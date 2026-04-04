@@ -60,27 +60,36 @@
           </div>
         </div>
         <div v-else>
-          <div
-            v-for="item in history"
-            :key="item.session_id"
-            class="history-item"
-            :class="{ active: item.session_id === activeSessionId }"
-            @click="selectSession(item)"
+          <TransitionGroup
+            name="history-list"
+            tag="div"
+            class="history-list-group"
+            @before-leave="handleHistoryItemBeforeLeave"
+            @leave="handleHistoryItemLeave"
+            @after-leave="handleHistoryItemAfterLeave"
           >
-            <IconDocument :size="18" class="history-icon" />
-            <div class="history-main">
-              <div class="history-title-row">
-                <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
-                <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
+            <div
+              v-for="item in history"
+              :key="item.session_id"
+              class="history-item"
+              :class="{ active: item.session_id === activeSessionId }"
+              @click="selectSession(item)"
+            >
+              <IconDocument :size="18" class="history-icon" />
+              <div class="history-main">
+                <div class="history-title-row">
+                  <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
+                  <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
+                </div>
+                <div class="history-meta">
+                  <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
+                </div>
               </div>
-              <div class="history-meta">
-                <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
-              </div>
+              <button class="history-delete-btn" @click.stop="confirmDeleteSession(item)" title="删除会话">
+                <IconTrash :size="16" />
+              </button>
             </div>
-            <button class="history-delete-btn" @click.stop="confirmDeleteSession(item)" title="删除会话">
-              <IconTrash :size="16" />
-            </button>
-          </div>
+          </TransitionGroup>
           <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
           <div v-if="historyError" class="history-error">
             <span>{{ historyError }}</span>
@@ -122,7 +131,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import AppToast from '../components/AppToast.vue';
@@ -191,6 +200,8 @@ const getChildProps = (childRoute) => {
     return {
       selectedLLM: props.selectedLLM,
       isDark: props.isDark,
+      onSessionCreated: upsertHistoryItem,
+      onSessionUpdated: upsertHistoryItem,
     };
   }
   return {
@@ -251,6 +262,49 @@ const formatTimeLabel = (timeStr) => {
   const mm = String(time.getMonth() + 1).padStart(2, '0');
   const dd = String(time.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+const upsertHistoryItem = (item) => {
+  if (!item?.session_id) return;
+  const normalizedItem = {
+    unread_count: 0,
+    ...item,
+  };
+  const existingIndex = history.value.findIndex(entry => entry.session_id === normalizedItem.session_id);
+  if (existingIndex >= 0) {
+    history.value.splice(existingIndex, 1);
+  }
+  history.value.unshift(normalizedItem);
+  historyOffset.value = history.value.length;
+};
+
+const handleHistoryItemBeforeLeave = (el) => {
+  el.style.height = `${el.offsetHeight}px`;
+  el.style.opacity = '1';
+  el.style.overflow = 'hidden';
+};
+
+const handleHistoryItemLeave = (el, done) => {
+  void el.offsetHeight;
+  el.style.transition = 'height 0.24s cubic-bezier(0.22, 1, 0.36, 1), margin 0.24s cubic-bezier(0.22, 1, 0.36, 1), padding 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease';
+  el.style.height = '0';
+  el.style.marginTop = '0';
+  el.style.marginBottom = '0';
+  el.style.paddingTop = '0';
+  el.style.paddingBottom = '0';
+  el.style.opacity = '0';
+  window.setTimeout(done, 240);
+};
+
+const handleHistoryItemAfterLeave = (el) => {
+  el.style.height = '';
+  el.style.opacity = '';
+  el.style.overflow = '';
+  el.style.transition = '';
+  el.style.marginTop = '';
+  el.style.marginBottom = '';
+  el.style.paddingTop = '';
+  el.style.paddingBottom = '';
 };
 
 const loadRecentSessions = async (reset = false) => {
@@ -357,15 +411,9 @@ const goToModelProviders = () => router.push('/model-providers');
 
 watch(
   () => [route.meta?.mainView || 'chat', route.params.id || null],
-  async ([mainView, routeSessionId], previous = []) => {
-    const [prevMainView, prevRouteSessionId] = previous;
+  ([mainView, routeSessionId]) => {
     if (mainView === 'chat') {
       lastChatSessionId.value = typeof routeSessionId === 'string' ? decodeURIComponent(routeSessionId) : null;
-    }
-    if (mainView === 'chat' && routeSessionId !== prevRouteSessionId) {
-      await loadRecentSessions(true);
-    } else if (mainView !== prevMainView && mainView !== 'chat') {
-      await loadRecentSessions(true);
     }
   },
   { immediate: true }
@@ -374,6 +422,7 @@ watch(
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
+  loadRecentSessions(true);
 });
 
 onUnmounted(() => {
@@ -383,7 +432,27 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.history-list-group {
+  position: relative;
+}
+
+.history-list-move,
+.history-list-enter-active {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
+}
+
+.history-list-enter-from {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+}
+
+.history-list-leave-active {
+  pointer-events: none;
+}
+
 .chat-layout {
+  --sidebar-btn-text-transition-in: opacity 0.25s ease 0.05s;
+  --sidebar-btn-text-transition-out: opacity 0.15s ease;
   display: flex;
   height: 100vh;
   width: 100vw;
@@ -433,6 +502,11 @@ onUnmounted(() => {
   align-items: center;
   padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
   padding-bottom: var(--spacing-md);
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sidebar.collapsed .sidebar-top-bar {
+  justify-content: center;
 }
 
 .sidebar-logo-wrapper {
@@ -444,11 +518,17 @@ onUnmounted(() => {
   align-items: center;
   justify-content: left;
   flex: 1;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .sidebar-logo-icon {
   flex-shrink: 0;
   filter: drop-shadow(0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4));
+  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sidebar-logo-wrapper:hover .sidebar-logo-icon {
+  filter: drop-shadow(0 6px 24px rgba(var(--color-brand-accent-rgb), 0.6));
 }
 
 .sidebar-expand-icon {
@@ -459,6 +539,23 @@ onUnmounted(() => {
   opacity: 0;
   color: var(--color-text-secondary);
   pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sidebar:not(.collapsed) .sidebar-logo-icon {
+  opacity: 1;
+}
+
+.sidebar:not(.collapsed) .sidebar-expand-icon {
+  opacity: 0;
+}
+
+.sidebar.collapsed .sidebar-logo-icon {
+  opacity: 1;
+}
+
+.sidebar.collapsed .sidebar-expand-icon {
+  opacity: 0;
 }
 
 .sidebar.collapsed .sidebar-logo-wrapper:hover .sidebar-logo-icon {
@@ -482,14 +579,28 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  flex-shrink: 0;
+  opacity: 1;
+  max-width: 32px;
+  overflow: hidden;
 }
 
 .sidebar.collapsed .toggle-sidebar-btn {
   opacity: 0;
-  width: 0;
+  max-width: 0;
   min-width: 0;
+  width: 0;
   padding: 0;
+  margin: 0;
   pointer-events: none;
+}
+
+.toggle-sidebar-btn:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+  transform: scale(1.05);
 }
 
 .sidebar-header {
@@ -511,9 +622,17 @@ onUnmounted(() => {
   justify-content: left;
   gap: var(--spacing-sm);
   cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   white-space: nowrap;
   overflow: hidden;
   width: 100%;
+  box-shadow: none;
+}
+
+.sidebar-btn .icon {
+  flex-shrink: 0;
+  color: var(--color-text-primary);
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .sidebar-btn:hover,
@@ -527,9 +646,21 @@ onUnmounted(() => {
   margin-top: var(--spacing-xs);
 }
 
+.sidebar-btn-secondary {
+  opacity: 0.8;
+}
+
+.sidebar-btn-secondary:hover {
+  opacity: 1;
+}
+
 .btn-text {
   overflow: hidden;
   white-space: nowrap;
+  opacity: 1;
+  max-width: 200px;
+  transition: var(--sidebar-btn-text-transition-in);
+  will-change: opacity;
 }
 
 .sidebar.collapsed .btn-text,
@@ -540,9 +671,24 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.sidebar.collapsed .btn-text {
+  transition: var(--sidebar-btn-text-transition-out), max-width 0s ease 0.15s;
+}
+
 .history-list {
   flex: 1;
   overflow-y: auto;
+  opacity: 1;
+  max-height: 100%;
+  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), max-height 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sidebar.collapsed .history-list {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
 }
 
 .history-label {
@@ -553,6 +699,20 @@ onUnmounted(() => {
   margin: var(--spacing-md);
   letter-spacing: 0.08em;
   padding-left: var(--spacing-xs);
+  opacity: 0;
+  animation: labelFadeIn 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation-delay: 0.1s;
+}
+
+@keyframes labelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .history-item {
@@ -565,16 +725,48 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  border: 1px solid transparent;
+  background: transparent;
+  position: relative;
+}
+
+.history-item:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  transform: translateX(2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .history-item.active {
   background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.history-item.active .history-icon {
+  opacity: 1;
   color: var(--color-text-primary);
 }
 
 .history-main {
   flex: 1;
   min-width: 0;
+}
+
+.history-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  color: var(--color-text-secondary);
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.history-item:hover .history-icon {
+  opacity: 1;
+  color: var(--color-text-primary);
 }
 
 .history-title-row {
@@ -598,6 +790,10 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 
+.history-item.active .history-time {
+  color: var(--color-text-secondary);
+}
+
 .history-delete-btn {
   width: 0;
   padding: 0;
@@ -614,6 +810,13 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   flex-shrink: 0;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.history-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-error);
+  transform: scale(1.1);
 }
 
 @media (hover: hover) {
@@ -649,10 +852,17 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+.sidebar.collapsed .sidebar-footer {
+  padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
+}
+
 .sidebar-footer__version {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.3s;
 }
 
 .layout-main-host {
@@ -661,8 +871,6 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-lg);
 }
