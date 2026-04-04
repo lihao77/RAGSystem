@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import MainLayout from '../layouts/MainLayout.vue';
 import ChatViewV2 from '../views/ChatViewV2.vue';
 import AgentMonitor from '../views/AgentMonitor.vue';
 import AgentConfig from '../views/AgentConfig.vue';
@@ -6,15 +7,27 @@ import MCPManager from '../views/MCPManager.vue';
 import VectorLibraryManager from '../views/VectorLibraryManager.vue';
 import ModelProviderManager from '../views/ModelProviderManager.vue';
 
+const shellMeta = {
+  depth: 0,
+  shellKey: 'main-layout',
+};
+
 const routes = [
-  { path: '/', component: ChatViewV2, meta: { depth: 0 } },
-  { path: '/chat/:id?', component: ChatViewV2, meta: { depth: 0 } },
-  { path: '/monitor', component: AgentMonitor, meta: { depth: 1 } },
-  { path: '/agent-monitor', component: AgentMonitor, meta: { depth: 1 } },
-  { path: '/agent-config', component: AgentConfig, meta: { depth: 1 } },
-  { path: '/mcp', component: MCPManager, meta: { depth: 1 } },
-  { path: '/vector-library', component: VectorLibraryManager, meta: { depth: 1 } },
-  { path: '/model-providers', component: ModelProviderManager, meta: { depth: 1 } },
+  {
+    path: '/',
+    component: MainLayout,
+    meta: shellMeta,
+    children: [
+      { path: '', component: ChatViewV2, meta: { mainView: 'chat' } },
+      { path: 'chat/:id?', component: ChatViewV2, meta: { mainView: 'chat' } },
+      { path: 'monitor', component: AgentMonitor, meta: { mainView: 'monitor' } },
+      { path: 'agent-monitor', redirect: '/monitor' },
+      { path: 'agent-config', component: AgentConfig, meta: { mainView: 'agent-config' } },
+      { path: 'mcp', component: MCPManager, meta: { mainView: 'mcp' } },
+      { path: 'vector-library', component: VectorLibraryManager, meta: { mainView: 'vector-library' } },
+      { path: 'model-providers', component: ModelProviderManager, meta: { mainView: 'model-providers' } },
+    ],
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 

@@ -1,107 +1,7 @@
 <template>
-  <div class="chat-view">
-    <!-- 遮罩层（移动端） -->
-    <div class="sidebar-backdrop" :class="{ 'active': mobileOpen }" @click="closeMobileSidebar"></div>
-
-    <!-- Sidebar -->
-    <aside ref="sidebarRef" class="sidebar" :class="{
-      'collapsed': sidebarCollapsed,
-      'mobile-open': mobileOpen
-    }" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd">
-      <!-- 系统 Logo 和折叠按钮 -->
-      <div class="sidebar-top-bar">
-        <div class="sidebar-logo-wrapper" @click="toggleSidebar">
-          <!-- 系统 Logo -->
-          <IconLogo :size="32" class="sidebar-logo-icon" simple />
-
-          <!-- 展开图标（仅在折叠状态 hover 时显示） -->
-          <IconChevronRight :size="20" class="sidebar-expand-icon" />
-        </div>
-
-        <!-- 折叠按钮 -->
-        <button class="toggle-sidebar-btn" @click="toggleSidebar" :title="'Collapse sidebar'">
-          <IconChevronLeft :size="20" />
-        </button>
-      </div>
-
-      <div class="sidebar-header">
-        <button class="sidebar-btn" @click="startNewChat">
-          <IconNewConversation :size="22" class="icon" />
-          <span class="btn-text">新聊天</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToModelProviders" title="模型 Provider 管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/>
-          </svg>
-          <span class="btn-text">模型管理</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToAgentConfig" title="智能体配置">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/>
-          </svg>
-          <span class="btn-text">Agent配置</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToMCPManager" title="MCP 服务管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 22v-5"/><rect x="6" y="9" width="12" height="6" rx="2"/><path d="M10 9V2"/><path d="M14 9V2"/>
-          </svg>
-          <span class="btn-text">MCP管理</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToVectorLibrary" title="知识库管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-          </svg>
-          <span class="btn-text">知识库</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-monitor" @click="goToMonitor" title="智能体性能监控">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-          </svg>
-          <span class="btn-text">监控面板</span>
-        </button>
-      </div>
-
-      <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
-        <div class="history-label">Recent</div>
-        <div v-if="historyLoading" class="history-skeleton">
-          <div v-for="n in 6" :key="`history-skeleton-${n}`" class="history-item skeleton-item">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-line"></div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-for="item in history" :key="item.session_id" class="history-item"
-            :class="{ active: item.session_id === currentSessionId }" @click="selectSession(item)">
-            <IconDocument :size="18" class="history-icon" />
-            <div class="history-main">
-              <div class="history-title-row">
-                <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
-                <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
-              </div>
-              <div class="history-meta">
-                <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
-              </div>
-            </div>
-            <button class="history-delete-btn" @click.stop="confirmDeleteSession(item)" title="删除会话">
-              <IconTrash :size="16" />
-            </button>
-          </div>
-          <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
-          <div v-if="historyError" class="history-error">
-            <span>{{ historyError }}</span>
-            <button class="retry-btn" @click="retryLoadHistory">重试</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="sidebar-footer">
-        <span class="sidebar-footer__version">RAG Agent System</span>
-      </div>
-    </aside>
-
-    <!-- Main Chat Area -->
+  <div class="chat-page-shell">
     <main ref="chatMainRef" class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
-      <!-- 顶部控制栏 -->
+    <!-- 顶部控制栏 -->
       <div class="top-controls-bar glass-card" ref="topControlsBarRef">
         <!-- 左侧：汉堡菜单 + LLM 选择器 -->
         <div class="left-controls glass-card">
@@ -397,9 +297,6 @@
         </div>
       </div>
     </div>
-
-
-
     </main>
     <AppToast ref="toastRef" />
 
@@ -473,11 +370,12 @@
       @close="situationScreenActive = false"
       @send-message="handleSituationSendMessage"
     />
-  </div>
+</div>
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
@@ -551,7 +449,6 @@ const createAssistantMessage = (overrides = {}) => ({
 
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
-import { useRouter } from 'vue-router';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
@@ -575,6 +472,9 @@ const props = defineProps({
 const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
 
 const router = useRouter();
+const route = useRoute();
+const shellSidebarControl = inject('shellSidebarControl', null);
+const typewriterTimers = ref(new Map());
 
 const messages = ref([]);
 const inputMessage = ref('');
@@ -583,21 +483,10 @@ const inputSending = ref(false);
 const messagesRef = ref(null);
 const chatMainRef = ref(null);
 const topControlsBarRef = ref(null);
-const sidebarRef = ref(null);
-const historyListRef = ref(null);
-const history = ref([]);
-const typewriterTimers = ref(new Map());
 const isUserAtBottom = ref(true);
 const shouldAutoScroll = ref(true);
 const keepScrollButtonVisible = ref(false);
 const scrollBottomGap = ref(0);
-const showScrollToBottomButton = computed(() => messages.value.length > 0 && (scrollBottomGap.value > (isMobile.value ? 120 : 80) || keepScrollButtonVisible.value));
-const sidebarCollapsed = ref(false);
-const historyLoading = ref(false);
-const historyLoadingMore = ref(false);
-const historyError = ref('');
-const historyOffset = ref(0);
-const historyHasMore = ref(true);
 const currentSessionId = ref(null);
 const sessionFiles = ref([]);
 const pendingAttachments = ref([]);
@@ -605,11 +494,17 @@ const sessionFilesLoading = ref(false);
 const uploadingSessionFiles = ref(false);
 const deletingSessionFileId = ref(null);
 const sessionFileInputRef = ref(null);
+const history = ref([]);
 const pendingWorkspaceRoot = ref('');
 const pendingEntryAgent = ref('');
 const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
 const messagesLoading = ref(false);
+const historyLoading = ref(false);
+const historyLoadingMore = ref(false);
+const historyError = ref('');
+const historyOffset = ref(0);
+const historyHasMore = ref(true);
 const chatInputRef = ref(null);
 const llmSelectorRef = ref(null);
 const confirmDialogRef = ref(null);
@@ -666,12 +561,14 @@ const editingMessageIndex = ref(null);
 const editingDraft = ref('');
 const editingAttachmentsDraft = ref([]);
 const editingSubmitting = ref(false);
+const expandedSummarySeq = ref(null);
 const sessionFilesDrawerTarget = ref('composer');
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
-const expandedSummarySeq = ref(null);
-const handlePopState = () => {
-  const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
-  const sessionId = match ? decodeURIComponent(match[1]) : null;
+const getChatSessionPath = (sessionId) => sessionId
+  ? `/chat/${encodeURIComponent(sessionId)}`
+  : '/';
+
+const syncSessionFromRoute = async (sessionId) => {
   if (sessionId && sessionId !== currentSessionId.value) {
     clearExecutionState();
     currentSessionId.value = sessionId;
@@ -679,17 +576,55 @@ const handlePopState = () => {
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     pendingAttachments.value = [];
-    loadSessionMessages(sessionId);
+    await loadSessionMessages(sessionId);
+    await loadSessionFiles(sessionId);
+    return;
   }
-  if (!sessionId) {
+
+  if (!sessionId && currentSessionId.value) {
     invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
     sessionFiles.value = [];
     pendingWorkspaceRoot.value = '';
     pendingEntryAgent.value = '';
+    pendingAttachments.value = [];
     messages.value = [];
   }
+};
+
+const formatTitle = (item) => {
+  const content = (item.first_message || item.last_message || '').trim();
+  return content ? content.slice(0, 30) : '';
+};
+
+const formatTimeLabel = (timeStr) => {
+  if (!timeStr) return '';
+  const time = new Date(timeStr);
+  if (Number.isNaN(time.getTime())) return '';
+  const now = new Date();
+  const diffMs = now - time;
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return '刚刚';
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  const isYesterday = now.toDateString() !== time.toDateString()
+    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
+  if (isYesterday) return '昨天';
+  const yyyy = time.getFullYear();
+  const mm = String(time.getMonth() + 1).padStart(2, '0');
+  const dd = String(time.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const showToast = (message, actionOrType = null, actionLabel = '重试') => {
+  let type = 'error';
+  let action = null;
+  if (typeof actionOrType === 'string') {
+    type = actionOrType;
+  } else if (typeof actionOrType === 'function') {
+    action = actionOrType;
+  }
+  toastRef.value?.show(message, action || type, actionLabel);
 };
 
 const invalidateActiveStream = () => {
@@ -701,36 +636,10 @@ const invalidateActiveStream = () => {
 };
 
 // 移动端状态
-const mobileOpen = ref(false);
-const isMobile = ref(false);
-
-// 触摸手势状态
-const touchStartX = ref(0);
-const touchStartY = ref(0);
-const touchCurrentX = ref(0);
-const isDragging = ref(false);
-
-// 检测是否为移动端
-const checkMobile = () => {
-  isMobile.value = window.innerWidth < 768;
-};
-
-// Sidebar 切换逻辑
-const toggleSidebar = () => {
-  if (isMobile.value) {
-    // 移动端：关闭 sidebar
-    closeMobileSidebar();
-  } else {
-    // 桌面端：折叠/展开
-    sidebarCollapsed.value = !sidebarCollapsed.value;
-  }
-};
 
 // 打开移动端侧边栏
 const openMobileSidebar = () => {
-  mobileOpen.value = true;
-  // 禁止背景滚动
-  document.body.style.overflow = 'hidden';
+  shellSidebarControl?.openMobileSidebar?.();
 };
 
 const loadEntryAgentOptions = async () => {
@@ -755,63 +664,17 @@ const loadEntryAgentOptions = async () => {
 
 // 关闭移动端侧边栏
 const closeMobileSidebar = () => {
-  mobileOpen.value = false;
-  // 恢复背景滚动
-  document.body.style.overflow = '';
+  shellSidebarControl?.closeMobileSidebar?.();
 };
 
 // 触摸手势处理：touchstart
-const handleTouchStart = (e) => {
-  if (!mobileOpen.value) return;
-  touchStartX.value = e.touches[0].clientX;
-  touchStartY.value = e.touches[0].clientY;
-  isDragging.value = false;
-};
+const handleTouchStart = () => {};
 
 // 触摸手势处理：touchmove
-const handleTouchMove = (e) => {
-  if (!mobileOpen.value) return;
-  touchCurrentX.value = e.touches[0].clientX;
-
-  const deltaX = touchCurrentX.value - touchStartX.value;
-  const deltaY = Math.abs(e.touches[0].clientY - touchStartY.value);
-
-  // 如果横向滑动距离大于纵向，判断为滑动关闭手势
-  if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > deltaY) {
-    isDragging.value = true;
-
-    // 向左滑动（关闭）
-    if (deltaX < 0 && sidebarRef.value) {
-      const translateX = Math.max(deltaX, -280);
-      sidebarRef.value.style.transform = `translateX(${translateX}px)`;
-      e.preventDefault(); // 阻止页面滚动
-    }
-  }
-};
+const handleTouchMove = () => {};
 
 // 触摸手势处理：touchend
-const handleTouchEnd = (e) => {
-  if (!mobileOpen.value || !isDragging.value) {
-    if (sidebarRef.value) {
-      sidebarRef.value.style.transform = '';
-    }
-    return;
-  }
-
-  const deltaX = touchCurrentX.value - touchStartX.value;
-
-  // 滑动距离超过 100px 或速度足够快，则关闭
-  if (deltaX < -100 || (deltaX < -30 && Math.abs(deltaX) > 50)) {
-    closeMobileSidebar();
-  }
-
-  // 重置 transform
-  if (sidebarRef.value) {
-    sidebarRef.value.style.transform = '';
-  }
-
-  isDragging.value = false;
-};
+const handleTouchEnd = () => {};
 
 const startNewChat = () => {
   invalidateActiveStream();
@@ -827,28 +690,9 @@ const startNewChat = () => {
   shouldAutoScroll.value = true;
   _userScrollUpAccum = 0;
   currentSessionId.value = null;
+  sessionFiles.value = [];
   router.replace('/');
   focusInput();
-};
-
-const goToMonitor = () => {
-  router.push('/monitor');
-};
-
-const goToAgentConfig = () => {
-  router.push('/agent-config');
-};
-
-const goToMCPManager = () => {
-  router.push('/mcp');
-};
-
-const goToVectorLibrary = () => {
-  router.push('/vector-library');
-};
-
-const goToModelProviders = () => {
-  router.push('/model-providers');
 };
 
 const typewriter = (target, key, text, speed = 30, timerId = null) => {
@@ -896,15 +740,23 @@ const updateScrollBottomGap = () => {
   scrollBottomGap.value = Math.max(0, container.scrollHeight - container.scrollTop - container.clientHeight);
 };
 
-const scrollToBottom = async (force = false) => {
+const waitForScrollLayout = async () => {
   await nextTick();
+  await new Promise(resolve => requestAnimationFrame(() => resolve()));
+};
+
+const scrollToBottom = async (force = false) => {
+  await waitForScrollLayout();
   if (!messagesRef.value) return;
   if (force || shouldAutoScroll.value) {
+    const container = messagesRef.value;
     _isProgrammaticScroll = true;
-    messagesRef.value.scrollTo({
-      top: messagesRef.value.scrollHeight,
+    container.scrollTo({
+      top: container.scrollHeight,
       behavior: force ? 'smooth' : 'auto'
     });
+    _lastScrollTop = container.scrollTop;
+    updateScrollBottomGap();
   }
 };
 
@@ -1027,40 +879,6 @@ const isMasterEvent = (event) => isRootEvent(event);
 const findSubtaskByCallId = (subtasks, callId) => {
   if (!callId || !Array.isArray(subtasks)) return null;
   return subtasks.find(s => s.task_id === callId) || null;
-};
-
-const formatTitle = (item) => {
-  const content = (item.first_message || item.last_message || '').trim();
-  return content ? content.slice(0, 30) : '';
-};
-
-const formatTimeLabel = (timeStr) => {
-  if (!timeStr) return '';
-  const time = new Date(timeStr);
-  if (Number.isNaN(time.getTime())) return '';
-  const now = new Date();
-  const diffMs = now - time;
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return '刚刚';
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
-  const isYesterday = now.toDateString() !== time.toDateString()
-    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
-  if (isYesterday) return '昨天';
-  const yyyy = time.getFullYear();
-  const mm = String(time.getMonth() + 1).padStart(2, '0');
-  const dd = String(time.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-};
-
-const showToast = (message, actionOrType = null, actionLabel = '重试') => {
-  let type = 'error';
-  let action = null;
-  if (typeof actionOrType === 'string') {
-    type = actionOrType;
-  } else if (typeof actionOrType === 'function') {
-    action = actionOrType;
-  }
-  toastRef.value?.show(message, action || type, actionLabel);
 };
 
 const getActiveAssistantMessage = () => {
@@ -1721,14 +1539,13 @@ const loadSessionMessages = async (sessionId) => {
 const selectSession = async (item) => {
   if (!item?.session_id) return;
   if (currentSessionId.value === item.session_id) {
-    // 点击已激活会话：清缓存后强制刷新
     messageCache.value.delete(item.session_id);
   }
   currentSessionId.value = item.session_id;
   pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
   pendingEntryAgent.value = item.metadata?.entry_agent || '';
   pendingAttachments.value = [];
-  window.history.pushState({}, '', `/chat/${encodeURIComponent(item.session_id)}`);
+  await router.push(getChatSessionPath(item.session_id));
   item.unread_count = 0;
   closeMobileSidebar();
   await loadSessionMessages(item.session_id);
@@ -2198,7 +2015,7 @@ const ensureSession = async () => {
   if (currentSessionId.value) {
     pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
     pendingEntryAgent.value = result.data?.metadata?.entry_agent || entryAgent || '';
-    window.history.pushState({}, '', `/chat/${encodeURIComponent(currentSessionId.value)}`);
+    await router.push(getChatSessionPath(currentSessionId.value));
     await loadSessionFiles(currentSessionId.value);
   }
   return currentSessionId.value;
@@ -2746,45 +2563,32 @@ const handleSend = async (payload = null) => {
   }
 };
 
+watch(
+  () => route.params.id || null,
+  async (routeSessionId) => {
+    const nextSessionId = typeof routeSessionId === 'string' ? decodeURIComponent(routeSessionId) : null;
+    await syncSessionFromRoute(nextSessionId);
+  },
+  { immediate: true }
+);
+
 onMounted(() => {
   isUserAtBottom.value = true;
   shouldAutoScroll.value = true;
   _userScrollUpAccum = 0;
 
-  // 初始化移动端检测
-  checkMobile();
   updateScrollBottomGap();
+  scrollToBottom(true);
   loadEntryAgentOptions();
-
-  // 监听窗口大小变化
-  window.addEventListener('resize', checkMobile);
-  window.addEventListener('popstate', handlePopState);
   loadRecentSessions(true);
-  const initialSessionId = (() => {
-    const match = window.location.pathname.match(/^\/chat\/([^/]+)$/);
-    return match ? decodeURIComponent(match[1]) : null;
-  })();
-  if (initialSessionId) {
-    currentSessionId.value = initialSessionId;
-    const matched = history.value.find(item => item.session_id === initialSessionId);
-    pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
-    pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
-    loadSessionMessages(initialSessionId);
-  }
 });
 
 onUnmounted(() => {
-  // 清理事件监听器
-  window.removeEventListener('resize', checkMobile);
-  window.removeEventListener('popstate', handlePopState);
   stopRetryTicker();
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
   invalidateActiveStream();
-
-  // 恢复 body 滚动（防止移动端打开侧边栏后离开页面）
-  document.body.style.overflow = '';
 });
 </script>
 

@@ -49,12 +49,13 @@ frontend-client/src/
 
 | 路径 | 组件 | 说明 |
 |------|------|------|
-| `/` `/chat/:id?` | ChatViewV2 | 主聊天界面 |
-| `/monitor` | AgentMonitor | 智能体监控 |
-| `/agent-config` | AgentConfig | Agent 配置管理 |
-| `/mcp` | MCPManager | MCP 服务管理 |
-| `/vector-library` | VectorLibraryManager | 知识库管理 |
-| `/model-providers` | ModelProviderManager | 模型提供商管理 |
+| `/` `/chat/:id?` | MainLayout → ChatViewV2 | 通过公共壳层进入聊天页；`/chat/:id?` 中的 `id` 为 `session_id` |
+| `/monitor` | MainLayout → AgentMonitor | 通过公共壳层在右侧主区渲染监控页 |
+| `/agent-monitor` | 重定向到 `/monitor` | 兼容旧监控入口 |
+| `/agent-config` | MainLayout → AgentConfig | 通过公共壳层在右侧主区渲染 Agent 配置页 |
+| `/mcp` | MainLayout → MCPManager | 通过公共壳层在右侧主区渲染 MCP 管理页 |
+| `/vector-library` | MainLayout → VectorLibraryManager | 通过公共壳层在右侧主区渲染知识库页 |
+| `/model-providers` | MainLayout → ModelProviderManager | 通过公共壳层在右侧主区渲染模型 Provider 页 |
 
 ## SSE 流式通信
 
@@ -106,6 +107,14 @@ tool 归属规则：
 
 `ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
 
+当前前端已改为“两层结构”：
+- `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景/滚动承载，不再给页面内容强加统一 padding
+- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责
+- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
+- 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面（如 `AgentConfig.vue`）自行定义边距，因此不同页面可以使用不同留白策略
+
+这样侧边栏、聊天页、管理页都处于同一套卡片层级体系中，同时页面内边距由页面自己控制，避免公共壳层把所有管理页锁死为同一套留白。
+
 `ChatViewV2.vue` 在消息区底部使用单一 `chat-messages-wrapper` 作为滚动容器，并在其底部放置一个 `bottom-dock` sticky 容器，内部同时承载输入区和“滚动到底部”按钮。按钮只用 JS 判断是否显示；位置完全由 CSS 控制，始终相对输入区使用 `bottom: calc(100% + 12px)` 悬浮，因此 textarea 自增高、附件预览展开、移动端输入区高度变化时都会自动跟随上移，不再依赖 `getBoundingClientRect()` 或 viewport/safe-area 的手工 bottom 计算。点击按钮时仍对消息容器执行平滑滚动，并在真正回到底部前保持按钮可见，避免闪烁。
 
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
@@ -134,6 +143,7 @@ tool 归属规则：
 - 不再使用 raw event 状态机构建执行树。
 - 不再处理 `react.intermediate`。
 - 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
+- 会话 URL 与页面切换统一由 Vue Router 驱动：聊天态使用 `/` 与 `/chat/:id?`，其中 `id` 为 `session_id`；管理页继续使用 `/agent-config`、`/mcp` 等独立路径，但这些路径共享同一个 `ChatViewV2` 壳层。
 
 ### 权限审批展示
 

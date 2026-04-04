@@ -1,12 +1,23 @@
 /* ===== Three-panel layout ===== */
 .agent-config-page {
-  height: 100vh;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   background: transparent;
   position: relative;
 }
-/* 优化头部布局 - Apple 风格 */
+.agent-config-page--embedded {
+  min-height: 100%;
+  padding: var(--spacing-xl);
+}
+
+.agent-config-page--embedded .config-body {
+  overflow: visible;
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+}
+
 .config-top {
   flex-shrink: 0;
   border: 1px solid var(--color-glass-border);
@@ -61,6 +72,7 @@
 
 .config-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-xl) var(--spacing-xl);
   background: transparent;
@@ -785,6 +797,10 @@ input[type='number'].form-control {
 
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
+  .agent-config-page--embedded {
+    padding: var(--spacing-md);
+  }
+
   .config-top__inner {
     padding-left: var(--spacing-md);
     padding-right: var(--spacing-md);

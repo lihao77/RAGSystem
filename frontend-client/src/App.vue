@@ -2,10 +2,11 @@
   <div id="app">
     <div class="mouse-glow" aria-hidden="true"></div>
     <RouterView v-slot="{ Component, route }">
-      <Transition :name="transitionName">
+      <Transition :name="transitionName" mode="out-in">
         <component
+          v-if="Component"
           :is="Component"
-          :key="route.path"
+          :key="getRouteShellKey(route)"
           :selected-llm="selectedLLM"
           :is-dark="isDark"
           @update:selectedLLM="selectedLLM = $event"
@@ -31,18 +32,20 @@ const transitionName = ref('slide-forward');
 const routeDepth = {
   '/': 0,
   '/chat': 0,
-  '/monitor': 1,
-  '/agent-monitor': 1,
-  '/agent-config': 1,
-  '/mcp': 1,
-  '/vector-library': 1,
-  '/model-providers': 1,
+  '/monitor': 0,
+  '/agent-monitor': 0,
+  '/agent-config': 0,
+  '/mcp': 0,
+  '/vector-library': 0,
+  '/model-providers': 0,
 };
 
 const getDepth = (path) => {
   if (path.startsWith('/chat/')) return 0;
   return routeDepth[path] ?? 0;
 };
+
+const getRouteShellKey = (route) => route.matched[0]?.meta?.shellKey || route.meta?.shellKey || route.path;
 
 router.beforeEach((to, from) => {
   const fromDepth = getDepth(from.path);
@@ -87,7 +90,6 @@ onMounted(() => {
     selectedLLM.value = savedLLM;
   }
 
-  // Mouse glow tracking
   const root = document.documentElement;
   const mouseGlow = document.querySelector('.mouse-glow');
   window.addEventListener('mousemove', (e) => {
@@ -104,7 +106,6 @@ onMounted(() => {
 <style>
 #app {
   position: relative;
-  overflow: hidden;
   width: 100%;
   height: 100%;
 }

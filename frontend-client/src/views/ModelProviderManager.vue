@@ -1,5 +1,7 @@
 <template>
   <PageLayout
+    :embedded="embedded"
+    :chat-return-path="chatReturnPath"
     title="模型 Provider 管理"
     subtitle="管理 LLM Provider 实例：配置 API Key、模型映射、参数，并测试连通性。"
     mobile-title="Provider 管理"
@@ -367,8 +369,13 @@ import {
   testProvider
 } from '../api/modelAdapter.js'
 
-const providerTypeOptions = ref([])
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  chatReturnPath: { type: String, default: '/' },
+})
+
 const providerTypeMeta = ref({})
+const providerTypeOptions = ref([])
 
 const FALLBACK_PROVIDER_TYPES = [
   {

@@ -1,5 +1,5 @@
 <template>
-  <div class="page-layout">
+  <div class="page-layout" :class="{ 'page-layout--embedded': embedded }">
     <div class="page-shell" :style="shellStyle">
 
       <!-- 桌面端 Header -->
@@ -11,7 +11,7 @@
         </div>
         <div class="page-header__actions">
           <slot name="header-actions" />
-          <button class="pl-btn pl-btn--back" @click="router.push('/')">
+          <button class="pl-btn pl-btn--back" @click="navigateBackToChat">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="19" y1="12" x2="5" y2="12" />
@@ -24,7 +24,7 @@
 
       <!-- 移动端导航栏 -->
       <div class="page-mobile-nav">
-        <button class="page-mobile-nav__back" @click="router.push('/')">
+        <button class="page-mobile-nav__back" @click="navigateBackToChat">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
@@ -70,6 +70,8 @@ const props = defineProps({
   subtitle: { type: String, default: '' },
   mobileTitle: { type: String, default: '' },
   maxWidth: { type: String, default: '1100px' },
+  embedded: { type: Boolean, default: false },
+  chatReturnPath: { type: String, default: '/' },
 });
 
 const router = useRouter();
@@ -81,14 +83,22 @@ const mobileMenuOpen = ref(false);
 const shellStyle = computed(() => ({
   maxWidth: props.maxWidth,
 }));
+
+const navigateBackToChat = () => {
+  router.push(props.chatReturnPath || '/');
+};
 </script>
 
 <style scoped>
 /* ===== 页面外壳 ===== */
 .page-layout {
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100%;
   background: transparent;
+  padding: var(--spacing-xl);
+}
+
+.page-layout--embedded {
+  min-height: 100%;
   padding: var(--spacing-xl);
 }
 
@@ -252,6 +262,10 @@ const shellStyle = computed(() => ({
     padding: 0;
   }
 
+  .page-layout--embedded {
+    padding: var(--spacing-md);
+  }
+
   .page-header {
     display: none;
   }
@@ -264,6 +278,12 @@ const shellStyle = computed(() => ({
     gap: var(--spacing-md);
     padding: var(--spacing-md);
     padding-top: 0;
+  }
+
+  .page-layout--embedded .page-shell {
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0;
   }
 }
 </style>

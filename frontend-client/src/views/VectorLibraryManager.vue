@@ -1,5 +1,7 @@
 <template>
     <PageLayout
+        :embedded="embedded"
+        :chat-return-path="chatReturnPath"
         title="知识库管理"
         subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
         mobile-title="知识库管理"
@@ -789,7 +791,11 @@ import {
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/CustomSelect.vue';
 
-// ── Toast ─────────────────────────────────────────────────
+const props = defineProps({
+    embedded: { type: Boolean, default: false },
+    chatReturnPath: { type: String, default: '/' },
+});
+
 const toastRef = ref(null);
 function showToast(msg, type = 'error') { toastRef.value?.show(msg, type); }
 

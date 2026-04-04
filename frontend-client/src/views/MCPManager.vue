@@ -1,5 +1,7 @@
 <template>
   <PageLayout
+    :embedded="embedded"
+    :chat-return-path="chatReturnPath"
     title="MCP 服务管理"
     subtitle="搜索 Registry、安装模板、测试连接，统一管理 MCP 工具服务。"
     mobile-title="MCP 服务管理"
@@ -818,6 +820,11 @@ import {
   testMCPServer,
   updateMCPServer,
 } from '../api/mcpService';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  chatReturnPath: { type: String, default: '/' },
+});
 
 // ── Refs ─────────────────────────────────────────────────
 const toastRef = ref(null);

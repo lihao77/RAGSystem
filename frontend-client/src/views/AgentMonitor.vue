@@ -1,5 +1,7 @@
 <template>
   <PageLayout
+    :embedded="embedded"
+    :chat-return-path="chatReturnPath"
     title="智能体性能监控"
     subtitle="实时查看调用次数、耗时、成功率与工具使用统计"
     mobile-title="性能监控"
@@ -360,6 +362,11 @@ import {
 } from '../api/monitoring';
 import CustomSelect from '../components/CustomSelect.vue';
 import PageLayout from '../components/PageLayout.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  chatReturnPath: { type: String, default: '/' },
+});
 
 const loading = ref(false);
 const error = ref('');

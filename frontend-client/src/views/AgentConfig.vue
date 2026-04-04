@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-config-page">
+  <div ref="pageRootRef" class="agent-config-page" :class="{ 'agent-config-page--embedded': embedded }">
     <div class="config-top">
       <div class="config-top__inner">
         <!-- 桌面端头部 -->
@@ -583,25 +583,31 @@
         </template>
       </template>
 
+    <Teleport to="body">
       <nav v-if="selectedAgent && !loading && !error" class="section-nav section-nav--desktop">
         <a v-for="s in sections" :key="s.id" :class="{ active: activeSection === s.id }" :title="s.label" @click="scrollToSection(s.id)">
           <span class="section-nav__dot"></span>
           <span class="section-nav__label">{{ s.label }}</span>
         </a>
       </nav>
+    </Teleport>
     </div>
 
-    <button class="btn-scroll-bottom" title="滚动到底部" @click="scrollToBottom">
-      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-    </button>
+    <Teleport to="body">
+      <button class="btn-scroll-bottom" title="滚动到底部" @click="scrollToBottom">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </Teleport>
 
-    <nav v-if="selectedAgent && !loading && !error" class="section-nav section-nav--mobile">
-      <a v-for="s in sections" :key="s.id" :class="{ active: activeSection === s.id }" @click="scrollToSection(s.id)">
-        <span class="section-nav__label-inner">{{ s.label }}</span>
-      </a>
-    </nav>
+    <Teleport to="body">
+      <nav v-if="selectedAgent && !loading && !error" class="section-nav section-nav--mobile">
+        <a v-for="s in sections" :key="s.id" :class="{ active: activeSection === s.id }" @click="scrollToSection(s.id)">
+          <span class="section-nav__label-inner">{{ s.label }}</span>
+        </a>
+      </nav>
+    </Teleport>
 
     <AppToast ref="toastRef" />
 
@@ -679,6 +685,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   getAllAgentConfigs,
   getAgentConfig,
@@ -694,7 +701,10 @@ import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';
-import { useRouter } from 'vue-router';
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  chatReturnPath: { type: String, default: '/' },
+});
 
 const router = useRouter();
 
@@ -753,34 +763,39 @@ function updateSliderPosition() {
 }
 
 function scrollToSection(id) {
-  // 标记为点击滚动，暂停观察器
   isClickScrolling = true;
   activeSection.value = id;
   updateSliderPosition();
 
-  // 清除之前的 timeout
   if (scrollTimeout) clearTimeout(scrollTimeout);
 
   const element = document.getElementById(id);
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    // 滚动动画完成后恢复观察（约 500ms 后）
+  const container = getScrollContainer();
+  if (element && container) {
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const top = container.scrollTop + elementRect.top - containerRect.top - 16;
+    container.scrollTo({ top, behavior: 'smooth' });
     scrollTimeout = setTimeout(() => {
       isClickScrolling = false;
     }, 600);
   }
 }
 
+const pageRootRef = ref(null);
 const configBodyRef = ref(null);
 const systemPromptTextareaRef = ref(null);
+
+function getScrollContainer() {
+  return pageRootRef.value?.closest('.layout-main-host--page') || configBodyRef.value;
+}
 
 function getSystemPromptTextareaMaxHeight() {
   return Math.min(520, Math.max(260, Math.floor(window.innerHeight * 0.42)));
 }
 
 function scrollToBottom() {
-  const el = configBodyRef.value;
+  const el = getScrollContainer();
   if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
 }
 
@@ -1260,7 +1275,7 @@ function toggleDelegation(name, checked) {
 }
 
 function navigateToChat() {
-  router.push('/');
+  router.push(props.chatReturnPath || '/');
 }
 
 // 新建 Agent 对话框
@@ -1372,10 +1387,8 @@ onMounted(() => {
   nextTick(() => autoResizeSystemPrompt());
   observer = new IntersectionObserver(
     (entries) => {
-      // 点击滚动期间忽略观察结果
       if (isClickScrolling) return;
 
-      // 按可见比例排序，取可见比例最大的
       const visibleEntries = entries
         .filter(e => e.isIntersecting)
         .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
@@ -1389,7 +1402,7 @@ onMounted(() => {
       }
     },
     {
-      root: document.querySelector('.config-body'),
+      root: getScrollContainer(),
       threshold: [0, 0.25, 0.5, 0.75, 1],
       rootMargin: '-10% 0px -60% 0px'
     }
@@ -1399,11 +1412,9 @@ onMounted(() => {
       const el = document.getElementById(s.id);
       if (el) observer.observe(el);
     });
-    // 初始化滑块位置
     updateSliderPosition();
   }, 500);
 
-  // 监听窗口大小变化，更新滑块位置
   window.addEventListener('resize', updateSliderPosition);
 });
 
