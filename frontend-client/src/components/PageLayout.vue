@@ -72,6 +72,8 @@ const props = defineProps({
   maxWidth: { type: String, default: '1100px' },
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
+  contentPadding: { type: String, default: 'var(--spacing-xl)' },
+  mobileContentPadding: { type: String, default: 'var(--spacing-md)' },
 });
 
 const router = useRouter();
@@ -82,6 +84,8 @@ const mobileMenuOpen = ref(false);
 
 const shellStyle = computed(() => ({
   maxWidth: props.maxWidth,
+  '--page-content-padding': props.contentPadding,
+  '--page-mobile-content-padding': props.mobileContentPadding,
 }));
 
 const navigateBackToChat = () => {
@@ -99,7 +103,7 @@ const navigateBackToChat = () => {
 
 .page-layout--embedded {
   min-height: 100%;
-  padding: var(--spacing-xl);
+  padding: var(--page-content-padding, var(--spacing-xl));
 }
 
 .page-shell {
@@ -263,7 +267,7 @@ const navigateBackToChat = () => {
   }
 
   .page-layout--embedded {
-    padding: var(--spacing-md);
+    padding: var(--page-mobile-content-padding, var(--spacing-md));
   }
 
   .page-header {

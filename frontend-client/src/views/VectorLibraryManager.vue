@@ -2,6 +2,8 @@
     <PageLayout
         :embedded="embedded"
         :chat-return-path="chatReturnPath"
+        content-padding="var(--spacing-lg)"
+        mobile-content-padding="var(--spacing-sm)"
         title="知识库管理"
         subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
         mobile-title="知识库管理"

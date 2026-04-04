@@ -2,6 +2,8 @@
   <PageLayout
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
+    content-padding="var(--spacing-lg)"
+    mobile-content-padding="var(--spacing-sm)"
     title="智能体性能监控"
     subtitle="实时查看调用次数、耗时、成功率与工具使用统计"
     mobile-title="性能监控"

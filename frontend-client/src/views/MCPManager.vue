@@ -2,6 +2,8 @@
   <PageLayout
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
+    content-padding="var(--spacing-lg)"
+    mobile-content-padding="var(--spacing-sm)"
     title="MCP 服务管理"
     subtitle="搜索 Registry、安装模板、测试连接，统一管理 MCP 工具服务。"
     mobile-title="MCP 服务管理"
