@@ -7,7 +7,7 @@
 }
 
 /* ===== CSS 局部变量补充（消除魔法数字） ===== */
-.chat-view {
+.chat-page-shell {
   /* 代码块主题色 */
   --code-bg: #292929;
   --code-fg: #e4e7ec;
@@ -85,7 +85,7 @@
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   position: relative;
   background: none;
-  backdrop-filter: none;
+  backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: none;
   /* 允许点击穿透到下层 */
 }
@@ -168,7 +168,7 @@
 
 .version-btn {
   height: 44px;
-  padding: 0 18px;
+  width: 44px;
   border-radius: 22px;
   display: flex;
   align-items: center;
@@ -1588,7 +1588,7 @@
 
   .version-btn {
     height: 44px;
-    padding: 0 12px;
+    height: 44px;
   }
 
   .version-label {
@@ -1827,10 +1827,6 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   }
 
-  .chat-main {
-    background: rgba(var(--color-bg-elevated-rgb), 0.68);
-    border-color: rgba(0, 0, 0, 0.08);
-  }
 
   /* 代码块：亮色下需要明显的边框区分代码区域 */
   .markdown-body :deep(pre) {

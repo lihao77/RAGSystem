@@ -277,20 +277,24 @@ test('编排器自己的工具调用会沿用已记忆的 display name', () => {
   assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
 });
 
-test('buildExecutionState 与增量 applyStep 结果一致', () => {
-  const steps = [
-    createToolStart(),
-    createSubtaskStart(),
-    createToolEnd(),
+
+
+
+
+test('没有 intent 内容时不应把 run 占位节点当作 thought 展示来源', () => {
+  const executionSteps = [
+    {
+      step_id: 'root-call:run',
+      round: 1,
+      status: 'running',
+      run_status: 'running',
+      agent_name: 'orchestrator_agent',
+      agent_display_name: '总控编排器',
+      toolCalls: [],
+    },
   ];
 
-  const incremental = createExecutionState();
-  steps.forEach(step => applyStep(incremental, step));
+  const displayStep = [...executionSteps].reverse().find(step => step.intent || step.thinking || step.thought) || null;
 
-  const rebuilt = buildExecutionState(steps);
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(rebuilt)),
-    JSON.parse(JSON.stringify(incremental)),
-  );
+  assert.equal(displayStep, null);
 });

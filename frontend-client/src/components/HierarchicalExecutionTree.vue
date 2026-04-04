@@ -104,6 +104,15 @@ const createAgentCallNode = (subtask) => {
   return agentCallNode;
 };
 
+const hasThoughtContent = (step) => Boolean(
+  step?.intent || step?.thinking || step?.thought
+);
+
+const getDisplayExecutionStep = (steps = []) => {
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  return [...steps].reverse().find(hasThoughtContent) || null;
+};
+
 /**
  * 将 execution_steps 和 subtasks 合并为层次化的执行树
  *
@@ -117,24 +126,14 @@ const executionTree = computed(() => {
   const executionSteps = props.executionSteps || [];
   const subtasks = props.subtasks || [];
 
-  // 按 round 分组
+  // 按 round 分组，保留该轮的所有 root steps，避免 run 与 intent 混在同一个展示节点状态里
   const executionByRound = {};
   executionSteps.forEach(step => {
     const round = step.round || 1;
     if (!executionByRound[round]) {
-      executionByRound[round] = {
-        ...step,
-        toolCalls: Array.isArray(step.toolCalls) ? [...step.toolCalls] : []
-      };
-      return;
+      executionByRound[round] = [];
     }
-
-    const merged = executionByRound[round];
-    if (!merged.intent && step.intent) merged.intent = step.intent;
-    if (!merged.thinking && step.thinking) merged.thinking = step.thinking;
-    if (Array.isArray(step.toolCalls) && step.toolCalls.length > 0) {
-      merged.toolCalls.push(...step.toolCalls);
-    }
+    executionByRound[round].push(step);
   });
 
   const subtasksByRound = {};
@@ -155,7 +154,11 @@ const executionTree = computed(() => {
 
   // 构建树
   sortedRounds.forEach(round => {
-    const executionStep = executionByRound[round];
+    const executionStepsInRound = executionByRound[round] || [];
+    const executionStep = getDisplayExecutionStep(executionStepsInRound);
+    const mergedToolCalls = executionStepsInRound.flatMap(step => (
+      Array.isArray(step?.toolCalls) ? step.toolCalls : []
+    ));
     const subtasksInRound = (subtasksByRound[round] || []).slice().sort((a, b) => {
       const aIndex = a?.round_index ?? Number.MAX_SAFE_INTEGER;
       const bIndex = b?.round_index ?? Number.MAX_SAFE_INTEGER;
@@ -165,18 +168,11 @@ const executionTree = computed(() => {
       return aOrder - bOrder;
     });
 
-    const hasOrchestratorContent = Boolean(
-      executionStep && (
-        executionStep.intent ||
-        executionStep.thinking ||
-        executionStep.thought ||
-        (executionStep.toolCalls && executionStep.toolCalls.length > 0) ||
-        executionStep.status === 'running' ||
-        executionStep.run_status === 'running'
-      )
+    const hasVisibleOrchestratorContent = Boolean(
+      executionStep || mergedToolCalls.length > 0
     );
 
-    if (!hasOrchestratorContent && subtasksInRound.length > 0) {
+    if (!hasVisibleOrchestratorContent) {
       subtasksInRound.forEach(subtask => {
         tree.push(createAgentCallNode(subtask));
       });
@@ -195,11 +191,9 @@ const executionTree = computed(() => {
     };
 
     // 添加编排器的工具调用
-    if (executionStep && executionStep.toolCalls && executionStep.toolCalls.length > 0) {
-      executionStep.toolCalls.forEach(tool => {
-        node.children.push(createToolNode(tool));
-      });
-    }
+    mergedToolCalls.forEach(tool => {
+      node.children.push(createToolNode(tool));
+    });
 
     // 添加该轮次的子任务
     subtasksInRound.forEach(subtask => {

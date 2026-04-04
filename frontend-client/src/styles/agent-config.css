@@ -47,6 +47,16 @@
   gap: 4px;
 }
 
+.header-meta__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.header-menu-btn {
+  display: var(--hamburger-display);
+}
+
 .config-title {
   margin: 0;
   font-size: var(--font-size-2xl);
@@ -700,7 +710,7 @@ input[type='number'].form-control {
   max-width: 200px;
 }
 
-.mobile-nav__back,
+.mobile-nav__menu,
 .mobile-nav__more {
   width: 44px;
   height: 44px;
@@ -717,14 +727,14 @@ input[type='number'].form-control {
   box-shadow: var(--shadow-sm);
 }
 
-.mobile-nav__back:hover,
+.mobile-nav__menu:hover,
 .mobile-nav__more:hover {
   background: var(--color-interactive-hover);
   transform: scale(1.05);
   box-shadow: var(--shadow-md);
 }
 
-.mobile-nav__back:active,
+.mobile-nav__menu:active,
 .mobile-nav__more:active {
   transform: scale(0.95);
 }
@@ -817,6 +827,7 @@ input[type='number'].form-control {
   /* 隐藏桌面端头部，显示移动端导航 */
   .header-left--desktop { display: none; }
   .mobile-nav { display: flex !important; }
+  .header-menu-btn { display: inline-flex; }
 
   .config-body {
     padding-left: var(--spacing-md);

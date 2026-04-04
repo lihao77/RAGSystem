@@ -5,7 +5,16 @@
         <!-- 桌面端头部 -->
         <div class="header-left header-left--desktop">
           <div class="header-meta">
-            <h1 class="config-title">Agent 配置</h1>
+            <div class="header-meta__title-row">
+              <button class="hamburger-menu-btn header-menu-btn" @click="openMobileSidebar" title="打开菜单">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="3" y1="12" x2="21" y2="12"></line>
+                  <line x1="3" y1="6" x2="21" y2="6"></line>
+                  <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+              </button>
+              <h1 class="config-title">Agent 配置</h1>
+            </div>
             <p class="config-subtitle">统一管理智能体基础参数、模型、工具与 Skills</p>
           </div>
           <div class="header-actions">
@@ -50,22 +59,16 @@
               </svg>
               {{ saving ? '保存中...' : '保存配置' }}
             </button>
-            <button class="pl-btn" @click="navigateToChat">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-              </svg>
-              返回聊天
-            </button>
           </div>
         </div>
 
         <!-- 移动端头部 -->
         <div class="mobile-nav">
-          <button class="mobile-nav__back" @click="navigateToChat">
+          <button class="hamburger-menu-btn mobile-nav__menu" @click="openMobileSidebar" title="打开菜单">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
             </svg>
           </button>
 
@@ -684,7 +687,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick, watch, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   getAllAgentConfigs,
@@ -707,6 +710,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const shellSidebarControl = inject('shellSidebarControl', null);
 
 const sections = [
   { id: 'section-basic', label: '基础' },
@@ -1272,6 +1276,10 @@ function toggleDelegation(name, checked) {
   } else if (!checked) {
     configForm.value.delegation.enabled_agents = list.filter(item => item !== name);
   }
+}
+
+function openMobileSidebar() {
+  shellSidebarControl?.openMobileSidebar?.();
 }
 
 function navigateToChat() {

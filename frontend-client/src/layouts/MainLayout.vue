@@ -106,13 +106,16 @@
     <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
       <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
         <RouterView v-slot="{ Component, route: childRoute }">
-          <component
-            v-if="Component"
-            :is="Component"
-            v-bind="getChildProps(childRoute)"
-            @update:selectedLLM="emit('update:selectedLLM', $event)"
-            @toggle-theme="emit('toggleTheme')"
-          />
+          <Transition :name="pageTransitionName" mode="out-in">
+            <component
+              v-if="Component"
+              :is="Component"
+              :key="getPageRouteKey(childRoute)"
+              v-bind="getChildProps(childRoute)"
+              @update:selectedLLM="emit('update:selectedLLM', $event)"
+              @toggle-theme="emit('toggleTheme')"
+            />
+          </Transition>
         </RouterView>
       </div>
     </div>
@@ -131,7 +134,7 @@
 </template>
 
 <script setup>
-import { TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import AppToast from '../components/AppToast.vue';
@@ -175,6 +178,7 @@ const confirmDialog = ref({
 });
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
+const pageTransitionName = ref('slide-forward');
 const activeSessionId = computed(() => {
   if (isChatRoute.value && typeof route.params.id === 'string') {
     return decodeURIComponent(route.params.id);
@@ -182,6 +186,9 @@ const activeSessionId = computed(() => {
   return lastChatSessionId.value;
 });
 const chatReturnPath = computed(() => activeSessionId.value ? `/chat/${encodeURIComponent(activeSessionId.value)}` : '/');
+const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
+const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
+const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -410,6 +417,27 @@ const goToVectorLibrary = () => router.push('/vector-library');
 const goToModelProviders = () => router.push('/model-providers');
 
 watch(
+  () => route.fullPath,
+  (toFullPath, fromFullPath) => {
+    if (!fromFullPath) {
+      pageTransitionName.value = 'slide-forward';
+      return;
+    }
+    const resolvedFrom = router.resolve(fromFullPath);
+    const toKey = getPageRouteKey(route);
+    const fromKey = getPageRouteKey(resolvedFrom);
+    if (toKey === fromKey) {
+      pageTransitionName.value = 'slide-forward';
+      return;
+    }
+    const toOrder = getPageOrder(route);
+    const fromOrder = getPageOrder(resolvedFrom);
+    pageTransitionName.value = toOrder >= fromOrder ? 'slide-forward' : 'slide-backward';
+  },
+  { immediate: true }
+);
+
+watch(
   () => [route.meta?.mainView || 'chat', route.params.id || null],
   ([mainView, routeSessionId]) => {
     if (mainView === 'chat') {
@@ -478,11 +506,9 @@ onUnmounted(() => {
 }
 
 .sidebar {
+  box-shadow: var(--shadow-sm);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
   width: 260px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -871,8 +897,8 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
-  border: 1px solid var(--color-glass-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .layout-main-host--page {
@@ -885,6 +911,8 @@ onUnmounted(() => {
   height: 100%;
   min-width: 0;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .route-card--chat {
@@ -899,7 +927,7 @@ onUnmounted(() => {
 }
 
 .route-card--page {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .history-skeleton {

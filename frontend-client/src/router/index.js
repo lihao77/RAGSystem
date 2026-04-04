@@ -12,20 +12,27 @@ const shellMeta = {
   shellKey: 'main-layout',
 };
 
+const pageMeta = (mainView, depth, pageOrder = depth) => ({
+  mainView,
+  pageKey: mainView,
+  depth,
+  pageOrder,
+});
+
 const routes = [
   {
     path: '/',
     component: MainLayout,
     meta: shellMeta,
     children: [
-      { path: '', component: ChatViewV2, meta: { mainView: 'chat' } },
-      { path: 'chat/:id?', component: ChatViewV2, meta: { mainView: 'chat' } },
-      { path: 'monitor', component: AgentMonitor, meta: { mainView: 'monitor' } },
+      { path: '', component: ChatViewV2, meta: pageMeta('chat', 0, 0) },
+      { path: 'chat/:id?', component: ChatViewV2, meta: pageMeta('chat', 0, 0) },
+      { path: 'monitor', component: AgentMonitor, meta: pageMeta('monitor', 1, 5) },
       { path: 'agent-monitor', redirect: '/monitor' },
-      { path: 'agent-config', component: AgentConfig, meta: { mainView: 'agent-config' } },
-      { path: 'mcp', component: MCPManager, meta: { mainView: 'mcp' } },
-      { path: 'vector-library', component: VectorLibraryManager, meta: { mainView: 'vector-library' } },
-      { path: 'model-providers', component: ModelProviderManager, meta: { mainView: 'model-providers' } },
+      { path: 'agent-config', component: AgentConfig, meta: pageMeta('agent-config', 2, 2) },
+      { path: 'mcp', component: MCPManager, meta: pageMeta('mcp', 3, 3) },
+      { path: 'vector-library', component: VectorLibraryManager, meta: pageMeta('vector-library', 4, 4) },
+      { path: 'model-providers', component: ModelProviderManager, meta: pageMeta('model-providers', 5, 1) },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

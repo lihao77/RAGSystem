@@ -29,27 +29,12 @@ const isDark = ref(true);
 const selectedLLM = ref('');
 const transitionName = ref('slide-forward');
 
-const routeDepth = {
-  '/': 0,
-  '/chat': 0,
-  '/monitor': 0,
-  '/agent-monitor': 0,
-  '/agent-config': 0,
-  '/mcp': 0,
-  '/vector-library': 0,
-  '/model-providers': 0,
-};
-
-const getDepth = (path) => {
-  if (path.startsWith('/chat/')) return 0;
-  return routeDepth[path] ?? 0;
-};
-
 const getRouteShellKey = (route) => route.matched[0]?.meta?.shellKey || route.meta?.shellKey || route.path;
+const getRouteDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 
 router.beforeEach((to, from) => {
-  const fromDepth = getDepth(from.path);
-  const toDepth = getDepth(to.path);
+  const fromDepth = getRouteDepth(from);
+  const toDepth = getRouteDepth(to);
   transitionName.value = toDepth >= fromDepth ? 'slide-forward' : 'slide-backward';
 });
 
@@ -129,36 +114,4 @@ onMounted(() => {
   transition: opacity 0.4s ease;
   will-change: transform;
 }
-
-/* 向右进入（从右滑入 + 淡入） - Apple style */
-.slide-forward-enter-active,
-.slide-forward-leave-active {
-  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-              opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: 0;
-}
-.slide-forward-enter-from { transform: translateX(60px) scale(0.98); opacity: 0; }
-.slide-forward-enter-to   { transform: translateX(0) scale(1);       opacity: 1; }
-.slide-forward-leave-from { transform: translateX(0) scale(1);       opacity: 1; }
-.slide-forward-leave-to   { transform: translateX(-60px) scale(0.98); opacity: 0; }
-
-/* 向左返回（从左滑入 + 淡入） - Apple style */
-.slide-backward-enter-active,
-.slide-backward-leave-active {
-  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-              opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: 0;
-}
-.slide-backward-enter-from { transform: translateX(-60px) scale(0.98); opacity: 0; }
-.slide-backward-enter-to   { transform: translateX(0) scale(1);        opacity: 1; }
-.slide-backward-leave-from { transform: translateX(0) scale(1);        opacity: 1; }
-.slide-backward-leave-to   { transform: translateX(60px) scale(0.98);  opacity: 0; }
 </style>

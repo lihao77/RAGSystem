@@ -160,7 +160,8 @@ defineExpose({ focus });
 }
 
 .input-container {
-  background: var(--color-bg-primary);
+  /* background: var(--glass-bg); */
+  backdrop-filter: blur(40px);
   border: 2px solid var(--color-border);
   border-radius: 28px;
   padding: 10px;

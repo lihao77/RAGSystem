@@ -5,29 +5,31 @@
       <!-- 桌面端 Header -->
       <header class="page-header">
         <div class="page-header__meta">
-          <h1 class="page-header__title">{{ title }}</h1>
+          <div class="page-header__title-row">
+            <button class="hamburger-menu-btn page-header__menu-btn" @click="openMobileSidebar" title="打开菜单">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            <h1 class="page-header__title">{{ title }}</h1>
+          </div>
           <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
           <slot name="header-hint" />
         </div>
         <div class="page-header__actions">
           <slot name="header-actions" />
-          <button class="pl-btn pl-btn--back" @click="navigateBackToChat">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12" />
-              <polyline points="12 19 5 12 12 5" />
-            </svg>
-            <span class="pl-btn__label">返回聊天</span>
-          </button>
         </div>
       </header>
 
       <!-- 移动端导航栏 -->
       <div class="page-mobile-nav">
-        <button class="page-mobile-nav__back" @click="navigateBackToChat">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+        <button class="hamburger-menu-btn page-mobile-nav__menu" @click="openMobileSidebar" title="打开菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
         </button>
         <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
@@ -62,8 +64,7 @@
 </template>
 
 <script setup>
-import { ref, computed, useSlots } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, inject, ref, useSlots } from 'vue';
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -76,9 +77,8 @@ const props = defineProps({
   mobileContentPadding: { type: String, default: 'var(--spacing-md)' },
 });
 
-const router = useRouter();
-
 const slots = useSlots();
+const shellSidebarControl = inject('shellSidebarControl', null);
 const hasMobileMenu = computed(() => !!slots['mobile-menu']);
 const mobileMenuOpen = ref(false);
 
@@ -88,8 +88,8 @@ const shellStyle = computed(() => ({
   '--page-mobile-content-padding': props.mobileContentPadding,
 }));
 
-const navigateBackToChat = () => {
-  router.push(props.chatReturnPath || '/');
+const openMobileSidebar = () => {
+  shellSidebarControl?.openMobileSidebar?.();
 };
 </script>
 
@@ -126,6 +126,16 @@ const navigateBackToChat = () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
+}
+
+.page-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.page-header__menu-btn {
+  display: var(--hamburger-display);
 }
 
 .page-header__title {
@@ -205,7 +215,7 @@ const navigateBackToChat = () => {
   padding: 0 var(--spacing-sm);
 }
 
-.page-mobile-nav__back,
+.page-mobile-nav__menu,
 .page-mobile-nav__more {
   width: 40px;
   height: 40px;
@@ -221,7 +231,7 @@ const navigateBackToChat = () => {
   transition: background 0.2s;
 }
 
-.page-mobile-nav__back:hover,
+.page-mobile-nav__menu:hover,
 .page-mobile-nav__more:hover {
   background: var(--color-interactive);
 }
@@ -288,6 +298,10 @@ const navigateBackToChat = () => {
     padding-left: 0;
     padding-right: 0;
     padding-bottom: 0;
+  }
+
+  .page-header__menu-btn {
+    display: inline-flex;
   }
 }
 </style>

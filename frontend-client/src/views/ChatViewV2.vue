@@ -28,7 +28,6 @@
               <path d="m7 10 5 5 5-5"></path>
               <path d="M5 21h14"></path>
             </svg>
-            <span class="version-label">{{ isExportingSession ? '导出中...' : '导出会话' }}</span>
           </button>
           <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
             <!-- Sun icon for dark mode -->
@@ -3086,10 +3085,6 @@ onUnmounted(() => {
     /* border-radius: 12px; */
     justify-content: center;
     gap: 0;
-  }
-
-  .top-action-btn .version-label {
-    display: none;
   }
 
   .top-action-btn svg {
