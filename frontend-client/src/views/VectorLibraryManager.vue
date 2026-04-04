@@ -8,15 +8,12 @@
         subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
         mobile-title="知识库管理"
     >
-        <template #header-actions>
-            <button class="pl-btn pl-btn--icon" :disabled="globalLoading" @click="refreshAll" title="全局刷新">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    :class="{ 'spin': globalLoading }">
-                    <polyline points="23 4 23 10 17 10" />
-                    <polyline points="1 20 1 14 7 14" />
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+        <template #header-menu="{ close }">
+            <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                 </svg>
+                全局刷新
             </button>
         </template>
         <template #mobile-menu="{ close }">
@@ -1997,6 +1994,7 @@ onMounted(() => {
 /* ─── 搜索框 ────────────────────────────────────────────── */
 .search-form-card {
     padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
 }
 
 .search-box {

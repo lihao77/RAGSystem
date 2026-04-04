@@ -8,7 +8,6 @@
 }
 .agent-config-page--embedded {
   min-height: 100%;
-  padding: var(--spacing-xl);
 }
 
 .agent-config-page--embedded .config-body {
@@ -18,73 +17,11 @@
   padding-bottom: 0;
 }
 
-.config-top {
-  flex-shrink: 0;
-  border: 1px solid var(--color-glass-border);
-  background: var(--glass-bg-light);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.config-top__inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--spacing-lg) var(--spacing-xl);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-lg);
-}
-
-.header-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.header-meta__title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.header-menu-btn {
-  display: var(--hamburger-display);
-}
-
-.config-title {
-  margin: 0;
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: var(--color-text-primary);
-  letter-spacing: -0.02em;
-}
-
-.config-subtitle {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
 .config-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: var(--spacing-xl) var(--spacing-xl);
+  overflow: visible;
+  padding: 0;
   background: transparent;
 }
 
@@ -670,168 +607,13 @@ input[type='number'].form-control {
   to { transform: rotate(360deg); }
 }
 
-/* ===== Mobile nav bar ===== */
-/* 优化移动端导航栏 - Apple 风格 */
-.mobile-nav {
-  display: none;
-  align-items: center;
-  height: 56px;
-  position: relative;
-  padding: 0 var(--spacing-sm);
-}
-
-.mobile-nav__title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 44px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0 var(--spacing-sm);
-  border-radius: var(--radius-lg);
-  transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.mobile-nav__title:hover {
-  background: var(--color-hover-overlay);
-}
-
-.mobile-nav__title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
-}
-
-.mobile-nav__menu,
-.mobile-nav__more {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  box-shadow: var(--shadow-sm);
-}
-
-.mobile-nav__menu:hover,
-.mobile-nav__more:hover {
-  background: var(--color-interactive-hover);
-  transform: scale(1.05);
-  box-shadow: var(--shadow-md);
-}
-
-.mobile-nav__menu:active,
-.mobile-nav__more:active {
-  transform: scale(0.95);
-}
-
-/* Agent 切换列表 - Apple 风格 */
-.mobile-picker {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: var(--z-dropdown, 200);
-  min-width: 240px;
-  max-width: calc(100vw - 32px);
-}
-
-.mobile-picker__list {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
-  overflow: hidden;
-  padding: 6px;
-  backdrop-filter: blur(20px);
-}
-
-.mobile-picker__item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: 12px 16px;
-  border: none;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.mobile-picker__item:hover {
-  background: var(--color-hover-overlay);
-  transform: translateX(2px);
-}
-
-.mobile-picker__item.active {
-  color: var(--color-brand-accent);
-  font-weight: 600;
-  background: var(--color-interactive);
-}
-
-.mobile-picker__item svg {
-  flex-shrink: 0;
-  color: var(--color-brand-accent);
-}
-.mobile-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: var(--z-dropdown, 200);
-  min-width: 180px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-  overflow: hidden;
-  padding: 4px;
-}
-
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .agent-config-page--embedded {
-    padding: var(--spacing-md);
+    min-height: 100%;
   }
-
-  .config-top__inner {
-    padding-left: var(--spacing-md);
-    padding-right: var(--spacing-md);
-    padding-top: 0;
-    padding-bottom: 0;
-  }
-
-  .config-top {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-sticky, 100);
-  }
-
-  /* 隐藏桌面端头部，显示移动端导航 */
-  .header-left--desktop { display: none; }
-  .mobile-nav { display: flex !important; }
-  .header-menu-btn { display: inline-flex; }
 
   .config-body {
-    padding-left: var(--spacing-md);
-    padding-right: var(--spacing-md);
     padding-bottom: var(--spacing-xl);
   }
 

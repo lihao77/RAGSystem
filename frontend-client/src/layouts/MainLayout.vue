@@ -902,8 +902,7 @@ onUnmounted(() => {
 }
 
 .layout-main-host--page {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .route-card {
@@ -928,7 +927,15 @@ onUnmounted(() => {
 
 .route-card--page {
   min-height: 100%;
-  overflow: visible;
+  height: 100%;
+  overflow: hidden;
+}
+
+.route-card--page > * {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .history-skeleton {

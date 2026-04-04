@@ -277,6 +277,32 @@ test('编排器自己的工具调用会沿用已记忆的 display name', () => {
   assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
 });
 
+test('根级 intent 未携带 display name 时仍保留 run step 的入口名称', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createRunStart({
+    agent_name: 'planner_agent',
+    agent_display_name: '规划助手',
+  }));
+  applyStep(state, {
+    kind: 'intent',
+    phase: 'complete',
+    call_id: 'root-call',
+    parent_call_id: null,
+    step_id: 'root-call:round:1',
+    parent_step_id: 'root-call:run',
+    agent_name: 'planner_agent',
+    agent_display_name: '',
+    round: 1,
+    content: '先梳理需求',
+    status: 'completed',
+  });
+
+  assert.equal(state.execution_steps.length, 1);
+  assert.equal(state.execution_steps[0].agent_display_name, '规划助手');
+  assert.equal(state.execution_steps[0].intent, '先梳理需求');
+});
+
 
 
 

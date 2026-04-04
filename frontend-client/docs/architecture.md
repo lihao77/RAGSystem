@@ -102,6 +102,7 @@ tool 归属规则：
 - 子 agent 的 tool 优先按 `parent_call_id -> subtaskMap` 归入对应 `subtask`
 - 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
 - 根级 `kind=run` 会先投影成一个 root execution step，占位表示“当前入口 agent 已启动”；后续同轮 `intent/tool` 会继续挂到这个根节点
+- 执行树根节点的正文仍只来自有 thought / intent 内容的 root step；但节点头部的 agent 名称会优先继承同轮最近一个带名称的 root step（通常是 `run` step），避免入口 agent 名称在前端回退成 `orchestrator_agent`
 - `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
 - 所有 UI 展示 agent 名称时统一优先使用 `agent_display_name`，没有时再回退 `agent_name`；`SubtaskStatusTicker.vue` 与执行树节点都直接消费 projector 的投影结果，不再各自硬编码“编排器”等标签
 
@@ -109,10 +110,12 @@ tool 归属规则：
 
 当前前端已改为“两层结构”：
 - `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
-- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责
+- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏
 - `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
+- 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
+- `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现
 - 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动
-- 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面（如 `AgentConfig.vue`）自行定义边距，因此不同页面可以使用不同留白策略
+- 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面自行定义边距，因此不同页面可以使用不同留白策略
 
 这样侧边栏、聊天页、管理页都处于同一套卡片层级体系中，同时页面内边距由页面自己控制，避免公共壳层把所有管理页锁死为同一套留白。
 

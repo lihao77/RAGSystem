@@ -1,152 +1,121 @@
 <template>
-  <div ref="pageRootRef" class="agent-config-page" :class="{ 'agent-config-page--embedded': embedded }">
-    <div class="config-top">
-      <div class="config-top__inner">
-        <!-- 桌面端头部 -->
-        <div class="header-left header-left--desktop">
-          <div class="header-meta">
-            <div class="header-meta__title-row">
-              <button class="hamburger-menu-btn header-menu-btn" @click="openMobileSidebar" title="打开菜单">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-              </button>
-              <h1 class="config-title">Agent 配置</h1>
-            </div>
-            <p class="config-subtitle">统一管理智能体基础参数、模型、工具与 Skills</p>
-          </div>
-          <div class="header-actions">
-            <CustomSelect
-              id="agent-select"
-              :model-value="selectedAgent"
-              :options="agents.map(a => ({ value: a, label: a }))"
-              placeholder="请选择 Agent"
-              style="width: 200px"
-              @update:model-value="selectedAgent = $event; handleAgentChange()"
-            />
-            <button class="pl-btn" :disabled="saving || agentLoading" title="新建 Agent" @click="openCreateDialog">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              新建
-            </button>
-            <button v-if="selectedAgent" class="pl-btn pl-btn--danger" :disabled="saving || agentLoading" title="删除当前 Agent" @click="openDeleteDialog">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                <path d="M10 11v6"></path>
-                <path d="M14 11v6"></path>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-              </svg>
-              删除
-            </button>
-            <button v-if="selectedAgent" class="pl-btn" :disabled="agentLoading" title="导出配置" @click="handleExport">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              导出
-            </button>
-            <button v-if="selectedAgent" class="pl-btn pl-btn--primary" :disabled="saving || agentLoading" @click="handleSave">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-              {{ saving ? '保存中...' : '保存配置' }}
-            </button>
-          </div>
-        </div>
+  <PageLayout
+    title="Agent 配置"
+    subtitle="统一管理智能体基础参数、模型、工具与 Skills"
+    mobile-title="Agent 配置"
+    :embedded="embedded"
+    :chat-return-path="chatReturnPath"
+    max-width="1200px"
+    content-padding="var(--spacing-xl)"
+    mobile-content-padding="var(--spacing-md)"
+  >
+    <template #header-actions>
+      <CustomSelect
+        id="agent-select"
+        :model-value="selectedAgent"
+        :options="agents.map(a => ({ value: a, label: a }))"
+        placeholder="请选择 Agent"
+        style="width: 200px"
+        @update:model-value="selectedAgent = $event; handleAgentChange()"
+      />
+      <button class="pl-btn pl-btn--icon" :disabled="saving || agentLoading" title="新建 Agent" @click="openCreateDialog">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+      <button v-if="selectedAgent" class="pl-btn pl-btn--primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <polyline points="17 21 17 13 7 13 7 21"></polyline>
+          <polyline points="7 3 7 8 15 8"></polyline>
+        </svg>
+        <span>{{ saving ? '保存中...' : '保存配置' }}</span>
+      </button>
+    </template>
 
-        <!-- 移动端头部 -->
-        <div class="mobile-nav">
-          <button class="hamburger-menu-btn mobile-nav__menu" @click="openMobileSidebar" title="打开菜单">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
-          </button>
+    <template #header-menu="{ close }">
+      <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        新建 Agent
+      </button>
+      <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        导出配置
+      </button>
+      <div v-if="selectedAgent" class="pl-menu-divider"></div>
+      <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+          <path d="M10 11v6"></path>
+          <path d="M14 11v6"></path>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+        </svg>
+        删除 Agent
+      </button>
+    </template>
 
-          <button class="mobile-nav__title" @click="mobileAgentPickerOpen = !mobileAgentPickerOpen">
-            <span class="mobile-nav__title-text">{{ selectedAgent || 'Agent 配置' }}</span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" :style="{ transform: mobileAgentPickerOpen ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
+    <template #mobile-menu="{ close }">
+      <div class="pl-menu-label">切换 Agent</div>
+      <button
+        v-for="a in agents"
+        :key="a"
+        class="pl-menu-item"
+        :class="{ 'pl-menu-item--active': a === selectedAgent }"
+        @click="selectedAgent = a; handleAgentChange(); close()"
+      >
+        <svg v-if="a === selectedAgent" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>{{ a }}</span>
+      </button>
+      <div class="pl-menu-divider"></div>
+      <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        新建 Agent
+      </button>
+      <button v-if="selectedAgent" class="pl-menu-item" :disabled="saving || agentLoading" @click="handleSave(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <polyline points="17 21 17 13 7 13 7 21"></polyline>
+          <polyline points="7 3 7 8 15 8"></polyline>
+        </svg>
+        {{ saving ? '保存中...' : '保存配置' }}
+      </button>
+      <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        导出配置
+      </button>
+      <div v-if="selectedAgent" class="pl-menu-divider"></div>
+      <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+          <path d="M10 11v6"></path>
+          <path d="M14 11v6"></path>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+        </svg>
+        删除 Agent
+      </button>
+    </template>
 
-          <button class="mobile-nav__more" @click="mobileMenuOpen = !mobileMenuOpen">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="5" r="1" fill="currentColor"></circle>
-              <circle cx="12" cy="12" r="1" fill="currentColor"></circle>
-              <circle cx="12" cy="19" r="1" fill="currentColor"></circle>
-            </svg>
-          </button>
-
-          <!-- Agent 切换下拉列表 -->
-          <div v-if="mobileAgentPickerOpen" class="mobile-picker" @click.self="mobileAgentPickerOpen = false">
-            <div class="mobile-picker__list">
-              <button
-                v-for="a in agents"
-                :key="a"
-                class="mobile-picker__item"
-                :class="{ active: a === selectedAgent }"
-                @click="selectedAgent = a; handleAgentChange(); mobileAgentPickerOpen = false"
-              >
-                <svg v-if="a === selectedAgent" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                <span>{{ a }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 三点操作菜单 -->
-          <div v-if="mobileMenuOpen" class="mobile-menu" @click.self="mobileMenuOpen = false">
-            <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); mobileMenuOpen = false">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              新建 Agent
-            </button>
-            <button v-if="selectedAgent" class="pl-menu-item" :disabled="saving || agentLoading" @click="handleSave(); mobileMenuOpen = false">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-              {{ saving ? '保存中...' : '保存配置' }}
-            </button>
-            <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); mobileMenuOpen = false">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              导出配置
-            </button>
-            <div v-if="selectedAgent" class="pl-menu-divider"></div>
-            <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); mobileMenuOpen = false">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                <path d="M10 11v6"></path>
-                <path d="M14 11v6"></path>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-              </svg>
-              删除 Agent
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div ref="configBodyRef" class="config-body">
+    <div ref="pageRootRef" class="agent-config-page" :class="{ 'agent-config-page--embedded': embedded }">
+      <div ref="configBodyRef" class="config-body">
       <div v-if="loading" class="state-panel state-panel--loading">
         <div class="spinner"></div>
         <p>加载中...</p>
@@ -684,11 +653,12 @@
       </div>
     </Teleport>
   </div>
+</PageLayout>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick, watch, inject } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
+import PageLayout from '../components/PageLayout.vue';
 import {
   getAllAgentConfigs,
   getAgentConfig,
@@ -708,9 +678,6 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
 });
-
-const router = useRouter();
-const shellSidebarControl = inject('shellSidebarControl', null);
 
 const sections = [
   { id: 'section-basic', label: '基础' },
@@ -791,7 +758,7 @@ const configBodyRef = ref(null);
 const systemPromptTextareaRef = ref(null);
 
 function getScrollContainer() {
-  return pageRootRef.value?.closest('.layout-main-host--page') || configBodyRef.value;
+  return configBodyRef.value?.closest('.page-content') || configBodyRef.value;
 }
 
 function getSystemPromptTextareaMaxHeight() {
@@ -1278,20 +1245,8 @@ function toggleDelegation(name, checked) {
   }
 }
 
-function openMobileSidebar() {
-  shellSidebarControl?.openMobileSidebar?.();
-}
-
-function navigateToChat() {
-  router.push(props.chatReturnPath || '/');
-}
-
 // 新建 Agent 对话框
 const createDialog = ref({ visible: false, loading: false, agentName: '', displayName: '', description: '' });
-
-// 移动端菜单状态
-const mobileMenuOpen = ref(false);
-const mobileAgentPickerOpen = ref(false);
 
 function openCreateDialog() {
   createDialog.value = { visible: true, loading: false, agentName: '', displayName: '', description: '' };
