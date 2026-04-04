@@ -108,9 +108,10 @@ tool 归属规则：
 `ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
 
 当前前端已改为“两层结构”：
-- `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景/滚动承载，不再给页面内容强加统一 padding
+- `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
 - `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责
 - `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
+- 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动
 - 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面（如 `AgentConfig.vue`）自行定义边距，因此不同页面可以使用不同留白策略
 
 这样侧边栏、聊天页、管理页都处于同一套卡片层级体系中，同时页面内边距由页面自己控制，避免公共壳层把所有管理页锁死为同一套留白。

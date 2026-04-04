@@ -927,7 +927,8 @@ onUnmounted(() => {
 }
 
 .route-card--page {
-  overflow: hidden;
+  min-height: 100%;
+  overflow: visible;
 }
 
 .history-skeleton {
@@ -965,6 +966,12 @@ onUnmounted(() => {
     gap: 0;
   }
 
+  .sidebar-backdrop {
+    background: rgba(6, 8, 12, 0.36);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
   .sidebar {
     position: fixed;
     left: 0;
@@ -973,6 +980,11 @@ onUnmounted(() => {
     border-radius: 0 18px 18px 0;
     transform: translateX(-100%);
     width: 280px;
+    background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.84);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
   }
 
   .sidebar.mobile-open {
