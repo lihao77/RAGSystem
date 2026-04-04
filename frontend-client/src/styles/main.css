@@ -28,6 +28,7 @@
     --color-bg-tertiary: #3a3a3c;
     /* System Gray 4 - 激活状态 */
     --color-bg-elevated: #1c1c1e;
+    --color-bg-elevated-rgb: 28, 28, 30;
     /* 浮层 */
 
     /* Text Colors - Crisp Hierarchy */
@@ -238,6 +239,7 @@
     --color-bg-tertiary: #e8e8ed;
     /* Slightly darker */
     --color-bg-elevated: #ffffff;
+    --color-bg-elevated-rgb: 255, 255, 255;
     /* 浮层用纯白+阴影 */
 
     /* Text Colors */

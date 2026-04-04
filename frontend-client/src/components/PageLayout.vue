@@ -88,7 +88,7 @@ const shellStyle = computed(() => ({
 .page-layout {
   height: 100vh;
   overflow-y: auto;
-  background: var(--color-bg-app);
+  background: transparent;
   padding: var(--spacing-xl);
 }
 
@@ -183,8 +183,11 @@ const shellStyle = computed(() => ({
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  background: var(--color-bg-app);
-  border-bottom: 1px solid var(--color-border);
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
   padding: 0 var(--spacing-sm);
 }
 
