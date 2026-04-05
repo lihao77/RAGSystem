@@ -96,9 +96,10 @@
         :class="{ 'tab-btn--active': activeTab === tab.id }"
         @click="activeTab = tab.id"
       >
-        <span class="tab-icon" v-html="tab.icon"></span>
-        {{ tab.label }}
-        <span v-if="tab.badge" class="tab-badge">{{ tab.badge }}</span>
+        <span class="tab-btn__content">
+          <span class="tab-icon" v-html="tab.icon"></span>
+          <span class="tab-label">{{ tab.label }}</span>
+        </span>
       </button>
     </nav>
 
@@ -801,7 +802,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import AppToast from '../components/AppToast.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
@@ -829,17 +830,29 @@ const props = defineProps({
 const toastRef = ref(null);
 const activeTab = ref('installed');
 const tabNavRef = ref(null);
+let sliderRafId = 0;
 
 const updateTabSlider = () => {
   nextTick(() => {
     if (!tabNavRef.value) return;
     const activeBtn = tabNavRef.value.querySelector('.tab-btn--active');
-    if (activeBtn) {
+    const activeContent = activeBtn?.querySelector('.tab-btn__content');
+    if (activeBtn && activeContent) {
       const navRect = tabNavRef.value.getBoundingClientRect();
       const btnRect = activeBtn.getBoundingClientRect();
-      tabNavRef.value.style.setProperty('--slider-left', `${btnRect.left - navRect.left}px`);
-      tabNavRef.value.style.setProperty('--slider-width', `${btnRect.width}px`);
+      const contentRect = activeContent.getBoundingClientRect();
+      const left = btnRect.left - navRect.left + (btnRect.width - contentRect.width) / 2 - 12;
+      tabNavRef.value.style.setProperty('--slider-left', `${left}px`);
+      tabNavRef.value.style.setProperty('--slider-width', `${contentRect.width + 24}px`);
     }
+  });
+};
+
+const scheduleTabSliderUpdate = () => {
+  if (sliderRafId) cancelAnimationFrame(sliderRafId);
+  sliderRafId = requestAnimationFrame(() => {
+    sliderRafId = 0;
+    updateTabSlider();
   });
 };
 
@@ -880,11 +893,10 @@ const transportOptions = [
 ];
 
 // ── Tab 定义 ──────────────────────────────────────────────
-const tabs = computed(() => [
+const tabs = [
   {
     id: 'installed',
     label: '已安装服务',
-    badge: servers.value.length || null,
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
@@ -895,7 +907,6 @@ const tabs = computed(() => [
   {
     id: 'template',
     label: '模板安装',
-    badge: null,
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -905,13 +916,12 @@ const tabs = computed(() => [
   {
     id: 'registry',
     label: 'Registry',
-    badge: null,
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>`,
   },
-]);
+];
 
 // ── Forms ─────────────────────────────────────────────────
 const installForm = reactive({
@@ -1337,11 +1347,18 @@ async function handleDelete(server) {
   }
 }
 
-onMounted(async () => {
-  await loadTemplates();
-  await loadServers();
-  await searchRegistryServers();
+onMounted(() => {
   updateTabSlider();
+  scheduleTabSliderUpdate();
+  loadTemplates();
+  loadServers();
+  searchRegistryServers();
+  window.addEventListener('resize', scheduleTabSliderUpdate);
+});
+
+onUnmounted(() => {
+  if (sliderRafId) cancelAnimationFrame(sliderRafId);
+  window.removeEventListener('resize', scheduleTabSliderUpdate);
 });
 </script>
 
@@ -1426,7 +1443,7 @@ onMounted(async () => {
 .tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  justify-content: center;
   padding: 8px 18px;
   border-radius: var(--radius-md);
   border: none;
@@ -1448,22 +1465,14 @@ onMounted(async () => {
   box-shadow: none;
 }
 
-.tab-icon { display: flex; align-items: center; }
-.tab-badge {
+.tab-btn__content {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
+  gap: var(--spacing-xs);
 }
-.tab-btn--active .tab-badge { background: rgba(var(--color-brand-accent-rgb), 0.2); color: var(--color-brand-accent-light); }
+
+.tab-icon { display: flex; align-items: center; }
+.tab-label { display: inline-block; }
 
 /* ─── Tab 内容区 ────────────────────────────────────────── */
 .tab-content { display: flex; flex-direction: column; gap: var(--spacing-lg); }

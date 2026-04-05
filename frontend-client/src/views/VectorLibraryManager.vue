@@ -92,9 +92,10 @@
             <nav class="tab-nav glass-card" ref="tabNavRef">
                 <button v-for="tab in tabs" :key="tab.id" class="tab-btn"
                     :class="{ 'tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
-                    <span class="tab-icon" v-html="tab.icon"></span>
-                    {{ tab.label }}
-                    <span v-if="tab.badge != null" class="tab-badge">{{ tab.badge }}</span>
+                    <span class="tab-btn__content">
+                        <span class="tab-icon" v-html="tab.icon"></span>
+                        <span class="tab-label">{{ tab.label }}</span>
+                    </span>
                 </button>
             </nav>
 
@@ -806,11 +807,14 @@ const updateTabSlider = () => {
   nextTick(() => {
     if (!tabNavRef.value) return;
     const activeBtn = tabNavRef.value.querySelector('.tab-btn--active');
-    if (activeBtn) {
+    const activeContent = activeBtn?.querySelector('.tab-btn__content');
+    if (activeBtn && activeContent) {
       const navRect = tabNavRef.value.getBoundingClientRect();
       const btnRect = activeBtn.getBoundingClientRect();
-      tabNavRef.value.style.setProperty('--slider-left', `${btnRect.left - navRect.left}px`);
-      tabNavRef.value.style.setProperty('--slider-width', `${btnRect.width}px`);
+      const contentRect = activeContent.getBoundingClientRect();
+      const left = btnRect.left - navRect.left + (btnRect.width - contentRect.width) / 2 - 12;
+      tabNavRef.value.style.setProperty('--slider-left', `${left}px`);
+      tabNavRef.value.style.setProperty('--slider-width', `${contentRect.width + 24}px`);
     }
   });
 };
@@ -1470,7 +1474,7 @@ onMounted(() => {
 .tab-btn {
     display: inline-flex;
     align-items: center;
-    gap: var(--spacing-xs);
+    justify-content: center;
     padding: 8px 18px;
     border-radius: var(--radius-md);
     border: none;
@@ -1496,29 +1500,19 @@ onMounted(() => {
     box-shadow: none;
 }
 
+.tab-btn__content {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
 .tab-icon {
     display: flex;
     align-items: center;
 }
 
-.tab-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 6px;
-    border-radius: var(--radius-full);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1;
-}
-
-.tab-btn--active .tab-badge {
-    background: rgba(var(--color-brand-accent-rgb), 0.2);
-    color: var(--color-brand-accent-light);
+.tab-label {
+    display: inline-block;
 }
 
 /* ─── Tab 内容 ──────────────────────────────────────────── */

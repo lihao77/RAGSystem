@@ -657,7 +657,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import {
   getAllAgentConfigs,
@@ -692,8 +692,10 @@ const sections = [
 const activeSection = ref('section-basic');
 const tiersCollapsed = ref(false);
 let observer = null;
+let scrollContainerEl = null;
 let isClickScrolling = false;
 let scrollTimeout = null;
+let observeTimer = null;
 
 // 更新滑块位置
 function updateSliderPosition() {
@@ -753,7 +755,6 @@ function scrollToSection(id) {
   }
 }
 
-const pageRootRef = ref(null);
 const configBodyRef = ref(null);
 const systemPromptTextareaRef = ref(null);
 
@@ -767,6 +768,68 @@ function getScrollContainer() {
 
 function getSystemPromptTextareaMaxHeight() {
   return Math.min(520, Math.max(260, Math.floor(window.innerHeight * 0.42)));
+}
+
+function updateActiveSectionByScroll() {
+  if (isClickScrolling) return;
+
+  const container = getScrollContainer();
+  if (!container) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const anchorY = containerRect.top + Math.min(120, Math.max(48, containerRect.height * 0.2));
+
+  let currentSection = sections[0]?.id || 'section-basic';
+
+  for (const section of sections) {
+    const el = document.getElementById(section.id);
+    if (!el) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.top <= anchorY) {
+      currentSection = section.id;
+    } else {
+      break;
+    }
+  }
+
+  if (currentSection !== activeSection.value) {
+    activeSection.value = currentSection;
+    updateSliderPosition();
+  }
+}
+
+function bindScrollTracking() {
+  const nextContainer = getScrollContainer();
+
+  if (scrollContainerEl && scrollContainerEl !== nextContainer) {
+    scrollContainerEl.removeEventListener('scroll', updateActiveSectionByScroll);
+  }
+
+  scrollContainerEl = nextContainer;
+  scrollContainerEl?.removeEventListener('scroll', updateActiveSectionByScroll);
+  scrollContainerEl?.addEventListener('scroll', updateActiveSectionByScroll, { passive: true });
+}
+
+function resetSectionObserver() {
+  observer?.disconnect();
+  observer = null;
+
+  if (observeTimer) {
+    clearTimeout(observeTimer);
+    observeTimer = null;
+  }
+
+  if (!selectedAgent.value || loading.value || error.value) {
+    return;
+  }
+
+  bindScrollTracking();
+
+  observeTimer = setTimeout(() => {
+    updateActiveSectionByScroll();
+    updateSliderPosition();
+    observeTimer = null;
+  }, 0);
 }
 
 function scrollToBottom() {
@@ -1079,42 +1142,54 @@ function buildPayload() {
   return merged;
 }
 
+async function loadSupplementaryData() {
+  const [toolResult, skillResult, mcpServerResult, providerResult, memoryResult] = await Promise.allSettled([
+    getAvailableTools(),
+    getAvailableSkills(),
+    getAvailableMCPServers(),
+    getProviders(),
+    getMemoryConfigMetadata()
+  ]);
+
+  tools.value = toolResult.status === 'fulfilled' && Array.isArray(toolResult.value) ? toolResult.value : [];
+  skills.value = skillResult.status === 'fulfilled' && Array.isArray(skillResult.value) ? skillResult.value : [];
+  mcpServers.value = mcpServerResult.status === 'fulfilled' && Array.isArray(mcpServerResult.value) ? mcpServerResult.value : [];
+  providers.value = providerResult.status === 'fulfilled' && Array.isArray(providerResult.value) ? providerResult.value : [];
+  memoryScopeMeta.value = memoryResult.status === 'fulfilled'
+    && Array.isArray(memoryResult.value?.scopes)
+    && memoryResult.value.scopes.length
+    ? memoryResult.value.scopes
+    : memoryScopeFallbackMeta;
+}
+
 async function loadInitialData() {
   loading.value = true;
   error.value = '';
 
   try {
-    const [configs, toolList, skillList, mcpServerList, providerList, memoryMetadata] = await Promise.all([
-      getAllAgentConfigs(),
-      getAvailableTools(),
-      getAvailableSkills(),
-      getAvailableMCPServers(),
-      getProviders(),
-      getMemoryConfigMetadata()
-    ]);
-
-    tools.value = Array.isArray(toolList) ? toolList : [];
-    skills.value = Array.isArray(skillList) ? skillList : [];
-    mcpServers.value = Array.isArray(mcpServerList) ? mcpServerList : [];
-    providers.value = Array.isArray(providerList) ? providerList : [];
-    memoryScopeMeta.value = Array.isArray(memoryMetadata?.scopes) && memoryMetadata.scopes.length
-      ? memoryMetadata.scopes
-      : memoryScopeFallbackMeta;
-
+    const configs = await getAllAgentConfigs();
     const agentNames = Object.keys(configs || {});
     agents.value = agentNames;
 
     if (agentNames.length > 0) {
       selectedAgent.value = agentNames[0];
-      await loadAgentDetail(agentNames[0]);
+      configForm.value = createEmptyForm();
+      rawConfig.value = createEmptyForm();
+      loading.value = false;
+      loadAgentDetail(agentNames[0]);
     } else {
       selectedAgent.value = '';
       configForm.value = createEmptyForm();
       rawConfig.value = createEmptyForm();
+      loading.value = false;
     }
+
+    loadSupplementaryData().catch(err => {
+      console.error('加载 Agent 辅助配置失败:', err);
+      showToast(err.message || '部分辅助配置加载失败');
+    });
   } catch (err) {
     error.value = err.message || '加载 Agent 配置失败';
-  } finally {
     loading.value = false;
   }
 }
@@ -1128,6 +1203,8 @@ async function loadAgentDetail(agentName) {
     const config = await getAgentConfig(agentName);
     applyConfigToForm(config);
   } catch (err) {
+    configForm.value = createEmptyForm();
+    rawConfig.value = createEmptyForm();
     showToast(err.message || '加载 Agent 详情失败');
   } finally {
     agentLoading.value = false;
@@ -1349,44 +1426,33 @@ watch(
   () => nextTick(() => autoResizeSystemPrompt())
 );
 
+watch(
+  () => [selectedAgent.value, loading.value, error.value],
+  async () => {
+    await nextTick();
+    resetSectionObserver();
+  }
+);
+
+watch(tiersCollapsed, async () => {
+  await nextTick();
+  resetSectionObserver();
+});
+
 onMounted(() => {
   loadInitialData();
-  nextTick(() => autoResizeSystemPrompt());
-  observer = new IntersectionObserver(
-    (entries) => {
-      if (isClickScrolling) return;
-
-      const visibleEntries = entries
-        .filter(e => e.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-
-      if (visibleEntries.length > 0) {
-        const newSection = visibleEntries[0].target.id;
-        if (newSection !== activeSection.value) {
-          activeSection.value = newSection;
-          updateSliderPosition();
-        }
-      }
-    },
-    {
-      root: getScrollContainer(),
-      threshold: [0, 0.25, 0.5, 0.75, 1],
-      rootMargin: '-10% 0px -60% 0px'
-    }
-  );
-  setTimeout(() => {
-    sections.forEach(s => {
-      const el = document.getElementById(s.id);
-      if (el) observer.observe(el);
-    });
-    updateSliderPosition();
-  }, 500);
+  nextTick(() => {
+    autoResizeSystemPrompt();
+    resetSectionObserver();
+  });
 
   window.addEventListener('resize', updateSliderPosition);
 });
 
 onUnmounted(() => {
   observer?.disconnect();
+  if (observeTimer) clearTimeout(observeTimer);
+  scrollContainerEl?.removeEventListener('scroll', updateActiveSectionByScroll);
   window.removeEventListener('resize', updateSliderPosition);
   if (scrollTimeout) clearTimeout(scrollTimeout);
 });
