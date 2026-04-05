@@ -50,6 +50,49 @@ class AgentConfigService:
             for name, config in configs.items()
         }
 
+    def list_teams(self) -> Dict[str, Any]:
+        return self._config_manager.get_team_summary()
+
+    def create_team(self, team_name: str, source_team: Optional[str] = None) -> Dict[str, Any]:
+        try:
+            self._config_manager.create_team(team_name, source_team=source_team)
+        except Exception as error:
+            raise AgentConfigServiceError(str(error), status_code=400) from error
+        self._reload_agents_safely()
+        return self.list_teams()
+
+    def activate_team(self, team_name: str) -> Dict[str, Any]:
+        try:
+            self._config_manager.set_active_team(team_name)
+        except Exception as error:
+            raise AgentConfigServiceError(str(error), status_code=400) from error
+        self._reload_agents_safely()
+        return self.list_teams()
+
+    def delete_team(self, team_name: str) -> Dict[str, Any]:
+        try:
+            self._config_manager.delete_team(team_name)
+        except Exception as error:
+            raise AgentConfigServiceError(str(error), status_code=400) from error
+        self._reload_agents_safely()
+        return self.list_teams()
+
+    def rename_team(self, team_name: str, new_team_name: str) -> Dict[str, Any]:
+        try:
+            self._config_manager.rename_team(team_name, new_team_name)
+        except Exception as error:
+            raise AgentConfigServiceError(str(error), status_code=400) from error
+        self._reload_agents_safely()
+        return self.list_teams()
+
+    def copy_agents_to_team(self, team_name: str, source_team: str, agent_names: list[str]) -> Dict[str, Any]:
+        try:
+            self._config_manager.copy_agents_between_teams(source_team, team_name, agent_names)
+        except Exception as error:
+            raise AgentConfigServiceError(str(error), status_code=400) from error
+        self._reload_agents_safely()
+        return self.list_teams()
+
     def get_config(self, agent_name: str) -> Dict[str, Any]:
         config = self._config_manager.get_config(agent_name)
         if config is None:
@@ -83,7 +126,6 @@ class AgentConfigService:
         except Exception as error:
             raise AgentConfigServiceError(str(error), status_code=400) from error
 
-        # llm_tiers 单独处理（嵌套 dict）
         llm_tiers_patch = payload.get('llm_tiers')
         if llm_tiers_patch is not None and config.llm_tiers is not None:
             from agents.config.models import AgentLLMConfig
@@ -168,6 +210,11 @@ class AgentConfigService:
         return {
             'valid': valid,
             'error': error,
+        }
+
+    def get_active_team(self) -> Dict[str, Any]:
+        return {
+            'active_team': self._config_manager.get_active_team(),
         }
 
     def list_presets(self):

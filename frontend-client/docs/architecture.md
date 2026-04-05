@@ -52,6 +52,7 @@ frontend-client/src/
 | `/` `/chat/:id?` | MainLayout → ChatViewV2 | 通过公共壳层进入聊天页；`/chat/:id?` 中的 `id` 为 `session_id` |
 | `/monitor` | MainLayout → AgentMonitor | 通过公共壳层在右侧主区渲染监控页 |
 | `/agent-monitor` | 重定向到 `/monitor` | 兼容旧监控入口 |
+| `/team-builder` | MainLayout → TeamBuilder | 通过公共壳层在右侧主区渲染 Team 方案编排页 |
 | `/agent-config` | MainLayout → AgentConfig | 通过公共壳层在右侧主区渲染 Agent 配置页 |
 | `/mcp` | MainLayout → MCPManager | 通过公共壳层在右侧主区渲染 MCP 管理页 |
 | `/vector-library` | MainLayout → VectorLibraryManager | 通过公共壳层在右侧主区渲染知识库页 |
@@ -111,7 +112,7 @@ tool 归属规则：
 当前前端已改为“两层结构”：
 - `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
 - `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏
-- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
+- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
 - 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
 - `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现
 - `MainLayout.vue` 的左侧 sidebar 采用“按页面主视图唯一激活”规则：聊天入口与历史会话只在 `mainView=chat` 时参与高亮；模型管理 / Agent 配置 / MCP / 知识库 / 监控按钮按各自 `route.meta.mainView` 独立激活，避免管理页打开后历史会话残留 active。
@@ -255,9 +256,23 @@ SituationScreen (Teleport to body, z-index: 10000)
 
 手动触发：MapRenderer 标题栏"进入态势大屏"按钮 → `emit('enter-situation')`
 
+## Team 编排页
+
+`TeamBuilder.vue` 负责“方案级”操作，而不是细粒度 agent 参数编辑：
+
+- 展示当前 `active_team`
+- 创建新的 team（可从 source team 复制整份配置）
+- 删除、激活 team
+- 从 source team 复制指定 agents 到目标 team
+- 通过左右双栏的可视化装配区展示“来源 Team / 目标 Team / 待复制清单”，让复制操作从表单式选择升级为即时预览式组合
+- 装配区会区分“预计新增”和“目标 Team 已存在”的 Agent，并提供全选可新增项 / 全选来源项等快捷操作
+- 支持从 Team 卡片直接进入 `AgentConfig.vue`，继续编辑当前 team 对应配置文件里的 agent 细节
+
+team 在前端中的语义是“命名的 agent 配置文件方案”，不是运行时 team 实体。
+
 ## Agent 配置页
 
-`AgentConfig.vue` 负责展示和编辑 Agent 的基础配置、工具、Skills、MCP、委派与 Memory 能力。
+`AgentConfig.vue` 负责展示和编辑当前 active_team 下 Agent 的基础配置、工具、Skills、MCP、委派与 Memory 能力。
 
 其中 Memory 区块采用独立元数据接口而不是前端硬编码：
 - 前端通过 `GET /api/agent-config/memory-metadata` 获取 memory 工具描述与 scope 说明

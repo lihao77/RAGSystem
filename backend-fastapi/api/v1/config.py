@@ -152,6 +152,98 @@ async def validate_config(agent_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+
+@router.get('/teams')
+async def list_teams():
+    """列出所有 team 配置文件。"""
+    try:
+        data = await asyncio.to_thread(_get_service().list_teams)
+        return ok(data=data, message='team 列表')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('获取 team 列表失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/teams')
+async def create_team(request: Request):
+    """创建 team。"""
+    try:
+        body = await request.json()
+        data = await asyncio.to_thread(
+            _get_service().create_team,
+            body.get('team_name'),
+            body.get('source_team'),
+        )
+        return ok(data=data, message='team 已创建')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('创建 team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post('/teams/{team_name}/activate')
+async def activate_team(team_name: str):
+    """切换 active team。"""
+    try:
+        data = await asyncio.to_thread(_get_service().activate_team, team_name)
+        return ok(data=data, message=f'team "{team_name}" 已激活')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('激活 team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete('/teams/{team_name}')
+async def delete_team(team_name: str):
+    """删除 team。"""
+    try:
+        data = await asyncio.to_thread(_get_service().delete_team, team_name)
+        return ok(data=data, message=f'team "{team_name}" 已删除')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('删除 team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch('/teams/{team_name}/rename')
+async def rename_team(team_name: str, request: Request):
+    """重命名 team。"""
+    try:
+        body = await request.json()
+        data = await asyncio.to_thread(_get_service().rename_team, team_name, body.get('new_team_name'))
+        return ok(data=data, message=f'team "{team_name}" 已重命名')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('重命名 team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post('/teams/{team_name}/copy-agents')
+async def copy_agents_to_team(team_name: str, request: Request):
+    """从 source team 复制指定 agents 到目标 team。"""
+    try:
+        body = await request.json()
+        data = await asyncio.to_thread(
+            _get_service().copy_agents_to_team,
+            team_name,
+            body.get('source_team'),
+            body.get('agent_names') or [],
+        )
+        return ok(data=data, message='agents 已复制到目标 team')
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('复制 agents 到 team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get('/presets')
 async def list_presets():
     """列出所有可用预设。"""

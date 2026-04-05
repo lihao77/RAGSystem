@@ -4,6 +4,133 @@
 
 const API_BASE = '/api/agent-config';
 
+
+export async function getTeams() {
+  try {
+    const response = await fetch(`${API_BASE}/teams`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to fetch teams');
+    }
+    return result.data || { active_team: '', teams: [] };
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+    throw error;
+  }
+}
+
+export async function createTeam(payload) {
+  try {
+    const response = await fetch(`${API_BASE}/teams`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to create team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error creating team:', error);
+    throw error;
+  }
+}
+
+export async function activateTeam(teamName) {
+  try {
+    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/activate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to activate team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error activating team:', error);
+    throw error;
+  }
+}
+
+export async function deleteTeam(teamName) {
+  try {
+    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to delete team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    throw error;
+  }
+}
+
+export async function renameTeam(teamName, newTeamName) {
+  try {
+    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/rename`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ new_team_name: newTeamName })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to rename team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error renaming team:', error);
+    throw error;
+  }
+}
+
+export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
+  try {
+    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/copy-agents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        source_team: sourceTeam,
+        agent_names: agentNames
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to copy agents to team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error copying agents to team:', error);
+    throw error;
+  }
+}
+
 /**
  * 获取所有智能体配置
  * @returns {Promise<Object>} 配置映射

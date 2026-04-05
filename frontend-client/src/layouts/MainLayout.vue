@@ -25,6 +25,12 @@
           </svg>
           <span class="btn-text">模型管理</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('team-builder') }" @click="goToTeamBuilder" title="Team 方案编排">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="14" y="15" width="7" height="7" rx="1"/><path d="M10 7h4"/><path d="M17.5 11v4"/>
+          </svg>
+          <span class="btn-text">Team编排</span>
+        </button>
         <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('agent-config') }" @click="goToAgentConfig" title="智能体配置">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/>
@@ -419,6 +425,7 @@ const navigateTo = async (path) => {
 };
 
 const goToMonitor = () => navigateTo('/monitor');
+const goToTeamBuilder = () => navigateTo('/team-builder');
 const goToAgentConfig = () => navigateTo('/agent-config');
 const goToMCPManager = () => navigateTo('/mcp');
 const goToVectorLibrary = () => navigateTo('/vector-library');

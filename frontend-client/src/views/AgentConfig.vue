@@ -114,7 +114,10 @@
       </button>
     </template>
 
-    <div ref="pageRootRef" class="agent-config-page" :class="{ 'agent-config-page--embedded': embedded }">
+    <div class="agent-config-page" :class="{ 'agent-config-page--embedded': embedded }">
+      <div class="team-banner" v-if="activeTeam">
+        当前 Team：<strong>{{ activeTeam }}</strong>
+      </div>
       <div ref="configBodyRef" class="config-body">
       <div v-if="loading" class="state-panel state-panel--loading">
         <div class="spinner"></div>
@@ -668,7 +671,8 @@ import {
   getAvailableTools,
   getAvailableSkills,
   getAvailableMCPServers,
-  getMemoryConfigMetadata
+  getMemoryConfigMetadata,
+  getTeams
 } from '../api/agentConfig';
 import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
@@ -859,6 +863,7 @@ function showToast(message, type = 'error') {
 }
 
 const agents = ref([]);
+const activeTeam = ref('');
 const selectedAgent = ref('');
 const tools = ref([]);
 const skills = ref([]);
@@ -1167,9 +1172,13 @@ async function loadInitialData() {
   error.value = '';
 
   try {
-    const configs = await getAllAgentConfigs();
+    const [configs, teamSummary] = await Promise.all([
+      getAllAgentConfigs(),
+      getTeams()
+    ]);
     const agentNames = Object.keys(configs || {});
     agents.value = agentNames;
+    activeTeam.value = teamSummary?.active_team || '';
 
     if (agentNames.length > 0) {
       selectedAgent.value = agentNames[0];
@@ -1459,3 +1468,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped src="../styles/agent-config.css"></style>
+<style scoped>
+.team-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+}
+</style>

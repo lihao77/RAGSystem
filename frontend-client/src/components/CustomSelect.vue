@@ -1,6 +1,7 @@
 <template>
   <div class="custom-select" ref="rootRef">
     <div
+      ref="triggerRef"
       class="select-trigger"
       :class="{ open: isOpen, disabled: disabled }"
       @click="toggle"
@@ -12,7 +13,8 @@
         class="arrow-icon"
         :class="{ rotate: isOpen }"
         xmlns="http://www.w3.org/2000/svg"
-        width="16" height="16"
+        width="16"
+        height="16"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -24,45 +26,53 @@
       </svg>
     </div>
 
-    <transition name="dropdown">
-      <div v-if="isOpen" class="dropdown-menu">
-        <div class="options-list">
-          <div
-            v-for="opt in options"
-            :key="opt.value"
-            class="option-item"
-            :class="{ selected: opt.value === modelValue }"
-            @click="select(opt)"
-          >
-            <span class="option-label">{{ opt.label }}</span>
-            <svg
-              v-if="opt.value === modelValue"
-              class="check-icon"
-              xmlns="http://www.w3.org/2000/svg"
-              width="14" height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+    <Teleport to="body">
+      <transition name="dropdown">
+        <div
+          v-if="isOpen"
+          ref="dropdownRef"
+          class="dropdown-menu dropdown-menu--teleported"
+          :style="dropdownStyle"
+        >
+          <div class="options-list">
+            <div
+              v-for="opt in options"
+              :key="opt.value"
+              class="option-item"
+              :class="{ selected: opt.value === modelValue }"
+              @click="select(opt)"
             >
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
+              <span class="option-label">{{ opt.label }}</span>
+              <svg
+                v-if="opt.value === modelValue"
+                class="check-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+            <div v-if="options.length === 0" class="no-options">暂无选项</div>
           </div>
-          <div v-if="options.length === 0" class="no-options">暂无选项</div>
         </div>
-      </div>
-    </transition>
+      </transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  options: { type: Array, default: () => [] }, // [{ value, label }]
+  options: { type: Array, default: () => [] },
   placeholder: { type: String, default: '请选择' },
   disabled: { type: Boolean, default: false },
 });
@@ -70,7 +80,10 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'change']);
 
 const rootRef = ref(null);
+const triggerRef = ref(null);
+const dropdownRef = ref(null);
 const isOpen = ref(false);
+const dropdownPosition = ref({ top: 0, left: 0, width: 0 });
 
 const hasValue = computed(() => props.modelValue !== '' && props.modelValue != null);
 
@@ -80,25 +93,78 @@ const displayLabel = computed(() => {
   return found ? found.label : props.modelValue;
 });
 
-const toggle = () => {
+const dropdownStyle = computed(() => ({
+  top: `${dropdownPosition.value.top}px`,
+  left: `${dropdownPosition.value.left}px`,
+  width: `${dropdownPosition.value.width}px`,
+}));
+
+const updateDropdownPosition = () => {
+  if (!triggerRef.value) return;
+  const rect = triggerRef.value.getBoundingClientRect();
+  dropdownPosition.value = {
+    top: rect.bottom + 8,
+    left: rect.left,
+    width: rect.width,
+  };
+};
+
+const openDropdown = async () => {
+  isOpen.value = true;
+  await nextTick();
+  updateDropdownPosition();
+};
+
+const closeDropdown = () => {
+  isOpen.value = false;
+};
+
+const toggle = async () => {
   if (props.disabled) return;
-  isOpen.value = !isOpen.value;
+  if (isOpen.value) {
+    closeDropdown();
+    return;
+  }
+  await openDropdown();
 };
 
 const select = (opt) => {
   emit('update:modelValue', opt.value);
   emit('change', opt.value);
-  isOpen.value = false;
+  closeDropdown();
 };
 
 const onClickOutside = (e) => {
-  if (rootRef.value && !rootRef.value.contains(e.target)) {
-    isOpen.value = false;
+  const clickedInsideRoot = rootRef.value?.contains(e.target);
+  const clickedInsideDropdown = dropdownRef.value?.contains(e.target);
+  if (!clickedInsideRoot && !clickedInsideDropdown) {
+    closeDropdown();
   }
 };
 
-onMounted(() => document.addEventListener('click', onClickOutside, true));
-onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
+const onWindowChange = () => {
+  if (isOpen.value) {
+    updateDropdownPosition();
+  }
+};
+
+watch(() => props.options, () => {
+  if (isOpen.value) {
+    nextTick(updateDropdownPosition);
+  }
+}, { deep: true });
+
+onMounted(() => {
+  document.addEventListener('click', onClickOutside, true);
+  window.addEventListener('resize', onWindowChange);
+  window.addEventListener('scroll', onWindowChange, true);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', onClickOutside, true);
+  window.removeEventListener('resize', onWindowChange);
+  window.removeEventListener('scroll', onWindowChange, true);
+});
 </script>
 
 <style scoped>
@@ -107,7 +173,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   width: 100%;
 }
 
-/* ── Trigger ── */
 .select-trigger {
   display: flex;
   align-items: center;
@@ -166,19 +231,17 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   transform: translateY(-50%) rotate(180deg);
 }
 
-/* ── Dropdown ── */
 .dropdown-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  min-width: 100%;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg), 0 0 0 1px var(--color-hover-overlay);
-  z-index: var(--z-dropdown);
   overflow: hidden;
+}
+
+.dropdown-menu--teleported {
+  position: fixed;
+  z-index: 9999;
 }
 
 .options-list {
@@ -229,7 +292,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
   font-size: 13px;
 }
 
-/* ── Scrollbar ── */
 .options-list::-webkit-scrollbar { width: 5px; }
 .options-list::-webkit-scrollbar-track { background: transparent; }
 .options-list::-webkit-scrollbar-thumb {
@@ -238,7 +300,6 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
 }
 .options-list::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
-/* ── Animation — 与 LLMSelector 完全一致 ── */
 .dropdown-enter-active {
   animation: dropdownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -248,10 +309,10 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside, true));
 
 @keyframes dropdownIn {
   from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes dropdownOut {
-  from { opacity: 1; transform: translateY(0)   scale(1);    }
+  from { opacity: 1; transform: translateY(0) scale(1); }
   to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
 }
 </style>
