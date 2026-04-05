@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import pytest
 from pathlib import Path
 
 from agents.config.manager import AgentConfigManager, DEFAULT_TEAM_NAME
@@ -89,3 +90,54 @@ def test_copy_agents_between_teams_creates_independent_snapshot(tmp_path):
 
     manager.set_active_team('custom')
     assert manager.get_config('shared_agent').description == 'custom only'
+
+
+def test_apply_team_payload_creates_team_without_switching_active_team(tmp_path):
+    manager = AgentConfigManager(config_dir=str(tmp_path / 'agents'))
+    manager.set_config(
+        AgentConfig(
+            agent_name='orchestrator_agent',
+            enabled=True,
+            default_entry=True,
+            llm_tiers={'default': {'provider': 'test', 'model_name': 'model-a'}},
+        )
+    )
+
+    result = manager.apply_team_payload(
+        team_name='generated-team',
+        agents_payload={
+            'planner_agent': {
+                'enabled': True,
+                'default_entry': True,
+                'llm_tiers': {'default': {'provider': 'test', 'model_name': 'model-b'}},
+            }
+        },
+        source_team='default',
+    )
+
+    assert manager.get_active_team() == DEFAULT_TEAM_NAME
+    assert result['team_name'] == 'generated-team'
+    assert result['agent_count'] == 1
+    assert 'planner_agent' in manager.get_team_configs('generated-team')
+    assert 'orchestrator_agent' in manager.get_all_configs()
+
+
+def test_apply_team_payload_rejects_multiple_default_entries(tmp_path):
+    manager = AgentConfigManager(config_dir=str(tmp_path / 'agents'))
+
+    with pytest.raises(ValueError, match='default_entry=true 只能有一个'):
+        manager.apply_team_payload(
+            team_name='bad-team',
+            agents_payload={
+                'agent_a': {
+                    'enabled': True,
+                    'default_entry': True,
+                    'llm_tiers': {'default': {'provider': 'test', 'model_name': 'model-a'}},
+                },
+                'agent_b': {
+                    'enabled': True,
+                    'default_entry': True,
+                    'llm_tiers': {'default': {'provider': 'test', 'model_name': 'model-b'}},
+                },
+            },
+        )

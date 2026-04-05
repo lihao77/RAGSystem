@@ -1,7 +1,6 @@
 """Hook configuration loader.
 
-Loads hook definitions from YAML configuration files.
-Handles system-level and agent-level configuration merging.
+Loads hook definitions from system config and merges agent-level overrides.
 """
 
 import logging
@@ -10,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from config import get_config
 from hooks.models import (
     HookBackendDefinition,
     HookDefinition,
@@ -32,67 +32,140 @@ _DECISION_EVENTS = {
 
 _WORKSPACE_TRUST_VALUES = {"trusted", "untrusted"}
 
+_DEFAULT_HOOK_DEFAULTS: Dict[str, Any] = {
+    "enabled": True,
+    "timeout_ms": 1000,
+    "fail_mode": "closed_for_decision_open_for_observation",
+    "broadcast": True,
+}
+
+_DEFAULT_SYSTEM_HOOKS: List[Dict[str, Any]] = [
+    {
+        "id": "tool-risk-audit",
+        "name": "High-Risk Tool Audit",
+        "description": "Audit all high-risk tool executions for security and compliance",
+        "enabled": True,
+        "source": "system",
+        "priority": 100,
+        "events": ["tool.after_execute"],
+        "matcher": {
+            "tool_names": ["execute_bash", "write_memory", "edit_file", "write_file"],
+            "callers": ["direct"],
+        },
+        "backend": {
+            "type": "function",
+            "target": "hooks.builtin.tool_hooks:handle_risk_audit",
+        },
+    },
+    {
+        "id": "approval-ui-enhancement",
+        "name": "Approval UI Enhancement",
+        "description": "Enhance approval prompts with additional context and warnings",
+        "enabled": True,
+        "source": "system",
+        "priority": 200,
+        "events": ["approval.required"],
+        "matcher": {
+            "risk_levels": ["high", "critical"],
+        },
+        "backend": {
+            "type": "function",
+            "target": "hooks.builtin.tool_hooks:handle_high_risk_approval_enhancement",
+        },
+    },
+    {
+        "id": "bash-command-validation",
+        "name": "Bash Command Validation",
+        "description": "Validate bash commands for dangerous patterns",
+        "enabled": True,
+        "source": "system",
+        "priority": 300,
+        "events": ["tool.before_permission"],
+        "matcher": {
+            "tool_names": ["execute_bash"],
+        },
+        "backend": {
+            "type": "function",
+            "target": "hooks.builtin.tool_hooks:handle_bash_command_validation",
+        },
+        "fail_open": False,
+    },
+    {
+        "id": "memory-write-guard",
+        "name": "Memory Write Guard",
+        "description": "Add context about memory write operations",
+        "enabled": True,
+        "source": "system",
+        "priority": 150,
+        "events": ["tool.before_execute"],
+        "matcher": {
+            "tool_names": ["write_memory"],
+        },
+        "backend": {
+            "type": "function",
+            "target": "hooks.builtin.tool_hooks:handle_memory_write_guard",
+        },
+    },
+]
+
 
 class HookConfigLoader:
-    """Loads and validates hook configurations from YAML files."""
+    """Loads and validates hook configurations from system config."""
 
-    def __init__(self, config_dir: Path):
-        """Initialize the config loader.
-
-        Args:
-            config_dir: Directory containing hooks.yaml
-        """
+    def __init__(self, config_dir: Path | None = None):
         self.config_dir = config_dir
-        self.hooks_file = config_dir / "hooks.yaml"
         self.workspace_trust_config = WorkspaceTrustConfig()
 
-    def load_system_hooks(self) -> List[HookDefinition]:
-        """Load system-level hook definitions.
-
-        Returns:
-            List of HookDefinition objects
-        """
-        if not self.hooks_file.exists():
-            logger.warning(f"Hooks config file not found: {self.hooks_file}")
-            self.workspace_trust_config = WorkspaceTrustConfig()
-            return []
-
+    def _load_system_config(self) -> Dict[str, Any]:
+        if self.config_dir is not None:
+            config_file = self.config_dir / "config.yaml"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        raw = yaml.safe_load(f) or {}
+                    return raw.get("hooks", {}) or {}
+                except Exception as e:
+                    logger.error(f"Failed to load hook config from {config_file}: {e}", exc_info=True)
+                    return {}
         try:
-            with open(self.hooks_file, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+            config = get_config()
+            hooks_config = getattr(config, "hooks", None)
+            if hooks_config is None:
+                return {}
+            if hasattr(hooks_config, "model_dump"):
+                return hooks_config.model_dump()
+            return dict(hooks_config)
+        except Exception as e:
+            logger.error(f"Failed to load hook config from app config: {e}", exc_info=True)
+            return {}
 
-            if not config:
-                self.workspace_trust_config = WorkspaceTrustConfig()
-                return []
-
+    def load_system_hooks(self) -> List[HookDefinition]:
+        """Load system-level hook definitions."""
+        config = self._load_system_config()
+        enabled = config.get("enabled", True)
+        if not enabled:
             self.workspace_trust_config = self._parse_workspace_trust_config(
                 config.get("workspace_trust", {})
             )
-
-            # Get defaults
-            defaults = config.get("defaults", {})
-
-            # Parse hooks
-            hooks_config = config.get("hooks", [])
-            hooks = []
-
-            for hook_config in hooks_config:
-                try:
-                    hook = self._parse_hook_definition(hook_config, defaults)
-                    hooks.append(hook)
-                except Exception as e:
-                    logger.error(
-                        f"Failed to parse hook {hook_config.get('id', 'unknown')}: {e}"
-                    )
-                    continue
-
-            logger.info(f"Loaded {len(hooks)} system hooks from {self.hooks_file}")
-            return hooks
-
-        except Exception as e:
-            logger.error(f"Failed to load hooks config: {e}", exc_info=True)
-            self.workspace_trust_config = WorkspaceTrustConfig()
+            logger.info("Hook system disabled by system config")
             return []
+
+        self.workspace_trust_config = self._parse_workspace_trust_config(
+            config.get("workspace_trust", {})
+        )
+        hooks: List[HookDefinition] = []
+        for hook_config in _DEFAULT_SYSTEM_HOOKS:
+            try:
+                hook = self._parse_hook_definition(hook_config, _DEFAULT_HOOK_DEFAULTS)
+                hooks.append(hook)
+            except Exception as e:
+                logger.error(
+                    f"Failed to build default hook {hook_config.get('id', 'unknown')}: {e}"
+                )
+                continue
+
+        logger.info("Loaded %d system hooks from app config", len(hooks))
+        return hooks
 
     def _parse_hook_definition(
         self, config: Dict[str, Any], defaults: Dict[str, Any]
@@ -221,8 +294,8 @@ class HookConfigLoader:
 
         rules: list[WorkspaceTrustRule] = []
         for rule in config.get("rules", []):
-            matcher = rule.get("matcher", {})
-            workspace_root_prefix = matcher.get("workspace_root_prefix")
+            matcher = rule.get("matcher", {}) if isinstance(rule, dict) else {}
+            workspace_root_prefix = rule.get("workspace_root_prefix") or matcher.get("workspace_root_prefix")
             trust = rule.get("trust")
             if not workspace_root_prefix:
                 raise ValueError("workspace_trust rule missing matcher.workspace_root_prefix")
@@ -277,31 +350,16 @@ class HookConfigLoader:
 
 
 def load_hooks_config(config_dir: Optional[Path] = None) -> List[HookDefinition]:
-    """Load hook configurations from the default location.
-
-    Args:
-        config_dir: Optional config directory path
-
-    Returns:
-        List of HookDefinition objects
-    """
-    if config_dir is None:
-        # Default to config/yaml directory
-        from pathlib import Path
-
-        config_dir = Path(__file__).parent.parent / "config" / "yaml"
-
+    """Load hook configurations from system config."""
     loader = HookConfigLoader(config_dir)
     return loader.load_system_hooks()
 
 
-_DEFAULT_CONFIG_DIR = Path(__file__).parent.parent / "config" / "yaml"
+_DEFAULT_CONFIG_DIR: Path | None = None
 
 
 def resolve_workspace_trust(workspace_root: Optional[str], config_dir: Optional[Path] = None) -> str:
     """Resolve workspace trust from configured prefix rules."""
-    if config_dir is None:
-        config_dir = _DEFAULT_CONFIG_DIR
-    loader = HookConfigLoader(config_dir)
+    loader = HookConfigLoader(config_dir or _DEFAULT_CONFIG_DIR)
     loader.load_system_hooks()
     return loader.resolve_workspace_trust(workspace_root)

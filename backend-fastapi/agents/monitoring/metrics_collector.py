@@ -47,7 +47,7 @@ class MetricsCollector:
 
         Args:
             event_bus: 事件总线实例（可选，用于自动订阅）
-            storage_path: 持久化文件路径（可选，默认 backend/data/agent_metrics.json）
+            storage_path: 持久化文件路径（可选，默认 {DATA_ROOT}/monitoring/agent_metrics.json）
             persist_interval_seconds: 写盘间隔秒数，避免过于频繁 IO
         """
         self.metrics: Dict[str, AgentMetrics] = {}

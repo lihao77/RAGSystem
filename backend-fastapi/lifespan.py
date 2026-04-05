@@ -49,6 +49,12 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('数据目录初始化失败: %s', e)
 
+    # ── 第零·二步：探测旧版仓库内 data 目录 ─────────────────────────────
+    try:
+        _warn_legacy_repo_data_dir()
+    except Exception as e:
+        logger.warning('旧数据目录探测失败: %s', e)
+
     # ── 第零·五步：迁移配置文件到 CONFIG_ROOT ──────────────────────────
     try:
         _migrate_configs()
@@ -185,44 +191,91 @@ async def _shutdown(app: FastAPI) -> None:
             logger.warning('扩展 %s.on_shutdown 失败: %s', ext.name, e)
 
 
-def _migrate_configs() -> None:
-    """
-    将旧版配置文件（源码目录内）迁移到 CONFIG_ROOT。
-    仅当目标不存在时执行拷贝，已存在则跳过（不覆盖用户修改）。
-
-    迁移映射：
-      agents/configs/agent_configs.yaml    → CONFIG_ROOT/agents/agent_configs.yaml
-      mcp/configs/mcp_servers.yaml         → CONFIG_ROOT/mcp/mcp_servers.yaml
-      model_adapter/configs/providers.yaml → CONFIG_ROOT/model_adapter/providers.yaml
-      config/yaml/config.yaml              → CONFIG_ROOT/app/config.yaml
-    """
+def _seed_runtime_configs() -> None:
+    """将源码目录中的示例/seed 配置初始化到 CONFIG_ROOT。"""
     import shutil
-    from pathlib import Path
     from core.path_resolution import CONFIG_ROOT, BACKEND_ROOT
 
     migrations = [
         (
-            BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml",
+            [
+                BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml",
+                BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml.example",
+            ],
             CONFIG_ROOT / "agents" / "agent_configs.yaml",
+            None,
         ),
         (
-            BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml",
+            [
+                BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml",
+                BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml.example",
+            ],
             CONFIG_ROOT / "mcp" / "mcp_servers.yaml",
+            None,
         ),
         (
-            BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml",
+            [
+                BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml",
+                BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml.example",
+            ],
             CONFIG_ROOT / "model_adapter" / "providers.yaml",
+            None,
         ),
         (
-            BACKEND_ROOT / "config" / "yaml" / "config.yaml",
+            [
+                BACKEND_ROOT / "config" / "yaml" / "config.yaml",
+                BACKEND_ROOT / "config" / "yaml" / "config.yaml.example",
+            ],
             CONFIG_ROOT / "app" / "config.yaml",
+            None,
         ),
     ]
 
-    for src, dst in migrations:
+    for sources, dst, inline_default in migrations:
         dst.parent.mkdir(parents=True, exist_ok=True)
         if dst.exists():
-            continue  # 目标已存在，跳过（不覆盖）
-        if src.exists():
-            shutil.copy2(src, dst)
-            logger.info('配置文件已迁移: %s → %s', src.name, dst)
+            continue
+        copied = False
+        for src in sources:
+            if src.exists():
+                shutil.copy2(src, dst)
+                logger.info('配置文件已迁移: %s → %s', src.name, dst)
+                copied = True
+                break
+        if not copied and inline_default is not None:
+            dst.write_text(inline_default, encoding='utf-8')
+            logger.info('配置文件已初始化: %s', dst)
+
+
+def _migrate_configs() -> None:
+    """
+    将源码目录中的示例/seed 配置初始化到 CONFIG_ROOT。
+    仅当目标不存在时执行拷贝，已存在则跳过（不覆盖用户修改）。
+    """
+    _seed_runtime_configs()
+
+
+def _warn_legacy_repo_data_dir() -> None:
+    """检测仓库内旧 data 目录并给出迁移提示。"""
+    from core.path_resolution import BACKEND_ROOT, DATA_ROOT
+
+    legacy_data_root = BACKEND_ROOT / 'data'
+    current_data_root = DATA_ROOT.resolve()
+    if legacy_data_root.resolve() == current_data_root:
+        return
+    if not legacy_data_root.exists():
+        return
+    try:
+        has_legacy_content = any(legacy_data_root.iterdir())
+    except OSError:
+        return
+    if not has_legacy_content:
+        return
+
+    logger.warning(
+        '检测到旧版仓库内数据目录仍存在: %s；当前默认数据根为: %s。'
+        ' 配置文件会迁移到新的 config 根，但 db/memory/uploads/sessions/monitoring 不会自动迁移。'
+        ' 如需沿用旧数据，请手动迁移或显式设置 RAG_DATA_ROOT。',
+        legacy_data_root,
+        current_data_root,
+    )

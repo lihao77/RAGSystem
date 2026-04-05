@@ -244,6 +244,30 @@ def test_runtime_execution_orchestrator_applies_session_entry_agent_override(mon
     run_manager.shutdown()
 
 
+def test_runtime_build_context_exposes_session_team():
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-team': {
+                'session_id': 'session-team',
+                'metadata': {'team': 'generated-team'},
+            },
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: SimpleNamespace(),
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    context = runtime.build_context(session_id='session-team', user_id='u1', thread_key='root')
+
+    assert context.metadata['team'] == 'generated-team'
+    run_manager.shutdown()
+
+
 def test_runtime_build_context_exposes_session_entry_agent():
     run_manager = RunEventBusManager(cleanup_interval=3600)
     runtime = _build_runtime(

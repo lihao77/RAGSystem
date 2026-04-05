@@ -54,19 +54,21 @@ tools/
 
 | 目录桶 | 物理路径 | 主要内容 | 主要写入入口 | 说明 |
 |---|---|---|---|---|
-| `sandbox` | `./data/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/local/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里 |
-| `transient` | `./data/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `tools.local.document_tools.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付 |
-| `workspace` | 默认 `./data/sessions/<session_id>/workspace/`；若 session.metadata.workspace_root 已配置，则指向该外部绝对目录 | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 仅 workspace 工具语义可切到会话级外部目录；uploads 等其他桶不受影响 |
-| `exports` | `./data/sessions/<session_id>/exports/<run_id>/` 或 `./data/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
-| `visualizations` | `./data/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录；**不参与按时间的通用 artifact cleanup，仅在删除 session 时清理** |
-| `uploads` | `./data/uploads/` | 全局上传文件 | `api/v1/files.py` | 全局文件池，服务知识库/向量库管理页 |
-| `session_uploads` | `./data/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
-| `monitoring/session_traces` | `./data/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
-| `db` | `./data/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
-| `anonymous fallback` | `./data/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
+| `sandbox` | 默认 `~/.ragsystem/sessions/<session_id>/sandbox/` | `execute_code` 内部代码写入文件 | `tools/local/code_sandbox.py` | 沙箱专用写入区；代码执行相对写路径默认落这里；对外 display path 仍展示为 `./data/...` |
+| `transient` | 默认 `~/.ragsystem/sessions/<session_id>/transient/` | 临时中间数据、observation 大结果物化文件 | `tools.local.document_tools.write_file`（默认输出）、`ArtifactStore.save_text/save_json` | 属于临时文件区，不等于最终交付；对外 display path 仍展示为 `./data/...` |
+| `workspace` | 默认 `~/.ragsystem/sessions/<session_id>/workspace/`；若 session.metadata.workspace_root 已配置，则指向该外部绝对目录 | 更稳定的工作文件 | `write_file` + `default_output_space=workspace` | 仅 workspace 工具语义可切到会话级外部目录；uploads 等其他桶不受影响 |
+| `exports` | 默认 `~/.ragsystem/sessions/<session_id>/exports/<run_id>/` 或 `~/.ragsystem/sessions/<session_id>/exports/` | 明确导出/交付文件 | `write_file` + `default_output_space=exports` | 面向下载或最终交付 |
+| `visualizations` | 默认 `~/.ragsystem/sessions/<session_id>/visualizations/` | 图表、地图、fallback PNG、viz 索引 | `VisualizationArtifactManager`、`visualization_fallback.py` | 可视化专用桶，artifact 主目录；**不参与按时间的通用 artifact cleanup，仅在删除 session 时清理** |
+| `uploads` | 默认 `~/.ragsystem/uploads/` | 全局上传文件 | `api/v1/files.py` | 全局文件池，服务知识库/向量库管理页 |
+| `session_uploads` | 默认 `~/.ragsystem/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
+| `monitoring/session_traces` | 默认 `~/.ragsystem/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
+| `db` | 默认 `~/.ragsystem/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
+| `anonymous fallback` | 逻辑 display path 仍为 `./data/sessions/anonymous/...`，物理默认位于 `~/.ragsystem/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
 ### 统一原则（v3）
 
+- 默认物理数据根已调整为用户主目录下的 `~/.ragsystem`；若显式设置 `RAG_DATA_ROOT`，则以该环境变量为准
+- 对外展示路径与链式调用中的 display path 仍统一使用 `./data/...` 逻辑别名，不直接暴露真实物理目录
 - **除 MCP 外，所有可执行能力统一走 `@tool()`**
 - 当前真实结构只保留 `contracts / runtime / local / refs / artifacts / paths / catalog`
 - `tools/` 根目录不再保留兼容 facade；稳定入口仅剩 `tools.bootstrap` 与 `tools.tool_executor`
@@ -131,7 +133,8 @@ def my_tool(arguments, **kwargs):
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
 - 应急工具 → `agents/skills/emergency-decision-support/` Skill：query_emergency_plan, assess_flood_risk, match_emergency_response, create_risk_map 等
-- Skill 脚本通过 `execute_skill_script` 调用，输出 artifact 协议格式时系统自动完成可视化持久化
+- team 配置生成 → `agents/skills/team-generation/` Skill：输出 `team` 协议，由 `execute_skill_script` 自动桥接到 `AgentConfigManager.apply_team_payload()`
+- Skill 脚本通过 `execute_skill_script` 调用，输出 artifact 协议格式时系统自动完成可视化持久化；输出 team 协议格式时系统自动完成 team 配置持久化
 
 
 ### 统一运行时收敛（P1-P4）
@@ -146,6 +149,11 @@ def my_tool(arguments, **kwargs):
 - `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_preview / raw_result / raw_result_ref / approval_message` 工作
 
 这意味着 direct / skill / MCP 工具虽然实现来源不同，但运行时都尽量复用同一条 context / permission / result 主链，避免再次分叉出第二套 runtime。
+
+其中 `tools/local/skill_tools.py` 当前支持两类 Skill 输出桥接协议：
+- `artifact` block：自动持久化可视化 artifact，并把 `artifact_id` 回注到工具结果
+- `team` block：自动调用 `AgentConfigManager.apply_team_payload()` 持久化 team 配置，不切换全局 `active_team`
+- 对 `team-generation/generate_team.py`，推荐传入 `team_goal + roles`，脚本会自动生成完整 AgentConfig 基本骨架，包括 `display_name`、`description`、`default_entry` 与 `custom_params.behavior.system_prompt`
 
 
 > 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 的专属操作说明；入口 orchestrator 的 YAML `system_prompt` 只保留业务路由信息，避免重复覆盖通用协议规则。
@@ -212,11 +220,11 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `execute_bash` 支持 XML 写法 `<working_dir space="workspace|transient|exports">relative/dir</working_dir>`
 - XML 解析层会将其分别扁平化为 `file_path + file_path_space`、`working_dir + working_dir_space`
 - `tools.local.document_tools._prepare_document_tool_args()` / `local.bash_tool._resolve_work_dir()` 在消费完 `file_path_space` / `working_dir_space` 后，不再继续透传到底层 I/O 逻辑
-- `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → `./data/sessions/<session_id>/transient/`，`exports` → `./data/sessions/<session_id>/exports/<run_id>/`（缺 `run_id` 报错）
+- `space` 仅影响相对 path / dir 的解析根：`workspace` → 当前 effective workspace，`transient` → 默认物理目录 `~/.ragsystem/sessions/<session_id>/transient/`（display path 仍为 `./data/sessions/<session_id>/transient/`），`exports` → 默认物理目录 `~/.ragsystem/sessions/<session_id>/exports/<run_id>/`（display path 仍为 `./data/sessions/<session_id>/exports/<run_id>/`；缺 `run_id` 报错）
 - document 工具中的 `run_id` 由工具函数优先使用显式参数，缺失时 fallback 到 `get_current_execution_observability_fields().run_id`
 - 绝对路径不会被 `space` 改写，仍只做受管边界校验
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析
-- `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到 `./data/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `./data/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `./data/sessions/<session_id>/transient/`
+- `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到默认物理目录 `~/.ragsystem/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `~/.ragsystem/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `~/.ragsystem/sessions/<session_id>/transient/`；对外 display path 仍统一展示为 `./data/...`
 - `caller=direct` 的 direct 文件工具仍通过 `path_resolution.resolve_managed_path(...)` 解析文件路径；`execute_bash` 在工具内部通过 `path_resolution.resolve_managed_directory(...)` 解析工作目录
 - `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
@@ -498,12 +506,12 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 方式二：直接调用 VisualizationArtifactManager（内部基础设施）
   → VisualizationArtifactManager.create_chart/create_map()
   → 生成 artifact_id (viz_xxx)
-  → 持久化到 ./data/sessions/<session_id>/visualizations/viz_*.json
+  → 持久化到默认物理目录 `~/.ragsystem/sessions/<session_id>/visualizations/viz_*.json`（display path 仍为 `./data/sessions/<session_id>/visualizations/viz_*.json`）
 
 清理策略：
 - observation / transient artifact：仍由 `ConversationStore._cleanup_temp_data_files()` 走通用 artifact cleanup，默认清理 1 天前的临时大结果文件
 - visualization artifact：不参与按时间清理；仅在显式删除 session 时，由 `AgentSessionApplication.delete_session()` 清理整个 session 文件树时一起删除
-  → 索引文件位于 ./data/sessions/<session_id>/visualizations/viz_index.jsonl
+  → 索引文件位于默认物理目录 `~/.ragsystem/sessions/<session_id>/visualizations/viz_index.jsonl`（display path 仍为 `./data/sessions/<session_id>/visualizations/viz_index.jsonl`）
 ```
 
 ### Artifact 协议格式

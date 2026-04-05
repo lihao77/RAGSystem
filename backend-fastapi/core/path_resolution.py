@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 # ── 全局数据根目录 ──────────────────────────────────────────────
 BACKEND_ROOT = Path(__file__).resolve().parent.parent  # core/ 的上一级即 backend-fastapi/
-DATA_ROOT: Path = Path(os.environ.get("RAG_DATA_ROOT", str(BACKEND_ROOT / "data")))
+_DEFAULT_DATA_ROOT = Path.home() / ".ragsystem"
+DATA_ROOT: Path = Path(os.environ.get("RAG_DATA_ROOT", str(_DEFAULT_DATA_ROOT)))
 
 # ── 一级目录常量 ────────────────────────────────────────────────
 DB_ROOT: Path = DATA_ROOT / "db"

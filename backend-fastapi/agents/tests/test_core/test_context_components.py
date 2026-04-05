@@ -168,7 +168,7 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
             scope='session',
             memory_type='preference',
             file_name='preference_用户偏好-最少代码.md',
-            file_path='E:/Python/RAGSystem/backend-fastapi/data/memory/projects/backend-fastapi/sessions/s1/preference_用户偏好-最少代码.md',
+            file_path='E:/Python/RAGSystem/.ragsystem/memory/projects/backend-fastapi/sessions/s1/preference_用户偏好-最少代码.md',
         )
     ]
     import services.agent_api_runtime_service as runtime_module

@@ -211,7 +211,7 @@ if __name__ == '__main__':
         '--db-path',
         type=str,
         default=None,
-        help='数据库文件路径（默认: backend/data/ragsystem.db）'
+        help='数据库文件路径（默认: DATA_ROOT/db/ragsystem.db）'
     )
     parser.add_argument(
         '--backup-dir',

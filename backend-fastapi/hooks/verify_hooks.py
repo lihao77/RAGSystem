@@ -16,6 +16,7 @@ from pathlib import Path
 # Add backend-fastapi to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.path_resolution import CONFIG_ROOT
 from hooks.registry import get_hook_registry, reset_hook_registry
 from hooks.config_loader import load_hooks_config
 from hooks.models import HookContext, HookResult
@@ -92,8 +93,7 @@ def verify_config_loading():
     print_header("2. 验证配置加载")
 
     try:
-        config_dir = Path(__file__).parent.parent / "config" / "yaml"
-        hooks = load_hooks_config(config_dir)
+        hooks = load_hooks_config()
 
         if not hooks:
             print_warning("未加载到任何 Hook 配置")
@@ -142,8 +142,7 @@ def verify_registry():
         registry = get_hook_registry()
 
         # Load and register hooks
-        config_dir = Path(__file__).parent.parent / "config" / "yaml"
-        hooks = load_hooks_config(config_dir)
+        hooks = load_hooks_config()
 
         for hook in hooks:
             registry.register(hook)

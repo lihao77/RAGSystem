@@ -4,7 +4,7 @@
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Dict, Optional
+from typing import Dict, Optional, Literal
 
 
 class LLMConfig(BaseModel):
@@ -80,6 +80,30 @@ class VectorStoreConfig(BaseModel):
     postgresql: PostgreSQLVectorConfig = Field(default_factory=PostgreSQLVectorConfig)
 
 
+class HooksWorkspaceTrustRuleConfig(BaseModel):
+    """Hook 工作区信任规则"""
+    model_config = ConfigDict(extra='allow')
+
+    workspace_root_prefix: str = ""
+    trust: Literal['trusted', 'untrusted'] = 'trusted'
+
+
+class HooksWorkspaceTrustConfig(BaseModel):
+    """Hook 工作区信任配置"""
+    model_config = ConfigDict(extra='allow')
+
+    default: Literal['trusted', 'untrusted'] = 'trusted'
+    rules: list[HooksWorkspaceTrustRuleConfig] = Field(default_factory=list)
+
+
+class HooksConfig(BaseModel):
+    """Hook 系统配置"""
+    model_config = ConfigDict(extra='allow')
+
+    enabled: bool = True
+    workspace_trust: HooksWorkspaceTrustConfig = Field(default_factory=HooksWorkspaceTrustConfig)
+
+
 class AppConfig(BaseModel):
     """主配置模型"""
     model_config = ConfigDict(
@@ -92,3 +116,4 @@ class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)

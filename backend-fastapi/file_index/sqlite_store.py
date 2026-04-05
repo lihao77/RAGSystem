@@ -36,7 +36,7 @@ class FileIndexSQLite:
 
         Args:
             db_path: 数据库文件路径
-                    默认使用统一的数据库: backend/data/ragsystem.db
+                    默认使用统一的数据库: DATA_ROOT/db/ragsystem.db
                     这样可以与向量数据库共享连接，便于跨表查询
         """
         if db_path is None:

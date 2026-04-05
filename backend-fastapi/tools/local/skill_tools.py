@@ -12,6 +12,49 @@ from tools.contracts.permissions import RiskLevel
 logger = logging.getLogger(__name__)
 
 
+def _handle_team(team_block):
+    """处理脚本输出中的 team 字段，自动完成 team 配置持久化。"""
+    from agents.config import get_config_manager
+
+    if not isinstance(team_block, dict):
+        return None, "team 字段必须是对象"
+
+    action = (team_block.get("action") or "create_or_replace").strip()
+    if action != "create_or_replace":
+        return None, f"不支持的 team action: {action}"
+
+    team_name = team_block.get("team_name")
+    if not isinstance(team_name, str) or not team_name.strip():
+        return None, "team.team_name 不能为空"
+
+    agents_payload = team_block.get("agents")
+    if not isinstance(agents_payload, dict) or not agents_payload:
+        return None, "team.agents 必须是非空对象"
+
+    source_team = team_block.get("source_team")
+    if source_team is not None:
+        if not isinstance(source_team, str) or not source_team.strip():
+            return None, "team.source_team 必须是非空字符串"
+        source_team = source_team.strip()
+
+    try:
+        result = get_config_manager().apply_team_payload(
+            team_name=team_name,
+            agents_payload=agents_payload,
+            source_team=source_team,
+        )
+        return {
+            "action": action,
+            "team_name": result["team_name"],
+            "source_team": result.get("source_team"),
+            "agent_count": result["agent_count"],
+            "agents": result["agents"],
+            "applied": True,
+        }, None
+    except Exception as e:
+        return None, f"应用 team 失败: {e}"
+
+
 def _handle_artifact(artifact_block, session_id):
     """
     处理脚本输出中的 artifact 字段，自动完成可视化持久化。
@@ -467,14 +510,23 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
             parsed_stdout = _parse_json_stdout(stdout)
 
         if parsed_stdout is not None:
-            # 检测 artifact 协议：脚本输出含 artifact 字段时自动持久化
             raw_artifact = None
-            if isinstance(parsed_stdout, dict) and "artifact" in parsed_stdout:
-                raw_artifact = parsed_stdout.pop("artifact")
+            raw_team = None
+            if isinstance(parsed_stdout, dict):
+                if "artifact" in parsed_stdout:
+                    raw_artifact = parsed_stdout.pop("artifact")
+                if "team" in parsed_stdout:
+                    raw_team = parsed_stdout.pop("team")
 
             parsed_stdout, payload_error, payload_meta = _unwrap_script_response(parsed_stdout)
             if payload_error:
                 return error_result(payload_error, tool_name="execute_skill_script")
+
+            if isinstance(parsed_stdout, dict):
+                if raw_artifact is None and "artifact" in parsed_stdout:
+                    raw_artifact = parsed_stdout.pop("artifact")
+                if raw_team is None and "team" in parsed_stdout:
+                    raw_team = parsed_stdout.pop("team")
 
             meta["script_name"] = script_name
             meta["skill"] = skill_name
@@ -482,7 +534,6 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
             if stderr.strip():
                 meta["stderr"] = stderr
 
-            # artifact 协议桥接
             llm_hint = None
             output_type = "json"
             if raw_artifact is not None:
@@ -491,7 +542,6 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
                     logger.warning(f"artifact 持久化失败: {artifact_err}")
                     meta["artifact_error"] = artifact_err
                 elif artifact_info:
-                    # 将 artifact_id 注入到返回内容中
                     if isinstance(parsed_stdout, dict):
                         parsed_stdout["artifact_id"] = artifact_info["artifact_id"]
                         parsed_stdout["viz_type"] = artifact_info["viz_type"]
@@ -504,6 +554,23 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
                     meta["artifact_id"] = artifact_info["artifact_id"]
                     output_type = artifact_info["viz_type"]
                     llm_hint = f"在 <final_answer> 中插入 [viz:{artifact_info['artifact_id']}] 来展示此可视化"
+
+            if raw_team is not None:
+                team_info, team_err = _handle_team(raw_team)
+                if team_err:
+                    logger.warning(f"team 持久化失败: {team_err}")
+                    meta["team_error"] = team_err
+                elif team_info:
+                    if isinstance(parsed_stdout, dict):
+                        parsed_stdout.update(team_info)
+                    else:
+                        parsed_stdout = {
+                            "data": parsed_stdout,
+                            **team_info,
+                        }
+                    meta["team_name"] = team_info["team_name"]
+                    meta["team_action"] = team_info["action"]
+                    meta["team_applied"] = True
 
             return success_result(
                 content=parsed_stdout,

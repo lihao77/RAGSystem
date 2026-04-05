@@ -59,6 +59,12 @@ def _slugify_team_name(team_name: str) -> str:
     return normalized or DEFAULT_TEAM_NAME
 
 
+def _dump_agent_config(config: AgentConfig) -> Dict[str, Any]:
+    if hasattr(config, 'model_dump'):
+        return config.model_dump()
+    return config.dict()
+
+
 class AgentConfigManager:
     """
     智能体配置管理器
@@ -325,7 +331,7 @@ class AgentConfigManager:
             data = self._build_empty_team_payload()
             data['metadata']['updated_at'] = datetime.now().isoformat()
             for agent_name, config in self._configs.items():
-                data['agents'][agent_name] = config.model_dump()
+                data['agents'][agent_name] = _dump_agent_config(config)
             self._write_team_payload(self._active_team, data)
             logger.info('team=%s 配置已保存', self._active_team)
         except Exception as e:
@@ -366,7 +372,7 @@ class AgentConfigManager:
             normalized_team_name,
             {
                 'agents': {
-                    agent_name: copy.deepcopy(config).model_dump()
+                    agent_name: copy.deepcopy(_dump_agent_config(config))
                     for agent_name, config in source_configs.items()
                 },
             },
@@ -426,7 +432,7 @@ class AgentConfigManager:
             config = source_configs.get(agent_name)
             if config is None:
                 raise ValueError(f"源 team 中不存在智能体 '{agent_name}'")
-            target_configs[agent_name] = AgentConfig(**copy.deepcopy(config.model_dump()))
+            target_configs[agent_name] = AgentConfig(**copy.deepcopy(_dump_agent_config(config)))
 
         original_active_team = self._active_team
         original_configs = self._configs.copy()
@@ -437,6 +443,57 @@ class AgentConfigManager:
         finally:
             self._active_team = original_active_team
             self._configs = original_configs
+
+    def apply_team_payload(
+        self,
+        team_name: str,
+        agents_payload: Dict[str, Any],
+        source_team: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_team_name = (team_name or '').strip()
+        if not normalized_team_name:
+            raise ValueError('team_name 不能为空')
+        if not isinstance(agents_payload, dict) or not agents_payload:
+            raise ValueError('agents_payload 必须是非空对象')
+        if source_team is not None and source_team not in self._team_files:
+            raise ValueError(f"source team '{source_team}' 不存在")
+
+        if normalized_team_name not in self._team_files:
+            self.create_team(normalized_team_name, source_team=source_team)
+
+        normalized_configs: Dict[str, AgentConfig] = {}
+        default_entries = []
+        for agent_name, config_payload in agents_payload.items():
+            if not isinstance(config_payload, dict):
+                raise ValueError(f"智能体 '{agent_name}' 的配置必须是对象")
+            config_data = copy.deepcopy(config_payload)
+            config_data.setdefault('agent_name', agent_name)
+            config = AgentConfig(**config_data)
+            if config.agent_name != agent_name:
+                raise ValueError(f"智能体键名 '{agent_name}' 与配置中的 agent_name '{config.agent_name}' 不一致")
+            if getattr(config, 'default_entry', False):
+                default_entries.append(agent_name)
+            normalized_configs[agent_name] = config
+
+        if len(default_entries) > 1:
+            raise ValueError(f'default_entry=true 只能有一个，当前: {default_entries}')
+
+        payload = {
+            'agents': {
+                agent_name: _dump_agent_config(config)
+                for agent_name, config in normalized_configs.items()
+            },
+        }
+        self._write_team_payload(normalized_team_name, payload)
+        if normalized_team_name == self._active_team:
+            self._configs = normalized_configs
+
+        return {
+            'team_name': normalized_team_name,
+            'agent_count': len(normalized_configs),
+            'agents': sorted(normalized_configs.keys()),
+            'source_team': source_team,
+        }
 
     def get_team_summary(self) -> Dict[str, Any]:
         items = []
@@ -540,7 +597,7 @@ class AgentConfigManager:
         config = self.get_config(agent_name)
         if config is None:
             return None
-        data = config.model_dump()
+        data = _dump_agent_config(config)
         return _render_config_text(data, format)
 
     def import_config(self, config_str: str, format: str = 'yaml', save: bool = True) -> AgentConfig:
@@ -555,7 +612,7 @@ class AgentConfigManager:
         if config is None:
             return False, f"智能体 '{agent_name}' 不存在"
         try:
-            AgentConfig(**config.model_dump())
+            AgentConfig(**_dump_agent_config(config))
             return True, None
         except Exception as e:
             return False, str(e)

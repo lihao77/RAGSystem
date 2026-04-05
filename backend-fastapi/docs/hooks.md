@@ -16,7 +16,7 @@
   - `approval.resolved / denied / error` 会把 hook 数据并入 `metadata["approval"]`
 - `before_execute.additional_context` 已落入 `ToolExecutionResult.metadata["hook_additional_context"]`，并在 observation 物化阶段以 `[Hook Context]` 前缀块进入模型主链
 - `after_execute.additional_context` 当前仍只保留在 metadata，不进入 observation 主链
-- `workspace_trust` 已从 `hooks.yaml` 顶层配置真实解析，并在 runtime / approval 两条主链统一注入 `HookContext.workspace_trust`
+- `workspace_trust` 已从系统配置 `CONFIG_ROOT/app/config.yaml` 中的 `hooks.workspace_trust` 真实解析，并在 runtime / approval 两条主链统一注入 `HookContext.workspace_trust`
   - 路径规则按“路径边界匹配”而不是纯字符串前缀匹配，避免 `E:/Python/RAGSystem2` 误命中 `E:/Python/RAGSystem`
   - trust resolver 每次按当前配置重新加载，避免模块级单例缓存导致配置陈旧
 - Hook 生命周期广播已覆盖：`hook.started`、`hook.progress`、`hook.response`、`hook.error`
@@ -102,47 +102,21 @@ hooks/
 
 ## Hook 定义
 
-### 配置文件格式
+### 系统配置格式
+
+Hook 不再使用独立 `hooks.yaml`；系统级 Hook 配置收敛到 `CONFIG_ROOT/app/config.yaml` 的 `hooks` 字段。
 
 ```yaml
-version: 1
-
-defaults:
-  enabled: true
-  timeout_ms: 1000
-  fail_mode: closed_for_decision_open_for_observation
-  broadcast: true
-
-workspace_trust:
-  default: trusted
-  rules:
-    - matcher:
-        workspace_root_prefix: "E:/Python/RAGSystem"
-      trust: trusted
-
 hooks:
-  - id: tool-risk-audit
-    name: "High-Risk Tool Audit"
-    description: "Audit all high-risk tool executions"
-    enabled: true
-    source: system
-    priority: 100
-    events:
-      - tool.before_permission
-      - tool.after_execute
-    matcher:
-      tool_names:
-        - execute_bash
-        - write_memory
-      callers:
-        - direct
-    backend:
-      type: function
-      target: "hooks.builtin.tool_hooks:handle_risk_audit"
-    ui:
-      title: "高风险工具审计"
-      description: "记录高风险工具的执行情况"
+  enabled: true
+  workspace_trust:
+    default: trusted
+    rules:
+      - workspace_root_prefix: "E:/Python/RAGSystem"
+        trust: trusted
 ```
+
+默认 HookDefinition 由代码内建，`config.yaml` 只负责少量系统级配置（如启用状态与 `workspace_trust`）。
 
 ### Matcher 字段
 
@@ -454,25 +428,9 @@ def my_custom_handler(context: HookContext, config: dict) -> HookResult:
 
 ### 注册 Hook
 
-在 `config/yaml/hooks.yaml` 中：
+系统级 HookDefinition 已内建在代码中；若需要调整系统级行为，请在 `CONFIG_ROOT/app/config.yaml` 的 `hooks` 字段中配置启用状态或 `workspace_trust`。
 
-```yaml
-hooks:
-  - id: my-custom-hook
-    name: "My Custom Hook"
-    description: "Custom hook for sensitive tools"
-    enabled: true
-    source: system
-    priority: 150
-    events:
-      - tool.before_execute
-    matcher:
-      tool_names:
-        - sensitive_tool
-    backend:
-      type: function
-      target: "hooks.builtin.custom_hooks:my_custom_handler"
-```
+如果需要新增一个真正的系统级 HookDefinition，应修改 Hook 默认定义代码，而不是再新增独立 `hooks.yaml`。
 
 ### 异步 Handler
 

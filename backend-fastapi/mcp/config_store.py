@@ -2,7 +2,7 @@
 """
 MCP Server 配置持久化
 
-读写 backend/mcp/configs/mcp_servers.yaml
+运行时读写 CONFIG_ROOT/mcp/mcp_servers.yaml
 """
 
 import logging

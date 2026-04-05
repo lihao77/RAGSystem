@@ -212,4 +212,78 @@ def test_execute_skill_script_bridges_artifact_protocol(monkeypatch):
     assert result.llm_hint == "在 <final_answer> 中插入 [viz:viz_test001] 来展示此可视化"
 
 
+def test_execute_skill_script_bridges_team_protocol(monkeypatch):
+    class StubSkill:
+        name = "team-generation"
 
+        def has_scripts(self):
+            return True
+
+        def execute_script(self, script_name, arguments=None, timeout=30):
+            assert script_name == "generate_team.py"
+            return {
+                "stdout": '{"success": true, "data": {"reason": "用于专项任务", "agents": [{"agent_name": "planner_agent", "display_name": "规划专家", "description": "负责阶段规划", "default_entry": true}]}, "team": {"action": "create_or_replace", "team_name": "generated-team", "source_team": "default", "agents": {"planner_agent": {"enabled": true, "display_name": "规划专家", "description": "负责阶段规划", "default_entry": true, "llm_tiers": {"default": {"provider": "test", "model_name": "model-a"}}, "custom_params": {"behavior": {"system_prompt": "你是规划专家。"}, "type": "orchestrator"}}}}}',
+                "stderr": "",
+                "return_code": 0,
+            }
+
+    class StubLoader:
+        def load_all_skills(self):
+            return [StubSkill()]
+
+    class FakeConfigManager:
+        def apply_team_payload(self, team_name, agents_payload, source_team=None):
+            assert team_name == 'generated-team'
+            assert source_team == 'default'
+            assert 'planner_agent' in agents_payload
+            return {
+                'team_name': 'generated-team',
+                'agent_count': 1,
+                'agents': ['planner_agent'],
+                'source_team': 'default',
+            }
+
+    monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
+    monkeypatch.setattr("agents.config.get_config_manager", lambda: FakeConfigManager())
+
+    result = execute_skill_script("team-generation", "generate_team.py", [])
+
+    assert isinstance(result, ToolExecutionResult)
+    assert result.success is True
+    assert result.content['team_name'] == 'generated-team'
+    assert result.content['agent_count'] == 1
+    assert result.content['applied'] is True
+    assert result.metadata['team_name'] == 'generated-team'
+    assert result.metadata['team_action'] == 'create_or_replace'
+    assert result.metadata['team_applied'] is True
+
+
+def test_execute_skill_script_records_team_bridge_error(monkeypatch):
+    class StubSkill:
+        name = "team-generation"
+
+        def has_scripts(self):
+            return True
+
+        def execute_script(self, script_name, arguments=None, timeout=30):
+            return {
+                "stdout": '{"success": true, "data": {"reason": "bad"}, "team": {"action": "create_or_replace", "team_name": "bad-team", "agents": {"planner_agent": {"enabled": true}}}}',
+                "stderr": "",
+                "return_code": 0,
+            }
+
+    class StubLoader:
+        def load_all_skills(self):
+            return [StubSkill()]
+
+    class FakeConfigManager:
+        def apply_team_payload(self, team_name, agents_payload, source_team=None):
+            raise ValueError('invalid team payload')
+
+    monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
+    monkeypatch.setattr("agents.config.get_config_manager", lambda: FakeConfigManager())
+
+    result = execute_skill_script("team-generation", "generate_team.py", [])
+
+    assert result.success is True
+    assert result.metadata['team_error'] == '应用 team 失败: invalid team payload'
