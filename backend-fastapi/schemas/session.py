@@ -40,6 +40,18 @@ def normalize_entry_agent(value: Any) -> Optional[str]:
     return normalized
 
 
+def normalize_team(value: Any) -> Optional[str]:
+    """规范化并校验 session.metadata.team。"""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('metadata.team 必须是字符串或 null')
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized
+
+
 def normalize_session_metadata(value: Any) -> Dict[str, Any]:
     """规范化 session metadata。"""
     if value is None:
@@ -52,6 +64,10 @@ def normalize_session_metadata(value: Any) -> Dict[str, Any]:
         metadata['workspace_root'] = normalize_workspace_root(metadata.get('workspace_root'))
     if 'entry_agent' in metadata:
         metadata['entry_agent'] = normalize_entry_agent(metadata.get('entry_agent'))
+    if 'team' in metadata:
+        metadata['team'] = normalize_team(metadata.get('team'))
+        if metadata['team'] is None:
+            metadata.pop('team', None)
     return metadata
 
 
@@ -61,7 +77,7 @@ class CreateSessionRequest(BaseModel):
     user_id: Optional[str] = Field(None, description='用户 ID（可选）')
     metadata: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
-        description='会话级元数据；支持 metadata.workspace_root 指定当前会话的 workspace 根目录（绝对路径），支持 metadata.entry_agent 指定当前会话的默认入口 Agent',
+        description='会话级元数据；支持 metadata.workspace_root 指定当前会话的 workspace 根目录（绝对路径），支持 metadata.entry_agent 指定当前会话的默认入口 Agent，支持 metadata.team 指定当前会话执行时临时使用的 team 配置视图',
     )
 
     if _PYDANTIC_V2:

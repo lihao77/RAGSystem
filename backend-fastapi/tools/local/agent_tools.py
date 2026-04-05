@@ -96,20 +96,16 @@ def call_agent(
 
     runtime = get_agent_api_runtime_service()
     effective_session_id = session_id or str(uuid.uuid4())
-    config_manager = runtime.get_config_manager()
     execution_service = runtime.get_agent_execution_service()
-    target_config = config_manager.get_config(agent_name)
-    if target_config is None:
-        return error_result(f"目标 Agent '{agent_name}' 不存在", tool_name="call_agent")
-    if not getattr(target_config, "enabled", True):
-        return error_result(f"目标 Agent '{agent_name}' 当前未启用", tool_name="call_agent")
-
-    child_agent_id = f"child_{uuid.uuid4()}"
-    resolved_thread_key = f"child:{child_agent_id}"
-
     orchestrator = runtime.create_execution_orchestrator(session_id=effective_session_id)
-    if getattr(orchestrator, "agents", {}).get(agent_name) is None:
+    target_config = getattr(orchestrator, 'agents', {}).get(agent_name)
+    if target_config is None:
         return error_result(f"目标 Agent '{agent_name}' 未成功加载", tool_name="call_agent")
+    target_agent_config = getattr(target_config, 'agent_config', None)
+    if target_agent_config is None:
+        return error_result(f"目标 Agent '{agent_name}' 配置缺失", tool_name="call_agent")
+    if not getattr(target_agent_config, "enabled", True):
+        return error_result(f"目标 Agent '{agent_name}' 当前未启用", tool_name="call_agent")
 
     agent_call_id = f"call_{uuid.uuid4()}"
     publisher = None
@@ -392,10 +388,13 @@ def send_message(
         return error_result(f"子 Agent '{child_agent_id}' 当前不可用", tool_name="send_message")
 
     agent_name = child_agent.get("agent_name")
-    config_manager = runtime.get_config_manager()
-    target_config = config_manager.get_config(agent_name)
+    orchestrator = runtime.create_execution_orchestrator(session_id=effective_session_id)
+    target_agent = getattr(orchestrator, "agents", {}).get(agent_name)
+    if target_agent is None:
+        return error_result(f"目标 Agent '{agent_name}' 未成功加载", tool_name="send_message")
+    target_config = getattr(target_agent, "agent_config", None)
     if target_config is None:
-        return error_result(f"目标 Agent '{agent_name}' 不存在", tool_name="send_message")
+        return error_result(f"目标 Agent '{agent_name}' 配置缺失", tool_name="send_message")
     if not getattr(target_config, "enabled", True):
         return error_result(f"目标 Agent '{agent_name}' 当前未启用", tool_name="send_message")
 

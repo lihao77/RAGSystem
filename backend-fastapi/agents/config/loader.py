@@ -57,6 +57,9 @@ class AgentLoader:
         self._mcp_manager_getter = mcp_manager_getter
         self._tool_registry = get_tool_registry()
 
+    def _resolve_configs(self, configs=None):
+        return configs if configs is not None else self.config_manager.get_all_configs()
+
     def load_agent(
         self,
         agent_name: str,
@@ -115,7 +118,7 @@ class AgentLoader:
             logger.error(f"加载智能体 '{agent_name}' 失败: {e}", exc_info=True)
             return None
 
-    def load_all_agents(self) -> Dict[str, BaseAgent]:
+    def load_all_agents(self, configs=None) -> Dict[str, BaseAgent]:
         """
         加载所有启用的智能体
 
@@ -123,7 +126,7 @@ class AgentLoader:
             智能体字典 {agent_name: agent_instance}
         """
         agents = {}
-        all_configs = self.config_manager.get_all_configs()
+        all_configs = self._resolve_configs(configs)
 
         # 1. 加载配置中的智能体
         for agent_name, agent_config in all_configs.items():
@@ -145,9 +148,9 @@ class AgentLoader:
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
 
-    def resolve_default_entry_agent_name(self) -> Optional[str]:
+    def resolve_default_entry_agent_name(self, configs=None) -> Optional[str]:
         """解析默认入口智能体名称。"""
-        all_configs = self.config_manager.get_all_configs()
+        all_configs = self._resolve_configs(configs)
         explicit_defaults = []
         for agent_name, agent_config in all_configs.items():
             custom_params = getattr(agent_config, 'custom_params', {}) or {}

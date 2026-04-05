@@ -30,11 +30,48 @@ def _build_runtime(**kwargs):
     return AgentApiRuntimeService(**kwargs)
 
 
+class _DummyConfigManager:
+    def __init__(self, active_configs=None, team_configs=None, active_team='default'):
+        self._active_configs = active_configs or {}
+        self._team_configs = team_configs or {}
+        self._active_team = active_team
+
+    def get_all_configs(self):
+        return dict(self._active_configs)
+
+    def get_config(self, agent_name):
+        return self._active_configs.get(agent_name)
+
+    def get_team_configs(self, team_name):
+        if team_name not in self._team_configs:
+            raise ValueError(f"team '{team_name}' 不存在")
+        return dict(self._team_configs[team_name])
+
+    def get_active_team(self):
+        return self._active_team
+
+
+class _DummyMemoryConfig:
+    def __init__(self, *, allowed_scopes=None, write_scopes=None, archive_scopes=None, auto_inject=True):
+        self.allowed_scopes = allowed_scopes or []
+        self.write_scopes = write_scopes or []
+        self.archive_scopes = archive_scopes or []
+        self.auto_inject = auto_inject
+
+
+class _DummyAgentConfig:
+    def __init__(self, *, enabled=True, default_entry=False, memory=None, custom_params=None):
+        self.enabled = enabled
+        self.default_entry = default_entry
+        self.memory = memory
+        self.custom_params = custom_params or {}
+
+
 class _DummyAgent:
-    def __init__(self, name: str):
+    def __init__(self, name: str, agent_config=None):
         self.name = name
         self.description = f"{name} desc"
-        self.agent_config = SimpleNamespace(custom_params={})
+        self.agent_config = agent_config or SimpleNamespace(custom_params={})
 
     def can_handle(self, task, context=None):
         del task, context
@@ -57,15 +94,15 @@ class _DummyConversationStore:
 
 
 def test_runtime_service_builds_fresh_execution_orchestrators(monkeypatch):
-    def _load_all_agents(self):
-        del self
+    def _load_all_agents(self, configs=None):
+        del self, configs
         return {
             "orchestrator_agent": _DummyAgent("orchestrator_agent"),
             "qa_agent": _DummyAgent("qa_agent"),
         }
 
     monkeypatch.setattr(AgentLoader, "load_all_agents", _load_all_agents)
-    monkeypatch.setattr(AgentLoader, "resolve_default_entry_agent_name", lambda self: "orchestrator_agent")
+    monkeypatch.setattr(AgentLoader, "resolve_default_entry_agent_name", lambda self, configs=None: "orchestrator_agent")
     run_manager = RunEventBusManager(cleanup_interval=3600)
 
     runtime = _build_runtime(
@@ -140,15 +177,15 @@ def test_runtime_context_binds_event_bus_per_run():
 def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatch, caplog):
     import logging
 
-    def _load_all_agents(self):
-        del self
+    def _load_all_agents(self, configs=None):
+        del self, configs
         return {
             'orchestrator_agent': _DummyAgent('orchestrator_agent'),
             'qa_agent': _DummyAgent('qa_agent'),
         }
 
     monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
-    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self: 'orchestrator_agent')
+    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self, configs=None: 'orchestrator_agent')
     run_manager = RunEventBusManager(cleanup_interval=3600)
 
     runtime = _build_runtime(
@@ -175,15 +212,15 @@ def test_runtime_execution_orchestrator_logs_workspace_root_injection(monkeypatc
 
 
 def test_runtime_execution_orchestrator_applies_session_entry_agent_override(monkeypatch):
-    def _load_all_agents(self):
-        del self
+    def _load_all_agents(self, configs=None):
+        del self, configs
         return {
             'orchestrator_agent': _DummyAgent('orchestrator_agent'),
             'qa_agent': _DummyAgent('qa_agent'),
         }
 
     monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
-    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self: 'orchestrator_agent')
+    monkeypatch.setattr(AgentLoader, 'resolve_default_entry_agent_name', lambda self, configs=None: 'orchestrator_agent')
     run_manager = RunEventBusManager(cleanup_interval=3600)
 
     runtime = _build_runtime(
@@ -228,5 +265,154 @@ def test_runtime_build_context_exposes_session_entry_agent():
     context = runtime.build_context(session_id='session-1', user_id='u1', run_id='run-a', thread_key='root')
 
     assert context.metadata['entry_agent'] == 'qa_agent'
+
+    run_manager.shutdown()
+
+
+def test_runtime_execution_orchestrator_uses_session_team_configs(monkeypatch):
+    captured = {}
+
+    def _load_all_agents(self, configs=None):
+        captured['configs'] = configs
+        return {
+            name: _DummyAgent(name, agent_config=config)
+            for name, config in (configs or {}).items()
+        }
+
+    monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
+    monkeypatch.setattr(
+        AgentLoader,
+        'resolve_default_entry_agent_name',
+        lambda self, configs=None: next((name for name, config in (configs or {}).items() if getattr(config, 'default_entry', False)), None),
+    )
+
+    active_configs = {
+        'orchestrator_agent': _DummyAgentConfig(default_entry=True),
+        'qa_agent': _DummyAgentConfig(),
+    }
+    team_b_configs = {
+        'orchestrator_agent': _DummyAgentConfig(),
+        'team_b_agent': _DummyAgentConfig(default_entry=True),
+    }
+    config_manager = _DummyConfigManager(active_configs=active_configs, team_configs={'team_b': team_b_configs}, active_team='default')
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-team': {'session_id': 'session-team', 'metadata': {'team': 'team_b'}},
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: config_manager,
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    orchestrator = runtime.create_execution_orchestrator(session_id='session-team')
+
+    assert captured['configs'] == team_b_configs
+    assert 'team_b_agent' in orchestrator.agents
+    assert 'qa_agent' not in orchestrator.agents
+    assert orchestrator.resolve_default_entry_agent_name() == 'team_b_agent'
+    assert config_manager.get_active_team() == 'default'
+
+    run_manager.shutdown()
+
+
+def test_runtime_build_context_uses_session_team_memory_config():
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+    active_configs = {
+        'demo_agent': _DummyAgentConfig(
+            memory=_DummyMemoryConfig(
+                allowed_scopes=['project'],
+                write_scopes=['project'],
+                archive_scopes=[],
+            )
+        )
+    }
+    team_b_configs = {
+        'demo_agent': _DummyAgentConfig(
+            memory=_DummyMemoryConfig(
+                allowed_scopes=['session', 'workspace'],
+                write_scopes=['workspace'],
+                archive_scopes=['session'],
+            )
+        )
+    }
+    config_manager = _DummyConfigManager(active_configs=active_configs, team_configs={'team_b': team_b_configs}, active_team='default')
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-team': {
+                'session_id': 'session-team',
+                'metadata': {'team': 'team_b', 'workspace_root': 'E:/workspace/team-b'},
+            },
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: config_manager,
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    context = runtime.build_context(session_id='session-team', agent_name='demo_agent', memory_query='x')
+
+    assert context.metadata['team'] == 'team_b'
+    assert context.metadata['memory_scope_capabilities'] == {
+        'allowed_scopes': ['session', 'workspace'],
+        'write_scopes': ['workspace'],
+        'archive_scopes': ['session'],
+    }
+
+    run_manager.shutdown()
+
+
+def test_runtime_execution_orchestrator_falls_back_when_session_team_missing(monkeypatch, caplog):
+    import logging
+
+    captured = {}
+
+    def _load_all_agents(self, configs=None):
+        captured['configs'] = configs
+        effective_configs = configs or active_configs
+        return {
+            name: _DummyAgent(name, agent_config=config)
+            for name, config in effective_configs.items()
+        }
+
+    monkeypatch.setattr(AgentLoader, 'load_all_agents', _load_all_agents)
+    monkeypatch.setattr(
+        AgentLoader,
+        'resolve_default_entry_agent_name',
+        lambda self, configs=None: next((name for name, config in ((configs or active_configs)).items() if getattr(config, 'default_entry', False)), None),
+    )
+
+    active_configs = {
+        'orchestrator_agent': _DummyAgentConfig(default_entry=True),
+        'qa_agent': _DummyAgentConfig(),
+    }
+    config_manager = _DummyConfigManager(active_configs=active_configs, team_configs={}, active_team='default')
+    run_manager = RunEventBusManager(cleanup_interval=3600)
+    runtime = _build_runtime(
+        conversation_store=_DummyConversationStore({
+            'session-missing-team': {'session_id': 'session-missing-team', 'metadata': {'team': 'missing_team'}},
+        }),
+        task_registry_getter=lambda: SimpleNamespace(),
+        session_manager_getter=lambda: run_manager,
+        session_application=SimpleNamespace(),
+        collaboration_application=SimpleNamespace(),
+        config_getter=lambda: SimpleNamespace(),
+        config_manager_getter=lambda: config_manager,
+        default_adapter_getter=lambda: SimpleNamespace(),
+    )
+
+    caplog.set_level(logging.WARNING)
+    orchestrator = runtime.create_execution_orchestrator(session_id='session-missing-team')
+
+    assert captured['configs'] is None
+    assert 'qa_agent' in orchestrator.agents
+    assert "session team 不存在或加载失败，回退 active_team" in caplog.text
 
     run_manager.shutdown()

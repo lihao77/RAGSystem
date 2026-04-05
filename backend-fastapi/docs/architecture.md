@@ -188,10 +188,11 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
   - `metadata`
 
 当前语义：
-- team 不是运行时实体，不参与 agent route / child agent / delegation 语义
+- team 仍不是全局 runtime 状态实体，不参与持久化 `active_team` 之外的配置切换语义
 - 切换 team 本质上是切换 `active_team` 并重新加载对应文件中的整套 agent 配置
 - `AgentConfigManager.get_all_configs()` 始终只返回当前 active_team 的 agent 集合
-- `AgentLoader` / `AgentOrchestrator` / `AgentExecutionService` 无需理解 team 概念，继续消费当前 manager 暴露出来的 agent 配置
+- execution scope 额外支持 `session.metadata.team` 作为“本次执行的临时 team 配置视图”：`create_execution_orchestrator(session_id=...)` 与 `build_context(session_id=...)` 会优先读取该 team 的配置快照，用于 agent 集合、默认入口和 memory 配置，但**不会**写回或修改全局 `active_team`
+- 因此 `AgentLoader` / `AgentOrchestrator` / `AgentExecutionService` 在 catalog 语义下依旧不需要理解全局 team runtime；session 级 team 仅在 runtime service 收口并向 execution 实例显式下发
 
 迁移策略：
 - 若历史上只有单一 `agent_configs.yaml`，`AgentConfigManager` 会在启动时自动迁移为：
@@ -230,10 +231,13 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `selected_llm`：API 边缘层解析为结构化模型身份三元组，并透传到 `AgentContext.llm_override`
 - `llm_tier`：透传为 `AgentContext.requested_llm_tier`，供运行时在未显式指定 `task_type` 时选择 `fast/default/powerful`
 - agent 配置中的 `llm` / `llm_tiers` 仅管理模型身份与直接影响交互的通用参数；provider-specific payload 字段通过 `extra_params` 下传
-- session 级 override 预留在 `session.metadata.entry_agent`：`create_execution_orchestrator(session_id=...)` 会在 execution orchestrator 上覆盖默认入口，但不会污染全局 YAML 或 catalog orchestrator
+- session 级 override 预留在 `session.metadata.entry_agent` 与 `session.metadata.team`：
+  - `entry_agent` 会在 execution orchestrator 上覆盖默认入口，但不会污染全局 YAML 或 catalog orchestrator
+  - `team` 会让本次 execution / context 临时读取该 team 的 agent 配置快照，用于 agent 集合、默认入口解析与 memory 配置；不会切换或写回全局 `active_team`
 - `session.metadata.entry_agent='default'` 表示“不覆盖默认入口”；`'orchestrator'` 会在 runtime 归一化为真实 `agent_name` `orchestrator_agent`
-- 若 session 级 `entry_agent` 不是 registry 中存在的真实 agent_name，则 runtime 会忽略该值并保留当前默认入口，避免把 execution orchestrator 覆盖成无效状态
+- 若 session 级 `entry_agent` 不是当前 execution registry 中存在的真实 agent_name，则 runtime 会忽略该值并保留当前默认入口，避免把 execution orchestrator 覆盖成无效状态
 - 若默认入口缺失，则不会再硬编码回退到 `orchestrator_agent`；后续由 orchestrator 的常规能力路由 / 错误处理语义接管
+- `call_agent`、`send_message`、`rollback_and_retry`、`recover_session` 这类链路都会继续传入原始 `session_id`，因此也天然继承同一套 session team 临时配置视图
 
 `application/agent_collaboration.py` 中的回退重试也已不再直调 `orchestrator.execute()`：其中 `rollback_and_retry()` 直接复用 `AgentExecutionService.invoke_routed_agent()`；`recover_session()` 因需要先把 checkpoint messages 重放进临时 context，仍保留“checkpoint 注入上下文 + routed agent.execute(context)”的执行形态，但目标 Agent 的选择也已统一复用 execution service 的路由解析。
 
@@ -280,8 +284,9 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录仍是 `./data/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
 - 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；该值应优先使用真实 `agent_name`。runtime 会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口，并对 `default/orchestrator` 这类 UI alias 做归一化兜底
-- `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；若配置了 `session.metadata.entry_agent`，也会一并写入 `context.metadata.entry_agent` 作为观测字段
-- `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖；两者都只作用于本次 execution 实例，不污染全局 YAML / 其他会话
+- 同一个 session 还可在 `metadata.team` 中指定本次执行临时使用的 team 配置视图；runtime 只在 execution / context 作用域读取该字段，不修改全局 `active_team`
+- `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；若配置了 `session.metadata.entry_agent` / `session.metadata.team`，也会一并写入 `context.metadata` 作为观测字段
+- `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖，以及按 `session.metadata.team` 临时选择 agent 配置快照；这些都只作用于本次 execution 实例，不污染全局 YAML / 其他会话
 - `tools.local.document_tools._prepare_document_tool_args()` 会直接从 `agent_config.custom_params` 读取 `workspace_root/default_output_space`，并按“显式 run_id 优先，observability fallback”解析 `effective_run_id`
 - `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），其中 `default_output_space=workspace` 会落到当前 effective workspace，而不是固定写死到 session/workspace
 - `read_file` / `write_file` / `edit_file` 仅允许 `direct` 调用，不再对 `caller=code_execution` 开放；`preview_data_structure` 仍允许 `code_execution`

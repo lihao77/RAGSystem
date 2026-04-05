@@ -246,6 +246,19 @@ def test_build_context_exposes_disabled_memory_scope_capabilities():
     assert 'retrieved_memories' not in context.metadata
 
 
+def test_get_session_team_normalizes_blank_and_missing_values():
+    service = _make_runtime_service([])
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'team': '  team_b  '}}
+    assert service._get_session_team('s1') == 'team_b'
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {'team': '   '}}
+    assert service._get_session_team('s1') is None
+
+    service._conversation_store.get_session = lambda session_id: {'metadata': {}}
+    assert service._get_session_team('s1') is None
+
+
 def test_get_session_entry_agent_normalizes_ui_aliases_and_invalid_values():
     service = _make_runtime_service([])
     orchestrator = SimpleNamespace(registry=SimpleNamespace(get=lambda name: object() if name in {'orchestrator_agent', 'qa_agent'} else None))

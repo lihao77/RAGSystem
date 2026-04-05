@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from runtime.dependencies import get_runtime_dependency
 from agents import AgentContext
@@ -122,6 +122,55 @@ class AgentApiRuntimeService:
             sorted(metadata.keys()),
         )
         return resolved_entry_agent
+
+    def _get_session_team(self, session_id: str | None) -> Optional[str]:
+        normalized_session_id = (session_id or '').strip()
+        if not normalized_session_id:
+            logger.debug('session team 查询跳过：session_id 为空')
+            return None
+        session = self._conversation_store.get_session(normalized_session_id) or {}
+        metadata = session.get('metadata') or {}
+        team = metadata.get('team')
+        resolved_team = team.strip() if isinstance(team, str) and team.strip() else None
+        logger.debug(
+            'session team 查询: session_id=%s team=%s metadata_keys=%s',
+            normalized_session_id,
+            resolved_team,
+            sorted(metadata.keys()),
+        )
+        return resolved_team
+
+    def _resolve_session_configs(self, session_id: str | None):
+        config_manager = self._config_manager_getter() or get_config_manager()
+        session_team = self._get_session_team(session_id)
+        if not session_team:
+            return None
+        try:
+            configs = config_manager.get_team_configs(session_team)
+            logger.debug(
+                'execution orchestrator 使用 session team 配置: session_id=%s team=%s agents=%s',
+                session_id,
+                session_team,
+                sorted(configs.keys()),
+            )
+            return configs
+        except Exception:
+            logger.warning(
+                'session team 不存在或加载失败，回退 active_team: session_id=%s team=%s',
+                session_id,
+                session_team,
+                exc_info=True,
+            )
+            return None
+
+    def _resolve_agent_config_for_session(self, session_id: str | None, agent_name: str | None):
+        if not agent_name:
+            return None
+        config_manager = self._config_manager_getter() or get_config_manager()
+        session_configs = self._resolve_session_configs(session_id)
+        if session_configs is not None:
+            return session_configs.get(agent_name)
+        return config_manager.get_config(agent_name)
 
     def _apply_session_runtime_overrides(self, orchestrator, session_id: str | None):
         workspace_root = self._get_session_workspace_root(session_id)
@@ -242,6 +291,9 @@ class AgentApiRuntimeService:
         session_entry_agent = self._get_session_entry_agent(session_id)
         if session_entry_agent:
             context.metadata['entry_agent'] = session_entry_agent
+        session_team = self._get_session_team(session_id)
+        if session_team:
+            context.metadata['team'] = session_team
         if run_id:
             context.metadata['run_id'] = run_id
             context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
@@ -263,7 +315,7 @@ class AgentApiRuntimeService:
             context.metadata['current_attachments'] = list(current_attachments)
         memory_config = None
         if agent_name:
-            agent_config = get_config_manager().get_config(agent_name)
+            agent_config = self._resolve_agent_config_for_session(session_id, agent_name)
             memory_config = getattr(agent_config, 'memory', None) if agent_config else None
         if memory_config:
             allowed_scopes = list(getattr(memory_config, 'allowed_scopes', []) or [])
@@ -324,7 +376,8 @@ class AgentApiRuntimeService:
 
     def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
         """为单次执行创建新的 orchestrator 与 agent 实例图。"""
-        orchestrator = self._build_orchestrator(scope='execution')
+        session_configs = self._resolve_session_configs(session_id)
+        orchestrator = self._build_orchestrator(scope='execution', configs=session_configs)
         return self._apply_session_runtime_overrides(orchestrator, session_id)
 
     def get_metrics_collector(self):
@@ -333,7 +386,7 @@ class AgentApiRuntimeService:
             self._metrics_collector = MetricsCollector()
         return self._metrics_collector
 
-    def _build_orchestrator(self, *, scope: str):
+    def _build_orchestrator(self, *, scope: str, configs: Optional[Dict[str, object]] = None):
         from agents.config.loader import AgentLoader
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
@@ -352,11 +405,11 @@ class AgentApiRuntimeService:
                 model_adapter=adapter,
                 system_config=system_config,
                 orchestrator=orchestrator,
-                config_manager=self._config_manager_getter(),
+                config_manager=self._config_manager_getter() or get_config_manager(),
                 mcp_manager_getter=get_mcp_manager,
             )
-            agents = loader.load_all_agents()
-            orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name())
+            agents = loader.load_all_agents(configs=configs)
+            orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name(configs=configs))
 
             for agent_name, agent in agents.items():
                 orchestrator.register_agent(agent)

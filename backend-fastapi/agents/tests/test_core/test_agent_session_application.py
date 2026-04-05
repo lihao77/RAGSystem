@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
+import pytest
+
 from application.agent_session import AgentSessionApplication
 from schemas.session import CreateSessionRequest
 
@@ -225,6 +227,30 @@ def test_create_session_persists_entry_agent_metadata():
 
     assert result['metadata']['entry_agent'] == 'qa_agent'
     assert store.created_sessions[0]['metadata']['entry_agent'] == 'qa_agent'
+
+
+def test_create_session_persists_team_metadata():
+    store = _FakeConversationStore()
+    app = AgentSessionApplication(conversation_store=store)
+
+    result = app.create_session(
+        session_id='session-team',
+        user_id='user-1',
+        metadata={'team': 'team_b'},
+    )
+
+    assert result['metadata']['team'] == 'team_b'
+    assert store.created_sessions[0]['metadata']['team'] == 'team_b'
+
+
+def test_create_session_request_normalizes_blank_team():
+    request = CreateSessionRequest(metadata={'team': '   '})
+    assert request.metadata == {}
+
+
+def test_create_session_request_rejects_non_string_team():
+    with pytest.raises(ValueError):
+        CreateSessionRequest(metadata={'team': 123})
 
 
 def test_create_session_request_validates_workspace_root_as_absolute_path():
