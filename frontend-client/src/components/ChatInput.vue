@@ -294,7 +294,7 @@ textarea::placeholder {
   gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   flex-wrap: nowrap;
 }
 

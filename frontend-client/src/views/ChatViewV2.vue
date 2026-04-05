@@ -257,7 +257,7 @@
             @removeAttachment="removePendingAttachment"
           >
             <template #footerMeta>
-              <div v-if="contextUsage && contextUsage.max > 0 || (currentSessionId && (sessionTaskInfo || isLoading))" class="composer-status-row">
+              <div class="composer-status-row">
                 <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
                   <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
                     <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
@@ -280,16 +280,59 @@
                     压缩中
                   </span>
                 </div>
-
-                <button
-                  v-if="showExecutionPill"
-                  type="button"
-                  class="execution-pill"
-                  :class="executionStatusClass"
-                  :title="executionStatusTooltip"
-                  :aria-label="`查看执行状态：${executionStatusText}`"
-                  @click="openExecutionDrawer"
-                ></button>
+                <div v-if="hasStatusPopover" ref="sessionMetaContainerRef" class="session-meta-popover-anchor session-meta-popover-anchor--inline-end">
+                  <button
+                    type="button"
+                    class="execution-pill execution-pill--popover"
+                    :class="[{ 'is-expanded': sessionMetaExpanded }]"
+                    title="查看会话与执行信息"
+                    aria-label="查看会话与执行信息"
+                    :aria-expanded="sessionMetaExpanded ? 'true' : 'false'"
+                    @click="sessionMetaExpanded = !sessionMetaExpanded"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" class="execution-pill__icon">
+                      <path d="M12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9-9 4.03-9 9 4.03 9 9 9Z" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                      <path d="M12 10.25v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                      <path d="M12 7.4h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <div v-if="sessionMetaExpanded" class="session-meta-panel session-meta-panel--end">
+                    <div v-if="hasSessionMeta" class="session-meta-section">
+                      <div class="session-meta-section-title">会话信息</div>
+                      <div v-if="currentSessionTeam" class="session-meta-item">
+                        <span class="session-meta-label">Team</span>
+                        <span class="session-meta-value">{{ currentSessionTeam }}</span>
+                      </div>
+                      <div v-if="pendingEntryAgent" class="session-meta-item">
+                        <span class="session-meta-label">Agent</span>
+                        <span class="session-meta-value">{{ pendingEntryAgent }}</span>
+                      </div>
+                      <div v-if="pendingWorkspaceRoot" class="session-meta-item">
+                        <span class="session-meta-label">目录</span>
+                        <span class="session-meta-value session-meta-value--path" :title="pendingWorkspaceRoot">{{ pendingWorkspaceRoot }}</span>
+                      </div>
+                    </div>
+                    <div v-if="showExecutionPill" class="session-meta-section">
+                      <div class="session-meta-section-title">执行状态</div>
+                      <div class="session-meta-item">
+                        <span class="session-meta-label">状态</span>
+                        <span class="session-meta-value">{{ executionStatusText }}</span>
+                      </div>
+                      <div v-if="sessionExecutionObservability?.execution_kind" class="session-meta-item">
+                        <span class="session-meta-label">类型</span>
+                        <span class="session-meta-value">{{ sessionExecutionObservability.execution_kind }}</span>
+                      </div>
+                      <div v-if="sessionExecutionObservability?.task_id" class="session-meta-item">
+                        <span class="session-meta-label">Task</span>
+                        <span class="session-meta-value session-meta-value--path" :title="sessionExecutionObservability.task_id">{{ sessionExecutionObservability.task_id }}</span>
+                      </div>
+                      <div v-if="sessionExecutionObservability?.run_id" class="session-meta-item">
+                        <span class="session-meta-label">Run</span>
+                        <span class="session-meta-value session-meta-value--path" :title="sessionExecutionObservability.run_id">{{ sessionExecutionObservability.run_id }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </template>
           </ChatInput>
@@ -392,7 +435,7 @@ import LLMSelector from '../components/LLMSelector.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import MessageEditBox from '../components/MessageEditBox.vue';
 import PermissionModeSelector from '../components/PermissionModeSelector.vue';
-import { getAllAgentConfigs } from '../api/agentConfig';
+import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 import { listSessionFiles, uploadSessionFiles, deleteSessionFile, getSessionFileDownloadUrl } from '../api/sessionFiles';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
@@ -490,6 +533,7 @@ const inputSending = ref(false);
 const messagesRef = ref(null);
 const chatMainRef = ref(null);
 const topControlsBarRef = ref(null);
+const sessionMetaContainerRef = ref(null);
 const isUserAtBottom = ref(true);
 const shouldAutoScroll = ref(true);
 const keepScrollButtonVisible = ref(false);
@@ -498,6 +542,9 @@ const showScrollToBottomButton = computed(() => {
   if (!messages.value.length) return false;
   return !isUserAtBottom.value || scrollBottomGap.value > 80 || keepScrollButtonVisible.value;
 });
+
+const hasSessionMeta = computed(() => Boolean(currentSessionId.value && (currentSessionTeam.value || pendingEntryAgent.value || pendingWorkspaceRoot.value)));
+const hasStatusPopover = computed(() => hasSessionMeta.value || showExecutionPill.value);
 const currentSessionId = ref(null);
 const sessionFiles = ref([]);
 const pendingAttachments = ref([]);
@@ -508,6 +555,7 @@ const sessionFileInputRef = ref(null);
 const history = ref([]);
 const pendingWorkspaceRoot = ref('');
 const pendingEntryAgent = ref('');
+const currentSessionTeam = ref('');
 const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
 const messagesLoading = ref(false);
@@ -574,6 +622,7 @@ const editingAttachmentsDraft = ref([]);
 const editingSubmitting = ref(false);
 const expandedSummarySeq = ref(null);
 const sessionFilesDrawerTarget = ref('composer');
+const sessionMetaExpanded = ref(false);
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const getChatSessionPath = (sessionId) => sessionId
   ? `/chat/${encodeURIComponent(sessionId)}`
@@ -586,6 +635,7 @@ const syncSessionFromRoute = async (sessionId) => {
     const matched = history.value.find(item => item.session_id === sessionId);
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
+    currentSessionTeam.value = matched?.metadata?.team || '';
     pendingAttachments.value = [];
     await loadSessionMessages(sessionId);
     await loadSessionFiles(sessionId);
@@ -599,8 +649,10 @@ const syncSessionFromRoute = async (sessionId) => {
     sessionFiles.value = [];
     pendingWorkspaceRoot.value = '';
     pendingEntryAgent.value = '';
+    loadActiveTeam();
     pendingAttachments.value = [];
     messages.value = [];
+    sessionMetaExpanded.value = false;
   }
 };
 
@@ -673,6 +725,23 @@ const loadEntryAgentOptions = async () => {
   }
 };
 
+const loadActiveTeam = async () => {
+  try {
+    const result = await getTeams();
+    currentSessionTeam.value = result?.active_team || '';
+  } catch (error) {
+    console.warn('加载当前 Team 失败:', error);
+  }
+};
+
+const handleGlobalPointerDown = (event) => {
+  if (!sessionMetaExpanded.value) return;
+  const container = sessionMetaContainerRef.value;
+  if (container && !container.contains(event.target)) {
+    sessionMetaExpanded.value = false;
+  }
+};
+
 // 关闭移动端侧边栏
 const closeMobileSidebar = () => {
   shellSidebarControl?.closeMobileSidebar?.();
@@ -694,7 +763,9 @@ const startNewChat = () => {
   inputMessage.value = '';
   pendingWorkspaceRoot.value = '';
   pendingEntryAgent.value = '';
+  loadActiveTeam();
   pendingAttachments.value = [];
+  sessionMetaExpanded.value = false;
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
@@ -1100,6 +1171,7 @@ const loadRecentSessions = async (reset = false) => {
         if (matched) {
           pendingWorkspaceRoot.value = matched.metadata?.workspace_root || pendingWorkspaceRoot.value;
           pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
+          currentSessionTeam.value = matched.metadata?.team || currentSessionTeam.value;
         }
       }
     } else {
@@ -1564,6 +1636,7 @@ const selectSession = async (item) => {
   currentSessionId.value = item.session_id;
   pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
   pendingEntryAgent.value = item.metadata?.entry_agent || '';
+  currentSessionTeam.value = item.metadata?.team || '';
   pendingAttachments.value = [];
   await router.push(getChatSessionPath(item.session_id));
   item.unread_count = 0;
@@ -1579,6 +1652,7 @@ const updateRecentSession = (sessionId, content, timestamp) => {
   const summary = normalizedContent.slice(0, 30);
   const currentMetadata = currentSessionId.value === sessionId
     ? {
+        ...(currentSessionTeam.value.trim() ? { team: currentSessionTeam.value.trim() } : {}),
         ...(pendingWorkspaceRoot.value.trim() ? { workspace_root: pendingWorkspaceRoot.value.trim() } : {}),
         ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
       }
@@ -2018,7 +2092,12 @@ const ensureSession = async () => {
   const userId = (localStorage.getItem('userId') || '').trim();
   const workspaceRoot = pendingWorkspaceRoot.value.trim();
   const entryAgent = pendingEntryAgent.value.trim();
+  if (!currentSessionTeam.value.trim()) {
+    await loadActiveTeam();
+  }
+  const team = currentSessionTeam.value.trim();
   const metadata = {
+    ...(team ? { team } : {}),
     ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
     ...(entryAgent ? { entry_agent: entryAgent } : {}),
   };
@@ -2039,6 +2118,12 @@ const ensureSession = async () => {
   currentSessionId.value = result.data?.session_id || null;
   if (currentSessionId.value) {
     const now = new Date().toISOString();
+    const sessionMetadata = {
+      ...(team ? { team } : {}),
+      ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
+      ...(entryAgent ? { entry_agent: entryAgent } : {}),
+      ...(result.data?.metadata || {}),
+    };
     props.onSessionCreated?.({
       session_id: currentSessionId.value,
       title: result.data?.title || 'New Conversation',
@@ -2046,9 +2131,11 @@ const ensureSession = async () => {
       last_message: '',
       last_message_at: result.data?.last_message_at || now,
       unread_count: 0,
+      metadata: sessionMetadata,
     });
-    pendingWorkspaceRoot.value = result.data?.metadata?.workspace_root || workspaceRoot || '';
-    pendingEntryAgent.value = result.data?.metadata?.entry_agent || entryAgent || '';
+    pendingWorkspaceRoot.value = sessionMetadata.workspace_root || '';
+    pendingEntryAgent.value = sessionMetadata.entry_agent || '';
+    currentSessionTeam.value = sessionMetadata.team || '';
     await router.push(getChatSessionPath(currentSessionId.value));
     await loadSessionFiles(currentSessionId.value);
   }
@@ -2614,7 +2701,9 @@ onMounted(() => {
   updateScrollBottomGap();
   scrollToBottom(true);
   loadEntryAgentOptions();
+  loadActiveTeam();
   loadRecentSessions(true);
+  window.addEventListener('pointerdown', handleGlobalPointerDown);
 });
 
 onUnmounted(() => {
@@ -2623,6 +2712,7 @@ onUnmounted(() => {
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
   invalidateActiveStream();
+  window.removeEventListener('pointerdown', handleGlobalPointerDown);
 });
 </script>
 
@@ -2854,6 +2944,138 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
+.session-meta-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-meta-section + .session-meta-section {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.session-meta-section-title {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.session-meta-popover-anchor {
+  position: relative;
+  flex-shrink: 0;
+  z-index: calc(var(--z-sticky, 10) + 4);
+}
+
+.session-meta-popover-anchor--inline-end {
+  margin-left: auto;
+}
+
+.execution-pill--popover {
+  width: 20px;
+  height: 20px;
+  margin-left: 0;
+  color: var(--color-text-muted);
+}
+
+.execution-pill--popover:hover,
+.execution-pill--popover.is-expanded {
+  color: var(--color-text-primary);
+  opacity: 1;
+}
+
+.execution-pill__icon {
+  width: 14px;
+  height: 14px;
+}
+
+.session-meta-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.session-meta-toggle--icon {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.session-meta-toggle-arrow {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.session-meta-toggle:hover,
+.session-meta-toggle.is-expanded {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-tertiary);
+}
+
+.session-meta-panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 14px);
+  z-index: 120;
+  min-width: 260px;
+  max-width: min(420px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+}
+
+.session-meta-panel--end {
+  left: auto;
+  right: 0;
+  transform: translateY(-2px);
+}
+
+.session-meta-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-meta-label {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.session-meta-value {
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.session-meta-value--path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .composer-status-row {
   display: flex;
   align-items: center;
@@ -2878,7 +3100,7 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, color 0.2s ease;
 }
 
 .execution-pill::before {
@@ -2889,6 +3111,10 @@ onUnmounted(() => {
   flex-shrink: 0;
   background: currentColor;
   opacity: 0.9;
+}
+
+.execution-pill--popover::before {
+  display: none;
 }
 
 .execution-pill.is-running {
@@ -3007,7 +3233,7 @@ onUnmounted(() => {
   bottom: calc(100% + 12px);
   right: auto;
   transform: translateX(-50%);
-  z-index: calc(var(--z-sticky, 10) + 2);
+  z-index: 1;
   width: 40px;
   height: 40px;
   border-radius: 999px;
@@ -3057,7 +3283,7 @@ onUnmounted(() => {
     width: 30px;
     height: 30px;
     bottom: calc(100% + 10px);
-    z-index: calc(var(--z-sticky, 10) + 4);
+    z-index: 1;
   }
 }
 /* 顶部右侧会话文件/导出按钮：桌面端保留文字，移动端收敛为与主题按钮一致的图标态 */

@@ -88,6 +88,11 @@
                   <span class="history-time">{{ formatTimeLabel(item.last_message_at) }}</span>
                 </div>
                 <div class="history-meta">
+                  <div v-if="getSessionTeamLabel(item)" class="history-meta-details">
+                    <span class="history-meta-chip" :title="`所属 Team: ${getSessionTeamLabel(item)}`">
+                      Team: {{ getSessionTeamLabel(item) }}
+                    </span>
+                  </div>
                   <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
                 </div>
               </div>
@@ -144,6 +149,7 @@ import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide,
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import AppToast from '../components/AppToast.vue';
+import { getTeams } from '../api/agentConfig';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 
 const props = defineProps({
@@ -168,6 +174,7 @@ const sidebarCollapsed = ref(false);
 const mobileOpen = ref(false);
 const isMobile = ref(false);
 const history = ref([]);
+const activeTeam = ref('');
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
 const historyError = ref('');
@@ -278,6 +285,8 @@ const formatTimeLabel = (timeStr) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+const getSessionTeamLabel = (item) => item?.metadata?.team || '';
+
 const upsertHistoryItem = (item) => {
   if (!item?.session_id) return;
   const normalizedItem = {
@@ -360,6 +369,15 @@ const loadRecentSessions = async (reset = false) => {
 
 const retryLoadHistory = () => {
   loadRecentSessions(true);
+};
+
+const loadActiveTeam = async () => {
+  try {
+    const result = await getTeams();
+    activeTeam.value = result?.active_team || '';
+  } catch (error) {
+    console.warn('加载当前 Team 失败:', error);
+  }
 };
 
 const handleHistoryScroll = () => {
@@ -465,6 +483,7 @@ watch(
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
+  loadActiveTeam();
   loadRecentSessions(true);
 });
 
@@ -842,8 +861,40 @@ onUnmounted(() => {
   color: var(--color-text-muted);
 }
 
-.history-item.active .history-time {
-  color: var(--color-text-secondary);
+.history-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.history-meta-details {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.history-meta-chip {
+  max-width: 100%;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-meta-chip--path {
+  flex: 1;
+}
+
+.history-unread {
+  flex-shrink: 0;
 }
 
 .history-delete-btn {

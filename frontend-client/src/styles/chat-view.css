@@ -1461,6 +1461,7 @@
 
 .input-area-wrapper {
   position: relative;
+  z-index: calc(var(--z-sticky) + 3);
   background: transparent;
   padding: 0px var(--input-area-padding-x);
   padding-bottom: var(--spacing-md);
