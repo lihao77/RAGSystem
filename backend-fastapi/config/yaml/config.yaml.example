@@ -21,3 +21,9 @@ embedding:
 
 system:
   max_content_length: 104857600
+
+hooks:
+  enabled: true
+  workspace_trust:
+    default: trusted
+    rules: []

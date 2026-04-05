@@ -108,6 +108,8 @@ def call_agent(
         return error_result(f"目标 Agent '{agent_name}' 当前未启用", tool_name="call_agent")
 
     agent_call_id = f"call_{uuid.uuid4()}"
+    child_agent_id = f"child_{uuid.uuid4()}"
+    resolved_thread_key = f"child:{child_agent_id}"
     publisher = None
     if event_bus is not None:
         publisher = EventPublisher(
@@ -148,7 +150,7 @@ def call_agent(
         created_by_call_id=agent_call_id,
         parent_run_id=run_id,
         parent_call_id=parent_call_id,
-        metadata={"created_via": "call_agent"},
+        metadata={"created_via": "call_agent", "thread_key": resolved_thread_key},
     )
     agent_call_event_extra = {
         'child_agent_id': child_agent_id,

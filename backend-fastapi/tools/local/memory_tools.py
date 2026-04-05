@@ -58,7 +58,7 @@ def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]
         "type": "object",
         "properties": {
             "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
-            "session_id": {"type": "string", "description": "session 作用域时必填"},
+            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
             "agent_name": {"type": "string", "description": "agent 作用域时必填"},
             "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
         },
@@ -133,7 +133,7 @@ def list_memory_index(
         "properties": {
             "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
             "file_name": {"type": "string", "description": "记忆文件名，例如 preference_xxx.md"},
-            "session_id": {"type": "string", "description": "session 作用域时必填"},
+            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
             "agent_name": {"type": "string", "description": "agent 作用域时必填"},
             "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
         },
@@ -211,7 +211,7 @@ def read_memory_entry(
             "content": {"type": "string", "description": "记忆正文"},
             "why": {"type": "string", "description": "可选，Why 段落"},
             "how_to_apply": {"type": "string", "description": "可选，How to apply 段落"},
-            "session_id": {"type": "string", "description": "session 作用域时必填"},
+            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
             "agent_name": {"type": "string", "description": "agent 作用域时必填；session 作用域时可作为来源 agent"},
             "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
             "source_run_id": {"type": "string", "description": "来源 run_id"},
@@ -298,7 +298,7 @@ def write_memory(
         "properties": {
             "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
             "file_name": {"type": "string", "description": "待归档的记忆文件名"},
-            "session_id": {"type": "string", "description": "session 作用域时必填"},
+            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
             "agent_name": {"type": "string", "description": "agent 作用域时必填"},
             "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
         },

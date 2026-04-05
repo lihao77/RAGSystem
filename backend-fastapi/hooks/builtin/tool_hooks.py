@@ -236,13 +236,17 @@ def handle_memory_write_guard(
         return ContextHookResult()
 
     # Get memory write details
-    memory_type = context.input_snapshot.get("type", "unknown")
+    memory_type = context.input_snapshot.get("memory_type", "unknown")
     name = context.input_snapshot.get("name", "unknown")
+    scope = context.input_snapshot.get("scope", "unknown")
+    session_id = context.input_snapshot.get("session_id")
 
     additional_context = [
-        f"Writing to memory: type={memory_type}, name={name}",
+        f"Writing to memory: scope={scope}, type={memory_type}, name={name}",
         "This will persist across conversations.",
     ]
+    if scope == "session" and session_id:
+        additional_context.append(f"Bound to session_id={session_id}")
 
     return ContextHookResult(
         additional_context=additional_context,

@@ -79,7 +79,11 @@ class _FakeRuntime:
 
     def create_execution_orchestrator(self, session_id=None):
         del session_id
-        return SimpleNamespace(agents={'demo_agent': object()})
+        target = SimpleNamespace(
+            agent_config=SimpleNamespace(enabled=True),
+            display_name='Demo Agent',
+        )
+        return SimpleNamespace(agents={'demo_agent': target})
 
     def execute_agent_call(self, **kwargs):
         self.execution_calls.append(kwargs)
@@ -120,6 +124,9 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
     assert result.metadata['agent_name'] == 'demo_agent'
     assert result.metadata['child_agent_id'].startswith('child_')
     assert runtime.store.created_children[0]['agent_name'] == 'demo_agent'
+    assert runtime.store.created_children[0]['thread_key'] == f"child:{result.metadata['child_agent_id']}"
+    assert runtime.store.created_children[0]['metadata']['created_via'] == 'call_agent'
+    assert runtime.store.created_children[0]['metadata']['thread_key'] == f"child:{result.metadata['child_agent_id']}"
     assert runtime.store.created_children[0]['created_seq'] == 42
     assert runtime.store.messages == []
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']

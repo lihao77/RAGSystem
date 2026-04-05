@@ -357,7 +357,7 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> Any:
             source="runtime",
             tool_context=context,
             permission_decision=kwargs.get("permission_decision"),
-            input_snapshot=dict(context.arguments),
+            input_snapshot=build_handler_call_arguments(get_tool_handler(context.tool_name), context),
             result_snapshot=_build_result_snapshot(kwargs.get("result")),
             error_snapshot=_build_error_snapshot(kwargs.get("error")),
             metadata={

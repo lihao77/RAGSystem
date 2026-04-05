@@ -344,12 +344,10 @@ const loadRecentSessions = async (reset = false) => {
   }
   historyError.value = '';
   try {
-    const userId = (localStorage.getItem('userId') || '').trim();
     const params = new URLSearchParams({
       limit: String(20),
       offset: String(historyOffset.value)
     });
-    if (userId) params.set('user_id', userId);
     const response = await fetch(`/api/agent/sessions?${params.toString()}`);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const result = await response.json();

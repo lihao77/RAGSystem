@@ -283,6 +283,10 @@ matcher:
 - 生成审计日志
 - 不影响执行流程
 
+对于 `write_memory`，Hook 读取的是 runtime 注入后的实际 handler 入参快照；因此当 `scope=session` 时，会看到自动补全的 `session_id`，而不是仅看到模型原始提交的参数。
+
+同理，其他 memory 工具（`list_memory_index`、`read_memory_entry`、`archive_memory`）在 session scope 下也遵循相同规则：Hook 与工具实现读取的都是 runtime 注入后的实际参数视图。
+
 ### approval-ui-enhancement
 
 增强审批 UI：

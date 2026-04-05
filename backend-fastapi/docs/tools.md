@@ -199,6 +199,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `request_user_input` 已从 pseudo-tool 收敛为真实 `@tool(source="builtin")`
 - `call_agent`、`list_child_agents` 与 `send_message` 共同构成 `source="agent"` delegation 工具面
 - `call_agent` 负责创建新的 child agent 会话并返回 `child_agent_id`
+- 新建 child 会话的 `thread_key` 固定为 `child:{child_agent_id}`，后续 `send_message` 基于该 thread 续接上下文
 - `list_child_agents` 负责列出当前 session 下已创建的 child agent，便于找回 `child_agent_id`
 - `send_message` 负责向既有 child agent 发送新消息并续接上下文
 - 子 Agent 是否可调用不再由工具名展开决定，而由 `delegation.enabled_agents` + prompt 动态 roster 决定
@@ -275,13 +276,17 @@ memory 采用 Claude Code 风格的“索引注入 + 明细按需读取”模型
 - `list_memory_index(scope, ...)`
   - 读取指定作用域 `MEMORY.md` 的头部索引
   - 适合先了解有哪些记忆，再决定是否读取明细
+  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
 - `read_memory_entry(scope, file_name, ...)`
   - 读取单条具体记忆 md 文件正文
   - 适合 Agent 在看到索引后按需展开细节
+  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
 - `write_memory(scope, name, description, memory_type, content, ...)`
   - 新增或更新一条记忆，并同步重建 `MEMORY.md`
+  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
 - `archive_memory(scope, file_name, ...)`
   - 将一条记忆标记为 archived，使其不再参与默认索引和检索
+  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
 
 当前默认作用域链仍为：
 - `project -> session`
