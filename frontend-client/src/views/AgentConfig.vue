@@ -758,7 +758,11 @@ const configBodyRef = ref(null);
 const systemPromptTextareaRef = ref(null);
 
 function getScrollContainer() {
-  return configBodyRef.value?.closest('.page-content') || configBodyRef.value;
+  return (
+    configBodyRef.value?.closest('.page-content-scroll') ||
+    configBodyRef.value?.closest('.page-content') ||
+    configBodyRef.value
+  );
 }
 
 function getSystemPromptTextareaMaxHeight() {

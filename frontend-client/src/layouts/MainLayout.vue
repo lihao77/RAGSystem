@@ -15,35 +15,35 @@
       </div>
 
       <div class="sidebar-header">
-        <button class="sidebar-btn" @click="startNewChat">
+        <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
           <IconNewConversation :size="22" class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToModelProviders" title="模型 Provider 管理">
+        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('model-providers') }" @click="goToModelProviders" title="模型 Provider 管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/>
           </svg>
           <span class="btn-text">模型管理</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToAgentConfig" title="智能体配置">
+        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('agent-config') }" @click="goToAgentConfig" title="智能体配置">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/>
           </svg>
           <span class="btn-text">Agent配置</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToMCPManager" title="MCP 服务管理">
+        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('mcp') }" @click="goToMCPManager" title="MCP 服务管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <path d="M12 22v-5"/><rect x="6" y="9" width="12" height="6" rx="2"/><path d="M10 9V2"/><path d="M14 9V2"/>
           </svg>
           <span class="btn-text">MCP管理</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" @click="goToVectorLibrary" title="知识库管理">
+        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('vector-library') }" @click="goToVectorLibrary" title="知识库管理">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
           </svg>
           <span class="btn-text">知识库</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-monitor" @click="goToMonitor" title="智能体性能监控">
+        <button class="sidebar-btn sidebar-btn-monitor" :class="{ active: isPageActive('monitor') }" @click="goToMonitor" title="智能体性能监控">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
           </svg>
@@ -72,7 +72,7 @@
               v-for="item in history"
               :key="item.session_id"
               class="history-item"
-              :class="{ active: item.session_id === activeSessionId }"
+              :class="{ active: isChatRoute && item.session_id === activeSessionId }"
               @click="selectSession(item)"
             >
               <IconDocument :size="18" class="history-icon" />
@@ -178,6 +178,7 @@ const confirmDialog = ref({
 });
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
+const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
 const pageTransitionName = ref('slide-forward');
 const activeSessionId = computed(() => {
   if (isChatRoute.value && typeof route.params.id === 'string') {
@@ -659,6 +660,17 @@ onUnmounted(() => {
   flex-shrink: 0;
   color: var(--color-text-primary);
   transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sidebar-btn.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-btn.active .icon {
+  color: var(--color-text-primary);
 }
 
 .sidebar-btn:hover,

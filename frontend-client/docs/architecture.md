@@ -114,6 +114,8 @@ tool 归属规则：
 - `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
 - 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
 - `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现
+- `MainLayout.vue` 的左侧 sidebar 采用“按页面主视图唯一激活”规则：聊天入口与历史会话只在 `mainView=chat` 时参与高亮；模型管理 / Agent 配置 / MCP / 知识库 / 监控按钮按各自 `route.meta.mainView` 独立激活，避免管理页打开后历史会话残留 active。
+- `AgentConfig.vue` 的 section-nav（右侧/底部浮动分节导航）点击跳转、高亮观察与“滚动到底部”统一绑定 `PageLayout.vue` 的 `.page-content-scroll` 作为真实滚动容器；不要再绑定到内部 `.page-content`，否则分节导航会出现失效或高亮不同步。
 - 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动
 - 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面自行定义边距，因此不同页面可以使用不同留白策略
 
