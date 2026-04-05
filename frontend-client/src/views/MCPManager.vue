@@ -1745,6 +1745,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  min-width: 0;
 }
 
 .template-placeholder {
@@ -2167,7 +2168,31 @@ onUnmounted(() => {
   .form-grid.two-col { grid-template-columns: 1fr; }
   .form-grid.four-col { grid-template-columns: 1fr 1fr; }
   .registry-search-bar { flex-wrap: wrap; }
-  .tab-nav { width: 100%; }
+  .section-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tab-nav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tab-btn {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+  .template-detail-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .install-hint-badge {
+    align-self: flex-start;
+    white-space: normal;
+  }
+  .form-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 480px) {

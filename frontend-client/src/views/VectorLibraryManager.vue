@@ -2389,9 +2389,9 @@ onMounted(() => {
 
 /* ── 手机横屏 / 小平板（≤720px）── */
 @media (max-width: 720px) {
-    /* 统计卡片：2列，缩小内边距和图标 */
+    /* 统计卡片：单列，缩小内边距和图标 */
     .summary-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
         gap: var(--spacing-sm);
     }
 

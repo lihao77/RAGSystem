@@ -136,6 +136,29 @@ def test_artifact_store_default_session_storage_uses_session_transient_root():
         shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
+def test_artifact_store_cleanup_preserves_visualizations_scope_files():
+    temp_dir = _make_temp_dir()
+    try:
+        store = ArtifactStore(base_dir=temp_dir)
+
+        artifact = store.save_json(
+            session_id="s1",
+            tool_name="create_chart",
+            data={"viz": True},
+            metadata={"storage_scope": "visualizations"},
+            ttl_seconds=0,
+        )
+
+        time.sleep(0.01)
+        deleted_count = store.cleanup(max_age_seconds=1)
+
+        assert deleted_count == 0
+        assert os.path.exists(artifact.path)
+        assert [record.path for record in store.list_records()] == [artifact.path]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_artifact_store_visualization_scope_uses_session_visualizations_root():
     session_id = 'artifact-viz-root'
     artifact = ArtifactStore().save_json(
@@ -151,3 +174,5 @@ def test_artifact_store_visualization_scope_uses_session_visualizations_root():
         index_file = get_session_visualizations_root(session_id) / 'artifact_index.jsonl'
         index_file.unlink(missing_ok=True)
         shutil.rmtree(get_session_visualizations_root(session_id).parent, ignore_errors=True)
+
+

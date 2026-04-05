@@ -411,11 +411,18 @@ const deleteSession = async (sessionId) => {
   }
 };
 
-const goToMonitor = () => router.push('/monitor');
-const goToAgentConfig = () => router.push('/agent-config');
-const goToMCPManager = () => router.push('/mcp');
-const goToVectorLibrary = () => router.push('/vector-library');
-const goToModelProviders = () => router.push('/model-providers');
+const navigateTo = async (path) => {
+  await router.push(path);
+  if (isMobile.value) {
+    closeMobileSidebar();
+  }
+};
+
+const goToMonitor = () => navigateTo('/monitor');
+const goToAgentConfig = () => navigateTo('/agent-config');
+const goToMCPManager = () => navigateTo('/mcp');
+const goToVectorLibrary = () => navigateTo('/vector-library');
+const goToModelProviders = () => navigateTo('/model-providers');
 
 watch(
   () => route.fullPath,

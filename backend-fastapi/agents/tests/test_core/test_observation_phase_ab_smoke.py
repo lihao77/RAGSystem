@@ -236,20 +236,29 @@ def test_phase_ab_smoke_conversation_store_uses_artifact_store_cleanup():
         stale = artifact_store.save_json(session_id="s1", tool_name="demo", data={"old": True})
         fresh = artifact_store.save_json(session_id="s1", tool_name="demo", data={"new": True})
         stale_text = artifact_store.save_text(session_id="s1", tool_name="demo", content="old text")
+        viz = artifact_store.save_json(
+            session_id="s1",
+            tool_name="create_chart",
+            data={"viz": True},
+            metadata={"storage_scope": "visualizations"},
+        )
 
         old_time = time.time() - (2 * 24 * 60 * 60)
         Path(stale.path).touch()
         Path(fresh.path).touch()
         Path(stale_text.path).touch()
+        Path(viz.path).touch()
         import os
         os.utime(stale.path, (old_time, old_time))
         os.utime(stale_text.path, (old_time, old_time))
+        os.utime(viz.path, (old_time, old_time))
 
         conversation_store._cleanup_temp_data_files()
 
         assert not Path(stale.path).exists()
         assert not Path(stale_text.path).exists()
         assert Path(fresh.path).exists()
+        assert Path(viz.path).exists()
     finally:
         try:
             conversation_store.close()

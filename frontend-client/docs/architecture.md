@@ -236,6 +236,8 @@ AI final_answer 含 [viz:viz_abc123]
   → viz_type == 'map'   → MapRenderer
 ```
 
+可视化 artifact 持久化在 `data/sessions/<session_id>/visualizations/` 下；后端不会再按时间自动清理该目录，只有在显式删除 session 时才会一起删除。
+
 ### MapRenderer 支持的地图类型
 
 heatmap / marker / circle / choropleth / geojson / bindmap / risk

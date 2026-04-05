@@ -311,6 +311,9 @@ class ArtifactStore:
                         except Exception:
                             continue
                         indexed_paths.add(record.path)
+                        if self._should_preserve_record(record):
+                            records.append(record)
+                            continue
                         path = Path(record.path)
                         expired = self._is_record_expired(record, cutoff_time)
                         if expired:
@@ -340,6 +343,8 @@ class ArtifactStore:
         for file_path in target_dir.glob('**/data_*.*'):
             if str(file_path) in indexed_paths:
                 continue
+            if self._is_visualization_path(file_path):
+                continue
             if str(file_path) in deleted_paths:
                 continue
             try:
@@ -349,6 +354,16 @@ class ArtifactStore:
             except FileNotFoundError:
                 continue
         return deleted_paths
+
+    def _should_preserve_record(self, record: ArtifactRecord) -> bool:
+        metadata = record.metadata or {}
+        if metadata.get('storage_scope') == 'visualizations':
+            return True
+        return self._is_visualization_path(Path(record.path))
+
+    @staticmethod
+    def _is_visualization_path(path: Path) -> bool:
+        return 'visualizations' in {part.lower() for part in path.parts}
 
     def _is_record_expired(self, record: ArtifactRecord, cutoff_time: float) -> bool:
         try:
