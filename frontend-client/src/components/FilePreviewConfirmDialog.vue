@@ -308,7 +308,7 @@ defineExpose({ show, hide });
 
 .fp-btn-full {
   background: var(--color-brand-accent); 
-  color: #fff;
+  color: var(--color-on-color);
 }
 
 .fp-btn-full:hover {

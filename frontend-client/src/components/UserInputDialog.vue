@@ -185,9 +185,9 @@ defineExpose({ show, hide });
   border: 1px solid rgba(var(--color-active-rgb), 0.25);
   box-shadow:
     0 0 0 1px rgba(var(--color-active-rgb), 0.08),
-    0 8px 32px rgba(0, 0, 0, 0.45),
-    0 32px 80px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 8px 32px rgba(0, 0, 0, 0.18),
+    0 24px 56px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 var(--color-soft-inset);
   overflow: hidden;
 }
 
@@ -402,7 +402,7 @@ defineExpose({ show, hide });
 .btn-send {
   flex: 1;
   background: var(--color-active);
-  color: #fff;
+  color: var(--color-on-color);
   box-shadow: 0 2px 12px rgba(var(--color-active-rgb), 0.3);
 }
 

@@ -461,7 +461,7 @@ watch(() => props.data, () => {
   background: var(--color-active);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--color-on-color);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;

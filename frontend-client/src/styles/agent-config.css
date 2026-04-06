@@ -53,7 +53,7 @@
   justify-content: center;
   z-index: var(--z-sidebar);
   transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 var(--color-soft-inset);
 }
 
 .btn-scroll-bottom:hover {
@@ -61,12 +61,6 @@
   color: var(--color-text-primary);
   transform: translateY(2px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-[data-theme="light"] .btn-scroll-bottom {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: var(--color-border);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 /* ===== Header ===== */
@@ -782,7 +776,7 @@ input[type='number'].form-control {
   border: 1px solid var(--color-border-hover);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    inset 0 1px 0 var(--color-soft-inset);
   transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
               height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1;
@@ -847,7 +841,7 @@ input[type='number'].form-control {
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.25),
     0 2px 8px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    inset 0 1px 0 var(--color-soft-inset);
 }
 
 .section-nav--mobile::-webkit-scrollbar { display: none; }
@@ -901,7 +895,7 @@ input[type='number'].form-control {
   border: 1px solid var(--color-border-hover);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    inset 0 1px 0 var(--color-soft-inset);
   transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
               width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1;
@@ -945,25 +939,6 @@ input[type='number'].form-control {
     flex-direction: row;
     align-items: center;
   }
-}
-
-/* ===== Light Theme Adaptation ===== */
-[data-theme="light"] .section-nav--mobile,
-[data-theme="light"] .section-nav--desktop {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.1),
-    0 2px 8px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-[data-theme="light"] .section-nav--mobile::before,
-[data-theme="light"] .section-nav--desktop::before {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: var(--color-border);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 /* ===== Modal overlay ===== */

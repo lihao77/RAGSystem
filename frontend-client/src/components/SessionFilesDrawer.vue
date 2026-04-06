@@ -207,7 +207,7 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
 .ctx-action-btn--primary {
   background: var(--color-brand-accent);
   border-color: var(--color-brand-accent);
-  color: #fff;
+  color: var(--color-on-color);
 }
 .ctx-action-btn--primary:hover:not(:disabled) { opacity: 0.88; }
 .ctx-action-btn--ghost {

@@ -471,7 +471,7 @@ onUnmounted(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-bg-elevated);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
   transition: transform 0.15s ease;
 }
@@ -624,7 +624,7 @@ onUnmounted(() => {
   border: none;
   border-radius: 6px;
   background: var(--color-primary, #6366f1);
-  color: #fff;
+  color: var(--color-on-color);
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;

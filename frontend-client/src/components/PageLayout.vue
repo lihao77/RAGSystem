@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
   min-height: 44px;
   padding: 0 34px 0 12px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-hover-overlay);
   font-size: 12px;
   box-sizing: border-box;
 }

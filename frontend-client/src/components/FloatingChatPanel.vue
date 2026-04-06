@@ -396,7 +396,7 @@ watch(isCollapsed, (val) => {
 .send-btn:hover:not(:disabled) {
   background: var(--color-interactive);
   border-color: var(--color-interactive);
-  color: white;
+  color: var(--color-on-color);
 }
 
 .send-btn:disabled {

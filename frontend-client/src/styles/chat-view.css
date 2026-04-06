@@ -723,13 +723,11 @@
   font-family: var(--font-mono);
   font-size: 0.88em;
   background: var(--color-bg-elevated);
-  padding: 0.25em 0.5em;
+  padding: 0.22em 0.48em;
   border-radius: var(--radius-md);
   color: var(--code-inline-fg);
-  border: 1px solid var(--color-border);
-  font-weight: 500;
-  color: var(--code-inline-fg);
   border: 1px solid var(--color-glass-border);
+  font-weight: 500;
 }
 
 /* 代码块 */
@@ -756,7 +754,6 @@
 .markdown-body :deep(pre code) {
   background-color: transparent;
   padding: 0;
-  /* #12: 用 CSS 变量替换硬编码颜色 */
   color: var(--code-fg);
   font-size: 0.88em;
   line-height: 1.6;
@@ -767,10 +764,10 @@
 .markdown-body :deep(.hljs) {
   background-color: transparent !important;
   color: var(--code-fg);
-  padding: 0 10px;
+  padding: 10px 12px;
 }
 
-/* #12: 语法高亮颜色改用 CSS 变量 */
+/* 语法高亮颜色统一收敛 */
 .markdown-body :deep(.hljs-comment),
 .markdown-body :deep(.hljs-quote) {
   color: var(--color-text-muted);
@@ -787,35 +784,32 @@
   font-weight: 600;
 }
 
-.markdown-body :deep(.hljs-attr,
-  .hljs-attribute,
-  .hljs-literal,
-  .hljs-meta,
-  .hljs-number,
-  .hljs-operator,
-  .hljs-variable,
-  .hljs-selector-attr,
-  .hljs-selector-class,
-  .hljs-selector-id) {
+.markdown-body :deep(.hljs-attr),
+.markdown-body :deep(.hljs-attribute),
+.markdown-body :deep(.hljs-literal),
+.markdown-body :deep(.hljs-meta),
+.markdown-body :deep(.hljs-operator),
+.markdown-body :deep(.hljs-variable),
+.markdown-body :deep(.hljs-selector-attr),
+.markdown-body :deep(.hljs-selector-class),
+.markdown-body :deep(.hljs-selector-id) {
   color: var(--code-attr);
   font-weight: 600;
-  font-family: var(--font-mono) !important
 }
 
-.markdown-body :deep(.hljs-string, .hljs-number) {
+.markdown-body :deep(.hljs-string),
+.markdown-body :deep(.hljs-number) {
   color: var(--code-string);
 }
 
 /* 引用块 */
 .markdown-body :deep(blockquote) {
-  border-left: 3px solid var(--color-interactive);
-  padding-left: 1em;
   margin: 1em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--color-border-hover);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: rgba(var(--color-bg-elevated-rgb), 0.35);
   color: var(--color-text-secondary);
-  background: var(--color-interactive-subtle);
-  padding: var(--spacing-md) 1em;
-  border-radius: var(--radius-md);
-  backdrop-filter: blur(8px);
 }
 
 /* 链接 */
@@ -833,13 +827,17 @@
 
 /* 表格 */
 .markdown-body :deep(table) {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
-  width: 100%;
   margin: 1em 0;
-  overflow: hidden;
   border-radius: var(--radius-md);
   box-shadow: var(--glass-shadow);
   background: var(--color-bg-secondary);
+  -webkit-overflow-scrolling: touch;
 }
 
 .markdown-body :deep(th),
@@ -847,6 +845,7 @@
   border: 1px solid var(--color-border);
   padding: 0.75em 1em;
   text-align: left;
+  white-space: nowrap;
 }
 
 .markdown-body :deep(th) {
@@ -1682,10 +1681,6 @@
 
   /* 移动端表格优化 */
   .markdown-body :deep(table) {
-    display: table;      /* 不要用 block */
-    width: 100%;         /* 明确占满容器 */
-    overflow-x: auto;    /* 可选：其实 table 自己一般不用 overflow */
-    -webkit-overflow-scrolling: touch;
     font-size: 0.85rem;
   }
 
@@ -1843,23 +1838,6 @@
     background-color: rgba(var(--color-bg-elevated-rgb), 0.88);
     border-color: var(--color-border);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  }
-
-
-  /* 代码块：亮色下需要明显的边框区分代码区域 */
-  .markdown-body :deep(pre) {
-    border-color: var(--color-border);
-  }
-
-  /* 行内代码：亮色下加深背景使其更明显 */
-  .markdown-body :deep(code) {
-    border-color: var(--color-border);
-  }
-
-  /* 引用块：亮色下调整为更柔和的背景 */
-  .markdown-body :deep(blockquote) {
-    background: var(--color-bg-secondary);
-    border-left-color: var(--color-brand-accent);
   }
 }
 /* ===== User 消息气泡容器 ===== */

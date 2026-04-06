@@ -301,7 +301,7 @@ const svgHeight = computed(() => {
   right: -4px;
   font-size: 9px;
   font-weight: 700;
-  color: #fff;
+  color: var(--color-on-color);
   background: var(--color-interactive);
   padding: 1px 4px;
   border-radius: 8px;

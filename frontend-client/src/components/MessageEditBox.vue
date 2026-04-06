@@ -370,7 +370,7 @@ onMounted(async () => {
 
 .msg-edit-btn-confirm {
   background: var(--color-brand-accent);
-  color: white;
+  color: var(--color-on-color);
   border-color: var(--color-brand-accent);
   box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }

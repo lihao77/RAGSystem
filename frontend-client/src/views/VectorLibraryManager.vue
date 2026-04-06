@@ -1361,7 +1361,7 @@ onMounted(() => {
 
 .summary-card:hover {
     border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 var(--color-soft-inset);
 }
 
 .summary-icon {
@@ -1464,7 +1464,7 @@ onMounted(() => {
     border: 1px solid var(--color-border-hover);
     box-shadow:
         0 2px 8px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        inset 0 1px 0 var(--color-soft-inset);
     transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
                 width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 0;
@@ -1635,7 +1635,7 @@ onMounted(() => {
     border-radius: 20px;
     border: none;
     background: linear-gradient(135deg, rgba(var(--color-brand-accent-rgb), 0.9), rgba(var(--color-brand-accent-light-rgb), 0.95));
-    color: #fff;
+    color: var(--color-on-color);
     font: inherit;
     font-size: var(--font-size-sm);
     font-weight: 600;
