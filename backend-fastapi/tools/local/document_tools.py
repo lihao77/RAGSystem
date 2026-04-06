@@ -78,6 +78,7 @@ def _prepare_document_tool_args(
     session_id: str | None = None,
     run_id: str | None = None,
     agent_config=None,
+    approved_external_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     if tool_name not in _DOCUMENT_TOOL_NAMES:
         return dict(arguments)
@@ -117,6 +118,7 @@ def _prepare_document_tool_args(
             default_output_space=context["default_output_space"],
             workspace_root=context["workspace_root"],
             explicit_space=file_path_space,
+            approved_external_paths=approved_external_paths,
         )
         args["file_path"] = str(resolved)
     elif tool_name == "write_file":
@@ -131,6 +133,7 @@ def _prepare_document_tool_args(
             default_output_space=context["default_output_space"],
             workspace_root=context["workspace_root"],
             suffix=suffix,
+            approved_external_paths=approved_external_paths,
         )
         args["file_path"] = str(assigned)
 
@@ -968,6 +971,7 @@ def write_file(
     run_id: Optional[str] = None,
     agent_config=None,
     event_bus=None,
+    approved_external_paths: Optional[list[str]] = None,
 ) -> Any:
     """写入文本内容到文件。JSON 请先用 json.dumps 序列化为字符串再传入。"""
     del event_bus
@@ -984,6 +988,7 @@ def write_file(
             session_id=session_id,
             run_id=run_id,
             agent_config=agent_config,
+            approved_external_paths=approved_external_paths,
         )
         file_path_obj = Path(prepared["file_path"])
 
@@ -1122,6 +1127,7 @@ def read_file(
     run_id: Optional[str] = None,
     agent_config=None,
     _skip_preview: bool = False,
+    approved_external_paths: Optional[list[str]] = None,
 ) -> Any:
     """按行号读取文件内容，返回原始文本内容。支持大文件预览确认（仅 direct 调用）。"""
     try:
@@ -1135,6 +1141,7 @@ def read_file(
             session_id=session_id,
             run_id=run_id,
             agent_config=agent_config,
+            approved_external_paths=approved_external_paths,
         )
         file_path_obj = Path(prepared["file_path"])
 
@@ -1371,6 +1378,7 @@ def edit_file(
     run_id: Optional[str] = None,
     agent_config=None,
     event_bus=None,
+    approved_external_paths: Optional[list[str]] = None,
 ) -> Any:
     """精准字符串替换编辑文件。old_string 必须唯一匹配（除非 replace_all=True）。"""
     del event_bus
@@ -1387,6 +1395,7 @@ def edit_file(
             session_id=session_id,
             run_id=run_id,
             agent_config=agent_config,
+            approved_external_paths=approved_external_paths,
         )
         file_path_obj = Path(prepared["file_path"])
 

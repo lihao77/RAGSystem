@@ -198,6 +198,12 @@ def _dedupe_paths(paths: Iterable[Path | None]) -> list[Path]:
     return result
 
 
+def _normalize_approved_external_paths(paths: Iterable[str | Path] | None) -> list[Path]:
+    if not paths:
+        return []
+    return _dedupe_paths(Path(path).resolve() for path in paths if str(path).strip())
+
+
 def _session_read_roots(session_id: str | None, run_id: str | None, workspace_root: str | Path | None = None) -> list[Path]:
     if not session_id:
         return []
@@ -275,28 +281,36 @@ def _allowed_roots_for_access(
     caller: str,
     operation: str,
     workspace_root: str | Path | None,
+    approved_external_paths: Iterable[str | Path] | None = None,
 ) -> list[Path]:
     effective_workspace = get_effective_workspace_root(session_id, workspace_root)
+    approved_roots = _normalize_approved_external_paths(approved_external_paths)
 
     if caller == "code_execution":
         if operation in _WRITE_OPERATIONS:
             return _dedupe_paths([
                 get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",
                 *_session_read_roots(session_id, run_id, workspace_root),
+                *approved_roots,
             ])
         return _dedupe_paths([
             effective_workspace,
             get_session_sandbox_root(session_id) if session_id else _anonymous_session_root() / "sandbox",
             *_session_read_roots(session_id, run_id, workspace_root),
+            *approved_roots,
         ])
 
     if operation in _WRITE_OPERATIONS:
-        return _direct_write_roots(session_id, run_id, workspace_root)
+        return _dedupe_paths([
+            *_direct_write_roots(session_id, run_id, workspace_root),
+            *approved_roots,
+        ])
 
     return _dedupe_paths([
         effective_workspace,
         *_session_read_roots(session_id, run_id, workspace_root),
         DATA_ROOT,
+        *approved_roots,
     ])
 
 
@@ -309,6 +323,7 @@ def _assert_allowed_path(
     operation: str,
     workspace_root: str | Path | None,
     original_path: str,
+    approved_external_paths: Iterable[str | Path] | None = None,
 ) -> Path:
     resolved = path.resolve()
     allowed_roots = _allowed_roots_for_access(
@@ -317,6 +332,7 @@ def _assert_allowed_path(
         caller=caller,
         operation=operation,
         workspace_root=workspace_root,
+        approved_external_paths=approved_external_paths,
     )
     allowed_root_strings = [str(root.resolve()) for root in allowed_roots]
     allowed = any(_is_under(resolved, root) for root in allowed_roots)
@@ -541,6 +557,7 @@ def resolve_managed_path(
     workspace_root: str | Path | None = None,
     suffix: str = ".txt",
     explicit_space: str | None = None,
+    approved_external_paths: Iterable[str | Path] | None = None,
 ) -> Path:
     """
     将 direct / code_execution 的文件路径统一解析为受管绝对路径。
@@ -586,6 +603,7 @@ def resolve_managed_path(
             operation=op,
             workspace_root=workspace_root,
             original_path=raw_path,
+            approved_external_paths=approved_external_paths,
         )
 
     original = Path(raw_path)
@@ -598,6 +616,7 @@ def resolve_managed_path(
             operation=op,
             workspace_root=workspace_root,
             original_path=raw_path,
+            approved_external_paths=approved_external_paths,
         )
 
     if normalized_explicit_space is not None:
@@ -616,6 +635,7 @@ def resolve_managed_path(
             operation=op,
             workspace_root=workspace_root,
             original_path=raw_path,
+            approved_external_paths=approved_external_paths,
         )
 
     candidate_roots = _relative_candidate_roots(
@@ -640,6 +660,7 @@ def resolve_managed_path(
                     operation=op,
                     workspace_root=workspace_root,
                     original_path=raw_path,
+                    approved_external_paths=approved_external_paths,
                 )
 
     fallback_candidate = (candidate_roots[0] / original).resolve()
@@ -651,6 +672,7 @@ def resolve_managed_path(
         operation=op,
         workspace_root=workspace_root,
         original_path=raw_path,
+        approved_external_paths=approved_external_paths,
     )
 
 

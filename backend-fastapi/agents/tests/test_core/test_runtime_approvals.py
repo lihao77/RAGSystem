@@ -77,3 +77,55 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
 
     # 清理
     del TOOL_PERMISSIONS['execute_bash']
+
+def test_user_approval_event_includes_external_paths_for_document_tools(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
+    registry = _FakeApprovalRegistry()
+    published = {}
+
+    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: registry)
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+    TOOL_PERMISSIONS['edit_file'] = ToolPermission(
+        tool_name='edit_file',
+        risk_level=RiskLevel.HIGH,
+        description='Edit file',
+        allowed_callers=['direct'],
+    )
+
+    event_bus = MagicMock()
+    external_path = 'C:/tmp/outside.txt'
+
+    def fake_publish(event):
+        if getattr(event, 'type', None) != 'user.approval_required':
+            return
+        published['event'] = event
+
+        def approve():
+            registry.resolve_approval(event.session_id, event.data['approval_id'], True, '允许越界访问')
+
+        threading.Thread(target=approve).start()
+
+    event_bus.publish = fake_publish
+
+    context = ToolUseContext(
+        tool_name='edit_file',
+        arguments={'file_path': external_path, 'old_string': 'a', 'new_string': 'b'},
+        event_bus=event_bus,
+        session_id='session-approval-external-path',
+        caller='direct',
+    )
+    outcome = request_user_approval_if_needed(context)
+
+    normalized_external_path = external_path.replace('/', '\\')
+    assert outcome.allowed is True
+    assert outcome.approved_external_paths == [normalized_external_path]
+    assert outcome.approval_metadata['approved_external_paths'] == [normalized_external_path]
+    assert published['event'].data['approved_external_paths'] == [normalized_external_path]
+    assert published['event'].data['approval_reason'] == '路径越界访问需要审批'
+
+    del TOOL_PERMISSIONS['edit_file']
+
+

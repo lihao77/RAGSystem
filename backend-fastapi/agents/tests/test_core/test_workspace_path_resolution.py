@@ -145,6 +145,25 @@ def test_preprocess_document_tool_args_keeps_workspace_as_default_relative_space
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_preprocess_document_tool_args_accepts_approved_external_absolute_path():
+    root = _make_temp_dir()
+    external_file = root / "outside.txt"
+    external_file.write_text("hello", encoding="utf-8")
+
+    try:
+        args = _prepare_document_tool_args(
+            "edit_file",
+            {"file_path": str(external_file), "old_string": "hello", "new_string": "world"},
+            caller="direct",
+            session_id="session-approved-external-preprocess",
+            run_id="run-approved-external-preprocess",
+            approved_external_paths=[str(external_file)],
+        )
+        assert Path(args["file_path"]).resolve() == external_file.resolve()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_preprocess_document_tool_args_accepts_absolute_path_inside_workspace_root(caplog):
     import logging
 

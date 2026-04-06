@@ -153,6 +153,28 @@ def test_execute_document_tool_write_file_prefers_explicit_run_id_over_observabi
 
 
 
+def test_edit_file_accepts_approved_external_absolute_path(monkeypatch, tmp_path):
+    external_file = tmp_path / "outside.txt"
+    external_file.write_text("before\nafter\n", encoding="utf-8")
+
+    calls = _track_resolve_calls(monkeypatch)
+    _set_run_id(monkeypatch, "run-approved-external-edit")
+
+    result = edit_file(
+        file_path=str(external_file),
+        old_string="before",
+        new_string="updated",
+        caller="direct",
+        session_id="session-approved-external-edit",
+        approved_external_paths=[str(external_file)],
+    )
+
+    assert result.success is True
+    assert external_file.read_text(encoding="utf-8") == "updated\nafter\n"
+    assert len(calls) == 1
+    assert calls[0]["approved_external_paths"] == [str(external_file)]
+
+
 def test_execute_document_tool_read_file_resolves_path_once_and_keeps_large_file_approval(monkeypatch, tmp_path):
     session_id = "session-read"
     run_id = "run-read"

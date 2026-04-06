@@ -393,7 +393,42 @@ def test_resolve_managed_path_explicit_exports_space_requires_run_id():
         _cleanup_path(session_root)
 
 
-def test_resolve_managed_path_code_execution_can_read_explicit_workspace_absolute_path():
+def test_resolve_managed_path_direct_write_accepts_approved_external_absolute_path():
+    temp_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    external_file = temp_root / 'external.txt'
+
+    try:
+        resolved = resolve_managed_path(
+            str(external_file),
+            session_id='session-approved-external-write',
+            caller='direct',
+            operation='write',
+            approved_external_paths=[str(external_file)],
+        )
+        assert resolved == external_file.resolve()
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_resolve_managed_path_direct_write_rejects_unapproved_external_absolute_path():
+    temp_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    external_file = temp_root / 'external.txt'
+
+    try:
+        try:
+            resolve_managed_path(
+                str(external_file),
+                session_id='session-unapproved-external-write',
+                caller='direct',
+                operation='write',
+            )
+            assert False, 'expected PermissionError'
+        except PermissionError as exc:
+            assert '超出允许的受管目录范围' in str(exc)
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
     temp_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
     workspace = temp_root / 'workspace'
     workspace.mkdir(parents=True, exist_ok=True)

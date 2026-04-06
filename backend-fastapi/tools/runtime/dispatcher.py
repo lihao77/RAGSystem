@@ -34,6 +34,7 @@ def build_handler_call_arguments(handler, context) -> dict:
         'order',
         'round_index',
         'request_id',
+        'approved_external_paths',
     ):
         if key in sig_params and hasattr(context, key):
             value = getattr(context, key)

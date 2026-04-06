@@ -68,6 +68,8 @@ backend-fastapi/
 | `session_uploads` | 默认 `~/.ragsystem/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
 | `monitoring/session_traces` | 默认 `~/.ragsystem/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
 | `memory` | 默认 `~/.ragsystem/memory/...` | 团队/会话/Agent/workspace 级 Markdown 记忆索引与主题文件 | `services/memory_store.py`、`execution/persistence/message_handler.py` | 参考 Claude Code：启动时注入各作用域 `MEMORY.md` 索引头部，详细记忆由 Agent 按需读取具体 md 文件 |
+
+这些目录桶描述的是运行时默认落盘与默认访问边界；对 direct 文件工具而言，若目标绝对路径超出默认 managed roots，系统会先触发审批，审批通过后仅对当前调用临时授权访问该越界路径，不会重写默认目录桶模型。
 | `db` | 默认 `~/.ragsystem/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
 | `anonymous fallback` | 逻辑 display path 仍为 `./data/sessions/anonymous/...`，物理默认位于 `~/.ragsystem/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
@@ -251,7 +253,8 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `tools.runtime.approvals.request_user_approval_if_needed()` 在发布 `USER_APPROVAL_REQUIRED` 时，会追加：
   - `permission_mode`：当前全局权限模式
   - `approval_reason`：后端最终审批判定理由
-- 前端直接展示后端给出的 `approval_reason`，不自行推导。
+  - `approved_external_paths`：若本次 direct 文件工具访问的是默认 managed roots 之外的绝对路径，则记录本次审批授权的越界目标路径列表
+- 前端直接展示后端给出的 `approval_reason`，不自行推导；当 `approved_external_paths` 非空时，表示本次审批同时承担“路径边界例外授权”，但该授权仅作用于当前调用，不会永久改变 `workspace_root`、session 目录桶或全局权限模式。
 
 ## 占位符系统
 

@@ -247,6 +247,8 @@ def execute_tool(
         approval_outcome = request_user_approval_if_needed(context)
         if not approval_outcome.allowed:
             return approval_outcome.error_result
+        if approval_outcome.approved_external_paths:
+            context.approved_external_paths = list(approval_outcome.approved_external_paths)
 
         from tools.permissions import evaluate_tool_permission, get_tool_permission
 

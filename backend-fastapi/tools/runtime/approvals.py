@@ -23,6 +23,29 @@ class ApprovalOutcome:
     approval_message: str = ""
     approval_metadata: dict[str, Any] = field(default_factory=dict)
     approval_hook: dict[str, Any] = field(default_factory=dict)
+    approved_external_paths: list[str] = field(default_factory=list)
+
+
+def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]:
+    from pathlib import Path
+
+    tool_name = (context.tool_name or "").strip()
+    if context.caller != "direct" or tool_name not in {"read_file", "write_file", "edit_file"}:
+        return []
+
+    raw_path = (context.arguments or {}).get("file_path")
+    if raw_path is None:
+        return []
+    raw_path = str(raw_path).strip()
+    if not raw_path:
+        return []
+    if raw_path.startswith("./data/"):
+        return []
+
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        return []
+    return [str(candidate.resolve())]
 
 
 def _run_hook_coroutine(coro):
@@ -62,11 +85,14 @@ def _build_approval_metadata(
     reason: str,
     note: str = "",
     hook_result=None,
+    approved_external_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     metadata = {
         "reason": reason,
         "note": note or "",
     }
+    if approved_external_paths:
+        metadata["approved_external_paths"] = list(approved_external_paths)
     hook_payload = _approval_hook_payload(hook_result)
     if hook_payload:
         metadata["hook"] = hook_payload
@@ -106,6 +132,10 @@ def request_user_approval_if_needed(
         return ApprovalOutcome(allowed=True)
 
     requires, reason = should_require_approval(context.tool_name, permission, context.arguments)
+    approved_external_paths = _candidate_external_paths_for_approval(context)
+    if approved_external_paths:
+        reason = "路径越界访问需要审批"
+        requires = True
     if not requires and not force_ask:
         if reason:
             logger.info(f"工具 {context.tool_name} 审批跳过: {reason}{_obs_suffix()}")
@@ -126,6 +156,7 @@ def request_user_approval_if_needed(
                     "approval": _build_approval_metadata(
                         reason=reason,
                         hook_result=approval_required_hook,
+                        approved_external_paths=approved_external_paths,
                     )
                 },
             ),
@@ -133,6 +164,7 @@ def request_user_approval_if_needed(
             approval_metadata=_build_approval_metadata(
                 reason=reason,
                 hook_result=approval_required_hook,
+                approved_external_paths=approved_external_paths,
             ),
         )
 
@@ -154,6 +186,7 @@ def request_user_approval_if_needed(
             "permission_mode": permission_mode,
             "approval_reason": reason,
             "approval_hook": approval_hook_payload,
+            "approved_external_paths": approved_external_paths,
         }
         context.event_bus.publish(Event(
             type=EventType.USER_APPROVAL_REQUIRED,
@@ -167,6 +200,7 @@ def request_user_approval_if_needed(
             approval_metadata = _build_approval_metadata(
                 reason=reason,
                 hook_result=approval_required_hook,
+                approved_external_paths=approved_external_paths,
             )
             return ApprovalOutcome(
                 allowed=False,
@@ -198,6 +232,7 @@ def request_user_approval_if_needed(
                 reason=reason,
                 note=approval_note,
                 hook_result=denied_hook,
+                approved_external_paths=approved_external_paths,
             )
 
             logger.info(f"工具 {context.tool_name} 审批被拒绝或任务已停止{_obs_suffix()}")
@@ -225,6 +260,7 @@ def request_user_approval_if_needed(
             reason=reason,
             note=approval_note,
             hook_result=resolved_hook,
+            approved_external_paths=approved_external_paths,
         )
 
         logger.info(f"工具 {context.tool_name} 审批通过，继续执行{_obs_suffix()}")
@@ -235,12 +271,14 @@ def request_user_approval_if_needed(
             approval_message=approval_note or "",
             approval_metadata=approval_metadata,
             approval_hook=_approval_hook_payload(resolved_hook),
+            approved_external_paths=approved_external_paths,
         )
     except Exception as error:
         error_hook = _run_approval_hook("approval.error", context, permission, reason, error=error)
         approval_metadata = _build_approval_metadata(
             reason=reason,
             hook_result=error_hook,
+            approved_external_paths=approved_external_paths,
         )
 
         logger.error(f"审批流程异常: {error}{_obs_suffix()}")

@@ -69,6 +69,7 @@ class ToolUseContext:
     round: Optional[int] = None
     order: Optional[int] = None
     round_index: Optional[int] = None
+    approved_external_paths: List[str] = field(default_factory=list)
 
 
 __all__ = [
