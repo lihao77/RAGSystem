@@ -6,7 +6,7 @@ import pytest
 
 from tools.bootstrap import bootstrap_tool_system
 from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
-from tools.permission_manager import add_auto_accept_pattern, set_permission_policy, should_require_approval
+from tools.permission_manager import add_auto_accept_pattern, get_permission_policy, set_permission_policy, should_require_approval
 from tools.permissions import (
     TOOL_PERMISSIONS,
     RiskLevel,
@@ -28,7 +28,11 @@ def _reset_permission_policy():
     set_permission_policy(PermissionPolicy())
 
 
-def test_activate_skill_has_registered_permission():
+def test_permission_policy_defaults_skip_all_approvals_to_false():
+    policy = get_permission_policy()
+    assert policy.skip_all_approvals is False
+
+
     allowed, error = check_tool_permission("activate_skill", caller="direct")
 
     assert allowed is True

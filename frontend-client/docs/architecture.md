@@ -154,7 +154,9 @@ tool 归属规则：
 
 ### 权限审批展示
 
-- `PermissionModeSelector.vue` 仅负责全局权限模式与 auto-accept 规则，不与 session 绑定。
+- `PermissionModeSelector.vue` 仅负责全局权限模式与 auto-accept 规则，不与 session 绑定；同时提供独立的 `skip_all_approvals` 总开关。
+- `skip_all_approvals` 在 UI 上表现为 switch 风格总开关，旁边使用 `i` 信息按钮展开说明；开启后外层 trigger 进入红色危险态并更新 tooltip，明确当前为“跳过所有审批”，同时“权限模式”列表进入置灰禁用态，仅保留展示，不允许再切换 mode，避免两个维度同时可编辑造成语义混淆。
+- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；`skip_all_approvals` 才是“跳过所有审批”的总开关，但仍保留工具执行权限 deny。
 - `src/api/permissions.js` 统一调用全局 `/api/permissions/*` 接口，不传 session 参数。
 - `ChatViewV2.vue` 在收到 `user.approval_required` 时继续原样透传 `event.data` 给 `ApprovalDialog.show(...)`。
 - `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件；当前会额外读取 `approval_reason_codes`、`approval_secondary_reasons` 与 `approved_external_paths`，用于区分“风险审批”“路径越界审批”以及双重原因场景，并展示本次调用被授权的越界路径列表。

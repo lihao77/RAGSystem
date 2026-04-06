@@ -153,6 +153,8 @@ def request_user_approval_if_needed(
     from tools.permissions import evaluate_tool_permission, get_tool_permission
 
     permission_mode = get_permission_policy().mode.value
+    skip_all_approvals = get_permission_policy().skip_all_approvals
+    approved_external_paths = _candidate_external_paths_for_approval(context)
 
     decision = evaluate_tool_permission(
         tool_name=context.tool_name,
@@ -167,12 +169,15 @@ def request_user_approval_if_needed(
             error_result=error_result(decision.deny_reason, tool_name=context.tool_name),
         )
 
+    if skip_all_approvals:
+        logger.info(f"工具 {context.tool_name} 启用 skip_all_approvals，跳过审批{_obs_suffix()}")
+        return ApprovalOutcome(allowed=True, approved_external_paths=approved_external_paths)
+
     permission = get_tool_permission(context.tool_name)
     if not permission:
         return ApprovalOutcome(allowed=True)
 
     requires, risk_reason = should_require_approval(context.tool_name, permission, context.arguments)
-    approved_external_paths = _candidate_external_paths_for_approval(context)
     reason, secondary_reasons, reason_codes = _build_approval_reason_payload(
         risk_reason=risk_reason,
         approved_external_paths=approved_external_paths,
@@ -375,6 +380,10 @@ def request_inline_approval(
     """
     from tools.contracts.permissions import RiskLevel as _RL, ToolPermission
     from tools.permission_manager import get_permission_policy, should_require_approval
+
+    if get_permission_policy().skip_all_approvals:
+        logger.info("内联审批跳过（skip_all_approvals）: %s", description)
+        return True, ""
 
     _risk_map = {"low": _RL.LOW, "medium": _RL.MEDIUM, "high": _RL.HIGH}
     _perm = ToolPermission(

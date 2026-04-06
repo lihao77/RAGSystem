@@ -191,7 +191,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 
 - 当前权限模式由 `tools.permission_manager` 的全局 `PermissionPolicy` 统一管理。
 - `/api/permissions/policy`、`/api/permissions/mode` 只操作全局策略，不区分 session。
-- `dangerously_skip_permissions` 表示“跳过审批”。
+- `dangerously_skip_permissions` 表示“跳过审批”，仅针对常规风险审批；若需要完全关闭所有 ask 流程，应通过 `PermissionPolicy.skip_all_approvals=true` 启用总开关。
 - 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode`、`approval_reason` 与 `approval_hook`，供前端展示。
 - 审批事件与执行结果 metadata 现在会同时携带结构化原因字段：`approval_reason_codes` / `reason_codes`（如 `ask-risk`、`ask-path`）以及可选 `approval_secondary_reasons` / `secondary_reasons`，用于表达一次审批同时命中多种原因的场景。
 - 当 direct 文件工具访问目标绝对路径超出默认 managed roots 时，runtime 会把该次调用升级为“路径越界访问需要审批”；审批通过后，事件与结果 metadata 会附带 `approved_external_paths`，仅授权本次调用访问这些越界路径，不会永久放开目录边界。

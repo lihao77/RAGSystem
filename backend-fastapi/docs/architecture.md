@@ -249,7 +249,8 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 
 - 当前权限策略仅有全局作用域，唯一状态源为 `tools.permission_manager` 内的全局 `_current_policy`。
 - `/api/permissions/policy` 与 `/api/permissions/mode` 只读写全局策略，不引入 session 级权限模式。
-- `dangerously_skip_permissions` 的中文语义统一为“跳过审批”。
+- `dangerously_skip_permissions` 的中文语义统一为“跳过审批”，表示跳过常规风险审批，不等于跳过所有 ask。
+- `PermissionPolicy.skip_all_approvals` 是独立总开关：为 `true` 时跳过所有 ask 流程（常规风险审批、路径越界审批、hook force_ask、inline approval），但不绕过 `evaluate_tool_permission(...)` 这类执行权限 deny。
 - `tools.runtime.approvals.request_user_approval_if_needed()` 在发布 `USER_APPROVAL_REQUIRED` 时，会追加：
   - `permission_mode`：当前全局权限模式
   - `approval_reason`：后端最终审批判定主原因

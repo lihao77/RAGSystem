@@ -27,3 +27,4 @@ class PermissionPolicy(BaseModel):
     auto_accept_patterns: List[AutoAcceptPattern] = []
     audit_all_checks: bool = False
     approval_timeout: int = 300
+    skip_all_approvals: bool = False

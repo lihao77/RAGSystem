@@ -26,7 +26,37 @@ class _FakeApprovalRegistry:
         return self._results[(session_id, approval_id)]
 
 
-def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
+def test_skip_all_approvals_short_circuits_runtime_approval(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
+    published = {}
+    event_bus = MagicMock()
+    event_bus.publish = lambda event: published.setdefault('event', event)
+
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD, skip_all_approvals=True))
+    TOOL_PERMISSIONS['execute_bash'] = ToolPermission(
+        tool_name='execute_bash',
+        risk_level=RiskLevel.HIGH,
+        description='Execute bash command',
+        allowed_callers=['direct'],
+    )
+
+    context = ToolUseContext(
+        tool_name='execute_bash',
+        arguments={'command': 'rm demo.txt'},
+        event_bus=event_bus,
+        session_id='session-skip-all-runtime',
+    )
+    outcome = request_user_approval_if_needed(context)
+
+    assert outcome.allowed is True
+    assert published == {}
+
+    del TOOL_PERMISSIONS['execute_bash']
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+
     from tools.contracts.permissions import RiskLevel, ToolPermission
     from tools.permissions import TOOL_PERMISSIONS
 
@@ -79,7 +109,39 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
     # 清理
     del TOOL_PERMISSIONS['execute_bash']
 
-def test_user_approval_event_includes_external_paths_for_document_tools(monkeypatch):
+def test_skip_all_approvals_skips_path_approval(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
+    published = {}
+    event_bus = MagicMock()
+    event_bus.publish = lambda event: published.setdefault('event', event)
+
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD, skip_all_approvals=True))
+    TOOL_PERMISSIONS['edit_file'] = ToolPermission(
+        tool_name='edit_file',
+        risk_level=RiskLevel.HIGH,
+        description='Edit file',
+        allowed_callers=['direct'],
+    )
+
+    context = ToolUseContext(
+        tool_name='edit_file',
+        arguments={'file_path': 'C:/tmp/outside.txt', 'old_string': 'a', 'new_string': 'b'},
+        event_bus=event_bus,
+        session_id='session-skip-all-path',
+        caller='direct',
+    )
+    outcome = request_user_approval_if_needed(context)
+
+    assert outcome.allowed is True
+    assert outcome.approved_external_paths == ['C:\\tmp\\outside.txt']
+    assert published == {}
+
+    del TOOL_PERMISSIONS['edit_file']
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+
     from tools.contracts.permissions import RiskLevel, ToolPermission
     from tools.permissions import TOOL_PERMISSIONS
 

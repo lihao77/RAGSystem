@@ -73,7 +73,38 @@ def _crash_worker_for_test(conn, payload):
     raise SystemExit(0)
 
 
-def test_execute_code_import_approval_allows_restricted_module(monkeypatch):
+def test_skip_all_approvals_skips_inline_approval(monkeypatch):
+    from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
+    from tools.permission_manager import set_permission_policy
+
+    registry = _FakeApprovalRegistry()
+    published = {}
+
+    monkeypatch.setattr("tools.local.code_sandbox.get_task_registry", lambda: registry)
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD, skip_all_approvals=True))
+
+    event_bus = MagicMock()
+    event_bus.publish = lambda event: published.setdefault("event", event)
+
+    result = execute_code_sandbox(
+        code=(
+            "request_write_approval('result.txt', 'write temp result')\n"
+            "with open('result.txt', 'w') as f:\n"
+            "    f.write('generated')\n"
+            "result = 'ok'"
+        ),
+        description="skip all inline approval",
+        agent_config=None,
+        event_bus=event_bus,
+        user_role=None,
+        session_id="session-skip-all-inline",
+    )
+
+    assert result.success is True
+    assert published == {}
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+
     registry = _FakeApprovalRegistry()
     published = {}
 
