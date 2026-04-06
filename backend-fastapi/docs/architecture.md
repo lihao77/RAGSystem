@@ -252,9 +252,11 @@ Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
 - `dangerously_skip_permissions` 的中文语义统一为“跳过审批”。
 - `tools.runtime.approvals.request_user_approval_if_needed()` 在发布 `USER_APPROVAL_REQUIRED` 时，会追加：
   - `permission_mode`：当前全局权限模式
-  - `approval_reason`：后端最终审批判定理由
-  - `approved_external_paths`：若本次 direct 文件工具访问的是默认 managed roots 之外的绝对路径，则记录本次审批授权的越界目标路径列表
-- 前端直接展示后端给出的 `approval_reason`，不自行推导；当 `approved_external_paths` 非空时，表示本次审批同时承担“路径边界例外授权”，但该授权仅作用于当前调用，不会永久改变 `workspace_root`、session 目录桶或全局权限模式。
+  - `approval_reason`：后端最终审批判定主原因
+  - `approval_reason_codes`：结构化审批原因列表（如 `ask-risk`、`ask-path`），可同时包含多个原因
+  - `approval_secondary_reasons`：附加原因文本列表，用于双重展示
+  - `approved_external_paths`：若本次 direct 文件工具或 `execute_bash` 的工作目录访问的是默认 managed roots 之外的绝对路径，则记录本次审批授权的越界目标路径列表
+- 前端直接展示后端给出的 `approval_reason`，并可基于 `approval_reason_codes` 做风险审批/路径越界审批的区分展示；当 `approved_external_paths` 非空时，表示本次审批同时承担“路径边界例外授权”，但该授权仅作用于当前调用，不会永久改变 `workspace_root`、session 目录桶或全局权限模式。
 
 ## 占位符系统
 

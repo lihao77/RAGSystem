@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import shutil
 import tempfile
 import threading
 from pathlib import Path
@@ -256,7 +257,41 @@ def test_execute_bash_requests_approval_when_pipeline_contains_non_whitelisted_c
     assert published["event"].data["arguments"]["command_segments"] == ["mkdir"]
 
 
-# ── 命令分类专项测试 ──────────────────────────────────────────
+def test_execute_bash_allows_external_working_dir_when_approved(monkeypatch):
+    workspace = _make_workspace()
+    outside = Path(tempfile.mkdtemp(prefix="bash-tool-outside-"))
+    registry = _FakeApprovalRegistry()
+    monkeypatch.setattr("agents.task_registry.get_task_registry", lambda: registry)
+
+    event_bus = MagicMock()
+    published = {}
+    agent_config = SimpleNamespace(custom_params={"workspace_root": str(workspace)})
+
+    def fake_publish(event):
+        published["event"] = event
+
+        def approve():
+            registry.resolve_approval(event.session_id, event.data["approval_id"], True, "允许外部目录")
+
+        threading.Thread(target=approve).start()
+
+    event_bus.publish = fake_publish
+
+    try:
+        result = execute_bash(
+            command="pwd",
+            working_dir=str(outside),
+            agent_config=agent_config,
+            event_bus=event_bus,
+            session_id="session-bash-external-dir",
+            approved_external_paths=[str(outside)],
+        )
+        assert result.success is True
+        assert Path(result.metadata["working_dir"]).resolve() == outside.resolve()
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
+
 
 
 def test_classify_tar_list_is_read_only():

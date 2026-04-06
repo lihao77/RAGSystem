@@ -467,6 +467,7 @@ def resolve_managed_directory(
     workspace_root: str | Path | None = None,
     explicit_space: str | None = None,
     default_space: str = "workspace",
+    approved_external_paths: Iterable[str | Path] | None = None,
 ) -> Path:
     """
     将相对/绝对目录统一解析为受管绝对目录。
@@ -514,6 +515,7 @@ def resolve_managed_directory(
             operation="read",
             workspace_root=workspace_root,
             original_path=raw_directory,
+            approved_external_paths=approved_external_paths,
         )
 
     original = Path(raw_directory)
@@ -526,6 +528,7 @@ def resolve_managed_directory(
             operation="read",
             workspace_root=workspace_root,
             original_path=raw_directory,
+            approved_external_paths=approved_external_paths,
         )
 
     base_root = _managed_space_root(
@@ -543,6 +546,7 @@ def resolve_managed_directory(
         operation="read",
         workspace_root=workspace_root,
         original_path=raw_directory,
+        approved_external_paths=approved_external_paths,
     )
 
 

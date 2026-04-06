@@ -393,7 +393,25 @@ def test_resolve_managed_path_explicit_exports_space_requires_run_id():
         _cleanup_path(session_root)
 
 
-def test_resolve_managed_path_direct_write_accepts_approved_external_absolute_path():
+def test_resolve_managed_directory_accepts_approved_external_absolute_directory():
+    root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    workspace = root / 'workspace'
+    outside = root / 'outside'
+    workspace.mkdir(parents=True, exist_ok=True)
+    outside.mkdir(parents=True, exist_ok=True)
+
+    try:
+        resolved = resolve_managed_directory(
+            str(outside),
+            session_id='session-dir-approved-external',
+            workspace_root=workspace,
+            approved_external_paths=[str(outside)],
+        )
+        assert resolved == outside.resolve()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
     temp_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
     external_file = temp_root / 'external.txt'
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getApprovalReasonLabels,
   getApprovalReasonText,
   getPermissionModeLabel,
   getPermissionModeMeta,
@@ -19,4 +20,10 @@ test('approval_reason 存在时返回可展示文本', () => {
 test('approval_reason 缺省时保持兼容', () => {
   assert.equal(getApprovalReasonText(undefined), '');
   assert.equal(getApprovalReasonText(''), '');
+});
+
+test('approval_reason_codes 可映射为双重展示标签', () => {
+  assert.deepEqual(getApprovalReasonLabels(['ask-risk', 'ask-path']), ['风险审批', '路径越界审批']);
+  assert.deepEqual(getApprovalReasonLabels(['ask-path']), ['路径越界审批']);
+  assert.deepEqual(getApprovalReasonLabels([]), []);
 });

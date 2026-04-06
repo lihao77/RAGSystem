@@ -193,6 +193,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `/api/permissions/policy`、`/api/permissions/mode` 只操作全局策略，不区分 session。
 - `dangerously_skip_permissions` 表示“跳过审批”。
 - 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode`、`approval_reason` 与 `approval_hook`，供前端展示。
+- 审批事件与执行结果 metadata 现在会同时携带结构化原因字段：`approval_reason_codes` / `reason_codes`（如 `ask-risk`、`ask-path`）以及可选 `approval_secondary_reasons` / `secondary_reasons`，用于表达一次审批同时命中多种原因的场景。
 - 当 direct 文件工具访问目标绝对路径超出默认 managed roots 时，runtime 会把该次调用升级为“路径越界访问需要审批”；审批通过后，事件与结果 metadata 会附带 `approved_external_paths`，仅授权本次调用访问这些越界路径，不会永久放开目录边界。
 
 ### builtin 与 agent delegation
@@ -228,7 +229,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析
 - `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到默认物理目录 `~/.ragsystem/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `~/.ragsystem/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `~/.ragsystem/sessions/<session_id>/transient/`；对外 display path 仍统一展示为 `./data/...`
 - `caller=direct` 的 direct 文件工具仍通过 `path_resolution.resolve_managed_path(...)` 解析文件路径；`execute_bash` 在工具内部通过 `path_resolution.resolve_managed_directory(...)` 解析工作目录
-- `resolve_managed_path(...)` 维护默认 managed roots；当审批结果携带 `approved_external_paths` 时，会把这些路径视为仅本次调用有效的附加允许根目录，再做最终边界校验
+- `resolve_managed_path(...)` 与 `resolve_managed_directory(...)` 共同维护默认 managed roots；当审批结果携带 `approved_external_paths` 时，会把这些路径视为仅本次调用有效的附加允许根目录，再做最终边界校验
 - `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`；若 session 未显式配置该字段，则默认回退到受管目录 `~/.ragsystem/sessions/<session_id>/workspace/`
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
 - `preview_data_structure` 仍允许 `code_execution` 调用

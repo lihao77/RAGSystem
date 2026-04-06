@@ -34,14 +34,30 @@
               <div class="action-description">{{ actionDescription }}</div>
             </div>
 
-            <div v-if="hasPermissionMode || hasApprovalReason" class="approval-extra-box">
+            <div v-if="hasPermissionMode || hasApprovalReason || hasApprovalReasonLabels || hasApprovalSecondaryReasons || hasApprovedExternalPaths" class="approval-extra-box">
+              <div v-if="hasApprovalReasonLabels" class="approval-extra-item">
+                <span class="approval-extra-label">审批类别</span>
+                <span class="approval-extra-value">{{ approvalReasonLabels.join(' + ') }}</span>
+              </div>
               <div v-if="hasPermissionMode" class="approval-extra-item">
                 <span class="approval-extra-label">当前权限模式</span>
                 <span class="approval-extra-value">{{ permissionModeLabel }}</span>
               </div>
               <div v-if="hasApprovalReason" class="approval-extra-item">
-                <span class="approval-extra-label">审批触发原因</span>
+                <span class="approval-extra-label">主要触发原因</span>
                 <span class="approval-extra-value">{{ approvalReasonText }}</span>
+              </div>
+              <div v-if="hasApprovalSecondaryReasons" class="approval-extra-item approval-extra-item-stack">
+                <span class="approval-extra-label">附加原因</span>
+                <div class="approval-extra-list">
+                  <div v-for="reason in approvalSecondaryReasons" :key="reason" class="approval-extra-list-item">{{ reason }}</div>
+                </div>
+              </div>
+              <div v-if="hasApprovedExternalPaths" class="approval-extra-item approval-extra-item-stack">
+                <span class="approval-extra-label">本次授权路径</span>
+                <div class="approval-extra-list">
+                  <div v-for="path in approvedExternalPaths" :key="path" class="approval-extra-list-item mono">{{ path }}</div>
+                </div>
               </div>
             </div>
 
@@ -124,7 +140,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
+import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
 
 const emit = defineEmits(['approve', 'deny']);
 
@@ -136,6 +152,9 @@ const riskLevel = ref('');
 const toolArguments = ref(null);
 const permissionMode = ref('');
 const approvalReason = ref('');
+const approvalReasonCodes = ref([]);
+const approvalSecondaryReasons = ref([]);
+const approvedExternalPaths = ref([]);
 const activeMode = ref('approve');
 const approveMessage = ref('');
 const denyMessage = ref('');
@@ -151,8 +170,12 @@ const riskLabel = computed(() => {
 
 const permissionModeLabel = computed(() => getPermissionModeLabel(permissionMode.value));
 const approvalReasonText = computed(() => getApprovalReasonText(approvalReason.value));
+const approvalReasonLabels = computed(() => getApprovalReasonLabels(approvalReasonCodes.value));
 const hasPermissionMode = computed(() => Boolean(permissionMode.value));
 const hasApprovalReason = computed(() => Boolean(approvalReasonText.value));
+const hasApprovalReasonLabels = computed(() => approvalReasonLabels.value.length > 0);
+const hasApprovalSecondaryReasons = computed(() => approvalSecondaryReasons.value.length > 0);
+const hasApprovedExternalPaths = computed(() => approvedExternalPaths.value.length > 0);
 
 const hasArguments = computed(() => {
   if (!toolArguments.value) return false;
@@ -169,7 +192,7 @@ const formattedArguments = computed(() => {
 
 /**
  * 显示审批对话框
- * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name, permission_mode, approval_reason }
+ * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name, permission_mode, approval_reason, approval_reason_codes, approval_secondary_reasons, approved_external_paths }
  * @param {function} onApprove - (approvalId, message) => void
  * @param {function} onDeny   - (approvalId, message) => void
  */
@@ -182,6 +205,9 @@ const show = (data, onApprove, onDeny) => {
   toolArguments.value = data.arguments || null;
   permissionMode.value = data.permission_mode || '';
   approvalReason.value = data.approval_reason || '';
+  approvalReasonCodes.value = Array.isArray(data.approval_reason_codes) ? data.approval_reason_codes : [];
+  approvalSecondaryReasons.value = Array.isArray(data.approval_secondary_reasons) ? data.approval_secondary_reasons : [];
+  approvedExternalPaths.value = Array.isArray(data.approved_external_paths) ? data.approved_external_paths : [];
   activeMode.value = 'approve';
   approveMessage.value = '';
   denyMessage.value = '';
@@ -410,6 +436,23 @@ defineExpose({ show, hide });
   font-size: 0.875rem;
   color: var(--color-text-primary);
   line-height: 1.6;
+}
+
+.approval-extra-item-stack {
+  gap: 6px;
+}
+
+.approval-extra-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-extra-list-item {
+  font-size: 0.8125rem;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 /* 调用参数 */

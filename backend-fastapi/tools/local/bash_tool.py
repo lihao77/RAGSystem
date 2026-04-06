@@ -131,6 +131,7 @@ def _resolve_work_dir(
     session_id: Optional[str] = None,
     workspace_root: Optional[str] = None,
     run_id: Optional[str] = None,
+    approved_external_paths: list[str] | None = None,
 ) -> tuple[bool, str, Optional[Path]]:
     raw_working_dir = None if working_dir is None else str(working_dir).strip()
     requested_dir = raw_working_dir if raw_working_dir else "."
@@ -143,6 +144,7 @@ def _resolve_work_dir(
             workspace_root=workspace_root,
             explicit_space=working_dir_space,
             default_space="workspace",
+            approved_external_paths=approved_external_paths,
         )
     except ValueError as exc:
         message = str(exc)
@@ -386,6 +388,7 @@ def execute_bash(
     event_bus=None,
     caller: str = "direct",
     cancel_event: "threading.Event | None" = None,
+    approved_external_paths: list[str] | None = None,
     **kwargs,
 ):
     del kwargs
@@ -406,6 +409,7 @@ def execute_bash(
         session_id=session_id,
         workspace_root=workspace_root,
         run_id=run_id,
+        approved_external_paths=approved_external_paths,
     )
     if not ok:
         return error_result(

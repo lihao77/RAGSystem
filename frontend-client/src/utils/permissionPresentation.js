@@ -16,3 +16,12 @@ export function getPermissionModeLabel(mode) {
 export function getApprovalReasonText(reason) {
   return reason || '';
 }
+
+export function getApprovalReasonLabels(reasonCodes = []) {
+  const labels = [];
+  for (const code of reasonCodes || []) {
+    if (code === 'ask-risk') labels.push('风险审批');
+    if (code === 'ask-path') labels.push('路径越界审批');
+  }
+  return labels;
+}

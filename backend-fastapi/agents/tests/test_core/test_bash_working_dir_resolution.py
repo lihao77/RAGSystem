@@ -177,7 +177,27 @@ def test_resolve_work_dir_absolute_out_of_bounds_is_rejected():
         shutil.rmtree(root, ignore_errors=True)
 
 
-def test_execute_bash_pwd_defaults_to_effective_workspace():
+def test_resolve_work_dir_absolute_out_of_bounds_accepts_approved_external_path():
+    root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    workspace = root / "workspace"
+    outside = root / "outside"
+    workspace.mkdir(parents=True, exist_ok=True)
+    outside.mkdir(parents=True, exist_ok=True)
+
+    try:
+        ok, err, resolved = _resolve_work_dir(
+            str(outside),
+            session_id="session-bash-approved-external-boundary",
+            workspace_root=str(workspace),
+            approved_external_paths=[str(outside)],
+        )
+        assert ok is True
+        assert err == ""
+        assert resolved == outside.resolve()
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
     root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
     workspace = root / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)

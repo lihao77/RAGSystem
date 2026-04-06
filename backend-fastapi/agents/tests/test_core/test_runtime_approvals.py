@@ -74,6 +74,7 @@ def test_user_approval_event_includes_permission_mode_and_reason(monkeypatch):
     assert event.data['tool_name'] == 'execute_bash'
     assert event.data['permission_mode'] == 'standard'
     assert event.data['approval_reason'] == '标准模式：high 风险工具需要审批'
+    assert event.data['approval_reason_codes'] == ['ask-risk']
 
     # 清理
     del TOOL_PERMISSIONS['execute_bash']
@@ -123,9 +124,63 @@ def test_user_approval_event_includes_external_paths_for_document_tools(monkeypa
     assert outcome.allowed is True
     assert outcome.approved_external_paths == [normalized_external_path]
     assert outcome.approval_metadata['approved_external_paths'] == [normalized_external_path]
+    assert outcome.approval_metadata['reason_codes'] == ['ask-risk', 'ask-path']
+    assert outcome.approval_metadata['secondary_reasons'] == ['标准模式：high 风险工具需要审批']
     assert published['event'].data['approved_external_paths'] == [normalized_external_path]
     assert published['event'].data['approval_reason'] == '路径越界访问需要审批'
+    assert published['event'].data['approval_reason_codes'] == ['ask-risk', 'ask-path']
+    assert published['event'].data['approval_secondary_reasons'] == ['标准模式：high 风险工具需要审批']
 
-    del TOOL_PERMISSIONS['edit_file']
+
+
+def test_user_approval_event_includes_external_paths_for_execute_bash_working_dir(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
+    registry = _FakeApprovalRegistry()
+    published = {}
+
+    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: registry)
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+    TOOL_PERMISSIONS['execute_bash'] = ToolPermission(
+        tool_name='execute_bash',
+        risk_level=RiskLevel.LOW,
+        description='Execute bash command',
+        allowed_callers=['direct'],
+    )
+
+    event_bus = MagicMock()
+    external_path = 'C:/tmp/bash-outside'
+
+    def fake_publish(event):
+        if getattr(event, 'type', None) != 'user.approval_required':
+            return
+        published['event'] = event
+
+        def approve():
+            registry.resolve_approval(event.session_id, event.data['approval_id'], True, '允许切换目录')
+
+        threading.Thread(target=approve).start()
+
+    event_bus.publish = fake_publish
+
+    context = ToolUseContext(
+        tool_name='execute_bash',
+        arguments={'command': 'pwd', 'working_dir': external_path},
+        event_bus=event_bus,
+        session_id='session-approval-bash-working-dir',
+        caller='direct',
+    )
+    outcome = request_user_approval_if_needed(context)
+
+    normalized_external_path = external_path.replace('/', '\\')
+    assert outcome.allowed is True
+    assert outcome.approved_external_paths == [normalized_external_path]
+    assert outcome.approval_reason_codes == ['ask-path']
+    assert published['event'].data['approved_external_paths'] == [normalized_external_path]
+    assert published['event'].data['approval_reason_codes'] == ['ask-path']
+
+    del TOOL_PERMISSIONS['execute_bash']
 
 
