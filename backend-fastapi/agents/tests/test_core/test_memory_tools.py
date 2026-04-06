@@ -16,12 +16,12 @@ from tools.runtime.models import ToolUseContext
 def test_memory_tools_list_read_write_and_archive(monkeypatch):
     root = Path(tempfile.mkdtemp())
     try:
-        store = MemoryStore(project_key="demo-project")
-        store.get_project_root = lambda: root / "projects" / "demo-project"
+        store = MemoryStore()
+        store.get_project_root = lambda: root
         monkeypatch.setattr('tools.local.memory_tools._MEMORY_STORE', store)
         monkeypatch.setattr(
             'tools.local.memory_tools.get_config_manager',
-            lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=['project', 'session'], write_scopes=['session'], archive_scopes=['session']))),
+            lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=['team', 'session'], write_scopes=['session'], archive_scopes=['session']))),
         )
 
         write_result = write_memory(
@@ -54,7 +54,39 @@ def test_memory_tools_list_read_write_and_archive(monkeypatch):
         shutil.rmtree(root, ignore_errors=True)
 
 
-def test_memory_write_guard_uses_runtime_injected_session_id():
+def test_memory_tools_archive_team_memory_with_runtime_team_context(monkeypatch):
+    root = Path(tempfile.mkdtemp())
+    try:
+        store = MemoryStore()
+        store.get_project_root = lambda: root
+        monkeypatch.setattr('tools.local.memory_tools._MEMORY_STORE', store)
+        monkeypatch.setattr(
+            'tools.local.memory_tools.get_config_manager',
+            lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=['team'], write_scopes=['team'], archive_scopes=['team']))),
+        )
+
+        write_result = write_memory(
+            scope='team',
+            current_agent_name='orchestrator_agent',
+            team_name='alpha-team',
+            name='test_memory',
+            description='团队测试记忆',
+            memory_type='fact',
+            content='团队级测试记忆。',
+        )
+        assert write_result.success is True
+
+        archive_result = archive_memory(
+            scope='team',
+            file_name=write_result.content['file_name'],
+            current_agent_name='orchestrator_agent',
+            team_name='alpha-team',
+        )
+        assert archive_result.success is True
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
     context = HookContext(
         event_name="tool.before_execute",
         phase="before_execute",
@@ -109,3 +141,46 @@ def test_run_hooks_sync_exposes_runtime_injected_handler_arguments(monkeypatch):
 
     assert captured["input_snapshot"]["session_id"] == "session-1"
     assert captured["input_snapshot"]["memory_type"] == "preference"
+
+
+def test_memory_tools_resolve_agent_and_workspace_from_runtime_context(monkeypatch):
+    captured = []
+
+    store = SimpleNamespace(
+        ensure_scope=lambda **kwargs: captured.append(("ensure", kwargs)) or Path("E:/tmp/memory"),
+        get_index_path=lambda scope_root: Path("E:/tmp/memory/MEMORY.md"),
+        load_index_head=lambda **kwargs: captured.append(("load", kwargs)) or "# Workspace Memory\n",
+    )
+    monkeypatch.setattr('tools.local.memory_tools._MEMORY_STORE', store)
+    monkeypatch.setattr(
+        'tools.local.memory_tools.get_config_manager',
+        lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(allowed_scopes=['team', 'session', 'agent', 'workspace'], write_scopes=['agent', 'workspace'], archive_scopes=['workspace']))),
+    )
+
+    index_result = list_memory_index(
+        scope='agent',
+        current_agent_name='orchestrator_agent',
+        team_name='alpha-team',
+    )
+    assert index_result.success is True
+    assert captured[0][1]['agent_name'] == 'orchestrator_agent'
+    assert captured[0][1]['team_name'] == 'alpha-team'
+
+    captured.clear()
+    index_result = list_memory_index(
+        scope='workspace',
+        current_agent_name='orchestrator_agent',
+        workspace_root='E:/Python/RAGSystem/workspaces/demo-workspace',
+    )
+    assert index_result.success is True
+    assert captured[0][1]['workspace_key'] == 'E-Python-RAGSystem-workspaces-demo-workspace'
+
+    captured.clear()
+    index_result = list_memory_index(
+        scope='workspace',
+        current_agent_name='orchestrator_agent',
+        session_id='session-1',
+        workspace_root='C:/Users/admin/.ragsystem/sessions/session-1/workspace',
+    )
+    assert index_result.success is True
+    assert captured[0][1]['workspace_key'] == 'C-Users-admin-.ragsystem-sessions-session-1-workspace'

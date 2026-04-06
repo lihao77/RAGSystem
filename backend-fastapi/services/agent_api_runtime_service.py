@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from runtime.dependencies import get_runtime_dependency
+from core.path_resolution import get_session_workspace_root, get_workspace_memory_key
 from agents import AgentContext
 from agents.events import get_session_manager
 from agents.task_registry import get_task_registry
@@ -39,7 +40,7 @@ class AgentApiRuntimeService:
         default_adapter_getter=None,
     ):
         self._conversation_store = conversation_store or ConversationStore()
-        self._memory_store = MemoryStore(project_key=Path(__file__).resolve().parent.parent.name)
+        self._memory_store = MemoryStore()
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
         self._metrics_collector = None
@@ -79,7 +80,7 @@ class AgentApiRuntimeService:
         session = self._conversation_store.get_session(normalized_session_id) or {}
         metadata = session.get('metadata') or {}
         workspace_root = metadata.get('workspace_root')
-        resolved_workspace_root = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else None
+        resolved_workspace_root = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else str(get_session_workspace_root(normalized_session_id))
         logger.debug(
             'session workspace_root 查询: session_id=%s workspace_root=%s metadata_keys=%s',
             normalized_session_id,
@@ -210,20 +211,19 @@ class AgentApiRuntimeService:
 
     def _get_memory_workspace_key(self, session_id: str | None) -> Optional[str]:
         workspace_root = self._get_session_workspace_root(session_id)
-        if not workspace_root:
-            return None
-        return Path(workspace_root).resolve().name
+        return get_workspace_memory_key(workspace_root)
 
     def _build_memory_scope_specs(self, *, memory_config, session_id: str, agent_name: Optional[str]):
-        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
+        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['team', 'session'])
         workspace_key = self._get_memory_workspace_key(session_id)
+        team_name = self._get_session_team(session_id)
         scope_specs = []
-        if 'project' in allowed_scopes:
-            scope_specs.append(('project', {'scope': 'project'}))
+        if 'team' in allowed_scopes and team_name:
+            scope_specs.append(('team', {'scope': 'team', 'team_name': team_name}))
         if 'session' in allowed_scopes:
             scope_specs.append(('session', {'scope': 'session', 'session_id': session_id}))
-        if 'agent' in allowed_scopes and agent_name:
-            scope_specs.append(('agent', {'scope': 'agent', 'agent_name': agent_name}))
+        if 'agent' in allowed_scopes and agent_name and team_name:
+            scope_specs.append(('agent', {'scope': 'agent', 'agent_name': agent_name, 'team_name': team_name}))
         if 'workspace' in allowed_scopes and workspace_key:
             scope_specs.append(('workspace', {'scope': 'workspace', 'workspace_key': workspace_key}))
         return scope_specs

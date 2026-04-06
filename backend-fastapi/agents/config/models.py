@@ -159,7 +159,7 @@ class AgentMemoryConfig(BaseModel):
         description="是否在构建上下文时自动注入 MEMORY.md 索引头部"
     )
     allowed_scopes: List[str] = Field(
-        default_factory=lambda: ['project', 'session'],
+        default_factory=lambda: ['team', 'session'],
         description="允许访问的 memory scope 列表"
     )
     write_scopes: List[str] = Field(

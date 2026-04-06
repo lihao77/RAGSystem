@@ -230,8 +230,8 @@ class AgentConfigService:
     def get_memory_config_metadata(self):
         scope_defs = [
             {
-                'name': 'project',
-                'description': '项目级长期记忆，适合跨会话复用的偏好、约束与背景事实。',
+                'name': 'team',
+                'description': '团队级长期记忆，适合跨会话复用的共享偏好、约束与背景事实。',
                 'read_label': '允许读取',
                 'write_label': '允许写入',
                 'archive_label': '允许归档',
@@ -245,7 +245,7 @@ class AgentConfigService:
             },
             {
                 'name': 'agent',
-                'description': '当前 Agent 私有记忆，仅适合该 Agent 独立维护的长期信息。',
+                'description': '当前 team 内 Agent 私有记忆，仅适合该 Agent 在所属 team 中独立维护的长期信息。',
                 'read_label': '允许读取',
                 'write_label': '允许写入',
                 'archive_label': '允许归档',

@@ -170,7 +170,7 @@ class ContextPipeline:
             )
 
         scope_titles = {
-            'project': 'Project',
+            'team': 'Team',
             'session': 'Session',
             'agent': 'Agent',
             'workspace': 'Workspace',

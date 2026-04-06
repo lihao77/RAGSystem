@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agents.config import get_config_manager
+from core.path_resolution import get_workspace_memory_key
 from tools.contracts.permissions import RiskLevel
 from tools.decorators import tool
 from tools.runtime.response_builder import error_result, success_result
@@ -37,7 +38,7 @@ def _ensure_memory_enabled(tool_name: str, agent_name: Optional[str]):
 
 def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]:
     scope_name = (scope or '').strip().lower()
-    allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['project', 'session'])
+    allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['team', 'session'])
     if scope_name not in allowed_scopes:
         return f"当前 Agent 不允许访问 memory scope: {scope}"
     if mode == 'write':
@@ -51,16 +52,41 @@ def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]
     return None
 
 
+def _resolve_memory_scope_inputs(
+    *,
+    scope: str,
+    session_id: Optional[str],
+    agent_name: Optional[str],
+    workspace_key: Optional[str],
+    current_agent_name: Optional[str],
+    team_name: Optional[str],
+    workspace_root: Optional[str],
+) -> dict[str, Optional[str]]:
+    normalized_scope = (scope or '').strip().lower()
+    resolved_agent_name = agent_name
+    resolved_workspace_key = workspace_key
+
+    if normalized_scope == 'agent' and not (resolved_agent_name or '').strip():
+        resolved_agent_name = current_agent_name
+    if normalized_scope == 'workspace' and not (resolved_workspace_key or '').strip() and (workspace_root or '').strip():
+        resolved_workspace_key = get_workspace_memory_key(workspace_root)
+
+    return {
+        'scope': normalized_scope,
+        'session_id': session_id,
+        'agent_name': resolved_agent_name,
+        'workspace_key': resolved_workspace_key,
+        'team_name': team_name,
+    }
+
+
 @tool(
     name="list_memory_index",
     description="读取指定作用域的 MEMORY.md 索引头部，让 Agent 先了解可用记忆，再决定是否读取具体记忆文件。",
     parameters={
         "type": "object",
         "properties": {
-            "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
-            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
-            "agent_name": {"type": "string", "description": "agent 作用域时必填"},
-            "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
+            "scope": {"type": "string", "description": "memory 作用域：team/session/agent/workspace"},
         },
         "required": ["scope"],
     },
@@ -79,6 +105,7 @@ def _ensure_scope_allowed(memory_config, scope: str, mode: str) -> Optional[str]
     },
     usage_contract=[
         "先调用 list_memory_index 再决定是否读取具体记忆文件",
+        "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造",
         "该工具只返回 MEMORY.md 头部，不返回所有记忆正文",
     ],
     source="decorator",
@@ -89,6 +116,8 @@ def list_memory_index(
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
     current_agent_name: Optional[str] = None,
+    team_name: Optional[str] = None,
+    workspace_root: Optional[str] = None,
 ) -> Any:
     try:
         error = _ensure_memory_enabled('list_memory_index', current_agent_name)
@@ -98,25 +127,24 @@ def list_memory_index(
         scope_error = _ensure_scope_allowed(memory_config, scope, 'read')
         if scope_error:
             return error_result(scope_error, tool_name='list_memory_index')
-        scope_root = _MEMORY_STORE.ensure_scope(
+        resolved_inputs = _resolve_memory_scope_inputs(
             scope=scope,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            current_agent_name=current_agent_name,
+            team_name=team_name,
+            workspace_root=workspace_root,
         )
+        scope_root = _MEMORY_STORE.ensure_scope(**resolved_inputs)
         index_path = _MEMORY_STORE.get_index_path(scope_root)
-        content = _MEMORY_STORE.load_index_head(
-            scope=scope,
-            session_id=session_id,
-            agent_name=agent_name,
-            workspace_key=workspace_key,
-        )
+        content = _MEMORY_STORE.load_index_head(**resolved_inputs)
         return success_result(
             content=content,
-            summary=f"已读取 {scope} MEMORY 索引",
+            summary=f"已读取 {resolved_inputs['scope']} MEMORY 索引",
             output_type="text",
             metadata={
-                "scope": scope,
+                "scope": resolved_inputs['scope'],
                 "index_file_path": str(index_path),
             },
             tool_name="list_memory_index",
@@ -131,11 +159,8 @@ def list_memory_index(
     parameters={
         "type": "object",
         "properties": {
-            "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
+            "scope": {"type": "string", "description": "memory 作用域：team/session/agent/workspace"},
             "file_name": {"type": "string", "description": "记忆文件名，例如 preference_xxx.md"},
-            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
-            "agent_name": {"type": "string", "description": "agent 作用域时必填"},
-            "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
         },
         "required": ["scope", "file_name"],
     },
@@ -154,6 +179,7 @@ def list_memory_index(
     },
     usage_contract=[
         "通常先通过 list_memory_index 或 prompt 中给出的 memory 文件路径定位 file_name，再调用本工具",
+        "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造",
         "该工具只读取一条具体记忆，不做全文检索",
     ],
     source="decorator",
@@ -165,6 +191,8 @@ def read_memory_entry(
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
     current_agent_name: Optional[str] = None,
+    team_name: Optional[str] = None,
+    workspace_root: Optional[str] = None,
 ) -> Any:
     try:
         error = _ensure_memory_enabled('read_memory_entry', current_agent_name)
@@ -174,12 +202,16 @@ def read_memory_entry(
         scope_error = _ensure_scope_allowed(memory_config, scope, 'read')
         if scope_error:
             return error_result(scope_error, tool_name='read_memory_entry')
-        scope_root = _MEMORY_STORE.ensure_scope(
+        resolved_inputs = _resolve_memory_scope_inputs(
             scope=scope,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            current_agent_name=current_agent_name,
+            team_name=team_name,
+            workspace_root=workspace_root,
         )
+        scope_root = _MEMORY_STORE.ensure_scope(**resolved_inputs)
         file_path = scope_root / Path(file_name).name
         if not file_path.exists():
             return error_result(f"memory 文件不存在: {file_name}", tool_name="read_memory_entry")
@@ -190,7 +222,7 @@ def read_memory_entry(
             output_type="text",
             metadata={
                 "file_path": str(file_path),
-                "scope": scope,
+                "scope": resolved_inputs['scope'],
             },
             tool_name="read_memory_entry",
         )
@@ -204,16 +236,13 @@ def read_memory_entry(
     parameters={
         "type": "object",
         "properties": {
-            "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
+            "scope": {"type": "string", "description": "memory 作用域：team/session/agent/workspace"},
             "name": {"type": "string", "description": "记忆名称"},
             "description": {"type": "string", "description": "记忆简述，用于 MEMORY.md 索引"},
             "memory_type": {"type": "string", "description": "记忆类型：preference/constraint/goal/fact/profile"},
             "content": {"type": "string", "description": "记忆正文"},
             "why": {"type": "string", "description": "可选，Why 段落"},
             "how_to_apply": {"type": "string", "description": "可选，How to apply 段落"},
-            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
-            "agent_name": {"type": "string", "description": "agent 作用域时必填；session 作用域时可作为来源 agent"},
-            "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
             "source_run_id": {"type": "string", "description": "来源 run_id"},
             "source_message_id": {"type": "string", "description": "来源 message_id"},
         },
@@ -234,6 +263,7 @@ def read_memory_entry(
     },
     usage_contract=[
         "写入前应确认该记忆属于长期可复用信息，而不是一次性临时任务状态",
+        "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造",
         "写入后系统会自动同步更新该作用域的 MEMORY.md 索引",
     ],
     source="decorator",
@@ -252,6 +282,8 @@ def write_memory(
     source_run_id: Optional[str] = None,
     source_message_id: Optional[str] = None,
     current_agent_name: Optional[str] = None,
+    team_name: Optional[str] = None,
+    workspace_root: Optional[str] = None,
 ) -> Any:
     try:
         error = _ensure_memory_enabled('write_memory', current_agent_name)
@@ -261,11 +293,17 @@ def write_memory(
         scope_error = _ensure_scope_allowed(memory_config, scope, 'write')
         if scope_error:
             return error_result(scope_error, tool_name='write_memory')
-        path = _MEMORY_STORE.save_memory(
+        resolved_inputs = _resolve_memory_scope_inputs(
             scope=scope,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            current_agent_name=current_agent_name,
+            team_name=team_name,
+            workspace_root=workspace_root,
+        )
+        path = _MEMORY_STORE.save_memory(
+            **resolved_inputs,
             name=name,
             description=description,
             memory_type=memory_type,
@@ -279,11 +317,11 @@ def write_memory(
             content={
                 "file_path": str(path),
                 "file_name": path.name,
-                "scope": scope,
+                "scope": resolved_inputs['scope'],
             },
-            summary=f"已写入 {scope} memory: {path.name}",
+            summary=f"已写入 {resolved_inputs['scope']} memory: {path.name}",
             output_type="json",
-            metadata={"file_path": str(path), "scope": scope},
+            metadata={"file_path": str(path), "scope": resolved_inputs['scope']},
             tool_name="write_memory",
         )
     except Exception as e:
@@ -296,11 +334,8 @@ def write_memory(
     parameters={
         "type": "object",
         "properties": {
-            "scope": {"type": "string", "description": "memory 作用域：project/session/agent/workspace"},
+            "scope": {"type": "string", "description": "memory 作用域：team/session/agent/workspace"},
             "file_name": {"type": "string", "description": "待归档的记忆文件名"},
-            "session_id": {"type": "string", "description": "session 作用域标识；direct/runtime 调用通常会自动注入，无需手填"},
-            "agent_name": {"type": "string", "description": "agent 作用域时必填"},
-            "workspace_key": {"type": "string", "description": "workspace 作用域时必填"},
         },
         "required": ["scope", "file_name"],
     },
@@ -319,6 +354,7 @@ def write_memory(
     },
     usage_contract=[
         "archive_memory 会把记忆标记为 archived，并重建 MEMORY.md 索引",
+        "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造",
         "P1 默认不提供 delete_memory，长期记忆优先归档而非直接删除",
     ],
     source="decorator",
@@ -330,6 +366,8 @@ def archive_memory(
     agent_name: Optional[str] = None,
     workspace_key: Optional[str] = None,
     current_agent_name: Optional[str] = None,
+    team_name: Optional[str] = None,
+    workspace_root: Optional[str] = None,
 ) -> Any:
     try:
         error = _ensure_memory_enabled('archive_memory', current_agent_name)
@@ -339,24 +377,33 @@ def archive_memory(
         scope_error = _ensure_scope_allowed(memory_config, scope, 'archive')
         if scope_error:
             return error_result(scope_error, tool_name='archive_memory')
-        archived = _MEMORY_STORE.archive_memory(
+        resolved_inputs = _resolve_memory_scope_inputs(
             scope=scope,
-            file_name=file_name,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            current_agent_name=current_agent_name,
+            team_name=team_name,
+            workspace_root=workspace_root,
+        )
+        archived = _MEMORY_STORE.archive_memory(
+            file_name=file_name,
+            **resolved_inputs,
         )
         if not archived:
-            return error_result(f"未找到可归档的 memory: {file_name}", tool_name="archive_memory")
+            return error_result(
+                f"未找到可归档的 memory: {file_name}。请先通过 list_memory_index 确认当前 scope 下的真实文件名。",
+                tool_name="archive_memory",
+            )
         return success_result(
             content={
                 "archived": True,
                 "file_name": file_name,
-                "scope": scope,
+                "scope": resolved_inputs['scope'],
             },
-            summary=f"已归档 {scope} memory: {file_name}",
+            summary=f"已归档 {resolved_inputs['scope']} memory: {file_name}",
             output_type="json",
-            metadata={"file_name": file_name, "scope": scope},
+            metadata={"file_name": file_name, "scope": resolved_inputs['scope']},
             tool_name="archive_memory",
         )
     except Exception as e:

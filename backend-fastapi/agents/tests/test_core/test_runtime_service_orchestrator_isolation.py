@@ -349,8 +349,8 @@ def test_runtime_build_context_uses_session_team_memory_config():
     active_configs = {
         'demo_agent': _DummyAgentConfig(
             memory=_DummyMemoryConfig(
-                allowed_scopes=['project'],
-                write_scopes=['project'],
+                allowed_scopes=['team'],
+                write_scopes=['team'],
                 archive_scopes=[],
             )
         )

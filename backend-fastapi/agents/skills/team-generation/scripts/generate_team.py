@@ -20,7 +20,7 @@ DEFAULT_LLM = {
 }
 DEFAULT_MEMORY = {
     "auto_inject": True,
-    "allowed_scopes": ["project", "session", "agent", "workspace"],
+    "allowed_scopes": ["team", "session", "agent", "workspace"],
     "write_scopes": ["session", "agent", "workspace"],
     "archive_scopes": ["session", "agent", "workspace"],
 }

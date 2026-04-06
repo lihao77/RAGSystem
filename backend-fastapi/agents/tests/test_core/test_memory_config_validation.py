@@ -8,12 +8,12 @@ from agents.config.models import AgentMemoryConfig
 
 def test_agent_memory_config_accepts_write_and_archive_scopes_within_allowed_scopes():
     config = AgentMemoryConfig(
-        allowed_scopes=['project', 'session'],
+        allowed_scopes=['team', 'session'],
         write_scopes=['session'],
         archive_scopes=['session'],
     )
 
-    assert config.allowed_scopes == ['project', 'session']
+    assert config.allowed_scopes == ['team', 'session']
     assert config.write_scopes == ['session']
     assert config.archive_scopes == ['session']
 
@@ -21,7 +21,7 @@ def test_agent_memory_config_accepts_write_and_archive_scopes_within_allowed_sco
 def test_agent_memory_config_rejects_write_scopes_outside_allowed_scopes():
     with pytest.raises(ValidationError) as exc_info:
         AgentMemoryConfig(
-            allowed_scopes=['project'],
+            allowed_scopes=['team'],
             write_scopes=['session'],
             archive_scopes=[],
         )
@@ -32,7 +32,7 @@ def test_agent_memory_config_rejects_write_scopes_outside_allowed_scopes():
 def test_agent_memory_config_rejects_archive_scopes_outside_allowed_scopes():
     with pytest.raises(ValidationError) as exc_info:
         AgentMemoryConfig(
-            allowed_scopes=['project'],
+            allowed_scopes=['team'],
             write_scopes=[],
             archive_scopes=['session'],
         )

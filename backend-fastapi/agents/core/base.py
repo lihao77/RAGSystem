@@ -803,6 +803,8 @@ class BaseAgent(ABC):
                 agent_config=self.agent_config,
                 event_bus=event_bus,
                 session_id=current_session_id,
+                team_name=context.metadata.get('team') if hasattr(context, 'metadata') else None,
+                workspace_root=context.metadata.get('workspace_root') if hasattr(context, 'metadata') else None,
                 run_id=context.metadata.get('run_id') if hasattr(context, 'metadata') else None,
                 cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
                 parent_call_id=state.get('call_id'),

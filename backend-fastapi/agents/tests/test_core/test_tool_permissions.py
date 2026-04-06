@@ -81,7 +81,7 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
 def test_memory_tools_are_enabled_via_effective_direct_tools():
     agent_config = SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=[]),
-        memory=SimpleNamespace(enabled=True, allowed_scopes=["project"], write_scopes=[], archive_scopes=[]),
+        memory=SimpleNamespace(enabled=True, allowed_scopes=["team"], write_scopes=[], archive_scopes=[]),
         skills=None,
         delegation=None,
         mcp=None,
@@ -96,7 +96,7 @@ def test_memory_tools_are_enabled_via_effective_direct_tools():
 def test_memory_tools_respect_configured_subset():
     agent_config = SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=[]),
-        memory=SimpleNamespace(enabled=True, allowed_scopes=["project"], write_scopes=[], archive_scopes=[]),
+        memory=SimpleNamespace(enabled=True, allowed_scopes=["team"], write_scopes=[], archive_scopes=[]),
         skills=None,
         delegation=None,
         mcp=None,

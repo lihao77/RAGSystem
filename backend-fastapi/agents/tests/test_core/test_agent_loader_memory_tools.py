@@ -39,7 +39,7 @@ def test_agent_loader_injects_read_memory_tools_when_read_scopes_present():
         skills=None,
         mcp=None,
         delegation=None,
-        memory=SimpleNamespace(allowed_scopes=['project', 'session'], write_scopes=[], archive_scopes=[]),
+        memory=SimpleNamespace(allowed_scopes=['team', 'session'], write_scopes=[], archive_scopes=[]),
     )
 
     tools, skills = loader._resolve_tools_and_skills(agent_config)
@@ -60,7 +60,7 @@ def test_agent_loader_injects_write_and_archive_memory_tools_from_scope_permissi
         skills=None,
         mcp=None,
         delegation=None,
-        memory=SimpleNamespace(allowed_scopes=['project'], write_scopes=['session'], archive_scopes=['agent']),
+        memory=SimpleNamespace(allowed_scopes=['team'], write_scopes=['session'], archive_scopes=['agent']),
     )
 
     tools, skills = loader._resolve_tools_and_skills(agent_config)

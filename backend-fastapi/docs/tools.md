@@ -159,7 +159,7 @@ def my_tool(arguments, **kwargs):
 > 提示词层已统一：direct 工具的 `调用能力`、参数、`returns / usage_contract / examples`、`workspace / transient / exports` 说明，统一由 `agents/core/base.py` 的共享 prompt skeleton 渲染；`BaseAgent` 还会按是否具备 `execute_code` 能力条件注入代码执行说明，`OrchestratorAgent` 仅补 Agent delegation 的专属操作说明；入口 orchestrator 的 YAML `system_prompt` 只保留业务路由信息，避免重复覆盖通用协议规则。
 
 ```
-execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, run_id, cancel_event, parent_call_id, current_agent_name, tool_call_id)
+execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, session_id, team_name, workspace_root, run_id, cancel_event, parent_call_id, current_agent_name, tool_call_id)
   ├─ Hook: tool.before_permission
   │   └─ 可阻止执行或添加上下文
   ├─ _request_user_approval_if_needed()
@@ -227,7 +227,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析
 - `write_file` 未指定 `file_path` 时：根据 `default_output_space` 分配到默认物理目录 `~/.ragsystem/sessions/<session_id>/exports/<run_id>/`、当前 effective workspace（默认 `~/.ragsystem/sessions/<session_id>/workspace/`，若会话 metadata.workspace_root 已配置则改用该外部目录）或 `~/.ragsystem/sessions/<session_id>/transient/`；对外 display path 仍统一展示为 `./data/...`
 - `caller=direct` 的 direct 文件工具仍通过 `path_resolution.resolve_managed_path(...)` 解析文件路径；`execute_bash` 在工具内部通过 `path_resolution.resolve_managed_directory(...)` 解析工作目录
-- `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`
+- `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`；若 session 未显式配置该字段，则默认回退到受管目录 `~/.ragsystem/sessions/<session_id>/workspace/`
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
 - `preview_data_structure` 仍允许 `code_execution` 调用
 - 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件通过共享审批函数 `request_inline_approval()` 触发审批后再写入，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
@@ -276,25 +276,25 @@ memory 采用 Claude Code 风格的“索引注入 + 明细按需读取”模型
 - `list_memory_index(scope, ...)`
   - 读取指定作用域 `MEMORY.md` 的头部索引
   - 适合先了解有哪些记忆，再决定是否读取明细
-  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
+  - `team/session/agent/workspace` 定位信息由运行时上下文自动注入；`agent` 默认取当前运行中的 `agent_name`，`workspace` 默认由有效 workspace 根路径生成稳定 `workspace_key`（例如 `E--Python-cc-claude-code-source-code`）
 - `read_memory_entry(scope, file_name, ...)`
   - 读取单条具体记忆 md 文件正文
   - 适合 Agent 在看到索引后按需展开细节
-  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
+  - `team/session/agent/workspace` 定位信息由运行时上下文自动注入；`agent` 默认取当前运行中的 `agent_name`，`workspace` 默认由有效 workspace 根路径生成稳定 `workspace_key`（例如 `E--Python-cc-claude-code-source-code`）
 - `write_memory(scope, name, description, memory_type, content, ...)`
   - 新增或更新一条记忆，并同步重建 `MEMORY.md`
-  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
+  - `team/session/agent/workspace` 定位信息由运行时上下文自动注入；`agent` 默认取当前运行中的 `agent_name`，`workspace` 默认由有效 workspace 根路径生成稳定 `workspace_key`（例如 `E--Python-cc-claude-code-source-code`）
 - `archive_memory(scope, file_name, ...)`
   - 将一条记忆标记为 archived，使其不再参与默认索引和检索
-  - 当 `scope=session` 时，`session_id` 在 direct/runtime 执行链路中通常由运行时自动注入，Agent 不需要手工填写
+  - `team/session/agent/workspace` 定位信息由运行时上下文自动注入；`agent` 默认取当前运行中的 `agent_name`，`workspace` 默认由有效 workspace 根路径生成稳定 `workspace_key`（例如 `E--Python-cc-claude-code-source-code`）
 
 当前默认作用域链仍为：
-- `project -> session`
+- `team -> session`
 
 但 Agent 已可以显式操作：
-- `project`
+- `team`
 - `session`
-- `agent`
+- `agent`（按当前 session team 隔离）
 - `workspace`
 
 这与纯后台 memory 检索不同：memory 对 Agent 是可见、可读、可操作对象。

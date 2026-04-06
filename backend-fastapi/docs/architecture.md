@@ -67,7 +67,7 @@ backend-fastapi/
 | `uploads` | 默认 `~/.ragsystem/uploads/` | 全局上传文件 | `api/v1/files.py` | 全局文件池，服务知识库/向量库管理页，不按 session 分桶 |
 | `session_uploads` | 默认 `~/.ragsystem/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
 | `monitoring/session_traces` | 默认 `~/.ragsystem/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
-| `memory` | 默认 `~/.ragsystem/memory/projects/<project_key>/...` | 项目/会话/Agent/workspace 级 Markdown 记忆索引与主题文件 | `services/memory_store.py`、`execution/persistence/message_handler.py` | 参考 Claude Code：启动时注入各作用域 `MEMORY.md` 索引头部，详细记忆由 Agent 按需读取具体 md 文件 |
+| `memory` | 默认 `~/.ragsystem/memory/...` | 团队/会话/Agent/workspace 级 Markdown 记忆索引与主题文件 | `services/memory_store.py`、`execution/persistence/message_handler.py` | 参考 Claude Code：启动时注入各作用域 `MEMORY.md` 索引头部，详细记忆由 Agent 按需读取具体 md 文件 |
 | `db` | 默认 `~/.ragsystem/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
 | `anonymous fallback` | 逻辑 display path 仍为 `./data/sessions/anonymous/...`，物理默认位于 `~/.ragsystem/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
@@ -89,7 +89,7 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → AgentApiRuntimeService.build_context()
       ├─ 读取历史消息到 AgentContext
       ├─ 保留 user message.metadata.attachments 供前端历史回显
-      ├─ 注入 project/session MEMORY.md 索引头部（Claude Code 风格 eager-load）
+      ├─ 注入 team/session MEMORY.md 索引头部，并在 agent scope 时按当前 session team 隔离 agent memory（Claude Code 风格 eager-load）
       ├─ 根据当前 task 选出相关 memory 文件路径供 Agent 后续按需 read_file
       └─ 注入请求级 LLM 选择：selected_llm（模型身份三元组）/ requested_llm_tier（fast/default/powerful）
   → ModelAdapter.chat_completion_stream()
@@ -308,28 +308,28 @@ XML 解析层修复：`streaming/tool_xml_parser.py` → `_fix_bare_placeholders
 长期记忆与 `CLAUDE.md` / rules / 权限治理分层管理：
 
 - `CLAUDE.md` / `.claude/rules`：稳定规则与共享规范
-- `~/.ragsystem/memory/projects/<project_key>/...`：learned memory（Markdown）
+- `~/.ragsystem/memory/...`：learned memory（Markdown）
 - settings / permissions / sandbox：真正的强制边界
 
 memory 存储结构：
 
 ```text
-~/.ragsystem/memory/projects/<project_key>/
-├── project/
-│   ├── MEMORY.md
-│   └── *.md
+~/.ragsystem/memory/
+├── teams/
+│   └── <team_name>/
+│       ├── MEMORY.md
+│       └── agents/
+│           └── <agent_name>/...
 ├── sessions/
 │   └── <session_id>/
 │       ├── MEMORY.md
 │       └── *.md
-├── agents/
-│   └── <agent_name>/...
 └── workspaces/
     └── <workspace_key>/...
 ```
 
 P1 已完成，落地能力：
-- 四层 scope 读取：`project` / `session` / `agent` / `workspace`
+- 四层 scope 读取：`team` / `session` / `agent` / `workspace`
 - `session` 层 root final_answer 自动写入
 - `MEMORY.md` 作为索引入口（`load_index_head` 限 200 行 / 25KB）
 - 单条记忆单独 Markdown 文件保存 frontmatter + 正文
@@ -346,12 +346,12 @@ P1 已完成，落地能力：
 
 当前默认 scope chain：
 - 仅当存在任一 memory scope 权限，且 `memory.auto_inject=true` 时，按 `allowed_scopes` 自动注入索引
-- `project` 注入项目级 MEMORY.md
+- `team` 注入团队级 MEMORY.md
 - `session` 注入当前会话 MEMORY.md
 - `agent` 仅注入当前正在运行的 `agent_name` 对应私有 MEMORY.md
-- `workspace` 仅在当前 session 配置了 `metadata.workspace_root` 时，按其目录名派生 `workspace_key` 并注入对应 MEMORY.md
+- `workspace` 仅在当前 session 存在有效 workspace 根路径时注入对应 MEMORY.md；`workspace_key` 不再取目录 basename，而是基于完整 workspace 路径生成稳定 key
 - 自动检索相关记忆（`memory_query`）时，scope chain 也与上述规则保持一致
-- 默认推荐 `project -> session`
+- 默认推荐 `team -> session`
 
 memory 工具不再对所有 Agent 默认开放，而是完全由 memory 配置中的 scope 权限自动推导：
 - 三个 scope 列表（`allowed_scopes` / `write_scopes` / `archive_scopes`）任一非空：memory 视为启用
@@ -374,7 +374,7 @@ memory 当前采用纯 scope 授权模型：
 
 非默认启用 scope（已实现，需在 agent 配置中显式添加）：
 - `agent`：当前运行的 Agent 私有记忆
-- `workspace`：需 session 配置 `metadata.workspace_root` 后自动派生 `workspace_key`
+- `workspace`：需存在有效 workspace 根路径后自动生成稳定 `workspace_key`
 
 当前 root final_answer 的 session memory 规则抽取先覆盖少量高价值偏好：
 - 使用中文

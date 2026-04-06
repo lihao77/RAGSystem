@@ -9,12 +9,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from core.path_resolution import BACKEND_ROOT, get_memory_project_root, get_project_memory_scope_root, get_session_memory_scope_root
+from core.path_resolution import (
+    MEMORY_ROOT,
+    get_session_memory_scope_root,
+    get_team_agent_memory_scope_root,
+    get_team_memory_scope_root,
+    get_workspace_memory_scope_root,
+)
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _ALLOWED_MEMORY_TYPES = {"preference", "constraint", "goal", "fact", "profile"}
-_ALLOWED_SCOPES = {"project", "session", "agent", "workspace"}
+_ALLOWED_SCOPES = {"team", "session", "agent", "workspace"}
 
 
 @dataclass
@@ -31,13 +37,12 @@ class MemoryEntry:
 
 
 class MemoryStore:
-    def __init__(self, *, project_key: Optional[str] = None):
-        self.project_key = (project_key or BACKEND_ROOT.name).strip() or BACKEND_ROOT.name
+    def __init__(self):
+        pass
 
     def get_project_root(self) -> Path:
-        root = get_memory_project_root(self.project_key)
-        root.mkdir(parents=True, exist_ok=True)
-        return root
+        MEMORY_ROOT.mkdir(parents=True, exist_ok=True)
+        return MEMORY_ROOT
 
     def get_scope_root(
         self,
@@ -46,26 +51,30 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
     ) -> Path:
         normalized_scope = (scope or "").strip().lower()
         if normalized_scope not in _ALLOWED_SCOPES:
             raise ValueError(f"不支持的 memory scope: {scope}")
-        if normalized_scope == "project":
-            return get_project_memory_scope_root(self.project_key)
+        if normalized_scope == "team":
+            if not (team_name or "").strip():
+                raise ValueError("team scope 缺少 team_name")
+            return get_team_memory_scope_root(team_name)
         if normalized_scope == "session":
             if not (session_id or "").strip():
                 raise ValueError("session scope 缺少 session_id")
-            return get_session_memory_scope_root(session_id, self.project_key)
-        project_root = self.get_project_root()
+            return get_session_memory_scope_root(session_id)
         if normalized_scope == "agent":
+            if not (team_name or "").strip():
+                raise ValueError("agent scope 缺少 team_name")
             normalized_agent = (agent_name or "").strip()
             if not normalized_agent:
                 raise ValueError("agent scope 缺少 agent_name")
-            return project_root / "agents" / normalized_agent
+            return get_team_agent_memory_scope_root(team_name, normalized_agent)
         normalized_workspace = (workspace_key or "").strip()
         if not normalized_workspace:
             raise ValueError("workspace scope 缺少 workspace_key")
-        return project_root / "workspaces" / normalized_workspace
+        return get_workspace_memory_scope_root(normalized_workspace)
 
     @staticmethod
     def get_index_path(scope_root: Path) -> Path:
@@ -78,12 +87,14 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
     ) -> Path:
         scope_root = self.get_scope_root(
             scope=scope,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            team_name=team_name,
         )
         scope_root.mkdir(parents=True, exist_ok=True)
         index_path = self.get_index_path(scope_root)
@@ -99,6 +110,7 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
         max_lines: int = 200,
         max_chars: int = 25 * 1024,
     ) -> str:
@@ -107,6 +119,7 @@ class MemoryStore:
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            team_name=team_name,
         )
         text = self.get_index_path(scope_root).read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -126,6 +139,7 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
         source_run_id: Optional[str] = None,
         source_message_id: Optional[str] = None,
         status: str = "active",
@@ -139,6 +153,7 @@ class MemoryStore:
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            team_name=team_name,
         )
         slug = self._slugify(name)
         file_name = f"{normalized_memory_type}_{slug}.md"
@@ -161,6 +176,7 @@ class MemoryStore:
             "status": (status or "active").strip().lower(),
             "agent": (agent_name or "").strip(),
             "session_id": (session_id or "").strip(),
+            "team_name": (team_name or "").strip(),
             "created_at": created_at,
             "updated_at": now,
             "source_run_id": (source_run_id or "").strip(),
@@ -177,6 +193,7 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
         include_archived: bool = False,
     ) -> List[MemoryEntry]:
         scope_root = self.ensure_scope(
@@ -184,6 +201,7 @@ class MemoryStore:
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            team_name=team_name,
         )
         entries: list[MemoryEntry] = []
         for file_path in sorted(scope_root.glob("*.md")):
@@ -206,18 +224,31 @@ class MemoryStore:
         session_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
+        team_name: Optional[str] = None,
     ) -> bool:
         scope_root = self.ensure_scope(
             scope=scope,
             session_id=session_id,
             agent_name=agent_name,
             workspace_key=workspace_key,
+            team_name=team_name,
         )
-        file_path = scope_root / file_name
+        normalized_file_name = Path(file_name).name
+        file_path = scope_root / normalized_file_name
         entry = self._read_entry(file_path)
+        if entry is None:
+            for candidate in scope_root.glob("*.md"):
+                if candidate.name == "MEMORY.md":
+                    continue
+                if candidate.name == normalized_file_name:
+                    file_path = candidate
+                    entry = self._read_entry(candidate)
+                    break
         if entry is None:
             return False
         text = file_path.read_text(encoding="utf-8")
+        if "status: active" not in text:
+            return False
         file_path.write_text(text.replace("status: active", "status: archived", 1), encoding="utf-8")
         self._rebuild_index(scope_root, scope)
         return True
@@ -243,7 +274,14 @@ class MemoryStore:
         return [entry for _, entry in scored[:limit]]
 
     def _rebuild_index(self, scope_root: Path, scope: str) -> None:
-        entries = self.list_entries(scope=scope, session_id=scope_root.name if scope == "session" else None, agent_name=scope_root.name if scope == "agent" else None, workspace_key=scope_root.name if scope == "workspace" else None, include_archived=False)
+        entries = self.list_entries(
+            scope=scope,
+            session_id=scope_root.name if scope == "session" else None,
+            agent_name=scope_root.name if scope == "agent" else None,
+            workspace_key=scope_root.name if scope == "workspace" else None,
+            team_name=scope_root.name if scope == "team" else scope_root.parent.parent.name if scope == "agent" else None,
+            include_archived=False,
+        )
         title = f"# {scope.capitalize()} Memory"
         lines = [title, ""]
         if entries:

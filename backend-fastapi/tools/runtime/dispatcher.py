@@ -19,6 +19,8 @@ def build_handler_call_arguments(handler, context) -> dict:
     sig_params = inspect.signature(handler).parameters
     for key in (
         'session_id',
+        'team_name',
+        'workspace_root',
         'run_id',
         'agent_config',
         'event_bus',

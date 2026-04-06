@@ -17,6 +17,7 @@ from tools.paths.path_resolution import (
     get_session_uploads_root,
     get_session_visualizations_root,
     get_session_workspace_root,
+    get_workspace_memory_key,
     get_export_run_root,
     infer_resource_scope,
     resolve_managed_directory,
@@ -38,6 +39,7 @@ def test_session_directory_helpers_build_expected_structure():
     assert get_session_sandbox_root(session_id) == DATA_ROOT / 'sessions' / session_id / 'sandbox'
     assert get_session_workspace_root(session_id) == DATA_ROOT / 'sessions' / session_id / 'workspace'
     assert get_effective_workspace_root(session_id) == get_session_workspace_root(session_id)
+    assert get_workspace_memory_key('E:/Python/cc/claude-code-source-code') == 'E-Python-cc-claude-code-source-code'
     assert get_session_transient_root(session_id) == DATA_ROOT / 'sessions' / session_id / 'transient'
     assert get_session_uploads_root(session_id) == DATA_ROOT / 'sessions' / session_id / 'uploads'
     assert get_session_visualizations_root(session_id) == DATA_ROOT / 'sessions' / session_id / 'visualizations'

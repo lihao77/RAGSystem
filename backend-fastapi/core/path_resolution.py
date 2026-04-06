@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Iterable
@@ -101,6 +102,15 @@ def get_effective_workspace_root(
     return None
 
 
+def get_workspace_memory_key(workspace_root: str | Path | None) -> str | None:
+    if workspace_root is None:
+        return None
+    normalized = str(Path(workspace_root).resolve()).replace('\\', '-')
+    normalized = normalized.replace(':', '')
+    normalized = re.sub(r'[^a-zA-Z0-9._-]+', '-', normalized).strip('-._')
+    return normalized or 'workspace'
+
+
 def get_session_transient_root(session_id: str) -> Path:
     return get_session_root(session_id) / "transient"
 
@@ -132,20 +142,30 @@ def get_session_cleanup_root(session_id: str) -> Path:
     return get_session_root(session_id)
 
 
-def get_memory_project_root(project_key: str) -> Path:
-    normalized = (project_key or "").strip()
-    if not normalized:
-        raise ValueError("memory project root 缺少 project_key")
-    return MEMORY_ROOT / "projects" / normalized
+def get_team_memory_scope_root(team_name: str) -> Path:
+    normalized_team = (team_name or "").strip()
+    if not normalized_team:
+        raise ValueError("memory team scope 缺少 team_name")
+    return MEMORY_ROOT / "teams" / normalized_team
 
 
-def get_project_memory_scope_root(project_key: str) -> Path:
-    return get_memory_project_root(project_key) / "project"
+def get_team_agent_memory_scope_root(team_name: str, agent_name: str) -> Path:
+    normalized_agent = (agent_name or "").strip()
+    if not normalized_agent:
+        raise ValueError("memory agent scope 缺少 agent_name")
+    return get_team_memory_scope_root(team_name) / "agents" / normalized_agent
 
 
-def get_session_memory_scope_root(session_id: str, project_key: str) -> Path:
+def get_session_memory_scope_root(session_id: str) -> Path:
     normalized_session_id = _normalize_session_id(session_id, required=True, feature="memory session 目录")
-    return get_memory_project_root(project_key) / "sessions" / normalized_session_id
+    return MEMORY_ROOT / "sessions" / normalized_session_id
+
+
+def get_workspace_memory_scope_root(workspace_key: str) -> Path:
+    normalized_workspace_key = (workspace_key or '').strip()
+    if not normalized_workspace_key:
+        raise ValueError("memory workspace scope 缺少 workspace_key")
+    return MEMORY_ROOT / "workspaces" / normalized_workspace_key
 
 
 def _from_display_path(file_path: str) -> Path | None:

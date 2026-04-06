@@ -66,7 +66,7 @@ frontend-client/src/
 handleSend({ content, attachments })
   → ensureSession()                    # 获取/创建会话
       ├─ 读取新会话初始化参数：workspace_root / entry_agent
-      └─ POST /api/agent/sessions      # 持久化 session metadata
+      └─ POST /api/agent/sessions      # 持久化 session metadata；若未提供 workspace_root，后端运行时仍会回退到默认 session workspace
   → 附件面板（SessionFilesDrawer 已改造成输入区附件对话框）
       ├─ 先走 /api/agent/sessions/{session_id}/files/upload 上传到 session 文件池
       └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）

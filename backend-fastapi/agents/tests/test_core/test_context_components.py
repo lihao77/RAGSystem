@@ -31,7 +31,7 @@ class _FakeConversationStore:
 
     def get_session(self, session_id: str):
         del session_id
-        return {"metadata": {}}
+        return {"metadata": {"team": "alpha-team"}}
 
 
 def _make_runtime_service(messages):
@@ -168,17 +168,17 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
             scope='session',
             memory_type='preference',
             file_name='preference_用户偏好-最少代码.md',
-            file_path='E:/Python/RAGSystem/.ragsystem/memory/projects/backend-fastapi/sessions/s1/preference_用户偏好-最少代码.md',
+            file_path='E:/Python/RAGSystem/.ragsystem/memory/sessions/s1/preference_用户偏好-最少代码.md',
         )
     ]
     import services.agent_api_runtime_service as runtime_module
-    runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=True, auto_inject=True, allowed_scopes=['project', 'session'])))
+    runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=True, auto_inject=True, allowed_scopes=['team', 'session'])))
     context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
     pipeline = _make_pipeline()
 
     prepared = pipeline.inspect_messages('sys', context)
 
-    assert context.metadata['memory_indices']['project'] == '# project memory'
+    assert context.metadata['memory_indices']['team'] == '# team memory'
     assert context.metadata['memory_indices']['session'] == '# session memory'
     assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
 
@@ -191,9 +191,9 @@ def test_build_context_injects_memory_scope_capabilities_into_prompt():
             memory=SimpleNamespace(
                 enabled=True,
                 auto_inject=True,
-                allowed_scopes=['project', 'session', 'workspace'],
+                allowed_scopes=['team', 'session', 'workspace'],
                 write_scopes=['session', 'workspace'],
-                archive_scopes=['project'],
+                archive_scopes=['team'],
             )
         )
     )
@@ -204,15 +204,15 @@ def test_build_context_injects_memory_scope_capabilities_into_prompt():
     memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
 
     assert context.metadata['memory_scope_capabilities'] == {
-        'allowed_scopes': ['project', 'session', 'workspace'],
+        'allowed_scopes': ['team', 'session', 'workspace'],
         'write_scopes': ['session', 'workspace'],
-        'archive_scopes': ['project'],
+        'archive_scopes': ['team'],
     }
     merged_block = '\n\n'.join(memory_blocks)
     assert '[Memory Scope Capabilities]' in merged_block
-    assert '可读取 scope: project, session, workspace' in merged_block
+    assert '可读取 scope: team, session, workspace' in merged_block
     assert '可写入 scope: session, workspace' in merged_block
-    assert '可归档 scope: project' in merged_block
+    assert '可归档 scope: team' in merged_block
 
 
 def test_build_context_exposes_disabled_memory_scope_capabilities():

@@ -319,7 +319,7 @@ def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, save_
     }
 
 
-def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None, cancel_event=None):
+def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None, cancel_event=None, team_name=None, workspace_root=None):
     from tools.refs.result_references import result_error_message, result_primary_content, result_success
     from tools.runtime.executor import execute_tool
 
@@ -343,6 +343,8 @@ def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None
             user_role=user_role,
             caller="code_execution",
             session_id=session_id,
+            team_name=team_name,
+            workspace_root=workspace_root,
             cancel_event=cancel_event,
         )
         if not result_success(result):
@@ -692,6 +694,8 @@ def execute_code_sandbox(
         user_role,
         session_id=session_id,
         cancel_event=cancel_event,
+        team_name=team_name,
+        workspace_root=workspace_root,
     )
     ipc_approval_requester = lambda **kwargs: _request_sandbox_approval(event_bus, session_id, **kwargs)
 

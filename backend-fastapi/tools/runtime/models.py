@@ -57,6 +57,8 @@ class ToolUseContext:
     user_role: Optional[str] = None
     caller: str = "direct"
     session_id: Optional[str] = None
+    team_name: Optional[str] = None
+    workspace_root: Optional[str] = None
     run_id: Optional[str] = None
     request_id: Optional[str] = None
     cancel_event: Any = None
