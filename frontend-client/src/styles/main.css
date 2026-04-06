@@ -38,6 +38,8 @@
     --color-text-muted: #636366;
     /* System Gray 2 - 更柔和 */
     --color-text-inverse: #000000;
+    --color-on-color: #ffffff;
+    --color-on-color-strong: #111111;
 
     /* Message Backgrounds */
     --color-bg-message-user: #2c2c2e;
@@ -48,6 +50,16 @@
     --color-border-hover: rgba(255, 255, 255, 0.16);
     --color-border-focus: rgba(10, 132, 255, 0.5);
     /* Apple Blue focus */
+    --color-map-marker-fill: #2a81cb;
+    --color-map-marker-border: #1a6ab5;
+    --color-map-marker-glyph: #ffffff;
+    --color-map-marker-ring-fill: rgba(255, 255, 255, 0.12);
+    --color-map-overlay-accent: #3388ff;
+    --color-map-overlay-border: rgba(255, 255, 255, 0.5);
+    --color-map-overlay-point-stroke: #ffffff;
+    --color-risk-badge-text: var(--color-on-color);
+    --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
+    --color-soft-inset: rgba(255, 255, 255, 0.08);
 
     /* Status Colors - Muted */
     --color-success: #30d158;
@@ -250,6 +262,8 @@
     --color-text-muted: #a1a1a6;
     /* System Gray 2 */
     --color-text-inverse: #ffffff;
+    --color-on-color: #ffffff;
+    --color-on-color-strong: #1d1d1f;
 
     /* Message Backgrounds */
     --color-bg-message-user: #e8e8ed;
@@ -261,6 +275,16 @@
     --color-border-hover: #b0b0b5;
     --color-border-focus: rgba(0, 122, 255, 0.5);
     /* Apple Blue focus */
+    --color-map-marker-fill: #007aff;
+    --color-map-marker-border: #005ecb;
+    --color-map-marker-glyph: #ffffff;
+    --color-map-marker-ring-fill: rgba(255, 255, 255, 0.82);
+    --color-map-overlay-accent: #3388ff;
+    --color-map-overlay-border: rgba(29, 29, 31, 0.22);
+    --color-map-overlay-point-stroke: #1d1d1f;
+    --color-risk-badge-text: var(--color-on-color-strong);
+    --color-risk-badge-ring: rgba(29, 29, 31, 0.16);
+    --color-soft-inset: rgba(0, 0, 0, 0.06);
 
     /* Status Colors - Light Theme */
     --color-success: #28cd41;

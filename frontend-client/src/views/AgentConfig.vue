@@ -1473,8 +1473,8 @@ onUnmounted(() => {
   margin-bottom: 12px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  background: rgba(99, 102, 241, 0.12);
-  color: #c7d2fe;
+  border: 1px solid rgba(var(--color-brand-accent-rgb), 0.28);
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  color: var(--color-brand-accent-light);
 }
 </style>

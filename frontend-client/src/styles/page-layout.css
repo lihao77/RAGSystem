@@ -51,7 +51,7 @@
 .pl-btn--primary {
   background: var(--color-brand-accent);
   border-color: var(--color-brand-accent);
-  color: #fff;
+  color: var(--color-on-color);
   box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
@@ -202,7 +202,7 @@
 
 .pl-card:hover {
   box-shadow: var(--shadow-lg),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 var(--color-soft-inset);
 }
 
 .pl-card__head {

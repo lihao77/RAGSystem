@@ -170,7 +170,7 @@ const formatNumber = (num) => {
   justify-content: center;
   font-size: 0.55rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--color-risk-badge-text);
   flex-shrink: 0;
 }
 

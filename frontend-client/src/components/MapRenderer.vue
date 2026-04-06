@@ -211,10 +211,10 @@ const MARKER_SIZE_MAP = { sm: 24, md: 30, lg: 36, xl: 44 };
 const SUPPORTED_MARKER_ICONS = new Set(['pin', 'dot', 'ring', 'square', 'diamond', 'triangle', 'star', 'flag', 'badge', 'hospital', 'shelter', 'station', 'warning', 'rescue', 'supply', 'school', 'bridge', 'dam', 'reservoir', 'pump', 'cross', 'hexagon', 'arrow', 'shield', 'drop']);
 const DEFAULT_MARKER_STYLE = {
   icon: 'pin',
-  color: '#2a81cb',
-  borderColor: '#1a6ab5',
+  color: 'var(--color-map-marker-fill)',
+  borderColor: 'var(--color-map-marker-border)',
   glyph: '',
-  glyphColor: '#ffffff',
+  glyphColor: 'var(--color-map-marker-glyph)',
   size: 'md'
 };
 
@@ -281,7 +281,7 @@ const buildMarkerSvg = (rawStyle = {}) => {
       shapeMarkup = `<circle cx="24" cy="24" r="18" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" />`;
       break;
     case 'ring':
-      shapeMarkup = `<circle cx="24" cy="24" r="16" fill="rgba(255,255,255,0.1)" stroke="${style.color}" stroke-width="7" /><circle cx="24" cy="24" r="18" fill="none" stroke="${style.borderColor}" stroke-width="2" />`;
+      shapeMarkup = `<circle cx="24" cy="24" r="16" fill="var(--color-map-marker-ring-fill)" stroke="${style.color}" stroke-width="7" /><circle cx="24" cy="24" r="18" fill="none" stroke="${style.borderColor}" stroke-width="2" />`;
       break;
     case 'square':
       shapeMarkup = `<rect x="9" y="9" width="30" height="30" rx="8" fill="${style.color}" stroke="${style.borderColor}" stroke-width="3" />`;
@@ -503,7 +503,7 @@ const renderSingleLayer = (layerData, map) => {
           fillColor: getChoroplethColor(val, valueRange, colorScale),
           weight: 2,
           opacity: 1,
-          color: 'rgba(255,255,255,0.5)',
+          color: 'var(--color-map-overlay-border)',
           fillOpacity: 0.7,
         };
       },
@@ -536,13 +536,13 @@ const renderSingleLayer = (layerData, map) => {
       style: () => ({
         weight: 2,
         opacity: 0.8,
-        color: '#3388ff',
-        fillColor: '#3388ff',
+        color: 'var(--color-map-overlay-accent)',
+        fillColor: 'var(--color-map-overlay-accent)',
         fillOpacity: 0.3,
       }),
       pointToLayer: (feature, latlng) => {
         return L.circleMarker(latlng, {
-          radius: 8, fillColor: '#3388ff', color: '#fff',
+          radius: 8, fillColor: 'var(--color-map-overlay-accent)', color: 'var(--color-map-overlay-point-stroke)',
           weight: 2, fillOpacity: 0.8,
         });
       },
@@ -639,8 +639,8 @@ const renderSingleLayerToGroup = (layerData, group) => {
     group.addLayer(L.geoJSON(geojson, {
       style: (feature) => isChoropleth ? {
         fillColor: getChoroplethColor(feature.properties?.value ?? 0, vr, color_scale),
-        weight: 2, opacity: 1, color: 'rgba(255,255,255,0.5)', fillOpacity: 0.7,
-      } : { weight: 2, opacity: 0.8, color: '#3388ff', fillColor: '#3388ff', fillOpacity: 0.3 },
+        weight: 2, opacity: 1, color: 'var(--color-map-overlay-border)', fillOpacity: 0.7,
+      } : { weight: 2, opacity: 0.8, color: 'var(--color-map-overlay-accent)', fillColor: 'var(--color-map-overlay-accent)', fillOpacity: 0.3 },
       pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 8 }),
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
@@ -668,7 +668,7 @@ const renderRiskMap = () => {
 
     const icon = L.divIcon({
       className: 'risk-marker-icon',
-      html: `<div style="background:${color};width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:12px;border:3px solid rgba(255,255,255,0.8);box-shadow:0 2px 8px rgba(0,0,0,0.3);">${riskLevel}</div>`,
+      html: `<div class="risk-marker-dot" style="--risk-color:${color};">${riskLevel}</div>`,
       iconSize: [32, 32],
       iconAnchor: [16, 16],
     });
@@ -682,14 +682,14 @@ const renderRiskMap = () => {
     const factors = marker.risk_factors || [];
     let popupHtml = `<div class="marker-popup risk-popup">`;
     popupHtml += `<strong>${safeName}</strong>`;
-    popupHtml += `<span class="risk-badge" style="background:${color};color:#fff;padding:2px 8px;border-radius:10px;margin-left:6px;font-size:0.75rem;">${riskLevel}级</span><br/>`;
-    if (safeAssessment) popupHtml += `<div style="margin:4px 0;font-size:0.85rem;">${safeAssessment}</div>`;
+    popupHtml += `<span class="risk-badge" style="--risk-color:${color};">${riskLevel}级</span><br/>`;
+    if (safeAssessment) popupHtml += `<div class="risk-assessment">${safeAssessment}</div>`;
     if (factors.length) {
-      popupHtml += `<div style="margin-top:4px;font-size:0.8rem;color:#666;">`;
+      popupHtml += `<div class="risk-factors">`;
       factors.forEach(f => { popupHtml += `<div>· ${escapeHtml(f)}</div>`; });
       popupHtml += `</div>`;
     }
-    popupHtml += `<div style="margin-top:6px;"><button class="risk-analyze-btn" data-location="${safeName}" style="background:${color};color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem;">深入分析</button></div>`;
+    popupHtml += `<div class="risk-action-row"><button class="risk-analyze-btn" data-location="${safeName}" style="--risk-color:${color};">深入分析</button></div>`;
     popupHtml += `</div>`;
     m.bindPopup(popupHtml);
 
@@ -995,7 +995,7 @@ watch(() => props.mapData, () => {
     rgba(0, 0, 255, 0.9)
   );
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--color-border);
 }
 
 .legend-circle-demo {
@@ -1003,7 +1003,7 @@ watch(() => props.mapData, () => {
   height: 20px;
   border-radius: 50%;
   background: rgba(255, 120, 0, 0.5);
-  border: 2px solid #ff7800;
+  border: 2px solid var(--color-map-marker-fill);
   flex-shrink: 0;
 }
 
@@ -1160,7 +1160,7 @@ watch(() => props.mapData, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-risk-badge-text);
   font-size: 0.65rem;
   font-weight: bold;
   flex-shrink: 0;
@@ -1185,7 +1185,7 @@ watch(() => props.mapData, () => {
   width: 16px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--color-border);
 }
 
 .legend-color-step {
@@ -1198,6 +1198,59 @@ watch(() => props.mapData, () => {
 :deep(.risk-marker-icon) {
   background: none !important;
   border: none !important;
+}
+
+:deep(.risk-marker-dot) {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--risk-color);
+  color: var(--color-risk-badge-text);
+  font-weight: 700;
+  font-size: 12px;
+  border: 3px solid var(--color-risk-badge-ring);
+  box-shadow: var(--shadow-md);
+}
+
+:deep(.risk-popup .risk-badge) {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 6px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--risk-color);
+  color: var(--color-risk-badge-text);
+}
+
+:deep(.risk-popup .risk-assessment) {
+  margin: 4px 0;
+  font-size: 0.85rem;
+  color: var(--color-text-primary);
+}
+
+:deep(.risk-popup .risk-factors) {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+:deep(.risk-popup .risk-action-row) {
+  margin-top: 6px;
+}
+
+:deep(.risk-popup .risk-analyze-btn) {
+  background: var(--risk-color);
+  color: var(--color-risk-badge-text);
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 
 :deep(.custom-marker-icon) {

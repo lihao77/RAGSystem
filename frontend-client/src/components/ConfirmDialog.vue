@@ -160,7 +160,7 @@ defineExpose({
 
 .dialog-btn-confirm {
   background: var(--color-error);
-  color: white;
+  color: var(--color-on-color);
   box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3);
 }
 

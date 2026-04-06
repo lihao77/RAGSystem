@@ -551,8 +551,8 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary);
+  background: var(--color-hover-overlay-md);
 }
 
 .summary-icon--active {
@@ -588,17 +588,17 @@ onMounted(() => {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(226, 232, 240, 0.66);
+  color: var(--color-text-secondary);
 }
 
 .summary-value {
   font-size: 20px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .summary-value--active {
-  color: #e2e8f0;
+  color: var(--color-text-primary);
 }
 
 .summary-value--mono {
@@ -653,14 +653,14 @@ onMounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .section-desc {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: rgba(226, 232, 240, 0.72);
+  color: var(--color-text-secondary);
 }
 
 .form-grid {
@@ -693,9 +693,9 @@ onMounted(() => {
   width: 100%;
   min-height: 44px;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(15, 23, 42, 0.68);
-  color: #f8fafc;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
   padding: 0 14px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
@@ -710,8 +710,8 @@ onMounted(() => {
   min-height: 44px;
   padding: 0 14px;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.34);
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
 }
 
 .selection-clear-btn {
@@ -732,7 +732,7 @@ onMounted(() => {
 .board-metric,
 .selection-hint {
   font-size: 12px;
-  color: rgba(226, 232, 240, 0.82);
+  color: var(--color-text-secondary);
 }
 
 .composition-actions {
@@ -756,8 +756,8 @@ onMounted(() => {
 .plan-preview {
   padding: 18px;
   border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.26);
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
 }
 
 .board-column__head,
@@ -773,7 +773,7 @@ onMounted(() => {
 .plan-preview__head h3 {
   margin: 6px 0 0;
   font-size: 18px;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .agent-card-list {
@@ -786,9 +786,9 @@ onMounted(() => {
   width: 100%;
   padding: 14px 16px;
   border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.04);
-  color: #e2e8f0;
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-primary);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -837,14 +837,14 @@ onMounted(() => {
 
 .agent-card__content strong {
   font-size: 14px;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .agent-card__content span,
 .target-chip__hint,
 .transfer-hint {
   font-size: 12px;
-  color: rgba(226, 232, 240, 0.68);
+  color: var(--color-text-secondary);
 }
 
 .agent-card__action {
@@ -864,8 +864,8 @@ onMounted(() => {
   height: 100%;
   min-height: 220px;
   border-radius: 18px;
-  border: 1px dashed rgba(148, 163, 184, 0.22);
-  background: rgba(15, 23, 42, 0.22);
+  border: 1px dashed rgba(var(--color-brand-accent-rgb), 0.28);
+  background: linear-gradient(180deg, rgba(var(--color-brand-accent-rgb), 0.08), var(--color-hover-overlay) 72%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -878,8 +878,8 @@ onMounted(() => {
 .transfer-badge {
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.14);
-  color: #c7d2fe;
+  background: rgba(var(--color-brand-accent-rgb), 0.14);
+  color: var(--color-brand-accent-light);
   font-size: 12px;
 }
 
@@ -903,9 +903,9 @@ onMounted(() => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.04);
-  color: #e2e8f0;
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-primary);
   font-size: 12px;
 }
 
@@ -951,8 +951,8 @@ onMounted(() => {
 .preview-stat-card {
   padding: 14px;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-overlay);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -965,14 +965,14 @@ onMounted(() => {
 
 .preview-stat-card strong {
   font-size: 18px;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .empty-inline {
   padding: 18px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(226, 232, 240, 0.68);
+  background: var(--color-hover-overlay);
+  color: var(--color-text-secondary);
   text-align: center;
   font-size: 13px;
 }
@@ -1011,14 +1011,14 @@ onMounted(() => {
 .team-card__title-row h3 {
   margin: 0;
   font-size: 18px;
-  color: #f8fafc;
+  color: var(--color-text-primary);
 }
 
 .team-card__identity p {
   margin: 8px 0;
   font-size: 12px;
   line-height: 1.6;
-  color: rgba(226, 232, 240, 0.62);
+  color: var(--color-text-secondary);
   word-break: break-all;
 }
 
@@ -1027,8 +1027,8 @@ onMounted(() => {
   border-radius: 999px;
   font-size: 12px;
   white-space: nowrap;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(226, 232, 240, 0.85);
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-secondary);
 }
 
 .team-badge--active {

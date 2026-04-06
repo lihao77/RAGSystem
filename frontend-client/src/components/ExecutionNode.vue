@@ -52,7 +52,7 @@
         <!-- 上下文用量圆形进度 -->
         <span v-if="node.ctx && node.ctx.max > 0" class="ctx-ring" :title="`上下文: ${node.ctx.used.toLocaleString()} / ${node.ctx.max.toLocaleString()} tokens`">
           <svg width="20" height="20" viewBox="0 0 20 20">
-            <circle cx="10" cy="10" r="8" fill="none" stroke="#e0e0e0" stroke-width="2.5" />
+            <circle cx="10" cy="10" r="8" fill="none" stroke="var(--ctx-ring-track)" stroke-width="2.5" />
             <circle
               cx="10"
               cy="10"

@@ -185,7 +185,7 @@ onMounted(fetchConfig);
 
 .retry-btn:hover {
   background: var(--error-color, #dc2626);
-  color: white;
+  color: var(--color-on-color);
 }
 
 .fallback-image-wrapper {

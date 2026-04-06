@@ -697,7 +697,7 @@ onUnmounted(() => {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   box-shadow: var(--shadow-sm),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 var(--color-soft-inset);
 }
 
 .sidebar-btn.active .icon {
@@ -811,7 +811,7 @@ onUnmounted(() => {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   box-shadow: var(--shadow-sm),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 var(--color-soft-inset);
 }
 
 .history-item.active .history-icon {
@@ -1065,7 +1065,7 @@ onUnmounted(() => {
     background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.84);
     backdrop-filter: blur(20px) saturate(150%);
     -webkit-backdrop-filter: blur(20px) saturate(150%);
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid var(--color-border);
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
   }
 

@@ -589,8 +589,8 @@ onUnmounted(() => {
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-hover-overlay);
+  border: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
@@ -616,7 +616,7 @@ onUnmounted(() => {
 
 .stat-card:hover {
   border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 var(--color-soft-inset);
 }
 
 .stat-card--success .stat-icon {

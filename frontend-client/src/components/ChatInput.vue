@@ -347,7 +347,7 @@ textarea::placeholder {
   justify-content: center;
   border: none;
   background: var(--color-brand-accent);
-  color: white;
+  color: var(--color-on-color);
   border-radius: 14px;
   cursor: pointer;
   transition: all 0.3s;
@@ -382,7 +382,7 @@ textarea::placeholder {
 .stop-btn {
   background: var(--color-error) !important;
   border: none !important;
-  color: white !important;
+  color: var(--color-on-color) !important;
   opacity: 1 !important;
   cursor: pointer !important;
   box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3) !important;
