@@ -1381,7 +1381,7 @@ const formatResultContent = (value) => {
   overflow: hidden;
   box-sizing: border-box;
   border-top: 1px solid var(--color-border);
-  background: var(--color-bg-app);
+  background: var(--color-bg-primary);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
@@ -1412,7 +1412,7 @@ const formatResultContent = (value) => {
   justify-content: space-between;
   align-items: center;
   gap: var(--spacing-sm);
-  background: var(--color-bg-app);
+  background: var(--color-bg-primary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -1439,7 +1439,7 @@ const formatResultContent = (value) => {
 
 .code-wrapper {
   padding: var(--spacing-md);
-  background: var(--color-bg-app);
+  background: var(--color-bg-primary);
   border-radius: var(--radius-lg);
 }
 
@@ -1463,6 +1463,35 @@ const formatResultContent = (value) => {
 .linked-agent-call-block {
   padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
   border-top: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* 穿透子组件：内层 tool-call */
+.linked-agent-call-block :deep(.node-tool-call) {
+  background: var(--color-bg-secondary);
+}
+
+/* 穿透子组件：内层展开区 */
+.linked-agent-call-block :deep(.tool-details),
+.linked-agent-call-block :deep(.detail-header),
+.linked-agent-call-block :deep(.code-wrapper) {
+  background: var(--color-bg-tertiary);
+}
+
+/* 穿透子组件：二层内联块 */
+.linked-agent-call-block :deep(.linked-agent-call-block) {
+  background: var(--color-bg-secondary);
+}
+
+.linked-agent-call-block :deep(.linked-agent-call-block .node-tool-call) {
+  background: var(--color-bg-tertiary);
+}
+
+.linked-agent-call-block :deep(.linked-agent-call-block .tool-details),
+.linked-agent-call-block :deep(.linked-agent-call-block .detail-header),
+.linked-agent-call-block :deep(.linked-agent-call-block .code-wrapper) {
+  background: var(--color-bg-elevated);
 }
 
 /* 子节点容器 */
