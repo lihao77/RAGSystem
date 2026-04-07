@@ -98,11 +98,23 @@
       <!-- 预览区（折叠时可见，展开时收起） -->
       <div class="agent-call-preview-wrap">
         <div class="agent-call-preview">
-          <div class="description">{{ node.description }}</div>
+          <div
+            class="clamp-box"
+            :class="{ expanded: previewDescExpanded, interactive: descOverflows }"
+            @click.stop="togglePreviewExpand('desc')"
+          >
+            <div class="description" ref="descRef" :style="descClampStyle">{{ node.description }}</div>
+            <div v-if="descOverflows && !previewDescExpanded" class="clamp-fade"></div>
+          </div>
           <div class="preview-meta" v-if="node.result_summary">
-            <span v-if="node.result_summary" class="result-preview">
-              {{ node.result_summary }}
-            </span>
+            <div
+              class="clamp-box"
+              :class="{ expanded: previewResultExpanded, interactive: resultOverflows }"
+              @click.stop="togglePreviewExpand('result')"
+            >
+              <div class="result-preview" ref="resultRef" :style="resultClampStyle">{{ node.result_summary }}</div>
+              <div v-if="resultOverflows && !previewResultExpanded" class="clamp-fade"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -188,16 +200,8 @@
               </div>
             </div>
 
-            <!-- 关联的 agent_call 节点（call_agent 工具专属） -->
-            <div v-if="node.linkedAgentCall" class="linked-agent-call-block">
-              <ExecutionNode
-                :node="node.linkedAgentCall"
-                :level="level + 1"
-                :session-id="sessionId"
-              />
-            </div>
-
-            <div v-if="previewResult && !node.linkedAgentCall" class="detail-block">
+            <!-- 结果展示 -->
+            <div v-if="previewResult" class="detail-block">
               <div class="detail-header">
                 <span>{{ resultViewMode === 'raw' ? 'Tool Raw Result' : 'Agent Observation' }}</span>
                 <div class="detail-header-actions">
@@ -241,7 +245,7 @@
 </template>
 
 <script setup>
-import { ref, computed, defineProps } from 'vue';
+import { ref, computed, defineProps, nextTick, onMounted, watch } from 'vue';
 import { getToolCallRawResult } from '../api/monitoring';
 
 const props = defineProps({
@@ -264,6 +268,66 @@ const defaultExpanded = props.node.expanded !== undefined
   ? props.node.expanded
   : props.node.tool_name === 'request_user_input';
 const localExpanded = ref(defaultExpanded);
+const previewDescExpanded = ref(false);
+const previewResultExpanded = ref(false);
+const descRef = ref(null);
+const resultRef = ref(null);
+const descOverflows = ref(false);
+const resultOverflows = ref(false);
+const descCollapsedHeight = ref(0);
+const descExpandedHeight = ref(0);
+const resultCollapsedHeight = ref(0);
+const resultExpandedHeight = ref(0);
+
+function measureClampHeights(el, collapsedLines = 3) {
+  if (!el) return { collapsed: 0, expanded: 0, overflows: false };
+  const styles = window.getComputedStyle(el);
+  const lineHeight = parseFloat(styles.lineHeight) || 0;
+  const expanded = el.scrollHeight;
+  const collapsed = lineHeight > 0
+    ? Math.ceil(lineHeight * collapsedLines)
+    : expanded;
+  return {
+    collapsed,
+    expanded,
+    overflows: expanded > collapsed + 2,
+  };
+}
+
+function checkOverflow() {
+  if (descRef.value) {
+    const { collapsed, expanded, overflows } = measureClampHeights(descRef.value);
+    descCollapsedHeight.value = collapsed;
+    descExpandedHeight.value = expanded;
+    descOverflows.value = overflows;
+    if (!overflows) previewDescExpanded.value = false;
+  }
+  if (resultRef.value) {
+    const { collapsed, expanded, overflows } = measureClampHeights(resultRef.value);
+    resultCollapsedHeight.value = collapsed;
+    resultExpandedHeight.value = expanded;
+    resultOverflows.value = overflows;
+    if (!overflows) previewResultExpanded.value = false;
+  }
+}
+
+const descClampStyle = computed(() => {
+  if (!descOverflows.value) return {};
+  return {
+    maxHeight: `${previewDescExpanded.value ? descExpandedHeight.value : descCollapsedHeight.value}px`
+  };
+});
+
+const resultClampStyle = computed(() => {
+  if (!resultOverflows.value) return {};
+  return {
+    maxHeight: `${previewResultExpanded.value ? resultExpandedHeight.value : resultCollapsedHeight.value}px`
+  };
+});
+
+onMounted(() => nextTick(checkOverflow));
+watch(() => props.node.description, () => nextTick(checkOverflow));
+watch(() => props.node.result_summary, () => nextTick(checkOverflow));
 const rawResult = ref(null);
 const rawResultLoading = ref(false);
 const rawResultError = ref('');
@@ -381,12 +445,22 @@ const smartPreview = computed(() => {
   return '';
 });
 
+const agentPaletteClasses = ['master', 'qa', 'analysis', 'agent-cyan', 'agent-orange', 'agent-pink'];
+
 const getAgentClass = (agentName) => {
-  if (!agentName) return '';
-  if (agentName.includes('master')) return 'master';
-  if (agentName.includes('qa')) return 'qa';
-  if (agentName.includes('analysis')) return 'analysis';
-  return 'default';
+  if (!agentName) return 'default';
+  const normalized = String(agentName).toLowerCase();
+  if (normalized.includes('master')) return 'master';
+  if (normalized.includes('qa')) return 'qa';
+  if (normalized.includes('analysis')) return 'analysis';
+
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash = ((hash << 5) - hash) + normalized.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % agentPaletteClasses.length;
+  return agentPaletteClasses[index];
 };
 
 const ctxPct = computed(() => {
@@ -421,6 +495,16 @@ const getStatusText = (status) => {
 // agent_call 折叠/展开，纯 CSS grid-template-rows 动画，无需 JS 测量高度
 const toggleExpanded = () => {
   localExpanded.value = !localExpanded.value;
+};
+
+const togglePreviewExpand = (type) => {
+  if (type === 'desc') {
+    if (!descOverflows.value) return;
+    previewDescExpanded.value = !previewDescExpanded.value;
+    return;
+  }
+  if (!resultOverflows.value) return;
+  previewResultExpanded.value = !previewResultExpanded.value;
 };
 
 const canLoadRawResult = computed(() => {
@@ -740,6 +824,21 @@ const formatResultContent = (value) => {
   color: var(--color-agent-analysis);
 }
 
+.agent-badge.agent-cyan {
+  background: var(--color-agent-cyan-bg);
+  color: var(--color-agent-cyan);
+}
+
+.agent-badge.agent-orange {
+  background: var(--color-agent-orange-bg);
+  color: var(--color-agent-orange);
+}
+
+.agent-badge.agent-pink {
+  background: var(--color-agent-pink-bg);
+  color: var(--color-agent-pink);
+}
+
 .agent-badge.default {
   background: var(--color-agent-default-bg);
   color: var(--color-agent-default);
@@ -796,7 +895,7 @@ const formatResultContent = (value) => {
   align-items: center;
   justify-content: center;
   color: var(--color-text-muted);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.22s ease-out;
   margin-left: -7px;
   overflow: visible;
 }
@@ -888,15 +987,12 @@ const formatResultContent = (value) => {
 .agent-call-preview-wrap {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s ease;
-  opacity: 1;
+  transition: grid-template-rows 0.22s ease-out;
   min-height: 0;
 }
 
 .node-agent-call.expanded > .agent-call-preview-wrap {
   grid-template-rows: 0fr;
-  opacity: 0;
 }
 
 /* 内层必须 overflow: hidden */
@@ -906,20 +1002,17 @@ const formatResultContent = (value) => {
   min-height: 0;
 }
 
-/* grid 折叠容器：用 grid-template-rows 0fr→1fr 实现无需知道高度的平滑展开 */
+/* grid 折叠容器：只保留高度切换，减少同时做 opacity 带来的卡顿 */
 .agent-call-detail-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s ease;
-  opacity: 0;
+  transition: grid-template-rows 0.22s ease-out;
   overflow: hidden;
   min-height: 0;
 }
 
 .agent-call-detail-wrap.expanded {
   grid-template-rows: 1fr;
-  opacity: 1;
 }
 
 /* 将裁切留在外层 wrap，避免父级 detail 把嵌套 agent 的 preview 一起裁掉 */
@@ -938,25 +1031,52 @@ const formatResultContent = (value) => {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
   line-height: 1.8;
-  margin-bottom: var(--spacing-sm);
 }
 
 .result-preview {
   font-size: 0.85rem;
   color: var(--color-text-muted);
   line-height: 1.7;
+}
+
+.clamp-box {
+  position: relative;
+}
+
+.clamp-box.interactive {
+  cursor: pointer;
+}
+
+/* 预览折叠区：只保留高度过渡，遮罩不参与动画，优先保证流畅 */
+.clamp-box .description,
+.clamp-box .result-preview {
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  transition: max-height 0.18s ease-out;
+}
+
+.clamp-box:not(.expanded) .description,
+.clamp-box:not(.expanded) .result-preview {
+  -webkit-mask-image: linear-gradient(to bottom, black 58%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 58%, transparent 100%);
+}
+
+.clamp-box.expanded .description,
+.clamp-box.expanded .result-preview {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.clamp-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2.5em;
+  pointer-events: none;
 }
 
 .preview-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
   margin-top: 4px;
-  flex-wrap: wrap;
 }
 
 .tool-count-badge {
@@ -1073,10 +1193,6 @@ const formatResultContent = (value) => {
     font-size: 0.8rem;
     line-height: 1.6;
     padding-left: var(--spacing-md);
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
 
   .result-summary {
@@ -1165,8 +1281,8 @@ const formatResultContent = (value) => {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
   line-height: 1.8;
-  margin-bottom: var(--spacing-md);
-  margin-left: var(--spacing-md);
+  margin-bottom: var(--subtasks-padding);
+  margin-left: var(--subtasks-padding);
 }
 
 .result-summary {
@@ -1457,41 +1573,6 @@ const formatResultContent = (value) => {
 
 .result-code {
   color: var(--color-text-primary);
-}
-
-/* call_agent 内联子 agent 区域 */
-.linked-agent-call-block {
-  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-}
-
-/* 穿透子组件：内层 tool-call */
-.linked-agent-call-block :deep(.node-tool-call) {
-  background: var(--color-bg-secondary);
-}
-
-/* 穿透子组件：内层展开区 */
-.linked-agent-call-block :deep(.tool-details),
-.linked-agent-call-block :deep(.detail-header),
-.linked-agent-call-block :deep(.code-wrapper) {
-  background: var(--color-bg-tertiary);
-}
-
-/* 穿透子组件：二层内联块 */
-.linked-agent-call-block :deep(.linked-agent-call-block) {
-  background: var(--color-bg-secondary);
-}
-
-.linked-agent-call-block :deep(.linked-agent-call-block .node-tool-call) {
-  background: var(--color-bg-tertiary);
-}
-
-.linked-agent-call-block :deep(.linked-agent-call-block .tool-details),
-.linked-agent-call-block :deep(.linked-agent-call-block .detail-header),
-.linked-agent-call-block :deep(.linked-agent-call-block .code-wrapper) {
-  background: var(--color-bg-elevated);
 }
 
 /* 子节点容器 */

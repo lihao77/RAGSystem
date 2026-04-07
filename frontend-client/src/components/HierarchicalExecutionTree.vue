@@ -99,12 +99,12 @@ const createAgentCallNode = (subtask) => {
       const hasIntent = Boolean(reactStep.intent || reactStep.thinking || reactStep.thought);
       if (!hasIntent) {
         reactTools.forEach(tool => {
-          const toolNode = createToolNode(tool);
           if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
-            toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
+            agentCallNode.children.push(createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id)));
             linkedChildIds.add(tool.linked_task_id);
+          } else {
+            agentCallNode.children.push(createToolNode(tool));
           }
-          agentCallNode.children.push(toolNode);
         });
         return;
       }
@@ -116,12 +116,11 @@ const createAgentCallNode = (subtask) => {
         round: reactStep.round,
         intent: reactStep.intent || reactStep.thinking || reactStep.thought || '',
         children: reactTools.map(tool => {
-          const toolNode = createToolNode(tool);
           if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
-            toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
             linkedChildIds.add(tool.linked_task_id);
+            return createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
           }
-          return toolNode;
+          return createToolNode(tool);
         })
       };
       agentCallNode.children.push(reactNode);
@@ -130,12 +129,12 @@ const createAgentCallNode = (subtask) => {
 
   const directTools = (subtask.tool_calls || []).filter(tool => !tool?.call_id || !attachedToolIds.has(tool.call_id));
   directTools.forEach(tool => {
-    const toolNode = createToolNode(tool);
     if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
-      toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
+      agentCallNode.children.push(createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id)));
       linkedChildIds.add(tool.linked_task_id);
+    } else {
+      agentCallNode.children.push(createToolNode(tool));
     }
-    agentCallNode.children.push(toolNode);
   });
 
   // 未被关联的 child subtask 仍然平铺（兜底）
@@ -234,13 +233,13 @@ const executionTree = computed(() => {
 
     const linkedSubtaskIds = new Set();
     mergedToolCalls.forEach(tool => {
-      const toolNode = createToolNode(tool);
       const linked = getLinkedSubtask(tool, subtaskByTaskId);
       if (linked) {
-        toolNode.linkedAgentCall = createAgentCallNode(linked);
+        node.children.push(createAgentCallNode(linked));
         linkedSubtaskIds.add(linked.task_id);
+      } else {
+        node.children.push(createToolNode(tool));
       }
-      node.children.push(toolNode);
     });
 
     // 未被 tool_call 关联的 subtask 仍然平铺（兜底）
