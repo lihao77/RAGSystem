@@ -699,7 +699,7 @@ const formatResultContent = (value) => {
 
 /* 思考节点 */
 .node-thought {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-md);
   background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   transition: background-color 0.2s ease;
@@ -829,7 +829,7 @@ const formatResultContent = (value) => {
   user-select: none;
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: calc(var(--spacing-md) + 7px);
   transition: background-color 0.2s ease;
   z-index: 10;
   position: relative;
