@@ -3,7 +3,7 @@
     <!-- 意图节点 -->
     <div v-if="node.type === 'thought'" class="node-thought" :class="{ running: isRunning }">
       <div class="thought-header" v-if="node.round || node.agent_display_name || node.agent">
-        <span class="agent-badge" :class="getAgentClass(node.agent)">
+        <span class="agent-badge" :class="getAgentBadgeClass(node.agent)">
           <transition name="status-dot-fade">
             <span v-if="isRunning" class="badge-status-dot running"></span>
           </transition>
@@ -35,7 +35,7 @@
             />
           </svg>
         </span>
-        <span class="agent-badge" :class="getAgentClass(node.agent_name)">
+        <span class="agent-badge" :class="getAgentBadgeClass(node.agent_name)">
           {{ node.agent_display_name || node.agent_name }}
         </span>
         <span v-if="node.order" class="order-badge">
@@ -247,6 +247,7 @@
 <script setup>
 import { ref, computed, defineProps, nextTick, onMounted, watch } from 'vue';
 import { getToolCallRawResult } from '../api/monitoring';
+import { getAgentBadgeClass } from '../utils/agentBadge';
 
 const props = defineProps({
   node: {
@@ -444,24 +445,6 @@ const smartPreview = computed(() => {
   }
   return '';
 });
-
-const agentPaletteClasses = ['master', 'qa', 'analysis', 'agent-cyan', 'agent-orange', 'agent-pink'];
-
-const getAgentClass = (agentName) => {
-  if (!agentName) return 'default';
-  const normalized = String(agentName).toLowerCase();
-  if (normalized.includes('master')) return 'master';
-  if (normalized.includes('qa')) return 'qa';
-  if (normalized.includes('analysis')) return 'analysis';
-
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i += 1) {
-    hash = ((hash << 5) - hash) + normalized.charCodeAt(i);
-    hash |= 0;
-  }
-  const index = Math.abs(hash) % agentPaletteClasses.length;
-  return agentPaletteClasses[index];
-};
 
 const ctxPct = computed(() => {
   const ctx = props.node.ctx;
@@ -807,41 +790,6 @@ const formatResultContent = (value) => {
   transform: scale(0);
   width: 0 !important;
   margin-right: -6px;
-}
-
-.agent-badge.master {
-  background: var(--color-agent-master-bg);
-  color: var(--color-agent-master);
-}
-
-.agent-badge.qa {
-  background: var(--color-agent-qa-bg);
-  color: var(--color-agent-qa);
-}
-
-.agent-badge.analysis {
-  background: var(--color-agent-analysis-bg);
-  color: var(--color-agent-analysis);
-}
-
-.agent-badge.agent-cyan {
-  background: var(--color-agent-cyan-bg);
-  color: var(--color-agent-cyan);
-}
-
-.agent-badge.agent-orange {
-  background: var(--color-agent-orange-bg);
-  color: var(--color-agent-orange);
-}
-
-.agent-badge.agent-pink {
-  background: var(--color-agent-pink-bg);
-  color: var(--color-agent-pink);
-}
-
-.agent-badge.default {
-  background: var(--color-agent-default-bg);
-  color: var(--color-agent-default);
 }
 
 .round-badge {

@@ -85,14 +85,21 @@
     --color-link-hover: #409cff;
 
     /* Semantic Agent Colors */
-    --color-agent-master: #c084fc;
-    --color-agent-master-bg: rgba(168, 85, 247, 0.15);
-    --color-agent-qa: #60a5fa;
-    --color-agent-qa-bg: rgba(59, 130, 246, 0.15);
-    --color-agent-analysis: #4ade80;
-    --color-agent-analysis-bg: rgba(34, 197, 94, 0.15);
+    --color-agent-violet: #c084fc;
+    --color-agent-violet-bg: rgba(168, 85, 247, 0.15);
+    --color-agent-blue: #60a5fa;
+    --color-agent-blue-bg: rgba(59, 130, 246, 0.15);
+    --color-agent-green: #4ade80;
+    --color-agent-green-bg: rgba(34, 197, 94, 0.15);
+    --color-agent-cyan: #22d3ee;
+    --color-agent-cyan-bg: rgba(34, 211, 238, 0.15);
+    --color-agent-orange: #fb923c;
+    --color-agent-orange-bg: rgba(251, 146, 60, 0.16);
+    --color-agent-pink: #f472b6;
+    --color-agent-pink-bg: rgba(244, 114, 182, 0.15);
     --color-agent-default: #9ca3af;
     --color-agent-default-bg: rgba(156, 163, 175, 0.15);
+    --color-agent-success-border: rgba(52, 199, 89, 0.2);
 
     /* Hover overlay — 主题感知的微交互叠加色 */
     --color-hover-overlay: rgba(255, 255, 255, 0.06);
@@ -305,14 +312,21 @@
     --color-link-hover: #0a84ff;
 
     /* Semantic Agent Colors */
-    --color-agent-master: #9333ea;
-    --color-agent-master-bg: rgba(147, 51, 234, 0.12);
-    --color-agent-qa: #2563eb;
-    --color-agent-qa-bg: rgba(37, 99, 235, 0.1);
-    --color-agent-analysis: #16a34a;
-    --color-agent-analysis-bg: rgba(22, 163, 74, 0.1);
+    --color-agent-violet: #9333ea;
+    --color-agent-violet-bg: rgba(147, 51, 234, 0.12);
+    --color-agent-blue: #2563eb;
+    --color-agent-blue-bg: rgba(37, 99, 235, 0.1);
+    --color-agent-green: #16a34a;
+    --color-agent-green-bg: rgba(22, 163, 74, 0.1);
+    --color-agent-cyan: #0891b2;
+    --color-agent-cyan-bg: rgba(8, 145, 178, 0.12);
+    --color-agent-orange: #ea580c;
+    --color-agent-orange-bg: rgba(234, 88, 12, 0.12);
+    --color-agent-pink: #db2777;
+    --color-agent-pink-bg: rgba(219, 39, 119, 0.12);
     --color-agent-default: #6b7280;
     --color-agent-default-bg: rgba(107, 114, 128, 0.1);
+    --color-agent-success-border: rgba(34, 197, 94, 0.18);
 
     /* Hover overlay — 亮色模式用黑色叠加 */
     --color-hover-overlay: rgba(0, 0, 0, 0.04);
@@ -348,6 +362,46 @@
 /* 亮色模式不需要环境光渐变 */
 :root[data-theme="light"]::before {
     display: none;
+}
+
+/* Shared agent badge colors */
+.agent-badge.agent-violet {
+    background: var(--color-agent-violet-bg);
+    color: var(--color-agent-violet);
+}
+
+.agent-badge.agent-blue {
+    background: var(--color-agent-blue-bg);
+    color: var(--color-agent-blue);
+}
+
+.agent-badge.agent-green {
+    background: var(--color-agent-green-bg);
+    color: var(--color-agent-green);
+}
+
+.agent-badge.agent-cyan {
+    background: var(--color-agent-cyan-bg);
+    color: var(--color-agent-cyan);
+}
+
+.agent-badge.agent-orange {
+    background: var(--color-agent-orange-bg);
+    color: var(--color-agent-orange);
+}
+
+.agent-badge.agent-pink {
+    background: var(--color-agent-pink-bg);
+    color: var(--color-agent-pink);
+}
+
+.agent-badge.default {
+    background: var(--color-agent-default-bg);
+    color: var(--color-agent-default);
+}
+
+.agent-badge.success {
+    border-color: var(--color-agent-success-border);
 }
 
 /* ===== Global Reset ===== */

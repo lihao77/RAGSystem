@@ -6,7 +6,7 @@
         <transition-group name="ticker-item">
            <!-- 当前正在执行的任务/工具 -->
            <div v-if="currentActivity" key="current" class="ticker-item active">
-             <span class="agent-badge">{{ currentActivity.agent_display_name }}</span>
+             <span class="agent-badge" :class="getAgentBadgeClass(currentActivity.agent_display_name)">{{ currentActivity.agent_display_name }}</span>
              <span class="action-text">
                <span v-if="currentActivity.tool_name" class="tool-name">🛠️ {{ currentActivity.tool_name }}</span>
                <span v-else>{{ currentActivity.description }}</span>
@@ -18,7 +18,7 @@
 
            <!-- 运行中但无活跃工具：入口 Agent 已启动 -->
            <div v-else-if="running && hasRunningRootExecution" key="run" class="ticker-item active">
-             <span class="agent-badge">{{ rootExecutionAgentLabel }}</span>
+             <span class="agent-badge" :class="getAgentBadgeClass(rootExecutionAgentLabel)">{{ rootExecutionAgentLabel }}</span>
              <span class="action-text">执行中</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
@@ -27,7 +27,7 @@
 
            <!-- 运行中但无活跃工具：正在推理 -->
            <div v-else-if="running" key="intent" class="ticker-item active">
-            <span class="agent-badge">{{ rootExecutionAgentLabel }}</span>
+            <span class="agent-badge" :class="getAgentBadgeClass(rootExecutionAgentLabel)">{{ rootExecutionAgentLabel }}</span>
              <span class="action-text">正在生成意图</span>
              <div class="loading-dots">
                <span>.</span><span>.</span><span>.</span>
@@ -36,7 +36,7 @@
 
            <!-- 最近完成的任务（仅 running=false 时显示，即任务真正结束后） -->
            <div v-else-if="lastCompletedTask" key="last" class="ticker-item completed">
-             <span class="agent-badge success">
+             <span class="agent-badge success" :class="getAgentBadgeClass(lastCompletedTask.agent_display_name)">
                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                {{ lastCompletedTask.agent_display_name }}
              </span>
@@ -66,6 +66,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { getAgentBadgeClass } from '../utils/agentBadge';
 
 const props = defineProps({
   subtasks: {
@@ -270,8 +271,6 @@ const progressPercentage = computed(() => {
 .agent-badge {
   font-size: 0.75rem;
   padding: 2px 8px;
-  background: var(--color-active-bg);
-  color: var(--color-active);
   border-radius: 4px;
   font-weight: 600;
   border: 1px solid rgba(var(--color-brand-accent-light-rgb), 0.2);
@@ -284,7 +283,7 @@ const progressPercentage = computed(() => {
 .agent-badge.success {
     background: var(--color-success-bg);
     color: var(--color-success);
-    border-color: rgba(var(--color-success-rgb), 0.2);
+    border-color: var(--color-agent-success-border);
 }
 
 .action-text {
