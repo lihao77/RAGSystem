@@ -1,5 +1,5 @@
 <template>
-  <div class="execution-node" :class="node.type">
+  <div class="execution-node" :class="node.type" ref="rootEl">
     <!-- 意图节点 -->
     <div v-if="node.type === 'thought'" class="node-thought" :class="{ running: isRunning }">
       <div class="thought-header" v-if="node.round || node.agent_display_name || node.agent">
@@ -21,8 +21,8 @@
     </div>
 
     <!-- 智能体调用节点 -->
-    <div v-else-if="node.type === 'agent_call'" class="node-agent-call" :class="[node.status, { expanded: localExpanded }]">
-      <div class="agent-call-header" @click="toggleExpanded">
+    <div v-else-if="node.type === 'agent_call'" class="node-agent-call" :class="[node.status, { expanded: localExpanded }]" ref="nodeEl">
+      <div class="agent-call-header" @click="toggleExpanded(false)">
         <span class="expand-icon" :class="{ expanded: localExpanded }">
           <svg class="expand-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
             <polyline
@@ -70,7 +70,7 @@
       </div>
 
       <!-- 详情区（grid 折叠动画，展开时可见） -->
-      <div class="agent-call-detail-wrap" :class="{ expanded: localExpanded }">
+      <div class="agent-call-detail-wrap" ref="detailWrapEl">
         <div class="agent-call-details">
           <div class="description-full">
             <strong>任务描述：</strong>{{ node.description }}
@@ -89,8 +89,15 @@
 
           <!-- 结果摘要 -->
           <div v-if="node.result_summary" class="result-summary">
-            <div class="section-header">执行结果</div>
-            <div class="result-content">{{ node.result_summary }}</div>
+            <div class="result-content">
+              <div class="thought-header result-content-header" v-if="node.agent_display_name || node.agent_name">
+                <span class="agent-badge" :class="getAgentBadgeClass(node.agent_name || node.agent_display_name)">
+                  {{ node.agent_display_name || node.agent_name }}
+                </span>
+                <span class="round-badge result-section-header">执行结果</span>
+              </div>
+              <div class="result-body">{{ node.result_summary }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -121,8 +128,8 @@
     </div>
 
     <!-- 外部悬浮收起按钮 -->
-    <div v-if="node.type === 'agent_call' && localExpanded" class="collapse-trigger-external">
-      <div class="trigger-content" @click="toggleExpanded">
+    <div v-if="node.type === 'agent_call' && localExpanded" class="collapse-trigger-external" ref="collapseTriggerEl">
+      <div class="trigger-content" @click="toggleExpanded(true)">
         <svg class="icon-up" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
           <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"
           stroke="currentColor"
@@ -133,7 +140,7 @@
 
     <!-- 外部展开按钮（预览模式下显示） -->
     <div v-else-if="node.type === 'agent_call' && !localExpanded" class="expand-trigger-external">
-      <div class="trigger-content" @click="toggleExpanded">
+      <div class="trigger-content" @click="toggleExpanded(true)">
         <svg class="icon-down" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
           <path d="M533.333333 512L341.333333 704l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667-192-192z m0-256L341.333333 448l29.866667 29.866667 162.133333-162.133334 162.133334 162.133334 29.866666-29.866667L533.333333 256z" fill="currentColor"
           stroke="currentColor"
@@ -269,6 +276,10 @@ const defaultExpanded = props.node.expanded !== undefined
   ? props.node.expanded
   : props.node.tool_name === 'request_user_input';
 const localExpanded = ref(defaultExpanded);
+const rootEl = ref(null);
+const nodeEl = ref(null);
+const collapseTriggerEl = ref(null);
+const detailWrapEl = ref(null);
 const previewDescExpanded = ref(false);
 const previewResultExpanded = ref(false);
 const descRef = ref(null);
@@ -326,7 +337,15 @@ const resultClampStyle = computed(() => {
   };
 });
 
-onMounted(() => nextTick(checkOverflow));
+onMounted(() => {
+  nextTick(() => {
+    checkOverflow();
+    // 初始已展开时，直接放开高度限制
+    if (detailWrapEl.value && localExpanded.value) {
+      detailWrapEl.value.style.maxHeight = 'none';
+    }
+  });
+});
 watch(() => props.node.description, () => nextTick(checkOverflow));
 watch(() => props.node.result_summary, () => nextTick(checkOverflow));
 const rawResult = ref(null);
@@ -475,9 +494,100 @@ const getStatusText = (status) => {
   return statusMap[status] || status;
 };
 
-// agent_call 折叠/展开，纯 CSS grid-template-rows 动画，无需 JS 测量高度
-const toggleExpanded = () => {
-  localExpanded.value = !localExpanded.value;
+// 找到最近的可滚动祖先
+function findScrollParent(el) {
+  if (!el) return null;
+  let node = el.parentElement;
+  while (node) {
+    const style = window.getComputedStyle(node);
+    const overflow = style.overflow + style.overflowY;
+    if (/auto|scroll/.test(overflow) && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return document.documentElement;
+}
+
+let rafId = null;
+
+// agent_call 折叠/展开，JS rAF 驱动 max-height，折叠时同步补偿 scrollTop
+const toggleExpanded = (compensateScroll = false) => {
+  const wrap = detailWrapEl.value;
+  if (!wrap) {
+    localExpanded.value = !localExpanded.value;
+    return;
+  }
+
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  const DURATION = 220;
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+  if (!localExpanded.value) {
+    // 展开：先锁高度为 0，渲染内容后测量真实高度，再动画
+    wrap.style.maxHeight = '0px';
+    localExpanded.value = true;
+
+    nextTick(() => {
+      const targetHeight = wrap.scrollHeight;
+      const start = performance.now();
+
+      const animate = (now) => {
+        const t = Math.min((now - start) / DURATION, 1);
+        wrap.style.maxHeight = (targetHeight * easeOut(t)) + 'px';
+        if (t < 1) {
+          rafId = requestAnimationFrame(animate);
+        } else {
+          wrap.style.maxHeight = 'none';
+          rafId = null;
+        }
+      };
+      rafId = requestAnimationFrame(animate);
+    });
+
+  } else {
+    // 折叠：max-height 从 scrollHeight 动画到 0，按需同步补偿 scrollTop
+    const scrollEl = compensateScroll ? findScrollParent(rootEl.value) : null;
+    const startHeight = wrap.scrollHeight;
+    wrap.style.maxHeight = startHeight + 'px';
+    const start = performance.now();
+
+    // 用 nodeEl 总高度追踪实际变化量（含 preview-wrap 展开的反向变化）
+    let lastNodeHeight = nodeEl.value ? nodeEl.value.getBoundingClientRect().height : 0;
+
+    // 临时禁用 scroll-behavior: smooth，防止浏览器对 scrollTop 做二次缓动
+    const prevScrollBehavior = scrollEl ? scrollEl.style.scrollBehavior : null;
+    if (scrollEl) scrollEl.style.scrollBehavior = 'auto';
+
+    localExpanded.value = false;
+
+    const animate = (now) => {
+      const t = Math.min((now - start) / DURATION, 1);
+      const currentHeight = startHeight * (1 - easeOut(t));
+      wrap.style.maxHeight = currentHeight + 'px';
+
+      if (scrollEl && nodeEl.value) {
+        const currentNodeHeight = nodeEl.value.getBoundingClientRect().height;
+        const delta = currentNodeHeight - lastNodeHeight;
+        scrollEl.scrollTop += delta;
+        lastNodeHeight = currentNodeHeight;
+      }
+
+      if (t < 1) {
+        rafId = requestAnimationFrame(animate);
+      } else {
+        wrap.style.maxHeight = '0px';
+        // 恢复 scroll-behavior
+        if (scrollEl) scrollEl.style.scrollBehavior = prevScrollBehavior ?? '';
+        rafId = null;
+      }
+    };
+    rafId = requestAnimationFrame(animate);
+  }
 };
 
 const togglePreviewExpand = (type) => {
@@ -950,17 +1060,16 @@ const formatResultContent = (value) => {
   min-height: 0;
 }
 
-/* grid 折叠容器：只保留高度切换，减少同时做 opacity 带来的卡顿 */
+/* detail-wrap：由 JS rAF 驱动 max-height，不使用 CSS 过渡 */
 .agent-call-detail-wrap {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.22s ease-out;
   overflow: hidden;
+  max-height: 0;
   min-height: 0;
 }
 
-.agent-call-detail-wrap.expanded {
-  grid-template-rows: 1fr;
+.agent-call-detail-wrap.open {
+  /* 静态展开态（初始已展开时）：不限制高度 */
+  max-height: none;
 }
 
 /* 将裁切留在外层 wrap，避免父级 detail 把嵌套 agent 的 preview 一起裁掉 */
@@ -1148,13 +1257,26 @@ const formatResultContent = (value) => {
     padding-top: var(--spacing-md);
   }
 
+  .result-section-header {
+    margin-bottom: 0;
+  }
+
+  .result-content-header {
+    margin-bottom: var(--spacing-sm);
+  }
+
   .section-header {
     font-size: 0.85rem;
     margin-bottom: var(--spacing-sm);
   }
 
+  .result-body {
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
   .result-content {
-    font-size: 0.8rem;
     padding: var(--spacing-md);
   }
 
@@ -1249,17 +1371,34 @@ const formatResultContent = (value) => {
   letter-spacing: 0.03em;
 }
 
-.result-content {
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
+.result-section-header {
+  margin-bottom: 0;
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #aeb8ff;
+}
+
+.result-content-header {
+  margin-bottom: var(--spacing-sm);
+}
+
+.result-body {
+  white-space: pre-wrap;
+  font-size: 0.9rem;
   line-height: 1.8;
-  padding: var(--spacing-md) var(--spacing-lg);
+  color: var(--color-text-primary);
+  font-weight: 400;
+}
+
+.result-content {
+  color: var(--color-text-secondary);
+  padding: var(--spacing-md);
   background: var(--color-bg-tertiary);
   border-radius: var(--radius-md);
-  white-space: pre-wrap;
-  font-family: var(--font-mono);
-  overflow-y: auto;
+  overflow: visible;
 }
+
 
 /* 外部展开/折叠按钮 */
 .collapse-trigger-external {
