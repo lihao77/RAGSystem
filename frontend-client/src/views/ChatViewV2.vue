@@ -51,7 +51,7 @@
           </button>
         </div>
       </div>
-      <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
+      <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll" @click="handleMarkdownBlockAction">
         <div class="chat-messages">
           <!-- Welcome Screen -->
           <div v-if="messagesLoading" class="messages-skeleton">
@@ -216,12 +216,14 @@
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="bottom-dock">
           <transition name="scroll-btn-fade">
-            <button v-if="showScrollToBottomButton" class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
+            <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
+              extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
+              class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
-            </button>
+            </LiquidGlass>
           </transition>
           <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
@@ -489,6 +491,7 @@ const createAssistantMessage = (overrides = {}) => ({
   ...overrides,
 });
 
+import LiquidGlass from '../components/LiquidGlass.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
@@ -1854,6 +1857,81 @@ const copyToClipboard = async (text) => {
   } catch (e) {
     return false;
   }
+};
+
+const COPY_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 10.5H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h5.5a2 2 0 0 1 2 2v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const COPIED_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const markdownCopyFeedbackTimer = ref(null);
+
+const copyTableAsText = (table) => {
+  if (!table) return '';
+  const rows = Array.from(table.querySelectorAll('tr'));
+  return rows
+    .map((row) => Array.from(row.querySelectorAll('th, td'))
+      .map((cell) => (cell.textContent || '').replace(/\s+/g, ' ').trim())
+      .join('\t'))
+    .filter(Boolean)
+    .join('\n');
+};
+
+const setMarkdownCopyFeedback = (button, copied) => {
+  if (!(button instanceof HTMLElement)) return;
+  if (markdownCopyFeedbackTimer.value) {
+    clearTimeout(markdownCopyFeedbackTimer.value);
+    markdownCopyFeedbackTimer.value = null;
+  }
+
+  button.dataset.copied = copied ? 'true' : 'false';
+  const icon = button.querySelector('.md-block-copy-btn__icon');
+  if (icon) {
+    icon.innerHTML = copied ? COPIED_ICON_SVG : COPY_ICON_SVG;
+  }
+
+  if (copied) {
+    markdownCopyFeedbackTimer.value = setTimeout(() => {
+      button.dataset.copied = 'false';
+      if (icon) icon.innerHTML = COPY_ICON_SVG;
+      markdownCopyFeedbackTimer.value = null;
+    }, 1600);
+  }
+};
+
+const handleMarkdownBlockAction = async (event) => {
+  const button = event.target instanceof Element
+    ? event.target.closest('.md-block-copy-btn')
+    : null;
+  if (!button) return;
+
+  const copyType = button.getAttribute('data-copy-type') || '';
+  const rawPayload = button.getAttribute('data-copy-content') || '';
+  let text = '';
+
+  if (copyType === 'code') {
+    try {
+      text = decodeURIComponent(rawPayload);
+    } catch {
+      text = rawPayload;
+    }
+  } else if (copyType === 'table') {
+    const block = button.closest('.md-table-block');
+    const table = block?.querySelector('table');
+    text = copyTableAsText(table);
+  } else if (copyType === 'quote') {
+    const block = button.closest('.md-quote-block');
+    const quote = block?.querySelector('blockquote');
+    text = (quote?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  if (!text) {
+    setMarkdownCopyFeedback(button, false);
+    showToast('无可复制内容');
+    return;
+  }
+
+  const ok = await copyToClipboard(text);
+  setMarkdownCopyFeedback(button, ok);
+  showToast(ok ? '已复制到剪贴板' : '复制失败', ok ? 'success' : 'error');
 };
 
 const startEditMessage = (msg, index) => {
@@ -3230,33 +3308,15 @@ onUnmounted(() => {
   right: auto;
   transform: translateX(-50%);
   z-index: 1;
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-  background: color-mix(in srgb, var(--color-bg-primary) 88%, var(--color-bg-secondary));
   color: var(--color-text-primary);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  transition: background 0.2s, border-color 0.2s, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
   pointer-events: auto;
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
-  background: color-mix(in srgb, var(--color-bg-primary) 72%, var(--color-bg-tertiary));
-  border-color: var(--color-border-hover);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
   transform: translateX(-50%) translateY(-2px);
 }
-
-/* .scroll-to-bottom-btn:active {
-  transform: translateX(-50%) scale(0.96);
-} */
 
 .scroll-to-bottom-btn:focus-visible {
   outline: 2px solid var(--color-border-focus);
@@ -3276,8 +3336,6 @@ onUnmounted(() => {
 
 @media (max-width: 767px) {
   .scroll-to-bottom-btn {
-    width: 30px;
-    height: 30px;
     bottom: calc(100% + 10px);
     z-index: 1;
   }

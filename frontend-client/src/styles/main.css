@@ -383,14 +383,19 @@ body::before {
         radial-gradient(ellipse 50% 60% at 85% 80%, rgba(10, 132, 255, 0.04), transparent);
 }
 
-/* 点阵背景 — 为背景添加微妙的网格纹理 */
+/* 格网背景 — 为背景添加微妙的网格纹理 */
 body::after {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background-image: radial-gradient(circle, var(--dot-color) 1.2px, transparent 1.2px);
+    /* 格网 */
+    background-image:
+        linear-gradient(to right, var(--dot-color) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--dot-color) 1px, transparent 1px);
+    /* 点阵 */
+    /* background-image: radial-gradient(circle, var(--dot-color) 1.2px, transparent 1.2px); */
     background-size: var(--dot-spacing) var(--dot-spacing);
     opacity: 0.9;
 }

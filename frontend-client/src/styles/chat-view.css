@@ -719,7 +719,7 @@
 }
 
 /* 行内代码 */
-.markdown-body :deep(code) {
+.markdown-body :deep(code):not(.hljs):not(pre code) {
   font-family: var(--font-mono);
   font-size: 0.88em;
   background: var(--color-bg-elevated);
@@ -730,28 +730,135 @@
   font-weight: 500;
 }
 
-/* 代码块 */
-.markdown-body :deep(pre) {
-  background: var(--code-bg);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  overflow-x: auto;
+/* 特殊块通用结构 */
+.markdown-body :deep(.md-special-block) {
   margin: 1em 0;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-glass-border);
+  background: var(--glass-bg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  overflow: hidden;
+}
+
+.markdown-body :deep(.md-block-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.22);
+  background: rgba(var(--color-bg-elevated-rgb), 0.24);
+}
+
+.markdown-body :deep(.md-block-title) {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.markdown-body :deep(.md-block-copy-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 74px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.markdown-body :deep(.md-block-copy-btn__icon) {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.markdown-body :deep(.md-block-copy-btn__icon svg) {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.markdown-body :deep(.md-block-copy-btn__label) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+}
+
+.markdown-body :deep(.md-block-copy-btn[data-copied='true']) {
+  background: rgba(var(--color-success-rgb), 0.12);
+  border-color: rgba(var(--color-success-rgb), 0.28);
+  color: var(--color-success);
+}
+
+.markdown-body :deep(.md-block-copy-btn[data-copied='true']:hover) {
+  background: rgba(var(--color-success-rgb), 0.12);
+  border-color: rgba(var(--color-success-rgb), 0.28);
+  color: var(--color-success);
+}
+
+.markdown-body :deep(.md-block-copy-btn:hover) {
+  background: var(--color-hover-overlay);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+.markdown-body :deep(.md-block-body) {
+  min-width: 0;
+}
+
+.markdown-body :deep(.md-code-block .md-block-body) {
+  background: transparent;
+}
+
+.markdown-body :deep(.md-table-block .md-block-body) {
+  background: transparent;
+}
+
+.markdown-body :deep(.md-table-scroll) {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 代码块 */
+.markdown-body :deep(.md-code-block pre) {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  overflow-x: auto;
+  margin: 0;
+  box-shadow: none;
+  border: none;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
   -webkit-overflow-scrolling: touch;
 }
 
-.markdown-body :deep(pre)::-webkit-scrollbar { height: 6px; }
-.markdown-body :deep(pre)::-webkit-scrollbar-track { background: transparent; }
-.markdown-body :deep(pre)::-webkit-scrollbar-thumb {
+.markdown-body :deep(.md-code-block pre)::-webkit-scrollbar { height: 6px; }
+.markdown-body :deep(.md-code-block pre)::-webkit-scrollbar-track { background: transparent; }
+.markdown-body :deep(.md-code-block pre)::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: var(--radius-full);
 }
 
-.markdown-body :deep(pre code) {
+.markdown-body :deep(.md-code-block pre code) {
+  display: block;
   background-color: transparent;
   padding: 0;
   color: var(--code-fg);
@@ -761,7 +868,7 @@
 }
 
 /* 代码块语法高亮 - 强制覆盖 highlight.js 注入的背景色，避免与 pre 背景产生色差 */
-.markdown-body :deep(.hljs) {
+.markdown-body :deep(.md-code-block .hljs) {
   background-color: transparent !important;
   color: var(--code-fg);
   padding: 10px 12px;
@@ -803,12 +910,16 @@
 }
 
 /* 引用块 */
-.markdown-body :deep(blockquote) {
-  margin: 1em 0;
-  padding: 0.85em 1em;
+.markdown-body :deep(.md-quote-block .md-block-body) {
+  background: rgba(var(--color-bg-elevated-rgb), 0.28);
+}
+
+.markdown-body :deep(.md-quote-block blockquote) {
+  margin: 0;
+  padding: 12px 14px;
   border-left: 3px solid var(--color-border-hover);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: rgba(var(--color-bg-elevated-rgb), 0.35);
+  border-radius: 0;
+  background: transparent;
   color: var(--color-text-secondary);
 }
 
@@ -826,36 +937,46 @@
 }
 
 /* 表格 */
-.markdown-body :deep(table) {
-  display: block;
+.markdown-body :deep(.md-table-block table) {
   width: max-content;
   min-width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: collapse;
-  margin: 1em 0;
-  border-radius: var(--radius-md);
-  box-shadow: var(--glass-shadow);
-  background: var(--color-bg-secondary);
-  -webkit-overflow-scrolling: touch;
+  max-width: none;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: transparent;
 }
 
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  border: 1px solid var(--color-border);
+.markdown-body :deep(.md-table-block th),
+.markdown-body :deep(.md-table-block td) {
+  border-right: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.18);
+  border-bottom: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.18);
   padding: 0.75em 1em;
   text-align: left;
   white-space: nowrap;
 }
 
-.markdown-body :deep(th) {
-  background: var(--color-bg-elevated);
+.markdown-body :deep(.md-table-block th:last-child),
+.markdown-body :deep(.md-table-block td:last-child) {
+  border-right: none;
+}
+
+.markdown-body :deep(.md-table-block tr:last-child td) {
+  border-bottom: none;
+}
+
+.markdown-body :deep(.md-table-block th) {
+  background: rgba(var(--color-bg-elevated-rgb), 0.14);
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
-.markdown-body :deep(tr:nth-child(even)) {
-  background: var(--color-hover-overlay);
+.markdown-body :deep(.md-table-block td) {
+  background: transparent;
+}
+
+.markdown-body :deep(.md-table-block tr:nth-child(even)) {
+  background: rgba(var(--color-bg-elevated-rgb), 0.05);
 }
 
 /* 分隔线 */
@@ -1668,19 +1789,20 @@
   }
 
   /* 移动端代码块滚动优化 */
-  .markdown-body :deep(pre) {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+  .markdown-body :deep(.md-code-block pre) {
     font-size: 0.8rem;
-    padding: var(--spacing-sm);
   }
 
-  .markdown-body :deep(pre code) {
+  .markdown-body :deep(.md-code-block pre code) {
     font-size: 0.8rem;
+  }
+
+  .markdown-body :deep(.md-code-block .hljs) {
+    padding: 8px 10px;
   }
 
   /* 移动端表格优化 */
-  .markdown-body :deep(table) {
+  .markdown-body :deep(.md-table-block table) {
     font-size: 0.85rem;
   }
 
@@ -1768,16 +1890,19 @@
     font-size: 1rem;
   }
 
-  .markdown-body :deep(pre) {
-    font-size: 0.75rem;
-    padding: var(--spacing-xs);
-  }
-
-  .markdown-body :deep(pre code) {
+  .markdown-body :deep(.md-code-block pre) {
     font-size: 0.75rem;
   }
 
-  .markdown-body :deep(table) {
+  .markdown-body :deep(.md-code-block pre code) {
+    font-size: 0.75rem;
+  }
+
+  .markdown-body :deep(.md-code-block .hljs) {
+    padding: 8px 10px;
+  }
+
+  .markdown-body :deep(.md-table-block table) {
     font-size: 0.8rem;
   }
 
