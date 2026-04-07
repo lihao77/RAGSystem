@@ -49,7 +49,8 @@ const createToolNode = (tool) => ({
   raw_result_available: tool.raw_result_available,
   status: tool.status,
   elapsed_time: tool.elapsed_time,
-  expanded: tool.expanded || false
+  expanded: tool.expanded || false,
+  linked_task_id: tool.linked_task_id || null,
 });
 
 const sortSubtasks = (subtasks = []) => [...subtasks].sort((a, b) => {
@@ -79,7 +80,15 @@ const createAgentCallNode = (subtask) => {
     children: []
   };
 
+  // 建立 child task_id -> child subtask 的映射，用于关联 call_agent tool
+  const childSubtaskByTaskId = new Map();
+  sortSubtasks(subtask.children || []).forEach(child => {
+    childSubtaskByTaskId.set(child.task_id, child);
+  });
+
   const attachedToolIds = new Set();
+  const linkedChildIds = new Set();
+
   if (subtask.react_steps && subtask.react_steps.length > 0) {
     subtask.react_steps.forEach(reactStep => {
       const reactTools = Array.isArray(reactStep.toolCalls) ? reactStep.toolCalls : [];
@@ -90,7 +99,12 @@ const createAgentCallNode = (subtask) => {
       const hasIntent = Boolean(reactStep.intent || reactStep.thinking || reactStep.thought);
       if (!hasIntent) {
         reactTools.forEach(tool => {
-          agentCallNode.children.push(createToolNode(tool));
+          const toolNode = createToolNode(tool);
+          if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
+            toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
+            linkedChildIds.add(tool.linked_task_id);
+          }
+          agentCallNode.children.push(toolNode);
         });
         return;
       }
@@ -101,7 +115,14 @@ const createAgentCallNode = (subtask) => {
         agent_display_name: subtask.agent_display_name,
         round: reactStep.round,
         intent: reactStep.intent || reactStep.thinking || reactStep.thought || '',
-        children: reactTools.map(createToolNode)
+        children: reactTools.map(tool => {
+          const toolNode = createToolNode(tool);
+          if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
+            toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
+            linkedChildIds.add(tool.linked_task_id);
+          }
+          return toolNode;
+        })
       };
       agentCallNode.children.push(reactNode);
     });
@@ -109,11 +130,19 @@ const createAgentCallNode = (subtask) => {
 
   const directTools = (subtask.tool_calls || []).filter(tool => !tool?.call_id || !attachedToolIds.has(tool.call_id));
   directTools.forEach(tool => {
-    agentCallNode.children.push(createToolNode(tool));
+    const toolNode = createToolNode(tool);
+    if (tool.linked_task_id && childSubtaskByTaskId.has(tool.linked_task_id)) {
+      toolNode.linkedAgentCall = createAgentCallNode(childSubtaskByTaskId.get(tool.linked_task_id));
+      linkedChildIds.add(tool.linked_task_id);
+    }
+    agentCallNode.children.push(toolNode);
   });
 
+  // 未被关联的 child subtask 仍然平铺（兜底）
   sortSubtasks(subtask.children || []).forEach(child => {
-    agentCallNode.children.push(createAgentCallNode(child));
+    if (!linkedChildIds.has(child.task_id)) {
+      agentCallNode.children.push(createAgentCallNode(child));
+    }
   });
 
   return agentCallNode;
@@ -162,6 +191,12 @@ const executionTree = computed(() => {
   ]);
   const sortedRounds = Array.from(allRounds).sort((a, b) => a - b);
 
+  // 解析 call_agent tool 关联的 subtask（通过 projector 层在 linked_task_id 上打好的标记）
+  const getLinkedSubtask = (tool, subtaskByTaskId) => {
+    if (tool?.tool_name !== 'call_agent' || !tool?.linked_task_id) return null;
+    return subtaskByTaskId.get(tool.linked_task_id) || null;
+  };
+
   sortedRounds.forEach(round => {
     const executionStepsInRound = executionByRound[round] || [];
     const executionStep = getDisplayExecutionStep(executionStepsInRound);
@@ -171,6 +206,11 @@ const executionTree = computed(() => {
     ));
     const rootSubtasks = sortSubtasks(rootSubtasksByRound[round] || []);
 
+    // 建立 task_id -> subtask 的映射
+    const subtaskByTaskId = new Map();
+    rootSubtasks.forEach(subtask => {
+      subtaskByTaskId.set(subtask.task_id, subtask);
+    });
     const hasVisibleOrchestratorContent = Boolean(
       executionStep || mergedToolCalls.length > 0
     );
@@ -192,12 +232,22 @@ const executionTree = computed(() => {
       children: []
     };
 
+    const linkedSubtaskIds = new Set();
     mergedToolCalls.forEach(tool => {
-      node.children.push(createToolNode(tool));
+      const toolNode = createToolNode(tool);
+      const linked = getLinkedSubtask(tool, subtaskByTaskId);
+      if (linked) {
+        toolNode.linkedAgentCall = createAgentCallNode(linked);
+        linkedSubtaskIds.add(linked.task_id);
+      }
+      node.children.push(toolNode);
     });
 
+    // 未被 tool_call 关联的 subtask 仍然平铺（兜底）
     rootSubtasks.forEach(subtask => {
-      node.children.push(createAgentCallNode(subtask));
+      if (!linkedSubtaskIds.has(subtask.task_id)) {
+        node.children.push(createAgentCallNode(subtask));
+      }
     });
 
     tree.push(node);

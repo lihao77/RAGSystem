@@ -188,7 +188,16 @@
               </div>
             </div>
 
-            <div v-if="previewResult" class="detail-block">
+            <!-- 关联的 agent_call 节点（call_agent 工具专属） -->
+            <div v-if="node.linkedAgentCall" class="linked-agent-call-block">
+              <ExecutionNode
+                :node="node.linkedAgentCall"
+                :level="level + 1"
+                :session-id="sessionId"
+              />
+            </div>
+
+            <div v-if="previewResult && !node.linkedAgentCall" class="detail-block">
               <div class="detail-header">
                 <span>{{ resultViewMode === 'raw' ? 'Tool Raw Result' : 'Agent Observation' }}</span>
                 <div class="detail-header-actions">
@@ -319,6 +328,12 @@ const smartPreview = computed(() => {
   if (props.node.type !== 'tool_call') return '';
   if (props.node.status === 'running') return '';
   const name = props.node.tool_name || '';
+  // call_agent：显示目标 agent 名
+  if (name === 'call_agent') {
+    const agentName = props.node.linkedAgentCall?.agent_display_name
+      || props.node.arguments?.agent_name || '';
+    return agentName ? `→ ${agentName}` : '';
+  }
   const preview = props.node.result_preview || props.node.result || '';
 
   let parsed = null;
@@ -1442,6 +1457,12 @@ const formatResultContent = (value) => {
 
 .result-code {
   color: var(--color-text-primary);
+}
+
+/* call_agent 内联子 agent 区域 */
+.linked-agent-call-block {
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
 }
 
 /* 子节点容器 */

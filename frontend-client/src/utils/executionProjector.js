@@ -97,6 +97,8 @@ export function createExecutionState() {
     pendingSubtasksByParentCallId: new Map(),
     agentNameDisplayNameMap: new Map(),
     rootCallIds: new Set(),
+    // call_agent tool 等待与 subtask 关联的队列，key = `${parent_call_id}:${round}`
+    pendingCallAgentTools: new Map(),
   };
 }
 
@@ -255,6 +257,14 @@ function handleToolStart(state, step) {
   const toolCall = createToolCall(step);
   state.toolMap.set(step.call_id, toolCall);
 
+  // call_agent 工具：加入待关联队列，等 subtask.start 来匹配
+  if (step.tool_name === 'call_agent' && step.parent_call_id) {
+    const key = `${step.parent_call_id}:${step.round ?? ''}`;
+    const queue = state.pendingCallAgentTools.get(key) || [];
+    queue.push(toolCall);
+    state.pendingCallAgentTools.set(key, queue);
+  }
+
   const subtask = findSubtaskByToolStep(state, step);
   if (subtask) {
     attachToolCallToSubtask(state, subtask, step, toolCall);
@@ -365,6 +375,19 @@ export function applyStep(state, step) {
         state.subtaskMap.set(step.call_id, subtask);
       }
       if (subtask.step_id) state.stepMap.set(subtask.step_id, subtask);
+
+      // 关联对应的 call_agent toolCall（按 parent_call_id + round 顺序出队）
+      if (step.parent_call_id) {
+        const key = `${step.parent_call_id}:${step.round ?? ''}`;
+        const queue = state.pendingCallAgentTools.get(key);
+        if (queue && queue.length > 0) {
+          const toolCall = queue.shift();
+          toolCall.linked_task_id = step.call_id;
+          subtask.linked_tool_call_id = toolCall.call_id;
+          if (queue.length === 0) state.pendingCallAgentTools.delete(key);
+        }
+      }
+
       attachSubtaskToTree(state, subtask);
       flushPendingToolCalls(state, subtask);
       return state;
