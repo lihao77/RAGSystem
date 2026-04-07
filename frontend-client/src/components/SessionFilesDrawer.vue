@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="drawer-fade">
       <div v-if="visible" class="ctx-drawer-overlay" @click="$emit('close')">
-        <div class="ctx-drawer ctx-drawer--dialog" @click.stop>
+        <div class="ctx-drawer ctx-drawer--dialog glass-card" @click.stop>
           <div class="ctx-drawer-header">
             <div>
               <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
@@ -152,7 +152,8 @@ const isImage = (file) => String(file?.mime || '').startsWith('image/');
 .ctx-drawer {
   width: min(720px, 96vw);
   max-height: 88vh;
-  background: var(--color-bg-primary);
+  /* background: var(--glass-bg);
+  backdrop-filter: blur(10px); */
   display: flex; flex-direction: column;
   border: 1px solid var(--color-border);
   border-radius: 20px;
