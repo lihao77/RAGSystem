@@ -95,12 +95,25 @@ const resolveAgentLabel = (item) => (
   || ''
 );
 
-// 计算当前正在进行的活动
+const flattenSubtasks = (subtasks = []) => {
+  const result = [];
+  const stack = [...subtasks];
+  while (stack.length > 0) {
+    const subtask = stack.shift();
+    if (!subtask) continue;
+    result.push(subtask);
+    if (Array.isArray(subtask.children) && subtask.children.length > 0) {
+      stack.unshift(...subtask.children);
+    }
+  }
+  return result;
+};
+
+const allSubtasks = computed(() => flattenSubtasks(props.subtasks || []));
+
 const currentActivity = computed(() => {
-  // 1. 先找正在运行的子任务
-  const runningTask = props.subtasks.find(t => t.status === 'running');
+  const runningTask = allSubtasks.value.find(t => t.status === 'running');
   if (runningTask) {
-    // 检查该任务是否有正在运行的工具调用
     let runningTool = null;
     if (runningTask.react_steps) {
       for (const step of runningTask.react_steps) {
@@ -120,7 +133,6 @@ const currentActivity = computed(() => {
     };
   }
 
-  // 2. 找编排器直接调用的正在运行的工具
   const executionSteps = props.executionSteps || [];
   for (const step of executionSteps) {
     if (step.toolCalls) {
@@ -154,14 +166,11 @@ const rootExecutionAgentLabel = computed(() => {
   return resolveAgentLabel(lastLabeledRoot) || 'orchestrator_agent';
 });
 
-// 最近完成的任务
 const lastCompletedTask = computed(() => {
-  // 先找子任务
-  const completedTasks = props.subtasks.filter(t => t.status === 'success' || t.status === 'error');
+  const completedTasks = allSubtasks.value.filter(t => t.status === 'success' || t.status === 'error');
   if (completedTasks.length > 0) {
     return completedTasks[completedTasks.length - 1];
   }
-  // 再找编排器直接完成的工具
   const executionSteps = props.executionSteps || [];
   for (let i = executionSteps.length - 1; i >= 0; i--) {
     const step = executionSteps[i];
@@ -176,20 +185,18 @@ const lastCompletedTask = computed(() => {
       }
     }
   }
-  // 兜底：任务已结束（running=false）且有 orchestrator steps（纯推理直接回答的情况）
   if (!props.running && executionSteps.length > 0) {
     return { agent_display_name: rootExecutionAgentLabel.value, status: 'success' };
   }
   return null;
 });
 
-const totalTasks = computed(() => props.subtasks.length);
-const completedCount = computed(() => props.subtasks.filter(t => t.status === 'success').length);
+const totalTasks = computed(() => allSubtasks.value.length);
+const completedCount = computed(() => allSubtasks.value.filter(t => t.status === 'success').length);
 
 const progressPercentage = computed(() => {
     if (totalTasks.value === 0) return 0;
-    // 如果最后一个正在运行，进度算一半
-    const running = props.subtasks.find(t => t.status === 'running');
+    const running = allSubtasks.value.find(t => t.status === 'running');
     const base = (completedCount.value / totalTasks.value) * 100;
     const extra = running ? (1 / totalTasks.value) * 50 : 0;
     return Math.min(100, base + extra);

@@ -48,6 +48,7 @@ const createSubtask = (state, step) => ({
   order: step.order,
   task_id: step.call_id,
   parent_call_id: step.parent_call_id,
+  parent_task_id: null,
   round: step.round,
   round_index: step.round_index,
   agent_name: step.agent_name || '',
@@ -55,11 +56,13 @@ const createSubtask = (state, step) => ({
   description: step.description || '',
   react_steps: [],
   tool_calls: [],
+  children: [],
   result_summary: '',
   status: step.status || 'running',
   expanded: true,
   currentStep: null,
   ctx: null,
+  _attached: false,
 });
 
 const createMultimodalContent = (step) => {
@@ -91,7 +94,9 @@ export function createExecutionState() {
     stepMap: new Map(),
     toolMap: new Map(),
     pendingToolCallsByParentCallId: new Map(),
+    pendingSubtasksByParentCallId: new Map(),
     agentNameDisplayNameMap: new Map(),
+    rootCallIds: new Set(),
   };
 }
 
@@ -144,6 +149,12 @@ function addToolCallOnce(toolCalls, toolCall) {
   toolCalls.push(toolCall);
 }
 
+function addSubtaskOnce(subtasks, subtask) {
+  if (!Array.isArray(subtasks)) return;
+  if (subtasks.some(item => item?.task_id === subtask?.task_id)) return;
+  subtasks.push(subtask);
+}
+
 function queuePendingToolCall(state, step, toolCall) {
   if (!step?.parent_call_id) return;
   const pending = state.pendingToolCallsByParentCallId.get(step.parent_call_id) || [];
@@ -151,6 +162,20 @@ function queuePendingToolCall(state, step, toolCall) {
     pending.push({ step, toolCall });
     state.pendingToolCallsByParentCallId.set(step.parent_call_id, pending);
   }
+}
+
+function queuePendingSubtask(state, subtask) {
+  if (!subtask?.parent_call_id) return;
+  const pending = state.pendingSubtasksByParentCallId.get(subtask.parent_call_id) || [];
+  if (!pending.some(item => item?.task_id === subtask?.task_id)) {
+    pending.push(subtask);
+    state.pendingSubtasksByParentCallId.set(subtask.parent_call_id, pending);
+  }
+}
+
+function isKnownRootParent(state, parentCallId) {
+  if (!parentCallId) return true;
+  return state.rootCallIds.has(parentCallId);
 }
 
 function attachToolCallToSubtask(state, subtask, step, toolCall) {
@@ -165,7 +190,7 @@ function findSubtaskByToolStep(state, step) {
   if (byParentCallId) return byParentCallId;
 
   if (step.parent_step_id) {
-    for (const subtask of state.subtasks) {
+    for (const subtask of state.subtaskMap.values()) {
       if (!subtask) continue;
       if (subtask.step_id === step.parent_step_id) return subtask;
       if (subtask.react_steps?.some(item => item?.step_id === step.parent_step_id)) return subtask;
@@ -184,6 +209,48 @@ function flushPendingToolCalls(state, subtask) {
   state.pendingToolCallsByParentCallId.delete(subtask.task_id);
 }
 
+function flushPendingSubtasks(state, parentSubtask) {
+  const pending = state.pendingSubtasksByParentCallId.get(parentSubtask.task_id);
+  if (!pending?.length) return;
+  pending.forEach((subtask) => {
+    attachSubtaskToTree(state, subtask);
+  });
+  state.pendingSubtasksByParentCallId.delete(parentSubtask.task_id);
+}
+
+function flushRootPendingSubtasks(state) {
+  for (const [parentCallId, subtasks] of state.pendingSubtasksByParentCallId.entries()) {
+    if (!isKnownRootParent(state, parentCallId)) continue;
+    subtasks.forEach((subtask) => {
+      attachSubtaskToTree(state, subtask);
+    });
+    state.pendingSubtasksByParentCallId.delete(parentCallId);
+  }
+}
+
+function attachSubtaskToTree(state, subtask) {
+  if (!subtask || subtask._attached) return;
+
+  const parentSubtask = state.subtaskMap.get(subtask.parent_call_id);
+  if (parentSubtask) {
+    addSubtaskOnce(parentSubtask.children, subtask);
+    subtask.parent_task_id = parentSubtask.task_id;
+    subtask._attached = true;
+    flushPendingSubtasks(state, subtask);
+    return;
+  }
+
+  if (isKnownRootParent(state, subtask.parent_call_id)) {
+    addSubtaskOnce(state.subtasks, subtask);
+    subtask.parent_task_id = null;
+    subtask._attached = true;
+    flushPendingSubtasks(state, subtask);
+    return;
+  }
+
+  queuePendingSubtask(state, subtask);
+}
+
 function handleToolStart(state, step) {
   const toolCall = createToolCall(step);
   state.toolMap.set(step.call_id, toolCall);
@@ -191,6 +258,11 @@ function handleToolStart(state, step) {
   const subtask = findSubtaskByToolStep(state, step);
   if (subtask) {
     attachToolCallToSubtask(state, subtask, step, toolCall);
+    return state;
+  }
+
+  if (step.parent_call_id && !isKnownRootParent(state, step.parent_call_id)) {
+    queuePendingToolCall(state, step, toolCall);
     return state;
   }
 
@@ -239,6 +311,7 @@ function ensureSubtaskIntentStep(state, subtask, round = null, stepId = null, pa
 }
 
 function handleRunStep(state, step) {
+  if (step.call_id) state.rootCallIds.add(step.call_id);
   const executionStep = ensureOrchestratorStep(
     state,
     step.round ?? getLatestRound(state.execution_steps) ?? 1,
@@ -257,6 +330,7 @@ function handleRunStep(state, step) {
   if (!executionStep.status || executionStep.status === 'running' || step.phase === 'end') {
     executionStep.status = executionStep.run_status;
   }
+  flushRootPendingSubtasks(state);
   return state;
 }
 
@@ -274,6 +348,7 @@ export function applyStep(state, step) {
       const subtask = state.subtaskMap.get(step.call_id) || createSubtask(state, step);
       subtask.step_id = step.step_id || subtask.step_id;
       subtask.parent_step_id = step.parent_step_id || subtask.parent_step_id;
+      subtask.parent_call_id = step.parent_call_id || subtask.parent_call_id;
       subtask.order = step.order ?? subtask.order;
       subtask.round = step.round ?? subtask.round;
       subtask.round_index = step.round_index ?? subtask.round_index;
@@ -287,10 +362,10 @@ export function applyStep(state, step) {
       subtask.status = 'running';
       subtask.expanded = true;
       if (!state.subtaskMap.has(step.call_id)) {
-        state.subtasks.push(subtask);
         state.subtaskMap.set(step.call_id, subtask);
       }
       if (subtask.step_id) state.stepMap.set(subtask.step_id, subtask);
+      attachSubtaskToTree(state, subtask);
       flushPendingToolCalls(state, subtask);
       return state;
     }
@@ -314,6 +389,7 @@ export function applyStep(state, step) {
 
   if (step.kind === 'intent') {
     if (isRootExecutionStep(step)) {
+      if (step.call_id) state.rootCallIds.add(step.call_id);
       const executionStep = ensureOrchestratorStep(state, step.round, step.step_id, step.parent_step_id);
       if (step.agent_name) executionStep.agent_name = step.agent_name;
       executionStep.agent_display_name = resolveAgentDisplayName(
@@ -332,6 +408,7 @@ export function applyStep(state, step) {
       executionStep.status = executionStep.toolCalls.some(item => item?.status === 'running')
         ? 'running'
         : (executionStep.run_status || executionStep.status || 'success');
+      flushRootPendingSubtasks(state);
       return state;
     }
 

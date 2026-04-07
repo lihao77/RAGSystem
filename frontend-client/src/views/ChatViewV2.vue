@@ -968,14 +968,27 @@ const isMasterEvent = (event) => isRootEvent(event);
 
 const findSubtaskByCallId = (subtasks, callId) => {
   if (!callId || !Array.isArray(subtasks)) return null;
-  return subtasks.find(s => s.task_id === callId) || null;
+  const stack = [...subtasks];
+  while (stack.length > 0) {
+    const subtask = stack.shift();
+    if (!subtask) continue;
+    if (subtask.task_id === callId) return subtask;
+    if (Array.isArray(subtask.children) && subtask.children.length > 0) {
+      stack.unshift(...subtask.children);
+    }
+  }
+  return null;
 };
 
-const getActiveAssistantMessage = () => {
-  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-    const msg = messages.value[i];
-    if (msg?.role === 'assistant' && !msg.finished) {
-      return msg;
+const findRunningSubtaskByAgentName = (subtasks, agentName) => {
+  if (!agentName || !Array.isArray(subtasks)) return null;
+  const stack = [...subtasks];
+  while (stack.length > 0) {
+    const subtask = stack.shift();
+    if (!subtask) continue;
+    if (subtask.agent_name === agentName && subtask.status === 'running') return subtask;
+    if (Array.isArray(subtask.children) && subtask.children.length > 0) {
+      stack.unshift(...subtask.children);
     }
   }
   return null;
@@ -2484,7 +2497,7 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 contextUsage.value = ctx;
               } else {
                 // 写入对应 subtask
-                const subtask = currentMsg.subtasks.find(s => s.agent_name === agentName && s.status === 'running');
+                const subtask = findRunningSubtaskByAgentName(currentMsg.subtasks, agentName);
                 if (subtask) subtask.ctx = ctx;
               }
             }

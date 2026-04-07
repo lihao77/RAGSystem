@@ -52,9 +52,20 @@ const createToolNode = (tool) => ({
   expanded: tool.expanded || false
 });
 
+const sortSubtasks = (subtasks = []) => [...subtasks].sort((a, b) => {
+  const aIndex = a?.round_index ?? Number.MAX_SAFE_INTEGER;
+  const bIndex = b?.round_index ?? Number.MAX_SAFE_INTEGER;
+  if (aIndex !== bIndex) return aIndex - bIndex;
+  const aOrder = a?.order ?? Number.MAX_SAFE_INTEGER;
+  const bOrder = b?.order ?? Number.MAX_SAFE_INTEGER;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  return String(a?.task_id || '').localeCompare(String(b?.task_id || ''));
+});
+
 const createAgentCallNode = (subtask) => {
   const agentCallNode = {
     type: 'agent_call',
+    task_id: subtask.task_id,
     agent_name: subtask.agent_name,
     agent_display_name: subtask.agent_display_name,
     description: subtask.description,
@@ -101,6 +112,10 @@ const createAgentCallNode = (subtask) => {
     agentCallNode.children.push(createToolNode(tool));
   });
 
+  sortSubtasks(subtask.children || []).forEach(child => {
+    agentCallNode.children.push(createAgentCallNode(child));
+  });
+
   return agentCallNode;
 };
 
@@ -118,20 +133,11 @@ const getDisplayAgentStep = (steps = []) => {
   return [...steps].reverse().find(step => step?.agent_display_name || step?.agent_name) || null;
 };
 
-/**
- * 将 execution_steps 和 subtasks 合并为层次化的执行树
- *
- * 核心逻辑：
- * 1. 编排器的每个 intent 作为根节点（按 round）
- * 2. 同一 round 的 subtasks 作为该 intent 的子节点
- * 3. subtask 内部的 react_steps 递归嵌套
- */
 const executionTree = computed(() => {
   const tree = [];
   const executionSteps = props.executionSteps || [];
   const subtasks = props.subtasks || [];
 
-  // 按 round 分组，保留该轮的所有 root steps，避免 run 与 intent 混在同一个展示节点状态里
   const executionByRound = {};
   executionSteps.forEach(step => {
     const round = step.round || 1;
@@ -141,23 +147,21 @@ const executionTree = computed(() => {
     executionByRound[round].push(step);
   });
 
-  const subtasksByRound = {};
+  const rootSubtasksByRound = {};
   subtasks.forEach(subtask => {
     const round = subtask.round || 1;
-    if (!subtasksByRound[round]) {
-      subtasksByRound[round] = [];
+    if (!rootSubtasksByRound[round]) {
+      rootSubtasksByRound[round] = [];
     }
-    subtasksByRound[round].push(subtask);
+    rootSubtasksByRound[round].push(subtask);
   });
 
-  // 获取所有 round 并排序
   const allRounds = new Set([
     ...Object.keys(executionByRound).map(Number),
-    ...Object.keys(subtasksByRound).map(Number)
+    ...Object.keys(rootSubtasksByRound).map(Number)
   ]);
   const sortedRounds = Array.from(allRounds).sort((a, b) => a - b);
 
-  // 构建树
   sortedRounds.forEach(round => {
     const executionStepsInRound = executionByRound[round] || [];
     const executionStep = getDisplayExecutionStep(executionStepsInRound);
@@ -165,27 +169,19 @@ const executionTree = computed(() => {
     const mergedToolCalls = executionStepsInRound.flatMap(step => (
       Array.isArray(step?.toolCalls) ? step.toolCalls : []
     ));
-    const subtasksInRound = (subtasksByRound[round] || []).slice().sort((a, b) => {
-      const aIndex = a?.round_index ?? Number.MAX_SAFE_INTEGER;
-      const bIndex = b?.round_index ?? Number.MAX_SAFE_INTEGER;
-      if (aIndex !== bIndex) return aIndex - bIndex;
-      const aOrder = a?.order ?? Number.MAX_SAFE_INTEGER;
-      const bOrder = b?.order ?? Number.MAX_SAFE_INTEGER;
-      return aOrder - bOrder;
-    });
+    const rootSubtasks = sortSubtasks(rootSubtasksByRound[round] || []);
 
     const hasVisibleOrchestratorContent = Boolean(
       executionStep || mergedToolCalls.length > 0
     );
 
     if (!hasVisibleOrchestratorContent) {
-      subtasksInRound.forEach(subtask => {
+      rootSubtasks.forEach(subtask => {
         tree.push(createAgentCallNode(subtask));
       });
       return;
     }
 
-    // 创建编排器 intent 节点
     const node = {
       type: 'thought',
       agent: displayAgentStep?.agent_name || executionStep?.agent_name || '',
@@ -196,13 +192,11 @@ const executionTree = computed(() => {
       children: []
     };
 
-    // 添加编排器的工具调用
     mergedToolCalls.forEach(tool => {
       node.children.push(createToolNode(tool));
     });
 
-    // 添加该轮次的子任务
-    subtasksInRound.forEach(subtask => {
+    rootSubtasks.forEach(subtask => {
       node.children.push(createAgentCallNode(subtask));
     });
 

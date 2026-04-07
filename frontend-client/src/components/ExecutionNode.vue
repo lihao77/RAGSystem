@@ -876,9 +876,10 @@ const formatResultContent = (value) => {
   transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.3s ease;
   opacity: 1;
+  min-height: 0;
 }
 
-.node-agent-call.expanded .agent-call-preview-wrap {
+.node-agent-call.expanded > .agent-call-preview-wrap {
   grid-template-rows: 0fr;
   opacity: 0;
 }
@@ -887,6 +888,7 @@ const formatResultContent = (value) => {
 .agent-call-preview {
   overflow: hidden;
   box-sizing: border-box;
+  min-height: 0;
 }
 
 /* grid 折叠容器：用 grid-template-rows 0fr→1fr 实现无需知道高度的平滑展开 */
@@ -896,6 +898,8 @@ const formatResultContent = (value) => {
   transition: grid-template-rows 0.4s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.3s ease;
   opacity: 0;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .agent-call-detail-wrap.expanded {
@@ -903,11 +907,12 @@ const formatResultContent = (value) => {
   opacity: 1;
 }
 
-/* 内层必须 overflow: hidden，才能让 0fr 时内容真正不可见 */
+/* 将裁切留在外层 wrap，避免父级 detail 把嵌套 agent 的 preview 一起裁掉 */
 .agent-call-details {
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
   border-left: 1px dashed var(--color-border);
+  min-height: 0;
 }
 
 .agent-call-details > .children-container {
