@@ -33,7 +33,6 @@ from core.path_resolution import (
 )
 from tools.runtime.approvals import request_inline_approval
 from tools.runtime.background_tasks import get_background_task_manager
-from tools.runtime.persistent_shell import get_persistent_shell_manager
 from tools.runtime.bash_security import (
     CommandCategory,
     _split_shell_chain,
@@ -67,6 +66,14 @@ _BASH_EXECUTABLE = _find_bash_executable()
 VALIDATION_ALLOWED = "allowed"
 VALIDATION_APPROVAL_REQUIRED = "approval_required"
 VALIDATION_BLOCKED = "blocked"
+
+
+def _get_persistent_shell_manager_or_none():
+    try:
+        from tools.runtime.persistent_shell import get_persistent_shell_manager
+    except ModuleNotFoundError:
+        return None
+    return get_persistent_shell_manager()
 
 
 def _validate_command(command: str) -> tuple[str, str, list[str], CommandCategory]:
@@ -502,8 +509,9 @@ def execute_bash(
         )
 
     try:
-        if session_id:
-            shell = get_persistent_shell_manager().get_session(
+        shell_manager = _get_persistent_shell_manager_or_none()
+        if session_id and shell_manager is not None:
+            shell = shell_manager.get_session(
                 session_id,
                 event_bus=event_bus,
                 bash_executable=_BASH_EXECUTABLE,
