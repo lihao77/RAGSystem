@@ -657,14 +657,13 @@ value = call_tool('tool_name', {
 ```
 
 **正确示例**：
-    examples=[
-        {
-            "input": {
-                "code": "result = {'message': 'hello'}",
-                "description": "返回简单 JSON 结果",
-            }
-        }
-    ],
+```python
+value = call_tool('tool_name', {
+    'param_name': 'value'
+})
+result = {'value': value}
+```
+""",
 )
 def execute_code_sandbox(
     code: str,

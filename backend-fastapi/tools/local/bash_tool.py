@@ -33,6 +33,7 @@ from core.path_resolution import (
 )
 from tools.runtime.approvals import request_inline_approval
 from tools.runtime.background_tasks import get_background_task_manager
+from tools.runtime.persistent_shell import get_persistent_shell_manager
 from tools.runtime.bash_security import (
     CommandCategory,
     _split_shell_chain,
@@ -501,13 +502,30 @@ def execute_bash(
         )
 
     try:
-        stdout, stderr, return_code, interrupted = _run_foreground_command(
-            command,
-            cwd=cwd,
-            timeout=timeout,
-            event_bus=event_bus,
-            session_id=session_id,
-        )
+        if session_id:
+            shell = get_persistent_shell_manager().get_session(
+                session_id,
+                event_bus=event_bus,
+                bash_executable=_BASH_EXECUTABLE,
+            )
+            persistent_command = command
+            if working_dir is not None:
+                persistent_command = f"cd '{cwd}' && {command}"
+            stdout, stderr, return_code, interrupted = shell.execute(
+                persistent_command,
+                timeout=timeout,
+                cancel_event=cancel_event,
+                event_bus=event_bus,
+                session_id=session_id,
+            )
+        else:
+            stdout, stderr, return_code, interrupted = _run_foreground_command(
+                command,
+                cwd=cwd,
+                timeout=timeout,
+                event_bus=event_bus,
+                session_id=session_id,
+            )
     except Exception as exc:
         return error_result(f"命令执行失败: {exc}", tool_name="execute_bash")
 

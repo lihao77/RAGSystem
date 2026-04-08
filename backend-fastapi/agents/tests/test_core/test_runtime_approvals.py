@@ -1,10 +1,21 @@
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
 from tools.permission_manager import set_permission_policy
+from tools.permissions import TOOL_PERMISSIONS
 from tools.runtime.approvals import request_user_approval_if_needed
 from tools.runtime.models import ToolUseContext
+
+
+@pytest.fixture(autouse=True)
+def _reset_tool_permissions():
+    snapshot = dict(TOOL_PERMISSIONS)
+    yield
+    TOOL_PERMISSIONS.clear()
+    TOOL_PERMISSIONS.update(snapshot)
 
 
 class _FakeApprovalRegistry:
