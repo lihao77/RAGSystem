@@ -59,6 +59,9 @@
     --color-map-overlay-point-stroke: #ffffff;
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
+    --color-result-text: #7cc7ff;
+    --color-result-bg: rgba(10, 132, 255, 0.16);
+    --color-result-border: rgba(64, 156, 255, 0.32);
     --color-soft-inset: rgba(255, 255, 255, 0.08);
 
     /* Status Colors - Muted */
@@ -286,6 +289,9 @@
     --color-map-overlay-point-stroke: #1d1d1f;
     --color-risk-badge-text: var(--color-on-color-strong);
     --color-risk-badge-ring: rgba(29, 29, 31, 0.16);
+    --color-result-text: #005ecb;
+    --color-result-bg: rgba(0, 122, 255, 0.12);
+    --color-result-border: rgba(0, 122, 255, 0.26);
     --color-soft-inset: rgba(0, 0, 0, 0.06);
 
     /* Status Colors - Light Theme */
@@ -669,7 +675,7 @@ input[type='number'] {
         --step-tools-margin-left: var(--spacing-xs);
         --step-tools-padding-left: var(--spacing-xs);
 
-        --subtasks-padding: var(--spacing-md);
+        --subtasks-padding: 12px;
         --round-header-font-size: 12px;
 
         --user-message-max-width: 95%;
@@ -684,8 +690,8 @@ input[type='number'] {
 /* 小屏手机（<480px） */
 @media (max-width: 480px) {
     :root {
-        /* --chat-padding-x: var(--spacing-xs);
-        --chat-padding-y: var(--spacing-xs); */
+        --chat-padding-x: var(--spacing-sm);
+        --chat-padding-y: var(--spacing-sm);
         --chat-padding-bottom: 140px;
 
         --input-area-padding-x: var(--spacing-md);
@@ -710,5 +716,32 @@ input[type='number'] {
         --font-size-base: 0.875rem; /* 14px */
         --font-size-sm: 0.75rem; /* 12px */
         --font-size-xs: 0.625rem; /* 10px */
+    }
+}
+
+@media (max-width: 360px) {
+    :root {
+        --chat-padding-x: var(--spacing-xs);
+        --chat-padding-y: var(--spacing-xs);
+        --chat-padding-bottom: 120px;
+        --welcome-title-size: 1.1rem;
+        --welcome-subtitle-size: 0.8rem;
+        --welcome-logo-size: 40px;
+
+        --top-bar-padding-y: var(--spacing-xs);
+        --top-bar-padding-x: var(--spacing-xs);
+        --top-bar-divider-left: var(--spacing-xs);
+        --top-bar-divider-right: var(--spacing-xs);
+
+        --step-tools-margin-left: var(--spacing-xs);
+        --step-tools-padding-left: var(--spacing-xs);
+
+        --subtasks-padding: var(--spacing-xs);
+        --round-header-font-size: 10px;
+
+        /* 超小屏手机字体进一步缩小 */
+        --font-size-base: 0.8125rem; /* 13px */
+        --font-size-sm: 0.6875rem; /* 11px */
+        --font-size-xs: 0.5625rem; /* 9px */
     }
 }

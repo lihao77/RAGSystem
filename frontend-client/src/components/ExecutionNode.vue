@@ -809,11 +809,11 @@ const formatResultContent = (value) => {
 
 /* 思考节点 */
 .node-thought {
-  padding: var(--spacing-md);
+  padding: var(--subtasks-padding);
   background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
   transition: background-color 0.2s ease;
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--subtasks-padding);
 }
 
 .node-thought.running {
@@ -939,7 +939,8 @@ const formatResultContent = (value) => {
   user-select: none;
   display: flex;
   align-items: center;
-  gap: calc(var(--spacing-md) + 7px);
+  /* subtasks padding 加上 thought/result 节点的padding - 左侧图标width - 左侧图标的margin-left */
+  gap: calc(var(--subtasks-padding) + var(--spacing-md) - 9px);
   transition: background-color 0.2s ease;
   z-index: 10;
   position: relative;
@@ -1058,6 +1059,7 @@ const formatResultContent = (value) => {
   overflow: hidden;
   box-sizing: border-box;
   min-height: 0;
+  padding-left: var(--subtasks-padding);
 }
 
 /* detail-wrap：由 JS rAF 驱动 max-height，不使用 CSS 过渡 */
@@ -1201,152 +1203,6 @@ const formatResultContent = (value) => {
   text-overflow: ellipsis;
 }
 
-/* 移动端优化 */
-@media (max-width: 767px) {
-  /* 思考节点 */
-  .node-thought {
-    padding: var(--spacing-md);
-  }
-
-  .thought-content {
-    font-size: 0.85rem;
-    line-height: 1.6;
-  }
-
-  /* Agent Badge */
-  .agent-badge {
-    padding: 3px 8px;
-    font-size: 0.7rem;
-  }
-
-  .round-badge {
-    padding: 2px 8px;
-    font-size: 0.65rem;
-  }
-
-  /* Agent Call Header */
-  .agent-call-header {
-    gap: var(--spacing-sm);
-  }
-
-  .order-badge {
-    font-size: 0.85rem;
-  }
-
-  .status-badge {
-    font-size: 0.7rem;
-    padding: 3px 8px;
-  }
-
-  /* 描述文本 */
-  .description,
-  .description-full {
-    font-size: 0.85rem;
-    line-height: 1.6;
-    margin-left: var(--spacing-sm);
-  }
-
-  .result-preview {
-    font-size: 0.8rem;
-    line-height: 1.6;
-    padding-left: var(--spacing-md);
-  }
-
-  .result-summary {
-    margin-left: var(--spacing-sm);
-    padding-top: var(--spacing-md);
-  }
-
-  .result-section-header {
-    margin-bottom: 0;
-  }
-
-  .result-content-header {
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .section-header {
-    font-size: 0.85rem;
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .result-body {
-    white-space: pre-wrap;
-    font-size: 0.85rem;
-    line-height: 1.6;
-  }
-
-  .result-content {
-    padding: var(--spacing-md);
-  }
-
-  /* 工具调用节点 */
-  .tool-header {
-    padding: var(--spacing-sm) var(--spacing-md);
-    gap: var(--spacing-sm);
-  }
-
-  .tool-name {
-    font-size: 0.8rem;
-  }
-
-  .tool-time {
-    font-size: 0.65rem;
-    padding: 2px 6px;
-  }
-
-  .detail-header {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: 0.7rem;
-  }
-
-  .code-tag {
-    font-size: 0.6rem;
-    padding: 2px 4px;
-  }
-
-  .code-wrapper {
-    padding: var(--spacing-sm);
-  }
-
-  .detail-code {
-    font-size: 0.75rem;
-    line-height: 1.5;
-    max-height: 300px;
-  }
-
-  /* 子节点容器 */
-  .children-container {
-    margin-top: var(--spacing-sm);
-    padding-left: var(--spacing-sm);
-  }
-
-  /* 展开/收起按钮 */
-  .trigger-content {
-    width: 36px;
-    height: 36px;
-  }
-
-  .icon-up,
-  .icon-down {
-    width: 28px;
-    height: 28px;
-  }
-  .expand-icon {
-    margin-left: -6px;
-    width: 14px;
-    height: 14px;
-  }
-}
-
-@media (max-width: 480px) {
-  .expand-icon {
-    margin-left: -5px;
-    width: 12px;
-    height: 12px;
-  }
-}
-
 .description-full {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
@@ -1356,8 +1212,8 @@ const formatResultContent = (value) => {
 }
 
 .result-summary {
-  margin-top: var(--spacing-lg);
-  padding-top: var(--spacing-lg);
+  margin-top: var(--subtasks-padding);
+  padding-top: var(--subtasks-padding);
   border-top: 1px solid var(--color-border);
   margin-left: var(--subtasks-padding);
 }
@@ -1373,10 +1229,10 @@ const formatResultContent = (value) => {
 
 .result-section-header {
   margin-bottom: 0;
-  border-color: rgba(99, 102, 241, 0.28);
-  background: rgba(99, 102, 241, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  color: #aeb8ff;
+  border-color: var(--color-result-border);
+  background: var(--color-result-bg);
+  box-shadow: inset 0 1px 0 var(--color-soft-inset);
+  color: var(--color-result-text);
 }
 
 .result-content-header {
@@ -1472,7 +1328,7 @@ const formatResultContent = (value) => {
   border-radius: var(--radius-md);
   overflow: visible;
   transition: background-color 0.2s ease;
-  margin-bottom: var(--spacing-sm);
+  /* margin-bottom: var(--spacing-sm); */
 }
 
 /* .node-tool-call.expanded {
@@ -1666,7 +1522,7 @@ const formatResultContent = (value) => {
 .children-container {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--subtasks-padding);
   margin-top: var(--subtasks-padding);
   padding-left: var(--subtasks-padding);
   border-left: 1px dashed var(--color-border);
@@ -1748,5 +1604,142 @@ const formatResultContent = (value) => {
   color: var(--color-text-secondary);
   font-style: italic;
   padding: var(--spacing-md);
+}
+
+/* 移动端优化 */
+@media (max-width: 767px) {
+
+  .thought-content {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  /* Agent Badge */
+  .agent-badge {
+    padding: 3px 8px;
+    font-size: 0.7rem;
+  }
+
+  .round-badge {
+    padding: 2px 8px;
+    font-size: 0.65rem;
+  }
+
+  /* Agent Call Header */
+  .agent-call-header {
+    /* subtasks padding 加上 thought/result 节点的padding - 左侧图标width - 左侧图标的margin-left */
+    gap: calc(var(--subtasks-padding) + var(--spacing-sm) - 8px);;
+  }
+
+  .order-badge {
+    font-size: 0.85rem;
+  }
+
+  .status-badge {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+  }
+
+  /* 描述文本 */
+  .description,
+  .description-full {
+    font-size: 0.85rem;
+    line-height: 1.6;
+    /* margin-left: var(--spacing-sm); */
+  }
+
+  .result-preview {
+    font-size: 0.8rem;
+    line-height: 1.6;
+    /* padding-left: var(--spacing-md); */
+  }
+
+  .result-section-header {
+    margin-bottom: 0;
+  }
+
+  .result-content-header {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .section-header {
+    font-size: 0.85rem;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .result-body {
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .result-content {
+    padding: var(--spacing-sm)!important;
+  }
+
+  /* 工具调用节点 */
+  .tool-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
+  }
+
+  .tool-name {
+    font-size: 0.8rem;
+  }
+
+  .tool-time {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+  }
+
+  .detail-header {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.7rem;
+  }
+
+  .code-tag {
+    font-size: 0.6rem;
+    padding: 2px 4px;
+  }
+
+  .code-wrapper {
+    padding: var(--spacing-sm);
+  }
+
+  .detail-code {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    max-height: 300px;
+  }
+
+  /* 展开/收起按钮 */
+  .trigger-content {
+    width: 36px;
+    height: 36px;
+  }
+
+  .icon-up,
+  .icon-down {
+    width: 28px;
+    height: 28px;
+  }
+  .expand-icon {
+    margin-left: -6px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .expand-icon {
+    margin-left: -5px;
+    width: 12px;
+    height: 12px;
+  }
+    /* Agent Call Header */
+  .agent-call-header {
+    /* subtasks padding 加上 thought/result 节点的padding - 左侧图标width - 左侧图标的margin-left */
+    gap: calc(var(--subtasks-padding) + var(--spacing-sm) - 7px);;
+  }
 }
 </style>

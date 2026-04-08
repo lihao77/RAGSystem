@@ -1922,21 +1922,6 @@
 
 /* ===== #15: 补充响应式断点 ===== */
 
-/* 中等手机（600px 以下）：介于平板和小屏手机之间 */
-@media (max-width: 600px) {
-  .chat-input-wrapper {
-    padding: 0 var(--spacing-sm) var(--spacing-sm);
-  }
-
-  .message {
-    padding: var(--spacing-xs) var(--spacing-sm);
-  }
-
-  /* .subtasks-full-view {
-    padding: 0 var(--spacing-xs);
-  } */
-}
-
 /* 横屏手机：减少顶部/底部空间，保留宝贵纵向高度 */
 @media (max-width: 932px) and (orientation: landscape) and (max-height: 500px) {
   .top-controls-bar {
