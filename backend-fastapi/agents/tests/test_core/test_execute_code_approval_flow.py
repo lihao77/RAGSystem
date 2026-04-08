@@ -84,7 +84,8 @@ def test_skip_all_approvals_skips_inline_approval(monkeypatch):
     set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD, skip_all_approvals=True))
 
     event_bus = MagicMock()
-    event_bus.publish = lambda event: published.setdefault("event", event)
+    approval_events = []
+    event_bus.publish = lambda event: approval_events.append(event) if getattr(event, "type", None) == "user.approval_required" else None
 
     result = execute_code_sandbox(
         code=(
@@ -101,7 +102,7 @@ def test_skip_all_approvals_skips_inline_approval(monkeypatch):
     )
 
     assert result.success is True
-    assert published == {}
+    assert approval_events == []
     set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
 
 

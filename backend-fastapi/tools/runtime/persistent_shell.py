@@ -13,8 +13,10 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import select
 import subprocess
 import threading
+import time
 import uuid
 from typing import Optional
 
@@ -41,6 +43,7 @@ class PersistentShellSession:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            bufsize=1,
             env={**os.environ, "LC_ALL": "C.UTF-8"},
         )
         if _IS_WINDOWS:
@@ -50,8 +53,8 @@ class PersistentShellSession:
             self.proc = subprocess.Popen([self._bash], **kwargs)
         else:
             self.proc = subprocess.Popen(
-                "bash" if not _IS_WINDOWS else "bash",
-                shell=True,
+                ["bash"] if not _IS_WINDOWS else "bash",
+                shell=_IS_WINDOWS,
                 **kwargs,
             )
 
@@ -85,9 +88,6 @@ class PersistentShellSession:
             return_code = -1
             interrupted = False
 
-            import select
-            import time
-
             self.proc.stdin.write(wrapped)
             self.proc.stdin.flush()
 
@@ -95,19 +95,18 @@ class PersistentShellSession:
             last_progress = started
 
             while True:
-                # 检查超时 / 取消
                 elapsed = time.monotonic() - started
-                if cancel_event and cancel_event.is_set():
+                if cancel_event and cancel_event.is_set() and not interrupted:
                     self._interrupt()
                     interrupted = True
                 if elapsed >= timeout and not interrupted:
                     self._interrupt()
                     interrupted = True
 
-                # 非阻塞读行（Windows 不支持 select，用 readline with timeout 模拟）
-                line = self._readline_nonblocking(timeout_sec=0.2)
+                line = self._readline_nonblocking(self.proc.stdout, timeout_sec=0.2)
                 if line is None:
-                    # 无新输出，发布进度事件
+                    if interrupted and self.proc.poll() is not None:
+                        break
                     now = time.monotonic()
                     if now - last_progress >= 2.0:
                         _publish_progress(
@@ -118,76 +117,49 @@ class PersistentShellSession:
                         last_progress = now
                     continue
 
-                # 检测 sentinel
-                sentinel_prefix = f"{sentinel}"
-                if sentinel_prefix in line:
-                    # 解析退出码：__SENTINEL_xxx_EXIT_0__
+                if sentinel in line:
                     try:
-                        suffix = line.split(sentinel_prefix, 1)[1]
+                        suffix = line.split(sentinel, 1)[1]
                         rc_str = suffix.split("__")[0]
                         return_code = int(rc_str)
                     except (IndexError, ValueError):
                         return_code = 0
                     break
-                else:
-                    stdout_lines.append(line)
+                stdout_lines.append(line)
 
-            # 收集 stderr（非阻塞）
             stderr_out = self._drain_stderr()
-
+            if interrupted and return_code == -1 and self.proc.poll() is not None:
+                return_code = self.proc.returncode or -1
             return "".join(stdout_lines), stderr_out, return_code, interrupted
 
     # ── 辅助 ────────────────────────────────────────────────
 
-    def _readline_nonblocking(self, timeout_sec: float) -> Optional[str]:
-        """
-        尝试从 stdout 读一行，最多等待 timeout_sec。
-        Windows 无 select，用线程 + Event 模拟。
-        """
-        result: list[Optional[str]] = [None]
-        ev = threading.Event()
+    def _readline_nonblocking(self, stream, timeout_sec: float) -> Optional[str]:
+        """优先用 select 非阻塞读；Windows 回退到短轮询。"""
+        if _IS_WINDOWS:
+            deadline = time.monotonic() + timeout_sec
+            while time.monotonic() < deadline:
+                line = stream.readline()
+                if line:
+                    return line
+                time.sleep(0.01)
+            return None
 
-        def _reader():
-            try:
-                line = self.proc.stdout.readline()
-                result[0] = line if line else None
-            except Exception:
-                result[0] = None
-            ev.set()
-
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
-        ev.wait(timeout=timeout_sec)
-        if ev.is_set():
-            return result[0]
-        return None  # 超时无数据
+        ready, _, _ = select.select([stream], [], [], timeout_sec)
+        if not ready:
+            return None
+        line = stream.readline()
+        return line if line else None
 
     def _drain_stderr(self) -> str:
         """非阻塞读取所有可用 stderr。"""
         lines: list[str] = []
         while True:
-            line = self._readline_nonblocking_from(self.proc.stderr, 0.05)
+            line = self._readline_nonblocking(self.proc.stderr, 0.05)
             if line is None:
                 break
             lines.append(line)
         return "".join(lines)
-
-    def _readline_nonblocking_from(self, stream, timeout_sec: float) -> Optional[str]:
-        result: list[Optional[str]] = [None]
-        ev = threading.Event()
-
-        def _reader():
-            try:
-                line = stream.readline()
-                result[0] = line if line else None
-            except Exception:
-                result[0] = None
-            ev.set()
-
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
-        ev.wait(timeout=timeout_sec)
-        return result[0] if ev.is_set() else None
 
     def _interrupt(self):
         """向 bash 进程发送中断信号。"""

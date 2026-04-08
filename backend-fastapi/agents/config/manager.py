@@ -530,7 +530,7 @@ class AgentConfigManager:
         self._configs[config.agent_name] = config
         if save:
             self._save_configs()
-        logger.info("team=%s 智能体 '%s' 配置已更新", self._active_team, config.agent_name)
+        logger.info("team=%s 智能体 '%s' 配置已更新", getattr(self, '_active_team', None), config.agent_name)
 
     def update_config(
         self,

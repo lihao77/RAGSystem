@@ -105,7 +105,11 @@ def get_effective_workspace_root(
 def get_workspace_memory_key(workspace_root: str | Path | None) -> str | None:
     if workspace_root is None:
         return None
-    normalized = str(Path(workspace_root).resolve()).replace('\\', '-')
+    raw = str(workspace_root).strip()
+    if not raw:
+        return None
+    normalized = raw.replace('\\', '-')
+    normalized = normalized.replace('/', '-')
     normalized = normalized.replace(':', '')
     normalized = re.sub(r'[^a-zA-Z0-9._-]+', '-', normalized).strip('-._')
     return normalized or 'workspace'

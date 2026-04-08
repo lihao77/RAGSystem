@@ -14,6 +14,11 @@ from execution.observability import (
     ExecutionObservabilityContext,
     execution_observability_scope,
 )
+from core.path_resolution import (
+    get_export_run_root,
+    get_session_transient_root,
+    get_session_workspace_root,
+)
 from tools.local.bash_tool import (
     VALIDATION_ALLOWED,
     VALIDATION_APPROVAL_REQUIRED,
@@ -94,7 +99,7 @@ def test_resolve_work_dir_relative_workspace_space_uses_workspace_root():
 
 def test_resolve_work_dir_relative_transient_space_uses_transient_root():
     session_id = "session-bash-transient"
-    target = ROOT_DIR / "data" / "sessions" / session_id / "transient"
+    target = get_session_transient_root(session_id)
     target.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -107,13 +112,13 @@ def test_resolve_work_dir_relative_transient_space_uses_transient_root():
         assert err == ""
         assert resolved == target.resolve()
     finally:
-        shutil.rmtree(ROOT_DIR / "data" / "sessions" / session_id, ignore_errors=True)
+        shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
 def test_resolve_work_dir_relative_exports_space_uses_export_run_root():
     session_id = "session-bash-exports"
     run_id = "run-bash-exports"
-    target = ROOT_DIR / "data" / "sessions" / session_id / "exports" / run_id
+    target = get_export_run_root(session_id, run_id)
     target.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -127,7 +132,7 @@ def test_resolve_work_dir_relative_exports_space_uses_export_run_root():
         assert err == ""
         assert resolved == target.resolve()
     finally:
-        shutil.rmtree(ROOT_DIR / "data" / "sessions" / session_id, ignore_errors=True)
+        shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
 def test_resolve_work_dir_relative_without_space_defaults_to_workspace():
@@ -237,7 +242,7 @@ def test_execute_bash_pwd_uses_workspace_space_when_explicit():
 
 def test_execute_bash_pwd_uses_transient_space_when_explicit():
     session_id = "session-bash-exec-transient"
-    transient_root = ROOT_DIR / "data" / "sessions" / session_id / "transient"
+    transient_root = get_session_transient_root(session_id)
     transient_root.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -250,13 +255,13 @@ def test_execute_bash_pwd_uses_transient_space_when_explicit():
         assert result.success is True
         assert Path(result.metadata["working_dir"]).resolve() == transient_root.resolve()
     finally:
-        shutil.rmtree(ROOT_DIR / "data" / "sessions" / session_id, ignore_errors=True)
+        shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
 def test_execute_bash_pwd_uses_exports_space_when_explicit():
     session_id = "session-bash-exec-exports"
     run_id = "run-bash-exec-exports"
-    export_root = ROOT_DIR / "data" / "sessions" / session_id / "exports" / run_id
+    export_root = get_export_run_root(session_id, run_id)
     export_root.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -277,7 +282,7 @@ def test_execute_bash_pwd_uses_exports_space_when_explicit():
         assert result.success is True
         assert Path(result.metadata["working_dir"]).resolve() == export_root.resolve()
     finally:
-        shutil.rmtree(ROOT_DIR / "data" / "sessions" / session_id, ignore_errors=True)
+        shutil.rmtree(get_session_transient_root(session_id).parent, ignore_errors=True)
 
 
 def test_execute_bash_relative_working_dir_without_space_defaults_to_workspace():
@@ -309,7 +314,7 @@ def test_execute_bash_without_workspace_context_returns_clear_error():
 
 def test_execute_bash_workspace_space_creates_default_session_workspace_when_missing():
     session_id = "session-bash-auto-workspace"
-    session_root = ROOT_DIR / "data" / "sessions" / session_id
+    session_root = get_session_workspace_root(session_id).parent
     workspace_root = session_root / "workspace"
     shutil.rmtree(session_root, ignore_errors=True)
 

@@ -19,6 +19,7 @@ import datetime
 import decimal
 import functools
 import hashlib
+import inspect
 import io
 import itertools
 import json
@@ -83,6 +84,8 @@ ALLOWED_MODULES = {
     "base64": base64,
     "struct": struct,
 }
+
+_ALLOWED_DIRECT_IMPORT_APPROVALS = {"pathlib"}
 
 ALLOWED_IMPORT_NAMES = set(ALLOWED_MODULES.keys()) | {
     "collections.abc", "datetime", "math", "json", "re", "csv", "itertools", "functools", "statistics",
@@ -277,6 +280,22 @@ def _make_call_tool_function(tool_caller, tool_calls_count: list):
     return call_tool
 
 
+def _make_request_write_approval(approval_granted: list, approval_requester):
+    def request_write_approval(path: str, reason: str = "沙箱代码写文件") -> str:
+        if not approval_granted[0]:
+            approval_requester(
+                approval_type="sandbox_file_write",
+                tool_name="sandbox_file_write",
+                arguments={"path": str(path), "reason": reason},
+                risk_level="high",
+                description=f"沙箱代码请求写入文件: {Path(path).name}",
+            )
+            approval_granted[0] = True
+        return "approved"
+
+    return request_write_approval
+
+
 def _build_safe_builtins(safe_import):
     return {
         "__import__": safe_import,
@@ -301,13 +320,14 @@ def _build_safe_builtins(safe_import):
     }
 
 
-def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, save_file_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
+def _build_sandbox_globals(*, safe_import, call_tool_func, safe_open_func, save_file_func, request_write_approval_func, sandbox_root, workspace_root, transient_root, uploads_root, visualizations_root, exports_root):
     return {
         "__builtins__": _build_safe_builtins(safe_import),
         **ALLOWED_MODULES,
         "call_tool": call_tool_func,
         "open": safe_open_func,
         "save_file": save_file_func,
+        "request_write_approval": request_write_approval_func,
         "SANDBOX_DIR": str(sandbox_root),
         "DATA_DIR": str(workspace_root or visualizations_root or sandbox_root),
         "SESSION_TRANSIENT_DIR": str(transient_root or sandbox_root),
@@ -335,18 +355,23 @@ def _make_parent_tool_caller(agent_config, event_bus, user_role, session_id=None
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("代码执行已被中断")
 
-        result = execute_tool(
-            tool_name=tool_name,
-            arguments=arguments,
-            agent_config=agent_config,
-            event_bus=event_bus,
-            user_role=user_role,
-            caller="code_execution",
-            session_id=session_id,
-            team_name=team_name,
-            workspace_root=workspace_root,
-            cancel_event=cancel_event,
-        )
+        execute_kwargs = {
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "agent_config": agent_config,
+            "event_bus": event_bus,
+            "user_role": user_role,
+            "caller": "code_execution",
+            "session_id": session_id,
+            "cancel_event": cancel_event,
+        }
+        signature = inspect.signature(execute_tool)
+        if "team_name" in signature.parameters:
+            execute_kwargs["team_name"] = team_name
+        if "workspace_root" in signature.parameters:
+            execute_kwargs["workspace_root"] = workspace_root
+
+        result = execute_tool(**execute_kwargs)
         if not result_success(result):
             raise RuntimeError(f"工具 '{tool_name}' 执行失败: {result_error_message(result)}")
         return result_primary_content(result)
@@ -428,6 +453,7 @@ def _sandbox_worker(conn, payload: dict):
         run_id=payload.get("run_id"),
         workspace_root=payload.get("workspace_root"),
     )
+    request_write_approval_func = _make_request_write_approval(approval_granted, approval_requester)
     call_tool_func = _make_call_tool_function(_make_ipc_tool_caller(conn), tool_calls_count)
     real_import = __import__
 
@@ -435,6 +461,8 @@ def _sandbox_worker(conn, payload: dict):
         module_root = name.split(".")[0]
         if name in ALLOWED_IMPORT_NAMES or name in approved_imports or module_root in approved_imports:
             return real_import(name, *args, **kwargs)
+        if module_root not in _ALLOWED_DIRECT_IMPORT_APPROVALS:
+            raise ImportError(f"禁止导入模块: {name}")
         snippet = _extract_import_code_snippet(code, name)
         try:
             approval_requester(
@@ -455,6 +483,7 @@ def _sandbox_worker(conn, payload: dict):
         call_tool_func=call_tool_func,
         safe_open_func=safe_open_func,
         save_file_func=save_file_func,
+        request_write_approval_func=request_write_approval_func,
         sandbox_root=Path(payload["sandbox_root"]),
         workspace_root=Path(payload["current_workspace_root"]) if payload.get("current_workspace_root") else None,
         transient_root=Path(payload["current_transient_root"]) if payload.get("current_transient_root") else None,
@@ -671,9 +700,11 @@ def execute_code_sandbox(
     sandbox_root.mkdir(parents=True, exist_ok=True)
 
     workspace_root = None
+    team_name = None
     if agent_config and hasattr(agent_config, "custom_params"):
         custom_params = agent_config.custom_params if isinstance(agent_config.custom_params, dict) else {}
         workspace_root = custom_params.get("workspace_root")
+        team_name = custom_params.get("team_name")
 
     if run_id is None:
         try:
