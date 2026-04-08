@@ -43,7 +43,6 @@ from tools.runtime.bash_security import (
     get_category_risk,
     validate_command_security,
 )
-from tools.runtime.persistent_shell import get_persistent_shell_manager
 from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
@@ -329,11 +328,11 @@ def _run_foreground_command(
 
 **后台执行示例**：
 ```xml
-<execute_bash>
+<tool name="execute_bash">
 <command>npm run build</command>
 <run_in_background>true</run_in_background>
 <description>构建前端项目</description>
-</execute_bash>
+</tool>
 ```
 
 返回：`{"background_task_id": "task_123"}`
@@ -502,30 +501,13 @@ def execute_bash(
         )
 
     try:
-        if session_id:
-            shell = get_persistent_shell_manager().get_session(
-                session_id,
-                event_bus=event_bus,
-                bash_executable=_BASH_EXECUTABLE,
-            )
-            persistent_command = command
-            if working_dir is not None:
-                persistent_command = f"cd '{cwd}' && {command}"
-            stdout, stderr, return_code, interrupted = shell.execute(
-                persistent_command,
-                timeout=timeout,
-                cancel_event=cancel_event,
-                event_bus=event_bus,
-                session_id=session_id,
-            )
-        else:
-            stdout, stderr, return_code, interrupted = _run_foreground_command(
-                command,
-                cwd=cwd,
-                timeout=timeout,
-                event_bus=event_bus,
-                session_id=session_id,
-            )
+        stdout, stderr, return_code, interrupted = _run_foreground_command(
+            command,
+            cwd=cwd,
+            timeout=timeout,
+            event_bus=event_bus,
+            session_id=session_id,
+        )
     except Exception as exc:
         return error_result(f"命令执行失败: {exc}", tool_name="execute_bash")
 

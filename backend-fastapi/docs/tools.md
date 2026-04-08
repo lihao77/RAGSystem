@@ -484,17 +484,10 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - 链式命令（`&&` / `||` / `;`）不再被整体拦截：`_split_shell_chain` 对每段独立分类和审批，取最高风险段决策
 - 安全检查失败直接拒绝执行
 
-持久化 Shell（`tools/runtime/persistent_shell.py`）：
-- 每个 `session_id` 维护一个长生命周期 bash 进程，跨 `execute_bash` 调用保留 cwd 和环境变量，对标 Claude Code BashTool sentinel 模式
-- sentinel 包裹格式：`( {command} ); _EC=$?; echo '__SENTINEL_{uuid}_EXIT_'$_EC'__'`，从 stdout 读取到 sentinel 行解析退出码
-- 有 `session_id` 时走持久 shell 路径；无 `session_id` 时降级为 `_run_foreground_command`（单次 Popen）
-- `cancel_event: threading.Event` 置位后发送 SIGINT（Linux）/ CTRL_C_EVENT（Windows）中断当前命令
-- `PersistentShellManager` 单例，首次 `get_session` 时订阅 `SESSION_END` 事件自动调用 `close_session` 清理进程
-- Windows 需要 `creationflags=CREATE_NEW_PROCESS_GROUP` 才能接收 Ctrl+C 信号
-
 执行特性：
+- 前台执行统一走单次 `subprocess.Popen(...)` 无状态模型；每次调用显式使用解析后的 `working_dir` 作为 `cwd`，不保留跨调用的 shell cwd / 环境变量状态
 - `execute_bash` 在工具内部发布审批事件，复用现有通用审批弹窗
-- 长命令每 2 秒发布一次 `tool.progress` 事件（持久 shell 和前台模式均支持）
+- 长命令每 2 秒发布一次 `tool.progress` 事件（前台模式支持）
 - 支持 `run_in_background=true` 后台执行，返回 `background_task_id`
 - 后台任务由 `tools.runtime.background_tasks.BackgroundTaskManager` 管理，完成后发布 `background.task.completed` 事件
 - **后台执行约束**：必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）；stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取

@@ -657,12 +657,14 @@ value = call_tool('tool_name', {
 ```
 
 **正确示例**：
-```python
-value = call_tool('tool_name', {
-    'param_name': 'value'
-})  # ✅ 直接使用返回值
-result = {'tool_output': value}
-```""",
+    examples=[
+        {
+            "input": {
+                "code": "result = {'message': 'hello'}",
+                "description": "返回简单 JSON 结果",
+            }
+        }
+    ],
 )
 def execute_code_sandbox(
     code: str,

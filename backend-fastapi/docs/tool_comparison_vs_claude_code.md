@@ -145,7 +145,7 @@
 | **进度上报** | 每 2.0 秒发布 TOOL_PROGRESS 事件 | PROGRESS_THRESHOLD_MS=2000，onProgress 回调 |
 | **后台执行** | BackgroundTaskManager.spawn_bash()，返回 background_task_id | run_in_background=true，注册到 AppState 任务列表 |
 | **自动后台化** | ❌ 无 | ✅ ASSISTANT_BLOCKING_BUDGET_MS=15000，超时 AI 主动建议后台化；CLAUDE_AUTO_BACKGROUND_TASKS 环境变量或 GrowthBook feature flag 控制 |
-| **持久 Shell** | ✅ PersistentShellManager，session 内保持环境状态 | ❌ 每次新进程（无持久 shell） |
+| **持久 Shell** | ❌ 无，采用每次新进程的无状态执行模型 | ❌ 每次新进程（无持久 shell） |
 | **Windows 支持** | ✅ 检测 Git Bash 路径 | ✅ 通过 PowerShellTool 镜像实现 |
 
 ##### 安全模型对比（核心差距）

@@ -397,7 +397,7 @@ def build_code_execution_prompt_section(agent) -> str:
     if not code_callable_tools:
         return """## execute_code 中可调用的工具
 
-在 `execute_code` 的代码中当前没有额外工具可调用，请直接在沙箱内处理数据或读取文件。
+当前没有额外工具可从代码中调用，请直接在 `execute_code` 的沙箱内处理数据或读取文件。
 
 中性调用格式示例（仅展示 `call_tool` 语法，不代表当前真的可调用该工具）：
 ```python
