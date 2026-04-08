@@ -439,6 +439,8 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 
 `execute_code_sandbox(code, description, timeout, ..., cancel_event=None)` — 受限 Python 执行环境。
 
+提示词层会为 `execute_code` 渲染一条简短 direct 调用示例，便于模型保持 XML 调用格式一致；更详细的模块、文件与 `call_tool` 规则仍以工具扩展说明为准。
+
 当前实现为**主进程协调 + 子进程执行**：
 
 - 主进程保留静态检查、路径解析、工具分发、审批等待与结果组装

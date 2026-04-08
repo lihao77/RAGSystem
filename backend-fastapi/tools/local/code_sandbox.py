@@ -605,6 +605,12 @@ def _publish_execution_event(event_bus, phase: str, **kwargs):
     # 外层 safety-net 超时应大于内层最大值（_MAX_TIMEOUT=300）加审批等待 buffer
     timeout_seconds=600,
     allowed_callers=["direct"],
+    examples=[
+        {
+            "code": "result = {'status': 'ok'}",
+            "description": "执行简单 Python 代码并返回结果",
+        }
+    ],
     extended_usage="""### 模块与全局变量
 
 **禁止导入的模块**：`os`、`sys`、`subprocess`、`shutil`、`socket`。
