@@ -38,9 +38,6 @@
         <span class="agent-badge" :class="getAgentBadgeClass(node.agent_name)">
           {{ node.agent_display_name || node.agent_name }}
         </span>
-        <span v-if="node.order" class="order-badge">
-          步骤 {{ getStepLabel(node) }}
-        </span>
         <div v-if="toolCallStatuses.length > 0" class="substep-dots">
           <span v-for="(s, i) in toolCallStatuses.slice(0, 8)" :key="i"
                 class="substep-dot" :class="s"></span>
@@ -477,13 +474,6 @@ const ctxColor = computed(() => {
   if (p >= 70) return '#faad14';
   return '#52c41a';
 });
-
-const getStepLabel = (node) => {
-  if (node.round !== undefined && node.round_index !== undefined) {
-    return `${node.round}-${node.round_index}`;
-  }
-  return node.order;
-};
 
 const getStatusText = (status) => {
   const statusMap = {
@@ -967,12 +957,6 @@ const formatResultContent = (value) => {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-.order-badge {
-  font-weight: 700;
-  color: var(--color-text-primary);
-  font-size: 0.95rem;
 }
 
 .status-badge {
@@ -1629,10 +1613,6 @@ const formatResultContent = (value) => {
   .agent-call-header {
     /* subtasks padding 加上 thought/result 节点的padding - 左侧图标width - 左侧图标的margin-left */
     gap: calc(var(--subtasks-padding) + var(--spacing-sm) - 8px);;
-  }
-
-  .order-badge {
-    font-size: 0.85rem;
   }
 
   .status-badge {
