@@ -43,9 +43,18 @@
              <span class="action-text">任务已完成</span>
            </div>
 
+           <!-- 历史执行树未加载 -->
+           <div v-else-if="!running && loading" key="loading" class="ticker-item idle">
+             <span class="action-text">正在加载执行过程...</span>
+           </div>
+
+           <div v-else-if="!running && hasExecution" key="lazy" class="ticker-item idle">
+             <span class="action-text">展开后加载执行过程</span>
+           </div>
+
            <!-- 初始状态 -->
            <div v-else key="idle" class="ticker-item idle">
-             <span class="action-text">等待任务开始...</span>
+             <span class="action-text">暂无执行过程</span>
            </div>
         </transition-group>
       </div>
@@ -82,6 +91,14 @@ const props = defineProps({
     default: false
   },
   running: {
+    type: Boolean,
+    default: false
+  },
+  hasExecution: {
+    type: Boolean,
+    default: false
+  },
+  loading: {
     type: Boolean,
     default: false
   }

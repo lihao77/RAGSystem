@@ -99,6 +99,18 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
           ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
           └─ OpenAIProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
   → SSEAdapter 转发事件 → 前端
+
+GET /api/agent/sessions/{session_id}/messages
+  → api/v1/sessions.py
+      ├─ 默认 `expand=none`，历史消息不再内联 `execution_steps`
+      ├─ assistant 消息只返回 `has_execution=true/false`，供前端决定是否显示执行树入口
+      └─ 显式 `expand=steps` 时，才内联 canonical `execution_steps`
+
+GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
+  → api/v1/sessions.py
+      ├─ 按 message_id 懒加载该条 assistant 消息关联的 canonical `execution.step`
+      ├─ 复用 AgentSessionApplication 的 compact 规则，剔除 node_id / timestamp / raw_result 等冗余字段
+      └─ 返回分页结构 { items, total, limit, offset, has_more }
 ```
 
 ## Agent 体系
@@ -447,7 +459,8 @@ memory 当前采用纯 scope 授权模型：
 - child 会话创建检查点直接记录在 `child_agents.created_seq`，不再通过 `child_agent_anchor` 空消息占位
 - `child_agent_id` 是稳定子会话 ID；`call_id` 仍表示一次调用节点；`run_id` 仍表示一次执行实例
 - `child_agents.created_seq` 记录该 child 会话在主 session 消息流中的创建检查点；rollback 时若 `created_seq > after_seq`，则该 child 会话会随 checkpoint 一并移除
-- `AgentSessionApplication.list_messages()` 默认仍只展示 root 主消息流；会过滤 `react_intermediate`、`visible_to_user=False`、`conversation_scope='child'` 与非 `root` 线程消息；child 对话主要用于上下文恢复与调试
+- `AgentSessionApplication.list_messages()` 默认只展示 root 主消息流；会过滤 `react_intermediate`、`visible_to_user=False`、`conversation_scope='child'` 与非 `root` 线程消息；child 对话主要用于上下文恢复与调试
+- 历史消息接口默认不再内联 `execution_steps`；assistant message 只返回 `has_execution`，表示该消息是否可继续懒加载执行树 sidecar
 
 统一执行树的唯一事实源是 **canonical `execution.step`**：
 
@@ -455,7 +468,9 @@ memory 当前采用纯 scope 授权模型：
 - `execution/step_projector.py` 监听原始事件并投影出 `execution.step`
 - `run_steps.step_type` 固定存 `execution.step`
 - `run_steps.payload` 只持久化 canonical step 的精简字段集合：保留 UI 所需的结构/状态/展示字段；`intent delta` / `round update` 这类纯流式碎片不入库；`event_id`、`timestamp`、`source_event_type`、`node_id`、`parent_node_id`、`child_agent_id`、`mode`、`raw_result_ref`、`resource_refs` 等调试/冗余字段不写入 payload
-- `application/agent_session.py:list_messages()` 返回进一步裁剪后的 `execution_steps`：继续保留前端现阶段渲染所需字段，但不暴露 `raw_result`、`raw_result_ref`、`resource_refs` 和调试追踪字段
+- `application/agent_session.py:list_messages()` 默认只返回消息主载荷；仅在显式 `expand=steps` 时才内联裁剪后的 `execution_steps`
+- `application/agent_session.py:list_message_run_steps()` 提供按 `message_id` 懒加载 execution steps 的 sidecar 读取能力，返回裁剪后的步骤分页结果
+- `api/v1/sessions.py` 暴露 `GET /sessions/{session_id}/messages/{message_id}/run-steps`，供前端按消息懒加载执行树
 - reconnect 回放 EventBus 历史时，前端看到的执行树事件也只有 `execution.step`
 
 canonical step 当前覆盖的语义：

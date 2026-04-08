@@ -11,6 +11,7 @@ class _FakeConversationStore:
     def __init__(self):
         self.deleted_session_id = None
         self.created_sessions = []
+        self.last_run_steps_call = None
 
     def list_messages(self, *, session_id: str, limit: int, offset: int):
         assert session_id == 'session-1'
@@ -75,8 +76,13 @@ class _FakeConversationStore:
             'has_more': False,
         }
 
-    def list_run_steps(self, *, run_id: str, session_id: str, limit: int):
-        assert run_id == 'run-1'
+    def list_run_steps(self, *, run_id: str = None, message_id: str = None, session_id: str, limit: int):
+        self.last_run_steps_call = {
+            'run_id': run_id,
+            'message_id': message_id,
+            'session_id': session_id,
+            'limit': limit,
+        }
         assert session_id == 'session-1'
         return []
 
@@ -102,9 +108,15 @@ class _FakeConversationStoreWithSteps(_FakeConversationStore):
         assert session_id == 'session-1'
         return {'items': [], 'total': 0}
 
-    def list_run_steps(self, *, run_id: str, session_id: str, limit: int):
-        assert run_id == 'run-1'
+    def list_run_steps(self, *, run_id: str = None, message_id: str = None, session_id: str, limit: int):
+        self.last_run_steps_call = {
+            'run_id': run_id,
+            'message_id': message_id,
+            'session_id': session_id,
+            'limit': limit,
+        }
         assert session_id == 'session-1'
+        assert run_id == 'run-1' or message_id == 'msg-final'
         return [
             {
                 'step_order': 1,
@@ -156,11 +168,12 @@ class _FakeConversationStoreWithSteps(_FakeConversationStore):
 def test_list_messages_filters_react_intermediate_messages():
     app = AgentSessionApplication(conversation_store=_FakeConversationStore())
 
-    result = app.list_messages(session_id='session-1', limit=20, offset=0, expand_steps=True)
+    result = app.list_messages(session_id='session-1', limit=20, offset=0, expand_steps=False)
 
     assert len(result['items']) == 1
     assistant = result['items'][0]
     assert assistant['id'] == 'msg-final'
+    assert assistant['has_execution'] is True
     assert 'react_trace' not in assistant
 
 
@@ -179,6 +192,7 @@ def test_list_messages_returns_canonical_execution_steps():
     result = app.list_messages(session_id='session-1', limit=20, offset=0, expand_steps=True)
 
     assistant = result['items'][0]
+    assert assistant['has_execution'] is True
     execution_steps = assistant['execution_steps']
     assert [step['kind'] for step in execution_steps] == ['run', 'subtask', 'intent']
     assert [step['phase'] for step in execution_steps] == ['start', 'start', 'complete']
@@ -188,6 +202,25 @@ def test_list_messages_returns_canonical_execution_steps():
     assert 'source_event_type' not in execution_steps[0]
     assert 'timestamp' not in execution_steps[0]
     assert 'event_id' not in execution_steps[0]
+
+
+def test_list_message_run_steps_returns_paginated_execution_steps():
+    store = _FakeConversationStoreWithSteps()
+    app = AgentSessionApplication(conversation_store=store)
+
+    result = app.list_message_run_steps(session_id='session-1', message_id='msg-final', limit=2, offset=1)
+
+    assert [step['kind'] for step in result['items']] == ['subtask', 'intent']
+    assert result['total'] == 3
+    assert result['limit'] == 2
+    assert result['offset'] == 1
+    assert result['has_more'] is False
+    assert store.last_run_steps_call == {
+        'run_id': None,
+        'message_id': 'msg-final',
+        'session_id': 'session-1',
+        'limit': 3,
+    }
 
 
 def test_delete_session_delegates_cleanup_to_conversation_store():

@@ -80,14 +80,25 @@ handleSend({ content, attachments })
       └─ scrollToBottom()
   → 流结束 → checkSituationScreenTrigger()
   → cacheMessages()
+
+loadSessionMessages(sessionId)
+  → GET /api/agent/sessions/{session_id}/messages?limit=500&offset=0
+      └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载 execution steps
+  → createAssistantMessageFromHistory(item)
+      └─ 若 has_execution=true，则按需调用 GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
+          并将返回 steps 交给 executionProjector.buildExecutionState()
 ```
 
 ### 执行树 projector
 
-`src/utils/executionProjector.js` 是执行树唯一 projector，统一消费历史与实时的 canonical `execution.step.data`：
+`src/utils/executionProjector.js` 是执行树唯一 projector，统一消费历史与实时的 canonical `execution.step.data`。
+
+当前前端执行树来源拆成两条路径：
+- 实时 / reconnect：继续直接消费 SSE `execution.step`
+- 历史消息：先加载 message 主载荷，再按 assistant message 的 `has_execution` 标记懒加载 `/messages/{message_id}/run-steps`，最后交给同一个 projector 构建视图
 
 - `createExecutionState()`：创建增量投影状态
-- `buildExecutionState(steps)`：历史 assistant message 全量构建执行树视图模型
+- `buildExecutionState(steps)`：按需对单条历史 assistant message 的 canonical step 列表做全量投影；默认不在整页历史加载时为所有消息预构建
 - `applyStep(state, step)`：实时 / reconnect 增量应用单条 canonical step
 
 projector 输出并维护：
@@ -128,7 +139,8 @@ tool 归属规则：
 
 - 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
 - 执行树只消费 `execution.step`
-- 历史消息加载和 reconnect 回放都复用同一个 projector
+- 历史消息列表默认不再内联 `execution_steps`；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps sidecar
+- reconnect 回放与历史 run steps 懒加载都复用同一个 projector
 
 ### SSE 事件类型处理
 
@@ -189,8 +201,9 @@ tool 归属规则：
   role: 'assistant',
   id: string, seq: number,
   content: string,               // 最终答案（流式拼接）
+  has_execution: boolean,        // 是否存在可懒加载的 execution step sidecar
   subtasks: [],                  // 子任务列表
-  execution_steps: [],           // 编排器执行步骤
+  execution_steps: [],           // 已懒加载并投影后的编排器执行步骤
   multimodalContents: [],        // 历史 execution.step 中的可视化内容
   status: [],                    // 错误状态
   finished: boolean,

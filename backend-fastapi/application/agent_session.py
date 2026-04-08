@@ -40,6 +40,19 @@ class AgentSessionApplication:
             compact.pop('result', None)
         return compact
 
+    @staticmethod
+    def _is_visible_root_message(item: Dict[str, Any]) -> bool:
+        metadata = item.get('metadata') or {}
+        if metadata.get('react_intermediate'):
+            return False
+        if metadata.get('visible_to_user') is False:
+            return False
+        if metadata.get('conversation_scope') == 'child':
+            return False
+        if item.get('thread_key') not in (None, '', 'root'):
+            return False
+        return True
+
     def get_conversation_store(self) -> ConversationStore:
         return self._conversation_store
 
@@ -168,7 +181,7 @@ class AgentSessionApplication:
         session_id: str,
         limit: int = 20,
         offset: int = 0,
-        expand_steps: bool = True,
+        expand_steps: bool = False,
     ) -> Dict[str, Any]:
         data = self._conversation_store.list_messages(session_id=session_id, limit=limit, offset=offset)
         if data.get('items'):
@@ -183,6 +196,8 @@ class AgentSessionApplication:
                     continue
                 if item.get('thread_key') not in (None, '', 'root'):
                     continue
+                if item.get('role') == 'assistant':
+                    item['has_execution'] = bool(metadata.get('run_id'))
                 visible_items.append(item)
             data['items'] = visible_items
         if expand_steps and data.get('items'):
@@ -202,6 +217,47 @@ class AgentSessionApplication:
                     if step.get('step_type') == 'execution.step'
                 ]
         return data
+
+    def list_message_run_steps(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        data = self._conversation_store.list_messages(session_id=session_id, limit=1000, offset=0)
+        message = next(
+            (
+                item for item in (data.get('items') or [])
+                if item.get('id') == message_id and self._is_visible_root_message(item)
+            ),
+            None,
+        )
+        if not message:
+            raise LookupError(f'消息不存在: {message_id}')
+        if message.get('role') != 'assistant':
+            raise ValueError('仅 assistant 消息支持查询 execution steps')
+
+        raw_steps = self._conversation_store.list_run_steps(
+            message_id=message_id,
+            session_id=session_id,
+            limit=limit + offset,
+        )
+        execution_steps = [
+            self._compact_execution_step(step.get('payload') or {})
+            for step in raw_steps
+            if step.get('step_type') == 'execution.step'
+        ]
+        items = execution_steps[offset:offset + limit]
+        return {
+            'message_id': message_id,
+            'items': items,
+            'total': len(execution_steps),
+            'limit': limit,
+            'offset': offset,
+            'has_more': offset + limit < len(execution_steps),
+        }
 
     def export_session(self, session_id: str) -> Dict[str, Any]:
         session = self.get_session(session_id)

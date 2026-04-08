@@ -110,7 +110,7 @@ async def get_session_messages(
     session_id: str,
     limit: int = Query(20, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    expand: str = Query('steps'),
+    expand: str = Query('none'),
 ):
     """获取会话消息。"""
     try:
@@ -125,6 +125,32 @@ async def get_session_messages(
         return ok(data=data, message='获取对话记录成功')
     except Exception as e:
         logger.error('获取对话记录失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/sessions/{session_id}/messages/{message_id}/run-steps')
+async def get_session_message_run_steps(
+    session_id: str,
+    message_id: str,
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+):
+    """按消息懒加载执行步骤。"""
+    try:
+        data = await asyncio.to_thread(
+            _get_session_app().list_message_run_steps,
+            session_id=session_id,
+            message_id=message_id,
+            limit=limit,
+            offset=offset,
+        )
+        return ok(data=data, message='获取执行步骤成功')
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error('获取执行步骤失败: %s', e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

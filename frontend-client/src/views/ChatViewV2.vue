@@ -89,7 +89,9 @@
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
                 <SubtaskStatusTicker :subtasks="msg.subtasks" :execution-steps="msg.execution_steps" :expanded="msg.showFullSubtasks"
                   :running="!msg.finished"
-                  @toggle-view="msg.showFullSubtasks = !msg.showFullSubtasks" />
+                  :has-execution="msg.has_execution"
+                  :loading="msg.executionStepsLoading"
+                  @toggle-view="toggleExecutionView(msg)" />
 
                 <!-- 视图切换按钮 -->
                 <!-- 完整详情模式 -->
@@ -488,8 +490,34 @@ const createAssistantMessage = (overrides = {}) => ({
   multimodalContents: [],
   status: [],
   finished: false,
+  has_execution: false,
+  executionStepsLoaded: false,
+  executionStepsLoading: false,
+  executionStepsLoadError: '',
+  run_id: null,
   ...overrides,
 });
+
+const normalizeAssistantExecutionState = (msg) => {
+  if (!msg || msg.role !== 'assistant') return msg;
+  const metadata = msg.metadata || {};
+  msg.has_execution = Boolean(
+    msg.has_execution
+    || msg.run_id
+    || metadata.run_id
+    || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
+    || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
+  );
+  msg.executionStepsLoaded = Boolean(
+    msg.executionStepsLoaded
+    || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
+    || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
+  );
+  msg.executionStepsLoading = Boolean(msg.executionStepsLoading);
+  msg.executionStepsLoadError = msg.executionStepsLoadError || '';
+  msg.run_id = msg.run_id || metadata.run_id || null;
+  return msg;
+};
 
 import LiquidGlass from '../components/LiquidGlass.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
@@ -499,7 +527,7 @@ import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
-import { getTaskExecutionDiagnostics, getTaskStatus } from '../api/monitoring';
+import { getTaskExecutionDiagnostics, getTaskStatus, getMessageRunSteps } from '../api/monitoring';
 
 // Props
 const props = defineProps({
@@ -925,7 +953,8 @@ const isRootEvent = (event) => !(event?.parent_call_id || event?.data?.parent_ca
 const hasExecutionContent = (msg) => {
   if (!msg || msg.role !== 'assistant') return false;
   return Boolean(
-    (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
+    msg.has_execution
+    || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
     || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
   );
 };
@@ -941,26 +970,70 @@ const syncExecutionProjection = (msg) => {
   const state = ensureExecutionProjector(msg);
   msg.subtasks = state.subtasks;
   msg.execution_steps = state.execution_steps;
+  msg.has_execution = state.rawSteps.length > 0 || msg.has_execution;
   if (!msg.multimodalContents?.length || state.multimodalContents.length) {
     msg.multimodalContents = state.multimodalContents.slice();
   }
 };
 
+const ensureExecutionStepsLoaded = async (msg) => {
+  if (!msg || !msg.id || !currentSessionId.value || msg.executionStepsLoaded || msg.executionStepsLoading || !msg.has_execution) {
+    return;
+  }
+  msg.executionStepsLoading = true;
+  msg.executionStepsLoadError = '';
+  try {
+    const payload = await getMessageRunSteps(currentSessionId.value, msg.id, { limit: 500, offset: 0 });
+    const executionSteps = Array.isArray(payload?.items) ? payload.items : [];
+    const projected = buildExecutionState(executionSteps);
+    msg._executionProjector = projected;
+    msg.subtasks = projected.subtasks;
+    msg.execution_steps = projected.execution_steps;
+    if (!msg.multimodalContents?.length || projected.multimodalContents.length) {
+      msg.multimodalContents = projected.multimodalContents;
+    }
+    msg.executionStepsLoaded = true;
+  } catch (error) {
+    msg.executionStepsLoadError = error?.message || '加载执行过程失败';
+    throw error;
+  } finally {
+    msg.executionStepsLoading = false;
+  }
+};
+
+const toggleExecutionView = async (msg) => {
+  if (!msg) return;
+  if (msg.showFullSubtasks) {
+    msg.showFullSubtasks = false;
+    return;
+  }
+  if (msg.has_execution && !msg.executionStepsLoaded) {
+    try {
+      await ensureExecutionStepsLoaded(msg);
+    } catch (_) {
+      showToast(msg.executionStepsLoadError || '加载执行过程失败');
+      return;
+    }
+  }
+  msg.showFullSubtasks = true;
+};
+
 const createAssistantMessageFromHistory = (item) => {
-  const executionSteps = Array.isArray(item.execution_steps) ? item.execution_steps : [];
-  const projected = buildExecutionState(executionSteps);
   return createAssistantMessage({
     id: item.id,
     seq: item.seq,
     content: item.content || '',
-    subtasks: projected.subtasks,
-    execution_steps: projected.execution_steps,
-    multimodalContents: (item.multimodalContents?.length > 0)
-      ? item.multimodalContents
-      : projected.multimodalContents,
+    subtasks: [],
+    execution_steps: [],
+    multimodalContents: item.multimodalContents?.length > 0 ? item.multimodalContents : [],
     status: item.status || [],
     finished: true,
-    _executionProjector: projected,
+    has_execution: Boolean(item.has_execution || item.metadata?.run_id),
+    executionStepsLoaded: false,
+    executionStepsLoading: false,
+    executionStepsLoadError: '',
+    run_id: item.metadata?.run_id || null,
+    _executionProjector: null,
   });
 };
 
@@ -1253,7 +1326,10 @@ const cacheMessages = (sessionId, list) => {
   if (messageCache.value.has(sessionId)) {
     messageCache.value.delete(sessionId);
   }
-  messageCache.value.set(sessionId, list.slice(-500));
+  messageCache.value.set(
+    sessionId,
+    list.slice(-500).map(item => normalizeAssistantExecutionState(item))
+  );
   if (messageCache.value.size > maxCachedSessions) {
     const oldestKey = messageCache.value.keys().next().value;
     messageCache.value.delete(oldestKey);
@@ -1267,7 +1343,7 @@ const cacheMessages = (sessionId, list) => {
 const mergeMessageIdsFromServer = async (sessionId) => {
   if (!sessionId || messages.value.length === 0) return;
   try {
-    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
+    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
     if (!res.ok) return;
     const result = await res.json();
     const items = result.data?.items || [];
@@ -1586,7 +1662,7 @@ const loadSessionMessages = async (sessionId) => {
   try {
     const cached = messageCache.value.get(sessionId);
     if (cached) {
-      messages.value = cached;
+      messages.value = cached.map(item => normalizeAssistantExecutionState(item));
       messagesLoading.value = false;
       await nextTick();
       await scrollToBottom(true);
@@ -1598,7 +1674,7 @@ const loadSessionMessages = async (sessionId) => {
       await checkSessionTaskStatus(sessionId);
       return;
     }
-    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0`);
+    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const result = await response.json();
     const items = result.data?.items || [];

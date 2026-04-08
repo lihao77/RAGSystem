@@ -166,3 +166,15 @@ export async function getToolCallRawResult(sessionId, callId) {
     throw error;
   }
 }
+
+export async function getMessageRunSteps(sessionId, messageId, { limit = 500, offset = 0 } = {}) {
+  try {
+    return await requestJson(
+      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/run-steps?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
+      { method: 'GET' }
+    );
+  } catch (error) {
+    console.error('Error fetching message run steps:', error);
+    throw error;
+  }
+}
