@@ -79,7 +79,8 @@ class PersistentShellSession:
         sentinel = f"__SENTINEL_{sentinel_id}_EXIT_"
 
         wrapped = (
-            f"( {command} ); _EC=$?; "
+            f"{command}\n"
+            f"_EC=$?; "
             f"echo '{sentinel}'$_EC'__'\n"
         )
 

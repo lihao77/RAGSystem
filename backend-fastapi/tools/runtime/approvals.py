@@ -29,7 +29,7 @@ class ApprovalOutcome:
 
 
 def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]:
-    from pathlib import Path
+    import re
 
     tool_name = (context.tool_name or "").strip()
     if context.caller != "direct":
@@ -51,6 +51,12 @@ def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]
         return []
     if raw_path.startswith("./data/"):
         return []
+
+    windows_absolute = re.match(r'^[a-zA-Z]:[\\/]', raw_path)
+    if windows_absolute:
+        return [raw_path.replace('/', '\\')]
+
+    from pathlib import Path
 
     candidate = Path(raw_path)
     if not candidate.is_absolute():

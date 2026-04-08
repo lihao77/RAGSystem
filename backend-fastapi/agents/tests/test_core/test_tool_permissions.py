@@ -23,6 +23,19 @@ def _bootstrap_decorated_tools():
 
 
 @pytest.fixture(autouse=True)
+def _reset_tool_permissions():
+    """重建装饰器权限缓存，避免测试间手动覆盖污染。"""
+    from tools.decorators import get_decorated_tools
+
+    bootstrap_tool_system()
+    for name, info in get_decorated_tools().items():
+        TOOL_PERMISSIONS[name] = info["permission"]
+    yield
+    for name, info in get_decorated_tools().items():
+        TOOL_PERMISSIONS[name] = info["permission"]
+
+
+@pytest.fixture(autouse=True)
 def _reset_permission_policy():
     """重置全局权限策略，避免测试间互相污染。"""
     set_permission_policy(PermissionPolicy())

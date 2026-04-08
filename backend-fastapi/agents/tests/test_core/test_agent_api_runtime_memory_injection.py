@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from agents import AgentContext
+from core.path_resolution import get_session_workspace_root, get_workspace_memory_key
 from services.agent_api_runtime_service import AgentApiRuntimeService
 
 
@@ -223,4 +224,4 @@ def test_build_context_uses_default_session_workspace_for_memory(monkeypatch):
     )
 
     assert context.metadata['workspace_root'].endswith('/sessions/session-1/workspace') or context.metadata['workspace_root'].endswith('\\sessions\\session-1\\workspace')
-    assert {'scope': 'workspace', 'workspace_key': 'C-Users-admin-.ragsystem-sessions-session-1-workspace'} in captured
+    assert {'scope': 'workspace', 'workspace_key': get_workspace_memory_key(context.metadata['workspace_root'])} in captured

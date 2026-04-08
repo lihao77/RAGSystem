@@ -508,9 +508,11 @@ def execute_bash(
                 event_bus=event_bus,
                 bash_executable=_BASH_EXECUTABLE,
             )
-            cd_prefix = f"cd '{cwd}' && " if cwd else ""
+            persistent_command = command
+            if working_dir is not None:
+                persistent_command = f"cd '{cwd}' && {command}"
             stdout, stderr, return_code, interrupted = shell.execute(
-                cd_prefix + command,
+                persistent_command,
                 timeout=timeout,
                 cancel_event=cancel_event,
                 event_bus=event_bus,

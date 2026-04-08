@@ -38,6 +38,14 @@ def get_tool_permission(tool_name: str) -> Optional[ToolPermission]:
     Returns:
         ToolPermission: 权限配置，不存在则返回 None
     """
+    from tools.decorators import get_decorated_tools
+
+    decorated = get_decorated_tools().get(tool_name)
+    if decorated is not None:
+        permission = decorated["permission"]
+        TOOL_PERMISSIONS[tool_name] = permission
+        return permission
+
     permission = TOOL_PERMISSIONS.get(tool_name)
     if permission is not None:
         return permission
@@ -69,6 +77,10 @@ def _build_default_permission(tool_name: str) -> Optional[ToolPermission]:
 
 def _infer_default_risk_level(tool_name: str, source: str, category: str) -> RiskLevel:
     """基于工具来源和类别推断默认风险等级。"""
+    if tool_name == "execute_bash":
+        return RiskLevel.HIGH
+    if source == "skill" or tool_name == "execute_skill_script":
+        return RiskLevel.MEDIUM
     if source == "document" and tool_name in {"write_file", "edit_file"}:
         return RiskLevel.HIGH
     if category in {"data", "execution"}:

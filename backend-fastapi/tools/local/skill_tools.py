@@ -410,7 +410,7 @@ def load_skill_resource(skill_name, resource_file):
         },
         "required": ["skill_name", "script_name"],
     },
-    risk_level=RiskLevel.LOW,
+    risk_level=RiskLevel.MEDIUM,
     timeout_seconds=120,
     allowed_callers=["direct"],
     returns={
