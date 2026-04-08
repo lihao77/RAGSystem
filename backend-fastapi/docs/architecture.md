@@ -14,7 +14,8 @@ backend-fastapi/
 │   ├── core/                  # 基础设施（BaseAgent, Context, Orchestrator, Registry）
 │   ├── implementations/       # Agent 实现
 │   │   └── orchestrator/      # 统一的通用 ReAct/编排 Agent 实现
-│   ├── config/                # AgentConfig 配置加载
+│   ├── config/                # Agent 配置管理与 team 模型（manager/loader）
+│   ├── configs/               # 源码侧 seed/example 配置（legacy 输入来源）
 │   ├── context/               # 上下文管道、压缩、观察格式化
 │   ├── events/                # EventBus、EventPublisher、SSEAdapter
 │   ├── streaming/             # XML 流式解析（StreamingXMLParser, tool_xml_parser）
@@ -28,15 +29,17 @@ backend-fastapi/
 │   ├── local/                 # 本地工具真实实现层
 │   ├── refs/                  # 结果引用与占位符解析
 │   ├── artifacts/             # 可视化 artifact 子域
-│   └── paths/                 # 全局路径治理
+│   └── paths/                 # 路径治理兼容入口（真源见 core/path_resolution.py）
+├── hooks/                     # Hook 系统（事件、匹配、执行、内建 hooks）
 ├── api/v1/                    # FastAPI 路由层
 ├── runtime/                   # RuntimeContainer 中央容器
 ├── model_adapter/             # LLM Provider 统一适配
 ├── mcp/                       # MCP 协议支持
 ├── services/                  # 业务服务层
+├── extensions/                # 扩展加载入口
 ├── application/               # 应用层（会话、协作）
 ├── capabilities/              # 能力模块（文档检索、向量检索、MCP）
-├── config/yaml/               # 系统级 YAML 配置
+├── config/yaml/               # 源码侧系统级 YAML seed/example
 ├── execution/                 # 执行层（持久化、可观测性）
 ├── lifespan.py                # 启动生命周期
 ├── main.py                    # 应用入口
@@ -228,15 +231,9 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 
 ### 已配置的 Agent（active_team 下）
 
-| Agent | 类型 | 模型 | 用途 |
-|-------|------|------|------|
-| orchestrator_agent | Orchestrator | gpt-5.4 | 通用编排入口候选（仅在配置 `default_entry=true` 或运行时 override 命中时作为默认入口） |
-| emergency_agent | Orchestrator | gpt-5.4 | 应急决策 |
-| chart_agent | Orchestrator | gpt-5.4 | 可视化 |
-| kgqa_agent | Orchestrator | gpt-5.4 | 知识图谱问答 |
-| flood_extraction_agent | Orchestrator | deepseek-chat | 洪涝数据提取 |
+当前 active team 下的 Agent 集合属于**运行时配置状态**，来源于 `CONFIG_ROOT/agents/team_index.yaml` 与 `CONFIG_ROOT/agents/teams/*.yaml`，不应在静态架构文档中写死具体 agent 名单或模型版本。
 
-Agent 类型由 `AgentLoader._get_agent_type()` 解析，兼容两种写法：
+更适合依赖的稳定规则是：
 - `custom_params.type`（优先）
 - `custom_params.behavior.type`（兼容当前 YAML 结构）
 
@@ -371,12 +368,12 @@ P1 已完成，落地能力：
 - 自动检索相关记忆（`memory_query`）时，scope chain 也与上述规则保持一致
 - 默认推荐 `team -> session`
 
-memory 工具不再对所有 Agent 默认开放，而是完全由 memory 配置中的 scope 权限自动推导：
-- 三个 scope 列表（`allowed_scopes` / `write_scopes` / `archive_scopes`）任一非空：memory 视为启用
+memory 工具不再对所有 Agent 默认开放，而是由 memory 配置中的 scope 权限自动推导；当前运行时仍保留一个显式总开关：
+- 若 `memory.enabled=false`，memory 工具整体不注入
 - `allowed_scopes` 非空：自动注入 `list_memory_index`、`read_memory_entry`
 - `write_scopes` 非空：额外自动注入 `write_memory`
 - `archive_scopes` 非空：额外自动注入 `archive_memory`
-- 前端和配置层不再维护 `memory.enabled` 或 `memory.enabled_tools`
+- 前端和配置层不再把 `memory.enabled_tools` 作为独立开关维护
 
 运行时的 direct tool 判定已统一到底层 effective direct tools：
 - 产品/配置层仍保留独立的 `memory` 配置区；
@@ -560,12 +557,16 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 | 配置文件 | 职责 | 热加载 |
 |---------|------|--------|
-| `agents/configs/agent_configs.yaml` | Agent 定义（LLM、工具、Skills、MCP） | 支持 |
-| `model_adapter/configs/providers.yaml` | LLM Provider（API key、模型列表） | 支持 |
-| `mcp/configs/mcp_servers.yaml` | MCP 服务器连接 | 支持 |
-| `config/yaml/config.yaml` | 系统级（向量库、embedding） | 否 |
+| `CONFIG_ROOT/agents/team_index.yaml` | 当前 active team 与 team 索引 | 支持 |
+| `CONFIG_ROOT/agents/teams/*.yaml` | Agent 定义（LLM、工具、Skills、MCP、delegation、memory） | 支持 |
+| `CONFIG_ROOT/model_adapter/providers.yaml` | LLM Provider（API key、模型列表） | 支持 |
+| `CONFIG_ROOT/mcp/mcp_servers.yaml` | MCP 服务器连接 | 支持 |
+| `CONFIG_ROOT/app/config.yaml` | 系统级（向量库、embedding、hooks.workspace_trust） | 否 |
 
-- `agents/configs/agent_configs.yaml` 现包含四类显式能力配置域：`tools.enabled_tools`（direct 本地工具）、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`
+- 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
+- 源码目录中的 `.example` 文件仅作为启动时初始化来源，不是正式运行时配置位置
+- legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
+- `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`
 - `call_agent` 不属于 `tools.enabled_tools` 域，而由 `delegation.enabled_agents` 是否非空决定是否注入
 
 - `model_adapter/base.py` 中的 `AIProvider` 暴露统一能力声明：`supports_prompt_caching`、`prompt_cache_style`、`prompt_cache_min_tokens`
@@ -599,6 +600,7 @@ Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script
 | 前缀 | 文件 | 职责 |
 |------|------|------|
 | `/api/agent/stream` | `api/v1/stream.py` | SSE 流式执行 |
+| `/api/agent/execute` | `api/v1/execution.py` | 同步执行与执行概览 |
 | `/api/agent/sessions` | `api/v1/sessions.py` | 会话管理 |
 | `/api/agent-config` | `api/v1/config.py` | Agent 配置 CRUD |
 | `/api/model-adapter` | `api/v1/models.py` | LLM Provider 管理 |
@@ -606,18 +608,21 @@ Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script
 | `/api/files` | `api/v1/files.py` | 全局文件池 |
 | `/api/agent/sessions/{session_id}/files` | `api/v1/session_files.py` | 会话文件管理 |
 | `/api/artifacts` | `api/v1/artifacts.py` | 可视化 artifact |
-| `/api/vector-library` | `api/v1/vector.py` | 向量库查询 |
+| `/api/vector-library` | `api/v1/vector.py` | 向量库与向量化器管理 |
+| `/api/vector` | `api/v1/vector_management.py` | 向量集合、索引与检索 |
+| `/api/embedding-models` | `api/v1/embedding_models.py` | Embedding 模型管理 |
+| `/api/permissions` | `api/v1/permissions.py` | 全局权限策略 |
 | `/api/monitoring` | `api/v1/monitoring.py` | 监控与诊断 |
 
 ## 新增 Agent 步骤
 
 1. `agents/implementations/<name>/agent.py` — 继承 BaseAgent，实现 `execute()` + `can_handle()`
 2. `agents/core/registry.py` — 注册
-3. `agents/configs/agent_configs.yaml` — 添加配置
+3. `CONFIG_ROOT/agents/teams/<team>.yaml` — 在目标 team 配置文件中添加 Agent；必要时同步 `CONFIG_ROOT/agents/team_index.yaml` 指向 active team（默认位于 `~/.ragsystem/config/agents/`）
 4. 更新本文档
 
 ## 新增 LLM Provider 步骤
 
 1. `integrations/model_providers/` — 创建 Provider 类
-2. `model_adapter/configs/providers.yaml` — 添加配置
+2. `CONFIG_ROOT/model_adapter/providers.yaml` — 添加配置（默认 `~/.ragsystem/config/model_adapter/providers.yaml`）
 3. 更新本文档

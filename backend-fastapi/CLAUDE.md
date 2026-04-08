@@ -52,7 +52,7 @@ pytest agents/tests/test_core/test_base.py
 
 1. `agents/implementations/<name>/agent.py` — 继承 `BaseAgent`，实现 `execute()` + `can_handle()`
 2. `agents/core/registry.py` — 注册
-3. `agents/configs/agent_configs.yaml` — 添加配置
+3. `CONFIG_ROOT/agents/teams/<team>.yaml` — 在目标 team 配置文件中添加 Agent；必要时同步 `CONFIG_ROOT/agents/team_index.yaml` 指向 active team（默认 `~/.ragsystem/config/agents/`）
 4. 更新 `docs/architecture.md`
 
 ## 新增工具
@@ -62,5 +62,5 @@ pytest agents/tests/test_core/test_base.py
 ## 新增 LLM Provider
 
 1. `integrations/model_providers/` — 创建 Provider 类
-2. `model_adapter/configs/providers.yaml` — 添加配置
+2. `CONFIG_ROOT/model_adapter/providers.yaml` — 添加配置（默认 `~/.ragsystem/config/model_adapter/providers.yaml`）
 3. 更新 `docs/architecture.md`

@@ -133,7 +133,7 @@
 `config/yaml/hooks.yaml` - 4 个内建 Hooks
 
 ### Agent 级覆盖
-`agents/configs/agent_configs.yaml` - 支持 disable/enable/priority 覆盖
+`CONFIG_ROOT/agents/teams/<team>.yaml` - 支持 disable/enable/priority 覆盖（默认位于 `~/.ragsystem/config/agents/teams/`）
 
 ## 测试
 

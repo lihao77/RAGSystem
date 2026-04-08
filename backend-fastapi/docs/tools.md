@@ -70,8 +70,9 @@ tools/
 - 默认物理数据根已调整为用户主目录下的 `~/.ragsystem`；若显式设置 `RAG_DATA_ROOT`，则以该环境变量为准
 - 对外展示路径与链式调用中的 display path 仍统一使用 `./data/...` 逻辑别名，不直接暴露真实物理目录
 - **除 MCP 外，所有可执行能力统一走 `@tool()`**
-- 当前真实结构只保留 `contracts / runtime / local / refs / artifacts / paths / catalog`
-- `tools/` 根目录不再保留兼容 facade；稳定入口仅剩 `tools.bootstrap` 与 `tools.tool_executor`
+- 当前真实结构以 `contracts / runtime / local / refs / artifacts / paths / catalog` 为主分层
+- `tools/` 根目录仍保留少量公共模块与兼容垫片；稳定 public API 入口主要是 `tools.bootstrap` 与 `tools.tool_executor`
+- `tools/paths/path_resolution.py` 当前是兼容转发层，路径治理真源已迁到 `core/path_resolution.py`
 - builtin `request_user_input` 已是真正的 `@tool(source="builtin")`
 - agent delegation 已收敛为 `@tool(source="agent")` 工具组：`call_agent` + `send_message`
 - 可委派子 Agent 由 `delegation.enabled_agents` allowlist 控制，prompt 层只动态注入 roster，不再动态生成 `invoke_agent_*`
@@ -122,13 +123,20 @@ def my_tool(arguments, **kwargs):
 - `agent`：子 Agent delegation 工具（`call_agent` / `send_message`）
 - `mcp`：外部 MCP adapter 例外
 
-已迁移的本地工具（15 个）：
+已迁移的本地工具（按 source 分类）包括：
 - `local/skill_tools.py`: activate_skill, load_skill_resource, execute_skill_script, get_skill_info
 - `local/code_sandbox.py`: execute_code
 - `local/document_tools.py`: write_file, read_file, preview_data_structure, edit_file
 - `local/builtin_tools.py`: request_user_input
 - `local/agent_tools.py`: call_agent, list_child_agents, send_message
 - `local/memory_tools.py`: list_memory_index, read_memory_entry, write_memory, archive_memory
+- `local/bash_tool.py`: execute_bash
+- `local/glob_tool.py`: glob
+- `local/grep_tool.py`: grep
+- `local/web_fetch_tool.py`: web_fetch
+- `local/task_tools.py` / `local/todo_tools.py`: task / todo 相关工具
+
+上面按模块列出当前主线 local tools；实际可见工具仍以 `@tool()` 自动发现结果与 `ToolRegistry` 为准。
 
 已迁移为 Skill 脚本的工具（8 个，P5 工具轻量化）：
 - 可视化工具 → `agents/skills/visualization/` Skill：create_chart, create_map, create_bindmap, revise_visualization
@@ -268,13 +276,17 @@ Agent 可见工具: mcp__server__tool
 
 memory 采用 Claude Code 风格的“索引注入 + 明细按需读取”模型，但当前系统是 agent-first，因此除 runtime 自动注入 `MEMORY.md` 索引外，还为 Agent 提供了显式的 memory 操作工具。
 
-其中以下 memory 工具属于 **默认工具**，不需要在 agent 配置页面单独勾选：
+这些 memory 工具不是通过普通 `tools.enabled_tools` 单独勾选，而是**主要**由 `allowed_scopes / write_scopes / archive_scopes` 自动推导暴露；若 `memory.enabled=false` 被显式关闭，则整体不暴露：
 - `list_memory_index`
 - `read_memory_entry`
 - `write_memory`
 - `archive_memory`
 
-这样所有 Agent 默认都具备最小 memory 操作能力；其他 direct 工具仍按 `enabled_tools` 配置过滤。
+对于存在 memory 配置的 Agent：
+- `allowed_scopes` 非空时，自动暴露 `list_memory_index`、`read_memory_entry`
+- `write_scopes` 非空时，额外暴露 `write_memory`
+- `archive_scopes` 非空时，额外暴露 `archive_memory`
+- 若 `memory.enabled=false`，则上述工具整体不注入
 
 - `list_memory_index(scope, ...)`
   - 读取指定作用域 `MEMORY.md` 的头部索引

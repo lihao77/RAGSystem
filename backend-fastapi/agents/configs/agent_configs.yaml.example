@@ -49,7 +49,7 @@ agents:
       enabled_skills: []
       auto_inject: true
     # MCP Server 配置（可选）
-    # 需要先在 backend/mcp/configs/mcp_servers.yaml 中添加对应 Server
+    # 需要先在运行时 MCP 配置中添加对应 Server（默认 ~/.ragsystem/config/mcp/mcp_servers.yaml）
     # mcp:
     #   enabled_servers:
     #     - filesystem      # 使用文件系统 MCP Server 的工具

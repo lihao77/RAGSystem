@@ -27,22 +27,40 @@ npm run dev
 
 ## 最小配置链路 / Minimal configuration chain
 
-使用示例文件创建本地配置：
+先复制环境变量示例：
 
 ```bash
 cp backend-fastapi/.env.example backend-fastapi/.env
-cp backend-fastapi/model_adapter/configs/providers.yaml.example backend-fastapi/model_adapter/configs/providers.yaml
-cp backend-fastapi/agents/configs/agent_configs.yaml.example backend-fastapi/agents/configs/agent_configs.yaml
-cp backend-fastapi/mcp/configs/mcp_servers.yaml.example backend-fastapi/mcp/configs/mcp_servers.yaml
-cp backend-fastapi/config/yaml/config.yaml.example backend-fastapi/config/yaml/config.yaml
 cp frontend-client/.env.example frontend-client/.env
 ```
+
+后端启动时会自动把源码目录中的现有配置或 `.example` 文件初始化到运行时配置目录；正式生效配置优先从运行时目录读取，而不是直接从 `backend-fastapi/...` 源码目录读取。
+
+- 默认运行时配置根目录：`~/.ragsystem/config`
+- 若设置 `RAG_DATA_ROOT`，则配置目录变为 `<RAG_DATA_ROOT>/config`
+- 运行时主配置文件：
+  - `app/config.yaml`
+  - `agents/team_index.yaml`
+  - `agents/teams/*.yaml`
+  - `mcp/mcp_servers.yaml`
+  - `model_adapter/providers.yaml`
+
+源码目录中的以下文件现在只作为初始化来源：
+
+- `backend-fastapi/config/yaml/config.yaml.example`
+- `backend-fastapi/agents/configs/agent_configs.yaml.example`
+- `backend-fastapi/mcp/configs/mcp_servers.yaml.example`
+- `backend-fastapi/model_adapter/configs/providers.yaml.example`
+
+如果对应运行时配置文件已存在，启动时不会覆盖用户修改。
 
 ## 常用接口与页面 / Common endpoints and pages
 
 - `POST /api/agent/stream` — 流式执行 / streaming execution
 - `POST /api/agent/execute` — 同步执行 / synchronous execution
 - `GET /api/agent/execution/overview` — 执行概览 / execution overview
+- `/monitor` — 监控页面 / monitoring UI
+- `/team-builder` — Team 编排页面 / team composition UI
 - `/agent-config` — Agent 配置页面 / agent configuration UI
 - `/mcp` — MCP 管理页面 / MCP management UI
 - `/vector-library` — 向量库页面 / vector library UI

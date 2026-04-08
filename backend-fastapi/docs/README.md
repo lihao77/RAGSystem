@@ -6,11 +6,13 @@
 
 - [architecture.md](architecture.md) — 后端架构总览，包含 Agent 体系、运行时分层、请求链路与核心模块说明
 - [tools.md](tools.md) — 工具系统总览，包含工具注册、执行流程、权限、路径治理与 Artifact 约定
+- [hooks.md](hooks.md) — Hook 系统总览，包含事件、匹配、配置覆盖与安全约束
 
 ## 推荐阅读顺序
 
 1. [architecture.md](architecture.md)
 2. [tools.md](tools.md)
+3. [hooks.md](hooks.md)
 
 ## 维护约定
 
@@ -19,6 +21,7 @@
 - 修改后端系统行为后，必须同步更新对应文档：
   - 架构与运行时行为变更 → 更新 [architecture.md](architecture.md)
   - 工具系统、权限、执行链路变更 → 更新 [tools.md](tools.md)
+  - Hook 事件、匹配、配置覆盖与审批链路变更 → 更新 [hooks.md](hooks.md)
 - 历史评估或已废弃方案不要继续放在本目录主线入口，统一从仓库归档入口查看。
 
 ## 返回上层

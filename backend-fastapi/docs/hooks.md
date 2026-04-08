@@ -29,7 +29,6 @@
 
 ### 未实现 / 计划中
 
-- 真正把 `additional_context` 注入到 AI prompt / observation 上下文链路，而不仅是 metadata 可见化
 - 更严格的 per-event 输入/输出协议
 - 非 `function/prompt/callback` 的 backend（如 http / agent）
 - Agent lifecycle hooks、bash/memory/skill/artifact 子域 hooks
@@ -313,7 +312,7 @@ matcher:
 ```yaml
 id: bash-command-validation
 events:
-  - tool.before_execute
+  - tool.before_permission
 matcher:
   tool_names:
     - execute_bash
@@ -344,7 +343,7 @@ matcher:
 
 ## Agent 级配置覆盖
 
-在 `agents/configs/agent_configs.yaml` 中：
+在 `CONFIG_ROOT/agents/teams/<team>.yaml` 中配置当前 team 下的 Agent（默认位于 `~/.ragsystem/config/agents/teams/`）：
 
 ```yaml
 agents:

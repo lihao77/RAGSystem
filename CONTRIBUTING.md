@@ -5,7 +5,7 @@
 ## 开发环境 / Development setup
 
 1. 准备 Python 3.12、Node.js 20+ 和 npm。
-2. 按 [README.md](README.md) 中的步骤复制示例配置文件。
+2. 按 [README.md](README.md) 中的步骤复制 `.env` 文件，并使用运行时配置目录（默认 `~/.ragsystem/config`，或 `<RAG_DATA_ROOT>/config`）。
 3. 启动后端：`cd backend-fastapi && python main.py`
 4. 启动前端：`cd frontend-client && npm install && npm run dev`
 

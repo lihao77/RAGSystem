@@ -18,6 +18,7 @@ npm run dev
 
 - `/` 或 `/chat/:id?` — 聊天页面
 - `/monitor`、`/agent-monitor` — 执行监控
+- `/team-builder` — Team 编排
 - `/agent-config` — Agent 配置
 - `/mcp` — MCP 管理
 - `/vector-library` — 向量库管理
@@ -61,6 +62,7 @@ The dev server runs on `http://localhost:5174` by default and proxies `/api` to 
 
 - `/` or `/chat/:id?` — chat
 - `/monitor`, `/agent-monitor` — execution monitoring
+- `/team-builder` — team composition
 - `/agent-config` — agent configuration
 - `/mcp` — MCP management
 - `/vector-library` — vector library management
