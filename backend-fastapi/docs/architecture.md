@@ -150,8 +150,8 @@ LLM 分层配置约定：
 - 当前已落地两条执行语义：主 ReAct 推理默认走 `default`，上下文压缩摘要走 `fast`
 
 提示词职责分层：
-- `BaseAgent`：只保留 system prompt 入口与最小扩展点（如 `_build_agent_specific_prompt_sections()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装；默认 section（含 intro）、工具能力判断、code execution prompt 注入与 prompt hook 分发逻辑均不再放在 BaseAgent 中维护
-- `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，统一维护 intro、执行决策顺序、工具与执行路径选择、direct 工具段渲染、工具契约渲染、停止条件、失败恢复规则、风险操作确认、先读再改、避免过度工程、输出简洁约束、工具能力判断、调用能力标签、managed space 说明、输出格式和通用规则，并按工具能力条件注入 `execute_code` / `call_tool()` / 沙箱文件访问规则；为控制 prompt 长度，工具级 `examples` 仅对白名单中的高复杂度工具展示，`execute_code` 段中的 call_tool 示例使用中性模板而不是写死具体工具名
+- `BaseAgent`：只保留 system prompt 入口与最小扩展点（如 `_build_agent_specific_prompt_sections()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装；默认 section、工具能力判断、code execution prompt 注入与 prompt hook 分发逻辑均不再放在 BaseAgent 中维护
+- `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，按稳定顺序组织为：intro、`System`、`工作目标`、`Doing tasks`、`决策与回答原则`、`Executing actions with care`、`Using your tools`、direct 工具段、工具契约渲染、Skills、输出格式、执行规则、数据文件传递规则；动态 section（direct tools / skills / execute_code / agent-specific sections）统一挂在静态骨架后部，便于后续继续向 Claude Code 风格的 section cache 语义收敛
 - `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；在共享 skeleton 之上只覆盖主编排器特有的目标/原则，并在主编排器模式下追加 `call_agent` 契约、委派门槛与 `delegation.enabled_agents` 驱动的动态 agent roster；普通 worker 模式下不暴露委派 roster
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图

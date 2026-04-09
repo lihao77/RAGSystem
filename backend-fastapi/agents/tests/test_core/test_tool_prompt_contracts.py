@@ -309,18 +309,26 @@ def test_prompt_shrinks_skill_descriptions_and_whitelisted_examples():
 
     prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
+    assert "## System" in prompt
+    assert "## Doing tasks" in prompt
+    assert "## Executing actions with care" in prompt
+    assert "## Using your tools" in prompt
     assert "先判断是否能直接回答" in prompt
     assert "结果足够支持答案时，必须停止继续调用并输出 `<final_answer>`" in prompt
     assert "不要无变化重复同一失败调用" in prompt
     assert "补参数、缩小范围、换工具、改为追问用户" in prompt
     assert "读取已有文件优先 `read_file`" in prompt
-    assert "修改代码或文件前，先读取相关内容并理解当前实现" in prompt
+    assert "先读取相关内容并理解当前实现" in prompt
     assert "只做当前任务需要的最小修改" in prompt
     assert "高风险动作，要先确认再执行" in prompt
     assert "能一句说清就不要三句" in prompt
 
-    assert prompt.index("## 工作目标") < prompt.index("## 决策与回答原则")
-    assert prompt.index("## 决策与回答原则") < prompt.index("## 可直接调用的工具")
+    assert prompt.index("## System") < prompt.index("## 工作目标")
+    assert prompt.index("## 工作目标") < prompt.index("## Doing tasks")
+    assert prompt.index("## Doing tasks") < prompt.index("## 决策与回答原则")
+    assert prompt.index("## 决策与回答原则") < prompt.index("## Executing actions with care")
+    assert prompt.index("## Executing actions with care") < prompt.index("## Using your tools")
+    assert prompt.index("## Using your tools") < prompt.index("## 可直接调用的工具")
     assert prompt.index("## 可直接调用的工具") < prompt.index("## 领域知识 Skills")
     assert prompt.index("## 领域知识 Skills") < prompt.index("## 输出格式")
     assert prompt.index("## 输出格式") < prompt.index("## 执行规则")
@@ -402,7 +410,7 @@ def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_e
     react_prompt = core_prompting.build_shared_system_prompt(react_agent)
     orchestrator_prompt = core_prompting.build_shared_system_prompt(orchestrator_agent)
 
-    for marker in ["## 工具调用总规则", "## 可直接调用的工具", "## 输出格式", "## 执行规则", "### 受管目录 space 说明"]:
+    for marker in ["## Using your tools", "## 工具调用总规则", "## 可直接调用的工具", "## 输出格式", "## 执行规则", "### 受管目录 space 说明"]:
         assert marker in react_prompt
         assert marker in orchestrator_prompt
 
