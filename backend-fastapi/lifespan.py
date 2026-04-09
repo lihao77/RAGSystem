@@ -192,7 +192,7 @@ async def _shutdown(app: FastAPI) -> None:
 
 
 def _seed_runtime_configs() -> None:
-    """将源码目录中的示例/seed 配置初始化到 CONFIG_ROOT。"""
+    """将源码目录中的部分运行时配置初始化到 CONFIG_ROOT。"""
     import shutil
     from core.path_resolution import CONFIG_ROOT, BACKEND_ROOT
 
@@ -203,22 +203,6 @@ def _seed_runtime_configs() -> None:
                 BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml.example",
             ],
             CONFIG_ROOT / "agents" / "agent_configs.yaml",
-            None,
-        ),
-        (
-            [
-                BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml",
-                BACKEND_ROOT / "mcp" / "configs" / "mcp_servers.yaml.example",
-            ],
-            CONFIG_ROOT / "mcp" / "mcp_servers.yaml",
-            None,
-        ),
-        (
-            [
-                BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml",
-                BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml.example",
-            ],
-            CONFIG_ROOT / "model_adapter" / "providers.yaml",
             None,
         ),
         (
@@ -249,7 +233,8 @@ def _seed_runtime_configs() -> None:
 
 def _migrate_configs() -> None:
     """
-    将源码目录中的示例/seed 配置初始化到 CONFIG_ROOT。
+    将源码目录中的部分运行时配置初始化到 CONFIG_ROOT。
+    仅初始化 app / agent 配置；MCP 与 model provider 配置不再自动 seed。
     仅当目标不存在时执行拷贝，已存在则跳过（不覆盖用户修改）。
     """
     _seed_runtime_configs()

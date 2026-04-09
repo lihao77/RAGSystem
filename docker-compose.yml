@@ -6,6 +6,10 @@ services:
     container_name: ragsystem-backend
     env_file:
       - ./backend-fastapi/.env
+    environment:
+      RAG_DATA_ROOT: /data
+    volumes:
+      - ./docker-data:/data
     ports:
       - "5001:5001"
     restart: unless-stopped

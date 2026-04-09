@@ -15,7 +15,7 @@ backend-fastapi/
 │   ├── implementations/       # Agent 实现
 │   │   └── orchestrator/      # 统一的通用 ReAct/编排 Agent 实现
 │   ├── config/                # Agent 配置管理与 team 模型（manager/loader）
-│   ├── configs/               # 源码侧 seed/example 配置（legacy 输入来源）
+│   ├── configs/               # 源码侧 agent 示例配置与历史输入来源
 │   ├── context/               # 上下文管道、压缩、观察格式化
 │   ├── events/                # EventBus、EventPublisher、SSEAdapter
 │   ├── streaming/             # XML 流式解析（StreamingXMLParser, tool_xml_parser）
@@ -39,7 +39,7 @@ backend-fastapi/
 ├── extensions/                # 扩展加载入口
 ├── application/               # 应用层（会话、协作）
 ├── capabilities/              # 能力模块（文档检索、向量检索、MCP）
-├── config/yaml/               # 源码侧系统级 YAML seed/example
+├── config/yaml/               # 源码侧系统级 app 配置示例
 ├── execution/                 # 执行层（持久化、可观测性）
 ├── lifespan.py                # 启动生命周期
 ├── main.py                    # 应用入口
@@ -214,7 +214,7 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 - 因此 `AgentLoader` / `AgentOrchestrator` / `AgentExecutionService` 在 catalog 语义下依旧不需要理解全局 team runtime；session 级 team 仅在 runtime service 收口并向 execution 实例显式下发
 
 迁移策略：
-- 若历史上只有单一 `agent_configs.yaml`，`AgentConfigManager` 会在启动时自动迁移为：
+- 若历史上只有单一 `agent_configs.yaml`，`AgentConfigManager` 会在首次加载该旧结构时自动迁移为：
   - `team_index.yaml`
   - `teams/default.yaml`
 - 迁移后统一只使用新结构，不再维护长期双结构写回
@@ -564,7 +564,7 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 | `CONFIG_ROOT/app/config.yaml` | 系统级（向量库、embedding、hooks.workspace_trust） | 否 |
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
-- 源码目录中的 `.example` 文件仅作为启动时初始化来源，不是正式运行时配置位置
+- 源码目录中的 app / agent `.example` 文件仅作为启动时初始化来源；MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
 - legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
 - `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`
 - `call_agent` 不属于 `tools.enabled_tools` 域，而由 `delegation.enabled_agents` 是否非空决定是否注入

@@ -34,7 +34,7 @@ cp backend-fastapi/.env.example backend-fastapi/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-后端启动时会自动把源码目录中的现有配置或 `.example` 文件初始化到运行时配置目录；正式生效配置优先从运行时目录读取，而不是直接从 `backend-fastapi/...` 源码目录读取。
+后端启动时只会自动初始化 app 与 agent 的运行时配置；MCP 与模型提供方配置需由用户在运行时目录中自行创建，正式生效配置优先从运行时目录读取，而不是直接从 `backend-fastapi/...` 源码目录读取。
 
 - 默认运行时配置根目录：`~/.ragsystem/config`
 - 若设置 `RAG_DATA_ROOT`，则配置目录变为 `<RAG_DATA_ROOT>/config`
@@ -42,17 +42,15 @@ cp frontend-client/.env.example frontend-client/.env
   - `app/config.yaml`
   - `agents/team_index.yaml`
   - `agents/teams/*.yaml`
-  - `mcp/mcp_servers.yaml`
-  - `model_adapter/providers.yaml`
+  - `mcp/mcp_servers.yaml`（按需创建）
+  - `model_adapter/providers.yaml`（按需创建）
 
-源码目录中的以下文件现在只作为初始化来源：
+源码目录中的以下文件现在只作为 app / agent 初始化来源：
 
 - `backend-fastapi/config/yaml/config.yaml.example`
 - `backend-fastapi/agents/configs/agent_configs.yaml.example`
-- `backend-fastapi/mcp/configs/mcp_servers.yaml.example`
-- `backend-fastapi/model_adapter/configs/providers.yaml.example`
 
-如果对应运行时配置文件已存在，启动时不会覆盖用户修改。
+MCP 与模型提供方配置不再在启动时自动 seed；如果缺失，可在运行时目录手动创建，或通过前端管理页面写入。
 
 ## 常用接口与页面 / Common endpoints and pages
 

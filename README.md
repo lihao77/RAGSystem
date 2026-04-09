@@ -49,7 +49,7 @@ cp backend-fastapi/.env.example backend-fastapi/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-后端启动时会自动将源码目录中的 seed/example 配置初始化到运行时配置目录；正式生效的配置不再直接存放在 `backend-fastapi/...` 源码目录。
+后端启动时会自动初始化 app 与 agent 的运行时配置；MCP 与模型提供方配置需由用户在运行时目录中自行提供，正式生效的配置不再直接存放在 `backend-fastapi/...` 源码目录。
 
 - 默认运行时配置根目录：`~/.ragsystem/config`
 - 若设置 `RAG_DATA_ROOT`，则配置目录变为 `<RAG_DATA_ROOT>/config`
@@ -57,8 +57,8 @@ cp frontend-client/.env.example frontend-client/.env
   - `app/config.yaml`
   - `agents/team_index.yaml`
   - `agents/teams/*.yaml`
-  - `mcp/mcp_servers.yaml`
-  - `model_adapter/providers.yaml`
+  - `mcp/mcp_servers.yaml`（按需创建）
+  - `model_adapter/providers.yaml`（按需创建）
 
 更完整的运行、配置与验证说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
 
@@ -168,7 +168,7 @@ cp backend-fastapi/.env.example backend-fastapi/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-When the backend starts, it automatically seeds runtime configs from source-side seed/example files. The effective configs are no longer meant to live directly under the `backend-fastapi/...` source tree.
+When the backend starts, it initializes runtime app and agent configs. MCP and model provider configs must be created by the user in the runtime config directory. The effective configs are no longer meant to live directly under the `backend-fastapi/...` source tree.
 
 - Default runtime config root: `~/.ragsystem/config`
 - If `RAG_DATA_ROOT` is set, the config root becomes `<RAG_DATA_ROOT>/config`
@@ -176,8 +176,8 @@ When the backend starts, it automatically seeds runtime configs from source-side
   - `app/config.yaml`
   - `agents/team_index.yaml`
   - `agents/teams/*.yaml`
-  - `mcp/mcp_servers.yaml`
-  - `model_adapter/providers.yaml`
+  - `mcp/mcp_servers.yaml` (create when needed)
+  - `model_adapter/providers.yaml` (create when needed)
 
 For fuller run, configuration, and verification guidance, see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
