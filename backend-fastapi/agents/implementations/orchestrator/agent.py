@@ -13,6 +13,7 @@ from .prompting import (
     format_agent_result_summary,
     get_agent_display_name,
     get_available_agent_tools,
+    get_orchestrator_cache_key_extra,
     replace_placeholders,
 )
 from .runtime import execute_orchestrator
@@ -124,6 +125,9 @@ class OrchestratorAgent(BaseAgent):
 
     def _build_agent_specific_prompt_sections(self):
         return build_orchestrator_specific_sections(self)
+
+    def _system_prompt_cache_key_extra(self):
+        return get_orchestrator_cache_key_extra(self)
 
     def execute(self, task: str, context: AgentContext) -> AgentResponse:
         return execute_orchestrator(self, task, context)

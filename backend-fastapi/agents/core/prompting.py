@@ -456,32 +456,94 @@ value = call_tool('tool_name', {
 详细使用说明（模块、全局变量、文件操作规则）见 execute_code 工具的扩展说明。"""
 
 
-def build_shared_system_prompt(agent) -> str:
-    sections: List[str] = []
-    section_order = [
-        '_build_prompt_intro',
-        '_build_prompt_system_section',
-        '_build_prompt_goal_section',
-        '_build_prompt_doing_tasks_section',
-        '_build_prompt_principles_section',
-        '_build_prompt_actions_section',
-        '_build_prompt_tools_section',
-        '_build_prompt_skills_section',
-        '_build_prompt_output_format_section',
-        '_build_prompt_rules_section',
-    ]
-    for method_name in section_order:
-        section = _invoke_prompt_hook(agent, method_name)
-        if section and str(section).strip():
-            sections.append(str(section).strip())
+def _collect_sections(parts: List[Any]) -> List[str]:
+    """过滤并展平 section 列表，去除空值。"""
+    result = []
+    for p in parts:
+        if not p:
+            continue
+        s = str(p).strip()
+        if s:
+            result.append(s)
+    return result
 
-    code_execution_section = _invoke_prompt_hook(agent, '_build_code_execution_prompt_section')
-    if code_execution_section and str(code_execution_section).strip():
-        sections.append(str(code_execution_section).strip())
 
+# ---------------------------------------------------------------------------
+# 静态段构建（内容不依赖 agent 运行时状态，跨 run 不变）
+# 对应 Claude Code: getSimpleIntroSection / getSystemSection / ...
+# 约束：放入此列表的 section 方法不得读取 self 的任何运行时可变状态。
+# ---------------------------------------------------------------------------
+_STATIC_SECTION_METHODS = [
+    '_build_prompt_system_section',
+    '_build_prompt_goal_section',
+    '_build_prompt_doing_tasks_section',
+    '_build_prompt_principles_section',
+    '_build_prompt_actions_section',
+]
+
+
+def build_static_system_prompt(agent) -> str:
+    """
+    构建系统提示词的静态段。
+    这些 section 的内容在进程生命周期内不随配置变化而改变
+    （子类 override 后同样是固定文本），可安全做进程级缓存。
+    对应 Claude Code SYSTEM_PROMPT_DYNAMIC_BOUNDARY 之前的部分。
+    """
+    parts = []
+    for method_name in _STATIC_SECTION_METHODS:
+        parts.append(_invoke_prompt_hook(agent, method_name))
+    return "\n\n".join(_collect_sections(parts))
+
+
+# ---------------------------------------------------------------------------
+# 动态段构建（依赖 agent 运行时的 available_tools / available_skills / 配置）
+# 对应 Claude Code SYSTEM_PROMPT_DYNAMIC_BOUNDARY 之后的部分
+# ---------------------------------------------------------------------------
+def build_dynamic_system_prompt(agent) -> str:
+    """
+    构建系统提示词的动态段。
+    这些 section 依赖 agent 当前的工具列表、skill 列表、子 agent 配置等，
+    会随配置变化而变化，缓存时需要用内容哈希作 key。
+    """
+    parts = []
+    # base_prompt（来自 behavior.system_prompt 配置）
+    intro = _invoke_prompt_hook(agent, '_build_prompt_intro')
+    if intro:
+        parts.append(intro)
+
+    # 工具详情（依赖 available_tools）
+    parts.append(_invoke_prompt_hook(agent, '_build_prompt_tools_section'))
+
+    # Skills（依赖 available_skills）
+    parts.append(_invoke_prompt_hook(agent, '_build_prompt_skills_section'))
+
+    # execute_code 可调用工具列表（依赖 available_tools）
+    parts.append(_invoke_prompt_hook(agent, '_build_code_execution_prompt_section'))
+
+    # Agent 特定扩展（OrchestratorAgent: 子 agent 列表，依赖配置）
     for section in _invoke_prompt_hook(agent, '_build_agent_specific_prompt_sections') or []:
-        if section and str(section).strip():
-            sections.append(str(section).strip())
+        parts.append(section)
 
-    sections.append(build_data_file_rules_section())
-    return "\n\n".join(section for section in sections if section)
+    # 输出格式（依赖 _build_prompt_tool_call_example，即工具列表）
+    parts.append(_invoke_prompt_hook(agent, '_build_prompt_output_format_section'))
+
+    # 执行规则 + 数据文件传递规则：文本内容本身是静态的，
+    # 但置于动态段末尾以保持与工具/skills 描述的上下文紧邻关系（LLM 更易联系上下文）。
+    # 若未来需进一步优化缓存，可将两段移入静态段，届时需验证语义无退化。
+    parts.append(_invoke_prompt_hook(agent, '_build_prompt_rules_section'))
+    parts.append(build_data_file_rules_section())
+
+    return "\n\n".join(_collect_sections(parts))
+
+
+def build_shared_system_prompt(agent) -> str:
+    """
+    组装完整系统提示词：静态段 + 动态段，不经过进程级缓存。
+    主要供测试代码直接调用；生产路径请使用 BaseAgent._build_system_prompt()，
+    后者会在两层缓存（静态段按类名、完整 prompt 按动态内容哈希）命中时直接返回。
+    对应 Claude Code: getSystemPrompt() 返回的完整 sections 列表。
+    """
+    static_part = build_static_system_prompt(agent)
+    dynamic_part = build_dynamic_system_prompt(agent)
+    parts = [p for p in [static_part, dynamic_part] if p.strip()]
+    return "\n\n".join(parts)

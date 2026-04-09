@@ -141,6 +141,24 @@ def get_available_agent_tools(agent):
     return tools
 
 
+def get_orchestrator_cache_key_extra(agent) -> Any:
+    """
+    提供 OrchestratorAgent 独有的 system_prompt cache key 成分。
+    当可委派的子 Agent 列表或其配置变化时，key 随之变化，触发重建。
+    """
+    roster = _build_agent_roster(agent)
+    return [
+        {
+            'agent_name': r['agent_name'],
+            'display_name': r['display_name'],
+            'description': r['description'],
+            'use_cases': r['use_cases'],
+            'tool_count': r['tool_count'],
+        }
+        for r in roster
+    ]
+
+
 def build_orchestrator_specific_sections(agent) -> list[str]:
     available_agent_tools = get_available_agent_tools(agent)
     roster = _build_agent_roster(agent)

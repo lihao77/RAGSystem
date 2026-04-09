@@ -4,7 +4,10 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Any, Optional, Tuple
+from typing import Callable, ClassVar, Dict, List, Any, Optional, Tuple
+import hashlib
+import threading
+from collections import OrderedDict
 import json
 import logging
 import re
@@ -93,6 +96,21 @@ class BaseAgent(ABC):
     """
     智能体基类 - 所有智能体必须继承此类并实现 execute 方法
     """
+
+    # 进程级缓存，分两层：
+    #   _static_prompt_cache : class_name -> 静态段文本
+    #     静态段内容在进程生命周期内不变（不依赖任何运行时状态），用类名做 key。
+    #     对应 Claude Code SYSTEM_PROMPT_DYNAMIC_BOUNDARY 之前的部分。
+    #     约束：放入静态段的 section 方法不得读取 self 的任何运行时可变状态。
+    #   _system_prompt_cache : dynamic_key -> 完整 prompt 文本
+    #     完整 prompt = 静态段 + 动态段，动态段依赖 available_tools/skills/config，
+    #     用内容哈希做 key，配置变化时自动失效。上限 _SYSTEM_PROMPT_CACHE_MAX 条，LRU 淘汰。
+    #   _prompt_cache_lock : 保护两个缓存字典的写入，避免并发 miss 导致非原子 popitem+赋值。
+    #     FastAPI 多协程场景下，读不加锁（GIL 保护 dict 读取），写加锁。
+    _static_prompt_cache: ClassVar[Dict[str, str]] = {}
+    _system_prompt_cache: ClassVar[OrderedDict[str, str]] = OrderedDict()
+    _SYSTEM_PROMPT_CACHE_MAX: ClassVar[int] = 32
+    _prompt_cache_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,
@@ -223,8 +241,126 @@ class BaseAgent(ABC):
             )
         return '\n'.join(lines)
 
+    def _system_prompt_cache_key(self) -> str:
+        """
+        计算动态段的缓存 key，只覆盖会影响动态段内容的字段：
+          - agent name（不同 agent 隔离）
+          - base_prompt（来自 behavior.system_prompt 配置，注入动态段头部）
+          - available_tools 的 prompt 相关元数据（名称、描述、参数、契约等）
+          - available_skills 的 prompt 相关元数据（名称、描述）
+          - 子类扩展（OrchestratorAgent 的子 agent 列表等）
+        静态段不参与此 key，由 _static_prompt_cache 按类名单独缓存。
+        """
+        tool_payloads = [
+            BaseAgent._serialize_tool_for_prompt_cache(tool)
+            for tool in (self.available_tools or [])
+            if isinstance(tool, dict)
+        ]
+        skill_payloads = [
+            BaseAgent._serialize_skill_for_prompt_cache(skill)
+            for skill in (self.available_skills or [])
+        ]
+        raw = json.dumps({
+            'agent': self.name,
+            'base_prompt': getattr(self, 'base_prompt', '') or '',
+            'tools': sorted(tool_payloads, key=lambda item: item.get('name', '')),
+            'skills': sorted(skill_payloads, key=lambda item: item.get('name', '')),
+            'extra': self._system_prompt_cache_key_extra(),
+        }, sort_keys=True, ensure_ascii=False)
+        # 取前 16 个十六进制字符（64 bits）；当前 _SYSTEM_PROMPT_CACHE_MAX=32，碰撞概率可忽略。
+        # 若未来调大 MAX，需同步评估碰撞概率（MAX=1024 时约 2.8e-14，仍可接受）。
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _serialize_tool_for_prompt_cache(tool: Dict[str, Any]) -> Dict[str, Any]:
+        """提取会影响 prompt 文本的工具元数据，用于动态缓存 key。"""
+        func = tool.get('function', {}) if isinstance(tool, dict) else {}
+        if not isinstance(func, dict):
+            func = {}
+        return {
+            'name': func.get('name', ''),
+            'description': func.get('description'),
+            'parameters': func.get('parameters'),
+            'allowed_callers': func.get('allowed_callers'),
+            'returns': func.get('returns'),
+            'usage_contract': func.get('usage_contract'),
+            'examples': func.get('examples'),
+        }
+
+    @staticmethod
+    def _serialize_skill_for_prompt_cache(skill: Any) -> Dict[str, Any]:
+        """提取会影响 prompt 文本的 skill 元数据，用于动态缓存 key。"""
+        return {
+            'name': getattr(skill, 'name', str(skill)),
+            'description': getattr(skill, 'description', None),
+        }
+
+    def _system_prompt_cache_key_extra(self) -> Any:
+        """
+        子类可 override，返回任意 JSON 可序列化对象，
+        追加到动态段 cache key 计算中。
+        注意：返回 None（序列化为 null）与返回 []（序列化为 []）是不同的 key，
+        子类 override 时应保持一致，不要在 None 和 [] 之间切换。
+        """
+        return None
+
     def _build_system_prompt(self) -> str:
-        return core_prompting.build_shared_system_prompt(self)
+        """
+        构建完整系统提示词，分两层缓存：
+          1. 静态段（_static_prompt_cache）：按类名缓存，进程内永不重建。
+          2. 完整 prompt（_system_prompt_cache）：按动态段内容哈希缓存，
+             配置（工具/skill/子agent列表）变化时自动失效并重建。
+        对应 Claude Code: 静态段 before SYSTEM_PROMPT_DYNAMIC_BOUNDARY，
+        动态段 after BOUNDARY（session_guidance / env_info / mcp 等）。
+        """
+        logger = getattr(self, 'logger', None)
+        if not isinstance(self, BaseAgent):
+            return core_prompting.build_shared_system_prompt(self)
+
+        # --- 静态段：按类名缓存，进程内只构建一次 ---
+        static_key = type(self).__name__
+        static_part = BaseAgent._static_prompt_cache.get(static_key)
+        if static_part is None:
+            with BaseAgent._prompt_cache_lock:
+                # 双重检查：拿到锁后再检查一次，避免并发 miss 时重复构建
+                static_part = BaseAgent._static_prompt_cache.get(static_key)
+                if static_part is None:
+                    static_part = core_prompting.build_static_system_prompt(self)
+                    BaseAgent._static_prompt_cache[static_key] = static_part
+            if logger:
+                logger.debug("[%s] 静态段已构建并缓存 class=%s", self.name, static_key)
+        else:
+            if logger:
+                logger.debug("[%s] 静态段命中缓存 class=%s", self.name, static_key)
+
+        # --- 完整 prompt：按动态段内容哈希缓存（命中后 move_to_end，保持真 LRU） ---
+        dynamic_key = self._system_prompt_cache_key()
+        cached = BaseAgent._system_prompt_cache.get(dynamic_key)
+        if cached is not None:
+            with BaseAgent._prompt_cache_lock:
+                cached = BaseAgent._system_prompt_cache.get(dynamic_key)
+                if cached is not None:
+                    BaseAgent._system_prompt_cache.move_to_end(dynamic_key)
+            if cached is not None:
+                if logger:
+                    logger.debug("[%s] system_prompt 命中进程级缓存 key=%s", self.name, dynamic_key[:8])
+                return cached
+        # 锁外构建，并发时允许重复计算，由内层 DCL 保证只写入一次
+        dynamic_part = core_prompting.build_dynamic_system_prompt(self)
+        parts = [p for p in [static_part, dynamic_part] if p.strip()]
+        prompt = "\n\n".join(parts)
+        with BaseAgent._prompt_cache_lock:
+            cache = BaseAgent._system_prompt_cache
+            existing = cache.get(dynamic_key)
+            if existing is not None:
+                cache.move_to_end(dynamic_key)
+                return existing
+            if len(cache) >= BaseAgent._SYSTEM_PROMPT_CACHE_MAX:
+                cache.popitem(last=False)
+            cache[dynamic_key] = prompt
+            if logger:
+                logger.debug("[%s] system_prompt 已构建并写入进程级缓存 key=%s", self.name, dynamic_key[:8])
+        return prompt
 
     def _log_prefix(self, llm_config: Optional[Dict[str, Any]] = None, display_name: Optional[str] = None) -> str:
         """返回带模型名的日志前缀"""
@@ -247,6 +383,7 @@ class BaseAgent(ABC):
         """
         requested_tier = getattr(context, 'requested_llm_tier', None) if context else None
         effective_tier = (task_type or requested_tier or 'default' or '').strip().lower() or 'default'
+        logger = getattr(self, 'logger', None)
 
         def _merge_agent_llm(llm_config_obj):
             if not llm_config_obj:
@@ -262,12 +399,14 @@ class BaseAgent(ABC):
             tier_config = llm_tiers.get(effective_tier)
             if tier_config:
                 config = _merge_agent_llm(tier_config)
-                self.logger.debug(f"[{self.name}] 使用 {effective_tier} 层级模型: {config.get('model_name', 'default')}")
+                if logger:
+                    logger.debug(f"[{self.name}] 使用 {effective_tier} 层级模型: {config.get('model_name', 'default')}")
             elif effective_tier != 'default':
                 default_tier_config = llm_tiers.get('default')
                 if default_tier_config:
                     config = _merge_agent_llm(default_tier_config)
-                    self.logger.debug(f"[{self.name}] {effective_tier} 层级未配置，回退到 default 层级")
+                    if logger:
+                        logger.debug(f"[{self.name}] {effective_tier} 层级未配置，回退到 default 层级")
 
         if not config and self.system_config:
             llm_config = getattr(self.system_config, 'llm', None)
@@ -657,13 +796,16 @@ class BaseAgent(ABC):
         publisher,
         llm_config: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
+        logger = getattr(self, 'logger', None)
         system_prompt = state.get('system_prompt')
         if system_prompt is None:
             system_prompt = self._build_system_prompt()
             state['system_prompt'] = system_prompt
-            self.logger.debug("[%s] 首次构建 system_prompt 并进入全量消息构建", self.name)
+            if logger:
+                logger.debug("[%s] 首次构建 system_prompt 并进入全量消息构建", self.name)
         else:
-            self.logger.debug("[%s] 复用已缓存 system_prompt，重新走 pipeline 全量构建消息", self.name)
+            if logger:
+                logger.debug("[%s] 复用已缓存 system_prompt，重新走 pipeline 全量消息构建", self.name)
 
         managed_messages = self.context_pipeline.prepare_messages(
             system_prompt=system_prompt,
@@ -675,13 +817,14 @@ class BaseAgent(ABC):
         state['managed_messages'] = managed_messages
         state['managed_messages_session_len'] = len(state['current_session'])
         state['managed_messages_tokens'] = self.context_pipeline._token_counter.count_messages(managed_messages)
-        self.logger.debug(
-            "[%s] 全量消息构建完成: session_len=%s, managed_len=%s, tokens=%s",
-            self.name,
-            state['managed_messages_session_len'],
-            len(managed_messages),
-            state['managed_messages_tokens'],
-        )
+        if logger:
+            logger.debug(
+                "[%s] 全量消息构建完成: session_len=%s, managed_len=%s, tokens=%s",
+                self.name,
+                state['managed_messages_session_len'],
+                len(managed_messages),
+                state['managed_messages_tokens'],
+            )
         return managed_messages
 
     def _get_managed_messages(
@@ -692,12 +835,14 @@ class BaseAgent(ABC):
         publisher,
         llm_config: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
+        logger = getattr(self, 'logger', None)
         managed_messages = state.get('managed_messages')
         current_session = state['current_session']
         cached_session_len = state.get('managed_messages_session_len', 0)
 
         if managed_messages is None:
-            self.logger.debug("[%s] managed_messages 缓存未命中，执行首次全量构建", self.name)
+            if logger:
+                logger.debug("[%s] managed_messages 缓存未命中，执行首次全量构建", self.name)
             return self._rebuild_managed_messages(
                 context=context,
                 state=state,
@@ -706,12 +851,13 @@ class BaseAgent(ABC):
             )
 
         if len(current_session) < cached_session_len:
-            self.logger.debug(
-                "[%s] current_session 长度回退(%s -> %s)，回退到 pipeline 全量重建",
-                self.name,
-                cached_session_len,
-                len(current_session),
-            )
+            if logger:
+                logger.debug(
+                    "[%s] current_session 长度回退(%s -> %s)，回退到 pipeline 全量重建",
+                    self.name,
+                    cached_session_len,
+                    len(current_session),
+                )
             return self._rebuild_managed_messages(
                 context=context,
                 state=state,
@@ -728,23 +874,25 @@ class BaseAgent(ABC):
                 state['managed_messages_session_len'] = len(current_session)
                 appended_tokens = self.context_pipeline._token_counter.count_messages(appended_messages)
                 state['managed_messages_tokens'] = state.get('managed_messages_tokens', 0) + appended_tokens
-                self.logger.debug(
-                    "[%s] managed_messages 增量追加: appended=%s, session_len=%s, tokens=%s (+%s)",
-                    self.name,
-                    len(appended_messages),
-                    state['managed_messages_session_len'],
-                    state['managed_messages_tokens'],
-                    appended_tokens,
-                )
+                if logger:
+                    logger.debug(
+                        "[%s] managed_messages 增量追加: appended=%s, session_len=%s, tokens=%s (+%s)",
+                        self.name,
+                        len(appended_messages),
+                        state['managed_messages_session_len'],
+                        state['managed_messages_tokens'],
+                        appended_tokens,
+                    )
 
         trigger_threshold = self.context_pipeline.config.max_tokens * self.context_pipeline.config.compression_trigger_ratio
         if state.get('managed_messages_tokens', 0) >= trigger_threshold:
-            self.logger.debug(
-                "[%s] managed_messages 达到阈值，回退到 pipeline 全量重建: tokens=%s, threshold=%s",
-                self.name,
-                state.get('managed_messages_tokens', 0),
-                int(trigger_threshold),
-            )
+            if logger:
+                logger.debug(
+                    "[%s] managed_messages 达到阈值，回退到 pipeline 全量重建: tokens=%s, threshold=%s",
+                    self.name,
+                    state.get('managed_messages_tokens', 0),
+                    int(trigger_threshold),
+                )
             return self._rebuild_managed_messages(
                 context=context,
                 state=state,
@@ -752,12 +900,13 @@ class BaseAgent(ABC):
                 llm_config=llm_config,
             )
 
-        self.logger.debug(
-            "[%s] 复用 managed_messages 缓存: session_len=%s, tokens=%s",
-            self.name,
-            state.get('managed_messages_session_len', 0),
-            state.get('managed_messages_tokens', 0),
-        )
+        if logger:
+            logger.debug(
+                "[%s] 复用 managed_messages 缓存: session_len=%s, tokens=%s",
+                self.name,
+                state.get('managed_messages_session_len', 0),
+                state.get('managed_messages_tokens', 0),
+            )
         return state['managed_messages']
 
     def _format_assistant_context_message(
