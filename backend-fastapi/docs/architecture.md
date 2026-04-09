@@ -205,12 +205,14 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
   - `metadata`
 
 当前语义：
+- 首次初始化时，`default team` 不再是空壳，而是系统默认 team，内建 `orchestrator_agent`、`team_maker`、`plan_agent`、`explor_agent`、`general_agent`、`review_agent`、`test_agent`
 - team 仍不是全局 runtime 状态实体，不参与持久化 `active_team` 之外的配置切换语义
 - 切换 team 本质上是切换 `active_team` 并重新加载对应文件中的整套 agent 配置
 - `AgentConfigManager.get_all_configs()` 始终只返回当前 active_team 的 agent 集合
 - execution scope 额外支持 `session.metadata.team` 作为“本次执行的临时 team 配置视图”：`create_execution_orchestrator(session_id=...)` 与 `build_context(session_id=...)` 会优先读取该 team 的配置快照，用于 agent 集合、默认入口和 memory 配置，但**不会**写回或修改全局 `active_team`
 - team 也可由 `agents/skills/team-generation/` Skill 生成：Skill 脚本输出标准 `team` 协议后，`tools/local/skill_tools.py:execute_skill_script` 会桥接到 `AgentConfigManager.apply_team_payload()`，将其持久化为普通 team 配置；生成后的 team 与人工创建的 team 在 runtime 语义上没有区别
 - `team-generation` 的推荐输入是 `team_goal + roles`，脚本会自动补全每个 agent 的 `display_name`、`description`、`default_entry` 与 `custom_params.behavior.system_prompt`，而不是要求调用方手写全部 AgentConfig
+- 系统默认 team 的角色分工为：`orchestrator_agent` 负责主编排与默认入口，`team_maker` 负责 team 生成与整理，`plan_agent` 负责方案规划，`explor_agent` 负责仓库探索与上下文归纳，`general_agent` 负责通用实现，`review_agent` 负责改动评审，`test_agent` 负责测试与验证
 - 因此 `AgentLoader` / `AgentOrchestrator` / `AgentExecutionService` 在 catalog 语义下依旧不需要理解全局 team runtime；session 级 team 仅在 runtime service 收口并向 execution 实例显式下发
 
 迁移策略：

@@ -49,7 +49,7 @@ cp backend-fastapi/.env.example backend-fastapi/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-后端启动时会自动初始化 app 与 agent 的运行时配置；MCP 与模型提供方配置需由用户在运行时目录中自行提供，正式生效的配置不再直接存放在 `backend-fastapi/...` 源码目录。
+后端启动时会自动初始化 app 与 agent 的运行时配置；其中默认会生成一套系统默认 team（包含 `orchestrator_agent`、`team_maker`、`plan_agent`、`explor_agent`、`general_agent`、`review_agent`、`test_agent`）；MCP 与模型提供方配置需由用户在运行时目录中自行提供，正式生效的配置不再直接存放在 `backend-fastapi/...` 源码目录。
 
 - 默认运行时配置根目录：`~/.ragsystem/config`
 - 若设置 `RAG_DATA_ROOT`，则配置目录变为 `<RAG_DATA_ROOT>/config`

@@ -37,6 +37,22 @@ TEAM_INDEX_FILE_NAME = 'team_index.yaml'
 TEAM_CONFIG_DIR_NAME = 'teams'
 LEGACY_CONFIG_FILE_NAME = 'agent_configs.yaml'
 
+_DEFAULT_LLM_TIER = {
+    'provider': 'dmx',
+    'provider_type': 'openai',
+    'model_name': 'gpt-5.4',
+    'temperature': 0.2,
+    'max_completion_tokens': 4096,
+    'max_context_tokens': 128000,
+    'extra_params': {},
+}
+_DEFAULT_MEMORY_CONFIG = {
+    'auto_inject': True,
+    'allowed_scopes': ['team', 'session', 'agent', 'workspace'],
+    'write_scopes': ['session', 'agent', 'workspace'],
+    'archive_scopes': ['session', 'agent', 'workspace'],
+}
+
 
 def _render_config_text(data: Dict[str, Any], format: str) -> str:
     if format == 'yaml':
@@ -201,10 +217,126 @@ class AgentConfigManager:
     def _create_default_configs(self):
         self._team_files = {DEFAULT_TEAM_NAME: self._default_team_relative_path(DEFAULT_TEAM_NAME)}
         self._active_team = DEFAULT_TEAM_NAME
-        self._configs = {}
+        default_team_payload = self._build_default_team_payload()
+        self._configs = {
+            agent_name: AgentConfig(**copy.deepcopy(config_data))
+            for agent_name, config_data in default_team_payload['agents'].items()
+        }
         self._save_team_index()
         self._save_configs()
-        logger.info('已创建默认 team 配置')
+        logger.info('已创建默认系统 team 配置')
+
+    def _build_default_team_payload(self) -> Dict[str, Any]:
+        specialist_agents = [
+            'team_maker',
+            'plan_agent',
+            'explor_agent',
+            'general_agent',
+            'review_agent',
+            'test_agent',
+        ]
+        return {
+            'agents': {
+                'orchestrator_agent': self._build_system_agent_config(
+                    agent_name='orchestrator_agent',
+                    display_name='Orchestrator Agent',
+                    description='系统默认主编排器，负责理解用户需求、路由任务并整合最终答案。',
+                    system_prompt='你是系统默认主编排器，负责优先直接解决问题；必要时再委派给 team 内其他系统 Agent。',
+                    default_entry=True,
+                    tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
+                    delegation=specialist_agents,
+                ),
+                'team_maker': self._build_system_agent_config(
+                    agent_name='team_maker',
+                    display_name='Team Maker',
+                    description='系统默认组队 Agent，负责生成、整理和调整 team 配置方案。',
+                    system_prompt='你负责根据目标生成、整理和调整 team 配置，输出尽量少而完整的 team 方案。',
+                    skills=['team-generation'],
+                    delegation=['plan_agent', 'explor_agent', 'general_agent'],
+                ),
+                'plan_agent': self._build_system_agent_config(
+                    agent_name='plan_agent',
+                    display_name='Plan Agent',
+                    description='系统默认规划 Agent，负责方案设计、任务拆解和实现路径规划。',
+                    system_prompt='你负责阅读上下文后给出精炼、可执行的实现计划，明确改动点、验证路径和边界。',
+                    tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
+                    delegation=['explor_agent', 'general_agent'],
+                ),
+                'explor_agent': self._build_system_agent_config(
+                    agent_name='explor_agent',
+                    display_name='Explore Agent',
+                    description='系统默认探索 Agent，负责搜索代码库、定位实现与归纳上下文。',
+                    system_prompt='你负责快速探索仓库，定位相关文件、现有实现和可复用模式，只返回与当前目标直接相关的结论。',
+                    tools=['read_file', 'preview_data_structure'],
+                ),
+                'general_agent': self._build_system_agent_config(
+                    agent_name='general_agent',
+                    display_name='General Agent',
+                    description='系统默认通用执行 Agent，负责处理中等复杂度的综合实现与代码修改。',
+                    system_prompt='你负责承接通用实现任务，优先复用现有代码模式，直接产出完成所需的最少改动。',
+                    tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
+                    delegation=['explor_agent'],
+                ),
+                'review_agent': self._build_system_agent_config(
+                    agent_name='review_agent',
+                    display_name='Review Agent',
+                    description='系统默认评审 Agent，负责检查改动质量、复用性和潜在问题。',
+                    system_prompt='你负责审查当前改动，聚焦正确性、复用性、一致性和不必要复杂度，并给出精炼结论。',
+                    tools=['read_file', 'preview_data_structure', 'execute_bash'],
+                ),
+                'test_agent': self._build_system_agent_config(
+                    agent_name='test_agent',
+                    display_name='Test Agent',
+                    description='系统默认测试 Agent，负责运行验证命令并定位失败原因。',
+                    system_prompt='你负责运行测试、构建和验证命令，准确报告失败点并归纳最直接的修复线索。',
+                    tools=['read_file', 'preview_data_structure', 'execute_bash'],
+                ),
+            },
+        }
+
+    def _build_system_agent_config(
+        self,
+        *,
+        agent_name: str,
+        display_name: str,
+        description: str,
+        system_prompt: str,
+        default_entry: bool = False,
+        tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
+        delegation: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return {
+            'agent_name': agent_name,
+            'display_name': display_name,
+            'description': description,
+            'enabled': True,
+            'default_entry': default_entry,
+            'llm_tiers': {
+                'default': copy.deepcopy(_DEFAULT_LLM_TIER),
+            },
+            'tools': {
+                'enabled_tools': list(tools or ['read_file', 'write_file', 'edit_file', 'preview_data_structure']),
+            },
+            'skills': {
+                'enabled_skills': list(skills or []),
+                'auto_inject': True,
+            },
+            'mcp': {
+                'enabled_servers': [],
+            },
+            'memory': copy.deepcopy(_DEFAULT_MEMORY_CONFIG),
+            'delegation': {
+                'enabled_agents': list(delegation or []),
+            },
+            'custom_params': {
+                'type': 'orchestrator',
+                'behavior': {
+                    'system_prompt': system_prompt,
+                    'auto_execute_tools': True,
+                },
+            },
+        }
 
     def _build_empty_index_payload(self) -> Dict[str, Any]:
         return {

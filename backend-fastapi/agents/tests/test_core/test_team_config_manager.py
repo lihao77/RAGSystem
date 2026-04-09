@@ -28,6 +28,35 @@ metadata:
     )
 
 
+def test_manager_initializes_default_team_with_system_agents(tmp_path):
+    manager = AgentConfigManager(config_dir=str(tmp_path / 'agents'))
+
+    configs = manager.get_all_configs()
+    assert manager.get_active_team() == DEFAULT_TEAM_NAME
+    assert set(configs.keys()) == {
+        'orchestrator_agent',
+        'team_maker',
+        'plan_agent',
+        'explor_agent',
+        'general_agent',
+        'review_agent',
+        'test_agent',
+    }
+    assert configs['orchestrator_agent'].default_entry is True
+    assert configs['team_maker'].default_entry is False
+    assert configs['plan_agent'].default_entry is False
+    assert configs['explor_agent'].default_entry is False
+    assert configs['orchestrator_agent'].delegation.enabled_agents == [
+        'team_maker',
+        'plan_agent',
+        'explor_agent',
+        'general_agent',
+        'review_agent',
+        'test_agent',
+    ]
+    assert configs['team_maker'].skills.enabled_skills == ['team-generation']
+
+
 def test_manager_migrates_legacy_single_file_to_team_index(tmp_path):
     config_dir = tmp_path / 'agents'
     _write_legacy_agent_config(config_dir)
@@ -61,10 +90,10 @@ def test_switch_active_team_loads_different_agent_sets(tmp_path):
     )
 
     manager.set_active_team('default')
-    assert set(manager.get_all_configs().keys()) == {'agent_a'}
+    assert {'orchestrator_agent', 'team_maker', 'plan_agent', 'explor_agent', 'general_agent', 'review_agent', 'test_agent', 'agent_a'} <= set(manager.get_all_configs().keys())
 
     manager.set_active_team('research')
-    assert set(manager.get_all_configs().keys()) == {'agent_b'}
+    assert {'orchestrator_agent', 'team_maker', 'plan_agent', 'explor_agent', 'general_agent', 'review_agent', 'test_agent', 'agent_b'} <= set(manager.get_all_configs().keys())
 
 
 def test_copy_agents_between_teams_creates_independent_snapshot(tmp_path):
