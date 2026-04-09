@@ -101,9 +101,11 @@ class ContextPipeline:
 
         system_msg = {"role": "system", "content": system_prompt}
         prepared = [system_msg]
-        memory_block = self._build_memory_block(context)
-        if memory_block:
-            prepared.append({"role": "system", "content": memory_block})
+        for reminder_block in self._build_reminder_blocks(context):
+            prepared.append({
+                "role": "system",
+                "content": reminder_block,
+            })
         prepared.extend(history_resolved)
         prepared.extend(current_session)
         return self._apply_prompt_cache_policy(prepared, llm_config or {})
@@ -129,9 +131,11 @@ class ContextPipeline:
         history_resolved = resolve_compression_view(history_raw)
         system_msg = {"role": "system", "content": system_prompt}
         prepared = [system_msg]
-        memory_block = self._build_memory_block(context)
-        if memory_block:
-            prepared.append({"role": "system", "content": memory_block})
+        for reminder_block in self._build_reminder_blocks(context):
+            prepared.append({
+                "role": "system",
+                "content": reminder_block,
+            })
         prepared.extend(history_resolved)
         prepared.extend(current_session or [])
         return prepared
@@ -148,6 +152,39 @@ class ContextPipeline:
             f"消息总数: {len(messages)} "
             f"({', '.join(parts)}), 估算 tokens: {tokens}"
         )
+
+    @staticmethod
+    def _render_system_reminder(context_map: Dict[str, str]) -> str:
+        if not context_map:
+            return ""
+        lines = [
+            "<system-reminder>",
+            "As you answer the user's questions, you can use the following context:",
+        ]
+        for key, value in context_map.items():
+            if not value:
+                continue
+            lines.append(f"# {key}")
+            lines.append(str(value).strip())
+        lines.extend([
+            "",
+            "IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.",
+            "</system-reminder>",
+        ])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_reminder_blocks(context) -> List[str]:
+        metadata = getattr(context, 'metadata', {}) or {}
+        reminders: List[str] = []
+
+        memory_block = ContextPipeline._build_memory_block(context)
+        if memory_block:
+            reminder = ContextPipeline._render_system_reminder({'memory': memory_block})
+            if reminder:
+                reminders.append(reminder)
+
+        return reminders
 
     @staticmethod
     def _build_memory_block(context) -> str:

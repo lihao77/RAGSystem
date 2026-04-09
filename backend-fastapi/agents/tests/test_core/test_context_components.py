@@ -159,6 +159,7 @@ def test_load_history_into_context_keeps_react_intermediate_messages():
     assert [message.content for message in context.conversation_history] == ["thought", "hello", "world"]
 
 
+
 def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files():
     service = _make_runtime_service([])
     service._memory_store.search_memories = lambda **kwargs: [
@@ -180,6 +181,7 @@ def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files(
 
     assert context.metadata['memory_indices']['team'] == '# team memory'
     assert context.metadata['memory_indices']['session'] == '# session memory'
+    assert any('# memory' in item['content'] for item in prepared if item['role'] == 'system')
     assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
 
 
@@ -515,6 +517,7 @@ def test_token_counter_supports_content_blocks():
     ])
 
     assert total > 0
+
 
 
 def test_pipeline_applies_anthropic_cache_policy_only_to_stable_prefix():

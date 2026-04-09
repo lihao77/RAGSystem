@@ -376,7 +376,11 @@ class AgentApiRuntimeService:
         return self._build_orchestrator(scope='catalog')
 
     def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
-        """为单次执行获取 orchestrator。按 team 缓存，session 级 override 通过浅拷贝隔离。"""
+        """为单次执行获取 orchestrator。按 team 缓存，session 级 override 通过复制实例隔离。"""
+        from agents.core.default_entry import DefaultEntryAgentProvider
+        from agents.core.orchestrator import AgentOrchestrator
+        from agents.core.registry import AgentRegistry
+
         session_team = self._get_session_team(session_id)
         cache_key = (session_team or '').strip() or '_default_'
 
@@ -387,8 +391,22 @@ class AgentApiRuntimeService:
             logger.debug('构建并缓存 execution orchestrator: team=%s', cache_key)
 
         base_orchestrator = self._team_orchestrators[cache_key]
-        # 每次请求独立 copy，避免 _apply_session_runtime_overrides 原地修改污染缓存
-        orchestrator = copy.copy(base_orchestrator)
+        registry = AgentRegistry()
+        for agent in base_orchestrator.agents.values():
+            registry.register(copy.copy(agent))
+
+        default_entry_provider = DefaultEntryAgentProvider(
+            default_agent_name=base_orchestrator.get_default_entry_agent_name(),
+            fallback_agent_name=base_orchestrator.get_fallback_entry_agent_name(),
+        )
+        orchestrator = AgentOrchestrator(
+            model_adapter=base_orchestrator.model_adapter,
+            registry=registry,
+            default_entry_provider=default_entry_provider,
+        )
+        for attr_name in ('_metrics_collector', '_session_manager'):
+            if hasattr(base_orchestrator, attr_name):
+                setattr(orchestrator, attr_name, getattr(base_orchestrator, attr_name))
         return self._apply_session_runtime_overrides(orchestrator, session_id)
 
     def get_metrics_collector(self):

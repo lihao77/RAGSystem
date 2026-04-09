@@ -168,90 +168,26 @@ def build_orchestrator_specific_sections(agent) -> list[str]:
     lines = [
         '## 子 Agent 委派',
         '',
+        '只有在直接回答或直接工具不足以完成任务时，才委派子 Agent。优先顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent。',
         '你可以通过 `call_agent` 创建子 Agent，通过 `list_child_agents` 找回已有 child_agent_id，并通过 `send_message` 继续既有子 Agent。',
+        '',
+        '### 委派规则',
+        '- `agent_name` 必须从当前 allowlist 中选择',
+        '- 首次创建子 Agent 用 `call_agent`，已有合适 `child_agent_id` 时优先用 `send_message(...)` 续接',
+        '- `task` 需要写完整上下文、目标与输出要求；只有确实需要目标 Agent 专长或独立上下文时才委派',
+        '- 若一个子 Agent 足以完成任务，就不要拆成多个；子 Agent 已返回足够结果时，主编排器应直接收束',
+        '- 子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标；不要原样重发同一委派任务',
+        '',
+        '### 当前可委派子 Agent 列表',
     ]
-    for tool in available_agent_tools:
-        func = tool['function']
-        lines.extend([
-            '',
-            f"### {func.get('name', '')}",
-            f"**描述**: {func.get('description', '')}",
-            f"**调用能力**: {core_prompting.format_allowed_callers(func)}",
-        ])
-        params = func.get('parameters', {})
-        if params and 'properties' in params:
-            lines.append('**参数**:')
-            required = params.get('required', [])
-            for param_name, param_info in params['properties'].items():
-                required_mark = ' (必填)' if param_name in required else ' (可选)'
-                lines.append(
-                    f"  - `{param_name}` ({param_info.get('type', 'any')}){required_mark}: {param_info.get('description', '')}"
-                )
-        lines.extend(_format_tool_contract(func))
 
-    lines.extend([
-        '',
-        '## 当前可委派子 Agent 列表',
-        '',
-        '只能从下面名单中选择 `agent_name`：',
-    ])
     for item in roster:
         lines.append('')
-        lines.append(f"### {item['agent_name']}")
-        lines.append(f"- display_name: {item['display_name']}")
-        lines.append(f"- description: {item['description']}")
+        lines.append(f"- `{item['agent_name']}` ({item['display_name']}): {item['description']}")
         if item.get('use_cases'):
-            lines.append(f"- use_cases: {item['use_cases']}")
-        lines.append(f"- tool_count: {item['tool_count']}")
-
-    direct_tool_names = [
-        tool.get('function', {}).get('name', '')
-        for tool in core_prompting.get_direct_tools_for_prompt(agent)
-    ]
-    direct_tools_guide = ''
-    if direct_tool_names:
-        preview = ', '.join(direct_tool_names[:3])
-        suffix = '...' if len(direct_tool_names) > 3 else ''
-        direct_tools_guide = f"如果任务可由直接工具完成（{preview}{suffix}），优先直接调用，无需委派。"
+            lines.append(f"  - use_cases: {item['use_cases']}")
 
     example_agent = roster[0]['agent_name'] if roster else 'qa_agent'
-    orchestration_section = f"""## 委派规则
+    example_section = f"""\n### 示例\n\n创建子 Agent：\n<tools>\n<tool name=\"call_agent\">\n  <agent_name>{example_agent}</agent_name>\n  <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>\n  <context_hint>返回 Markdown 表格，并保留统计口径说明</context_hint>\n</tool>\n</tools>\n\n续接已有子 Agent：\n<tools>\n<tool name=\"send_message\">\n  <child_agent_id>{{result_1.content.items.0.child_agent_id}}</child_agent_id>\n  <message>继续基于上一轮结果补充结论，并输出最终摘要</message>\n</tool>\n</tools>"""
 
-- {direct_tools_guide if direct_tools_guide else '只有在直接回答或直接工具不足时，才委派子 Agent。'}
-- 委派决策顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent
-- `agent_name` 必须从上面的 allowlist 中选择
-- 只有任务确实需要目标 Agent 的专长或独立上下文时，才使用 `call_agent`
-- 若一个子 Agent 足以完成任务，就不要拆成多个子 Agent；只有自然存在前后依赖或明显并行收益时才做多 Agent 编排
-- `task` 必须写完整上下文；首次创建子 Agent 用 `call_agent`
-- 不确定之前的 `child_agent_id` 时，先用 `list_child_agents(agent_name?)` 找回
-- 已有合适 `child_agent_id` 时，优先用 `send_message(child_agent_id, message)` 续接既有子 Agent，而不是重新创建新会话
-- `context_hint` 用于补充约束、口径、输出格式或边界
-- 需要链式传递时，优先使用 `{{result_N.content}}` 或 `{{result_N.metadata.child_agent_id}}`
-- 子 Agent 已返回足够结果时，主编排器应直接收束并输出最终答案；不要为了“再润色一下”继续委派
-- 子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标；不要原样重发同一委派任务
-
-创建子 Agent：
-<tools>
-<tool name="call_agent">
-  <agent_name>{example_agent}</agent_name>
-  <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>
-  <context_hint>返回 Markdown 表格，并保留统计口径说明</context_hint>
-</tool>
-</tools>
-
-续接已有子 Agent 前先找回 id：
-<tools>
-<tool name="list_child_agents">
-  <agent_name>{example_agent}</agent_name>
-</tool>
-</tools>
-
-续接已有子 Agent：
-<tools>
-<tool name="send_message">
-  <child_agent_id>{{result_1.content.items.0.child_agent_id}}</child_agent_id>
-  <message>继续基于上一轮结果补充结论，并输出最终摘要</message>
-</tool>
-</tools>"""
-
-    return ['\n'.join(lines), orchestration_section]
+    return ['\n'.join(lines), example_section]

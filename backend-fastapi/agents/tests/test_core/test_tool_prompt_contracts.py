@@ -62,7 +62,19 @@ class _PromptCacheTestAgent(BaseAgent):
         raise NotImplementedError
 
 
-def test_react_format_tool_contract_uses_input_payload_and_filters_helper_fields():
+def test_react_prompt_uses_claude_code_style_sections():
+    fake_agent = _fake_agent()
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    assert 'You are RAGSystem, an interactive software engineering agent.' in prompt
+    assert '## Doing tasks' in prompt
+    assert '## Core principles' in prompt
+    assert '## Executing actions with care' in prompt
+    assert '## Using your tools' in prompt
+    assert '## Output efficiency' in prompt
+
+
     tool = {
         "function": {
             "name": "demo_tool",
@@ -184,8 +196,8 @@ def test_react_build_system_prompt_includes_tool_return_contracts():
     assert "成功时返回脚本执行结果" in prompt
     assert "arguments 必须是字符串数组" in prompt
     assert "<final_answer>" in prompt
-    assert "自然语言概括当前判断或下一步计划" in prompt
-    assert "不要展开冗长推理" in prompt
+    assert "极短的当前意图" in prompt
+    assert "不要写冗长推理、分析过程或额外过程汇报" in prompt
 
 
 def test_orchestrator_build_system_prompt_includes_direct_tool_return_contracts():
@@ -429,14 +441,14 @@ def test_prompt_shrinks_skill_descriptions_and_whitelisted_examples():
     assert "高风险动作，要先确认再执行" in prompt
     assert "能一句说清就不要三句" in prompt
 
-    assert prompt.index("## System") < prompt.index("## 工作目标")
-    assert prompt.index("## 工作目标") < prompt.index("## Doing tasks")
-    assert prompt.index("## Doing tasks") < prompt.index("## 决策与回答原则")
-    assert prompt.index("## 决策与回答原则") < prompt.index("## Executing actions with care")
-    assert prompt.index("## Executing actions with care") < prompt.index("## Using your tools")
+    assert prompt.index("## System") < prompt.index("## Doing tasks")
+    assert prompt.index("## Doing tasks") < prompt.index("## Core principles")
+    assert prompt.index("## Core principles") < prompt.index("## Executing actions with care")
+    assert prompt.index("## Executing actions with care") < prompt.index("## Output efficiency")
+    assert prompt.index("## Output efficiency") < prompt.index("## Using your tools")
     assert prompt.index("## Using your tools") < prompt.index("## 可直接调用的工具")
-    assert prompt.index("## 可直接调用的工具") < prompt.index("## 领域知识 Skills")
-    assert prompt.index("## 领域知识 Skills") < prompt.index("## 输出格式")
+    assert prompt.index("## 可直接调用的工具") < prompt.index("## Skills")
+    assert prompt.index("## Skills") < prompt.index("## 输出格式")
     assert prompt.index("## 输出格式") < prompt.index("## 执行规则")
     assert prompt.index("## 执行规则") < prompt.index("### 数据文件传递规则")
 
@@ -477,16 +489,16 @@ def test_orchestrator_prompt_examples_use_call_agent_and_roster():
     assert "chart_agent" in prompt
     assert "图表智能体" in prompt
     assert "图表与地图可视化" in prompt
-    assert "委派决策顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent" in prompt
-    assert "`send_message(child_agent_id, message)` 续接既有子 Agent" in prompt
-    assert "只有任务确实需要目标 Agent 的专长或独立上下文时，才使用 `call_agent`" in prompt
-    assert "子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标" in prompt
+    assert "只有在直接回答或直接工具不足以完成任务时，才委派子 Agent。优先顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent。" in prompt
+    assert "已有合适 `child_agent_id` 时优先用 `send_message(...)` 续接" in prompt
+    assert "只有确实需要目标 Agent 专长或独立上下文时才委派" in prompt
+    assert "下一次委派必须改变任务描述、范围、输入或目标" in prompt
     assert "invoke_agent_" not in prompt
 
     assert prompt.index("## 编排原则") < prompt.index("## 子 Agent 委派")
-    assert prompt.index("## 子 Agent 委派") < prompt.index("## 当前可委派子 Agent 列表")
-    assert prompt.index("## 当前可委派子 Agent 列表") < prompt.index("## 委派规则")
-    assert prompt.index("## 委派规则") < prompt.index("### 数据文件传递规则")
+    assert prompt.index("## 子 Agent 委派") < prompt.index("### 当前可委派子 Agent 列表")
+    assert prompt.index("### 当前可委派子 Agent 列表") < prompt.index("### 示例")
+    assert prompt.index("### 示例") < prompt.index("### 数据文件传递规则")
 
 
 def test_react_and_orchestrator_share_prompt_skeleton_with_capability_and_type_extensions():

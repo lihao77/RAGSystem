@@ -151,8 +151,8 @@ LLM 分层配置约定：
 
 提示词职责分层：
 - `BaseAgent`：只保留 system prompt 入口与最小扩展点（如 `_build_agent_specific_prompt_sections()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装；默认 section、工具能力判断、code execution prompt 注入与 prompt hook 分发逻辑均不再放在 BaseAgent 中维护；当前 system prompt 已采用两层进程级缓存：静态段按 agent class 缓存，动态完整 prompt 按“base_prompt + tool/skill prompt 元数据 + 子类 extra”生成内容哈希缓存，并在命中时刷新访问顺序，按 LRU 淘汰
-- `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，按稳定顺序组织为：intro、`System`、`工作目标`、`Doing tasks`、`决策与回答原则`、`Executing actions with care`、`Using your tools`、direct 工具段、工具契约渲染、Skills、输出格式、执行规则、数据文件传递规则；动态 section（direct tools / skills / execute_code / agent-specific sections）统一挂在静态骨架后部，便于后续继续向 Claude Code 风格的 section cache 语义收敛
-- `Skills`：具体的 Skill 使用流程、脚本选择、参数约定、领域工作流由各自的 `SKILL.md` 定义
+- `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，当前已对齐 Claude Code 风格主骨架，按稳定顺序组织为：`System`、`Doing tasks`、`Core principles`、`Executing actions with care`、`Output efficiency`、`Using your tools`、direct 工具段、工具契约渲染、`Skills`、输出格式、执行规则、数据文件传递规则；动态 section（direct tools / skills / execute_code / agent-specific sections）统一挂在静态骨架后部
+- `agents/context/pipeline.py`：除主 system prompt 外，还负责把运行时上下文渲染为 Claude Code 风格的 `<system-reminder>` system messages；当前第一阶段已统一注入 `currentDate` 与 memory reminder，后续可继续扩展其他 reminder 来源
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；在共享 skeleton 之上只覆盖主编排器特有的目标/原则，并在主编排器模式下追加 `call_agent` 契约、委派门槛与 `delegation.enabled_agents` 驱动的动态 agent roster；普通 worker 模式下不暴露委派 roster
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
 - 工具 runtime 已进一步收敛到 Claude Code 风格语义：`tools/runtime/exposure.py` 负责工具暴露真源，`tools/runtime/models.py` 提供统一 `ToolUseContext / ToolExposureDecision / PermissionDecision`，`tools/runtime/executor.py` 以 context 为中心串联 approval / dispatcher / MCP gateway；hooks 空壳已移除；大结果预算控制与落盘由 Observation 路径承接；`execution.step` 与前端 projector 统一消费 `result_preview / raw_result / raw_result_ref`
