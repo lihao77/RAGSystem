@@ -145,17 +145,27 @@ class SkillLoader:
         else:
             self.skills_dirs = [Path(d) for d in skills_dir]
         self.skills_dir = self.skills_dirs[0]  # 向下兼容
+        self._cached_skills: Optional[List[Skill]] = None
         logger.info(f"SkillLoader 初始化，Skills 目录: {self.skills_dirs}")
+
+    def invalidate_cache(self) -> None:
+        """清除 Skills 内存缓存，下次 load_all_skills 将重新扫描磁盘。"""
+        self._cached_skills = None
+        logger.info("Skills 缓存已清除")
 
     def add_skills_dir(self, skills_dir: str) -> None:
         """动态追加外部 Skills 目录（供扩展在 startup 时调用）。"""
         p = Path(skills_dir)
         if p not in self.skills_dirs:
             self.skills_dirs.append(p)
+            self._cached_skills = None  # 目录变更，清除缓存
             logger.info(f"追加 Skills 目录: {p}")
 
     def load_all_skills(self) -> List[Skill]:
-        """扫描所有已注册的 Skills 目录，加载全部 Skills。"""
+        """扫描所有已注册的 Skills 目录，加载全部 Skills（带内存缓存）。"""
+        if self._cached_skills is not None:
+            return list(self._cached_skills)
+
         skills = []
 
         for base_dir in self.skills_dirs:
@@ -173,7 +183,8 @@ class SkillLoader:
                             logger.info(f"✓ 加载 Skill: {skill.name}")
 
         logger.info(f"共加载 {len(skills)} 个 Skills")
-        return skills
+        self._cached_skills = skills
+        return list(skills)
 
     def find_skill_metadata(self, skill_name: str) -> Optional[Dict]:
         """
@@ -362,3 +373,9 @@ def get_skill_loader(skills_dir: str = None) -> SkillLoader:
         _skill_loader_instance = SkillLoader(skills_dir)
 
     return _skill_loader_instance
+
+
+def invalidate_skill_cache() -> None:
+    """清除全局 SkillLoader 的 Skills 内存缓存，下次 load_all_skills 将重新扫描磁盘。"""
+    if _skill_loader_instance is not None:
+        _skill_loader_instance.invalidate_cache()

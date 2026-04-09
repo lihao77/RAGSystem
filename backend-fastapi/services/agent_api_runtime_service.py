@@ -44,6 +44,7 @@ class AgentApiRuntimeService:
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
         self._metrics_collector = None
+        self._team_orchestrators: Dict[str, object] = {}  # team_name -> orchestrator 缓存（"_default_" 表示 active team）
 
         from config import get_config
         from model_adapter import get_default_adapter
@@ -375,9 +376,19 @@ class AgentApiRuntimeService:
         return self._build_orchestrator(scope='catalog')
 
     def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
-        """为单次执行创建新的 orchestrator 与 agent 实例图。"""
-        session_configs = self._resolve_session_configs(session_id)
-        orchestrator = self._build_orchestrator(scope='execution', configs=session_configs)
+        """为单次执行获取 orchestrator。按 team 缓存，session 级 override 通过浅拷贝隔离。"""
+        session_team = self._get_session_team(session_id)
+        cache_key = (session_team or '').strip() or '_default_'
+
+        if cache_key not in self._team_orchestrators:
+            session_configs = self._resolve_session_configs(session_id)
+            orchestrator = self._build_orchestrator(scope='execution', configs=session_configs)
+            self._team_orchestrators[cache_key] = orchestrator
+            logger.debug('构建并缓存 execution orchestrator: team=%s', cache_key)
+
+        base_orchestrator = self._team_orchestrators[cache_key]
+        # 每次请求独立 copy，避免 _apply_session_runtime_overrides 原地修改污染缓存
+        orchestrator = copy.copy(base_orchestrator)
         return self._apply_session_runtime_overrides(orchestrator, session_id)
 
     def get_metrics_collector(self):
@@ -386,7 +397,7 @@ class AgentApiRuntimeService:
             self._metrics_collector = MetricsCollector()
         return self._metrics_collector
 
-    def _build_orchestrator(self, *, scope: str, configs: Optional[Dict[str, object]] = None):
+    def _build_orchestrator(self, *, scope: str, configs: Optional[Dict[str, object]] = None, force_reload: bool = False):
         from agents.config.loader import AgentLoader
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
@@ -408,6 +419,8 @@ class AgentApiRuntimeService:
                 config_manager=self._config_manager_getter() or get_config_manager(),
                 mcp_manager_getter=get_mcp_manager,
             )
+            if force_reload:
+                loader.invalidate_caches()
             agents = loader.load_all_agents(configs=configs)
             orchestrator.set_default_entry_agent(loader.resolve_default_entry_agent_name(configs=configs))
 
@@ -444,7 +457,8 @@ class AgentApiRuntimeService:
 
     def reload_agents(self) -> bool:
         try:
-            self._build_orchestrator(scope='catalog')
+            self._team_orchestrators.clear()
+            self._build_orchestrator(scope='catalog', force_reload=True)
             logger.info('智能体重新加载完成')
             return True
         except Exception as error:

@@ -266,8 +266,7 @@ class EventPublisher:
             "agent_name": agent_name,
             "description": description,
         }
-        if agent_display_name is not None:
-            data["agent_display_name"] = agent_display_name
+        data["agent_display_name"] = agent_display_name or self.agent_display_name
         if order is not None:
             data["order"] = order
         if round is not None:
@@ -301,8 +300,7 @@ class EventPublisher:
             "result": str(result)[:500],
             "success": success
         }
-        if agent_display_name is not None:
-            data["agent_display_name"] = agent_display_name
+        data["agent_display_name"] = agent_display_name or self.agent_display_name
         if order is not None:
             data["order"] = order
         if extra:

@@ -60,6 +60,11 @@ class AgentLoader:
     def _resolve_configs(self, configs=None):
         return configs if configs is not None else self.config_manager.get_all_configs()
 
+    def invalidate_caches(self):
+        """清除加载器依赖的所有缓存（Skills 等），使下次 load 重新扫描。"""
+        from agents.skills.skill_loader import invalidate_skill_cache
+        invalidate_skill_cache()
+
     def load_agent(
         self,
         agent_name: str,
