@@ -39,6 +39,7 @@ def test_build_context_auto_injects_agent_and_workspace_memory_indices(monkeypat
             get_team_configs=lambda team_name: {
                 'chart_agent': SimpleNamespace(
                     memory=SimpleNamespace(
+                        enabled=True,
                         auto_inject=True,
                         allowed_scopes=['team', 'session', 'agent', 'workspace'],
                         write_scopes=[],
@@ -48,6 +49,7 @@ def test_build_context_auto_injects_agent_and_workspace_memory_indices(monkeypat
             },
             get_config=lambda name: SimpleNamespace(
                 memory=SimpleNamespace(
+                    enabled=True,
                     auto_inject=True,
                     allowed_scopes=['team', 'session', 'agent', 'workspace'],
                     write_scopes=[],
@@ -81,6 +83,7 @@ def test_build_context_auto_injects_agent_and_workspace_memory_indices(monkeypat
         lambda: SimpleNamespace(
             get_config=lambda name: SimpleNamespace(
                 memory=SimpleNamespace(
+                    enabled=True,
                     auto_inject=True,
                     allowed_scopes=['team', 'session', 'agent', 'workspace'],
                     write_scopes=[],
@@ -93,32 +96,35 @@ def test_build_context_auto_injects_agent_and_workspace_memory_indices(monkeypat
     context = service.build_context(
         session_id='session-1',
         agent_name='chart_agent',
-        memory_query=None,
     )
 
-    assert context.metadata['memory_scope_capabilities'] == {
+    assert context.memory_prefix_handle is not None
+    assert context.metadata['memory_prefix_snapshot']['scope_capabilities'] == {
         'allowed_scopes': ['team', 'session', 'agent', 'workspace'],
         'write_scopes': [],
         'archive_scopes': [],
     }
-    assert context.metadata['memory_indices'] == {
+    assert context.metadata['memory_prefix_snapshot']['indices'] == {
         'team': '# Team Memory\n',
         'session': '# Session Memory\n',
         'agent': '# Agent Memory\n',
         'workspace': '# Workspace Memory\n',
     }
+    assert context.metadata['memory_prefix_snapshot']['rendered_block']
+    assert context.metadata['memory_prefix_snapshot']['baseline_key'] == 'root::chart_agent'
     assert {'scope': 'team', 'team_name': 'alpha-team'} in calls
     assert {'scope': 'agent', 'agent_name': 'chart_agent', 'team_name': 'alpha-team'} in calls
     assert {'scope': 'workspace', 'workspace_key': 'E-Python-RAGSystem-workspaces-demo-workspace'} in calls
 
 
-def test_build_context_memory_query_includes_agent_and_workspace_scope_chain(monkeypatch):
+def test_build_context_does_not_auto_retrieve_memory_files(monkeypatch):
     service = AgentApiRuntimeService(
         conversation_store=_FakeConversationStore(),
         config_manager_getter=lambda: SimpleNamespace(
             get_team_configs=lambda team_name: {
                 'chart_agent': SimpleNamespace(
                     memory=SimpleNamespace(
+                        enabled=True,
                         auto_inject=True,
                         allowed_scopes=['team', 'session', 'agent', 'workspace'],
                         write_scopes=[],
@@ -128,6 +134,7 @@ def test_build_context_memory_query_includes_agent_and_workspace_scope_chain(mon
             },
             get_config=lambda name: SimpleNamespace(
                 memory=SimpleNamespace(
+                    enabled=True,
                     auto_inject=True,
                     allowed_scopes=['team', 'session', 'agent', 'workspace'],
                     write_scopes=[],
@@ -148,6 +155,7 @@ def test_build_context_memory_query_includes_agent_and_workspace_scope_chain(mon
         lambda: SimpleNamespace(
             get_config=lambda name: SimpleNamespace(
                 memory=SimpleNamespace(
+                    enabled=True,
                     auto_inject=True,
                     allowed_scopes=['team', 'session', 'agent', 'workspace'],
                     write_scopes=[],
@@ -157,19 +165,14 @@ def test_build_context_memory_query_includes_agent_and_workspace_scope_chain(mon
         ),
     )
 
-    service.build_context(
+    context = service.build_context(
         session_id='session-1',
         agent_name='chart_agent',
-        memory_query='flood risk',
     )
 
-    assert captured['query'] == 'flood risk'
-    assert captured['scope_chain'] == [
-        {'scope': 'team', 'team_name': 'alpha-team'},
-        {'scope': 'session', 'session_id': 'session-1'},
-        {'scope': 'agent', 'agent_name': 'chart_agent', 'team_name': 'alpha-team'},
-        {'scope': 'workspace', 'workspace_key': 'E-Python-RAGSystem-workspaces-demo-workspace'},
-    ]
+    assert captured == {}
+    assert 'retrieved_memories' not in context.metadata
+    assert context.metadata['memory_prefix_snapshot']['indices'] == {}
 
 
 def test_build_context_uses_default_session_workspace_for_memory(monkeypatch):
@@ -220,8 +223,202 @@ def test_build_context_uses_default_session_workspace_for_memory(monkeypatch):
     context = service.build_context(
         session_id='session-1',
         agent_name='chart_agent',
-        memory_query=None,
     )
 
-    assert context.metadata['workspace_root'].endswith('/sessions/session-1/workspace') or context.metadata['workspace_root'].endswith('\\sessions\\session-1\\workspace')
-    assert {'scope': 'workspace', 'workspace_key': get_workspace_memory_key(context.metadata['workspace_root'])} in captured
+
+
+def test_build_context_reuses_persisted_memory_prefix_state(monkeypatch):
+    service = AgentApiRuntimeService(
+        conversation_store=_FakeConversationStore(),
+        config_manager_getter=lambda: SimpleNamespace(
+            get_team_configs=lambda team_name: {
+                'chart_agent': SimpleNamespace(
+                    memory=SimpleNamespace(
+                        enabled=True,
+                        auto_inject=True,
+                        allowed_scopes=['team', 'session'],
+                        write_scopes=[],
+                        archive_scopes=[],
+                    )
+                )
+            },
+            get_config=lambda name: SimpleNamespace(
+                memory=SimpleNamespace(
+                    enabled=True,
+                    auto_inject=True,
+                    allowed_scopes=['team', 'session'],
+                    write_scopes=[],
+                    archive_scopes=[],
+                )
+            ),
+        ),
+    )
+    seed_fingerprint = service._build_memory_prefix_fingerprint(
+        memory_config=SimpleNamespace(
+            enabled=True,
+            auto_inject=True,
+            allowed_scopes=['team', 'session'],
+            write_scopes=[],
+            archive_scopes=[],
+        ),
+        scope_specs=[
+            ('team', {'scope': 'team', 'team_name': 'alpha-team'}),
+            ('session', {'scope': 'session', 'session_id': 'session-1'}),
+        ],
+        agent_name='chart_agent',
+    )
+    session = {
+        'metadata': {
+            'team': 'alpha-team',
+            'memory_prefix_states': {
+                'root::chart_agent': {
+                    'baseline_key': 'root::chart_agent',
+                    'fingerprint': seed_fingerprint,
+                    'scope_capabilities': {
+                        'allowed_scopes': ['team', 'session'],
+                        'write_scopes': [],
+                        'archive_scopes': [],
+                    },
+                    'indices': {'team': '# Team Memory\n'},
+                    'rendered_block': '[Memory Scope Capabilities]\n- 可读取 scope: team, session\n- 可写入 scope: 无\n- 可归档 scope: 无\n- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作\n\n[Team Memory Index]\n# Team Memory',
+                    'rebased_reason': 'seed',
+                }
+            },
+        }
+    }
+
+    class _Store(_FakeConversationStore):
+        def get_session(self, session_id):
+            return session
+
+        def update_session_metadata(self, session_id, metadata_patch, *, merge_nested=False):
+            raise AssertionError('should reuse existing snapshot without persistence')
+
+    service = AgentApiRuntimeService(
+        conversation_store=_Store(),
+        config_manager_getter=lambda: SimpleNamespace(
+            get_team_configs=lambda team_name: {
+                'chart_agent': SimpleNamespace(
+                    memory=SimpleNamespace(
+                        enabled=True,
+                        auto_inject=True,
+                        allowed_scopes=['team', 'session'],
+                        write_scopes=[],
+                        archive_scopes=[],
+                    )
+                )
+            },
+            get_config=lambda name: SimpleNamespace(
+                memory=SimpleNamespace(
+                    enabled=True,
+                    auto_inject=True,
+                    allowed_scopes=['team', 'session'],
+                    write_scopes=[],
+                    archive_scopes=[],
+                )
+            ),
+        ),
+    )
+    service._memory_store = SimpleNamespace(
+        load_index_head=lambda **kwargs: (_ for _ in ()).throw(AssertionError('should not rebuild indices')),
+        search_memories=lambda **kwargs: [],
+    )
+
+    monkeypatch.setattr(
+        'services.agent_api_runtime_service.get_config_manager',
+        lambda: SimpleNamespace(
+            get_config=lambda name: SimpleNamespace(
+                memory=SimpleNamespace(
+                    enabled=True,
+                    auto_inject=True,
+                    allowed_scopes=['team', 'session'],
+                    write_scopes=[],
+                    archive_scopes=[],
+                )
+            )
+        ),
+    )
+
+    context = service.build_context(session_id='session-1', agent_name='chart_agent')
+
+    assert context.metadata['memory_prefix_snapshot']['fingerprint']['fingerprint'] == seed_fingerprint['fingerprint']
+    assert context.metadata['memory_prefix_snapshot']['rebased_reason'] == 'seed'
+
+
+def test_build_context_rebuilds_memory_prefix_when_memory_config_changes(monkeypatch):
+    class _Store(_FakeConversationStore):
+        def __init__(self):
+            self.metadata_updates = []
+
+        def get_session(self, session_id):
+            return {
+                'metadata': {
+                    'team': 'alpha-team',
+                    'memory_prefix_states': {
+                        'root::chart_agent': {
+                            'baseline_key': 'root::chart_agent',
+                            'fingerprint': {'fingerprint': 'old-fingerprint'},
+                            'scope_capabilities': {'allowed_scopes': ['team'], 'write_scopes': [], 'archive_scopes': []},
+                            'indices': {'team': '# Old Team Memory\n'},
+                            'rendered_block': '[Team Memory Index]\n# Old Team Memory',
+                            'rebased_reason': 'seed',
+                        }
+                    },
+                }
+            }
+
+        def update_session_metadata(self, session_id, metadata_patch, *, merge_nested=False):
+            self.metadata_updates.append((session_id, metadata_patch, merge_nested))
+            return {'memory_prefix_states': metadata_patch['memory_prefix_states']}
+
+    store = _Store()
+    service = AgentApiRuntimeService(
+        conversation_store=store,
+        config_manager_getter=lambda: SimpleNamespace(
+            get_team_configs=lambda team_name: {
+                'chart_agent': SimpleNamespace(
+                    memory=SimpleNamespace(
+                        enabled=True,
+                        auto_inject=True,
+                        allowed_scopes=['team', 'session'],
+                        write_scopes=['session'],
+                        archive_scopes=[],
+                    )
+                )
+            },
+            get_config=lambda name: SimpleNamespace(
+                memory=SimpleNamespace(
+                    enabled=True,
+                    auto_inject=True,
+                    allowed_scopes=['team', 'session'],
+                    write_scopes=['session'],
+                    archive_scopes=[],
+                )
+            ),
+        ),
+    )
+    service._memory_store = SimpleNamespace(
+        load_index_head=lambda **kwargs: '# New Memory\n',
+        search_memories=lambda **kwargs: [],
+    )
+
+    monkeypatch.setattr(
+        'services.agent_api_runtime_service.get_config_manager',
+        lambda: SimpleNamespace(
+            get_config=lambda name: SimpleNamespace(
+                memory=SimpleNamespace(
+                    enabled=True,
+                    auto_inject=True,
+                    allowed_scopes=['team', 'session'],
+                    write_scopes=['session'],
+                    archive_scopes=[],
+                )
+            )
+        ),
+    )
+
+    context = service.build_context(session_id='session-1', agent_name='chart_agent')
+
+    assert store.metadata_updates
+    assert context.metadata['memory_prefix_snapshot']['fingerprint']['fingerprint'] != 'old-fingerprint'
+    assert context.metadata['memory_prefix_snapshot']['rebased_reason'] == 'build_context'

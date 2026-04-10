@@ -110,10 +110,9 @@ class _FakeRuntime:
         parent_run_id=None,
         parent_call_id=None,
         call_id=None,
-        memory_query=None,
         agent_name=None,
     ):
-        del session_id, limit, parent_run_id, memory_query, agent_name
+        del session_id, limit, parent_run_id, agent_name
         return SimpleNamespace(
             metadata={
                 'run_id': run_id,

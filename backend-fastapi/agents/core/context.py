@@ -32,6 +32,7 @@ class AgentContext:
 
         self.conversation_history: List[Message] = []
         self.metadata: Dict[str, Any] = {}
+        self.memory_prefix_handle = None
 
         if parent:
             self.parent = parent
@@ -40,6 +41,7 @@ class AgentContext:
                 self.llm_override = parent.llm_override
             if requested_llm_tier is None and getattr(parent, 'requested_llm_tier', None):
                 self.requested_llm_tier = parent.requested_llm_tier
+            self.memory_prefix_handle = getattr(parent, 'memory_prefix_handle', None)
         else:
             self.parent = None
             self.level = 0

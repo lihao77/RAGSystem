@@ -152,7 +152,7 @@ LLM 分层配置约定：
 提示词职责分层：
 - `BaseAgent`：只保留 system prompt 入口与最小扩展点（如 `_build_agent_specific_prompt_sections()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装；默认 section、工具能力判断、code execution prompt 注入与 prompt hook 分发逻辑均不再放在 BaseAgent 中维护；当前 system prompt 已采用两层进程级缓存：静态段按 agent class 缓存，动态完整 prompt 按“base_prompt + tool/skill prompt 元数据 + 子类 extra”生成内容哈希缓存，并在命中时刷新访问顺序，按 LRU 淘汰
 - `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，当前已对齐 Claude Code 风格主骨架，按稳定顺序组织为：`System`、`Doing tasks`、`Core principles`、`Executing actions with care`、`Output efficiency`、`Using your tools`、direct 工具段、工具契约渲染、`Skills`、输出格式、执行规则、数据文件传递规则；动态 section（direct tools / skills / execute_code / agent-specific sections）统一挂在静态骨架后部
-- `agents/context/pipeline.py`：除主 system prompt 外，还负责把运行时上下文渲染为 Claude Code 风格的 `<system-reminder>` system messages；当前第一阶段已统一注入 `currentDate` 与 memory reminder，后续可继续扩展其他 reminder 来源
+- `agents/context/pipeline.py`：除主 system prompt 外，还负责把运行时上下文渲染为 Claude Code 风格的 `<system-reminder>` system messages；当前会消费持久化的 stable memory prefix snapshot，把 memory 前缀作为稳定 reminder 注入；同时 execution 级消息缓存、增量追加、token 统计与压缩阈值判断也已收口到 pipeline 内；刷新边界收敛到 memory 配置语义变化与真实 compact/rebase（`_apply_compression()` / `_fallback_truncate()`）后，普通 run 初始化与技术性 rebuild 不刷新
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；在共享 skeleton 之上只覆盖主编排器特有的目标/原则，并在主编排器模式下追加 `call_agent` 契约、委派门槛与 `delegation.enabled_agents` 驱动的动态 agent roster；普通 worker 模式下不暴露委派 roster
 - `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
 - 工具 runtime 已进一步收敛到 Claude Code 风格语义：`tools/runtime/exposure.py` 负责工具暴露真源，`tools/runtime/models.py` 提供统一 `ToolUseContext / ToolExposureDecision / PermissionDecision`，`tools/runtime/executor.py` 以 context 为中心串联 approval / dispatcher / MCP gateway；hooks 空壳已移除；大结果预算控制与落盘由 Observation 路径承接；`execution.step` 与前端 projector 统一消费 `result_preview / raw_result / raw_result_ref`
@@ -351,24 +351,29 @@ P1 已完成，落地能力：
 - `MEMORY.md` 作为索引入口（`load_index_head` 限 200 行 / 25KB）
 - 单条记忆单独 Markdown 文件保存 frontmatter + 正文
 - 按 agent 配置的 `allowed_scopes` / `write_scopes` / `archive_scopes` 精细授权
-- 基于 query 的跨 scope 记忆检索（`search_memories`，默认 top 5）
 - 采用索引注入 + 按需读取模型，不需要全局压缩/淘汰
 
-加载机制参考 Claude Code：
-- 会话开始 / build_context 时，不把所有记忆正文注入 prompt
-- 只注入各作用域 `MEMORY.md` 的头部索引内容
-- 同时在 prompt 中提供相关记忆文件路径
-- Agent 如需细节，再直接调用 `read_file` 读取对应 md 文件
-- system prompt 还会显式注入当前 Agent 的 memory scope 能力摘要（可读取 / 可写入 / 可归档哪些 scope），降低误操作风险
+加载机制参考 Claude Code，并进一步收敛为 stable memory prefix：
+- 会话开始 / `build_context()` 时，不把所有记忆正文注入 prompt
+- 只构建各作用域 `MEMORY.md` 的头部索引内容与 scope 能力摘要
+- stable memory prefix 以 `session.metadata.memory_prefix_states[thread_key::agent_name]` 持久化，跨 run 复用
+- `AgentApiRuntimeService.build_context()` 只把当前 snapshot 镜像到 `context.metadata['memory_prefix_snapshot']`，并在 `AgentContext.memory_prefix_handle` 上挂显式刷新句柄
+- `ContextPipeline.prepare_messages()` / `inspect_messages()` 只消费 snapshot，不再每次根据散装 metadata 现算 memory block，也不再通过 `metadata` 闭包反调 runtime service
+- 自动 `memory_query` 召回已取消，运行时不再自动注入 `retrieved_memories`；Agent 如需细节，直接调用 `read_file` 或 memory 工具按需读取
+- system prompt / reminder 仍会显式注入当前 Agent 的 memory scope 能力摘要（可读取 / 可写入 / 可归档哪些 scope），降低误操作风险
 
 当前默认 scope chain：
-- 仅当存在任一 memory scope 权限，且 `memory.auto_inject=true` 时，按 `allowed_scopes` 自动注入索引
+- 仅当存在任一 memory scope 权限，且 `memory.auto_inject=true` 时，按 `allowed_scopes` 构建索引快照
 - `team` 注入团队级 MEMORY.md
 - `session` 注入当前会话 MEMORY.md
 - `agent` 仅注入当前正在运行的 `agent_name` 对应私有 MEMORY.md
 - `workspace` 仅在当前 session 存在有效 workspace 根路径时注入对应 MEMORY.md；`workspace_key` 不再取目录 basename，而是基于完整 workspace 路径生成稳定 key
-- 自动检索相关记忆（`memory_query`）时，scope chain 也与上述规则保持一致
 - 默认推荐 `team -> session`
+
+stable memory prefix 的刷新边界：
+- 真实 compact/rebase 后刷新：`ContextPipeline._apply_compression()`、`ContextPipeline._fallback_truncate()`
+- memory 配置语义变化后惰性刷新：`allowed_scopes` / `write_scopes` / `archive_scopes` / `auto_inject` / 可见 scope 边界（team/session/agent/workspace）变化
+- 普通 run 初始化、memory 工具写入/归档、pipeline 内的技术性消息重建都不刷新
 
 memory 工具不再对所有 Agent 默认开放，而是由 memory 配置中的 scope 权限自动推导；当前运行时仍保留一个显式总开关：
 - 若 `memory.enabled=false`，memory 工具整体不注入
@@ -385,8 +390,9 @@ memory 工具不再对所有 Agent 默认开放，而是由 memory 配置中的 
 
 memory 当前采用纯 scope 授权模型：
 - `allowed_scopes` / `write_scopes` / `archive_scopes` 直接决定读取 / 写入 / 归档能力；
-- `auto_inject` 只控制是否自动注入记忆索引与检索结果，不承担启停 memory 的职责；
-- prompt 层：`AgentApiRuntimeService.build_context()` 会把 scope 能力写入 `context.metadata['memory_scope_capabilities']`，`ContextPipeline._build_memory_block()` 再把它渲染进 system prompt，明确告知 Agent 当前可操作哪些 scope；
+- `auto_inject` 只控制 stable memory prefix 是否包含各 scope 的 MEMORY.md 索引头部，不承担启停 memory 的职责；
+- prompt 层：`AgentApiRuntimeService.build_context()` 只写入 `context.metadata['memory_prefix_snapshot']`，并附带 `AgentContext.memory_prefix_handle` 供 `ContextPipeline` 做 fingerprint 校验与按需刷新；`ContextPipeline` 再把 `snapshot.rendered_block` 渲染进 `<system-reminder>`；
+- stable prefix 的真源位于 `session.metadata.memory_prefix_states`，按 `thread_key::agent_name` 分桶；
 - 配置页：`AgentConfigService.get_memory_config_metadata()` 仅向前端提供 scope 说明，前端 UI 只管理 scope 权限与 `auto_inject`，不再渲染“启用记忆”总开关。
 
 非默认启用 scope（已实现，需在 agent 配置中显式添加）：
@@ -542,7 +548,7 @@ Run 级事件总线不再为已结束 run 保留额外 TTL：`RUN_END` 只负责
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| ContextPipeline | `agents/context/pipeline.py` | 消息准备、压缩触发、稳定前缀缓存标注 |
+| ContextPipeline | `agents/context/pipeline.py` | 消息物化、增量复用、压缩触发、稳定前缀缓存标注、token 统计 |
 | PromptMaterializer | `agents/context/prompt_materializer.py` | 提示词物化 |
 | TokenCounter | `agents/context/token_counter.py` | Token 计数（支持 string / content blocks） |
 | ObservationPolicy | `agents/context/observation_policy.py` | 工具结果内联/落盘策略 |

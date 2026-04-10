@@ -9,6 +9,7 @@ ContextPipeline - 统一上下文压缩管道
 """
 
 import logging
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
 
 from .compression_view import resolve_compression_view
@@ -19,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 class ContextCompressionError(RuntimeError):
     """历史摘要失败时抛出的上下文准备异常。"""
+
+
+@dataclass
+class PreparedMessagesResult:
+    messages: List[Dict[str, Any]]
+    total_tokens: int
+    system_tokens: int
+    budget_tokens: int
+    cache_hit: bool
+    rebuild_reason: str
 
 
 class ContextPipeline:
@@ -61,25 +72,162 @@ class ContextPipeline:
         publisher=None,
         llm_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        每轮调用一次，返回完整消息列表给 LLM。
+        return self.prepare_execution_messages(
+            system_prompt=system_prompt,
+            context=context,
+            current_session=current_session,
+            publisher=publisher,
+            llm_config=llm_config,
+        ).messages
 
-        Args:
-            system_prompt: 构建好的 system prompt 字符串
-            context: AgentContext 实例（含 conversation_history）
-            current_session: 当次执行中累积的消息（从 task 开始）
-            publisher: EventPublisher，用于发布压缩事件（可选）
+    def prepare_execution_messages(
+        self,
+        *,
+        system_prompt: str,
+        context,
+        current_session: List[Dict[str, Any]],
+        publisher=None,
+        llm_config: Optional[Dict[str, Any]] = None,
+        cache_state: Optional[Dict[str, Any]] = None,
+    ) -> PreparedMessagesResult:
+        cache_state = cache_state if cache_state is not None else {}
+        cached_messages = cache_state.get('messages')
+        cached_session_len = cache_state.get('session_len', 0)
+        rebuild_reason = 'initial_build'
+        cache_hit = False
 
-        Returns:
-            [system_msg] + history_resolved + current_session
-        """
-        # 1. 转换历史
+        if cached_messages is not None:
+            if len(current_session) < cached_session_len:
+                rebuild_reason = 'session_rewind'
+            else:
+                updated_messages = list(cached_messages)
+                if len(current_session) > cached_session_len:
+                    appended_messages = current_session[cached_session_len:]
+                    updated_messages.extend(appended_messages)
+                total_tokens = self.count_messages_tokens(updated_messages)
+                if self.should_rebuild_after_append(total_tokens):
+                    rebuild_reason = 'threshold_rebuild'
+                else:
+                    cache_state['messages'] = updated_messages
+                    cache_state['session_len'] = len(current_session)
+                    cache_hit = True
+                    return self._build_prepared_result(
+                        messages=updated_messages,
+                        rebuild_reason='cache_hit',
+                        cache_hit=True,
+                    )
+
+        prepared = self._prepare_messages_full(
+            system_prompt=system_prompt,
+            context=context,
+            current_session=current_session,
+            publisher=publisher,
+            llm_config=llm_config,
+        )
+        cache_state['messages'] = prepared
+        cache_state['session_len'] = len(current_session)
+        return self._build_prepared_result(
+            messages=prepared,
+            rebuild_reason=rebuild_reason,
+            cache_hit=cache_hit,
+        )
+
+    def inspect_messages(
+        self,
+        system_prompt: str,
+        context,
+        current_session: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.inspect_messages_with_stats(
+            system_prompt=system_prompt,
+            context=context,
+            current_session=current_session,
+        ).messages
+
+    def inspect_messages_with_stats(
+        self,
+        *,
+        system_prompt: str,
+        context,
+        current_session: Optional[List[Dict[str, Any]]] = None,
+    ) -> PreparedMessagesResult:
+        self._ensure_memory_prefix_snapshot(context, reason='inspect_messages')
         history_raw = self._get_history_raw(context)
-
-        # 2. 解析压缩视图
         history_resolved = resolve_compression_view(history_raw)
+        system_msg = {"role": "system", "content": system_prompt}
+        prepared = [system_msg]
+        for reminder_block in self._build_reminder_blocks(context):
+            prepared.append({
+                "role": "system",
+                "content": reminder_block,
+            })
+        prepared.extend(history_resolved)
+        prepared.extend(current_session or [])
+        return self._build_prepared_result(
+            messages=prepared,
+            rebuild_reason='inspect',
+            cache_hit=False,
+        )
 
-        # 3. 检查是否触发压缩
+    def format_summary(self, messages: List[Dict[str, Any]]) -> str:
+        """返回消息列表的简要统计字符串（用于日志）"""
+        tokens = self._token_counter.count_messages(messages)
+        roles = {}
+        for m in messages:
+            r = m.get("role", "unknown")
+            roles[r] = roles.get(r, 0) + 1
+        parts = [f"{r}:{n}" for r, n in roles.items()]
+        return (
+            f"消息总数: {len(messages)} "
+            f"({', '.join(parts)}), 估算 tokens: {tokens}"
+        )
+
+    def count_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
+        return self._token_counter.count_messages(messages)
+
+    def should_rebuild_after_append(self, total_tokens: int) -> bool:
+        trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
+        return total_tokens >= trigger_threshold
+
+    def build_usage_stats(self, messages: List[Dict[str, Any]]) -> Dict[str, int]:
+        current_tokens = self.count_messages_tokens(messages)
+        system_tokens = self.count_messages_tokens([messages[0]]) if messages else 0
+        return {
+            'used_tokens': current_tokens,
+            'system_prompt_tokens': system_tokens,
+            'total_tokens': current_tokens,
+            'budget_tokens': self.config.max_tokens + system_tokens,
+        }
+
+    def _build_prepared_result(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        rebuild_reason: str,
+        cache_hit: bool,
+    ) -> PreparedMessagesResult:
+        usage = self.build_usage_stats(messages)
+        return PreparedMessagesResult(
+            messages=messages,
+            total_tokens=usage['total_tokens'],
+            system_tokens=usage['system_prompt_tokens'],
+            budget_tokens=usage['budget_tokens'],
+            cache_hit=cache_hit,
+            rebuild_reason=rebuild_reason,
+        )
+
+    def _prepare_messages_full(
+        self,
+        *,
+        system_prompt: str,
+        context,
+        current_session: List[Dict[str, Any]],
+        publisher=None,
+        llm_config: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        self._ensure_memory_prefix_snapshot(context, reason='prepare_messages')
+        history_raw = self._get_history_raw(context)
+        history_resolved = resolve_compression_view(history_raw)
         history_tokens = self._token_counter.count_messages(history_resolved)
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
         self.logger.info(
@@ -110,49 +258,6 @@ class ContextPipeline:
         prepared.extend(current_session)
         return self._apply_prompt_cache_policy(prepared, llm_config or {})
 
-    def inspect_messages(
-        self,
-        system_prompt: str,
-        context,
-        current_session: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        只读快照：返回 LLM 实际会看到的消息列表，不触发压缩，不修改 context。
-
-        Args:
-            system_prompt: 构建好的 system prompt 字符串
-            context: AgentContext 实例
-            current_session: 当次执行中累积的消息（可选，调试时通常为空）
-
-        Returns:
-            [system_msg] + history_resolved + current_session
-        """
-        history_raw = self._get_history_raw(context)
-        history_resolved = resolve_compression_view(history_raw)
-        system_msg = {"role": "system", "content": system_prompt}
-        prepared = [system_msg]
-        for reminder_block in self._build_reminder_blocks(context):
-            prepared.append({
-                "role": "system",
-                "content": reminder_block,
-            })
-        prepared.extend(history_resolved)
-        prepared.extend(current_session or [])
-        return prepared
-
-    def format_summary(self, messages: List[Dict[str, Any]]) -> str:
-        """返回消息列表的简要统计字符串（用于日志）"""
-        tokens = self._token_counter.count_messages(messages)
-        roles = {}
-        for m in messages:
-            r = m.get("role", "unknown")
-            roles[r] = roles.get(r, 0) + 1
-        parts = [f"{r}:{n}" for r, n in roles.items()]
-        return (
-            f"消息总数: {len(messages)} "
-            f"({', '.join(parts)}), 估算 tokens: {tokens}"
-        )
-
     @staticmethod
     def _render_system_reminder(context_map: Dict[str, str]) -> str:
         if not context_map:
@@ -175,7 +280,6 @@ class ContextPipeline:
 
     @staticmethod
     def _build_reminder_blocks(context) -> List[str]:
-        metadata = getattr(context, 'metadata', {}) or {}
         reminders: List[str] = []
 
         memory_block = ContextPipeline._build_memory_block(context)
@@ -189,43 +293,30 @@ class ContextPipeline:
     @staticmethod
     def _build_memory_block(context) -> str:
         metadata = getattr(context, 'metadata', {}) or {}
-        indices = metadata.get('memory_indices') or {}
-        retrieved = metadata.get('retrieved_memories') or []
-        scope_capabilities = metadata.get('memory_scope_capabilities') or {}
-        sections: list[str] = []
+        snapshot = metadata.get('memory_prefix_snapshot') or {}
+        rendered_block = snapshot.get('rendered_block')
+        if rendered_block:
+            return str(rendered_block).strip()
+        return ''
 
-        allowed_scopes = scope_capabilities.get('allowed_scopes') or []
-        write_scopes = scope_capabilities.get('write_scopes') or []
-        archive_scopes = scope_capabilities.get('archive_scopes') or []
-        if allowed_scopes or write_scopes or archive_scopes:
-            sections.append(
-                "[Memory Scope Capabilities]\n"
-                f"- 可读取 scope: {', '.join(allowed_scopes) if allowed_scopes else '无'}\n"
-                f"- 可写入 scope: {', '.join(write_scopes) if write_scopes else '无'}\n"
-                f"- 可归档 scope: {', '.join(archive_scopes) if archive_scopes else '无'}\n"
-                "- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作"
-            )
-
-        scope_titles = {
-            'team': 'Team',
-            'session': 'Session',
-            'agent': 'Agent',
-            'workspace': 'Workspace',
-        }
-        for scope_name, content in indices.items():
-            if content:
-                title = scope_titles.get(scope_name, str(scope_name).replace('_', ' ').title())
-                sections.append(f"[{title} Memory Index]\n" + str(content).strip())
-        if retrieved:
-            lines = ["[Relevant Memory Files]", "如需更多细节，请直接调用 read_file 读取下面文件："]
-            for item in retrieved[:5]:
-                lines.append(
-                    f"- [{item.get('scope')}/{item.get('memory_type')}] {item.get('name')} -> {item.get('file_path')}"
-                )
-            sections.append("\n".join(lines))
-        if not sections:
-            return ""
-        return "\n\n".join(sections)
+    @staticmethod
+    def _ensure_memory_prefix_snapshot(context, *, reason: str) -> None:
+        metadata = getattr(context, 'metadata', {}) or {}
+        handle = getattr(context, 'memory_prefix_handle', None)
+        snapshot = metadata.get('memory_prefix_snapshot')
+        force_refresh = reason in {'apply_compression', 'fallback_truncate'}
+        expected_fingerprint = (snapshot or {}).get('fingerprint', {}).get('fingerprint')
+        current_fingerprint_payload = handle.get_current_fingerprint() if handle is not None else None
+        current_fingerprint = (current_fingerprint_payload or {}).get('fingerprint')
+        if not force_refresh and snapshot and expected_fingerprint and expected_fingerprint == current_fingerprint:
+            return
+        if handle is None:
+            return
+        refreshed = handle.refresh_snapshot(reason=reason, force_rebuild=force_refresh)
+        if refreshed:
+            metadata['memory_prefix_snapshot'] = refreshed
+            return
+        metadata.pop('memory_prefix_snapshot', None)
 
     # ── 内部方法 ──────────────────────────────────────────────────────────────
 
@@ -394,6 +485,7 @@ class ContextPipeline:
         }
         updated_raw = [summary_message] + kept
         self._write_back_context(context, updated_raw)
+        self._ensure_memory_prefix_snapshot(context, reason='fallback_truncate')
 
         if publisher:
             publisher.compression_summary(fallback_summary, replaces_up_to_seq=None)
@@ -518,6 +610,7 @@ class ContextPipeline:
 
         updated_raw = [summary_message] + remaining
         self._write_back_context(context, updated_raw)
+        self._ensure_memory_prefix_snapshot(context, reason='apply_compression')
 
         if publisher:
             publisher.compression_summary(summary_content, replaces_up_to_seq=replaces_up_to_seq)

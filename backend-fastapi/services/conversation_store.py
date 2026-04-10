@@ -326,6 +326,40 @@ class ConversationStore:
                 (session_id, user_id, metadata_json)
             )
 
+    @staticmethod
+    def _merge_metadata_dict(base: Dict[str, Any], patch: Dict[str, Any], *, merge_nested: bool) -> Dict[str, Any]:
+        merged = dict(base or {})
+        for key, value in (patch or {}).items():
+            if merge_nested and isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = ConversationStore._merge_metadata_dict(merged[key], value, merge_nested=True)
+            elif value is None:
+                merged.pop(key, None)
+            else:
+                merged[key] = value
+        return merged
+
+    def update_session_metadata(self, session_id: str, metadata_patch: Dict[str, Any], *, merge_nested: bool = False) -> Dict[str, Any]:
+        with self._get_session_lock(session_id):
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT metadata FROM sessions WHERE session_id=?",
+                    (session_id,)
+                ).fetchone()
+                current_metadata = json.loads((row["metadata"] if row else "{}") or "{}")
+                merged_metadata = self._merge_metadata_dict(current_metadata, metadata_patch, merge_nested=merge_nested)
+                metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
+                conn.execute(
+                    """
+                    INSERT INTO sessions (session_id, metadata)
+                    VALUES (?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        metadata=excluded.metadata,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (session_id, metadata_json)
+                )
+                return merged_metadata
+
     def update_session_activity(self, session_id: str):
         with self._get_connection() as conn:
             conn.execute(

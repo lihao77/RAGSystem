@@ -160,29 +160,19 @@ def test_load_history_into_context_keeps_react_intermediate_messages():
 
 
 
-def test_build_context_injects_memory_indices_and_pipeline_exposes_memory_files():
+def test_build_context_injects_memory_indices_into_stable_prefix_snapshot():
     service = _make_runtime_service([])
-    service._memory_store.search_memories = lambda **kwargs: [
-        SimpleNamespace(
-            name='用户偏好-最少代码',
-            description='当前 session 中用户要求优先最少代码',
-            scope='session',
-            memory_type='preference',
-            file_name='preference_用户偏好-最少代码.md',
-            file_path='E:/Python/RAGSystem/.ragsystem/memory/sessions/s1/preference_用户偏好-最少代码.md',
-        )
-    ]
     import services.agent_api_runtime_service as runtime_module
     runtime_module.get_config_manager = lambda: SimpleNamespace(get_config=lambda name: SimpleNamespace(memory=SimpleNamespace(enabled=True, auto_inject=True, allowed_scopes=['team', 'session'])))
-    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
+    context = service.build_context(session_id='s1', agent_name='demo_agent')
     pipeline = _make_pipeline()
 
     prepared = pipeline.inspect_messages('sys', context)
 
-    assert context.metadata['memory_indices']['team'] == '# team memory'
-    assert context.metadata['memory_indices']['session'] == '# session memory'
-    assert any('# memory' in item['content'] for item in prepared if item['role'] == 'system')
-    assert any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
+    assert context.metadata['memory_prefix_snapshot']['indices']['team'] == '# team memory'
+    assert context.metadata['memory_prefix_snapshot']['indices']['session'] == '# session memory'
+    assert any('# team memory' in item['content'] for item in prepared if item['role'] == 'system')
+    assert not any('[Relevant Memory Files]' in item['content'] for item in prepared if item['role'] == 'system')
 
 
 def test_build_context_injects_memory_scope_capabilities_into_prompt():
@@ -203,9 +193,10 @@ def test_build_context_injects_memory_scope_capabilities_into_prompt():
     pipeline = _make_pipeline()
 
     prepared = pipeline.inspect_messages('sys', context)
+    snapshot = context.metadata['memory_prefix_snapshot']
     memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
 
-    assert context.metadata['memory_scope_capabilities'] == {
+    assert snapshot['scope_capabilities'] == {
         'allowed_scopes': ['team', 'session', 'workspace'],
         'write_scopes': ['session', 'workspace'],
         'archive_scopes': ['team'],
@@ -231,18 +222,15 @@ def test_build_context_exposes_disabled_memory_scope_capabilities():
             )
         )
     )
-    context = service.build_context(session_id='s1', memory_query='最少代码', agent_name='demo_agent')
+    context = service.build_context(session_id='s1', agent_name='demo_agent')
     pipeline = _make_pipeline()
 
     prepared = pipeline.inspect_messages('sys', context)
     memory_blocks = [item['content'] for item in prepared if item['role'] == 'system']
     merged_block = '\n\n'.join(memory_blocks)
 
-    assert context.metadata['memory_scope_capabilities'] == {
-        'allowed_scopes': [],
-        'write_scopes': [],
-        'archive_scopes': [],
-    }
+    assert context.memory_prefix_handle is not None
+    assert 'memory_prefix_snapshot' not in context.metadata
     assert '[Memory Scope Capabilities]' not in merged_block
     assert 'memory_indices' not in context.metadata
     assert 'retrieved_memories' not in context.metadata
@@ -304,21 +292,77 @@ def test_pipeline_get_history_raw_uses_message_seq_only():
     }]
 
 
-def test_pipeline_write_back_context_preserves_seq():
+
+
+def test_pipeline_reuses_stable_memory_prefix_without_refresh_on_plain_rebuild():
     pipeline = _make_pipeline()
-    context = AgentContext(session_id="s1")
+    context = AgentContext(session_id='s1')
+    refresh_calls = []
+    snapshot = {
+        'rendered_block': '[Memory Scope Capabilities]\n- 可读取 scope: team\n- 可写入 scope: 无\n- 可归档 scope: 无\n- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作',
+        'fingerprint': {'fingerprint': 'stable-1'},
+        'scope_capabilities': {'allowed_scopes': ['team'], 'write_scopes': [], 'archive_scopes': []},
+        'indices': {},
+    }
+    class _Handle:
+        def get_current_fingerprint(self):
+            return {'fingerprint': 'stable-1'}
 
-    pipeline._write_back_context(context, [
-        {"role": "system", "content": "[历史摘要]\n...", "metadata": {"compression": True}},
-        {"role": "user", "content": "u", "metadata": {}, "seq": 31},
-        {"role": "assistant", "content": "a", "metadata": {}, "seq": 32},
-    ])
+        def refresh_snapshot(self, *, reason='runtime_refresh', force_rebuild=False):
+            refresh_calls.append((reason, force_rebuild))
+            return snapshot
 
-    assert [message.seq for message in context.conversation_history] == [None, 31, 32]
-    assert context.get_history(limit=0)[1]["seq"] == 31
+    context.metadata.update({
+        'memory_prefix_snapshot': snapshot,
+    })
+    context.memory_prefix_handle = _Handle()
+
+    prepared = pipeline.prepare_messages('sys', context, current_session=[])
+
+    assert refresh_calls == []
+    assert any('[Memory Scope Capabilities]' in item['content'] for item in prepared if item['role'] == 'system')
 
 
-def test_prompt_materializer_text_observation_deduplicates_same_summary_and_content():
+
+def test_pipeline_refreshes_stable_memory_prefix_after_apply_compression():
+    pipeline = _make_pipeline()
+    context = AgentContext(session_id='s1')
+    refreshed_snapshot = {
+        'rendered_block': '[Team Memory Index]\n# Team Memory v2',
+        'fingerprint': {'fingerprint': 'stable-2'},
+        'scope_capabilities': {'allowed_scopes': ['team'], 'write_scopes': [], 'archive_scopes': []},
+        'indices': {'team': '# Team Memory v2'},
+    }
+    refresh_calls = []
+    class _Handle:
+        def get_current_fingerprint(self):
+            return {'fingerprint': 'stable-1'}
+
+        def refresh_snapshot(self, *, reason='runtime_refresh', force_rebuild=False):
+            refresh_calls.append((reason, force_rebuild))
+            return refreshed_snapshot
+
+    context.metadata.update({
+        'memory_prefix_snapshot': {
+            'rendered_block': '[Team Memory Index]\n# Team Memory v1',
+            'fingerprint': {'fingerprint': 'stable-1'},
+            'scope_capabilities': {'allowed_scopes': ['team'], 'write_scopes': [], 'archive_scopes': []},
+            'indices': {'team': '# Team Memory v1'},
+        },
+    })
+    context.memory_prefix_handle = _Handle()
+
+    history_raw = [
+        {'role': 'user', 'content': 'u1', 'seq': 1, 'metadata': {}},
+        {'role': 'assistant', 'content': 'a1', 'seq': 2, 'metadata': {}},
+        {'role': 'user', 'content': 'u2', 'seq': 3, 'metadata': {}},
+    ]
+    segment = history_raw[:2]
+
+    pipeline._apply_compression('[历史摘要]\nsummary', segment, history_raw, context, publisher=None)
+
+    assert refresh_calls == [('apply_compression', True)]
+    assert context.metadata['memory_prefix_snapshot']['rendered_block'] == '[Team Memory Index]\n# Team Memory v2'
     materializer = PromptMaterializer()
     result = ToolExecutionResult(
         success=True,
@@ -378,6 +422,34 @@ def test_prompt_materializer_json_observation_exposes_child_agent_id():
     assert "demo" not in formatter_b.list_formatters()
 
 
+def test_pipeline_prepare_execution_messages_reuses_cache_on_append():
+    pipeline = _make_pipeline()
+    context = AgentContext(session_id='s1')
+    cache_state = {}
+
+    first = pipeline.prepare_execution_messages(
+        system_prompt='sys',
+        context=context,
+        current_session=[{'role': 'user', 'content': 'u1'}],
+        cache_state=cache_state,
+    )
+    second = pipeline.prepare_execution_messages(
+        system_prompt='sys',
+        context=context,
+        current_session=[
+            {'role': 'user', 'content': 'u1'},
+            {'role': 'assistant', 'content': 'a1'},
+        ],
+        cache_state=cache_state,
+    )
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert second.rebuild_reason == 'cache_hit'
+    assert second.messages[-1]['content'] == 'a1'
+
+
+
 def test_pipeline_records_compression_without_post_compression_trim():
     temp_dir = tempfile.mkdtemp(dir=Path(__file__).resolve().parent)
     collector = ObservationWindowCollector(
@@ -424,6 +496,7 @@ def test_pipeline_records_compression_without_post_compression_trim():
         assert report["trim_stats"]["trimmed_messages"] == 0
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 
 def test_pipeline_does_not_trim_current_session_when_no_compression_happens():

@@ -764,150 +764,22 @@ class BaseAgent(ABC):
             'tool_calls_history': [],
             'rounds': 0,
             'system_prompt': None,
-            'managed_messages': None,
-            'managed_messages_session_len': 0,
-            'managed_messages_tokens': 0,
+            'message_cache': {},
         }
 
-    def _publish_context_usage(self, managed_messages, rounds: int, publisher) -> None:
+    def _publish_context_usage(self, token_stats: Dict[str, int], rounds: int, publisher) -> None:
         """发布上下文用量事件。"""
         if not publisher:
             return
         from agents.events.bus import EventType
 
-        current_tokens = self.context_pipeline._token_counter.count_messages(managed_messages)
-        # 分离 system_prompt tokens，使前端展示口径一致
-        system_tokens = self.context_pipeline._token_counter.count_messages([managed_messages[0]]) if managed_messages else 0
-        session_tokens = current_tokens - system_tokens
-        budget_tokens = self.context_pipeline.config.max_tokens + system_tokens  # 总输入预算
         publisher._publish(EventType.CONTEXT_USAGE, {
-            'used_tokens': current_tokens,
-            'system_prompt_tokens': system_tokens,
-            'total_tokens': current_tokens,
-            'budget_tokens': budget_tokens,
+            'used_tokens': token_stats['used_tokens'],
+            'system_prompt_tokens': token_stats['system_prompt_tokens'],
+            'total_tokens': token_stats['total_tokens'],
+            'budget_tokens': token_stats['budget_tokens'],
             'round': rounds,
         })
-
-    def _rebuild_managed_messages(
-        self,
-        *,
-        context: AgentContext,
-        state: Dict[str, Any],
-        publisher,
-        llm_config: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        logger = getattr(self, 'logger', None)
-        system_prompt = state.get('system_prompt')
-        if system_prompt is None:
-            system_prompt = self._build_system_prompt()
-            state['system_prompt'] = system_prompt
-            if logger:
-                logger.debug("[%s] 首次构建 system_prompt 并进入全量消息构建", self.name)
-        else:
-            if logger:
-                logger.debug("[%s] 复用已缓存 system_prompt，重新走 pipeline 全量消息构建", self.name)
-
-        managed_messages = self.context_pipeline.prepare_messages(
-            system_prompt=system_prompt,
-            context=context,
-            current_session=state['current_session'],
-            publisher=publisher,
-            llm_config=llm_config,
-        )
-        state['managed_messages'] = managed_messages
-        state['managed_messages_session_len'] = len(state['current_session'])
-        state['managed_messages_tokens'] = self.context_pipeline._token_counter.count_messages(managed_messages)
-        if logger:
-            logger.debug(
-                "[%s] 全量消息构建完成: session_len=%s, managed_len=%s, tokens=%s",
-                self.name,
-                state['managed_messages_session_len'],
-                len(managed_messages),
-                state['managed_messages_tokens'],
-            )
-        return managed_messages
-
-    def _get_managed_messages(
-        self,
-        *,
-        context: AgentContext,
-        state: Dict[str, Any],
-        publisher,
-        llm_config: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        logger = getattr(self, 'logger', None)
-        managed_messages = state.get('managed_messages')
-        current_session = state['current_session']
-        cached_session_len = state.get('managed_messages_session_len', 0)
-
-        if managed_messages is None:
-            if logger:
-                logger.debug("[%s] managed_messages 缓存未命中，执行首次全量构建", self.name)
-            return self._rebuild_managed_messages(
-                context=context,
-                state=state,
-                publisher=publisher,
-                llm_config=llm_config,
-            )
-
-        if len(current_session) < cached_session_len:
-            if logger:
-                logger.debug(
-                    "[%s] current_session 长度回退(%s -> %s)，回退到 pipeline 全量重建",
-                    self.name,
-                    cached_session_len,
-                    len(current_session),
-                )
-            return self._rebuild_managed_messages(
-                context=context,
-                state=state,
-                publisher=publisher,
-                llm_config=llm_config,
-            )
-
-        if len(current_session) > cached_session_len:
-            appended_messages = current_session[cached_session_len:]
-            if appended_messages:
-                managed_messages = list(managed_messages)
-                managed_messages.extend(appended_messages)
-                state['managed_messages'] = managed_messages
-                state['managed_messages_session_len'] = len(current_session)
-                appended_tokens = self.context_pipeline._token_counter.count_messages(appended_messages)
-                state['managed_messages_tokens'] = state.get('managed_messages_tokens', 0) + appended_tokens
-                if logger:
-                    logger.debug(
-                        "[%s] managed_messages 增量追加: appended=%s, session_len=%s, tokens=%s (+%s)",
-                        self.name,
-                        len(appended_messages),
-                        state['managed_messages_session_len'],
-                        state['managed_messages_tokens'],
-                        appended_tokens,
-                    )
-
-        trigger_threshold = self.context_pipeline.config.max_tokens * self.context_pipeline.config.compression_trigger_ratio
-        if state.get('managed_messages_tokens', 0) >= trigger_threshold:
-            if logger:
-                logger.debug(
-                    "[%s] managed_messages 达到阈值，回退到 pipeline 全量重建: tokens=%s, threshold=%s",
-                    self.name,
-                    state.get('managed_messages_tokens', 0),
-                    int(trigger_threshold),
-                )
-            return self._rebuild_managed_messages(
-                context=context,
-                state=state,
-                publisher=publisher,
-                llm_config=llm_config,
-            )
-
-        if logger:
-            logger.debug(
-                "[%s] 复用 managed_messages 缓存: session_len=%s, tokens=%s",
-                self.name,
-                state.get('managed_messages_session_len', 0),
-                state.get('managed_messages_tokens', 0),
-            )
-        return state['managed_messages']
 
     def _format_assistant_context_message(
         self,
@@ -1353,14 +1225,27 @@ class BaseAgent(ABC):
                 log_prefix = self._log_prefix(llm_config, self._get_runtime_log_label())
                 self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
 
-                managed_messages = self._get_managed_messages(
+                prepared = self.context_pipeline.prepare_execution_messages(
+                    system_prompt=state['system_prompt'] or self._build_system_prompt(),
                     context=context,
-                    state=state,
+                    current_session=state['current_session'],
                     publisher=publisher,
                     llm_config=llm_config,
+                    cache_state=state.setdefault('message_cache', {}),
                 )
+                state['system_prompt'] = state.get('system_prompt') or prepared.messages[0].get('content', '')
+                managed_messages = prepared.messages
                 self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
-                self._publish_context_usage(managed_messages, rounds, publisher)
+                self._publish_context_usage(
+                    {
+                        'used_tokens': prepared.total_tokens,
+                        'system_prompt_tokens': prepared.system_tokens,
+                        'total_tokens': prepared.total_tokens,
+                        'budget_tokens': prepared.budget_tokens,
+                    },
+                    rounds,
+                    publisher,
+                )
 
                 stream_executor = StreamExecutor(
                     model_adapter=self.model_adapter,

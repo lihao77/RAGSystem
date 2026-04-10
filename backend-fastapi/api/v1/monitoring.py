@@ -101,8 +101,6 @@ async def get_context_snapshot(
             raise HTTPException(status_code=503, detail='默认入口智能体未加载')
 
         def _get_snapshot():
-            from agents.context.token_counter import TokenCounter
-
             system_prompt = entry_agent._build_system_prompt()
             agent_tools = []
             get_agent_tools = getattr(entry_agent, '_build_agent_roster_for_prompt', None) or getattr(entry_agent, '_get_available_agent_tools', None)
@@ -147,22 +145,27 @@ async def get_context_snapshot(
                     })
 
             llm_cfg = entry_agent.get_llm_config(context=snapshot_ctx)
-            counter = TokenCounter(model_name=llm_cfg.get('model_name'))
-            sp_tokens = counter.count_text(system_prompt)
 
             history = []
-            history_tokens = 0
+            token_stats = {
+                'system_prompt_tokens': entry_agent.context_pipeline.count_messages_tokens([{'role': 'system', 'content': system_prompt}]),
+                'history_tokens': 0,
+                'total_tokens': 0,
+                'budget_tokens': 0,
+            }
             if session_id:
                 from dependencies import get_agent_runtime_service
                 context = runtime_service.build_context(session_id=session_id, agent_name=entry_agent.name)
-                messages = entry_agent.context_pipeline.inspect_messages(system_prompt, context)
-                # 跳过第一条 system prompt（已单独统计）
+                inspected = entry_agent.context_pipeline.inspect_messages_with_stats(
+                    system_prompt=system_prompt,
+                    context=context,
+                )
+                messages = inspected.messages
                 for msg in messages[1:]:
                     content = msg.get('content', '')
                     meta = msg.get('metadata') or {}
                     preview = content[:200] + ('...' if len(content) > 200 else '')
-                    t = counter.count_text(content)
-                    history_tokens += t
+                    t = entry_agent.context_pipeline.count_messages_tokens([msg])
                     history.append({
                         'seq': msg.get('seq'),
                         'role': msg['role'],
@@ -176,10 +179,12 @@ async def get_context_snapshot(
                         'msg_type': meta.get('msg_type'),
                         'round': meta.get('round'),
                     })
-
-            max_tokens = entry_agent.context_pipeline.config.max_tokens
-            total = sp_tokens + history_tokens
-            budget_tokens = max_tokens + sp_tokens  # 总输入预算 = 历史预算 + system_prompt
+                token_stats = {
+                    'system_prompt_tokens': inspected.system_tokens,
+                    'history_tokens': max(inspected.total_tokens - inspected.system_tokens, 0),
+                    'total_tokens': inspected.total_tokens,
+                    'budget_tokens': inspected.budget_tokens,
+                }
 
             cfg = entry_agent.context_pipeline.config
             config_info = {
@@ -204,12 +209,7 @@ async def get_context_snapshot(
                 'system_prompt': system_prompt,
                 'available_agent_tools': agent_tools,
                 'conversation_history': history,
-                'token_stats': {
-                    'system_prompt_tokens': sp_tokens,
-                    'history_tokens': history_tokens,
-                    'total_tokens': total,
-                    'budget_tokens': budget_tokens,
-                },
+                'token_stats': token_stats,
                 'config': config_info,
                 'available_tools': direct_tools,
                 'available_skills': skills,

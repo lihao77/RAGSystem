@@ -381,10 +381,10 @@ def test_runtime_build_context_uses_session_team_memory_config():
         default_adapter_getter=lambda: SimpleNamespace(),
     )
 
-    context = runtime.build_context(session_id='session-team', agent_name='demo_agent', memory_query='x')
+    context = runtime.build_context(session_id='session-team', agent_name='demo_agent')
 
     assert context.metadata['team'] == 'team_b'
-    assert context.metadata['memory_scope_capabilities'] == {
+    assert context.metadata['memory_prefix_snapshot']['scope_capabilities'] == {
         'allowed_scopes': ['session', 'workspace'],
         'write_scopes': ['workspace'],
         'archive_scopes': ['session'],

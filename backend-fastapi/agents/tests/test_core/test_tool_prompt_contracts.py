@@ -325,6 +325,84 @@ def test_orchestrator_cache_key_extra_is_stable_for_same_roster_order():
     assert extra_1 == extra_2
 
 
+
+
+def test_memory_prefix_fingerprint_changes_when_memory_scope_semantics_change():
+    from services.agent_api_runtime_service import AgentApiRuntimeService
+
+    service = AgentApiRuntimeService(
+        conversation_store=SimpleNamespace(get_session=lambda session_id: {'metadata': {'team': 'alpha-team'}}),
+        task_registry_getter=lambda: None,
+        session_manager_getter=lambda: None,
+        session_application=object(),
+        collaboration_application=object(),
+        config_getter=lambda: None,
+        config_manager_getter=lambda: None,
+        default_adapter_getter=lambda: None,
+    )
+
+    memory_v1 = SimpleNamespace(
+        enabled=True,
+        auto_inject=True,
+        allowed_scopes=['team', 'session'],
+        write_scopes=[],
+        archive_scopes=[],
+    )
+    memory_v2 = SimpleNamespace(
+        enabled=True,
+        auto_inject=True,
+        allowed_scopes=['team', 'session'],
+        write_scopes=['session'],
+        archive_scopes=[],
+    )
+
+    scope_specs_v1 = service._build_memory_scope_specs(memory_config=memory_v1, session_id='s1', agent_name='demo_agent')
+    scope_specs_v2 = service._build_memory_scope_specs(memory_config=memory_v2, session_id='s1', agent_name='demo_agent')
+    fp_v1 = service._build_memory_prefix_fingerprint(memory_config=memory_v1, scope_specs=scope_specs_v1, agent_name='demo_agent')
+    fp_v2 = service._build_memory_prefix_fingerprint(memory_config=memory_v2, scope_specs=scope_specs_v2, agent_name='demo_agent')
+
+    assert fp_v1['fingerprint'] != fp_v2['fingerprint']
+
+
+def test_memory_prefix_fingerprint_changes_when_scope_boundary_changes():
+    from services.agent_api_runtime_service import AgentApiRuntimeService
+
+    session_map = {
+        's1': {'metadata': {'team': 'alpha-team', 'workspace_root': 'E:/workspace/a'}},
+        's2': {'metadata': {'team': 'alpha-team', 'workspace_root': 'E:/workspace/b'}},
+    }
+    service = AgentApiRuntimeService(
+        conversation_store=SimpleNamespace(get_session=lambda session_id: session_map[session_id]),
+        task_registry_getter=lambda: None,
+        session_manager_getter=lambda: None,
+        session_application=object(),
+        collaboration_application=object(),
+        config_getter=lambda: None,
+        config_manager_getter=lambda: None,
+        default_adapter_getter=lambda: None,
+    )
+
+    memory_cfg = SimpleNamespace(
+        enabled=True,
+        auto_inject=True,
+        allowed_scopes=['team', 'workspace'],
+        write_scopes=[],
+        archive_scopes=[],
+    )
+
+    fp_a = service._build_memory_prefix_fingerprint(
+        memory_config=memory_cfg,
+        scope_specs=service._build_memory_scope_specs(memory_config=memory_cfg, session_id='s1', agent_name='demo_agent'),
+        agent_name='demo_agent',
+    )
+    fp_b = service._build_memory_prefix_fingerprint(
+        memory_config=memory_cfg,
+        scope_specs=service._build_memory_scope_specs(memory_config=memory_cfg, session_id='s2', agent_name='demo_agent'),
+        agent_name='demo_agent',
+    )
+
+
+
 def test_system_prompt_cache_uses_lru_eviction_on_cache_hit():
     original_cache = BaseAgent._system_prompt_cache
     original_max = BaseAgent._SYSTEM_PROMPT_CACHE_MAX

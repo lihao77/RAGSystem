@@ -9,9 +9,11 @@ AgentChatApplication（会话历史、配置访问）的职责。
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, Callable
 
 from runtime.dependencies import get_runtime_dependency
 from core.path_resolution import get_session_workspace_root, get_workspace_memory_key
@@ -20,6 +22,7 @@ from agents.events import get_session_manager
 from agents.task_registry import get_task_registry
 from services.conversation_store import ConversationStore
 from services.memory_store import MemoryStore
+from services.memory_prefix_service import MemoryPrefixService
 from agents.config import get_config_manager
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,13 @@ class AgentApiRuntimeService:
     ):
         self._conversation_store = conversation_store or ConversationStore()
         self._memory_store = MemoryStore()
+        self._memory_prefix_service = MemoryPrefixService(
+            conversation_store=self._conversation_store,
+            memory_store=self._memory_store,
+            resolve_agent_config_for_session=self._resolve_agent_config_for_session,
+            get_session_team=self._get_session_team,
+            get_memory_workspace_key=self._get_memory_workspace_key,
+        )
         self._task_registry_getter = task_registry_getter or get_task_registry
         self._session_manager_getter = session_manager_getter or get_session_manager
         self._metrics_collector = None
@@ -210,24 +220,128 @@ class AgentApiRuntimeService:
             logger.debug('execution orchestrator 未覆盖默认入口: session_id=%s', session_id)
         return orchestrator
 
+    def _sync_memory_prefix_service_dependencies(self) -> None:
+        self._memory_prefix_service._conversation_store = self._conversation_store
+        self._memory_prefix_service._memory_store = self._memory_store
+
     def _get_memory_workspace_key(self, session_id: str | None) -> Optional[str]:
         workspace_root = self._get_session_workspace_root(session_id)
         return get_workspace_memory_key(workspace_root)
 
     def _build_memory_scope_specs(self, *, memory_config, session_id: str, agent_name: Optional[str]):
-        allowed_scopes = set(getattr(memory_config, 'allowed_scopes', []) or ['team', 'session'])
-        workspace_key = self._get_memory_workspace_key(session_id)
-        team_name = self._get_session_team(session_id)
-        scope_specs = []
-        if 'team' in allowed_scopes and team_name:
-            scope_specs.append(('team', {'scope': 'team', 'team_name': team_name}))
-        if 'session' in allowed_scopes:
-            scope_specs.append(('session', {'scope': 'session', 'session_id': session_id}))
-        if 'agent' in allowed_scopes and agent_name and team_name:
-            scope_specs.append(('agent', {'scope': 'agent', 'agent_name': agent_name, 'team_name': team_name}))
-        if 'workspace' in allowed_scopes and workspace_key:
-            scope_specs.append(('workspace', {'scope': 'workspace', 'workspace_key': workspace_key}))
-        return scope_specs
+        return self._memory_prefix_service._build_memory_scope_specs(
+            memory_config=memory_config,
+            session_id=session_id,
+            agent_name=agent_name,
+        )
+
+    @staticmethod
+    def _memory_baseline_key(thread_key: str, agent_name: Optional[str]) -> str:
+        return MemoryPrefixService._memory_baseline_key(thread_key, agent_name)
+
+    def _build_memory_scope_capabilities(self, memory_config) -> Dict[str, List[str]]:
+        return self._memory_prefix_service._build_memory_scope_capabilities(memory_config)
+
+    def _build_memory_prefix_fingerprint(
+        self,
+        *,
+        memory_config,
+        scope_specs: List[tuple[str, Dict[str, Any]]],
+        agent_name: Optional[str],
+    ) -> Dict[str, Any]:
+        return self._memory_prefix_service._build_memory_prefix_fingerprint(
+            memory_config=memory_config,
+            scope_specs=scope_specs,
+            agent_name=agent_name,
+        )
+
+    def _render_memory_prefix_block(
+        self,
+        *,
+        scope_capabilities: Dict[str, List[str]],
+        indices: Dict[str, str],
+    ) -> str:
+        return self._memory_prefix_service._render_memory_prefix_block(
+            scope_capabilities=scope_capabilities,
+            indices=indices,
+        )
+
+    def _build_memory_prefix_snapshot(
+        self,
+        *,
+        session_id: str,
+        thread_key: str,
+        agent_name: Optional[str],
+        memory_config,
+        fingerprint_payload: Dict[str, Any],
+        scope_specs: List[tuple[str, Dict[str, Any]]],
+        rebased_reason: str,
+    ) -> Dict[str, Any]:
+        return self._memory_prefix_service._build_memory_prefix_snapshot(
+            session_id=session_id,
+            thread_key=thread_key,
+            agent_name=agent_name,
+            memory_config=memory_config,
+            fingerprint_payload=fingerprint_payload,
+            scope_specs=scope_specs,
+            rebased_reason=rebased_reason,
+        )
+
+    def _get_session_metadata(self, session_id: str) -> Dict[str, Any]:
+        return self._memory_prefix_service._get_session_metadata(session_id)
+
+    def _read_memory_prefix_state(self, session_id: str, baseline_key: str) -> Optional[Dict[str, Any]]:
+        return self._memory_prefix_service._read_memory_prefix_state(session_id, baseline_key)
+
+    def _persist_memory_prefix_state(self, session_id: str, baseline_key: str, state: Dict[str, Any]) -> None:
+        self._memory_prefix_service._persist_memory_prefix_state(session_id, baseline_key, state)
+
+    def _load_or_create_memory_prefix_snapshot(
+        self,
+        *,
+        session_id: str,
+        thread_key: str,
+        agent_name: Optional[str],
+        memory_config,
+        rebased_reason: str,
+        force_rebuild: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        return self._memory_prefix_service._load_or_create_memory_prefix_snapshot(
+            session_id=session_id,
+            thread_key=thread_key,
+            agent_name=agent_name,
+            memory_config=memory_config,
+            rebased_reason=rebased_reason,
+            force_rebuild=force_rebuild,
+        )
+
+    def _get_current_memory_prefix_fingerprint(
+        self,
+        *,
+        session_id: str,
+        agent_name: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        return self._memory_prefix_service.get_current_fingerprint(
+            session_id=session_id,
+            agent_name=agent_name,
+        )
+
+    def refresh_memory_prefix_snapshot(
+        self,
+        *,
+        session_id: str,
+        thread_key: str,
+        agent_name: Optional[str],
+        rebased_reason: str,
+        force_rebuild: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        return self._memory_prefix_service.refresh_snapshot(
+            session_id=session_id,
+            thread_key=thread_key,
+            agent_name=agent_name,
+            rebased_reason=rebased_reason,
+            force_rebuild=force_rebuild,
+        )
 
 
     def load_history_into_context(
@@ -271,7 +385,6 @@ class AgentApiRuntimeService:
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
         call_id: Optional[str] = None,
-        memory_query: Optional[str] = None,
         agent_name: Optional[str] = None,
         current_user_input: Optional[str] = None,
         current_attachments: Optional[List[dict]] = None,
@@ -314,60 +427,31 @@ class AgentApiRuntimeService:
             context.metadata['current_user_input'] = current_user_input
         if current_attachments:
             context.metadata['current_attachments'] = list(current_attachments)
-        memory_config = None
-        if agent_name:
-            agent_config = self._resolve_agent_config_for_session(session_id, agent_name)
-            memory_config = getattr(agent_config, 'memory', None) if agent_config else None
-        if memory_config:
-            allowed_scopes = list(getattr(memory_config, 'allowed_scopes', []) or [])
-            write_scopes = list(getattr(memory_config, 'write_scopes', []) or [])
-            archive_scopes = list(getattr(memory_config, 'archive_scopes', []) or [])
-            context.metadata['memory_scope_capabilities'] = {
-                'allowed_scopes': allowed_scopes,
-                'write_scopes': write_scopes,
-                'archive_scopes': archive_scopes,
-            }
         self.load_history_into_context(
             context,
             session_id=session_id,
             limit=limit,
             thread_key=resolved_thread_key,
         )
-        memory_enabled = bool(memory_config and (
-            (getattr(memory_config, 'allowed_scopes', []) or [])
-            or (getattr(memory_config, 'write_scopes', []) or [])
-            or (getattr(memory_config, 'archive_scopes', []) or [])
-        ))
-        if memory_enabled and getattr(memory_config, 'auto_inject', True):
-            scope_specs = self._build_memory_scope_specs(
-                memory_config=memory_config,
+        self._sync_memory_prefix_service_dependencies()
+        agent_config = self._resolve_agent_config_for_session(session_id, agent_name) if agent_name else None
+        memory_config = getattr(agent_config, 'memory', None) if agent_config else None
+        memory_snapshot = self.refresh_memory_prefix_snapshot(
+            session_id=session_id,
+            thread_key=resolved_thread_key,
+            agent_name=agent_name,
+            rebased_reason='build_context',
+        )
+        if memory_snapshot:
+            context.metadata['memory_prefix_snapshot'] = memory_snapshot
+        else:
+            context.metadata.pop('memory_prefix_snapshot', None)
+        if memory_config:
+            context.memory_prefix_handle = self._memory_prefix_service.create_handle(
                 session_id=session_id,
+                thread_key=resolved_thread_key,
                 agent_name=agent_name,
             )
-            memory_indices = {}
-            for scope_name, scope_spec in scope_specs:
-                content = self._memory_store.load_index_head(**scope_spec)
-                if content:
-                    memory_indices[scope_name] = content
-            if memory_indices:
-                context.metadata['memory_indices'] = memory_indices
-            if memory_query is not None and scope_specs:
-                retrieved = self._memory_store.search_memories(
-                    scope_chain=[scope_spec for _, scope_spec in scope_specs],
-                    query=memory_query,
-                    limit=5,
-                )
-                context.metadata['retrieved_memories'] = [
-                    {
-                        'name': item.name,
-                        'description': item.description,
-                        'scope': item.scope,
-                        'memory_type': item.memory_type,
-                        'file_name': item.file_name,
-                        'file_path': item.file_path,
-                    }
-                    for item in retrieved
-                ]
         return context
 
     # ── orchestrator（原 AgentRuntimeService） ───────────
