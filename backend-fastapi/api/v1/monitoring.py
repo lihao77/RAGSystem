@@ -164,15 +164,16 @@ async def get_context_snapshot(
                 for msg in messages[1:]:
                     content = msg.get('content', '')
                     meta = msg.get('metadata') or {}
-                    preview = content[:200] + ('...' if len(content) > 200 else '')
+                    is_system_message = msg.get('role') == 'system'
+                    preview = content if is_system_message else content[:200] + ('...' if len(content) > 200 else '')
                     t = entry_agent.context_pipeline.count_messages_tokens([msg])
                     history.append({
                         'seq': msg.get('seq'),
                         'role': msg['role'],
                         'content_preview': preview,
                         'content_length': len(content),
-                        'is_preview_truncated': len(content) > 200,
-                        'can_load_full_content': bool(session_id and msg.get('seq') is not None),
+                        'is_preview_truncated': False if is_system_message else len(content) > 200,
+                        'can_load_full_content': False if is_system_message else bool(session_id and msg.get('seq') is not None),
                         'tokens': t,
                         'is_compression_summary': bool(meta.get('compression')),
                         'react_intermediate': meta.get('react_intermediate', False),
