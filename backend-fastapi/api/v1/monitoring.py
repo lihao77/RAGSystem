@@ -153,6 +153,7 @@ async def get_context_snapshot(
                 'total_tokens': 0,
                 'budget_tokens': 0,
             }
+            memory_info = None
             if session_id:
                 from dependencies import get_agent_runtime_service
                 context = runtime_service.build_context(session_id=session_id, agent_name=entry_agent.name)
@@ -186,6 +187,14 @@ async def get_context_snapshot(
                     'total_tokens': inspected.total_tokens,
                     'budget_tokens': inspected.budget_tokens,
                 }
+                # 提取 memory prefix snapshot
+                mem_snapshot = (getattr(context, 'metadata', None) or {}).get('memory_prefix_snapshot')
+                if mem_snapshot:
+                    memory_info = {
+                        'indices': mem_snapshot.get('indices', {}),
+                        'scope_capabilities': mem_snapshot.get('scope_capabilities', {}),
+                        'rendered_block': mem_snapshot.get('rendered_block', ''),
+                    }
 
             cfg = entry_agent.context_pipeline.config
             config_info = {
@@ -206,7 +215,7 @@ async def get_context_snapshot(
             if entry_agent.max_rounds is not None:
                 config_info['max_rounds'] = entry_agent.max_rounds
 
-            return {
+            result = {
                 'system_prompt': system_prompt,
                 'available_agent_tools': agent_tools,
                 'conversation_history': history,
@@ -215,6 +224,9 @@ async def get_context_snapshot(
                 'available_tools': direct_tools,
                 'available_skills': skills,
             }
+            if memory_info:
+                result['memory'] = memory_info
+            return result
 
         data = await asyncio.to_thread(_get_snapshot)
         return ok(data=data, message='获取上下文快照成功')

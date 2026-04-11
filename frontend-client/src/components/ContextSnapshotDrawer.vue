@@ -73,6 +73,40 @@
               </div>
             </section>
 
+            <!-- System Prompt -->
+            <section class="ctx-section">
+              <h4 class="ctx-collapsible" @click="spExpanded = !spExpanded">
+                System Prompt <span class="ctx-arrow">{{ spExpanded ? '▼' : '▶' }}</span>
+              </h4>
+              <pre v-if="spExpanded" class="ctx-code-block">{{ data.system_prompt }}</pre>
+            </section>
+
+            <!-- Memory -->
+            <section v-if="data.memory" class="ctx-section">
+              <h4 class="ctx-collapsible" @click="memExpanded = !memExpanded">
+                Memory (Stable Prefix) <span class="ctx-arrow">{{ memExpanded ? '▼' : '▶' }}</span>
+              </h4>
+              <template v-if="memExpanded">
+                <div v-if="data.memory.scope_capabilities && Object.keys(data.memory.scope_capabilities).length" class="ctx-kv-list" style="margin-bottom: 8px;">
+                  <div v-for="(caps, scope) in data.memory.scope_capabilities" :key="scope" class="ctx-kv ctx-kv-group">
+                    <span class="ctx-k">{{ scope }}</span>
+                    <div class="ctx-kv-nested">
+                      <div v-for="(v, k) in caps" :key="k" class="ctx-kv-sub">
+                        <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-for="(content, scope) in data.memory.indices" :key="scope" class="ctx-mem-scope">
+                  <div class="ctx-mem-scope-title">{{ scope }} Memory Index</div>
+                  <pre class="ctx-code-block ctx-mem-content">{{ content }}</pre>
+                </div>
+                <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted, #999);">
+                  无已加载的记忆索引
+                </div>
+              </template>
+            </section>
+
             <!-- 对话历史 -->
             <section class="ctx-section">
               <h4>对话历史 ({{ data.conversation_history.length }})</h4>
@@ -100,14 +134,6 @@
               </div>
             </section>
 
-            <!-- System Prompt -->
-            <section class="ctx-section">
-              <h4 class="ctx-collapsible" @click="spExpanded = !spExpanded">
-                System Prompt <span class="ctx-arrow">{{ spExpanded ? '▼' : '▶' }}</span>
-              </h4>
-              <pre v-if="spExpanded" class="ctx-code-block">{{ data.system_prompt }}</pre>
-            </section>
-
           </div>
         </div>
       </div>
@@ -131,7 +157,8 @@ defineEmits(['close']);
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
-const spExpanded = ref(false);
+const spExpanded = ref(false)
+const memExpanded = ref(false);
 const expandedMessages = ref({});
 const messageContents = ref({});
 const loadingMessages = ref({});
@@ -339,6 +366,9 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-expand-btn:disabled { opacity: 0.65; cursor: wait; text-decoration: none; }
 .ctx-collapsible { cursor: pointer; user-select: none; }
 .ctx-arrow { font-size: 11px; margin-left: 4px; }
+.ctx-mem-scope { margin-bottom: 10px; }
+.ctx-mem-scope-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary, #666); margin-bottom: 4px; }
+.ctx-mem-content { max-height: 200px; font-size: 11px; }
 .ctx-code-block { background: var(--color-bg-tertiary, #f5f5f5); padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; margin: 0; }
 .drawer-fade-enter-active, .drawer-fade-leave-active { transition: opacity .25s; }
 .drawer-fade-enter-active .ctx-drawer, .drawer-fade-leave-active .ctx-drawer { transition: transform .25s; }
