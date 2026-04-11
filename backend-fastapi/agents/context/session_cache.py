@@ -5,17 +5,20 @@ SessionCache - 跨进程持久化的 pipeline 缓存
 策略：per-run read-through / write-through
   - 首次访问 lazy load 单个 session（从 DB 读）
   - 运行时直接读写内存
-  - run 结束时 flush 单个 session 回 DB
+  - run 结束时 flush 单个 session 回 DB，同时清除内存中的大对象
 
 存储位置：sessions.metadata._pipeline_caches
 数据结构：
   { "thread_key": {"fp": "sha256前16位", "t": unix_timestamp} }
 每个 session × thread 仅存 fp + t，约 50 字节。
+
+内存中额外存放（不持久化，flush 后自动清除）：
+  prepared_messages / prepared_session_len / _content
 """
 
 import logging
 import threading
-from typing import Any, Dict
+from typing import Any, Dict, Set
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 # {session_id: {thread_key: {"fp": str, "t": float, ...}}}
 _caches: Dict[str, Dict[str, Dict[str, Any]]] = {}
-_loaded_sessions: set = set()
+_loaded_sessions: Set[str] = set()
 _store = None  # ConversationStore 引用
 
 
@@ -49,29 +52,30 @@ def get_cache(session_id: str, thread_key: str) -> Dict[str, Any]:
 
 
 def flush_session(session_id: str) -> None:
-    """将单个 session 的缓存写回 DB（run 结束时调用）。"""
+    """将单个 session 的缓存写回 DB，并清除内存中的大对象（run 结束时调用）。"""
     if _store is None:
         return
     with _lock:
-        caches = _caches.get(session_id)
-    if not caches:
-        return
-    # 只持久化 fp + t，不存 prepared_messages 等大对象
-    to_save = {}
-    for tk, data in caches.items():
-        entry = {}
-        if 'fp' in data:
-            entry['fp'] = data['fp']
-        if 't' in data:
-            entry['t'] = data['t']
-        if entry:
-            to_save[tk] = entry
-    if not to_save:
+        raw = _caches.get(session_id)
+        if not raw:
+            return
+        # 在锁内深拷贝轻量字段，避免锁外遍历时其他线程并发修改
+        snapshot = {}
+        for tk, d in raw.items():
+            entry = {k: d[k] for k in ('fp', 't') if k in d}
+            if entry:
+                snapshot[tk] = entry
+        # 清除大对象（prepared_messages / _content），只保留 fp + t
+        for d in raw.values():
+            d.pop('prepared_messages', None)
+            d.pop('prepared_session_len', None)
+            d.pop('_content', None)
+    if not snapshot:
         return
     try:
         _store.update_session_metadata(
             session_id,
-            {"_pipeline_caches": to_save},
+            {"_pipeline_caches": snapshot},
             merge_nested=True,
         )
     except Exception as e:
@@ -94,8 +98,8 @@ def _ensure_session_loaded(session_id: str) -> None:
             caches = meta.get("_pipeline_caches")
             if caches and isinstance(caches, dict):
                 _caches[session_id] = {k: dict(v) for k, v in caches.items()}
-    except Exception:
-        pass  # 加载失败不影响运行，缓存为空即可
+    except Exception as e:
+        logger.debug("SessionCache: lazy load session %s 失败（缓存为空）: %s", session_id, e)
 
 
 def reset() -> None:

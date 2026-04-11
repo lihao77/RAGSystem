@@ -555,3 +555,81 @@ class TestStablePrefixFingerprint:
         fp1 = ContextPipeline._compute_stable_prefix_fingerprint("content A")
         fp2 = ContextPipeline._compute_stable_prefix_fingerprint("content B")
         assert fp1 != fp2
+
+
+# ─── SessionCache flush 行为测试 ──────────────────────────────────────────
+
+class TestSessionCacheFlush:
+    """验证 flush_session 并发安全与大对象清理。"""
+
+    def test_flush_evicts_large_objects_from_memory(self):
+        """flush 后内存中的大对象（prepared_messages/_content）被清除，fp/t 保留。"""
+        from unittest.mock import MagicMock
+        from agents.context import session_cache as sc
+
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = None
+        sc.bind_store(mock_store)
+
+        cache = sc.get_cache('sess1', 'root')
+        cache['fp'] = 'abc123'
+        cache['t'] = 1000.0
+        cache['prepared_messages'] = [{'role': 'user', 'content': 'x' * 10000}]
+        cache['prepared_session_len'] = 5
+        cache['_content'] = 'long system prompt content' * 100
+
+        sc.flush_session('sess1')
+
+        # 大对象已清除
+        assert 'prepared_messages' not in cache
+        assert 'prepared_session_len' not in cache
+        assert '_content' not in cache
+        # 轻量字段保留
+        assert cache['fp'] == 'abc123'
+        assert cache['t'] == 1000.0
+
+    def test_flush_only_persists_fp_and_t(self):
+        """flush 只将 fp + t 写入 DB，不写大对象。"""
+        from unittest.mock import MagicMock
+        from agents.context import session_cache as sc
+
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = None
+        sc.bind_store(mock_store)
+
+        cache = sc.get_cache('sess2', 'root')
+        cache['fp'] = 'fp_value'
+        cache['t'] = 999.0
+        cache['prepared_messages'] = [{'role': 'user', 'content': 'large'}]
+
+        sc.flush_session('sess2')
+
+        call_args = mock_store.update_session_metadata.call_args
+        saved = call_args[0][1]['_pipeline_caches']['root']
+        assert saved == {'fp': 'fp_value', 't': 999.0}
+        assert 'prepared_messages' not in saved
+
+    def test_flush_no_store_is_noop(self):
+        """未绑定 store 时 flush 不报错。"""
+        from agents.context import session_cache as sc
+        # reset 已在 fixture 中执行，store=None
+        sc.get_cache('sess3', 'root')['fp'] = 'x'
+        sc.flush_session('sess3')  # 应静默返回，不抛异常
+
+    def test_flush_partial_entry_missing_t(self):
+        """只有 fp 没有 t 的 entry 也能正常 flush（不报 KeyError）。"""
+        from unittest.mock import MagicMock
+        from agents.context import session_cache as sc
+
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = None
+        sc.bind_store(mock_store)
+
+        cache = sc.get_cache('sess4', 'root')
+        cache['fp'] = 'only_fp'  # 没有 't'
+
+        sc.flush_session('sess4')  # 不应 KeyError
+
+        call_args = mock_store.update_session_metadata.call_args
+        saved = call_args[0][1]['_pipeline_caches']['root']
+        assert saved == {'fp': 'only_fp'}
