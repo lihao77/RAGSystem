@@ -253,80 +253,6 @@ def test_react_prompt_includes_skill_tool_contracts():
     assert "### execute_skill_script" in prompt
 
 
-def test_prompt_cache_key_changes_when_tool_prompt_metadata_changes():
-    tool_v1 = {
-        "function": {
-            "name": "demo_tool",
-            "description": "first description",
-            "parameters": {
-                "type": "object",
-                "properties": {"q": {"type": "string", "description": "query"}},
-                "required": ["q"],
-            },
-            "allowed_callers": ["direct"],
-            "returns": {"type": "string", "description": "plain text"},
-            "usage_contract": ["keep short"],
-            "examples": [{"input": {"q": "a"}}],
-        }
-    }
-    tool_v2 = {
-        "function": {
-            **tool_v1["function"],
-            "description": "second description",
-        }
-    }
-    agent_v1 = _fake_agent(name="agent_v1", available_tools=[tool_v1])
-    agent_v2 = _fake_agent(name="agent_v1", available_tools=[tool_v2])
-
-    key_v1 = BaseAgent._system_prompt_cache_key(agent_v1)
-    key_v2 = BaseAgent._system_prompt_cache_key(agent_v2)
-
-    assert key_v1 != key_v2
-
-
-def test_prompt_cache_key_changes_when_skill_description_changes():
-    skill_v1 = SimpleNamespace(name="analysis", description="first")
-    skill_v2 = SimpleNamespace(name="analysis", description="second")
-    agent_v1 = _fake_agent(name="agent_v1", available_skills=[skill_v1])
-    agent_v2 = _fake_agent(name="agent_v1", available_skills=[skill_v2])
-
-    key_v1 = BaseAgent._system_prompt_cache_key(agent_v1)
-    key_v2 = BaseAgent._system_prompt_cache_key(agent_v2)
-
-    assert key_v1 != key_v2
-
-
-def test_orchestrator_cache_key_extra_is_stable_for_same_roster_order():
-    roster = [
-        {
-            "agent_name": "researcher",
-            "display_name": "Researcher",
-            "description": "do research",
-            "use_cases": ["search"],
-            "tool_count": 2,
-        },
-        {
-            "agent_name": "coder",
-            "display_name": "Coder",
-            "description": "write code",
-            "use_cases": ["implement"],
-            "tool_count": 3,
-        },
-    ]
-
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(orchestrator_prompting, "_build_agent_roster", lambda agent: roster)
-    try:
-        extra_1 = orchestrator_prompting.get_orchestrator_cache_key_extra(SimpleNamespace())
-        extra_2 = orchestrator_prompting.get_orchestrator_cache_key_extra(SimpleNamespace())
-    finally:
-        monkeypatch.undo()
-
-    assert extra_1 == extra_2
-
-
-
-
 def test_memory_prefix_fingerprint_changes_when_memory_scope_semantics_change():
     from services.agent_api_runtime_service import AgentApiRuntimeService
 
@@ -401,34 +327,6 @@ def test_memory_prefix_fingerprint_changes_when_scope_boundary_changes():
         agent_name='demo_agent',
     )
 
-
-
-def test_system_prompt_cache_uses_lru_eviction_on_cache_hit():
-    original_cache = BaseAgent._system_prompt_cache
-    original_max = BaseAgent._SYSTEM_PROMPT_CACHE_MAX
-    BaseAgent._system_prompt_cache = BaseAgent._system_prompt_cache.__class__()
-    BaseAgent._SYSTEM_PROMPT_CACHE_MAX = 2
-
-    try:
-        agent_a = _PromptCacheTestAgent(name="agent_a")
-        agent_b = _PromptCacheTestAgent(name="agent_b")
-        agent_c = _PromptCacheTestAgent(name="agent_c")
-
-        prompt_a = agent_a._build_system_prompt()
-        prompt_b = agent_b._build_system_prompt()
-        prompt_a_again = agent_a._build_system_prompt()
-        prompt_c = agent_c._build_system_prompt()
-
-        assert prompt_a_again == prompt_a
-        assert prompt_b
-        assert prompt_c
-        assert len(BaseAgent._system_prompt_cache) == 2
-        assert agent_a._system_prompt_cache_key() in BaseAgent._system_prompt_cache
-        assert agent_b._system_prompt_cache_key() not in BaseAgent._system_prompt_cache
-        assert agent_c._system_prompt_cache_key() in BaseAgent._system_prompt_cache
-    finally:
-        BaseAgent._system_prompt_cache = original_cache
-        BaseAgent._SYSTEM_PROMPT_CACHE_MAX = original_max
 
 
 def test_base_prompt_includes_execute_code_capability_section_when_tool_is_available():

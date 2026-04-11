@@ -244,9 +244,15 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
             queue: asyncio.Queue = asyncio.Queue()
             loop = asyncio.get_event_loop()
 
-            def _cleanup(*, natural_completion: bool = False):
+            def _cleanup(*_, natural_completion: bool = False):
                 try:
                     started.sse_adapter.stop()
+                except Exception:
+                    pass
+                # flush pipeline 缓存到 DB（per-run 持久化）
+                try:
+                    from agents.context.session_cache import flush_session
+                    flush_session(session_id)
                 except Exception:
                     pass
                 try:

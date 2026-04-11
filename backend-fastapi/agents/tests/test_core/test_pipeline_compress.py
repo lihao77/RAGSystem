@@ -11,6 +11,8 @@ pipeline.py 压缩逻辑单元测试。
 """
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,7 @@ import pytest
 
 from agents.context.config import ContextConfig
 from agents.context.pipeline import ContextPipeline, CompressionResult, ContextCompressionError
+from agents.context import session_cache as sc_module
 
 
 # ─── Fixtures / helpers ──────────────────────────────────────────────────────
@@ -33,6 +36,7 @@ class FakeMessage:
 
 @dataclass
 class FakeContext:
+    session_id: str = 'test_session'
     conversation_history: List[FakeMessage] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     memory_prefix_handle: Any = None
@@ -51,6 +55,7 @@ def _make_pipeline(preserve_recent_turns: int = 2) -> ContextPipeline:
         config=config,
         model_adapter=model_adapter,
         get_llm_config_fn=lambda task_type=None: {'provider': 'test', 'provider_type': 'test'},
+        agent_name='test_agent',
     )
     return pipeline
 
@@ -67,6 +72,14 @@ def _make_context_with_messages(msgs: List[Dict]) -> FakeContext:
         for m in msgs
     ]
     return ctx
+
+
+@pytest.fixture(autouse=True)
+def _reset_session_cache():
+    """每个测试前后重置 session_cache 模块状态。"""
+    sc_module.reset()
+    yield
+    sc_module.reset()
 
 
 # ─── Tests ───────────────────────────────────────────────────────────────────
@@ -403,3 +416,142 @@ class TestFormatCompactResponse:
         raw = '<summary>测试摘要内容</summary>'
         result = pipeline._format_compact_response(raw)
         assert result.startswith('本次会话从之前的对话继续')
+
+
+# ─── 稳定前缀 + KV 缓存保护 测试 ──────────────────────────────────────────
+
+class TestStablePrefixFingerprint:
+    """统一稳定前缀 fingerprint 门控：保护 KV 缓存。"""
+
+    @staticmethod
+    def _make_observation_messages(count: int, start_seq: int = 1):
+        """生成 count 条 user(observation) + assistant 对。"""
+        msgs = []
+        for i in range(count):
+            msgs.append({
+                'role': 'user',
+                'content': f'工具结果内容{i}（非常长的内容用来模拟真实工具输出）' * 10,
+                'metadata': {'msg_type': 'observation'},
+                'seq': start_seq + i * 2,
+            })
+            msgs.append({
+                'role': 'assistant',
+                'content': f'助手回复{i}',
+                'seq': start_seq + i * 2 + 1,
+            })
+        return msgs
+
+    def test_fingerprint_unchanged_across_turns(self):
+        """连续两轮相同输入 → fingerprint 不变 → microcompact 被跳过。"""
+        pipeline = _make_pipeline()
+        pipeline.config.microcompact_keep_recent_tools = 3
+        pipeline.config.microcompact_time_threshold_seconds = 600
+
+        obs_msgs = self._make_observation_messages(8)
+        ctx = _make_context_with_messages(obs_msgs)
+
+        # 模拟第一轮已写入 session cache
+        fp1 = pipeline._compute_stable_prefix_fingerprint("prompt")
+        cache = pipeline._session_cache(ctx)
+        cache['fp'] = fp1
+        cache['t'] = 1000.0
+
+        # 第二轮：fingerprint 相同 → _should_microcompact 返回 False
+        with patch('time.time', return_value=1001.0):  # 只过 1 秒
+            assert not pipeline._should_microcompact(False, cache)
+
+    def test_fingerprint_changed_allows_microcompact(self):
+        """fingerprint 变化（memory 或 system_prompt 更新）→ microcompact 执行。"""
+        pipeline = _make_pipeline()
+        cache = {'t': time.time()}
+        assert pipeline._should_microcompact(fingerprint_changed=True, cache=cache)
+
+    def test_time_threshold_allows_microcompact(self):
+        """超过时间阈值 → 服务端缓存已过期 → microcompact 执行。"""
+        pipeline = _make_pipeline()
+        pipeline.config.microcompact_time_threshold_seconds = 600
+        cache = {'t': 1000.0}
+
+        with patch('time.time', return_value=2000.0):  # 过了 1000 秒 > 600
+            assert pipeline._should_microcompact(fingerprint_changed=False, cache=cache)
+
+    def test_time_threshold_blocks_microcompact(self):
+        """未超时且 fingerprint 未变 → microcompact 被阻止。"""
+        pipeline = _make_pipeline()
+        pipeline.config.microcompact_time_threshold_seconds = 600
+        cache = {'t': 1000.0}
+
+        with patch('time.time', return_value=1200.0):  # 过了 200 秒 < 600
+            assert not pipeline._should_microcompact(fingerprint_changed=False, cache=cache)
+
+    def test_single_system_message_in_prepare(self):
+        """_prepare_messages_full 输出只有一个 system message（含 memory）。"""
+        import time as _time
+        pipeline = _make_pipeline()
+        ctx = FakeContext()
+        ctx.conversation_history = [
+            FakeMessage(role='user', content='hello', seq=1),
+            FakeMessage(role='assistant', content='hi', seq=2),
+        ]
+
+        prepared = pipeline._prepare_messages_full(
+            system_prompt='你是一个助手',
+            context=ctx,
+            current_session=[],
+        )
+
+        system_msgs = [m for m in prepared if m['role'] == 'system']
+        assert len(system_msgs) == 1
+        assert '你是一个助手' in system_msgs[0]['content']
+
+    def test_force_compress_resets_fingerprint(self):
+        """force_compress 成功后 metadata 中的 fingerprint 被清除。"""
+        pipeline = _make_pipeline(preserve_recent_turns=1)
+
+        # 构造足够的消息来触发实际压缩
+        msgs = []
+        for i in range(10):
+            msgs.append({'role': 'user', 'content': f'user{i}', 'seq': i * 2})
+            msgs.append({'role': 'assistant', 'content': f'asst{i}', 'seq': i * 2 + 1})
+        ctx = _make_context_with_messages(msgs)
+        cache = pipeline._session_cache(ctx)
+        cache['fp'] = "should_be_reset"
+        cache['t'] = time.time()
+
+        # mock _try_llm_summary 返回有效摘要
+        pipeline._try_llm_summary = MagicMock(return_value='压缩摘要')
+
+        result = pipeline.force_compress(ctx, system_prompt='test')
+        assert result['status'] == 'success'
+        assert 'fp' not in pipeline._session_cache(ctx)
+
+    def test_build_stable_prefix_without_memory(self):
+        """无 memory 时，stable content = system_prompt 原文。"""
+        ctx = FakeContext()
+        content = ContextPipeline._build_stable_prefix_content("hello prompt", ctx)
+        assert content == "hello prompt"
+
+    def test_build_stable_prefix_with_memory(self):
+        """有 memory 时，stable content = system_prompt + memory block。"""
+        ctx = FakeContext()
+        ctx.metadata = {
+            'memory_prefix_snapshot': {
+                'rendered_block': 'memory content here',
+            }
+        }
+        content = ContextPipeline._build_stable_prefix_content("hello prompt", ctx)
+        assert content == "hello prompt\n\nmemory content here"
+
+    def test_fingerprint_deterministic(self):
+        """相同内容 → 相同 fingerprint。"""
+        content = "test content for hashing"
+        fp1 = ContextPipeline._compute_stable_prefix_fingerprint(content)
+        fp2 = ContextPipeline._compute_stable_prefix_fingerprint(content)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_fingerprint_differs_on_content_change(self):
+        """不同内容 → 不同 fingerprint。"""
+        fp1 = ContextPipeline._compute_stable_prefix_fingerprint("content A")
+        fp2 = ContextPipeline._compute_stable_prefix_fingerprint("content B")
+        assert fp1 != fp2

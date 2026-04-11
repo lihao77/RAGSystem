@@ -102,6 +102,14 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('Agent API 运行时初始化失败: %s', e)
 
+    # ── 第 4.1 步：绑定 SessionCache 到 ConversationStore ──────────────────
+    try:
+        from agents.context.session_cache import bind_store
+        bind_store(runtime.get_conversation_store())
+        logger.info('✓ SessionCache 已绑定 ConversationStore')
+    except Exception as e:
+        logger.warning('SessionCache 绑定失败（不影响核心功能）: %s', e)
+
     # ── 第 4.5 步：统一 bootstrap 工具系统 ──────────────────────────────────
     try:
         from tools.runtime.bootstrap import bootstrap_tool_system

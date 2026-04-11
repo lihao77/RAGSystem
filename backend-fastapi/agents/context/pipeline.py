@@ -8,13 +8,16 @@ ContextPipeline - 统一上下文压缩管道
   - manage_messages()（旧的循环内上下文管理逻辑）
 """
 
+import hashlib
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
 
 from .compression_view import resolve_compression_view
 from .config import ContextConfig
+from .session_cache import get_cache, flush_session
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +150,29 @@ class ContextPipeline:
         get_llm_config_fn: Callable[[Optional[str]], Dict[str, Any]],  # 支持 task_type 参数
         logger: Optional[logging.Logger] = None,
         observation_window=None,
+        agent_name: str = "",
     ):
         self.config = config
         self.model_adapter = model_adapter
         self.get_llm_config_fn = get_llm_config_fn
         self.logger = logger or logging.getLogger(__name__)
         self.observation_window = observation_window
+        self.agent_name = agent_name
         from .token_counter import TokenCounter
         self._token_counter = TokenCounter(model_name=config.model_name)
+
+    def _session_cache(self, context) -> Dict[str, Any]:
+        """获取当前 session+thread 的持久化缓存 dict。"""
+        session_id = getattr(context, 'session_id', '') or ''
+        thread_key = (getattr(context, 'metadata', None) or {}).get('thread_key', 'root') or 'root'
+        return get_cache(session_id, thread_key)
+
+    @staticmethod
+    def flush_session_cache(context) -> None:
+        """将当前 session 的缓存写回 DB（run 结束时由上层调用）。"""
+        session_id = getattr(context, 'session_id', '') or ''
+        if session_id:
+            flush_session(session_id)
 
     def prepare_messages(
         self,
@@ -180,11 +198,11 @@ class ContextPipeline:
         current_session: List[Dict[str, Any]],
         publisher=None,
         llm_config: Optional[Dict[str, Any]] = None,
-        cache_state: Optional[Dict[str, Any]] = None,
     ) -> PreparedMessagesResult:
-        cache_state = cache_state if cache_state is not None else {}
-        cached_messages = cache_state.get('messages')
-        cached_session_len = cache_state.get('session_len', 0)
+        cache = self._session_cache(context)
+
+        cached_messages = cache.get('prepared_messages')
+        cached_session_len = cache.get('prepared_session_len', 0)
         rebuild_reason = 'initial_build'
         cache_hit = False
 
@@ -200,8 +218,8 @@ class ContextPipeline:
                 if self.should_rebuild_after_append(total_tokens):
                     rebuild_reason = 'threshold_rebuild'
                 else:
-                    cache_state['messages'] = updated_messages
-                    cache_state['session_len'] = len(current_session)
+                    cache['prepared_messages'] = updated_messages
+                    cache['prepared_session_len'] = len(current_session)
                     cache_hit = True
                     return self._build_prepared_result(
                         messages=updated_messages,
@@ -216,8 +234,8 @@ class ContextPipeline:
             publisher=publisher,
             llm_config=llm_config,
         )
-        cache_state['messages'] = prepared
-        cache_state['session_len'] = len(current_session)
+        cache['prepared_messages'] = prepared
+        cache['prepared_session_len'] = len(current_session)
         return self._build_prepared_result(
             messages=prepared,
             rebuild_reason=rebuild_reason,
@@ -246,13 +264,8 @@ class ContextPipeline:
         self._ensure_memory_prefix_snapshot(context, reason='inspect_messages')
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
-        system_msg = {"role": "system", "content": system_prompt}
-        prepared = [system_msg]
-        for reminder_block in self._build_reminder_blocks(context):
-            prepared.append({
-                "role": "system",
-                "content": reminder_block,
-            })
+        stable_content = self._build_stable_prefix_content(system_prompt, context)
+        prepared = [{"role": "system", "content": stable_content}]
         prepared.extend(history_resolved)
         prepared.extend(current_session or [])
         return self._build_prepared_result(
@@ -321,6 +334,39 @@ class ContextPipeline:
             )
         return result
 
+    # ── 稳定前缀（KV 缓存保护）────────────────────────────────────────────
+
+    @staticmethod
+    def _build_stable_prefix_content(system_prompt: str, context) -> str:
+        """合并 system_prompt + memory 为单个稳定前缀内容。"""
+        metadata = getattr(context, 'metadata', {}) or {}
+        snapshot = metadata.get('memory_prefix_snapshot') or {}
+        memory_block = snapshot.get('rendered_block')
+        if memory_block:
+            return f"{system_prompt}\n\n{str(memory_block).strip()}"
+        return system_prompt
+
+    @staticmethod
+    def _compute_stable_prefix_fingerprint(content: str) -> str:
+        """计算稳定前缀的 fingerprint（SHA256 前 16 位）。"""
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()[:16]
+
+    def _should_microcompact(self, fingerprint_changed: bool, cache: Dict[str, Any]) -> bool:
+        """判断是否应执行 microcompact。
+
+        双重门控：fingerprint 变化（缓存已废）或超过时间阈值（服务端缓存已过期）才执行。
+        连续对话中两者都不满足 → 跳过，保护 KV 缓存。
+        """
+        if fingerprint_changed:
+            return True
+        last_time = cache.get('t')
+        if last_time is None:
+            return True
+        threshold = self.config.microcompact_time_threshold_seconds
+        if time.time() - last_time >= threshold:
+            return True
+        return False
+
     def force_compress(self, context, publisher=None, system_prompt: str = "") -> Dict[str, Any]:
         """强制压缩上下文，跳过阈值检查。返回压缩统计和持久化信息。"""
         history_raw = self._get_history_raw(context)
@@ -352,6 +398,10 @@ class ContextPipeline:
             }
 
         after_tokens = self._token_counter.count_messages(result.messages)
+        # 压缩后历史大幅变化，清除缓存强制下次 rebuild
+        cache = self._session_cache(context)
+        cache.pop('fp', None)
+        cache.pop('_content', None)
         return {
             'status': 'success',
             'before': before_count,
@@ -392,6 +442,13 @@ class ContextPipeline:
             rebuild_reason=rebuild_reason,
         )
 
+    @staticmethod
+    def _get_memory_snapshot_fp(metadata: Dict[str, Any]) -> Optional[str]:
+        """提取 memory_prefix_snapshot 中的 fingerprint。"""
+        snapshot = metadata.get('memory_prefix_snapshot') or {}
+        fp_data = snapshot.get('fingerprint') or {}
+        return fp_data.get('fingerprint')
+
     def _prepare_messages_full(
         self,
         *,
@@ -401,12 +458,37 @@ class ContextPipeline:
         publisher=None,
         llm_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        cache = self._session_cache(context)
+        metadata = getattr(context, 'metadata', {}) or {}
+
+        # 记录 memory 变化前的 fingerprint
+        prev_mem_fp = self._get_memory_snapshot_fp(metadata)
         self._ensure_memory_prefix_snapshot(context, reason='prepare_messages')
+        curr_mem_fp = self._get_memory_snapshot_fp(metadata)
+        memory_changed = (curr_mem_fp != prev_mem_fp)
+
+        # 尝试复用缓存中的稳定前缀
+        prev_fp = cache.get('fp')
+        cached_content = cache.get('_content')  # 不持久化，仅内存缓存
+
+        if prev_fp and cached_content and not memory_changed:
+            # memory 未变，system_prompt 在 ReAct 循环中不变 → 缓存有效
+            stable_content = cached_content
+            fp_changed = False
+        else:
+            # 需要重建（首次、memory 变化、或 force_compress 后）
+            stable_content = self._build_stable_prefix_content(system_prompt, context)
+            fingerprint = self._compute_stable_prefix_fingerprint(stable_content)
+            fp_changed = (fingerprint != prev_fp)
+            cache['fp'] = fingerprint
+            cache['_content'] = stable_content
+
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
 
-        # microcompact：每轮调用前先清除旧工具结果内容（无需 LLM，零延迟）
-        history_resolved = self.microcompact_messages(history_resolved)
+        # microcompact：仅在 fingerprint 变化或超时时执行，保护 KV 缓存
+        if self._should_microcompact(fp_changed, cache):
+            history_resolved = self.microcompact_messages(history_resolved)
 
         history_tokens = self._token_counter.count_messages(history_resolved)
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
@@ -428,57 +510,15 @@ class ContextPipeline:
             )
             history_resolved = compress_result.messages
 
-        system_msg = {"role": "system", "content": system_prompt}
-        prepared = [system_msg]
-        for reminder_block in self._build_reminder_blocks(context):
-            prepared.append({
-                "role": "system",
-                "content": reminder_block,
-            })
+        # 单个 system message（已合并 memory），减少缓存断裂点
+        prepared = [{"role": "system", "content": stable_content}]
         prepared.extend(history_resolved)
         prepared.extend(current_session)
+
+        # 更新时间戳
+        cache['t'] = time.time()
+
         return self._apply_prompt_cache_policy(prepared, llm_config or {})
-
-    @staticmethod
-    def _render_system_reminder(context_map: Dict[str, str]) -> str:
-        if not context_map:
-            return ""
-        lines = [
-            "<system-reminder>",
-            "As you answer the user's questions, you can use the following context:",
-        ]
-        for key, value in context_map.items():
-            if not value:
-                continue
-            lines.append(f"# {key}")
-            lines.append(str(value).strip())
-        lines.extend([
-            "",
-            "IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.",
-            "</system-reminder>",
-        ])
-        return "\n".join(lines)
-
-    @staticmethod
-    def _build_reminder_blocks(context) -> List[str]:
-        reminders: List[str] = []
-
-        memory_block = ContextPipeline._build_memory_block(context)
-        if memory_block:
-            reminder = ContextPipeline._render_system_reminder({'memory': memory_block})
-            if reminder:
-                reminders.append(reminder)
-
-        return reminders
-
-    @staticmethod
-    def _build_memory_block(context) -> str:
-        metadata = getattr(context, 'metadata', {}) or {}
-        snapshot = metadata.get('memory_prefix_snapshot') or {}
-        rendered_block = snapshot.get('rendered_block')
-        if rendered_block:
-            return str(rendered_block).strip()
-        return ''
 
     @staticmethod
     def _ensure_memory_prefix_snapshot(context, *, reason: str) -> None:

@@ -19,3 +19,5 @@ class ContextConfig:
     preserve_recent_turns: int = 3
     # microcompact：保留最近 N 条 observation 消息的完整内容，更旧的内容清除
     microcompact_keep_recent_tools: int = 5
+    # microcompact：距上次准备超过此秒数才允许清理旧工具结果（保护 KV 缓存）
+    microcompact_time_threshold_seconds: int = 600

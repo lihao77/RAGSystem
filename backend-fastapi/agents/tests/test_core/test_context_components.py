@@ -76,6 +76,15 @@ def _make_pipeline() -> ContextPipeline:
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_session_cache():
+    """每个测试前后重置 session_cache 模块状态。"""
+    from agents.context import session_cache as _sc
+    _sc.reset()
+    yield
+    _sc.reset()
+
+
 def test_resolve_compression_view_uses_replaces_up_to_seq_boundary():
     messages = [
         {"seq": 1, "role": "user", "content": "u1", "metadata": {}},
@@ -425,13 +434,11 @@ def test_prompt_materializer_json_observation_exposes_child_agent_id():
 def test_pipeline_prepare_execution_messages_reuses_cache_on_append():
     pipeline = _make_pipeline()
     context = AgentContext(session_id='s1')
-    cache_state = {}
 
     first = pipeline.prepare_execution_messages(
         system_prompt='sys',
         context=context,
         current_session=[{'role': 'user', 'content': 'u1'}],
-        cache_state=cache_state,
     )
     second = pipeline.prepare_execution_messages(
         system_prompt='sys',
@@ -440,7 +447,6 @@ def test_pipeline_prepare_execution_messages_reuses_cache_on_append():
             {'role': 'user', 'content': 'u1'},
             {'role': 'assistant', 'content': 'a1'},
         ],
-        cache_state=cache_state,
     )
 
     assert first.cache_hit is False

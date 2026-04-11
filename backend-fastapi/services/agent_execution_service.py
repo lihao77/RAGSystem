@@ -459,6 +459,12 @@ class AgentExecutionService:
         effective_child_agent_id = handle.child_agent_id
         merged_task = self._merge_task(task, context_hint)
         response = handle.agent.execute(merged_task, handle.context)
+        # flush pipeline 缓存到 DB（per-run 持久化）
+        try:
+            from agents.context.session_cache import flush_session
+            flush_session(session_id)
+        except Exception:
+            pass
         if persist_final_answer and can_persist_messages and response.success and response.content:
             message = store.add_message(
                 session_id=session_id,
