@@ -83,6 +83,10 @@
                 </div>
                 <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
               </div>
+              <!-- 斜杠命令结果 -->
+              <div v-else-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
+                <CommandResultMessage :message="msg" />
+              </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
               <div v-else-if="msg.role === 'assistant' && (hasExecutionContent(msg) || !msg.finished)"
                 class="subtasks-container-full">
@@ -528,6 +532,7 @@ import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
 import { Icon } from 'leaflet';
 import { getTaskExecutionDiagnostics, getTaskStatus, getMessageRunSteps } from '../api/monitoring';
+import CommandResultMessage from '../components/CommandResultMessage.vue';
 
 // Props
 const props = defineProps({
@@ -2549,6 +2554,22 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
                 checkSituationScreenTrigger(currentMsg.content);
               }
             }
+            else if (eventType === 'command.result') {
+              const cmdData = eventData;
+              messages.value[assistantMsgIndex] = {
+                role: 'system',
+                content: cmdData.content || '',
+                metadata: {
+                  type: 'command_result',
+                  command: cmdData.command || 'unknown',
+                  success: cmdData.success !== false,
+                  error: cmdData.error || null,
+                  data: cmdData.data || null,
+                },
+                finished: true,
+              };
+              nextTick(() => scrollToBottom(true));
+            }
             else if (eventType === 'agent.error') {
               currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
             }
@@ -2719,7 +2740,7 @@ const handleEnterSituation = ({ artifactId, mapData, vizData }) => {
 };
 
 const handleSend = async (payload = null) => {
-  const content = (payload?.content ?? inputMessage.value).trim();
+  let content = (payload?.content ?? inputMessage.value).trim();
   const attachments = Array.isArray(payload?.attachments) ? payload.attachments.slice() : pendingAttachments.value.slice();
   const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
   const clearEditing = payload?.clearEditing === true;

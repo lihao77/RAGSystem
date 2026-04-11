@@ -71,6 +71,13 @@ class OpenAICompatibleProvider(AIProvider):
             self._validate_response(response_data)
 
             choice = response_data['choices'][0]
+            raw_content = choice['message'].get('content')
+            if not raw_content:
+                logger.warning(
+                    '%s 模型返回空 content: finish_reason=%s, has_tool_calls=%s',
+                    self.name, choice.get('finish_reason'),
+                    bool(choice['message'].get('tool_calls')),
+                )
             usage_data = response_data.get('usage', {})
             usage = {
                 'prompt_tokens': usage_data.get('prompt_tokens', 0),
@@ -81,7 +88,7 @@ class OpenAICompatibleProvider(AIProvider):
             cost = self.calculate_cost(usage['prompt_tokens'], usage['completion_tokens'], model)
 
             return ModelResponse(
-                content=choice['message'].get('content'),
+                content=raw_content,
                 finish_reason=choice.get('finish_reason'),
                 usage=usage,
                 model=model,

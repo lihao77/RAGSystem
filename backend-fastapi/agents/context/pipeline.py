@@ -185,6 +185,48 @@ class ContextPipeline:
     def count_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
         return self._token_counter.count_messages(messages)
 
+    def force_compress(self, context, publisher=None) -> Dict[str, Any]:
+        """强制压缩上下文，跳过阈值检查。返回压缩统计和持久化信息。"""
+        history_raw = self._get_history_raw(context)
+        history_resolved = resolve_compression_view(history_raw)
+        before_count = len(history_raw)
+        before_tokens = self._token_counter.count_messages(history_resolved)
+
+        if not history_resolved:
+            return {'status': 'skipped', 'reason': 'no_history', 'before': 0, 'after': 0, 'tokens_saved': 0}
+
+        compressed = self._compress(
+            history_raw, history_resolved, context, publisher,
+            system_prompt="",
+        )
+        self._ensure_memory_prefix_snapshot(context, reason='apply_compression')
+
+        after_tokens = self._token_counter.count_messages(compressed)
+
+        # 提取摘要信息和 replaces_up_to_seq 用于持久化
+        new_history = context.conversation_history
+        summary_content = None
+        replaces_up_to_seq = None
+        if new_history and (new_history[0].metadata or {}).get('compression'):
+            summary_content = new_history[0].content
+            # 新历史中保留的消息 seq 集合
+            kept_seqs = {msg.seq for msg in new_history[1:] if msg.seq is not None}
+            # 原始历史中被替换的最大 seq
+            replaced_seqs = [
+                m.get('seq') for m in history_raw
+                if m.get('seq') is not None and m.get('seq') not in kept_seqs
+            ]
+            replaces_up_to_seq = max(replaced_seqs) if replaced_seqs else None
+
+        return {
+            'status': 'success',
+            'before': before_count,
+            'after': len(new_history),
+            'tokens_saved': max(0, before_tokens - after_tokens),
+            'summary_content': summary_content,
+            'replaces_up_to_seq': replaces_up_to_seq,
+        }
+
     def should_rebuild_after_append(self, total_tokens: int) -> bool:
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
         return total_tokens >= trigger_threshold
@@ -319,6 +361,27 @@ class ContextPipeline:
         metadata.pop('memory_prefix_snapshot', None)
 
     # ── 内部方法 ──────────────────────────────────────────────────────────────
+
+    def _get_system_llm_config(self) -> Optional[Dict[str, Any]]:
+        """获取系统配置的保底 LLM 配置。"""
+        try:
+            from config import get_config
+            system_config = get_config()
+            llm = getattr(system_config, 'llm', None)
+            if not llm:
+                return None
+            cfg = {
+                'provider': getattr(llm, 'provider', None),
+                'provider_type': getattr(llm, 'provider_type', None),
+                'model_name': getattr(llm, 'model_name', None),
+                'temperature': getattr(llm, 'temperature', 0.7),
+            }
+            for key, value in (getattr(llm, 'extra_params', None) or {}).items():
+                if key not in cfg:
+                    cfg[key] = value
+            return cfg if cfg.get('provider') else None
+        except Exception:
+            return None
 
     def _get_history_raw(self, context) -> List[Dict[str, Any]]:
         """将 context.conversation_history 转换为 dict 列表"""
@@ -502,74 +565,98 @@ class ContextPipeline:
         existing_summary: str = "",
         publisher=None,
     ) -> str:
-        """尝试用 LLM 生成摘要，失败时抛出明确异常。"""
-        try:
-            llm_config = self.get_llm_config_fn(task_type='fast')
-            provider = llm_config.get("provider")
-            provider_type = llm_config.get("provider_type")
+        """尝试用 LLM 生成摘要。按 fast → default → 系统配置 逐级 fallback。"""
 
-            if not provider:
-                raise ContextCompressionError("上下文压缩失败：未配置摘要模型 provider")
+        # 构建候选配置列表（按优先级去重）
+        candidates = []
+        seen = set()
+        for tier in ('fast', 'default'):
+            cfg = self.get_llm_config_fn(task_type=tier)
+            key = (cfg.get('provider'), cfg.get('provider_type'))
+            if cfg.get("provider") and key not in seen:
+                seen.add(key)
+                candidates.append(cfg)
 
-            model_name = llm_config.get('model_name', 'unknown')
-            self.logger.info(f"使用 fast 层级模型进行压缩: provider={provider}, model={model_name}")
+        # 最终 fallback：系统配置的保底 LLM
+        system_llm = self._get_system_llm_config()
+        if system_llm:
+            key = (system_llm.get('provider'), system_llm.get('provider_type'))
+            if system_llm.get('provider') and key not in seen:
+                candidates.append(system_llm)
 
-            lines = []
-            for m in segment:
-                role = m.get("role", "user")
-                content = (m.get("content") or "").strip()
-                if content:
-                    lines.append(f"{role}: {content}")
+        if not candidates:
+            raise ContextCompressionError("上下文压缩失败：无可用摘要模型（fast/default/系统配置均未配置）")
 
-            text = "\n".join(lines) or "（无内容）"
+        # 准备摘要 prompt
+        lines = []
+        for m in segment:
+            role = m.get("role", "user")
+            content = (m.get("content") or "").strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        text = "\n".join(lines) or "（无内容）"
 
-            if existing_summary:
-                prompt = (
-                    f"以下是之前的对话摘要：\n{existing_summary}\n\n"
-                    f"以下是新的对话内容：\n{text}\n\n"
-                    "请将上述历史摘要和新对话合并为一段简短摘要，保留关键事实和结论。"
-                    "只输出摘要正文，不要其他说明。"
-                )
-            else:
-                prompt = (
-                    "请将以下对话压缩为一段简短摘要，保留关键事实和结论。"
-                    "只输出摘要正文，不要其他说明。\n\n" + text
-                )
-
-            req = [
-                {"role": "system", "content": "你是一个对话摘要助手。"},
-                {"role": "user", "content": prompt},
-            ]
-
-            resp = self.model_adapter.chat_completion(
-                messages=req,
-                provider=provider,
-                provider_type=provider_type,
-                temperature=0.2,
-                max_tokens=self.config.summarize_max_tokens,
-                retry_attempts=llm_config.get('retry_attempts'),
-                retry_backoff_factor=llm_config.get('retry_backoff_factor'),
-                publisher=publisher,
-                thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
-                reasoning_effort=llm_config.get('reasoning_effort'),
+        if existing_summary:
+            prompt = (
+                f"以下是之前的对话摘要：\n{existing_summary}\n\n"
+                f"以下是新的对话内容：\n{text}\n\n"
+                "请将上述历史摘要和新对话合并为一段简短摘要，保留关键事实和结论。"
+                "只输出摘要正文，不要其他说明。"
+            )
+        else:
+            prompt = (
+                "请将以下对话压缩为一段简短摘要，保留关键事实和结论。"
+                "只输出摘要正文，不要其他说明。\n\n" + text
             )
 
-            if getattr(resp, "error", None):
-                raise ContextCompressionError(f"上下文压缩失败：{resp.error}")
+        req = [
+            {"role": "system", "content": "你是一个对话摘要助手。"},
+            {"role": "user", "content": prompt},
+        ]
 
-            content = (resp.content or "").strip()
-            if not content:
-                raise ContextCompressionError("上下文压缩失败：摘要模型返回空内容")
-            if not content.startswith("[历史摘要]"):
-                content = "[历史摘要]\n" + content
+        last_error = None
+        for i, llm_config in enumerate(candidates):
+            provider = llm_config['provider']
+            provider_type = llm_config.get("provider_type")
+            model_name = llm_config.get('model_name', 'unknown')
+            tier_label = ['fast', 'default', '系统配置'][i] if i < 3 else f'fallback-{i}'
+            try:
+                self.logger.info(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
+                resp = self.model_adapter.chat_completion(
+                    messages=req,
+                    provider=provider,
+                    provider_type=provider_type,
+                    temperature=0.2,
+                    max_tokens=self.config.summarize_max_tokens,
+                    retry_attempts=llm_config.get('retry_attempts'),
+                    retry_backoff_factor=llm_config.get('retry_backoff_factor'),
+                    publisher=publisher,
+                    thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
+                    reasoning_effort=llm_config.get('reasoning_effort'),
+                )
 
-            self.logger.info(f"LLM 摘要生成成功: {len(content)} 字符")
-            return content
+                if getattr(resp, "error", None):
+                    raise ContextCompressionError(f"模型返回错误: {resp.error}")
 
-        except ContextCompressionError:
-            raise
-        except Exception as e:
-            raise ContextCompressionError(f"上下文压缩失败：{e}") from e
+                content = (resp.content or "").strip()
+                if not content:
+                    raise ContextCompressionError("摘要模型返回空内容")
+                if not content.startswith("[历史摘要]"):
+                    content = "[历史摘要]\n" + content
+
+                self.logger.info(f"LLM 摘要生成成功（{tier_label}）: {len(content)} 字符")
+                return content
+
+            except ContextCompressionError as e:
+                last_error = e
+                self.logger.warning(f"{tier_label} 层级摘要失败: {e}，尝试下一层级")
+                continue
+            except Exception as e:
+                last_error = ContextCompressionError(str(e))
+                self.logger.warning(f"{tier_label} 层级摘要异常: {e}，尝试下一层级")
+                continue
+
+        raise last_error or ContextCompressionError("上下文压缩失败：所有层级模型均不可用")
 
     def _apply_compression(
         self,

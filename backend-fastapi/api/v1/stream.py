@@ -123,21 +123,56 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     """
     task = request.task.strip()
     session_id = request.session_id or str(uuid.uuid4())
-    attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
-    if not task and not attachment_records:
-        raise HTTPException(status_code=400, detail='任务描述和附件不能同时为空')
-
     user_id = request.user_id
     request_id = _ensure_request_id(http_request.headers.get('X-Request-ID'))
-
     selected_llm_str = request.selected_llm or ''
     llm_override = _parse_selected_llm(selected_llm_str)
     llm_tier = _parse_llm_tier(request.llm_tier or '')
 
-    logger.info('流式执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
-
     def _sse_line(payload: dict, **dumps_kwargs) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
+
+    # ── 斜杠命令预处理 ──
+    if task.startswith('/'):
+        import commands as cmd_mod
+        import commands.builtin  # 触发内建命令注册
+        parsed = cmd_mod.parse_slash_command(task)
+        if parsed is not None:
+            defn, cmd_name, cmd_args = parsed
+            if defn is None:
+                async def _unknown_command_stream():
+                    yield _sse_line({'type': 'command.result', 'data': {
+                        'command': cmd_name.lstrip('/'), 'success': False,
+                        'content': f'未知命令: {cmd_name}\n输入 /help 查看可用命令',
+                    }, 'session_id': session_id})
+                    yield _sse_line({'type': 'done', 'session_id': session_id})
+                return StreamingResponse(_unknown_command_stream(), media_type='text/event-stream')
+            if defn.mode == 'system':
+                async def _system_command_stream():
+                    try:
+                        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
+                    except Exception as e:
+                        logger.error('命令执行失败: %s', e, exc_info=True)
+                        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+                    yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
+                    yield _sse_line({'type': 'done', 'session_id': session_id})
+                return StreamingResponse(_system_command_stream(), media_type='text/event-stream')
+            # prompt 命令：展开模板
+            if not cmd_args.strip():
+                async def _missing_args_stream():
+                    yield _sse_line({'type': 'command.result', 'data': {
+                        'command': cmd_name.lstrip('/'), 'success': False, 'error': 'missing_args',
+                        'content': f'用法: {cmd_name} <内容>\n{defn.description}',
+                    }, 'session_id': session_id})
+                    yield _sse_line({'type': 'done', 'session_id': session_id})
+                return StreamingResponse(_missing_args_stream(), media_type='text/event-stream')
+            task = defn.template.replace('{args}', cmd_args)
+
+    attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
+    if not task and not attachment_records:
+        raise HTTPException(status_code=400, detail='任务描述和附件不能同时为空')
+
+    logger.info('流式执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
