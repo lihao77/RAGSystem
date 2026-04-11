@@ -88,6 +88,47 @@ class MessagePersistenceHandler:
         def handle(event):
             logger.info('收到用户中断事件: session_id=%s', self.session_id)
             self.cancel_event.set()
+            # 中断时持久化 interrupted assistant 消息 + 用户中断标记
+            if not self.final_answer_saved.is_set():
+                try:
+                    # assistant 消息：承载已有的 run steps（工具调用）
+                    message = self.store.add_message(
+                        session_id=self.session_id,
+                        role='assistant',
+                        content='[interrupted]',
+                        metadata={
+                            'agent': self.entry_agent_name,
+                            'run_id': self.run_id,
+                            'thread_key': self.thread_key,
+                            'conversation_scope': self.conversation_scope,
+                            'visible_to_user': self.visible_to_user,
+                            'child_agent_id': self.child_agent_id,
+                            'interrupted': True,
+                        },
+                        thread_key=self.thread_key,
+                        child_agent_id=self.child_agent_id,
+                    )
+                    self.message_id_for_run[0] = message['id']
+                    self.store.update_run_steps_message_id(self.session_id, self.run_id, message['id'])
+                    self.final_answer_saved.set()
+                    # 用户中断标记消息（类似 Claude Code 的 [Request interrupted by user]）
+                    self.store.add_message(
+                        session_id=self.session_id,
+                        role='user',
+                        content='[Request interrupted by user]',
+                        metadata={
+                            'is_meta': True,
+                            'interrupted': True,
+                            'thread_key': self.thread_key,
+                            'conversation_scope': self.conversation_scope,
+                            'child_agent_id': self.child_agent_id,
+                        },
+                        thread_key=self.thread_key,
+                        child_agent_id=self.child_agent_id,
+                    )
+                    logger.info('已保存中断消息: session_id=%s msg_id=%s', self.session_id, message['id'])
+                except Exception as error:
+                    logger.warning('保存中断消息失败: %s', error, exc_info=True)
 
         return self.event_bus.subscribe(
             event_types=[EventType.USER_INTERRUPT],

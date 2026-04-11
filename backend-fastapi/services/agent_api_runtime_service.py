@@ -367,6 +367,9 @@ class AgentApiRuntimeService:
             # 跳过系统命令消息（/compact 等），不需要进入 Agent 上下文
             if meta.get('type') in ('command', 'command_result'):
                 continue
+            # 跳过被中断的 assistant 占位消息（[interrupted]，仅用于承载 run steps）
+            if meta.get('interrupted') and item.get('role') == 'assistant':
+                continue
             context.add_message(
                 role=item['role'],
                 content=item['content'],

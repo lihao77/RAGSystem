@@ -141,10 +141,10 @@
                         />
                       </div>
                     </template>
-                    <!-- 停止生成标记 -->
+                    <!-- 停止/中断标记 -->
                     <div v-if="msg.stopped" class="stopped-badge">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
-                      <span>已停止生成</span>
+                      <span>{{ msg.metadata?.interrupted ? '已中断' : '已停止生成' }}</span>
                     </div>
                   </template>
 
@@ -1024,20 +1024,23 @@ const toggleExecutionView = async (msg) => {
 };
 
 const createAssistantMessageFromHistory = (item) => {
+  const interrupted = Boolean(item.metadata?.interrupted);
   return createAssistantMessage({
     id: item.id,
     seq: item.seq,
-    content: item.content || '',
+    content: interrupted ? '' : (item.content || ''),
     subtasks: [],
     execution_steps: [],
     multimodalContents: item.multimodalContents?.length > 0 ? item.multimodalContents : [],
-    status: item.status || [],
+    status: interrupted ? [{ type: 'error', content: '已中断' }] : (item.status || []),
     finished: true,
+    stopped: interrupted,
     has_execution: Boolean(item.has_execution || item.metadata?.run_id),
     executionStepsLoaded: false,
     executionStepsLoading: false,
     executionStepsLoadError: '',
     run_id: item.metadata?.run_id || null,
+    metadata: item.metadata || {},
     _executionProjector: null,
   });
 };
@@ -2833,6 +2836,10 @@ const handleSend = async (payload = null) => {
     clearLlmRetryState();
     if (error.name === 'AbortError') {
       console.log('Stream aborted by user');
+      const currentMsg = messages.value[assistantMsgIndex];
+      currentMsg.finished = true;
+      currentMsg.stopped = true;
+      currentMsg.metadata = { ...(currentMsg.metadata || {}), interrupted: true };
       if (!sessionTaskInfo.value?.status || sessionTaskInfo.value.status === 'running') {
         sessionTaskInfo.value = {
           ...(sessionTaskInfo.value || {}),
@@ -3489,7 +3496,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: var(--spacing-sm);
+  /* margin-top: var(--spacing-sm); */
   padding: 4px 12px;
   border-radius: var(--radius-full);
   background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));
