@@ -52,7 +52,11 @@ def get_cache(session_id: str, thread_key: str) -> Dict[str, Any]:
 
 
 def flush_session(session_id: str) -> None:
-    """将单个 session 的缓存写回 DB，并清除内存中的大对象（run 结束时调用）。"""
+    """将单个 session 的缓存写回 DB，并清除内存中的大对象。
+
+    前置条件：应在 run 结束后调用，此时 pipeline 已完成，
+    不再有其他线程读取 prepared_messages / _content 等大对象。
+    """
     if _store is None:
         return
     with _lock:

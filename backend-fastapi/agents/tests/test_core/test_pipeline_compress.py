@@ -562,6 +562,11 @@ class TestStablePrefixFingerprint:
 class TestSessionCacheFlush:
     """验证 flush_session 并发安全与大对象清理。"""
 
+    def setup_method(self):
+        """每个测试前重置全局状态，避免用例间相互污染。"""
+        from agents.context import session_cache as sc
+        sc.reset()
+
     def test_flush_evicts_large_objects_from_memory(self):
         """flush 后内存中的大对象（prepared_messages/_content）被清除，fp/t 保留。"""
         from unittest.mock import MagicMock
@@ -571,14 +576,14 @@ class TestSessionCacheFlush:
         mock_store.get_session.return_value = None
         sc.bind_store(mock_store)
 
-        cache = sc.get_cache('sess1', 'root')
+        cache = sc.get_cache('sess', 'root')
         cache['fp'] = 'abc123'
         cache['t'] = 1000.0
         cache['prepared_messages'] = [{'role': 'user', 'content': 'x' * 10000}]
         cache['prepared_session_len'] = 5
         cache['_content'] = 'long system prompt content' * 100
 
-        sc.flush_session('sess1')
+        sc.flush_session('sess')
 
         # 大对象已清除
         assert 'prepared_messages' not in cache
@@ -597,12 +602,12 @@ class TestSessionCacheFlush:
         mock_store.get_session.return_value = None
         sc.bind_store(mock_store)
 
-        cache = sc.get_cache('sess2', 'root')
+        cache = sc.get_cache('sess', 'root')
         cache['fp'] = 'fp_value'
         cache['t'] = 999.0
         cache['prepared_messages'] = [{'role': 'user', 'content': 'large'}]
 
-        sc.flush_session('sess2')
+        sc.flush_session('sess')
 
         call_args = mock_store.update_session_metadata.call_args
         saved = call_args[0][1]['_pipeline_caches']['root']
@@ -610,11 +615,11 @@ class TestSessionCacheFlush:
         assert 'prepared_messages' not in saved
 
     def test_flush_no_store_is_noop(self):
-        """未绑定 store 时 flush 不报错。"""
+        """未绑定 store 时 flush 不报错（setup_method 已 reset，store=None）。"""
         from agents.context import session_cache as sc
-        # reset 已在 fixture 中执行，store=None
-        sc.get_cache('sess3', 'root')['fp'] = 'x'
-        sc.flush_session('sess3')  # 应静默返回，不抛异常
+
+        sc.get_cache('sess', 'root')['fp'] = 'x'
+        sc.flush_session('sess')  # 应静默返回，不抛异常
 
     def test_flush_partial_entry_missing_t(self):
         """只有 fp 没有 t 的 entry 也能正常 flush（不报 KeyError）。"""
@@ -625,10 +630,10 @@ class TestSessionCacheFlush:
         mock_store.get_session.return_value = None
         sc.bind_store(mock_store)
 
-        cache = sc.get_cache('sess4', 'root')
+        cache = sc.get_cache('sess', 'root')
         cache['fp'] = 'only_fp'  # 没有 't'
 
-        sc.flush_session('sess4')  # 不应 KeyError
+        sc.flush_session('sess')  # 不应 KeyError
 
         call_args = mock_store.update_session_metadata.call_args
         saved = call_args[0][1]['_pipeline_caches']['root']
