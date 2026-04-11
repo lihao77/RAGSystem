@@ -133,6 +133,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
         return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
 
     # ── 斜杠命令预处理 ──
+    display_task = None  # 用于持久化的原始显示文本
     if task.startswith('/'):
         import commands as cmd_mod
         import commands.builtin  # 触发内建命令注册
@@ -154,6 +155,24 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     except Exception as e:
                         logger.error('命令执行失败: %s', e, exc_info=True)
                         result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+                    # 持久化用户命令 + 系统结果到消息历史
+                    try:
+                        from dependencies import get_agent_runtime_service
+                        store = get_agent_runtime_service().get_conversation_store()
+                        store.add_message(
+                            session_id=session_id, role='user', content=task,
+                            metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
+                        )
+                        store.add_message(
+                            session_id=session_id, role='system', content=result.get('content', ''),
+                            metadata={
+                                'type': 'command_result',
+                                'command': result.get('command', cmd_name.lstrip('/')),
+                                'success': result.get('success', False),
+                            },
+                        )
+                    except Exception as persist_err:
+                        logger.warning('命令结果持久化失败: %s', persist_err)
                     yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
                     yield _sse_line({'type': 'done', 'session_id': session_id})
                 return StreamingResponse(_system_command_stream(), media_type='text/event-stream')
@@ -166,6 +185,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     }, 'session_id': session_id})
                     yield _sse_line({'type': 'done', 'session_id': session_id})
                 return StreamingResponse(_missing_args_stream(), media_type='text/event-stream')
+            display_task = task  # 保存原始命令文本
             task = defn.template.replace('{args}', cmd_args)
 
     attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
@@ -193,6 +213,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
                     history_loader=runtime.load_history_into_context,
                     current_attachments=attachment_records,
+                    display_task=display_task,
                 )
 
             started = await asyncio.to_thread(_start_stream)

@@ -364,6 +364,9 @@ class AgentApiRuntimeService:
             if item.get('role') not in {'user', 'assistant', 'system'}:
                 continue
             meta = item.get('metadata') or {}
+            # 跳过系统命令消息（/compact 等），不需要进入 Agent 上下文
+            if meta.get('type') in ('command', 'command_result'):
+                continue
             context.add_message(
                 role=item['role'],
                 content=item['content'],

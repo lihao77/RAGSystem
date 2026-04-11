@@ -1683,7 +1683,9 @@ const loadSessionMessages = async (sessionId) => {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const result = await response.json();
     const items = result.data?.items || [];
-    const mapped = items.map(item => {
+    const mapped = items
+      .filter(item => !(item.metadata?.is_meta))  // 隐藏 prompt 命令展开的元消息
+      .map(item => {
       if (item.role === 'assistant') {
         return createAssistantMessageFromHistory(item);
       }

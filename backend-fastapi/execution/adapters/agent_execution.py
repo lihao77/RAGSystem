@@ -63,6 +63,7 @@ class AgentExecutionAdapter:
         history_loader: Callable[[AgentContext, str, int], None],
         history_limit: int = 200,
         current_attachments: Optional[List[Dict[str, Any]]] = None,
+        display_task: Optional[str] = None,
     ) -> AgentStreamStartResult:
         del history_loader
         registry = self._execution_service.get_task_registry()
@@ -178,7 +179,7 @@ class AgentExecutionAdapter:
 
             user_msg = self._agent_execution_service.persist_user_message(
                 session_id=session_id,
-                task=task,
+                task=display_task or task,
                 agent_name=getattr(entry_agent, 'name', None),
                 mode='child' if execution_handle.child_agent_id else 'root',
                 run_id=run_id,
@@ -187,6 +188,27 @@ class AgentExecutionAdapter:
                 visible_to_user=True,
                 attachments=current_attachments,
             )
+
+            # prompt 斜杠命令：额外持久化展开后的模板，确保后续轮次 Agent 能看到完整 prompt
+            if display_task and display_task != task:
+                thread_key_resolved = execution_handle.thread_key
+                scope = context.metadata.get('conversation_scope', 'root')
+                conversation_store.add_message(
+                    session_id=session_id,
+                    role='user',
+                    content=task,
+                    metadata={
+                        'agent': getattr(entry_agent, 'name', None),
+                        'run_id': run_id,
+                        'thread_key': thread_key_resolved,
+                        'conversation_scope': scope,
+                        'visible_to_user': False,
+                        'is_meta': True,
+                        'child_agent_id': execution_handle.child_agent_id,
+                    },
+                    thread_key=thread_key_resolved,
+                    child_agent_id=execution_handle.child_agent_id,
+                )
 
             target = self._create_agent_task_target(
                 task_id=task_id,
