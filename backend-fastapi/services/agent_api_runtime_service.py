@@ -367,6 +367,12 @@ class AgentApiRuntimeService:
             # 跳过系统命令消息（/compact 等），不需要进入 Agent 上下文
             if meta.get('type') in ('command', 'command_result'):
                 continue
+            # 跳过仅用于前端展示的消息（如斜杠命令原始文本），agent 应看到展开后的 prompt
+            if meta.get('display_only'):
+                continue
+            # 跳过纯系统记录消息（中断标记等），前端和 agent 均不可见
+            if meta.get('hidden'):
+                continue
             # 跳过被中断的 assistant 占位消息（[interrupted]，仅用于承载 run steps）
             if meta.get('interrupted') and item.get('role') == 'assistant':
                 continue

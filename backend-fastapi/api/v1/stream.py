@@ -17,6 +17,7 @@ from dependencies import get_execution_service, get_run_event_bus
 from schemas.execution import StreamExecuteRequest, StreamReconnectRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
 from schemas.common import ok
 from .stream_utils import sync_to_async_sse
+import commands as cmd_mod
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -179,23 +180,20 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     # ── 斜杠命令预处理 ──
     display_task = None  # 用于持久化的原始显示文本
     if task.startswith('/'):
-        import commands as cmd_mod
-        import commands.builtin  # 触发内建命令注册
         parsed = cmd_mod.parse_slash_command(task)
         if parsed is not None:
-            defn, cmd_name, cmd_args = parsed
-            if defn is None:
-                return StreamingResponse(_unknown_command_stream(session_id, cmd_name), media_type='text/event-stream')
-            if defn.mode == 'system':
+            if parsed.defn is None:
+                return StreamingResponse(_unknown_command_stream(session_id, parsed.cmd_name), media_type='text/event-stream')
+            if parsed.defn.mode == 'system':
                 return StreamingResponse(
-                    _system_command_stream(session_id, cmd_name, cmd_args, task, defn, llm_override),
+                    _system_command_stream(session_id, parsed.cmd_name, parsed.args, task, parsed.defn, llm_override),
                     media_type='text/event-stream',
                 )
             # prompt 命令：展开模板
-            if not cmd_args.strip():
-                return StreamingResponse(_missing_args_stream(session_id, cmd_name, defn), media_type='text/event-stream')
+            if not parsed.args.strip():
+                return StreamingResponse(_missing_args_stream(session_id, parsed.cmd_name, parsed.defn), media_type='text/event-stream')
             display_task = task  # 保存原始命令文本
-            task = defn.template.replace('{args}', cmd_args)
+            task = parsed.defn.template.replace('{args}', parsed.args)
 
     attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
     if not task and not attachment_records:

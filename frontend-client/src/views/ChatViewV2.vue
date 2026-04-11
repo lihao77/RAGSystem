@@ -1687,7 +1687,14 @@ const loadSessionMessages = async (sessionId) => {
     const result = await response.json();
     const items = result.data?.items || [];
     const mapped = items
-      .filter(item => !(item.metadata?.is_meta))  // 隐藏 prompt 命令展开的元消息
+      .filter(item => {
+        const meta = item.metadata || {};
+        // 隐藏 agent 专用消息（展开后的 prompt 等，visible_to_user=false 且非 display_only）
+        if (meta.visible_to_user === false && !meta.display_only) return false;
+        // 隐藏系统 meta 消息（中断标记等）
+        if (meta.hidden) return false;
+        return true;
+      })
       .map(item => {
       if (item.role === 'assistant') {
         return createAssistantMessageFromHistory(item);
@@ -2561,18 +2568,17 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             }
             else if (eventType === 'command.result') {
               const cmdData = eventData;
-              messages.value[assistantMsgIndex] = {
-                role: 'system',
-                content: cmdData.content || '',
-                metadata: {
-                  type: 'command_result',
-                  command: cmdData.command || 'unknown',
-                  success: cmdData.success !== false,
-                  error: cmdData.error || null,
-                  data: cmdData.data || null,
-                },
-                finished: true,
+              const cmdMsg = messages.value[assistantMsgIndex];
+              cmdMsg.role = 'system';
+              cmdMsg.content = cmdData.content || '';
+              cmdMsg.metadata = {
+                type: 'command_result',
+                command: cmdData.command || 'unknown',
+                success: cmdData.success !== false,
+                error: cmdData.error || null,
+                data: cmdData.data || null,
               };
+              cmdMsg.finished = true;
               nextTick(() => scrollToBottom(true));
             }
             else if (eventType === 'agent.error') {
@@ -3496,7 +3502,6 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* margin-top: var(--spacing-sm); */
   padding: 4px 12px;
   border-radius: var(--radius-full);
   background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));

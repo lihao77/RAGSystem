@@ -11,7 +11,7 @@
 
 import logging
 import re
-from threading import Event as ThreadingEvent
+from threading import Event as ThreadingEvent, Lock
 from typing import List, Optional
 
 from agents.events.bus import EventType, Event
@@ -59,6 +59,7 @@ class MessagePersistenceHandler:
         self.child_agent_id = child_agent_id
 
         self.final_answer_saved = ThreadingEvent()
+        self._final_answer_lock = Lock()
         self.message_id_for_run: List[Optional[str]] = [None]
         # 当前持久化边界对应的入口调用节点 ID（root 与 child 统一语义）
         self.entry_call_id: Optional[str] = None
@@ -89,7 +90,9 @@ class MessagePersistenceHandler:
             logger.info('收到用户中断事件: session_id=%s', self.session_id)
             self.cancel_event.set()
             # 中断时持久化 interrupted assistant 消息 + 用户中断标记
-            if not self.final_answer_saved.is_set():
+            with self._final_answer_lock:
+                if self.final_answer_saved.is_set():
+                    return
                 try:
                     # assistant 消息：承载已有的 run steps（工具调用）
                     message = self.store.add_message(
@@ -117,7 +120,7 @@ class MessagePersistenceHandler:
                         role='user',
                         content='[Request interrupted by user]',
                         metadata={
-                            'is_meta': True,
+                            'hidden': True,
                             'interrupted': True,
                             'thread_key': self.thread_key,
                             'conversation_scope': self.conversation_scope,
@@ -221,50 +224,51 @@ class MessagePersistenceHandler:
                     return
             elif event.agent_name and event.agent_name != self.entry_agent_name:
                 return
-            if self.final_answer_saved.is_set():
-                return
-            content = (event.data or {}).get('content')
-            if content is None:
-                return
-            try:
-                message = self.store.add_message(
-                    session_id=self.session_id,
-                    role='assistant',
-                    content=content if isinstance(content, str) else str(content),
-                    metadata={
-                        'agent': event.agent_name,
-                        'run_id': self.run_id,
-                        'thread_key': self.thread_key,
-                        'conversation_scope': self.conversation_scope,
-                        'visible_to_user': self.visible_to_user,
-                        'child_agent_id': self.child_agent_id,
-                    },
-                    thread_key=self.thread_key,
-                    child_agent_id=self.child_agent_id,
-                )
-                self.message_id_for_run[0] = message['id']
-                self.store.update_run_steps_message_id(self.session_id, self.run_id, message['id'])
-                self._persist_session_memories(
-                    content=content if isinstance(content, str) else str(content),
-                    message_id=message['id'],
-                    agent_name=event.agent_name or self.entry_agent_name,
-                )
-                self.final_answer_saved.set()
-                self.event_bus.publish(Event(
-                    type=EventType.MESSAGE_SAVED,
-                    data=attach_execution_metadata(
-                        {'id': message['id'], 'seq': message.get('seq'), 'role': 'assistant'},
-                        task_id=(event.data or {}).get('task_id'),
+            with self._final_answer_lock:
+                if self.final_answer_saved.is_set():
+                    return
+                content = (event.data or {}).get('content')
+                if content is None:
+                    return
+                try:
+                    message = self.store.add_message(
                         session_id=self.session_id,
-                        run_id=self.run_id,
-                        execution_kind='agent_stream',
-                        request_id=(event.data or {}).get('request_id'),
-                    ),
-                    session_id=self.session_id,
-                    agent_name=event.agent_name,
-                ))
-            except Exception as error:
-                logger.warning('写入 assistant 消息失败: %s', error, exc_info=True)
+                        role='assistant',
+                        content=content if isinstance(content, str) else str(content),
+                        metadata={
+                            'agent': event.agent_name,
+                            'run_id': self.run_id,
+                            'thread_key': self.thread_key,
+                            'conversation_scope': self.conversation_scope,
+                            'visible_to_user': self.visible_to_user,
+                            'child_agent_id': self.child_agent_id,
+                        },
+                        thread_key=self.thread_key,
+                        child_agent_id=self.child_agent_id,
+                    )
+                    self.message_id_for_run[0] = message['id']
+                    self.store.update_run_steps_message_id(self.session_id, self.run_id, message['id'])
+                    self._persist_session_memories(
+                        content=content if isinstance(content, str) else str(content),
+                        message_id=message['id'],
+                        agent_name=event.agent_name or self.entry_agent_name,
+                    )
+                    self.final_answer_saved.set()
+                    self.event_bus.publish(Event(
+                        type=EventType.MESSAGE_SAVED,
+                        data=attach_execution_metadata(
+                            {'id': message['id'], 'seq': message.get('seq'), 'role': 'assistant'},
+                            task_id=(event.data or {}).get('task_id'),
+                            session_id=self.session_id,
+                            run_id=self.run_id,
+                            execution_kind='agent_stream',
+                            request_id=(event.data or {}).get('request_id'),
+                        ),
+                        session_id=self.session_id,
+                        agent_name=event.agent_name,
+                    ))
+                except Exception as error:
+                    logger.warning('写入 assistant 消息失败: %s', error, exc_info=True)
 
         return self.event_bus.subscribe(
             event_types=[EventType.FINAL_ANSWER],

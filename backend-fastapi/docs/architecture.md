@@ -81,6 +81,11 @@ backend-fastapi/
 ```
 POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → api/v1/stream.py
+      ├─ 斜杠命令预处理（task 以 `/` 开头时）
+      │   ├─ `system` 模式命令（`/help`、`/compact`）：直接执行，结果通过 `command.result` SSE 事件返回，不进入 agent 流程
+      │   │   └─ 持久化两条消息：user（原始命令，`type=command`）+ system（结果，`type=command_result`），均不进入 agent 上下文
+      │   └─ `prompt` 模式命令（`/review`、`/analyze`、`/explain`）：展开模板后进入正常 agent 流程
+      │       └─ 持久化两条消息：user（原始命令，`display_only=true`，前端展示）+ user（展开 prompt，`visible_to_user=false`，agent 上下文）
       ├─ 校验 attachments.file_id 是否属于当前 session
       ├─ 将附件补齐为 {file_id, original_name, stored_name, stored_path, mime, size, kind}
       └─ 允许“纯附件消息”：task 为空时，只要 attachments 非空即可发送
@@ -465,6 +470,20 @@ memory 当前采用纯 scope 授权模型：
 - `child_agent_id` 是稳定子会话 ID；`call_id` 仍表示一次调用节点；`run_id` 仍表示一次执行实例
 - `child_agents.created_seq` 记录该 child 会话在主 session 消息流中的创建检查点；rollback 时若 `created_seq > after_seq`，则该 child 会话会随 checkpoint 一并移除
 - `AgentSessionApplication.list_messages()` 默认只展示 root 主消息流；会过滤 `react_intermediate`、`visible_to_user=False`、`conversation_scope='child'` 与非 `root` 线程消息；child 对话主要用于上下文恢复与调试
+
+#### 消息 metadata 可见性字段语义
+
+消息通过以下三个互不重叠的 metadata 字段控制可见性：
+
+| 字段 | 含义 | 前端显示 | Agent 历史 |
+|------|------|---------|----------|
+| `display_only: true` | 仅供前端展示，不进入 agent 上下文（如斜杠命令原始文本 `/review ...`） | ✓ | ✗ |
+| `visible_to_user: false` | agent 专用消息，不展示给用户（如斜杠命令展开后的完整 prompt） | ✗ | ✓ |
+| `hidden: true` | 纯系统内部记录，前端和 agent 均不可见（如中断标记 `[Request interrupted by user]`） | ✗ | ✗ |
+
+过滤执行位置：
+- 后端 `load_history_into_context()`：跳过 `display_only`、`hidden`、`interrupted assistant`、`command/command_result` 类型消息
+- 前端 `loadSessionMessages()`：跳过 `visible_to_user=false && !display_only` 以及 `hidden` 消息
 - 历史消息接口默认不再内联 `execution_steps`；assistant message 只返回 `has_execution`，表示该消息是否可继续懒加载执行树 sidecar
 
 统一执行树的唯一事实源是 **canonical `execution.step`**：

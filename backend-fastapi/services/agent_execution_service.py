@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Literal, Tuple
+from typing import Optional, Literal, Tuple, Dict, Any
 
 from agents.core.models import AgentResponse
 from runtime.dependencies import get_runtime_dependency
@@ -354,6 +354,7 @@ class AgentExecutionService:
         child_agent_id: Optional[str] = None,
         visible_to_user: Optional[bool] = None,
         attachments: Optional[list] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ):
         store = self._runtime.get_conversation_store()
         effective_visible = visible_to_user if visible_to_user is not None else (mode == 'root')
@@ -363,19 +364,22 @@ class AgentExecutionService:
             child_agent_id=child_agent_id,
         )
         effective_scope = self._resolve_conversation_scope(mode)
+        metadata = {
+            'agent': agent_name,
+            'run_id': run_id,
+            'thread_key': effective_thread_key,
+            'conversation_scope': effective_scope,
+            'visible_to_user': effective_visible,
+            'child_agent_id': child_agent_id,
+            'attachments': list(attachments or []),
+        }
+        if extra_metadata:
+            metadata.update(extra_metadata)
         return store.add_message(
             session_id=session_id,
             role='user',
             content=task,
-            metadata={
-                'agent': agent_name,
-                'run_id': run_id,
-                'thread_key': effective_thread_key,
-                'conversation_scope': effective_scope,
-                'visible_to_user': effective_visible,
-                'child_agent_id': child_agent_id,
-                'attachments': list(attachments or []),
-            },
+            metadata=metadata,
             thread_key=effective_thread_key,
             child_agent_id=child_agent_id,
         )

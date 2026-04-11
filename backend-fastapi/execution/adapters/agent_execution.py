@@ -187,9 +187,10 @@ class AgentExecutionAdapter:
                 child_agent_id=execution_handle.child_agent_id,
                 visible_to_user=True,
                 attachments=current_attachments,
+                extra_metadata={'display_only': True} if display_task and display_task != task else None,
             )
 
-            # prompt 斜杠命令：额外持久化展开后的模板，确保后续轮次 Agent 能看到完整 prompt
+            # prompt 斜杠命令：持久化展开后的完整 prompt 供 Agent 历史上下文使用
             if display_task and display_task != task:
                 thread_key_resolved = execution_handle.thread_key
                 scope = context.metadata.get('conversation_scope', 'root')
@@ -203,7 +204,6 @@ class AgentExecutionAdapter:
                         'thread_key': thread_key_resolved,
                         'conversation_scope': scope,
                         'visible_to_user': False,
-                        'is_meta': True,
                         'child_agent_id': execution_handle.child_agent_id,
                     },
                     thread_key=thread_key_resolved,

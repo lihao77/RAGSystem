@@ -567,22 +567,22 @@ class ContextPipeline:
     ) -> str:
         """尝试用 LLM 生成摘要。按 fast → default → 系统配置 逐级 fallback。"""
 
-        # 构建候选配置列表（按优先级去重）
-        candidates = []
+        # 构建候选配置列表（按优先级去重），同时记录 label
+        candidates = []  # List of (label, cfg)
         seen = set()
         for tier in ('fast', 'default'):
             cfg = self.get_llm_config_fn(task_type=tier)
             key = (cfg.get('provider'), cfg.get('provider_type'))
             if cfg.get("provider") and key not in seen:
                 seen.add(key)
-                candidates.append(cfg)
+                candidates.append((tier, cfg))
 
         # 最终 fallback：系统配置的保底 LLM
         system_llm = self._get_system_llm_config()
         if system_llm:
             key = (system_llm.get('provider'), system_llm.get('provider_type'))
             if system_llm.get('provider') and key not in seen:
-                candidates.append(system_llm)
+                candidates.append(('系统配置', system_llm))
 
         if not candidates:
             raise ContextCompressionError("上下文压缩失败：无可用摘要模型（fast/default/系统配置均未配置）")
@@ -615,11 +615,10 @@ class ContextPipeline:
         ]
 
         last_error = None
-        for i, llm_config in enumerate(candidates):
+        for tier_label, llm_config in candidates:
             provider = llm_config['provider']
             provider_type = llm_config.get("provider_type")
             model_name = llm_config.get('model_name', 'unknown')
-            tier_label = ['fast', 'default', '系统配置'][i] if i < 3 else f'fallback-{i}'
             try:
                 self.logger.info(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
                 resp = self.model_adapter.chat_completion(

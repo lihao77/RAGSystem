@@ -174,6 +174,7 @@ tool 归属规则：
 | `heartbeat` | 保持连接活性 |
 | `agent.retry_scheduled` / `agent.end` | 更新 agent 生命周期提示 |
 | `agent.error` | 添加错误状态 |
+| `command.result` | 斜杠命令执行结果：原地修改占位 assistant 消息为 `role=system`，由 `CommandResultMessage.vue` 渲染 |
 | `done` | 标记流结束 |
 
 说明：
@@ -225,8 +226,41 @@ tool 归属规则：
   multimodalContents: [],        // 历史 execution.step 中的可视化内容
   status: [],                    // 错误状态
   finished: boolean,
+  stopped: boolean,              // 已停止/中断
+  metadata: {},                  // 原始 metadata，含 interrupted 等标记
   _executionProjector: object    // 仅运行时内存态，不持久化
 }
+```
+
+### 斜杠命令结果消息
+
+`command.result` SSE 事件到达后，占位 assistant 消息原地变形为：
+
+```javascript
+{
+  role: 'system',
+  content: string,               // 命令输出文本
+  metadata: {
+    type: 'command_result',
+    command: string,             // 命令名（不含 /）
+    success: boolean,
+    error: string | null,
+    data: object | null,         // 命令附带的结构化数据
+  },
+  finished: true,
+}
+```
+
+由 `CommandResultMessage.vue` 渲染，显示命令名、状态图标和输出文本。
+
+### 历史消息加载过滤规则
+
+`loadSessionMessages()` 从 `/api/agent/sessions/{id}/messages` 取回全量消息后，按以下规则过滤：
+
+| 条件 | 过滤原因 |
+|------|--------|
+| `metadata.visible_to_user === false && !metadata.display_only` | agent 专用消息（如展开后的完整 prompt），用户不可见 |
+| `metadata.hidden === true` | 系统内部记录（中断标记等），前端不展示 |
 ```
 
 ### 子任务结构

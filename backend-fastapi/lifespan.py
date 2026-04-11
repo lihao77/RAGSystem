@@ -124,6 +124,13 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('Hook 系统 bootstrap 失败（不影响核心功能）: %s', e)
 
+    # ── 第 4.7 步：注册内建斜杠命令 ─────────────────────────────────────────
+    try:
+        import commands.builtin  # noqa: F401 — 触发内建命令注册
+        logger.info('✓ 内建斜杠命令已注册')
+    except Exception as e:
+        logger.warning('斜杠命令注册失败（不影响核心功能）: %s', e)
+
     # ── 第五步（新增）：加载外部扩展 ──────────────────────────────────────
     loaded_extensions = []
     try:
