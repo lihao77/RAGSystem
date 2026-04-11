@@ -185,7 +185,7 @@ class ContextPipeline:
     def count_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
         return self._token_counter.count_messages(messages)
 
-    def force_compress(self, context, publisher=None) -> Dict[str, Any]:
+    def force_compress(self, context, publisher=None, system_prompt: str = "") -> Dict[str, Any]:
         """强制压缩上下文，跳过阈值检查。返回压缩统计和持久化信息。"""
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
@@ -197,7 +197,7 @@ class ContextPipeline:
 
         compressed = self._compress(
             history_raw, history_resolved, context, publisher,
-            system_prompt="",
+            system_prompt=system_prompt,
         )
         self._ensure_memory_prefix_snapshot(context, reason='apply_compression')
 

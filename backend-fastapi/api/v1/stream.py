@@ -114,6 +114,53 @@ def _cleanup_run_bus_if_safe(session_id: str, run_id: str, *, natural_completion
         pass
 
 
+def _sse_line(payload: dict, **dumps_kwargs) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
+
+
+async def _unknown_command_stream(session_id: str, cmd_name: str):
+    yield _sse_line({'type': 'command.result', 'data': {
+        'command': cmd_name.lstrip('/'), 'success': False,
+        'content': f'未知命令: {cmd_name}\n输入 /help 查看可用命令',
+    }, 'session_id': session_id})
+    yield _sse_line({'type': 'done', 'session_id': session_id})
+
+
+async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, task: str, defn, llm_override):
+    try:
+        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
+    except Exception as e:
+        logger.error('命令执行失败: %s', e, exc_info=True)
+        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+    try:
+        from dependencies import get_agent_runtime_service
+        store = get_agent_runtime_service().get_conversation_store()
+        store.add_message(
+            session_id=session_id, role='user', content=task,
+            metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
+        )
+        store.add_message(
+            session_id=session_id, role='system', content=result.get('content', ''),
+            metadata={
+                'type': 'command_result',
+                'command': result.get('command', cmd_name.lstrip('/')),
+                'success': result.get('success', False),
+            },
+        )
+    except Exception as persist_err:
+        logger.warning('命令结果持久化失败: %s', persist_err)
+    yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
+    yield _sse_line({'type': 'done', 'session_id': session_id})
+
+
+async def _missing_args_stream(session_id: str, cmd_name: str, defn):
+    yield _sse_line({'type': 'command.result', 'data': {
+        'command': cmd_name.lstrip('/'), 'success': False, 'error': 'missing_args',
+        'content': f'用法: {cmd_name} <内容>\n{defn.description}',
+    }, 'session_id': session_id})
+    yield _sse_line({'type': 'done', 'session_id': session_id})
+
+
 @router.post('/stream')
 async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     """
@@ -129,9 +176,6 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     llm_override = _parse_selected_llm(selected_llm_str)
     llm_tier = _parse_llm_tier(request.llm_tier or '')
 
-    def _sse_line(payload: dict, **dumps_kwargs) -> str:
-        return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
-
     # ── 斜杠命令预处理 ──
     display_task = None  # 用于持久化的原始显示文本
     if task.startswith('/'):
@@ -141,50 +185,15 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
         if parsed is not None:
             defn, cmd_name, cmd_args = parsed
             if defn is None:
-                async def _unknown_command_stream():
-                    yield _sse_line({'type': 'command.result', 'data': {
-                        'command': cmd_name.lstrip('/'), 'success': False,
-                        'content': f'未知命令: {cmd_name}\n输入 /help 查看可用命令',
-                    }, 'session_id': session_id})
-                    yield _sse_line({'type': 'done', 'session_id': session_id})
-                return StreamingResponse(_unknown_command_stream(), media_type='text/event-stream')
+                return StreamingResponse(_unknown_command_stream(session_id, cmd_name), media_type='text/event-stream')
             if defn.mode == 'system':
-                async def _system_command_stream():
-                    try:
-                        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
-                    except Exception as e:
-                        logger.error('命令执行失败: %s', e, exc_info=True)
-                        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
-                    # 持久化用户命令 + 系统结果到消息历史
-                    try:
-                        from dependencies import get_agent_runtime_service
-                        store = get_agent_runtime_service().get_conversation_store()
-                        store.add_message(
-                            session_id=session_id, role='user', content=task,
-                            metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
-                        )
-                        store.add_message(
-                            session_id=session_id, role='system', content=result.get('content', ''),
-                            metadata={
-                                'type': 'command_result',
-                                'command': result.get('command', cmd_name.lstrip('/')),
-                                'success': result.get('success', False),
-                            },
-                        )
-                    except Exception as persist_err:
-                        logger.warning('命令结果持久化失败: %s', persist_err)
-                    yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
-                    yield _sse_line({'type': 'done', 'session_id': session_id})
-                return StreamingResponse(_system_command_stream(), media_type='text/event-stream')
+                return StreamingResponse(
+                    _system_command_stream(session_id, cmd_name, cmd_args, task, defn, llm_override),
+                    media_type='text/event-stream',
+                )
             # prompt 命令：展开模板
             if not cmd_args.strip():
-                async def _missing_args_stream():
-                    yield _sse_line({'type': 'command.result', 'data': {
-                        'command': cmd_name.lstrip('/'), 'success': False, 'error': 'missing_args',
-                        'content': f'用法: {cmd_name} <内容>\n{defn.description}',
-                    }, 'session_id': session_id})
-                    yield _sse_line({'type': 'done', 'session_id': session_id})
-                return StreamingResponse(_missing_args_stream(), media_type='text/event-stream')
+                return StreamingResponse(_missing_args_stream(session_id, cmd_name, defn), media_type='text/event-stream')
             display_task = task  # 保存原始命令文本
             task = defn.template.replace('{args}', cmd_args)
 

@@ -33,32 +33,8 @@ async def handle_compact(session_id: str, args: str, **kw) -> dict:
     if task_status and task_status.get('status') in ('running', 'pending'):
         return {'command': 'compact', 'success': False, 'content': '该会话正在执行任务，请等待完成后再压缩'}
 
-    store = runtime_service.get_conversation_store()
-    orchestrator = (
-        runtime_service.create_execution_orchestrator(session_id=session_id)
-        if session_id
-        else runtime_service.get_orchestrator()
-    )
-    entry_agent = (
-        orchestrator.resolve_default_entry_agent()
-        if hasattr(orchestrator, 'resolve_default_entry_agent') else None
-    )
-    if not entry_agent:
-        return {'command': 'compact', 'success': False, 'content': '默认入口智能体未加载'}
-
-    def _do_compact():
-        context = runtime_service.build_context(session_id=session_id, agent_name=entry_agent.name)
-        result = entry_agent.context_pipeline.force_compress(context)
-        if result.get('summary_content') and result['status'] == 'success':
-            store.insert_compression_message(
-                session_id=session_id,
-                summary_content=result['summary_content'],
-                replaces_up_to_seq=result.get('replaces_up_to_seq'),
-            )
-        return result
-
     try:
-        result = await asyncio.to_thread(_do_compact)
+        result = await asyncio.to_thread(runtime_service.compact_session, session_id)
     except Exception as e:
         logger.error('压缩失败: %s', e, exc_info=True)
         return {'command': 'compact', 'success': False, 'content': f'压缩失败: {e}'}
