@@ -300,7 +300,6 @@ class ModelAdapter:
                 tool_choice=tool_choice,
                 **kwargs
             )
-
             return response
 
         except Exception as e:

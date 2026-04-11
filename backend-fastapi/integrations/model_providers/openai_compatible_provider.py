@@ -48,6 +48,8 @@ class OpenAICompatibleProvider(AIProvider):
         payload[max_token_field] = max_token_value
         if 'reasoning_effort' not in payload and getattr(self, 'reasoning_effort', None):
             payload['reasoning_effort'] = self.reasoning_effort
+        if payload.get('reasoning_effort') is None:
+            payload.pop('reasoning_effort', None)
 
         if tools and self._should_attach_tools():
             payload['tools'] = tools

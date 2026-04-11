@@ -9,6 +9,7 @@ ContextPipeline - 统一上下文压缩管道
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
 
@@ -17,9 +18,100 @@ from .config import ContextConfig
 
 logger = logging.getLogger(__name__)
 
+# ─── Compact prompt constants (参考 Claude Code services/compact/prompt.ts) ──
+
+_NO_TOOLS_PREAMBLE = (
+    "重要提示：仅输出文本，不要调用任何工具。"
+    "你已有生成摘要所需的全部上下文。工具调用将被拒绝并导致任务失败。\n\n"
+)
+
+_NO_TOOLS_TRAILER = (
+    "\n\n提醒：不要调用任何工具。"
+    "仅输出 <analysis> 块（内部草稿）和 <summary> 块（最终摘要）。"
+)
+
+_COMPACT_PROMPT_BODY = """\
+你的任务是对以下对话生成详细摘要，重点关注用户的明确请求和之前的操作记录。
+摘要须全面捕捉技术细节、代码模式和架构决策，以便后续在不丢失上下文的情况下继续工作。
+
+在提供最终摘要之前，请将分析过程写在 <analysis> 标签内（此部分最终会被丢弃，是供你整理思路的草稿区）：
+1. 按时间顺序分析每条消息，识别：
+   - 用户的明确请求和意图
+   - 处理请求的方式与关键决策
+   - 技术概念、代码模式、文件名、函数签名、具体修改
+   - 遇到的错误及修复方法，以及用户的特定反馈
+2. 检查技术准确性与完整性
+
+摘要须包含以下章节：
+
+1. 主要请求和意图：详细描述所有明确请求和意图
+2. 关键技术概念：列出重要技术概念、技术栈和框架
+3. 文件和代码片段：列举查看/修改/创建的文件，附重要代码片段，说明为何重要
+4. 错误与修复：列出所有错误及修复方法，包含用户反馈
+5. 问题解决：记录已解决问题和正在进行的排查
+6. 所有用户消息：列出所有非工具结果的用户消息（完整保留）
+7. 待办任务：列出所有待处理任务
+8. 当前工作：详细描述摘要请求前正在进行的工作（附文件名和代码）
+9. 可选的下一步：列出与最近工作直接相关的下一步，引用对话原文
+
+输出格式：
+
+<analysis>
+[分析过程，确保覆盖所有要点]
+</analysis>
+
+<summary>
+1. 主要请求和意图：
+   [详细描述]
+
+2. 关键技术概念：
+   - [概念1]
+
+3. 文件和代码片段：
+   - [文件名]
+     - [重要性说明]
+     - [代码片段]
+
+4. 错误与修复：
+   - [错误]：[修复方法]
+
+5. 问题解决：
+   [描述]
+
+6. 所有用户消息：
+   - [消息]
+
+7. 待办任务：
+   - [任务]
+
+8. 当前工作：
+   [描述]
+
+9. 可选的下一步：
+   [下一步]
+</summary>
+"""
+
+_COMPACT_SUMMARY_PREFIX = (
+    "本次会话从之前的对话继续，以下是该对话早期内容的摘要。\n\n"
+)
+
+# microcompact：旧工具结果内容替换占位符
+_MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]"
+
 
 class ContextCompressionError(RuntimeError):
     """历史摘要失败时抛出的上下文准备异常。"""
+
+
+@dataclass
+class CompressionResult:
+    """_compress() 的返回值，统一描述一次压缩操作的结果。"""
+    did_compress: bool
+    messages: List[Dict[str, Any]]         # 压缩后的 history_resolved
+    summary_content: Optional[str] = None
+    replaces_up_to_seq: Optional[int] = None
+    reason: str = ""   # 'success' / 'insufficient_candidates'
 
 
 @dataclass
@@ -185,46 +277,88 @@ class ContextPipeline:
     def count_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
         return self._token_counter.count_messages(messages)
 
+    def microcompact_messages(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """微压缩：清除旧工具结果内容，无需调用 LLM。
+
+        仿照 Claude Code 的 microcompactMessages 逻辑：
+        - 识别 metadata.msg_type == 'observation' 的消息（工具结果）
+        - 保留最近 microcompact_keep_recent_tools 条的完整内容
+        - 将更旧的内容替换为占位符，节省 tokens 同时保留结构
+        """
+        keep = self.config.microcompact_keep_recent_tools
+        obs_indices = [
+            i for i, m in enumerate(messages)
+            if (m.get('metadata') or {}).get('msg_type') == 'observation'
+        ]
+        if not obs_indices or len(obs_indices) <= keep:
+            return messages
+
+        to_clear = set(obs_indices[:-keep])
+        result = []
+        cleared = 0
+        for i, m in enumerate(messages):
+            if i in to_clear and m.get('content') != _MICROCOMPACT_CLEARED_LABEL:
+                round_num = (m.get('metadata') or {}).get('round', '')
+                label = (
+                    f"[工具结果已清理，轮次 {round_num}]"
+                    if round_num else _MICROCOMPACT_CLEARED_LABEL
+                )
+                result.append({**m, 'content': label})
+                cleared += 1
+            else:
+                result.append(m)
+
+        if cleared:
+            tokens_before = self._token_counter.count_messages(messages)
+            tokens_after = self._token_counter.count_messages(result)
+            self.logger.info(
+                f"微压缩: 清除 {cleared} 条旧工具结果"
+                f"（保留最近 {keep} 条），"
+                f"节省约 {tokens_before - tokens_after} tokens"
+            )
+        return result
+
     def force_compress(self, context, publisher=None, system_prompt: str = "") -> Dict[str, Any]:
         """强制压缩上下文，跳过阈值检查。返回压缩统计和持久化信息。"""
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
-        before_count = len(history_raw)
-        before_tokens = self._token_counter.count_messages(history_resolved)
 
         if not history_resolved:
             return {'status': 'skipped', 'reason': 'no_history', 'before': 0, 'after': 0, 'tokens_saved': 0}
 
-        compressed = self._compress(
-            history_raw, history_resolved, context, publisher,
-            system_prompt=system_prompt,
-        )
-        self._ensure_memory_prefix_snapshot(context, reason='apply_compression')
+        before_count = len(history_raw)
+        before_tokens = self._token_counter.count_messages(history_resolved)
 
-        after_tokens = self._token_counter.count_messages(compressed)
+        try:
+            result = self._compress(
+                history_raw, history_resolved, context, publisher,
+                system_prompt=system_prompt,
+            )
+        except ContextCompressionError as e:
+            return {'status': 'error', 'reason': str(e), 'before': before_count, 'after': before_count, 'tokens_saved': 0}
 
-        # 提取摘要信息和 replaces_up_to_seq 用于持久化
-        new_history = context.conversation_history
-        summary_content = None
-        replaces_up_to_seq = None
-        if new_history and (new_history[0].metadata or {}).get('compression'):
-            summary_content = new_history[0].content
-            # 新历史中保留的消息 seq 集合
-            kept_seqs = {msg.seq for msg in new_history[1:] if msg.seq is not None}
-            # 原始历史中被替换的最大 seq
-            replaced_seqs = [
-                m.get('seq') for m in history_raw
-                if m.get('seq') is not None and m.get('seq') not in kept_seqs
-            ]
-            replaces_up_to_seq = max(replaced_seqs) if replaced_seqs else None
+        if not result.did_compress:
+            return {
+                'status': 'skipped',
+                'reason': result.reason,
+                'before': before_count,
+                'after': before_count,
+                'tokens_saved': 0,
+                'summary_content': None,
+                'replaces_up_to_seq': None,
+            }
 
+        after_tokens = self._token_counter.count_messages(result.messages)
         return {
             'status': 'success',
             'before': before_count,
-            'after': len(new_history),
+            'after': len(context.conversation_history),
             'tokens_saved': max(0, before_tokens - after_tokens),
-            'summary_content': summary_content,
-            'replaces_up_to_seq': replaces_up_to_seq,
+            'summary_content': result.summary_content,
+            'replaces_up_to_seq': result.replaces_up_to_seq,
         }
 
     def should_rebuild_after_append(self, total_tokens: int) -> bool:
@@ -270,6 +404,10 @@ class ContextPipeline:
         self._ensure_memory_prefix_snapshot(context, reason='prepare_messages')
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
+
+        # microcompact：每轮调用前先清除旧工具结果内容（无需 LLM，零延迟）
+        history_resolved = self.microcompact_messages(history_resolved)
+
         history_tokens = self._token_counter.count_messages(history_resolved)
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
         self.logger.info(
@@ -284,10 +422,11 @@ class ContextPipeline:
                 f"触发上下文压缩: tokens={history_tokens}/{self.config.max_tokens} "
                 f"({history_tokens / self.config.max_tokens * 100:.1f}%)"
             )
-            history_resolved = self._compress(
+            compress_result = self._compress(
                 history_raw, history_resolved, context, publisher,
                 system_prompt=system_prompt,
             )
+            history_resolved = compress_result.messages
 
         system_msg = {"role": "system", "content": system_prompt}
         prepared = [system_msg]
@@ -480,7 +619,7 @@ class ContextPipeline:
         context,
         publisher=None,
         system_prompt: str = "",
-    ) -> List[Dict[str, Any]]:
+    ) -> CompressionResult:
         # 确定被摘要段：压缩「除最近 preserve_recent_turns 轮之外」的所有历史
         # 这样无论消息长短，每次都能尽量多地压缩，token 效率最优。
         start_idx = 0
@@ -495,7 +634,11 @@ class ContextPipeline:
         if len(candidates) <= preserve_count:
             # 可压缩消息不足，不触发
             self._record_compression(status="skipped", replaced_messages=0)
-            return history_resolved
+            return CompressionResult(
+                did_compress=False,
+                messages=history_resolved,
+                reason='insufficient_candidates',
+            )
 
         segment = candidates[:-preserve_count]
 
@@ -513,51 +656,19 @@ class ContextPipeline:
                 )
                 self._publish_pre_compression_usage(publisher, history_resolved, system_prompt)
             summary = self._try_llm_summary(segment, existing_summary, publisher=publisher)
-        except ContextCompressionError as e:
-            self.logger.warning(f"LLM 摘要失败，降级为截断: {e}")
-            return self._fallback_truncate(
-                history_raw, history_resolved, context, preserve_count, publisher
-            )
+        except ContextCompressionError:
+            raise
         self._record_compression(status="success", replaced_messages=len(segment))
-        return self._apply_compression(
+        resolved, summary_content, replaces_up_to_seq = self._apply_compression(
             summary, segment, history_raw, context, publisher
         )
-
-    def _fallback_truncate(
-        self,
-        history_raw: List[Dict[str, Any]],
-        history_resolved: List[Dict[str, Any]],
-        context,
-        preserve_count: int,
-        publisher=None,
-    ) -> List[Dict[str, Any]]:
-        """LLM 摘要不可用时的降级策略：丢弃早期消息，保留最近 preserve_count 条。"""
-        discarded = len(history_resolved) - preserve_count
-        if discarded <= 0:
-            self._record_compression(status="fallback_skipped", replaced_messages=0)
-            return history_resolved
-
-        kept = history_resolved[-preserve_count:]
-        fallback_summary = (
-            f"[历史摘要]\n（LLM 摘要不可用，已丢弃 {discarded} 条早期消息）"
+        return CompressionResult(
+            did_compress=True,
+            messages=resolved,
+            summary_content=summary_content,
+            replaces_up_to_seq=replaces_up_to_seq,
+            reason='success',
         )
-        summary_message = {
-            "role": "assistant",
-            "content": fallback_summary,
-            "metadata": {"compression": True},
-        }
-        updated_raw = [summary_message] + kept
-        self._write_back_context(context, updated_raw)
-        self._ensure_memory_prefix_snapshot(context, reason='fallback_truncate')
-
-        if publisher:
-            publisher.compression_summary(fallback_summary, replaces_up_to_seq=None)
-
-        self._record_compression(status="fallback", replaced_messages=discarded)
-        self.logger.info(
-            f"降级截断完成: 丢弃 {discarded} 条消息, 保留 {preserve_count} 条"
-        )
-        return resolve_compression_view(updated_raw)
 
     def _try_llm_summary(
         self,
@@ -570,7 +681,7 @@ class ContextPipeline:
         # 构建候选配置列表（按优先级去重），同时记录 label
         candidates = []  # List of (label, cfg)
         seen = set()
-        for tier in ('fast', 'default'):
+        for tier in ('default', 'fast'):
             cfg = self.get_llm_config_fn(task_type=tier)
             key = (cfg.get('provider'), cfg.get('provider_type'))
             if cfg.get("provider") and key not in seen:
@@ -587,33 +698,18 @@ class ContextPipeline:
         if not candidates:
             raise ContextCompressionError("上下文压缩失败：无可用摘要模型（fast/default/系统配置均未配置）")
 
-        # 准备摘要 prompt
-        lines = []
-        for m in segment:
-            role = m.get("role", "user")
-            content = (m.get("content") or "").strip()
-            if content:
-                lines.append(f"{role}: {content}")
-        text = "\n".join(lines) or "（无内容）"
-
-        if existing_summary:
-            prompt = (
-                f"以下是之前的对话摘要：\n{existing_summary}\n\n"
-                f"以下是新的对话内容：\n{text}\n\n"
-                "请将上述历史摘要和新对话合并为一段简短摘要，保留关键事实和结论。"
-                "只输出摘要正文，不要其他说明。"
-            )
-        else:
-            prompt = (
-                "请将以下对话压缩为一段简短摘要，保留关键事实和结论。"
-                "只输出摘要正文，不要其他说明。\n\n" + text
-            )
-
+        # 构建摘要 prompt（参考 Claude Code prompt.ts 结构）
         req = [
-            {"role": "system", "content": "你是一个对话摘要助手。"},
-            {"role": "user", "content": prompt},
+            {
+                "role": "system",
+                "content": (
+                    "你是一名专业的对话摘要助手。"
+                    "你的任务是将对话压缩为结构化摘要，以便后续会话继续进行。"
+                    "不要调用任何工具，只输出文本。"
+                ),
+            },
+            {"role": "user", "content": self._build_compact_prompt(segment, existing_summary)},
         ]
-
         last_error = None
         for tier_label, llm_config in candidates:
             provider = llm_config['provider']
@@ -621,28 +717,31 @@ class ContextPipeline:
             model_name = llm_config.get('model_name', 'unknown')
             try:
                 self.logger.info(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
-                resp = self.model_adapter.chat_completion(
-                    messages=req,
-                    provider=provider,
-                    provider_type=provider_type,
-                    temperature=0.2,
-                    max_tokens=self.config.summarize_max_tokens,
-                    retry_attempts=llm_config.get('retry_attempts'),
-                    retry_backoff_factor=llm_config.get('retry_backoff_factor'),
-                    publisher=publisher,
-                    thinking_budget_tokens=llm_config.get('thinking_budget_tokens'),
-                    reasoning_effort=llm_config.get('reasoning_effort'),
-                )
+                # 优先流式收集（部分反代非流式 content 为空）
+                raw_parts = []
+                stream_error = None
+                try:
+                    for chunk in self.model_adapter.chat_completion_stream(
+                        messages=req,
+                        provider=provider,
+                        provider_type=provider_type,
+                        temperature=0.2,
+                        max_tokens=self.config.summarize_max_tokens,
+                        reasoning_effort="none",
+                    ):
+                        if chunk.get('error'):
+                            stream_error = chunk['error']
+                            break
+                        raw_parts.append(chunk.get('content') or '')
+                except Exception as e:
+                    stream_error = str(e)
 
-                if getattr(resp, "error", None):
-                    raise ContextCompressionError(f"模型返回错误: {resp.error}")
-
-                content = (resp.content or "").strip()
-                if not content:
+                raw = ''.join(raw_parts).strip()
+                if stream_error and not raw:
+                    raise ContextCompressionError(f"流式摘要失败: {stream_error}")
+                if not raw:
                     raise ContextCompressionError("摘要模型返回空内容")
-                if not content.startswith("[历史摘要]"):
-                    content = "[历史摘要]\n" + content
-
+                content = self._format_compact_response(raw)
                 self.logger.info(f"LLM 摘要生成成功（{tier_label}）: {len(content)} 字符")
                 return content
 
@@ -652,10 +751,77 @@ class ContextPipeline:
                 continue
             except Exception as e:
                 last_error = ContextCompressionError(str(e))
-                self.logger.warning(f"{tier_label} 层级摘要异常: {e}，尝试下一层级")
+                self.logger.warning(
+                    f"{tier_label} 层级摘要异常: {type(e).__name__}: {e}，"
+                    f"provider={provider}/{provider_type} model={model_name}，尝试下一层级",
+                    exc_info=True,
+                )
                 continue
 
         raise last_error or ContextCompressionError("上下文压缩失败：所有层级模型均不可用")
+
+    @staticmethod
+    def _build_compact_prompt(segment: "List[Dict[str, Any]]", existing_summary: str = "") -> str:
+        """构建结构化 compact prompt（参考 Claude Code prompt.ts）。
+
+        - <analysis> 草稿区：供 LLM 整理思路（最终被丢弃）
+        - <summary> 9章节结构化摘要
+        - 前后 NO_TOOLS 提示防止工具调用
+        """
+        msg_lines = []
+        for m in segment:
+            role = m.get("role", "user")
+            c = (m.get("content") or "").strip()
+            # 跳过微压缩清除标记（无信息量）
+            if c and c != _MICROCOMPACT_CLEARED_LABEL and not c.startswith("[工具结果已清理"):
+                msg_lines.append(f"{role}: {c}")
+        conversation_text = "\n".join(msg_lines) or "（无内容）"
+
+        existing_section = ""
+        if existing_summary:
+            existing_section = (
+                f"\n\n---已有历史摘要（将与新内容合并）---\n{existing_summary}\n---end---"
+            )
+
+        prompt = (
+            _NO_TOOLS_PREAMBLE
+            + _COMPACT_PROMPT_BODY
+            + existing_section
+            + "\n\n---待压缩对话内容---\n"
+            + conversation_text
+            + "\n---end---"
+            + _NO_TOOLS_TRAILER
+        )
+        return prompt
+
+    @staticmethod
+    def _format_compact_response(raw: str) -> str:
+        """解析 LLM 响应：去除 <analysis> 草稿区，提取 <summary> 内容。
+
+        参考 Claude Code 的 formatCompactSummary()：
+        - 剥离 <analysis>...</analysis>（LLM 思维草稿，不进入上下文）
+        - 提取 <summary>...</summary> 内容作为最终摘要
+        - 如无 XML 标签，原样返回（兼容简单响应）
+        """
+        # 去除 <analysis> 草稿区
+        cleaned = re.sub(r'<analysis>[\s\S]*?</analysis>', '', raw, flags=re.IGNORECASE)
+
+        # 提取 <summary> 内容
+        match = re.search(r'<summary>([\s\S]*?)</summary>', cleaned, re.IGNORECASE)
+        if match:
+            summary_body = match.group(1).strip()
+        else:
+            # 无 <summary> 标签，使用清理后的全文（兼容旧 prompt）
+            summary_body = cleaned.strip()
+
+        if not summary_body:
+            summary_body = raw.strip()
+
+        # 清理多余空行
+        summary_body = re.sub(r'\n{3,}', '\n\n', summary_body).strip()
+
+        # 加上 Claude Code 风格的会话延续前缀
+        return _COMPACT_SUMMARY_PREFIX + "Summary:\n" + summary_body
 
     def _apply_compression(
         self,
@@ -664,8 +830,10 @@ class ContextPipeline:
         history_raw: List[Dict[str, Any]],
         context,
         publisher=None,
-    ) -> List[Dict[str, Any]]:
-        """应用 LLM 摘要压缩，写回 context，发布事件，返回新的 history_resolved。"""
+    ) -> tuple:
+        """应用 LLM 摘要压缩，写回 context，发布事件。
+        返回 (resolved, summary_content, replaces_up_to_seq)。
+        """
         summary_message = {
             "role": "assistant",
             "content": summary_content,
@@ -673,17 +841,23 @@ class ContextPipeline:
         }
 
         # 找到 segment 最后一条消息在 history_raw 中的索引
+        # 优先使用 seq 精确匹配，避免重复内容误命中（Bug 2 fix）
         last_msg = segment[-1] if segment else None
         remaining = []
         replaces_up_to_seq: int | None = None
 
         if last_msg:
             found_idx = -1
+            last_seq = last_msg.get('seq')
             for idx, m in enumerate(history_raw):
-                if (
-                    m.get("role") == last_msg.get("role")
-                    and m.get("content") == last_msg.get("content")
-                ):
+                if last_seq is not None:
+                    match = m.get('seq') == last_seq
+                else:
+                    match = (
+                        m.get("role") == last_msg.get("role")
+                        and m.get("content") == last_msg.get("content")
+                    )
+                if match:
                     found_idx = idx
                     break
             if found_idx >= 0:
@@ -706,7 +880,7 @@ class ContextPipeline:
             f"LLM 压缩完成: {len(history_raw)} -> {len(updated_raw)} 条原始消息, "
             f"{len(resolved)} 条解析后消息"
         )
-        return resolved
+        return resolved, summary_content, replaces_up_to_seq
 
     def _write_back_context(self, context, updated_raw: List[Dict[str, Any]]):
         """将更新后的消息列表写回 context.conversation_history。"""

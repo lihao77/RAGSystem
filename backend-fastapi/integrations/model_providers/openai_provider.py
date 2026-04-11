@@ -146,7 +146,12 @@ class OpenAIProvider(OpenAICompatibleProvider):
         response_format = local_kwargs.pop('response_format', None)
         stop = local_kwargs.pop('stop', None)
         thinking_budget_tokens = local_kwargs.pop('thinking_budget_tokens', None)
-        reasoning_effort = local_kwargs.pop('reasoning_effort', None) or self.reasoning_effort
+        _UNSET = object()
+        reasoning_effort_raw = local_kwargs.pop('reasoning_effort', _UNSET)
+        if reasoning_effort_raw is _UNSET:
+            reasoning_effort = self.reasoning_effort
+        else:
+            reasoning_effort = reasoning_effort_raw  # None 表示显式禁用
 
         model = model or self.get_model_for_task('chat')
         temperature = temperature if temperature is not None else self.temperature
