@@ -154,6 +154,17 @@ async def validate_config(agent_name: str):
 
 
 
+@router.post('/teams/default/reset')
+async def reset_default_team():
+    """将 default team 重置为系统默认配置。"""
+    try:
+        data = await asyncio.to_thread(_get_service().reset_default_team)
+        return ok(data=data, message='default team 已重置为系统默认配置')
+    except Exception as e:
+        logger.error('重置 default team 失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get('/teams')
 async def list_teams():
     """列出所有 team 配置文件。"""

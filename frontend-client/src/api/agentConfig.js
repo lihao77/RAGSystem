@@ -131,6 +131,23 @@ export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
   }
 }
 
+export async function resetDefaultTeam() {
+  try {
+    const response = await fetch(`${API_BASE}/teams/default/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to reset default team');
+    }
+    return result.data || result;
+  } catch (error) {
+    console.error('Error resetting default team:', error);
+    throw error;
+  }
+}
+
 /**
  * 获取所有智能体配置
  * @returns {Promise<Object>} 配置映射

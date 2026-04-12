@@ -308,6 +308,7 @@
               <div class="section-actions section-actions--compact">
                 <button class="pl-btn" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</button>
                 <button class="pl-btn" @click="openTeamConfig(team.team_name)">细调配置</button>
+                <button v-if="team.team_name === 'default'" class="pl-btn" :disabled="working" @click="handleResetDefaultTeam">恢复默认</button>
                 <button class="pl-btn pl-btn--danger" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</button>
               </div>
             </article>
@@ -325,7 +326,7 @@ import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import AppToast from '../components/AppToast.vue';
-import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getTeams } from '../api/agentConfig';
+import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getTeams, resetDefaultTeam } from '../api/agentConfig';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -495,6 +496,19 @@ async function handleDeleteTeam(teamName) {
     showToast('Team 删除成功', 'success');
   } catch (err) {
     showToast(err.message || '删除 Team 失败');
+  } finally {
+    working.value = false;
+  }
+}
+
+async function handleResetDefaultTeam() {
+  working.value = true;
+  try {
+    await resetDefaultTeam();
+    await loadTeams();
+    showToast('default team 已重置为系统默认配置', 'success');
+  } catch (err) {
+    showToast(err.message || '重置 default team 失败');
   } finally {
     working.value = false;
   }

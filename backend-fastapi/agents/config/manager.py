@@ -38,9 +38,9 @@ TEAM_CONFIG_DIR_NAME = 'teams'
 LEGACY_CONFIG_FILE_NAME = 'agent_configs.yaml'
 
 _DEFAULT_LLM_TIER = {
-    'provider': 'dmx',
+    'provider': '',
     'provider_type': 'openai',
-    'model_name': 'gpt-5.4',
+    'model_name': '',
     'temperature': 0.2,
     'max_completion_tokens': 4096,
     'max_context_tokens': 128000,
@@ -48,6 +48,7 @@ _DEFAULT_LLM_TIER = {
 }
 _DEFAULT_MEMORY_CONFIG = {
     'auto_inject': True,
+    # team scope 只读：team 记忆由系统统一管理，Agent 不允许直接写入或归档
     'allowed_scopes': ['team', 'session', 'agent', 'workspace'],
     'write_scopes': ['session', 'agent', 'workspace'],
     'archive_scopes': ['session', 'agent', 'workspace'],
@@ -228,7 +229,6 @@ class AgentConfigManager:
 
     def _build_default_team_payload(self) -> Dict[str, Any]:
         specialist_agents = [
-            'team_maker',
             'plan_agent',
             'explor_agent',
             'general_agent',
@@ -243,6 +243,7 @@ class AgentConfigManager:
                     description='系统默认主编排器，负责理解用户需求、路由任务并整合最终答案。',
                     system_prompt='你是系统默认主编排器，负责优先直接解决问题；必要时再委派给 team 内其他系统 Agent。',
                     default_entry=True,
+                    agent_type='orchestrator',
                     tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
                     delegation=specialist_agents,
                 ),
@@ -259,7 +260,7 @@ class AgentConfigManager:
                     display_name='Plan Agent',
                     description='系统默认规划 Agent，负责方案设计、任务拆解和实现路径规划。',
                     system_prompt='你负责阅读上下文后给出精炼、可执行的实现计划，明确改动点、验证路径和边界。',
-                    tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
+                    tools=['read_file', 'preview_data_structure'],
                     delegation=['explor_agent', 'general_agent'],
                 ),
                 'explor_agent': self._build_system_agent_config(
@@ -302,6 +303,7 @@ class AgentConfigManager:
         description: str,
         system_prompt: str,
         default_entry: bool = False,
+        agent_type: str = 'react',
         tools: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         delegation: Optional[List[str]] = None,
@@ -316,7 +318,7 @@ class AgentConfigManager:
                 'default': copy.deepcopy(_DEFAULT_LLM_TIER),
             },
             'tools': {
-                'enabled_tools': list(tools or ['read_file', 'write_file', 'edit_file', 'preview_data_structure']),
+                'enabled_tools': list(tools or ['read_file', 'preview_data_structure']),
             },
             'skills': {
                 'enabled_skills': list(skills or []),
@@ -330,7 +332,7 @@ class AgentConfigManager:
                 'enabled_agents': list(delegation or []),
             },
             'custom_params': {
-                'type': 'orchestrator',
+                'type': agent_type,
                 'behavior': {
                     'system_prompt': system_prompt,
                     'auto_execute_tools': True,
@@ -469,6 +471,13 @@ class AgentConfigManager:
         except Exception as e:
             logger.error('保存配置失败: %s', e)
             raise
+
+    def reset_default_team(self) -> Dict[str, Any]:
+        """将 default team 重置为系统默认配置，不影响其他 team。"""
+        default_team_payload = self._build_default_team_payload()
+        result = self.apply_team_payload(DEFAULT_TEAM_NAME, default_team_payload['agents'])
+        logger.info('default team 已重置为系统默认配置')
+        return result
 
     def get_active_team(self) -> str:
         return self._active_team

@@ -93,6 +93,11 @@ class AgentConfigService:
         self._reload_agents_safely()
         return self.list_teams()
 
+    def reset_default_team(self) -> Dict[str, Any]:
+        result = self._config_manager.reset_default_team()
+        self._reload_agents_safely()
+        return result
+
     def get_config(self, agent_name: str) -> Dict[str, Any]:
         config = self._config_manager.get_config(agent_name)
         if config is None:
