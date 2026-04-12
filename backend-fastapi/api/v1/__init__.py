@@ -20,6 +20,7 @@ from .vector_management import router as vector_management_router
 from .embedding_models import router as embedding_models_router
 from .artifacts import router as artifacts_router
 from .permissions import router as permissions_router
+from .daemon import router as daemon_router
 
 router = APIRouter()
 
@@ -65,3 +66,6 @@ router.include_router(artifacts_router, prefix='/artifacts', tags=['Artifact 管
 
 # 权限策略管理
 router.include_router(permissions_router, prefix='/permissions', tags=['权限管理'])
+
+# 守护 Agent 系统
+router.include_router(daemon_router, prefix='/daemon', tags=['守护 Agent'])

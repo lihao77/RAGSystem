@@ -233,11 +233,20 @@ class RuntimeContainer:
                 self._instances['event_bus'] = instance
             return instance
 
+    def get_daemon_service(self):
+        from daemon.service import DaemonService
+
+        return self._get_or_create('daemon_service', DaemonService)
+
     def startup_mcp(self) -> None:
         self.get_mcp_manager().startup()
 
     def shutdown(self) -> None:
         """统一关闭容器中已创建的运行时资源。"""
+
+        # 注意：守护 Agent 系统（DaemonService）需要异步关闭，
+        # 由 lifespan._shutdown 在 await 上下文中先行处理，此处不重复处理。
+
         # 第一步：取消所有活跃任务，让 SSE 流正常结束
         task_registry = self._instances.get('task_registry')
         if task_registry is not None:

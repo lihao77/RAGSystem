@@ -31,6 +31,9 @@ backend-fastapi/
 │   ├── artifacts/             # 可视化 artifact 子域
 │   └── paths/                 # 路径治理兼容入口（真源见 core/path_resolution.py）
 ├── hooks/                     # Hook 系统（事件、匹配、执行、内建 hooks）
+├── daemon/                     # 守护 Agent 系统（消息网关、Cron 调度、心跳监控）
+│   ├── gateway/               # 社交平台适配器（微信/钉钉/飞书）
+│   └── scheduler/             # 定时任务调度引擎
 ├── api/v1/                    # FastAPI 路由层
 ├── runtime/                   # RuntimeContainer 中央容器
 ├── model_adapter/             # LLM Provider 统一适配
@@ -640,6 +643,46 @@ Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script
 | `/api/embedding-models` | `api/v1/embedding_models.py` | Embedding 模型管理 |
 | `/api/permissions` | `api/v1/permissions.py` | 全局权限策略 |
 | `/api/monitoring` | `api/v1/monitoring.py` | 监控与诊断 |
+| `/api/daemon` | `api/v1/daemon.py` | 守护 Agent 系统（消息网关、Cron、心跳） |
+
+## 守护 Agent 系统
+
+嵌入式常驻守护子系统，使 Agent 能被动接收社交消息、定时自主执行任务、主动推送通知。
+
+**模块结构：**
+```
+daemon/
+├── models.py           # 数据模型（PlatformType, DaemonSystemConfig, CronTask 等）
+├── service.py          # DaemonService 统一门面（生命周期管理）
+├── gateway/
+│   ├── base.py         # PlatformAdapter 抽象基类
+│   ├── router.py       # MessageRouter 消息路由
+│   ├── wechat.py       # 企业微信适配器
+│   ├── dingtalk.py     # 钉钉适配器
+│   └── feishu.py       # 飞书适配器
+├── scheduler/
+│   ├── engine.py       # CronScheduler 调度引擎
+│   └── store.py        # 任务 YAML 持久化
+└── heartbeat.py        # 心跳监控（健康检查、自动重连）
+```
+
+**核心流程：**
+
+1. **消息路由**：社交平台 webhook → PlatformAdapter.parse_webhook → IncomingMessage → MessageRouter → AgentExecutionService.invoke_agent → OutgoingMessage → PlatformAdapter.send_message
+2. **定时调度**：CronScheduler 每分钟检查到期任务 → invoke_agent 执行 → 可选推送结果到社交平台
+3. **心跳监控**：HeartbeatMonitor 定期调用 adapter.health_check → 异常时指数退避重连 → EventBus 发布事件
+
+**关键设计：**
+- 守护 Agent 本身是普通 team agent，通过 `AgentConfig` 配置，复用现有 `AgentExecutionService` 执行
+- 守护系统只负责"消息入口+调度触发"，不引入新的 agent 运行时
+- 配置文件：`CONFIG_ROOT/daemon/daemon.yaml`（模板见 `config/yaml/daemon.yaml.example`）
+- 管理 API：`GET/PUT /api/daemon/config` 用于前端读取/保存 daemon YAML；若守护系统正在运行，保存后会自动 stop → save → start 热重载
+- 飞书支持两种入站模式：`extra.receive_mode=webhook` 时继续走 `/api/daemon/webhook/feishu`；`extra.receive_mode=long_connection` 时由 `FeishuAdapter` 在 daemon 启动后建立官方 SDK 长连接，不需要公网回调地址
+- 飞书长连接模式依赖 `lark-oapi`，启动时会把 `P2ImMessageReceiveV1` 事件转换为统一 `IncomingMessage`，再复用 `MessageRouter` 与现有回复链路
+- 飞书 webhook 入口会在 `challenge` 校验请求时直接返回 `{"challenge": "..."}`，以通过事件订阅 URL 验证；实际消息事件再交给 `FeishuAdapter.parse_webhook()` 解析
+- `FeishuAdapter` 会分别记录 webhook / 长连接入站日志中的 `chat_id/user_id/message_id`，便于排查飞书会话回发与 Chat ID 问题
+- EventBus 新增事件：`daemon.adapter.status/error`、`daemon.cron.triggered/completed`、`daemon.message.received/sent`
+- RuntimeContainer 注册 `get_daemon_service()`，lifespan 第七步启动
 
 ## 新增 Agent 步骤
 

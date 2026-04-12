@@ -105,6 +105,14 @@ class EventType(str, Enum):
     SESSION_END = "session.end"
     ERROR = "system.error"
 
+    # 守护 Agent 系统事件
+    DAEMON_ADAPTER_STATUS = "daemon.adapter.status"
+    DAEMON_ADAPTER_ERROR = "daemon.adapter.error"
+    DAEMON_CRON_TRIGGERED = "daemon.cron.triggered"
+    DAEMON_CRON_COMPLETED = "daemon.cron.completed"
+    DAEMON_MESSAGE_RECEIVED = "daemon.message.received"
+    DAEMON_MESSAGE_SENT = "daemon.message.sent"
+
 
 class EventPriority(int, Enum):
     """事件优先级"""

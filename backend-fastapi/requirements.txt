@@ -21,3 +21,4 @@ tiktoken>=0.12.0
 numpy>=1.26.0
 json-repair>=0.54.0
 mcp>=1.0.0
+lark-oapi>=1.5.3

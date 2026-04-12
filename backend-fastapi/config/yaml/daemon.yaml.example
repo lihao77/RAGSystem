@@ -1,0 +1,71 @@
+# 守护 Agent 系统配置
+#
+# 配置文件位置: CONFIG_ROOT/daemon/daemon.yaml
+# 首次使用需将此文件复制到 ~/.ragsystem/config/daemon/daemon.yaml
+
+# 全局开关：是否启用守护 Agent 系统
+enabled: false
+
+# 守护会话 TTL（秒），默认 24 小时
+default_session_ttl: 86400
+
+# 守护机器人列表（每个机器人对应一个 team）
+agents:
+  - team_name: default          # team 名称（对应 CONFIG_ROOT/agents/teams/default.yaml）
+    entry_agent:                # 入口 Agent（留空则用 team 的 default_entry）
+    enabled: true
+
+    # 心跳间隔（秒），默认 30
+    heartbeat_interval: 30
+
+    # 社交平台连接配置
+    platforms:
+      # ── 企业微信 ──────────────────────────────
+      wechat:
+        enabled: false
+        app_id: ""            # 企业微信应用 AgentId
+        app_secret: ""        # 企业微信应用 Secret
+        extra:
+          corp_id: ""         # 企业 CorpID
+        # token 和 encoding_aes_key 用于接收消息回调验证（可选）
+
+      # ── 钉钉 ──────────────────────────────────
+      dingtalk:
+        enabled: false
+        app_id: ""            # 钉钉 AppKey
+        app_secret: ""        # 钉钉 AppSecret
+        extra:
+          agent_id: ""        # 钉钉企业应用 AgentId
+
+      # ── 飞书 ──────────────────────────────────
+      feishu:
+        enabled: false
+        app_id: ""            # 飞书 App ID
+        app_secret: ""        # 飞书 App Secret
+        token: ""             # 长连接/事件订阅 token（长连接模式建议填写）
+        encoding_aes_key: ""  # 长连接/事件订阅 Encrypt Key（未开启加密可留空）
+        extra:
+          receive_mode: "long_connection"  # long_connection / webhook
+
+    # 定时任务列表
+    cron_tasks:
+      # 示例：工作日早 9 点生成工作简报
+      # - task_id: morning_briefing
+      #   name: 早间简报
+      #   cron: "0 9 * * 1-5"
+      #   task: "根据当前数据生成今日工作简报，包含待办事项和重要提醒"
+      #   team_name: default           # 执行任务的 team
+      #   entry_agent:                 # 留空则用 team 的 default_entry
+      #   enabled: true
+      #   # 可选：执行结果推送到社交平台
+      #   push_platform: wechat
+      #   push_chat_id: "user_id_or_chat_id"
+
+      # 示例：每天下午 6 点生成日报
+      # - task_id: daily_report
+      #   name: 每日工作日报
+      #   cron: "0 18 * * 1-5"
+      #   task: "生成本日工作总结报告"
+      #   team_name: default
+      #   entry_agent:
+      #   enabled: false

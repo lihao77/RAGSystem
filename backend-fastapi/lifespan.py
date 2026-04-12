@@ -186,12 +186,34 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('MCP Client Manager 启动失败（不影响其他功能）: %s', e)
 
+    # ── 第七步：启动守护 Agent 系统 ──────────────────────────────────────
+    try:
+        daemon_svc = container.get_daemon_service()
+        await daemon_svc.start()
+        if daemon_svc.config.enabled:
+            logger.info('✓ 守护 Agent 系统已启动')
+        else:
+            logger.info('守护 Agent 系统未启用')
+    except Exception as e:
+        logger.warning('守护 Agent 系统启动失败（不影响核心功能）: %s', e)
+
     _runtime_initialized = True
 
 
 async def _shutdown(app: FastAPI) -> None:
     """关闭阶段：清理资源。"""
     container = getattr(app.state, 'runtime_container', None)
+
+    # 守护 Agent 系统需要在 async 上下文中关闭，先于 container.shutdown() 执行
+    if container is not None:
+        daemon_svc = container._instances.get('daemon_service')
+        if daemon_svc is not None and getattr(daemon_svc, '_running', False):
+            try:
+                await daemon_svc.stop()
+                logger.info('守护 Agent 系统已停止')
+            except Exception as e:
+                logger.warning('停止守护 Agent 系统失败: %s', e)
+
     if container is not None:
         try:
             container.shutdown()

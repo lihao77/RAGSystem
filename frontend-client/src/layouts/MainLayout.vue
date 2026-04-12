@@ -55,6 +55,14 @@
           </svg>
           <span class="btn-text">监控面板</span>
         </button>
+        <button class="sidebar-btn sidebar-btn-daemon" :class="{ active: isPageActive('daemon') }" @click="goToDaemon" title="守护 Agent 系统">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+            <path d="M2 17l10 5 10-5"></path>
+            <path d="M2 12l10 5 10-5"></path>
+          </svg>
+          <span class="btn-text">守护系统</span>
+        </button>
       </div>
 
       <div class="history-list" ref="historyListRef" @scroll="handleHistoryScroll">
@@ -441,6 +449,7 @@ const navigateTo = async (path) => {
 };
 
 const goToMonitor = () => navigateTo('/monitor');
+const goToDaemon = () => navigateTo('/daemon');
 const goToTeamBuilder = () => navigateTo('/team-builder');
 const goToAgentConfig = () => navigateTo('/agent-config');
 const goToMCPManager = () => navigateTo('/mcp');
@@ -711,7 +720,8 @@ onUnmounted(() => {
 }
 
 .sidebar-btn-secondary,
-.sidebar-btn-monitor {
+.sidebar-btn-monitor,
+.sidebar-btn-daemon {
   margin-top: var(--spacing-xs);
 }
 
