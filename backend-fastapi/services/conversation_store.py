@@ -817,7 +817,7 @@ class ConversationStore:
                 SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
                 FROM messages
                 WHERE session_id=? AND (? IS NULL OR thread_key=?)
-                ORDER BY seq ASC
+                ORDER BY seq DESC
                 LIMIT ? OFFSET ?
                 """,
                 (session_id, resolved_thread_key, resolved_thread_key, limit, offset)
@@ -835,6 +835,8 @@ class ConversationStore:
                     "child_agent_id": row["child_agent_id"],
                     "created_at": row["created_at"]
                 })
+            # DESC 取出后反转为 ASC，保证返回最新 N 条且顺序正确
+            items.reverse()
 
             return {
                 "items": items,

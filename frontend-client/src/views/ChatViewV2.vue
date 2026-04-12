@@ -75,16 +75,8 @@
           <div v-else class="message-stream">
             <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role, { 'just-sent': msg._justSent }]" :data-msg-index="index"
               @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
-              <!-- 持久化压缩：历史摘要占位，详情默认折叠 -->
-              <div v-if="msg.role === 'system' && msg.metadata && msg.metadata.compression" class="message-content-wrapper compression-summary">
-                <div class="compression-summary-label" @click="expandedSummarySeq = (expandedSummarySeq === msg.seq ? null : msg.seq)">
-                  <span class="compression-summary-title">历史摘要</span>
-                  <span class="compression-summary-toggle">{{ expandedSummarySeq === msg.seq ? '收起' : '展开' }}</span>
-                </div>
-                <div v-show="expandedSummarySeq === msg.seq" class="compression-summary-detail markdown-body" v-html="renderMarkdown(msg.content || '')"></div>
-              </div>
               <!-- 斜杠命令结果 -->
-              <div v-else-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
+              <div v-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
                 <CommandResultMessage :message="msg" />
               </div>
               <!-- Subtasks Container - 占满整个 message 宽度 -->
@@ -112,7 +104,7 @@
 
               </div>
 
-              <div v-if="!(msg.role === 'system' && msg.metadata && msg.metadata.compression)" class="message-content-wrapper" >
+              <div class="message-content-wrapper" >
                 <div class="message-content">
                   <!-- Loading State -->
                   <div
@@ -656,7 +648,6 @@ const editingMessageIndex = ref(null);
 const editingDraft = ref('');
 const editingAttachmentsDraft = ref([]);
 const editingSubmitting = ref(false);
-const expandedSummarySeq = ref(null);
 const sessionFilesDrawerTarget = ref('composer');
 const sessionMetaExpanded = ref(false);
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
@@ -1714,7 +1705,6 @@ const loadSessionMessages = async (sessionId) => {
       return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
     });
     messages.value = mapped;
-    expandedSummarySeq.value = null;
     cacheMessages(sessionId, mapped);
     messagesLoading.value = false;
     await nextTick();
@@ -1794,15 +1784,22 @@ const messageKey = (msg) => {
   return msg._key;
 };
 
-/** 用于展示的消息列表：按 seq 升序，若有 compression 则隐藏 seq < 最后一条摘要.seq 的消息 */
+/** 用于展示的消息列表：
+ *  1. 压缩摘要始终置顶（语义上它代表被压缩的早期对话）
+ *  2. 仅保留 seq > replaces_up_to_seq 的后续消息 */
 const visibleMessages = computed(() => {
   const list = messages.value;
   if (!list.length) return [];
   const withSeq = list.filter(m => m.seq != null);
   const summaryMsg = withSeq.filter(m => (m.metadata && m.metadata.compression) === true).sort((a, b) => (b.seq - a.seq))[0];
-  const summarySeq = summaryMsg ? summaryMsg.seq : null;
-  if (summarySeq == null) return list;
-  return list.filter(m => m.seq == null || m.seq >= summarySeq);
+  if (!summaryMsg) return list;
+  const replacesUpTo = summaryMsg.metadata?.replaces_up_to_seq;
+  const cutoff = replacesUpTo != null ? replacesUpTo : summaryMsg.seq;
+  const rest = list.filter(m =>
+    m.seq == null
+    || (m.metadata && m.metadata.compression) !== true && m.seq > cutoff
+  );
+  return [summaryMsg, ...rest];
 });
 
 const editingMessage = computed(() => {
@@ -2613,9 +2610,22 @@ const processSSEStream = async (response, assistantMsgIndex, sessionId, streamTo
             else if (eventType === 'context.compression_start') {
               isCompressing.value = true;
             }
-            // 上下文压缩完成
+            // 上下文压缩完成：将压缩摘要插入 messages 数组（去重，防止重连 replay 重复插入）
             else if (eventType === 'context.compression_summary') {
               isCompressing.value = false;
+              const summaryContent = eventData.content || '';
+              const alreadyExists = messages.value.some(
+                m => m.metadata?.compression && m.content === summaryContent
+              );
+              if (!alreadyExists) {
+                const compressionMsg = {
+                  role: 'system',
+                  content: summaryContent,
+                  metadata: { compression: true },
+                };
+                messages.value.splice(assistantMsgIndex, 0, compressionMsg);
+                assistantMsgIndex++;
+              }
             }
 
             // 工具审批请求：弹出确认对话框，等待用户操作
@@ -2917,26 +2927,7 @@ onUnmounted(() => {
 
 <style scoped src="../styles/chat-view.css"></style>
 <style scoped>
-/* #9: 压缩摘要卡片 - 使用项目设计变量，添加 hover/active/focus-visible */
-.compression-summary { margin: 0.5rem 0; }
-.compression-summary-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.6rem 0.85rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  user-select: none;
-  transition: background 0.2s, border-color 0.2s;
-  outline: none;
-}
-.compression-summary-label:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-}
+/* #9: 压缩摘要 - 已移除独立卡片样式，走通用 assistant 渲染路径 */
 .user-edit-shell {
   display: flex;
   flex-direction: column;
@@ -3075,27 +3066,6 @@ onUnmounted(() => {
   margin-top: 4px;
   font-size: 11px;
   color: var(--color-text-muted);
-}
-.compression-summary-label:active {
-  transform: scale(0.995);
-}
-.compression-summary-label:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-.compression-summary-title { font-weight: 600; color: var(--color-text-primary); }
-.compression-summary-toggle {
-  color: var(--color-brand-accent-light, var(--color-interactive));
-  font-size: var(--font-size-xs);
-}
-.compression-summary-detail {
-  margin-top: 0.5rem;
-  padding: 0.75rem;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-top: none;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  font-size: var(--font-size-sm);
 }
 
 /* 优化后的 workspace-root-input-row 样式 */

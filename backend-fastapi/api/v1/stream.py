@@ -128,11 +128,7 @@ async def _unknown_command_stream(session_id: str, cmd_name: str):
 
 
 async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, task: str, defn, llm_override):
-    try:
-        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
-    except Exception as e:
-        logger.error('命令执行失败: %s', e, exc_info=True)
-        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+    # 1. 先持久化用户命令消息，确保 seq 在压缩摘要之前
     try:
         from dependencies import get_agent_runtime_service
         store = get_agent_runtime_service().get_conversation_store()
@@ -140,6 +136,18 @@ async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, 
             session_id=session_id, role='user', content=task,
             metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
         )
+    except Exception as persist_err:
+        logger.warning('命令消息持久化失败: %s', persist_err)
+    # 2. 执行命令（如 /compact 在此插入压缩摘要）
+    try:
+        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
+    except Exception as e:
+        logger.error('命令执行失败: %s', e, exc_info=True)
+        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+    # 3. 持久化命令结果
+    try:
+        from dependencies import get_agent_runtime_service
+        store = get_agent_runtime_service().get_conversation_store()
         store.add_message(
             session_id=session_id, role='system', content=result.get('content', ''),
             metadata={
