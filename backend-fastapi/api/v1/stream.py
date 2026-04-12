@@ -6,8 +6,9 @@ Agent 流式执行 API 路由（SSE）。
 import asyncio
 import json
 import logging
+import threading
 import uuid
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import StreamingResponse
@@ -21,6 +22,9 @@ import commands as cmd_mod
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 跟踪正在执行的系统命令的取消事件（session_id → cancel_event）
+_active_system_commands: Dict[str, threading.Event] = {}
 
 
 def _parse_selected_llm(selected_llm: str):
@@ -128,38 +132,46 @@ async def _unknown_command_stream(session_id: str, cmd_name: str):
 
 
 async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, task: str, defn, llm_override):
-    # 1. 先持久化用户命令消息，确保 seq 在压缩摘要之前
+    cancel_event = threading.Event()
+    _active_system_commands[session_id] = cancel_event
     try:
-        from dependencies import get_agent_runtime_service
-        store = get_agent_runtime_service().get_conversation_store()
-        store.add_message(
-            session_id=session_id, role='user', content=task,
-            metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
-        )
-    except Exception as persist_err:
-        logger.warning('命令消息持久化失败: %s', persist_err)
-    # 2. 执行命令（如 /compact 在此插入压缩摘要）
-    try:
-        result = await defn.handler(session_id, cmd_args, selected_llm=llm_override)
-    except Exception as e:
-        logger.error('命令执行失败: %s', e, exc_info=True)
-        result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
-    # 3. 持久化命令结果
-    try:
-        from dependencies import get_agent_runtime_service
-        store = get_agent_runtime_service().get_conversation_store()
-        store.add_message(
-            session_id=session_id, role='system', content=result.get('content', ''),
-            metadata={
-                'type': 'command_result',
-                'command': result.get('command', cmd_name.lstrip('/')),
-                'success': result.get('success', False),
-            },
-        )
-    except Exception as persist_err:
-        logger.warning('命令结果持久化失败: %s', persist_err)
-    yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
-    yield _sse_line({'type': 'done', 'session_id': session_id})
+        # 1. 先持久化用户命令消息，确保 seq 在压缩摘要之前
+        try:
+            from dependencies import get_agent_runtime_service
+            store = get_agent_runtime_service().get_conversation_store()
+            store.add_message(
+                session_id=session_id, role='user', content=task,
+                metadata={'type': 'command', 'command': cmd_name.lstrip('/')},
+            )
+        except Exception as persist_err:
+            logger.warning('命令消息持久化失败: %s', persist_err)
+        # 2. 执行命令（如 /compact 在此插入压缩摘要），传入 cancel_event 支持中断
+        try:
+            result = await defn.handler(session_id, cmd_args, selected_llm=llm_override, cancel_event=cancel_event)
+        except Exception as e:
+            logger.error('命令执行失败: %s', e, exc_info=True)
+            result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
+        # 若执行期间收到中断信号，覆盖结果
+        if cancel_event.is_set():
+            result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': '操作已被用户中断'}
+        # 3. 持久化命令结果
+        try:
+            from dependencies import get_agent_runtime_service
+            store = get_agent_runtime_service().get_conversation_store()
+            store.add_message(
+                session_id=session_id, role='system', content=result.get('content', ''),
+                metadata={
+                    'type': 'command_result',
+                    'command': result.get('command', cmd_name.lstrip('/')),
+                    'success': result.get('success', False),
+                },
+            )
+        except Exception as persist_err:
+            logger.warning('命令结果持久化失败: %s', persist_err)
+        yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
+        yield _sse_line({'type': 'done', 'session_id': session_id})
+    finally:
+        _active_system_commands.pop(session_id, None)
 
 
 async def _missing_args_stream(session_id: str, cmd_name: str, defn):
@@ -300,7 +312,14 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
 
 @router.post('/stream/stop')
 async def stream_stop(request: StreamStopRequest, http_request: Request):
-    """停止正在执行的流式任务。"""
+    """停止正在执行的流式任务（含系统命令）。"""
+    # 优先检查系统命令（如 /compact）
+    sys_cancel = _active_system_commands.get(request.session_id)
+    if sys_cancel is not None:
+        sys_cancel.set()
+        logger.info('已中断系统命令: session_id=%s', request.session_id)
+        return ok(data={'interrupted': True})
+    # 再走 agent 任务取消流程
     try:
         execution_service = get_execution_service()
         interrupted = await asyncio.to_thread(

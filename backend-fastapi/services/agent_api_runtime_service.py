@@ -614,7 +614,7 @@ class AgentApiRuntimeService:
     def get_collaboration_application(self):
         return self._collaboration_application
 
-    def compact_session(self, session_id: str) -> dict:
+    def compact_session(self, session_id: str, cancel_event=None) -> dict:
         """强制压缩指定会话的上下文，返回压缩统计。"""
         orchestrator = self.create_execution_orchestrator(session_id=session_id)
         entry_agent = (
@@ -625,7 +625,7 @@ class AgentApiRuntimeService:
             raise RuntimeError('默认入口智能体未加载')
         context = self.build_context(session_id=session_id, agent_name=entry_agent.name)
         system_prompt = entry_agent._build_system_prompt() if hasattr(entry_agent, '_build_system_prompt') else ''
-        result = entry_agent.context_pipeline.force_compress(context, system_prompt=system_prompt)
+        result = entry_agent.context_pipeline.force_compress(context, system_prompt=system_prompt, cancel_event=cancel_event)
         if result.get('summary_content') and result['status'] == 'success':
             store = self.get_conversation_store()
             store.insert_compression_message(

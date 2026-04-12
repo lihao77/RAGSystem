@@ -367,7 +367,7 @@ class ContextPipeline:
             return True
         return False
 
-    def force_compress(self, context, publisher=None, system_prompt: str = "") -> Dict[str, Any]:
+    def force_compress(self, context, publisher=None, system_prompt: str = "", cancel_event=None) -> Dict[str, Any]:
         """强制压缩上下文，跳过阈值检查。返回压缩统计和持久化信息。"""
         history_raw = self._get_history_raw(context)
         history_resolved = resolve_compression_view(history_raw)
@@ -381,7 +381,7 @@ class ContextPipeline:
         try:
             result = self._compress(
                 history_raw, history_resolved, context, publisher,
-                system_prompt=system_prompt,
+                system_prompt=system_prompt, cancel_event=cancel_event,
             )
         except ContextCompressionError as e:
             return {'status': 'error', 'reason': str(e), 'before': before_count, 'after': before_count, 'tokens_saved': 0}
@@ -659,6 +659,7 @@ class ContextPipeline:
         context,
         publisher=None,
         system_prompt: str = "",
+        cancel_event=None,
     ) -> CompressionResult:
         # 确定被摘要段：压缩「除最近 preserve_recent_turns 轮之外」的所有历史
         # 这样无论消息长短，每次都能尽量多地压缩，token 效率最优。
@@ -695,7 +696,7 @@ class ContextPipeline:
                     has_existing_summary=bool(existing_summary),
                 )
                 self._publish_pre_compression_usage(publisher, history_resolved, system_prompt)
-            summary = self._try_llm_summary(segment, existing_summary, publisher=publisher)
+            summary = self._try_llm_summary(segment, existing_summary, publisher=publisher, cancel_event=cancel_event)
         except ContextCompressionError:
             raise
         self._record_compression(status="success", replaced_messages=len(segment))
@@ -715,6 +716,7 @@ class ContextPipeline:
         segment: List[Dict[str, Any]],
         existing_summary: str = "",
         publisher=None,
+        cancel_event=None,
     ) -> str:
         """尝试用 LLM 生成摘要。按 fast → default → 系统配置 逐级 fallback。"""
 
@@ -752,6 +754,9 @@ class ContextPipeline:
         ]
         last_error = None
         for tier_label, llm_config in candidates:
+            # 每次 fallback 重试前检查中断信号
+            if cancel_event and cancel_event.is_set():
+                raise ContextCompressionError("压缩已被用户中断")
             provider = llm_config['provider']
             provider_type = llm_config.get("provider_type")
             model_name = llm_config.get('model_name', 'unknown')
@@ -768,6 +773,7 @@ class ContextPipeline:
                         temperature=0.2,
                         max_tokens=self.config.summarize_max_tokens,
                         reasoning_effort="none",
+                        cancel_event=cancel_event,
                     ):
                         if chunk.get('error'):
                             stream_error = chunk['error']

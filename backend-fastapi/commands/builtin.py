@@ -27,6 +27,7 @@ async def handle_compact(session_id: str, args: str, **kw) -> dict:
     """强制压缩上下文。"""
     from dependencies import get_agent_runtime_service
     runtime_service = get_agent_runtime_service()
+    cancel_event = kw.get('cancel_event')
 
     task_registry = runtime_service.get_task_registry()
     task_status = task_registry.get_status(session_id)
@@ -34,7 +35,7 @@ async def handle_compact(session_id: str, args: str, **kw) -> dict:
         return {'command': 'compact', 'success': False, 'content': '该会话正在执行任务，请等待完成后再压缩'}
 
     try:
-        result = await asyncio.to_thread(runtime_service.compact_session, session_id)
+        result = await asyncio.to_thread(runtime_service.compact_session, session_id, cancel_event=cancel_event)
     except Exception as e:
         logger.error('压缩失败: %s', e, exc_info=True)
         return {'command': 'compact', 'success': False, 'content': f'压缩失败: {e}'}
