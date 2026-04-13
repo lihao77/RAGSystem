@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import time
 from typing import Optional
@@ -131,6 +133,22 @@ class DingTalkAdapter(PlatformAdapter):
                 last_heartbeat=time.time(),
                 error=str(e),
             )
+
+    def verify_webhook_signature(self, headers: dict, raw_body: bytes) -> bool:
+        """验证钉钉回调签名（HMAC-SHA256）。"""
+        secret = self._config.app_secret
+        if not secret:
+            return True
+
+        timestamp = headers.get('timestamp', '')
+        if not timestamp:
+            return False
+
+        string_to_sign = f"{timestamp}\n{timestamp}"
+        expected = hmac.new(
+            secret.encode(), string_to_sign.encode(), hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, headers.get('sign', ''))
 
     def parse_webhook(self, payload: dict) -> list:
         """解析钉钉回调消息。

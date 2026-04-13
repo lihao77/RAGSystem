@@ -106,6 +106,9 @@ class CronScheduler:
         if self._running:
             return
         self._running = True
+        # 计算每个任务的 next_run
+        for task in self._tasks.values():
+            task.next_run = next_cron_time(task.cron).timestamp()
         self._task_handle = asyncio.create_task(self._run_loop())
         logger.info('Cron 调度器启动，%d 个活跃任务', len(self._tasks))
 
@@ -156,6 +159,11 @@ class CronScheduler:
         except Exception as e:
             elapsed = time.time() - start
             self._record_history(task.task_id, success=False, error=str(e), elapsed=elapsed)
+        # 更新 next_run
+        try:
+            task.next_run = next_cron_time(task.cron).timestamp()
+        except Exception:
+            task.next_run = None
 
     def _record_history(
         self,
@@ -180,26 +188,3 @@ class CronScheduler:
 
     def get_history(self, task_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         return self._history.get(task_id, [])[-limit:]
-
-    # ── 任务管理 ──────────────────────────────────────
-
-    def get_all_tasks(self) -> List[CronTask]:
-        return list(self._tasks.values())
-
-    def get_task(self, task_id: str) -> Optional[CronTask]:
-        return self._tasks.get(task_id)
-
-    def add_task(self, task: CronTask) -> None:
-        self._tasks[task.task_id] = task
-
-    def update_task(self, task_id: str, updates: Dict[str, Any]) -> Optional[CronTask]:
-        task = self._tasks.get(task_id)
-        if not task:
-            return None
-        for key, val in updates.items():
-            if hasattr(task, key):
-                setattr(task, key, val)
-        return task
-
-    def delete_task(self, task_id: str) -> bool:
-        return self._tasks.pop(task_id, None) is not None

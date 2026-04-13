@@ -83,13 +83,22 @@ class DaemonService:
 
         return self._config
 
+    # 运行时字段，不应持久化到 YAML
+    _RUNTIME_FIELDS = frozenset({'last_run', 'next_run', 'last_result'})
+
     def save_config(self, new_config: DaemonSystemConfig) -> None:
-        """保存配置到 YAML 文件并热更新内存。"""
+        """保存配置到 YAML 文件并热更新内存。运行时字段（last_run/next_run/last_result）不会被持久化。"""
         validated_config = self._validate_config(new_config)
         config_path = self._resolve_config_path()
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         raw = json_safe(model_dump(validated_config))
+        # 剥离运行时字段，避免脏数据写入 YAML
+        for agent in raw.get('agents', []):
+            for task in agent.get('cron_tasks', []):
+                for field in self._RUNTIME_FIELDS:
+                    task.pop(field, None)
+
         with open(config_path, 'w', encoding='utf-8') as f:
             yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
 
@@ -493,16 +502,22 @@ class DaemonService:
         self.save_config(self.config)
         await self._reload_scheduler()
 
+    # update_cron_task 允许修改的字段白名单
+    _UPDATABLE_CRON_FIELDS = frozenset({
+        'name', 'cron', 'task', 'team_name', 'entry_agent',
+        'push_platform', 'push_chat_id', 'enabled',
+    })
+
     async def update_cron_task(self, task_id: str, updates: Dict[str, Any]) -> Optional[CronTask]:
         """更新 Cron 任务并持久化。"""
         task = self._get_cron_task(task_id)
         if not task:
             return None
 
+        filtered = {k: v for k, v in updates.items() if k in self._UPDATABLE_CRON_FIELDS}
         old_team_name = task.team_name
-        for key, val in updates.items():
-            if hasattr(task, key):
-                setattr(task, key, val)
+        for key, val in filtered.items():
+            setattr(task, key, val)
 
         if task.team_name != old_team_name:
             old_agent_cfg = self._get_agent_config(old_team_name)

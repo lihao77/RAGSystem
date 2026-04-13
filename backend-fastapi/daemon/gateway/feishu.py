@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import threading
@@ -162,11 +164,12 @@ class FeishuAdapter(PlatformAdapter):
 
     async def _stop_long_connection(self) -> None:
         thread = self._long_conn_thread
-        stop_event = self._long_conn_stop_event
+        stop_future = self._long_conn_stop_event
         loop = self._long_conn_loop
 
-        if stop_event is not None and loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(stop_event.set)
+        if stop_future is not None and loop is not None and loop.is_running():
+            if not stop_future.done():
+                loop.call_soon_threadsafe(stop_future.set_result, None)
 
         if thread and thread.is_alive():
             await asyncio.to_thread(thread.join, _LONG_CONNECTION_STOP_TIMEOUT)
@@ -189,7 +192,10 @@ class FeishuAdapter(PlatformAdapter):
         sdk_loop = asyncio.get_running_loop()
         previous_loop = ws_client_module.loop
         ws_client_module.loop = sdk_loop
-        self._long_conn_stop_event = asyncio.Event()
+        # 用 loop.create_future() 替代 asyncio.Event()，显式绑定到当前 loop，
+        # 避免 lark-oapi SDK 内部操作导致 Event 懒绑定到错误的 loop
+        stop_future = sdk_loop.create_future()
+        self._long_conn_stop_event = stop_future
 
         try:
             handler = (
@@ -209,12 +215,14 @@ class FeishuAdapter(PlatformAdapter):
             await client._connect()
             ping_task = asyncio.create_task(client._ping_loop(), name='feishu-long-connection-ping')
             ready_event.set()
-            await self._long_conn_stop_event.wait()
+            await stop_future
             client._auto_reconnect = False
             await client._disconnect()
             ping_task.cancel()
             await asyncio.gather(ping_task, return_exceptions=True)
         except Exception as e:
+            if not stop_future.done():
+                stop_future.set_result(None)
             self._long_conn_error = str(e)
             state['error'] = str(e)
             ready_event.set()
@@ -318,6 +326,23 @@ class FeishuAdapter(PlatformAdapter):
         if timestamp > 10**12:
             timestamp /= 1000.0
         return timestamp
+
+    def verify_webhook_signature(self, headers: dict, raw_body: bytes) -> bool:
+        """验证飞书事件订阅签名（X-Lark-Signature = HMAC-SHA256(app_secret, timestamp + body)）。"""
+        secret = self._config.app_secret
+        if not secret:
+            return True
+
+        timestamp = headers.get('x-lark-request-timestamp', '') or headers.get('x-lark-request-timestamp', '')
+        signature = headers.get('x-lark-signature', '')
+        if not timestamp or not signature:
+            return False
+
+        string_to_sign = f"{timestamp}{raw_body.decode('utf-8', errors='replace')}"
+        expected = hmac.new(
+            secret.encode(), string_to_sign.encode(), hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
 
     async def send_message(self, message: OutgoingMessage) -> bool:
         """发送消息。"""

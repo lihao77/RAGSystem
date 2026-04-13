@@ -12,6 +12,7 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -128,6 +129,29 @@ class WeChatAdapter(PlatformAdapter):
                 last_heartbeat=time.time(),
                 error=str(e),
             )
+
+    def verify_webhook_signature(self, headers: dict, raw_body: bytes) -> bool:
+        """验证企业微信回调签名（msg_signature = sha1(sort(token, timestamp, nonce, encrypt))）。"""
+        token = self._config.token
+        if not token:
+            return True
+
+        timestamp = headers.get('timestamp', '')
+        nonce = headers.get('nonce', '')
+
+        try:
+            body = raw_body.decode('utf-8', errors='replace')
+            root = ET.fromstring(body)
+            encrypt = root.findtext('Encrypt', '')
+        except Exception:
+            encrypt = ''
+
+        if not encrypt:
+            return True
+
+        items = sorted([token, timestamp, nonce, encrypt])
+        signature = hashlib.sha1(''.join(items).encode()).hexdigest()
+        return signature == headers.get('msg_signature', '')
 
     def parse_webhook(self, payload: dict) -> list:
         """解析企业微信回调消息。

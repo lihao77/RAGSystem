@@ -106,10 +106,12 @@ class MessageRouter:
     def _resolve_team(self, message: IncomingMessage) -> Tuple[Optional[str], Optional[str]]:
         """根据消息确定目标 team 和入口 agent。返回 (team_name, entry_agent)。"""
         cfg = self._daemon_service.config
+        # 精确匹配：消息来源平台在 agent 的 platforms 中且该连接已启用
         for agent_cfg in cfg.agents:
             if not agent_cfg.enabled:
                 continue
-            if message.platform in agent_cfg.platforms:
+            conn = agent_cfg.platforms.get(message.platform)
+            if conn and conn.enabled:
                 return agent_cfg.team_name, agent_cfg.entry_agent
         # fallback：取第一个启用的配置
         for agent_cfg in cfg.agents:

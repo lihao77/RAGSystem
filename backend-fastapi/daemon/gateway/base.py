@@ -56,6 +56,10 @@ class PlatformAdapter(ABC):
         """执行健康检查，返回心跳状态。"""
         ...
 
+    def verify_webhook_signature(self, headers: dict, raw_body: bytes) -> bool:
+        """验证 Webhook 回调签名。子类应覆盖以实现平台签名校验。"""
+        return True
+
     @abstractmethod
     def parse_webhook(self, payload: dict) -> list:
         """
