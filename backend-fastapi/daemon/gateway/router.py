@@ -192,29 +192,63 @@ class MessageRouter:
                 handler=approval_handler.on_input_required,
             )
 
-            # ── 2.5 错误实时推送：订阅 AGENT_ERROR，立即转发到社交平台 ──
+            # ── 2.5 实时事件桥接：订阅关键事件，立即转发到社交平台 ──
             _main_loop = asyncio.get_running_loop()
             _platform = message.platform
             _chat_id = message.chat_id
+            _send_lock = asyncio.Lock()
+
+            async def _ordered_send(content: str):
+                async with _send_lock:
+                    await self._daemon_service.send_message(OutgoingMessage(
+                        platform=_platform,
+                        chat_id=_chat_id,
+                        content=content,
+                    ))
+
+            def _send_to_platform(content: str):
+                asyncio.run_coroutine_threadsafe(_ordered_send(content), _main_loop)
 
             def _on_agent_error(event):
                 error_data = event.data or {}
                 error_msg = error_data.get('error', '未知错误')
                 error_type = error_data.get('error_type', '')
                 label = f' ({error_type})' if error_type else ''
-                asyncio.run_coroutine_threadsafe(
-                    self._daemon_service.send_message(OutgoingMessage(
-                        platform=_platform,
-                        chat_id=_chat_id,
-                        content=f'❌ 执行出错{label}: {error_msg}',
-                    )),
-                    _main_loop,
-                )
+                _send_to_platform(f'❌ 执行出错{label}: {error_msg}')
 
-            event_bus.subscribe(
-                event_types=[EventType.AGENT_ERROR],
-                handler=_on_agent_error,
-            )
+            def _on_tool_start(event):
+                data = event.data or {}
+                tool_name = data.get('tool_name', '?')
+                _send_to_platform(f'🔧 正在执行: {tool_name}')
+
+            def _on_tool_end(event):
+                data = event.data or {}
+                tool_name = data.get('tool_name', '?')
+                success = data.get('success', True)
+                elapsed = data.get('execution_time')
+                time_label = f' ({elapsed:.1f}s)' if elapsed else ''
+                icon = '✅' if success else '❌'
+                status = '完成' if success else '失败'
+                _send_to_platform(f'{icon} {tool_name} {status}{time_label}')
+
+            def _on_retry_scheduled(event):
+                data = event.data or {}
+                attempt = data.get('failed_attempt', '?')
+                max_a = data.get('max_attempts', '?')
+                wait = data.get('wait_seconds', 0)
+                _send_to_platform(f'⚠️ 模型调用失败，第 {attempt}/{max_a} 次重试（等待 {wait:.1f}s）...')
+
+            def _on_intent_complete(event):
+                data = event.data or {}
+                content = data.get('content', '')
+                if content:
+                    _send_to_platform(f'💭 {content[:500]}')
+
+            event_bus.subscribe(event_types=[EventType.AGENT_ERROR], handler=_on_agent_error)
+            event_bus.subscribe(event_types=[EventType.CALL_TOOL_START], handler=_on_tool_start)
+            event_bus.subscribe(event_types=[EventType.CALL_TOOL_END], handler=_on_tool_end)
+            event_bus.subscribe(event_types=[EventType.AGENT_RETRY_SCHEDULED], handler=_on_retry_scheduled)
+            event_bus.subscribe(event_types=[EventType.INTENT_COMPLETE], handler=_on_intent_complete)
             self._approval_handlers[message.chat_id] = approval_handler
 
             # ── 3. 消费事件流 + 回送 ──
