@@ -22,8 +22,6 @@ except ImportError:  # pydantic v1
 
 class PlatformType(str, Enum):
     """社交平台类型"""
-    WECHAT = "wechat"
-    DINGTALK = "dingtalk"
     FEISHU = "feishu"
 
 

@@ -2,19 +2,19 @@
 """
 消息路由器。
 
-负责将社交平台入站消息路由到对应 Agent 执行，
-通过 EventBus + TaskRegistry + DaemonApprovalHandler
-实现与 Web 会话完全对等的执行流程。
+将社交平台入站消息路由到 Agent 执行，
+复用 AgentExecutionAdapter（与 Web 前端同一入口），
+只做事件流到社交平台的映射。
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import threading
-import uuid
 from typing import TYPE_CHECKING, Dict, Optional
 
+import commands as cmd_mod
 from daemon.models import (
     IncomingMessage,
     OutgoingMessage,
@@ -27,12 +27,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _consume_stream(sse_adapter) -> Optional[str]:
+    """同步消费 SSE 事件流，返回 final_answer 内容。"""
+    final_answer = None
+    for sse_line in sse_adapter.stream_sync():
+        try:
+            if not sse_line.startswith('data: '):
+                continue
+            event = json.loads(sse_line[6:].strip())
+            event_type = event.get('type', '')
+            if event_type == 'final_answer':
+                final_answer = (event.get('data') or {}).get('content')
+        except Exception:
+            pass
+    return final_answer
+
+
 class MessageRouter:
-    """统一消息路由器。"""
+    """统一消息路由器 — 复用 AgentExecutionAdapter，daemon 只做事件映射。"""
 
     def __init__(self, daemon_service: DaemonService):
         self._daemon_service = daemon_service
-        # chat_id → 活跃的审批处理器
         self._approval_handlers: Dict[str, DaemonApprovalHandler] = {}
 
     async def route_incoming(self, message: IncomingMessage) -> None:
@@ -40,13 +55,13 @@ class MessageRouter:
         路由入站消息到 Agent 执行。
 
         流程：
-        0. 检查是否有待审批请求 → 尝试作为审批回复消费
-        1. 解析 session_id + agent 配置
-        2. 创建 EventBus + 注册 TaskRegistry
-        3. 创建并订阅 DaemonApprovalHandler
-        4. 通过 AgentExecutionService 执行 Agent（传入 event_bus）
-        5. 回送响应到来源平台
-        6. 清理资源
+        0. 审批回复拦截
+        1. 斜杠命令预处理
+        2. 解析 session_id + agent 配置
+        3. 通过 AgentExecutionAdapter 启动执行（自动管理 EventBus / TaskRegistry / Persistence）
+        4. 挂载 DaemonApprovalHandler
+        5. 消费事件流，提取 final_answer 回送社交平台
+        6. 清理
         """
         logger.info(
             '收到消息 [%s] chat=%s user=%s: %s',
@@ -65,7 +80,49 @@ class MessageRouter:
                     logger.info('消息被当作审批回复处理: chat_id=%s', message.chat_id)
                     return
 
-            # ── 1. 解析 session_id + agent 配置 ──
+            # ── 1. 斜杠命令预处理 ──
+            task = message.content.strip()
+            display_task = None
+
+            # 解析 session（斜杠命令也需要 session_id）
+            session_id, agent_config = await self._daemon_service.resolve_session_id_for_message(message)
+
+            if task.startswith('/'):
+                parsed = cmd_mod.parse_slash_command(task)
+                if parsed is not None:
+                    if parsed.defn is None:
+                        await self._daemon_service.send_message(OutgoingMessage(
+                            platform=message.platform,
+                            chat_id=message.chat_id,
+                            content=f'未知命令: {parsed.cmd_name}\n输入 /help 查看可用命令',
+                        ))
+                        return
+                    if parsed.defn.mode == 'system':
+                        try:
+                            result = await parsed.defn.handler(session_id, parsed.args)
+                        except Exception as e:
+                            result = {'content': f'命令执行失败: {e}', 'success': False}
+                        await self._daemon_service.send_message(OutgoingMessage(
+                            platform=message.platform,
+                            chat_id=message.chat_id,
+                            content=result.get('content', '命令已执行'),
+                        ))
+                        return
+                    # prompt 命令：展开模板
+                    if not parsed.args.strip():
+                        await self._daemon_service.send_message(OutgoingMessage(
+                            platform=message.platform,
+                            chat_id=message.chat_id,
+                            content=f'用法: {parsed.cmd_name} <内容>\n{parsed.defn.description}',
+                        ))
+                        return
+                    display_task = task
+                    task = parsed.defn.template.replace('{args}', parsed.args)
+
+            if not task:
+                return
+
+            # ── 2. 获取运行时依赖 ──
             from runtime.container import get_current_runtime_container
             container = get_current_runtime_container()
             if not container:
@@ -73,42 +130,45 @@ class MessageRouter:
                 return
 
             runtime_svc = container.get_agent_api_runtime_service()
-            exec_svc = runtime_svc.get_agent_execution_service()
 
-            session_id, agent_config = self._daemon_service.resolve_session_id_for_message(message)
-            entry_agent = agent_config.entry_agent
+            # ── 3. 通过 AgentExecutionAdapter 启动执行 ──
+            from execution.adapters.agent_execution import AgentExecutionAdapter
 
-            # ── 2. 创建 EventBus + 注册 TaskRegistry ──
-            from agents.events.bus import EventType
-            from agents.task_registry import get_task_registry
-
-            run_id = str(uuid.uuid4())
-            session_manager = container.get_session_manager()
-            event_bus = session_manager.get_or_create(run_id, session_id=session_id)
-
-            registry = get_task_registry()
-            cancel_event = threading.Event()
-            task_id = registry.register_task(
-                session_id=session_id,
-                run_id=run_id,
-                task=message.content[:200],
-                cancel_event=cancel_event,
-                status='starting',
-                execution_kind='daemon_message',
-                concurrency_key=f'session:{session_id}',
+            adapter = AgentExecutionAdapter(
+                execution_service=container.get_execution_service(),
+                agent_execution_service=runtime_svc.get_agent_execution_service(),
             )
-            if task_id is None:
-                logger.warning('session %s 正在执行任务，消息无法并发处理', session_id)
+            started = adapter.start_stream_execution(
+                task=task,
+                session_id=session_id,
+                user_id=message.user_id,
+                llm_override=None,
+                llm_tier=None,
+                request_id=None,
+                conversation_store=runtime_svc.get_conversation_store(),
+                orchestrator=runtime_svc.create_execution_orchestrator(session_id=session_id),
+                history_loader=None,
+                display_task=display_task,
+                source=f'daemon.{message.platform.value}',
+            )
+
+            if not started.started or started.sse_adapter is None:
+                error_msg = started.error_message or '启动执行失败'
+                logger.warning('Daemon 执行启动失败: %s', error_msg)
                 await self._daemon_service.send_message(OutgoingMessage(
                     platform=message.platform,
                     chat_id=message.chat_id,
-                    content='⏳ 上一个任务仍在执行中，请稍后再试。',
+                    content=f'⏳ {error_msg}',
                 ))
                 return
 
-            # ── 3. 创建 + 订阅审批处理器 ──
+            # ── 4. 挂载审批处理器 ──
+            from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
             from daemon.models import DaemonPermissionConfig
+
+            session_manager = container.get_session_manager()
+            event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
             permission_config = getattr(agent_config, 'permissions', None)
             if permission_config is None:
@@ -128,51 +188,33 @@ class MessageRouter:
             )
             self._approval_handlers[message.chat_id] = approval_handler
 
-            # ── 4. 执行 Agent（传入 event_bus + run_id + cancel_event）──
+            # ── 5. 消费事件流 + 回送 ──
             try:
-                if entry_agent:
-                    result = await asyncio.to_thread(
-                        exec_svc.invoke_agent,
-                        mode='root',
-                        agent_name=entry_agent,
-                        task=message.content,
-                        session_id=session_id,
-                        event_bus=event_bus,
-                        run_id=run_id,
-                        cancel_event=cancel_event,
-                        source=f'daemon.{message.platform.value}',
-                        persist_user_message=True,
-                        persist_final_answer=True,
-                    )
-                else:
-                    result = await asyncio.to_thread(
-                        exec_svc.invoke_routed_agent,
-                        task=message.content,
-                        session_id=session_id,
-                        event_bus=event_bus,
-                        run_id=run_id,
-                        cancel_event=cancel_event,
-                        preferred_agent=None,
-                        source=f'daemon.{message.platform.value}',
-                        persist_user_message=True,
-                        persist_final_answer=True,
-                    )
-
-                # ── 5. 回送响应 ──
-                if result.response and result.response.success and result.response.content:
+                final_answer = await asyncio.to_thread(_consume_stream, started.sse_adapter)
+                if final_answer:
                     await self._daemon_service.send_message(OutgoingMessage(
                         platform=message.platform,
                         chat_id=message.chat_id,
-                        content=result.response.content,
+                        content=final_answer,
                     ))
-
             finally:
                 # ── 6. 清理 ──
-                if task_id:
-                    registry.finish_task(task_id)
+                try:
+                    started.sse_adapter.stop()
+                except Exception:
+                    pass
                 approval_handler.cleanup()
                 self._approval_handlers.pop(message.chat_id, None)
-                session_manager.remove(run_id)
+                try:
+                    from agents.context.session_cache import flush_session
+                    flush_session(session_id)
+                except Exception:
+                    pass
+                try:
+                    from agents.events.session_manager import cleanup_run
+                    cleanup_run(started.run_id)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error('消息路由失败: %s', e, exc_info=True)

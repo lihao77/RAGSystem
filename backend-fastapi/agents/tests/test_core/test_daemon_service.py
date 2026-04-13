@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import json
 import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,6 +19,9 @@ class _FakeConversationStore:
 
     def create_session(self, session_id, metadata):
         self.created.append({'session_id': session_id, 'metadata': metadata})
+
+    def get_session(self, session_id):
+        return {'session_id': session_id}
 
 
 class _FakeExecService:
@@ -48,6 +53,9 @@ class _FakeRuntimeService:
 
     def get_agent_execution_service(self):
         return self._exec_service
+
+    def create_execution_orchestrator(self, *, session_id=None):
+        return MagicMock()
 
 
 class _FakeEventBus:
@@ -84,16 +92,63 @@ class _FakeTaskRegistry:
         pass
 
 
+class _FakeExecutionService:
+    def __init__(self):
+        self._task_registry = _FakeTaskRegistry()
+        self._session_manager = _FakeSessionManager()
+
+    def get_task_registry(self):
+        return self._task_registry
+
+    def get_session_manager(self):
+        return self._session_manager
+
+    def submit(self, *args, **kwargs):
+        return MagicMock(thread=None)
+
+    def cleanup_finished(self):
+        pass
+
+
+class _FakeSSEAdapter:
+    """Fake SSEAdapter that yields a FINAL_ANSWER event then terminates."""
+
+    def __init__(self, content='cron done'):
+        self.content = content
+        self.completed_normally = True
+        self.terminal_event_type = 'run_end'
+
+    def stream_sync(self):
+        event = {
+            'type': 'final_answer',
+            'data': {'content': self.content},
+            'session_id': 'test',
+        }
+        yield f'data: {json.dumps(event)}\n\n'
+        done = {'type': 'run_end', 'data': {}}
+        yield f'data: {json.dumps(done)}\n\n'
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+
 class _FakeContainer:
-    def __init__(self, runtime_service):
+    def __init__(self, runtime_service, execution_service=None):
         self._runtime_service = runtime_service
         self._session_manager = _FakeSessionManager()
+        self._execution_service = execution_service or _FakeExecutionService()
 
     def get_agent_api_runtime_service(self):
         return self._runtime_service
 
     def get_session_manager(self):
         return self._session_manager
+
+    def get_execution_service(self):
+        return self._execution_service
 
 
 @pytest.fixture()
@@ -150,18 +205,14 @@ def test_session_id_is_deterministic_across_restarts(daemon_service, monkeypatch
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    # 首次调用
     sid_1 = daemon_service._get_or_create_session('chat_1', 'default')
 
-    # 模拟重启：清空内存缓存
     daemon_service._daemon_sessions.clear()
     daemon_service._session_timestamps.clear()
 
-    # 重启后再次调用，应得到相同 session_id
     sid_2 = daemon_service._get_or_create_session('chat_1', 'default')
 
     assert sid_1 == sid_2
-    # create_session 被调用了两次（幂等），session_id 相同
     assert store.created[0]['session_id'] == store.created[1]['session_id']
 
 
@@ -177,55 +228,79 @@ def test_different_chats_get_different_session_ids(daemon_service, monkeypatch):
     assert sid_a != sid_b
 
 
-def test_execute_cron_task_updates_last_run_and_last_result(daemon_service, monkeypatch):
+def _make_fake_adapter_start_result(content='daily report'):
+    """Create a fake AgentStreamStartResult."""
+    from execution.adapters.agent_execution import AgentStreamStartResult
+    return AgentStreamStartResult(
+        started=True,
+        session_id='test_session',
+        run_id='test_run',
+        task_id='test_task',
+        request_id='test_req',
+        sse_adapter=_FakeSSEAdapter(content),
+    )
+
+
+def test_execute_cron_task_uses_adapter_and_returns_content(daemon_service, monkeypatch):
+    """Cron 任务通过 AgentExecutionAdapter 执行，返回 final_answer。"""
     store = _FakeConversationStore()
     exec_service = _FakeExecService('daily report')
     runtime_service = _FakeRuntimeService(store, exec_service)
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
-    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: _FakeTaskRegistry())
 
-    task = CronTask(
-        task_id='cron_1',
-        name='daily',
-        cron='0 9 * * *',
-        task='send report',
-        team_name='default',
-    )
+    fake_result = _make_fake_adapter_start_result('daily report')
+    with patch('execution.adapters.agent_execution.AgentExecutionAdapter') as MockAdapter:
+        MockAdapter.return_value.start_stream_execution.return_value = fake_result
+        monkeypatch.setattr('agents.context.session_cache.flush_session', lambda sid: None, raising=False)
+        monkeypatch.setattr('agents.events.session_manager.cleanup_run', lambda rid: None, raising=False)
 
-    result = asyncio.run(daemon_service.execute_cron_task(task))
+        task = CronTask(
+            task_id='cron_1',
+            name='daily',
+            cron='0 9 * * *',
+            task='send report',
+            team_name='default',
+        )
+
+        result = asyncio.run(daemon_service.execute_cron_task(task))
 
     assert result == 'daily report'
     assert task.last_run is not None
     assert task.last_result == 'daily report'
-    assert exec_service.calls == []
-    assert exec_service.routed_calls[0]['source'] == 'daemon.cron'
-    # 验证 event_bus 已传递
-    assert exec_service.routed_calls[0].get('event_bus') is not None
+    # 验证 adapter 被调用并传入了 source='daemon.cron'
+    call_kwargs = MockAdapter.return_value.start_stream_execution.call_args
+    assert call_kwargs.kwargs['source'] == 'daemon.cron'
 
 
-def test_execute_cron_task_uses_routed_agent_when_entry_agent_missing(daemon_service, monkeypatch):
+def test_execute_cron_task_handles_adapter_failure(daemon_service, monkeypatch):
+    """Adapter 启动失败时返回 None 并记录错误。"""
     store = _FakeConversationStore()
-    exec_service = _FakeExecService('daily report')
-    runtime_service = _FakeRuntimeService(store, exec_service)
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
-    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: _FakeTaskRegistry())
 
-    task = CronTask(
-        task_id='cron_2',
-        name='daily',
-        cron='0 9 * * *',
-        task='send report',
-        team_name='default',
-        entry_agent=None,
+    from execution.adapters.agent_execution import AgentStreamStartResult
+    failed_result = AgentStreamStartResult(
+        started=False,
+        session_id='test',
+        error_message='并发冲突',
     )
+    with patch('execution.adapters.agent_execution.AgentExecutionAdapter') as MockAdapter:
+        MockAdapter.return_value.start_stream_execution.return_value = failed_result
 
-    result = asyncio.run(daemon_service.execute_cron_task(task))
+        task = CronTask(
+            task_id='cron_fail',
+            name='daily',
+            cron='0 9 * * *',
+            task='send report',
+            team_name='default',
+        )
 
-    assert result == 'daily report'
-    assert exec_service.calls == []
-    assert exec_service.routed_calls[0]['source'] == 'daemon.cron'
+        result = asyncio.run(daemon_service.execute_cron_task(task))
+
+    assert result is None
+    assert '并发冲突' in task.last_result
 
 
 def test_cron_task_crud_persists_to_daemon_yaml(daemon_service):

@@ -12,7 +12,6 @@ import asyncio
 import hashlib
 import logging
 import time
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +48,7 @@ class DaemonService:
         self._running: bool = False
         self._daemon_sessions: Dict[str, str] = {}  # chat_id -> session_id
         self._session_timestamps: Dict[str, float] = {}  # chat_id -> last_active timestamp
+        self._session_lock: asyncio.Lock = asyncio.Lock()
         self._heartbeat_history: Dict[PlatformType, List[HeartbeatStatus]] = {}
 
     # ── 配置加载 ──────────────────────────────────────
@@ -224,13 +224,7 @@ class DaemonService:
     ) -> Optional[PlatformAdapter]:
         """按平台类型创建适配器实例。"""
         try:
-            if platform == PlatformType.WECHAT:
-                from daemon.gateway.wechat import WeChatAdapter
-                return WeChatAdapter(conn)
-            elif platform == PlatformType.DINGTALK:
-                from daemon.gateway.dingtalk import DingTalkAdapter
-                return DingTalkAdapter(conn)
-            elif platform == PlatformType.FEISHU:
+            if platform == PlatformType.FEISHU:
                 from daemon.gateway.feishu import FeishuAdapter
                 return FeishuAdapter(conn, incoming_handler=self.handle_incoming_message)
             else:
@@ -274,14 +268,9 @@ class DaemonService:
     async def execute_cron_task(self, task: CronTask) -> Optional[str]:
         """执行定时任务，返回 Agent 响应内容。
 
-        完整集成 EventBus + TaskRegistry + DaemonApprovalHandler，
-        与 Web 流式执行保持对等。Cron 场景使用纯策略 auto-resolve（无人交互）。
+        复用 AgentExecutionAdapter（与 Web 前端同一入口），
+        Cron 场景挂载全量自动放行的审批处理器。
         """
-        import threading as _threading
-
-        task_id = None
-        run_id = str(uuid.uuid4())
-
         try:
             from runtime.container import get_current_runtime_container
             container = get_current_runtime_container()
@@ -290,34 +279,43 @@ class DaemonService:
                 return None
 
             runtime_svc = container.get_agent_api_runtime_service()
-            exec_svc = runtime_svc.get_agent_execution_service()
 
-            # 为 cron 任务创建或复用 session（绑定 team）
-            session_id = self._get_or_create_session(
+            session_id = await self._get_or_create_session(
                 f"cron:{task.task_id}", task.team_name, task.entry_agent
             )
 
-            # ── 创建 EventBus + TaskRegistry ──
-            from agents.events.bus import EventType
-            session_manager = container.get_session_manager()
-            event_bus = session_manager.get_or_create(run_id, session_id=session_id)
+            # ── 通过 AgentExecutionAdapter 启动执行 ──
+            from execution.adapters.agent_execution import AgentExecutionAdapter
 
-            from agents.task_registry import get_task_registry
-            registry = get_task_registry()
-            cancel_event = _threading.Event()
-            task_id = registry.register_task(
+            adapter = AgentExecutionAdapter(
+                execution_service=container.get_execution_service(),
+                agent_execution_service=runtime_svc.get_agent_execution_service(),
+            )
+            started = adapter.start_stream_execution(
+                task=task.task,
                 session_id=session_id,
-                run_id=run_id,
-                task=task.task[:200],
-                cancel_event=cancel_event,
-                status='starting',
-                execution_kind='daemon_cron',
-                concurrency_key=f'session:{session_id}',
+                user_id=None,
+                llm_override=None,
+                llm_tier=None,
+                request_id=None,
+                conversation_store=runtime_svc.get_conversation_store(),
+                orchestrator=runtime_svc.create_execution_orchestrator(session_id=session_id),
+                history_loader=None,
+                source='daemon.cron',
             )
 
-            # ── 订阅 Cron 审批处理器（全量自动放行，无人可交互）──
+            if not started.started or started.sse_adapter is None:
+                logger.error('Cron 任务启动失败 [%s]: %s', task.task_id, started.error_message)
+                task.last_result = f'ERROR: {started.error_message}'
+                return None
+
+            # ── 挂载审批处理器（全量自动放行，cron 无人交互）──
+            from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
             from daemon.models import DaemonPermissionConfig
+
+            session_manager = container.get_session_manager()
+            event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
             cron_permission = DaemonPermissionConfig(
                 auto_approve_risk='high',
@@ -326,7 +324,7 @@ class DaemonService:
             cron_handler = DaemonApprovalHandler(
                 daemon_service=self,
                 session_id=session_id,
-                platform=task.push_platform or PlatformType.WECHAT,
+                platform=task.push_platform or PlatformType.FEISHU,
                 chat_id=task.push_chat_id or f'cron:{task.task_id}',
                 permission_config=cron_permission,
                 main_loop=asyncio.get_running_loop(),
@@ -336,40 +334,11 @@ class DaemonService:
                 handler=cron_handler.on_approval_required,
             )
 
-            try:
-                if task.entry_agent:
-                    result = await asyncio.to_thread(
-                        exec_svc.invoke_agent,
-                        mode='root',
-                        agent_name=task.entry_agent,
-                        task=task.task,
-                        session_id=session_id,
-                        event_bus=event_bus,
-                        run_id=run_id,
-                        cancel_event=cancel_event,
-                        source='daemon.cron',
-                        persist_user_message=True,
-                        persist_final_answer=True,
-                    )
-                else:
-                    result = await asyncio.to_thread(
-                        exec_svc.invoke_routed_agent,
-                        task=task.task,
-                        session_id=session_id,
-                        event_bus=event_bus,
-                        run_id=run_id,
-                        cancel_event=cancel_event,
-                        preferred_agent=None,
-                        source='daemon.cron',
-                        persist_user_message=True,
-                        persist_final_answer=True,
-                    )
+            # ── 消费事件流 ──
+            from daemon.gateway.router import _consume_stream
 
-                response_content = (
-                    result.response.content
-                    if result.response and result.response.success
-                    else None
-                )
+            try:
+                response_content = await asyncio.to_thread(_consume_stream, started.sse_adapter)
 
                 if response_content and task.push_platform and task.push_chat_id:
                     await self.send_message(OutgoingMessage(
@@ -383,10 +352,21 @@ class DaemonService:
                 return response_content
 
             finally:
-                if task_id:
-                    registry.finish_task(task_id)
+                try:
+                    started.sse_adapter.stop()
+                except Exception:
+                    pass
                 cron_handler.cleanup()
-                session_manager.remove(run_id)
+                try:
+                    from agents.context.session_cache import flush_session
+                    flush_session(session_id)
+                except Exception:
+                    pass
+                try:
+                    from agents.events.session_manager import cleanup_run
+                    cleanup_run(started.run_id)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error('Cron 任务执行失败 [%s]: %s', task.task_id, e)
@@ -401,7 +381,7 @@ class DaemonService:
         key = f"daemon:{team_name}:{chat_id}"
         return f"daemon_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
 
-    def _get_or_create_session(
+    async def _get_or_create_session(
         self,
         chat_id: str,
         team_name: str,
@@ -413,45 +393,46 @@ class DaemonService:
         优先使用 configured_session_id（显式配置），否则按 chat_id + team_name 确定性派生。
         """
         now = time.time()
-        self._evict_expired_sessions(now)
+        async with self._session_lock:
+            self._evict_expired_sessions(now)
 
-        # 内存缓存命中则直接返回
-        if chat_id in self._daemon_sessions:
-            self._session_timestamps[chat_id] = now
-            return self._daemon_sessions[chat_id]
+            # 内存缓存命中则直接返回
+            if chat_id in self._daemon_sessions:
+                self._session_timestamps[chat_id] = now
+                return self._daemon_sessions[chat_id]
 
-        session_id = configured_session_id or self._derive_session_id(chat_id, team_name)
+            session_id = configured_session_id or self._derive_session_id(chat_id, team_name)
 
-        try:
-            from runtime.container import get_current_runtime_container
-            container = get_current_runtime_container()
-            runtime_svc = container.get_agent_api_runtime_service()
-            store = runtime_svc.get_conversation_store()
+            try:
+                from runtime.container import get_current_runtime_container
+                container = get_current_runtime_container()
+                runtime_svc = container.get_agent_api_runtime_service()
+                store = runtime_svc.get_conversation_store()
 
-            metadata: Dict[str, Any] = {
-                'source': 'daemon',
-                'chat_id': chat_id,
-                'team': team_name,
-            }
-            if entry_agent:
-                metadata['entry_agent'] = entry_agent
-            # create_session 是幂等的（ON CONFLICT DO UPDATE），已有 session 会直接复用
-            store.create_session(
-                session_id=session_id,
-                metadata=metadata,
-            )
-            self._daemon_sessions[chat_id] = session_id
-            self._session_timestamps[chat_id] = now
-            return session_id
-        except Exception as e:
-            logger.error('创建守护 session 失败: %s', e)
-            return session_id
+                metadata: Dict[str, Any] = {
+                    'source': 'daemon',
+                    'chat_id': chat_id,
+                    'team': team_name,
+                }
+                if entry_agent:
+                    metadata['entry_agent'] = entry_agent
+                # create_session 是幂等的（ON CONFLICT DO UPDATE），已有 session 会直接复用
+                store.create_session(
+                    session_id=session_id,
+                    metadata=metadata,
+                )
+                self._daemon_sessions[chat_id] = session_id
+                self._session_timestamps[chat_id] = now
+                return session_id
+            except Exception as e:
+                logger.error('创建守护 session 失败: %s', e)
+                return session_id
 
     def _evict_expired_sessions(self, now: float) -> None:
-        """清理超过 TTL 的守护 session（懒惰清理）。"""
+        """清理超过 TTL 的守护 session（懒惰清理）。调用方需持有 _session_lock。"""
         ttl = self.config.default_session_ttl
         expired = [
-            chat_id for chat_id, ts in self._session_timestamps.items()
+            chat_id for chat_id, ts in list(self._session_timestamps.items())
             if now - ts > ttl
         ]
         for chat_id in expired:
@@ -475,7 +456,7 @@ class DaemonService:
                 return agent_cfg
         return None
 
-    def resolve_session_id_for_message(
+    async def resolve_session_id_for_message(
         self, message: IncomingMessage,
     ) -> tuple:
         """为入站消息解析 session_id 和对应的 agent 配置。
@@ -495,7 +476,7 @@ class DaemonService:
         agent_session_id = getattr(agent_config, 'session_id', None)
         configured_session_id = platform_session_id or agent_session_id
 
-        session_id = self._get_or_create_session(
+        session_id = await self._get_or_create_session(
             message.chat_id,
             agent_config.team_name,
             agent_config.entry_agent,
@@ -565,8 +546,8 @@ class DaemonService:
         """记录心跳状态（由 HeartbeatMonitor 调用）。"""
         history = self._heartbeat_history.setdefault(status.platform, [])
         history.append(status)
-        if len(history) > 100:
-            self._heartbeat_history[status.platform] = history[-100:]
+        if len(history) >= 100:
+            self._heartbeat_history[status.platform] = history[-99:]
 
     def get_heartbeat_history(
         self, platform: PlatformType, limit: int = 20
@@ -585,8 +566,8 @@ class DaemonService:
         ]
 
     def update_config(self, new_config: DaemonSystemConfig) -> None:
-        """热更新配置（不重启守护系统）。"""
-        self._config = self._validate_config(new_config)
+        """热更新配置并持久化到 YAML 文件。"""
+        self.save_config(new_config)
 
     # ── Cron 任务管理 ─────────────────────────────────
 

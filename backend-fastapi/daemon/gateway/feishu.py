@@ -333,7 +333,7 @@ class FeishuAdapter(PlatformAdapter):
         if not secret:
             return True
 
-        timestamp = headers.get('x-lark-request-timestamp', '') or headers.get('x-lark-request-timestamp', '')
+        timestamp = headers.get('x-lark-request-timestamp', '')
         signature = headers.get('x-lark-signature', '')
         if not timestamp or not signature:
             return False

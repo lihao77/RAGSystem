@@ -67,7 +67,10 @@ class DaemonApprovalHandler:
         self._config = permission_config
         self._main_loop = main_loop
         self._pending: Dict[str, PendingApproval] = {}
+        # threading.Lock 保护跨线程的同步方法（on_approval_required / try_resolve_from_message / cleanup）
         self._lock = threading.Lock()
+        # asyncio.Lock 保护 async 方法内的访问（_send_and_schedule_timeout / _on_timeout）
+        self._async_lock = asyncio.Lock()
 
         # 预计算自动放行的风险级别集合
         self._auto_approve_levels = self._build_auto_approve_levels()
@@ -209,7 +212,7 @@ class DaemonApprovalHandler:
         registry.resolve_approval(session_id, approval_id, approved, message)
 
     async def _send_and_schedule_timeout(self, pending: PendingApproval) -> None:
-        """发送审批消息到社交平台并设置超时。"""
+        """发送审批消息到社交平台并设置超时。在主事件循环中执行。"""
         from daemon.models import OutgoingMessage
 
         fallback_text = '放行' if self._config.approval_fallback == 'allow' else '拒绝'
@@ -229,17 +232,21 @@ class DaemonApprovalHandler:
         except Exception as e:
             logger.error('发送审批消息失败: %s', e)
 
-        # 设置超时回调
+        # 设置超时回调：call_later 中不能直接用 ensure_future，改用 run_coroutine_threadsafe
+        def _schedule_timeout(aid: str) -> None:
+            asyncio.run_coroutine_threadsafe(self._on_timeout(aid), self._main_loop)
+
         timeout_handle = self._main_loop.call_later(
             self._config.approval_timeout,
-            lambda aid=pending.approval_id: asyncio.ensure_future(self._on_timeout(aid)),
+            _schedule_timeout,
+            pending.approval_id,
         )
-        with self._lock:
+        async with self._async_lock:
             if pending.approval_id in self._pending:
                 self._pending[pending.approval_id].timeout_handle = timeout_handle
 
     async def _on_timeout(self, approval_id: str) -> None:
-        with self._lock:
+        async with self._async_lock:
             pending = self._pending.pop(approval_id, None)
         if pending is None:
             return

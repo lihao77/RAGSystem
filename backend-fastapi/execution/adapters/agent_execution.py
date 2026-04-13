@@ -64,6 +64,7 @@ class AgentExecutionAdapter:
         history_limit: int = 200,
         current_attachments: Optional[List[Dict[str, Any]]] = None,
         display_task: Optional[str] = None,
+        source: str = 'api',
     ) -> AgentStreamStartResult:
         del history_loader
         registry = self._execution_service.get_task_registry()
@@ -127,7 +128,7 @@ class AgentExecutionAdapter:
                 history_limit=history_limit,
                 entrypoint='agent_stream',
                 task_summary=task[:200],
-                source='api',
+                source=source,
             )
             context = execution_handle.context
             context.metadata['current_user_input'] = task
@@ -390,7 +391,7 @@ class AgentExecutionAdapter:
                     child_agent_id=child_agent_id,
                     history_limit=0,
                     entrypoint='agent_stream',
-                    source='api',
+                    source=source,
                     persist_user_message=False,
                     persist_final_answer=False,
                     prepared_handle=execution_handle,

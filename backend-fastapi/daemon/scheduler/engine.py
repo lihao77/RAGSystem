@@ -150,12 +150,19 @@ class CronScheduler:
                 logger.error('Cron 检查失败 [%s]: %s', task_id, e)
 
     async def _execute_task(self, task: CronTask) -> None:
-        """执行单个 Cron 任务。"""
+        """执行单个 Cron 任务（最长 5 分钟超时）。"""
         start = time.time()
         try:
-            result = await self._daemon_service.execute_cron_task(task)
+            result = await asyncio.wait_for(
+                self._daemon_service.execute_cron_task(task),
+                timeout=300,
+            )
             elapsed = time.time() - start
             self._record_history(task.task_id, success=True, result=result, elapsed=elapsed)
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start
+            logger.error('Cron 任务执行超时 [%s] elapsed=%.1fs', task.task_id, elapsed)
+            self._record_history(task.task_id, success=False, error='执行超时（>300s）', elapsed=elapsed)
         except Exception as e:
             elapsed = time.time() - start
             self._record_history(task.task_id, success=False, error=str(e), elapsed=elapsed)

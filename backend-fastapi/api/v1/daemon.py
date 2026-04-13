@@ -132,7 +132,7 @@ async def test_agent(team_name: str, request: Request) -> Dict[str, Any]:
     svc = _get_service(request)
     body = await request.json()
     content = body.get('content', '测试消息')
-    platform_str = body.get('platform', 'wechat')
+    platform_str = body.get('platform', 'feishu')
     try:
         platform = PlatformType(platform_str)
     except ValueError:
@@ -171,12 +171,15 @@ async def webhook_entry(platform: str, request: Request) -> Dict[str, Any]:
     except Exception:
         raise HTTPException(400, '请求体非合法 JSON')
 
-    # 飞书 URL challenge 验证（签名验证前提前返回）
-    if p == PlatformType.FEISHU and 'challenge' in body:
-        return {'challenge': body['challenge']}
-
     # 查找对应适配器
     adapter = svc.get_adapter(p)
+
+    # 飞书 URL challenge 验证：先验签（若适配器已就绪），再响应 challenge
+    if p == PlatformType.FEISHU and 'challenge' in body:
+        if adapter and not adapter.verify_webhook_signature(headers, raw_body):
+            raise HTTPException(403, '签名验证失败')
+        return {'challenge': body['challenge']}
+
     if not adapter:
         raise HTTPException(503, f'平台适配器未连接: {platform}')
 
