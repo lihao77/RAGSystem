@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Optional
 
 from daemon.models import (
     AdapterStatus,
@@ -38,13 +37,17 @@ class HeartbeatMonitor:
         self,
         adapters: Dict[PlatformType, PlatformAdapter],
         interval: int,
-        daemon_service: Any,
+        daemon_service: DaemonService,
+        on_cycle: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         self._adapters = adapters
         self._interval = interval
         self._daemon_service = daemon_service
+        self._on_cycle = on_cycle
         self._running = False
-        self._task: asyncio.Task | None = None
+        self._task: Optional[asyncio.Task] = None
+        self._reconnect_tasks: set[asyncio.Task] = set()
+        self._reconnecting_platforms: set[PlatformType] = set()
         self._reconnect_counts: Dict[PlatformType, int] = {}
 
     async def start(self) -> None:
@@ -63,6 +66,12 @@ class HeartbeatMonitor:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        # 取消所有进行中的重连任务
+        for t in list(self._reconnect_tasks):
+            t.cancel()
+        if self._reconnect_tasks:
+            await asyncio.gather(*self._reconnect_tasks, return_exceptions=True)
+            self._reconnect_tasks.clear()
 
     async def _monitor_loop(self) -> None:
         while self._running:
@@ -80,6 +89,13 @@ class HeartbeatMonitor:
                 except Exception as e:
                     logger.error('心跳检查异常 [%s]: %s', platform.value, e)
 
+            # 周期性回调（用于会话 TTL 清理等）
+            if self._on_cycle:
+                try:
+                    await self._on_cycle()
+                except Exception as e:
+                    logger.debug('心跳周期回调异常: %s', e)
+
             await asyncio.sleep(self._interval)
 
     async def _handle_error(
@@ -89,6 +105,10 @@ class HeartbeatMonitor:
         status: HeartbeatStatus,
     ) -> None:
         """派发独立重连任务，不阻塞监控循环。"""
+        # 如果该平台已有重连任务在执行，跳过
+        if platform in self._reconnecting_platforms:
+            return
+
         attempts = self._reconnect_counts.get(platform, 0)
         if attempts >= _MAX_RECONNECT_ATTEMPTS:
             logger.error(
@@ -98,11 +118,14 @@ class HeartbeatMonitor:
             return
 
         self._reconnect_counts[platform] = attempts + 1
+        self._reconnecting_platforms.add(platform)
         logger.warning(
             '平台 [%s] 连接异常，开始第 %d 次重连: %s',
             platform.value, attempts + 1, status.error,
         )
-        asyncio.create_task(self._reconnect(platform, adapter, attempts))
+        t = asyncio.create_task(self._reconnect(platform, adapter, attempts))
+        self._reconnect_tasks.add(t)
+        t.add_done_callback(self._reconnect_tasks.discard)
 
     async def _reconnect(
         self,
@@ -120,3 +143,5 @@ class HeartbeatMonitor:
             logger.info('平台 [%s] 重连成功', platform.value)
         except Exception as e:
             logger.error('平台 [%s] 重连失败: %s', platform.value, e)
+        finally:
+            self._reconnecting_platforms.discard(platform)

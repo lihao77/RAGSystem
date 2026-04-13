@@ -4,7 +4,7 @@
 """
 
 from fastapi import APIRouter, HTTPException, Request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from daemon.models import (
     CronTask,

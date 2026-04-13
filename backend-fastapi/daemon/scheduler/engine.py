@@ -11,7 +11,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from daemon.models import CronTask
 
@@ -147,11 +147,12 @@ def next_cron_time(cron_expr: str, after: Optional[datetime] = None) -> datetime
 class CronScheduler:
     """Cron 调度引擎。"""
 
-    def __init__(self, tasks: List[CronTask], daemon_service: Any):
+    def __init__(self, tasks: List[CronTask], daemon_service: DaemonService):
         self._tasks: Dict[str, CronTask] = {t.task_id: t for t in tasks if t.enabled}
         self._daemon_service = daemon_service
         self._running = False
         self._task_handle: Optional[asyncio.Task] = None
+        self._pending_tasks: set[asyncio.Task] = set()
         self._history: Dict[str, List[Dict[str, Any]]] = {}
 
     async def start(self) -> None:
@@ -166,7 +167,7 @@ class CronScheduler:
         logger.info('Cron 调度器启动，%d 个活跃任务', len(self._tasks))
 
     async def stop(self) -> None:
-        """停止调度器。"""
+        """停止调度器，取消主循环和所有进行中的任务。"""
         self._running = False
         if self._task_handle:
             self._task_handle.cancel()
@@ -175,6 +176,12 @@ class CronScheduler:
             except asyncio.CancelledError:
                 pass
             self._task_handle = None
+        # 取消所有进行中的执行任务
+        for t in list(self._pending_tasks):
+            t.cancel()
+        if self._pending_tasks:
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+            self._pending_tasks.clear()
 
     async def _run_loop(self) -> None:
         """主调度循环：每分钟检查一次到期任务。"""
@@ -186,8 +193,11 @@ class CronScheduler:
                 last_check_minute = current_minute
                 await self._check_and_execute(now)
 
-            # 对齐到下一分钟
-            sleep_secs = 60 - now.second + 1
+            # 重新获取时间后对齐到下一分钟
+            now = datetime.now()
+            sleep_secs = 60 - now.second - now.microsecond / 1_000_000 + 0.1
+            if sleep_secs <= 0:
+                sleep_secs = 0.1
             await asyncio.sleep(sleep_secs)
 
     async def _check_and_execute(self, now: datetime) -> None:
@@ -198,7 +208,9 @@ class CronScheduler:
             try:
                 if matches_cron(task.cron, now):
                     logger.info('触发 Cron 任务 [%s]: %s', task_id, task.name)
-                    asyncio.create_task(self._execute_task(task))
+                    t = asyncio.create_task(self._execute_task(task))
+                    self._pending_tasks.add(t)
+                    t.add_done_callback(self._pending_tasks.discard)
             except Exception as e:
                 logger.error('Cron 检查失败 [%s]: %s', task_id, e)
 

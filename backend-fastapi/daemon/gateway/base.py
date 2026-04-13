@@ -6,14 +6,18 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+import logging
+from typing import List
 
 from daemon.models import (
     AdapterStatus,
     HeartbeatStatus,
+    IncomingMessage,
     OutgoingMessage,
     PlatformConnection,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PlatformAdapter(ABC):
@@ -47,10 +51,6 @@ class PlatformAdapter(ABC):
         """
         ...
 
-    def get_status(self) -> AdapterStatus:
-        """返回当前连接状态。"""
-        return self._status
-
     @abstractmethod
     async def health_check(self) -> HeartbeatStatus:
         """执行健康检查，返回心跳状态。"""
@@ -58,10 +58,14 @@ class PlatformAdapter(ABC):
 
     def verify_webhook_signature(self, headers: dict, raw_body: bytes) -> bool:
         """验证 Webhook 回调签名。子类应覆盖以实现平台签名校验。"""
+        logger.warning(
+            '%s 未实现 webhook 签名校验，所有请求将被放行（安全风险）',
+            type(self).__name__,
+        )
         return True
 
     @abstractmethod
-    def parse_webhook(self, payload: dict) -> list:
+    def parse_webhook(self, payload: dict) -> List[IncomingMessage]:
         """
         解析平台 webhook 回调数据为 IncomingMessage 列表。
 

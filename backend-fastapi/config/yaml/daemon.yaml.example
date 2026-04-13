@@ -33,8 +33,8 @@ agents:
         - grep
         - web_fetch
         - preview_data_structure
-      # 自动放行的最高风险级别: low | medium | high
-      auto_approve_risk: low
+      # 自动放行的最高风险级别（该字段尚未对接，预留）
+      # auto_approve_risk: low
       # 交互审批超时秒数（超时后按 approval_fallback 处理）
       approval_timeout: 120
       # 审批超时后的默认行为: deny(拒绝) | allow(放行)
@@ -42,7 +42,7 @@ agents:
 
     # 社交平台连接配置
     platforms:
-      # ── 企业微信 ──────────────────────────────
+      # ── 企业微信（尚未实现，启用会报错）──
       wechat:
         enabled: false
         app_id: ""            # 企业微信应用 AgentId
@@ -52,7 +52,7 @@ agents:
           corp_id: ""         # 企业 CorpID
         # token 和 encoding_aes_key 用于接收消息回调验证（可选）
 
-      # ── 钉钉 ──────────────────────────────────
+      # ── 钉钉（尚未实现，启用会报错）──
       dingtalk:
         enabled: false
         app_id: ""            # 钉钉 AppKey

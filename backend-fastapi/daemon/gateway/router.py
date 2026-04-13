@@ -42,12 +42,7 @@ class MessageRouter:
         流程：
         0. 审批回复拦截（必须在 chat_lock 之前，否则死锁）
         1. Per-chat 锁序列化
-        2. 斜杠命令预处理
-        3. 解析 session_id + agent 配置
-        4. 通过 AgentExecutionAdapter 启动执行（自动管理 EventBus / TaskRegistry / Persistence）
-        5. 挂载 DaemonApprovalHandler
-        6. 消费事件流，提取 final_answer 回送社交平台
-        7. 清理
+        2. 内部路由（斜杠命令 → 运行时依赖 → Agent 执行 → 事件桥接 → 清理）
         """
         # ── 0. 交互拦截（必须在 chat_lock 之前，否则与 consume_stream 死锁）──
         handler = self._approval_handlers.get(message.chat_id)
@@ -163,7 +158,7 @@ class MessageRouter:
                 ))
                 return
 
-            # ── 2. 挂载审批处理器 ──
+            # ── 4. 挂载审批处理器 + 事件桥接 ──
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
             from daemon.models import DaemonPermissionConfig
@@ -171,7 +166,6 @@ class MessageRouter:
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
-            # ── 2.5 实时事件桥接：订阅关键事件，立即转发到社交平台 ──
             _main_loop = asyncio.get_running_loop()
             _platform = message.platform
             _chat_id = message.chat_id
@@ -201,14 +195,17 @@ class MessageRouter:
                 main_loop=asyncio.get_running_loop(),
                 send_message=_ordered_send,
             )
-            event_bus.subscribe(
+
+            # 保存所有订阅 ID，确保 finally 中能显式取消
+            _subscription_ids: list[str] = []
+            _subscription_ids.append(event_bus.subscribe(
                 event_types=[EventType.USER_APPROVAL_REQUIRED],
                 handler=approval_handler.on_approval_required,
-            )
-            event_bus.subscribe(
+            ))
+            _subscription_ids.append(event_bus.subscribe(
                 event_types=[EventType.USER_INPUT_REQUIRED],
                 handler=approval_handler.on_input_required,
-            )
+            ))
 
             def _on_agent_error(event):
                 error_data = event.data or {}
@@ -245,20 +242,26 @@ class MessageRouter:
                 if content:
                     _send_to_platform(f'💭 {content[:500]}')
 
-            event_bus.subscribe(event_types=[EventType.AGENT_ERROR], handler=_on_agent_error)
-            event_bus.subscribe(event_types=[EventType.CALL_TOOL_START], handler=_on_tool_start)
-            event_bus.subscribe(event_types=[EventType.CALL_TOOL_END], handler=_on_tool_end)
-            event_bus.subscribe(event_types=[EventType.AGENT_RETRY_SCHEDULED], handler=_on_retry_scheduled)
-            event_bus.subscribe(event_types=[EventType.INTENT_COMPLETE], handler=_on_intent_complete)
+            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.AGENT_ERROR], handler=_on_agent_error))
+            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.CALL_TOOL_START], handler=_on_tool_start))
+            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.CALL_TOOL_END], handler=_on_tool_end))
+            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.AGENT_RETRY_SCHEDULED], handler=_on_retry_scheduled))
+            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.INTENT_COMPLETE], handler=_on_intent_complete))
             self._approval_handlers[message.chat_id] = approval_handler
 
-            # ── 3. 消费事件流 + 回送 ──
+            # ── 5. 消费事件流 + 回送 ──
             try:
                 final_answer = await asyncio.to_thread(consume_stream, started.sse_adapter)
                 if final_answer:
                     await _ordered_send(final_answer)
             finally:
-                # ── 4. 清理 ──
+                # ── 6. 清理 ──
+                # 显式取消所有事件订阅，防止 cleanup_run 失败时泄漏
+                for sid in _subscription_ids:
+                    try:
+                        event_bus.unsubscribe(sid)
+                    except Exception:
+                        pass
                 try:
                     started.sse_adapter.stop()
                 except Exception:

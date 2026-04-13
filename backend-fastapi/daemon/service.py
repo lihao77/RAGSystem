@@ -187,6 +187,7 @@ class DaemonService:
                 adapters=self._adapters,
                 interval=heartbeat_interval,
                 daemon_service=self,
+                on_cycle=self._periodic_session_eviction,
             )
             await self._heartbeat.start()
             logger.info('心跳监控已启动，间隔 %ds', heartbeat_interval)
@@ -228,8 +229,12 @@ class DaemonService:
                 from daemon.gateway.feishu import FeishuAdapter
                 return FeishuAdapter(conn, incoming_handler=self.handle_incoming_message)
             else:
-                logger.warning('不支持的平台类型: %s', platform)
-                return None
+                raise NotImplementedError(
+                    f'平台 {platform.value} 的适配器尚未实现。'
+                    f'当前仅支持: feishu'
+                )
+        except NotImplementedError:
+            raise
         except Exception as e:
             logger.error('创建适配器失败 [%s]: %s', platform.value, e)
             return None
@@ -253,7 +258,7 @@ class DaemonService:
         if not adapter:
             logger.warning('平台适配器未配置: %s（请检查 daemon.yaml 中的 platforms 配置）', message.platform.value)
             return False
-        status = adapter.get_status()
+        status = adapter.status
         if status != AdapterStatus.CONNECTED:
             logger.warning('平台适配器未连接: %s（当前状态: %s，请检查凭证配置）', message.platform.value, status.value)
             return False
@@ -310,31 +315,52 @@ class DaemonService:
                 task.last_result = f'ERROR: {started.error_message}'
                 return None
 
-            # ── 注入权限策略（cron 无人交互，session 级跳过审批）──
+            # ── 注入权限策略（基于 agent 配置的审批模式而非全量跳过）──
             from tools.permission_manager import set_session_permission_override, clear_session_permission_override
-            from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
+            from tools.contracts.permission_modes import PermissionMode, PermissionPolicy, AutoAcceptPattern
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
             from daemon.models import DaemonPermissionConfig
 
+            # 查找该 cron 任务所属 agent 的权限配置
+            _agent_config = self._get_agent_config(task.team_name)
+            _perm_config = _agent_config.permissions if _agent_config else DaemonPermissionConfig()
+
+            # 映射 daemon mode → PermissionMode
+            _mode_map = {
+                'strict': PermissionMode.STRICT,
+                'standard': PermissionMode.STANDARD,
+                'relaxed': PermissionMode.RELAXED,
+            }
+            _permission_mode = _mode_map.get(_perm_config.mode, PermissionMode.STANDARD)
+
+            # 白名单工具自动放行
+            _auto_accept = [
+                AutoAcceptPattern(pattern_type='tool_name', pattern_value=t, description='daemon allowlist')
+                for t in _perm_config.tool_allowlist
+            ]
+
             set_session_permission_override(
                 session_id,
-                PermissionPolicy(mode=PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS),
+                PermissionPolicy(
+                    mode=_permission_mode,
+                    auto_accept_patterns=_auto_accept,
+                    approval_timeout=_perm_config.approval_timeout,
+                ),
             )
 
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
-            cron_permission = DaemonPermissionConfig(approval_fallback='allow')
             cron_handler = DaemonApprovalHandler(
                 daemon_service=self,
                 session_id=session_id,
                 platform=task.push_platform or PlatformType.FEISHU,
                 chat_id=task.push_chat_id or f'cron:{task.task_id}',
-                permission_config=cron_permission,
+                permission_config=_perm_config,
                 main_loop=asyncio.get_running_loop(),
             )
-            event_bus.subscribe(
+            _cron_sub_id = event_bus.subscribe(
                 event_types=[EventType.USER_APPROVAL_REQUIRED],
                 handler=cron_handler.on_approval_required,
             )
@@ -358,6 +384,10 @@ class DaemonService:
 
             finally:
                 try:
+                    event_bus.unsubscribe(_cron_sub_id)
+                except Exception:
+                    pass
+                try:
                     started.sse_adapter.stop()
                 except Exception:
                     pass
@@ -378,10 +408,11 @@ class DaemonService:
             logger.error('Cron 任务执行失败 [%s]: %s', task.task_id, e)
             task.last_result = f'ERROR: {e}'
             # 确保异常路径也清理 session 级覆盖
-            try:
-                clear_session_permission_override(session_id)
-            except Exception:
-                pass
+            if session_id:
+                try:
+                    clear_session_permission_override(session_id)
+                except Exception:
+                    pass
             return None
 
     # ── Session 管理 ──────────────────────────────────
@@ -449,6 +480,11 @@ class DaemonService:
         if expired:
             logger.debug('清理过期守护 session %d 个', len(expired))
 
+    async def _periodic_session_eviction(self) -> None:
+        """由 HeartbeatMonitor 周期性调用，清理过期会话。"""
+        async with self._session_lock:
+            self._evict_expired_sessions(time.time())
+
     def _find_agent_config_for_platform(self, platform: PlatformType) -> Optional[DaemonAgentConfig]:
         """查找指定平台对应的已启用 agent 配置。"""
         # 精确匹配：消息来源平台在 agent 的 platforms 中且已启用
@@ -498,7 +534,7 @@ class DaemonService:
         """返回守护系统整体状态。"""
         cfg = self.config
         adapter_statuses = {
-            p.value: adapter.get_status().value
+            p.value: adapter.status.value
             for p, adapter in self._adapters.items()
         }
         cron_tasks = [
@@ -538,7 +574,7 @@ class DaemonService:
             adapter = self._adapters.get(p)
             platforms[p.value] = {
                 'enabled': agent_cfg.platforms[p].enabled,
-                'status': adapter.get_status().value if adapter else 'disconnected',
+                'status': adapter.status.value if adapter else 'disconnected',
             }
 
         return {
