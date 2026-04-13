@@ -863,6 +863,7 @@ function showToast(message, type = 'error') {
 }
 
 const agents = ref([]);
+const agentDisplayMap = ref({});
 const activeTeam = ref('');
 const selectedAgent = ref('');
 const tools = ref([]);
@@ -1178,6 +1179,9 @@ async function loadInitialData() {
     ]);
     const agentNames = Object.keys(configs || {});
     agents.value = agentNames;
+    agentDisplayMap.value = Object.fromEntries(
+      Object.entries(configs || {}).map(([name, cfg]) => [name, cfg?.display_name || name])
+    );
     activeTeam.value = teamSummary?.active_team || '';
 
     if (agentNames.length > 0) {
@@ -1362,7 +1366,9 @@ async function handleCreateAgent() {
     // 刷新 agent 列表并切换到新 agent
     const configs = await getAllAgentConfigs();
     agents.value = Object.keys(configs || {});
-    closeCreateDialog();
+    agentDisplayMap.value = Object.fromEntries(
+      Object.entries(configs || {}).map(([n, cfg]) => [n, cfg?.display_name || n])
+    );
     selectedAgent.value = name;
     await loadAgentDetail(name);
     showToast(`Agent "${name}" 创建成功`, 'success');

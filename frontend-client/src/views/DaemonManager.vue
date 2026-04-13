@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 飞书消息网关 · 定时调度 · 心跳监控" max-width="960px">
+  <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 飞书消息网关 · 定时调度 · 心跳监控">
     <template #header-actions>
       <div class="hdr-actions">
         <button
@@ -98,15 +98,20 @@
             </div>
             <div class="form-item">
               <label class="form-label">Team 名称</label>
-              <input v-model="baseForm.team_name" class="form-ctrl" placeholder="default" />
+              <CustomSelect v-model="baseForm.team_name" :options="teamOptions" placeholder="default" />
             </div>
             <div class="form-item">
               <label class="form-label">入口 Agent</label>
-              <input v-model="baseForm.entry_agent" class="form-ctrl" placeholder="留空则用 team 的 default_entry" />
+              <CustomSelect v-model="baseForm.entry_agent" :options="agentOptions" placeholder="留空则用 team 的 default_entry" />
             </div>
             <div class="form-item">
               <label class="form-label">心跳间隔（秒）</label>
               <input v-model.number="baseForm.heartbeat_interval" type="number" min="5" class="form-ctrl" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">默认 Session ID</label>
+              <input v-model="baseForm.default_session_id" class="form-ctrl" placeholder="留空则按 chat_id 自动生成" />
+              <span class="section-tip">相同 ID 将复用历史上下文</span>
             </div>
           </div>
           <p class="section-tip">保存后若守护系统正在运行，会自动重载并应用新配置。</p>
@@ -203,6 +208,42 @@
         </div>
       </section>
 
+      <!-- 权限配置 -->
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">权限配置</span>
+          <button class="act-btn act-btn--accent" @click="savePermissions" :disabled="permSaving">
+            {{ permSaving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+        <div class="config-card">
+          <div class="config-grid">
+            <div class="form-item">
+              <label class="form-label">审批模式</label>
+              <CustomSelect v-model="permForm.mode" :options="PERM_MODE_OPTIONS" />
+              <p class="section-tip">strict: 所有风险工具须审批 | standard: medium+high | relaxed: 仅 high</p>
+            </div>
+            <div class="form-item">
+              <label class="form-label">审批超时（秒）</label>
+              <input v-model.number="permForm.approval_timeout" type="number" min="10" max="600" class="form-ctrl" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">超时后默认行为</label>
+              <CustomSelect v-model="permForm.approval_fallback" :options="FALLBACK_OPTIONS" />
+            </div>
+          </div>
+          <div class="form-item" style="margin-top:12px">
+            <label class="form-label">工具白名单（自动放行，逗号分隔）</label>
+            <input
+              :value="permForm.tool_allowlist.join(', ')"
+              @change="e => permForm.tool_allowlist = e.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+              class="form-ctrl"
+              placeholder="如: web_fetch, read_file"
+            />
+          </div>
+        </div>
+      </section>
+
       <!-- 定时任务 -->
       <section class="dmgr-section">
         <div class="dmgr-section-head">
@@ -255,9 +296,9 @@
         </div>
         <div class="config-card">
           <div class="push-row">
-            <select v-model="pushForm.platform" class="form-ctrl form-ctrl--sm">
-              <option value="feishu">飞书</option>
-            </select>
+            <div class="push-platform-select">
+              <CustomSelect v-model="pushForm.platform" :options="PLATFORM_OPTIONS" />
+            </div>
             <input v-model="pushForm.chat_id" class="form-ctrl" placeholder="目标 chat_id" />
           </div>
           <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
@@ -282,33 +323,42 @@
           <div class="modal-body">
             <div v-if="isNewPlatform" class="form-item">
               <label class="form-label">平台</label>
-              <select v-model="platformForm.key" class="form-ctrl">
-                <option value="feishu">飞书</option>
-              </select>
+              <CustomSelect v-model="platformForm.key" :options="PLATFORM_OPTIONS" />
             </div>
-            <div class="form-item">
-              <label class="form-label">App ID</label>
-              <input v-model="platformForm.app_id" class="form-ctrl" placeholder="cli_xxxxxxxxxxxx" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">App Secret</label>
-              <input v-model="platformForm.app_secret" class="form-ctrl" type="password" placeholder="粘贴你的应用密钥" />
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">App ID</label>
+                <input v-model="platformForm.app_id" class="form-ctrl" placeholder="cli_xxxxxxxxxxxx" />
+              </div>
+              <div class="form-item">
+                <label class="form-label">App Secret</label>
+                <input v-model="platformForm.app_secret" class="form-ctrl" type="password" placeholder="粘贴你的应用密钥" />
+              </div>
             </div>
             <div class="form-item">
               <label class="form-label">接收方式</label>
-              <select v-model="platformForm.receive_mode" class="form-ctrl">
-                <option value="long_connection">长连接（推荐，无需公网）</option>
-                <option value="webhook">Webhook（需要公网 HTTPS）</option>
-              </select>
+              <CustomSelect v-model="platformForm.receive_mode" :options="RECEIVE_MODE_OPTIONS" />
               <p class="section-tip">长连接无需公网地址；Webhook 需配置公网 HTTPS 回调。</p>
             </div>
-            <div class="form-item">
-              <label class="form-label">事件订阅 Token</label>
-              <input v-model="platformForm.token" class="form-ctrl" placeholder="飞书事件订阅 Token" />
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">事件订阅 Token</label>
+                <input v-model="platformForm.token" class="form-ctrl" placeholder="飞书事件订阅 Token" />
+              </div>
+              <div class="form-item">
+                <label class="form-label">Encrypt Key（可选）</label>
+                <input v-model="platformForm.encoding_aes_key" class="form-ctrl" placeholder="未开启消息加密可留空" />
+              </div>
             </div>
-            <div class="form-item">
-              <label class="form-label">Encrypt Key（可选）</label>
-              <input v-model="platformForm.encoding_aes_key" class="form-ctrl" placeholder="未开启消息加密可留空" />
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">Webhook URL（可选）</label>
+                <input v-model="platformForm.webhook_url" class="form-ctrl" placeholder="入站 Webhook 回调地址" />
+              </div>
+              <div class="form-item">
+                <label class="form-label">平台级 Session ID（可选）</label>
+                <input v-model="platformForm.session_id" class="form-ctrl" placeholder="留空则使用 agent 级配置" />
+              </div>
             </div>
           </div>
           <div class="modal-foot">
@@ -330,34 +380,35 @@
             <button class="modal-close" @click="showAddTask = false">×</button>
           </div>
           <div class="modal-body">
-            <div class="form-item">
-              <label class="form-label">任务名称</label>
-              <input v-model="newTask.name" class="form-ctrl" placeholder="如：早间简报" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">Cron 表达式</label>
-              <input v-model="newTask.cron" class="form-ctrl" placeholder="0 9 * * 1-5" />
-              <p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p>
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">任务名称</label>
+                <input v-model="newTask.name" class="form-ctrl" placeholder="如：早间简报" />
+              </div>
+              <div class="form-item">
+                <label class="form-label">Cron 表达式</label>
+                <input v-model="newTask.cron" class="form-ctrl" placeholder="0 9 * * 1-5" />
+                <p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p>
+              </div>
             </div>
             <div class="form-item">
               <label class="form-label">任务描述（传给 Agent）</label>
               <textarea v-model="newTask.task" class="form-ctrl" placeholder="请生成今日简报..." rows="2"/>
             </div>
-            <div class="form-item">
-              <label class="form-label">Team</label>
-              <input v-model="newTask.team_name" class="form-ctrl" placeholder="default" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">入口 Agent（可选）</label>
-              <input v-model="newTask.entry_agent" class="form-ctrl" placeholder="留空用 team 默认" />
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">Team</label>
+                <CustomSelect v-model="newTask.team_name" :options="teamOptions" placeholder="default" />
+              </div>
+              <div class="form-item">
+                <label class="form-label">入口 Agent（可选）</label>
+                <CustomSelect v-model="newTask.entry_agent" :options="agentOptions" placeholder="留空用 team 默认" />
+              </div>
             </div>
             <div class="form-two-col">
               <div class="form-item">
                 <label class="form-label">推送平台</label>
-                <select v-model="newTask.push_platform" class="form-ctrl">
-                  <option :value="null">不推送</option>
-                  <option value="feishu">飞书</option>
-                </select>
+                <CustomSelect v-model="newTask.push_platform" :options="PLATFORM_OPTIONS_WITH_NONE" placeholder="不推送" />
               </div>
               <div class="form-item">
                 <label class="form-label">推送 chat_id</label>
@@ -405,7 +456,39 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import PageLayout from '../components/PageLayout.vue'
+import CustomSelect from '../components/CustomSelect.vue'
 import * as api from '../api/daemon'
+import { getTeams, getAllAgentConfigs } from '../api/agentConfig'
+
+const teamOptions = ref([])
+const agentOptions = ref([])
+
+const PLATFORM_OPTIONS = [
+  { value: 'feishu', label: '飞书' },
+  { value: 'dingtalk', label: '钉钉' },
+  { value: 'wechat', label: '企业微信' },
+]
+
+const PLATFORM_OPTIONS_WITH_NONE = [
+  { value: '', label: '不推送' },
+  ...PLATFORM_OPTIONS,
+]
+
+const RECEIVE_MODE_OPTIONS = [
+  { value: 'long_connection', label: '长连接（推荐，无需公网）' },
+  { value: 'webhook', label: 'Webhook（需要公网 HTTPS）' },
+]
+
+const PERM_MODE_OPTIONS = [
+  { value: 'standard', label: 'standard（medium+high 须审批）' },
+  { value: 'strict', label: 'strict（所有风险工具须审批）' },
+  { value: 'relaxed', label: 'relaxed（仅 high 须审批）' },
+]
+
+const FALLBACK_OPTIONS = [
+  { value: 'deny', label: 'deny（超时自动拒绝）' },
+  { value: 'allow', label: 'allow（超时自动允许）' },
+]
 
 const loading = ref(false)
 const status = ref({})
@@ -417,11 +500,20 @@ const showTestDialog = ref(false)
 const showConfigModal = ref(false)
 const configSaving = ref(false)
 const baseSaving = ref(false)
+const permSaving = ref(false)
 const isNewPlatform = ref(false)
+
+const permForm = ref({
+  mode: 'standard',
+  tool_allowlist: [],
+  approval_timeout: 120,
+  approval_fallback: 'deny',
+})
 
 const baseForm = ref({
   enabled: false,
   default_session_ttl: 86400,
+  default_session_id: '',
   team_name: 'default',
   entry_agent: '',
   heartbeat_interval: 30,
@@ -440,6 +532,7 @@ const newTask = ref({
 const platformForm = ref({
   key: 'feishu',
   app_id: '', app_secret: '', token: '', encoding_aes_key: '',
+  webhook_url: '', session_id: '',
   receive_mode: 'long_connection',
 })
 
@@ -519,9 +612,18 @@ async function refresh() {
       baseForm.value = {
         enabled: !!cfg.enabled,
         default_session_ttl: cfg.default_session_ttl || 86400,
+        default_session_id: agent?.session_id || '',
         team_name: agent?.team_name || 'default',
         entry_agent: agent?.entry_agent || '',
         heartbeat_interval: agent?.heartbeat_interval || 30,
+      }
+      const perm = agent?.permissions || {}
+      permForm.value = {
+        mode: perm.mode || 'standard',
+        tool_allowlist: perm.tool_allowlist || [],
+        auto_approve_risk: perm.auto_approve_risk || 'low',
+        approval_timeout: perm.approval_timeout || 120,
+        approval_fallback: perm.approval_fallback || 'deny',
       }
     }
   } catch (e) {
@@ -553,6 +655,7 @@ async function saveBaseConfig() {
     daemonConfig.value.default_session_ttl = Number(baseForm.value.default_session_ttl) || 86400
     agent.team_name = baseForm.value.team_name || 'default'
     agent.entry_agent = baseForm.value.entry_agent || null
+    agent.session_id = baseForm.value.default_session_id || null
     agent.heartbeat_interval = Math.max(5, Number(baseForm.value.heartbeat_interval) || 30)
     await api.updateConfig(daemonConfig.value)
     await refresh()
@@ -560,6 +663,22 @@ async function saveBaseConfig() {
     console.error('保存基础配置失败:', e)
   } finally {
     baseSaving.value = false
+  }
+}
+
+// ── 权限配置 ──
+
+async function savePermissions() {
+  permSaving.value = true
+  try {
+    const agent = ensureAgentEntry()
+    agent.permissions = { ...permForm.value }
+    await api.updateConfig(daemonConfig.value)
+    await refresh()
+  } catch (e) {
+    console.error('保存权限配置失败:', e)
+  } finally {
+    permSaving.value = false
   }
 }
 
@@ -578,7 +697,7 @@ function ensureAgentEntry() {
 
 function openAddPlatform() {
   isNewPlatform.value = true
-  platformForm.value = { key: 'feishu', app_id: '', app_secret: '', token: '', encoding_aes_key: '', receive_mode: 'long_connection' }
+  platformForm.value = { key: 'feishu', app_id: '', app_secret: '', token: '', encoding_aes_key: '', webhook_url: '', session_id: '', receive_mode: 'long_connection' }
   showConfigModal.value = true
 }
 
@@ -591,6 +710,8 @@ function openEditPlatform(platformKey) {
     app_secret: conn.app_secret || '',
     token: conn.token || '',
     encoding_aes_key: conn.encoding_aes_key || '',
+    webhook_url: conn.webhook_url || '',
+    session_id: conn.session_id || '',
     receive_mode: conn.extra?.receive_mode || 'long_connection',
   }
   showConfigModal.value = true
@@ -608,6 +729,8 @@ async function savePlatformConfig() {
       app_secret: f.app_secret || null,
       token: f.token || null,
       encoding_aes_key: f.encoding_aes_key || null,
+      webhook_url: f.webhook_url || null,
+      session_id: f.session_id || null,
       extra,
     }
     await api.updateConfig(daemonConfig.value)
@@ -695,7 +818,26 @@ async function handleDeleteTask(taskId) {
   catch (e) { console.error('删除失败:', e) }
 }
 
-onMounted(refresh)
+async function loadTeamAgentOptions() {
+  try {
+    const [teamsData, agentsData] = await Promise.all([
+      getTeams().catch(() => ({ teams: [] })),
+      getAllAgentConfigs().catch(() => ({})),
+    ])
+    teamOptions.value = (teamsData.teams || []).map(t => ({
+      value: t.team_name || t,
+      label: t.team_name || t,
+    }))
+    agentOptions.value = Object.entries(agentsData || {}).map(([name, cfg]) => ({
+      value: name,
+      label: cfg?.display_name ? `${cfg.display_name} (${name})` : name,
+    }))
+  } catch (e) {
+    console.error('加载 Team/Agent 列表失败', e)
+  }
+}
+
+onMounted(() => { refresh(); loadTeamAgentOptions() })
 </script>
 
 <style scoped>
@@ -955,7 +1097,8 @@ select.form-ctrl { cursor: pointer; }
 .cron-row-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
 /* ── 推送表单 ── */
-.push-row { display: flex; gap: var(--spacing-sm); }
+.push-row { display: flex; gap: var(--spacing-sm); align-items: flex-start; }
+.push-platform-select { width: 130px; flex-shrink: 0; }
 .push-foot { display: flex; justify-content: flex-end; }
 
 /* ── 空状态 ── */
@@ -1004,6 +1147,14 @@ select.form-ctrl { cursor: pointer; }
   display: flex; justify-content: flex-end; gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
   border-top: 1px solid var(--color-border); flex-shrink: 0;
+}
+
+/* CustomSelect 高度对齐 form-ctrl */
+:deep(.select-trigger) {
+  height: 36px;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 /* ── 响应式 ── */

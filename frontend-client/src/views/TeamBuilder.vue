@@ -302,7 +302,7 @@
               </div>
 
               <div class="team-card__agents">
-                <span v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" class="team-agent-tag">{{ agent }}</span>
+                <span v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" class="team-agent-tag" :title="agent">{{ agentDisplayMap[agent] || agent }}</span>
               </div>
 
               <div class="section-actions section-actions--compact">
@@ -326,7 +326,7 @@ import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import AppToast from '../components/AppToast.vue';
-import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getTeams, resetDefaultTeam } from '../api/agentConfig';
+import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getAllAgentConfigs, getTeams, resetDefaultTeam } from '../api/agentConfig';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -340,6 +340,7 @@ const error = ref('');
 const toastRef = ref(null);
 const activeTeam = ref('');
 const teams = ref([]);
+const agentDisplayMap = ref({});
 const newTeamName = ref('');
 const sourceTeam = ref('');
 const copySourceTeam = ref('');
@@ -373,6 +374,10 @@ async function loadTeams() {
     const result = await getTeams();
     activeTeam.value = result.active_team || '';
     teams.value = Array.isArray(result.teams) ? result.teams : [];
+    const configs = await getAllAgentConfigs().catch(() => ({}))
+    agentDisplayMap.value = Object.fromEntries(
+      Object.entries(configs || {}).map(([name, cfg]) => [name, cfg?.display_name || name])
+    )
     if (!copySourceTeam.value && teams.value.length > 0) {
       copySourceTeam.value = teams.value[0].team_name;
     }

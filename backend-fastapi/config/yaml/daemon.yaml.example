@@ -24,7 +24,7 @@ agents:
 
     # 工具权限策略（守护上下文复用系统审批能力）
     permissions:
-      # 审批模式: strict(所有风险工具需审批) | standard(medium+high审批) | relaxed(仅high审批)
+      # 审批模式: strict(所有工具需审批) | standard(仅 low 自动放行) | relaxed(low+medium 自动放行)
       mode: standard
       # 自动放行的工具名列表（白名单内工具无需审批）
       tool_allowlist:

@@ -67,22 +67,8 @@ class DaemonApprovalHandler:
         self._config = permission_config
         self._main_loop = main_loop
         self._pending: Dict[str, PendingApproval] = {}
-        # threading.Lock 保护跨线程的同步方法（on_approval_required / try_resolve_from_message / cleanup）
         self._lock = threading.Lock()
-        # asyncio.Lock 延迟初始化，确保在主事件循环中首次使用时创建，避免跨循环问题
         self._async_lock: Optional[asyncio.Lock] = None
-
-        # 预计算自动放行的风险级别集合
-        self._auto_approve_levels = self._build_auto_approve_levels()
-
-    def _build_auto_approve_levels(self) -> frozenset:
-        levels = {'low'}
-        risk = self._config.auto_approve_risk.lower()
-        if risk in ('medium', 'high'):
-            levels.add('medium')
-        if risk == 'high':
-            levels.add('high')
-        return frozenset(levels)
 
     # ------------------------------------------------------------------
     # EventBus 回调（Agent 线程中同步执行）
@@ -109,16 +95,7 @@ class DaemonApprovalHandler:
             self._auto_resolve(session_id, approval_id, True, '守护策略白名单自动放行')
             return
 
-        # 策略 2：风险级别自动放行
-        if risk_level in self._auto_approve_levels:
-            logger.info(
-                '守护审批: 工具 %s 风险 %s ≤ %s，自动放行 approval_id=%s',
-                tool_name, risk_level, self._config.auto_approve_risk, approval_id,
-            )
-            self._auto_resolve(session_id, approval_id, True, f'守护策略 {risk_level} 级自动放行')
-            return
-
-        # 策略 3：交互审批 — 发消息到社交平台 + 启动超时
+        # 策略 2：交互审批 — 发消息到社交平台 + 启动超时
         logger.info(
             '守护审批: 工具 %s 需要交互审批 approval_id=%s chat_id=%s',
             tool_name, approval_id, self._chat_id,

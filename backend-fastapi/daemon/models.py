@@ -117,10 +117,6 @@ class DaemonPermissionConfig(BaseModel):
         default_factory=list,
         description="自动放行的工具名列表（无需审批）",
     )
-    auto_approve_risk: str = Field(
-        default="low",
-        description="自动放行的最高风险级别: low | medium | high",
-    )
     approval_timeout: int = Field(
         default=120, ge=10, le=600,
         description="交互审批超时秒数",

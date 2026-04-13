@@ -309,18 +309,18 @@ class DaemonService:
                 task.last_result = f'ERROR: {started.error_message}'
                 return None
 
-            # ── 挂载审批处理器（全量自动放行，cron 无人交互）──
+            # ── 注入权限策略（cron 无人交互，跳过所有审批）──
+            from tools.permission_manager import set_permission_policy
+            from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
-            from daemon.models import DaemonPermissionConfig
+
+            set_permission_policy(PermissionPolicy(mode=PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS))
 
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
-            cron_permission = DaemonPermissionConfig(
-                auto_approve_risk='high',
-                approval_fallback='allow',
-            )
+            cron_permission = DaemonPermissionConfig(approval_fallback='allow')
             cron_handler = DaemonApprovalHandler(
                 daemon_service=self,
                 session_id=session_id,
