@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 import uuid
@@ -333,14 +334,23 @@ class DaemonService:
 
     # ── Session 管理 ──────────────────────────────────
 
+    @staticmethod
+    def _derive_session_id(chat_id: str, team_name: str) -> str:
+        """确定性 session ID：同一 chat_id + team_name 始终映射到同一 session，重启不丢失。"""
+        key = f"daemon:{team_name}:{chat_id}"
+        return f"daemon_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+
     def _get_or_create_session(self, chat_id: str, team_name: str, entry_agent: Optional[str] = None) -> str:
-        """获取或创建守护 session，并维护 last_active 用于 TTL 清理。"""
+        """获取或创建守护 session。session_id 由 chat_id + team_name 确定性派生，保证重启后复用。"""
         now = time.time()
         self._evict_expired_sessions(now)
 
+        # 内存缓存命中则直接返回
         if chat_id in self._daemon_sessions:
             self._session_timestamps[chat_id] = now
             return self._daemon_sessions[chat_id]
+
+        session_id = self._derive_session_id(chat_id, team_name)
 
         try:
             from runtime.container import get_current_runtime_container
@@ -348,7 +358,6 @@ class DaemonService:
             runtime_svc = container.get_agent_api_runtime_service()
             store = runtime_svc.get_conversation_store()
 
-            session_id = f"daemon_{uuid.uuid4().hex[:12]}"
             metadata: Dict[str, Any] = {
                 'source': 'daemon',
                 'chat_id': chat_id,
@@ -356,6 +365,7 @@ class DaemonService:
             }
             if entry_agent:
                 metadata['entry_agent'] = entry_agent
+            # create_session 是幂等的（ON CONFLICT DO UPDATE），已有 session 会直接复用
             store.create_session(
                 session_id=session_id,
                 metadata=metadata,
@@ -365,7 +375,7 @@ class DaemonService:
             return session_id
         except Exception as e:
             logger.error('创建守护 session 失败: %s', e)
-            return f"daemon_fallback_{uuid.uuid4().hex[:8]}"
+            return session_id
 
     def _evict_expired_sessions(self, now: float) -> None:
         """清理超过 TTL 的守护 session（懒惰清理）。"""

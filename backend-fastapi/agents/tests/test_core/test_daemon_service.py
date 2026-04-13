@@ -104,6 +104,40 @@ def test_get_or_create_session_creates_session_with_team_metadata(daemon_service
     ]
 
 
+def test_session_id_is_deterministic_across_restarts(daemon_service, monkeypatch):
+    """同一 chat_id + team_name 产生相同 session_id，模拟重启后复用。"""
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    # 首次调用
+    sid_1 = daemon_service._get_or_create_session('chat_1', 'default')
+
+    # 模拟重启：清空内存缓存
+    daemon_service._daemon_sessions.clear()
+    daemon_service._session_timestamps.clear()
+
+    # 重启后再次调用，应得到相同 session_id
+    sid_2 = daemon_service._get_or_create_session('chat_1', 'default')
+
+    assert sid_1 == sid_2
+    # create_session 被调用了两次（幂等），session_id 相同
+    assert store.created[0]['session_id'] == store.created[1]['session_id']
+
+
+def test_different_chats_get_different_session_ids(daemon_service, monkeypatch):
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    sid_a = daemon_service._get_or_create_session('chat_a', 'default')
+    sid_b = daemon_service._get_or_create_session('chat_b', 'default')
+
+    assert sid_a != sid_b
+
+
 def test_execute_cron_task_updates_last_run_and_last_result(daemon_service, monkeypatch):
     store = _FakeConversationStore()
     exec_service = _FakeExecService('daily report')
