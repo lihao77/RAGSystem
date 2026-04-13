@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, Optional
 
@@ -75,6 +76,7 @@ class DaemonApprovalHandler:
         chat_id: str,
         permission_config: DaemonPermissionConfig,
         main_loop: asyncio.AbstractEventLoop,
+        send_message: Optional[Callable[[str], Awaitable[None]]] = None,
     ):
         self._daemon_service = daemon_service
         self._session_id = session_id
@@ -82,6 +84,7 @@ class DaemonApprovalHandler:
         self._chat_id = chat_id
         self._config = permission_config
         self._main_loop = main_loop
+        self._send_message = send_message
         self._pending: Dict[str, PendingApproval] = {}
         self._pending_inputs: Dict[str, PendingInput] = {}
         self._lock = threading.Lock()
@@ -278,10 +281,19 @@ class DaemonApprovalHandler:
         registry = get_task_registry()
         registry.resolve_approval(session_id, approval_id, approved, message)
 
+    async def _send_text(self, content: str) -> None:
+        if self._send_message is not None:
+            await self._send_message(content)
+            return
+        from daemon.models import OutgoingMessage
+        await self._daemon_service.send_message(OutgoingMessage(
+            platform=self._platform,
+            chat_id=self._chat_id,
+            content=content,
+        ))
+
     async def _send_and_schedule_timeout(self, pending: PendingApproval) -> None:
         """发送审批消息到社交平台并设置超时。在主事件循环中执行。"""
-        from daemon.models import OutgoingMessage
-
         fallback_text = '放行' if self._config.approval_fallback == 'allow' else '拒绝'
         msg_content = (
             f'🔧 工具审批请求\n'
@@ -291,11 +303,7 @@ class DaemonApprovalHandler:
             f'超时 {self._config.approval_timeout} 秒后将自动{fallback_text}。'
         )
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=msg_content,
-            ))
+            await self._send_text(msg_content)
         except Exception as e:
             logger.error('发送审批消息失败: %s', e)
 
@@ -325,26 +333,16 @@ class DaemonApprovalHandler:
         self._auto_resolve(pending.session_id, approval_id, approved, fallback_msg)
 
         # 通知用户
-        from daemon.models import OutgoingMessage
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=f'⏰ {fallback_msg}（工具: {pending.tool_name}）',
-            ))
+            await self._send_text(f'⏰ {fallback_msg}（工具: {pending.tool_name}）')
         except Exception:
             pass
 
     async def _send_confirmation(self, pending: PendingApproval, approved: bool) -> None:
-        from daemon.models import OutgoingMessage
         icon = '✅' if approved else '❌'
         action = '允许' if approved else '拒绝'
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=f'{icon} 已{action}执行工具: {pending.tool_name}',
-            ))
+            await self._send_text(f'{icon} 已{action}执行工具: {pending.tool_name}')
         except Exception:
             pass
 
@@ -361,8 +359,6 @@ class DaemonApprovalHandler:
 
     async def _send_input_prompt(self, pending: PendingInput) -> None:
         """发送输入提示到社交平台并设置超时。"""
-        from daemon.models import OutgoingMessage
-
         lines = [f'❓ 需要你的输入\n问题: {pending.prompt}']
         if pending.options:
             lines.append('选项: ' + ' / '.join(f'「{o}」' for o in pending.options))
@@ -370,11 +366,7 @@ class DaemonApprovalHandler:
         msg_content = '\n'.join(lines)
 
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=msg_content,
-            ))
+            await self._send_text(msg_content)
         except Exception as e:
             logger.error('发送输入提示失败: %s', e)
 
@@ -399,24 +391,14 @@ class DaemonApprovalHandler:
         logger.info('守护输入超时: input_id=%s，提交空值', input_id)
         self._resolve_input(pending.session_id, input_id, '')
 
-        from daemon.models import OutgoingMessage
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=f'⏰ 输入超时，已提交空值（问题: {pending.prompt[:50]}）',
-            ))
+            await self._send_text(f'⏰ 输入超时，已提交空值（问题: {pending.prompt[:50]}）')
         except Exception:
             pass
 
     async def _send_input_confirmation(self, pending: PendingInput, value: str) -> None:
-        from daemon.models import OutgoingMessage
         preview = value[:100] + ('...' if len(value) > 100 else '')
         try:
-            await self._daemon_service.send_message(OutgoingMessage(
-                platform=pending.platform,
-                chat_id=pending.chat_id,
-                content=f'📝 已接收输入: {preview}',
-            ))
+            await self._send_text(f'📝 已接收输入: {preview}')
         except Exception:
             pass

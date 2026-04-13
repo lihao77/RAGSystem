@@ -49,7 +49,11 @@ def _parse_cron_field(field: str, min_val: int, max_val: int) -> List[int]:
 
 
 def matches_cron(cron_expr: str, dt: datetime) -> bool:
-    """判断给定时间是否匹配 cron 表达式。"""
+    """判断给定时间是否匹配 cron 表达式。
+
+    标准 cron 语义：当 dom 和 dow 均被限定（非 ``*``）时，
+    满足**任一**即触发（OR）；否则分别匹配。
+    """
     parts = cron_expr.strip().split()
     if len(parts) != 5:
         logger.warning('无效 cron 表达式（需 5 段）: %s', cron_expr)
@@ -59,18 +63,23 @@ def matches_cron(cron_expr: str, dt: datetime) -> bool:
 
     # cron dow: 0=Sunday, 1=Monday, ..., 6=Saturday
     # Python weekday(): 0=Monday, ..., 6=Sunday
-    python_dow = dt.weekday()
-    cron_dow = (python_dow + 1) % 7  # Monday=1, ..., Saturday=6, Sunday=0
+    cron_dow = (dt.weekday() + 1) % 7  # Monday=1, ..., Saturday=6, Sunday=0
 
-    checks = [
-        (_parse_cron_field(minute, 0, 59), dt.minute),
-        (_parse_cron_field(hour, 0, 23), dt.hour),
-        (_parse_cron_field(dom, 1, 31), dt.day),
-        (_parse_cron_field(month, 1, 12), dt.month),
-        (_parse_cron_field(dow, 0, 6), cron_dow),
-    ]
+    if dt.minute not in _parse_cron_field(minute, 0, 59):
+        return False
+    if dt.hour not in _parse_cron_field(hour, 0, 23):
+        return False
+    if dt.month not in _parse_cron_field(month, 1, 12):
+        return False
 
-    return all(val in allowed for allowed, val in checks)
+    dom_restricted = dom != '*'
+    dow_restricted = dow != '*'
+    if dom_restricted and dow_restricted:
+        # 两者都限定 → OR 语义：满足任一即触发
+        return (dt.day in _parse_cron_field(dom, 1, 31)
+                or cron_dow in _parse_cron_field(dow, 0, 6))
+    return (dt.day in _parse_cron_field(dom, 1, 31)
+            and cron_dow in _parse_cron_field(dow, 0, 6))
 
 
 def next_cron_time(cron_expr: str, after: Optional[datetime] = None) -> datetime:
@@ -115,9 +124,15 @@ def next_cron_time(cron_expr: str, after: Optional[datetime] = None) -> datetime
                 dt = dt.replace(hour=next_hour, minute=0)
             continue
 
-        # 日+星期 不匹配 → 跳到下一天
+        # 日+星期（标准 cron：dom 和 dow 均被限定时取 OR 语义）
         cron_dow = (dt.weekday() + 1) % 7
-        if dt.day not in doms or cron_dow not in dows:
+        dom_restricted = parts[2] != '*'
+        dow_restricted = parts[4] != '*'
+        if dom_restricted and dow_restricted:
+            day_match = dt.day in doms or cron_dow in dows
+        else:
+            day_match = dt.day in doms and cron_dow in dows
+        if not day_match:
             dt += timedelta(days=1)
             dt = dt.replace(hour=0, minute=0)
             continue

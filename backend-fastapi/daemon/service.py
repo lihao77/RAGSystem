@@ -271,6 +271,7 @@ class DaemonService:
         复用 AgentExecutionAdapter（与 Web 前端同一入口），
         Cron 场景挂载全量自动放行的审批处理器。
         """
+        session_id: Optional[str] = None
         try:
             from runtime.container import get_current_runtime_container
             container = get_current_runtime_container()
@@ -553,8 +554,8 @@ class DaemonService:
         """记录心跳状态（由 HeartbeatMonitor 调用）。"""
         history = self._heartbeat_history.setdefault(status.platform, [])
         history.append(status)
-        if len(history) >= 100:
-            self._heartbeat_history[status.platform] = history[-99:]
+        if len(history) > 100:
+            self._heartbeat_history[status.platform] = history[-100:]
 
     def get_heartbeat_history(
         self, platform: PlatformType, limit: int = 20

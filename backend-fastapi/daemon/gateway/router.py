@@ -67,8 +67,8 @@ class MessageRouter:
         chat_lock = self._chat_locks.setdefault(message.chat_id, asyncio.Lock())
         async with chat_lock:
             await self._route_incoming_inner(message)
-        # 清理无活跃处理的 lock（chat_lock 没有其他等待者时安全移除）
-        if not chat_lock.locked() and not chat_lock._waiters:
+        # 清理无活跃处理的 lock
+        if not chat_lock.locked():
             self._chat_locks.pop(message.chat_id, None)
 
     async def _route_incoming_inner(self, message: IncomingMessage) -> None:
@@ -171,27 +171,6 @@ class MessageRouter:
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
 
-            permission_config = getattr(agent_config, 'permissions', None)
-            if permission_config is None:
-                permission_config = DaemonPermissionConfig()
-
-            approval_handler = DaemonApprovalHandler(
-                daemon_service=self._daemon_service,
-                session_id=session_id,
-                platform=message.platform,
-                chat_id=message.chat_id,
-                permission_config=permission_config,
-                main_loop=asyncio.get_running_loop(),
-            )
-            event_bus.subscribe(
-                event_types=[EventType.USER_APPROVAL_REQUIRED],
-                handler=approval_handler.on_approval_required,
-            )
-            event_bus.subscribe(
-                event_types=[EventType.USER_INPUT_REQUIRED],
-                handler=approval_handler.on_input_required,
-            )
-
             # ── 2.5 实时事件桥接：订阅关键事件，立即转发到社交平台 ──
             _main_loop = asyncio.get_running_loop()
             _platform = message.platform
@@ -208,6 +187,28 @@ class MessageRouter:
 
             def _send_to_platform(content: str):
                 asyncio.run_coroutine_threadsafe(_ordered_send(content), _main_loop)
+
+            permission_config = getattr(agent_config, 'permissions', None)
+            if permission_config is None:
+                permission_config = DaemonPermissionConfig()
+
+            approval_handler = DaemonApprovalHandler(
+                daemon_service=self._daemon_service,
+                session_id=session_id,
+                platform=message.platform,
+                chat_id=message.chat_id,
+                permission_config=permission_config,
+                main_loop=asyncio.get_running_loop(),
+                send_message=_ordered_send,
+            )
+            event_bus.subscribe(
+                event_types=[EventType.USER_APPROVAL_REQUIRED],
+                handler=approval_handler.on_approval_required,
+            )
+            event_bus.subscribe(
+                event_types=[EventType.USER_INPUT_REQUIRED],
+                handler=approval_handler.on_input_required,
+            )
 
             def _on_agent_error(event):
                 error_data = event.data or {}
@@ -255,11 +256,7 @@ class MessageRouter:
             try:
                 final_answer = await asyncio.to_thread(consume_stream, started.sse_adapter)
                 if final_answer:
-                    await self._daemon_service.send_message(OutgoingMessage(
-                        platform=message.platform,
-                        chat_id=message.chat_id,
-                        content=final_answer,
-                    ))
+                    await _ordered_send(final_answer)
             finally:
                 # ── 4. 清理 ──
                 try:
