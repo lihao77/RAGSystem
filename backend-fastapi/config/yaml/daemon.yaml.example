@@ -15,8 +15,30 @@ agents:
     entry_agent:                # 入口 Agent（留空则用 team 的 default_entry）
     enabled: true
 
+    # 自定义 session ID（留空则按 team_name 自动派生 daemon_{hash}）
+    # 配置后该 team 的所有平台共享此 session，在 Web 前端同样可见
+    session_id:
+
     # 心跳间隔（秒），默认 30
     heartbeat_interval: 30
+
+    # 工具权限策略（守护上下文复用系统审批能力）
+    permissions:
+      # 审批模式: strict(所有风险工具需审批) | standard(medium+high审批) | relaxed(仅high审批)
+      mode: standard
+      # 自动放行的工具名列表（白名单内工具无需审批）
+      tool_allowlist:
+        - read_file
+        - glob
+        - grep
+        - web_fetch
+        - preview_data_structure
+      # 自动放行的最高风险级别: low | medium | high
+      auto_approve_risk: low
+      # 交互审批超时秒数（超时后按 approval_fallback 处理）
+      approval_timeout: 120
+      # 审批超时后的默认行为: deny(拒绝) | allow(放行)
+      approval_fallback: deny
 
     # 社交平台连接配置
     platforms:
@@ -25,6 +47,7 @@ agents:
         enabled: false
         app_id: ""            # 企业微信应用 AgentId
         app_secret: ""        # 企业微信应用 Secret
+        # session_id:         # 平台级 session ID（覆盖 agent 级配置）
         extra:
           corp_id: ""         # 企业 CorpID
         # token 和 encoding_aes_key 用于接收消息回调验证（可选）
@@ -34,6 +57,7 @@ agents:
         enabled: false
         app_id: ""            # 钉钉 AppKey
         app_secret: ""        # 钉钉 AppSecret
+        # session_id:         # 平台级 session ID（覆盖 agent 级配置）
         extra:
           agent_id: ""        # 钉钉企业应用 AgentId
 
@@ -44,6 +68,7 @@ agents:
         app_secret: ""        # 飞书 App Secret
         token: ""             # 长连接/事件订阅 token（长连接模式建议填写）
         encoding_aes_key: ""  # 长连接/事件订阅 Encrypt Key（未开启加密可留空）
+        # session_id:         # 平台级 session ID（覆盖 agent 级配置）
         extra:
           receive_mode: "long_connection"  # long_connection / webhook
 

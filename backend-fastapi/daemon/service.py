@@ -272,7 +272,16 @@ class DaemonService:
     # ── Cron 触发 ─────────────────────────────────────
 
     async def execute_cron_task(self, task: CronTask) -> Optional[str]:
-        """执行定时任务，返回 Agent 响应内容。"""
+        """执行定时任务，返回 Agent 响应内容。
+
+        完整集成 EventBus + TaskRegistry + DaemonApprovalHandler，
+        与 Web 流式执行保持对等。Cron 场景使用纯策略 auto-resolve（无人交互）。
+        """
+        import threading as _threading
+
+        task_id = None
+        run_id = str(uuid.uuid4())
+
         try:
             from runtime.container import get_current_runtime_container
             container = get_current_runtime_container()
@@ -288,44 +297,96 @@ class DaemonService:
                 f"cron:{task.task_id}", task.team_name, task.entry_agent
             )
 
-            if task.entry_agent:
-                result = await asyncio.to_thread(
-                    exec_svc.invoke_agent,
-                    mode='root',
-                    agent_name=task.entry_agent,
-                    task=task.task,
-                    session_id=session_id,
-                    source='daemon.cron',
-                    persist_user_message=True,
-                    persist_final_answer=True,
-                )
-            else:
-                result = await asyncio.to_thread(
-                    exec_svc.invoke_routed_agent,
-                    task=task.task,
-                    session_id=session_id,
-                    preferred_agent=None,
-                    source='daemon.cron',
-                    persist_user_message=True,
-                    persist_final_answer=True,
-                )
+            # ── 创建 EventBus + TaskRegistry ──
+            from agents.events.bus import EventType
+            session_manager = container.get_session_manager()
+            event_bus = session_manager.get_or_create(run_id, session_id=session_id)
 
-            response_content = (
-                result.response.content
-                if result.response and result.response.success
-                else None
+            from agents.task_registry import get_task_registry
+            registry = get_task_registry()
+            cancel_event = _threading.Event()
+            task_id = registry.register_task(
+                session_id=session_id,
+                run_id=run_id,
+                task=task.task[:200],
+                cancel_event=cancel_event,
+                status='starting',
+                execution_kind='daemon_cron',
+                concurrency_key=f'session:{session_id}',
             )
 
-            if response_content and task.push_platform and task.push_chat_id:
-                await self.send_message(OutgoingMessage(
-                    platform=task.push_platform,
-                    chat_id=task.push_chat_id,
-                    content=response_content,
-                ))
+            # ── 订阅 Cron 审批处理器（全量自动放行，无人可交互）──
+            from daemon.approval_handler import DaemonApprovalHandler
+            from daemon.models import DaemonPermissionConfig
 
-            task.last_run = time.time()
-            task.last_result = (response_content or '')[:200]
-            return response_content
+            cron_permission = DaemonPermissionConfig(
+                auto_approve_risk='high',
+                approval_fallback='allow',
+            )
+            cron_handler = DaemonApprovalHandler(
+                daemon_service=self,
+                session_id=session_id,
+                platform=task.push_platform or PlatformType.WECHAT,
+                chat_id=task.push_chat_id or f'cron:{task.task_id}',
+                permission_config=cron_permission,
+                main_loop=asyncio.get_running_loop(),
+            )
+            event_bus.subscribe(
+                event_types=[EventType.USER_APPROVAL_REQUIRED],
+                handler=cron_handler.on_approval_required,
+            )
+
+            try:
+                if task.entry_agent:
+                    result = await asyncio.to_thread(
+                        exec_svc.invoke_agent,
+                        mode='root',
+                        agent_name=task.entry_agent,
+                        task=task.task,
+                        session_id=session_id,
+                        event_bus=event_bus,
+                        run_id=run_id,
+                        cancel_event=cancel_event,
+                        source='daemon.cron',
+                        persist_user_message=True,
+                        persist_final_answer=True,
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        exec_svc.invoke_routed_agent,
+                        task=task.task,
+                        session_id=session_id,
+                        event_bus=event_bus,
+                        run_id=run_id,
+                        cancel_event=cancel_event,
+                        preferred_agent=None,
+                        source='daemon.cron',
+                        persist_user_message=True,
+                        persist_final_answer=True,
+                    )
+
+                response_content = (
+                    result.response.content
+                    if result.response and result.response.success
+                    else None
+                )
+
+                if response_content and task.push_platform and task.push_chat_id:
+                    await self.send_message(OutgoingMessage(
+                        platform=task.push_platform,
+                        chat_id=task.push_chat_id,
+                        content=response_content,
+                    ))
+
+                task.last_run = time.time()
+                task.last_result = (response_content or '')[:200]
+                return response_content
+
+            finally:
+                if task_id:
+                    registry.finish_task(task_id)
+                cron_handler.cleanup()
+                session_manager.remove(run_id)
 
         except Exception as e:
             logger.error('Cron 任务执行失败 [%s]: %s', task.task_id, e)
@@ -340,8 +401,17 @@ class DaemonService:
         key = f"daemon:{team_name}:{chat_id}"
         return f"daemon_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
 
-    def _get_or_create_session(self, chat_id: str, team_name: str, entry_agent: Optional[str] = None) -> str:
-        """获取或创建守护 session。session_id 由 chat_id + team_name 确定性派生，保证重启后复用。"""
+    def _get_or_create_session(
+        self,
+        chat_id: str,
+        team_name: str,
+        entry_agent: Optional[str] = None,
+        configured_session_id: Optional[str] = None,
+    ) -> str:
+        """获取或创建守护 session。
+
+        优先使用 configured_session_id（显式配置），否则按 chat_id + team_name 确定性派生。
+        """
         now = time.time()
         self._evict_expired_sessions(now)
 
@@ -350,7 +420,7 @@ class DaemonService:
             self._session_timestamps[chat_id] = now
             return self._daemon_sessions[chat_id]
 
-        session_id = self._derive_session_id(chat_id, team_name)
+        session_id = configured_session_id or self._derive_session_id(chat_id, team_name)
 
         try:
             from runtime.container import get_current_runtime_container
@@ -389,6 +459,49 @@ class DaemonService:
             self._session_timestamps.pop(chat_id, None)
         if expired:
             logger.debug('清理过期守护 session %d 个', len(expired))
+
+    def _find_agent_config_for_platform(self, platform: PlatformType) -> Optional[DaemonAgentConfig]:
+        """查找指定平台对应的已启用 agent 配置。"""
+        # 精确匹配：消息来源平台在 agent 的 platforms 中且已启用
+        for agent_cfg in self.config.agents:
+            if not agent_cfg.enabled:
+                continue
+            conn = agent_cfg.platforms.get(platform)
+            if conn and conn.enabled:
+                return agent_cfg
+        # fallback：取第一个已启用的配置
+        for agent_cfg in self.config.agents:
+            if agent_cfg.enabled:
+                return agent_cfg
+        return None
+
+    def resolve_session_id_for_message(
+        self, message: IncomingMessage,
+    ) -> tuple:
+        """为入站消息解析 session_id 和对应的 agent 配置。
+
+        Session ID 优先级：platform.session_id > agent.session_id > auto_derive(team_name)
+
+        Returns:
+            (session_id, agent_config)
+        """
+        agent_config = self._find_agent_config_for_platform(message.platform)
+        if not agent_config:
+            raise ValueError(f'未找到平台 {message.platform.value} 对应的 agent 配置')
+
+        # 解析 session_id 优先级
+        conn = agent_config.platforms.get(message.platform)
+        platform_session_id = getattr(conn, 'session_id', None) if conn else None
+        agent_session_id = getattr(agent_config, 'session_id', None)
+        configured_session_id = platform_session_id or agent_session_id
+
+        session_id = self._get_or_create_session(
+            message.chat_id,
+            agent_config.team_name,
+            agent_config.entry_agent,
+            configured_session_id=configured_session_id,
+        )
+        return session_id, agent_config
 
     # ── 状态查询 ──────────────────────────────────────
 

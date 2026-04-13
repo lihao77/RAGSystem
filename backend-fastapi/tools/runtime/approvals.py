@@ -200,6 +200,7 @@ def request_user_approval_if_needed(
     approval_hook_payload = _approval_hook_payload(approval_required_hook)
 
     logger.info(f"工具 {context.tool_name} 需要用户审批{_obs_suffix()}")
+
     if not context.event_bus:
         logger.warning(f"工具 {context.tool_name} 需要审批但无事件总线，拒绝执行{_obs_suffix()}")
         return ApprovalOutcome(

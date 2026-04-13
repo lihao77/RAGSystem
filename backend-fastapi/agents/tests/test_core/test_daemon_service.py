@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import tempfile
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -49,12 +50,50 @@ class _FakeRuntimeService:
         return self._exec_service
 
 
+class _FakeEventBus:
+    def __init__(self):
+        self.subscriptions = []
+
+    def subscribe(self, *, event_types=None, handler=None, **kwargs):
+        self.subscriptions.append({'event_types': event_types, 'handler': handler})
+        return f'sub_{len(self.subscriptions)}'
+
+
+class _FakeSessionManager:
+    def __init__(self):
+        self._buses = {}
+
+    def get_or_create(self, run_id, *, session_id=None):
+        bus = _FakeEventBus()
+        self._buses[run_id] = bus
+        return bus
+
+    def remove(self, run_id):
+        self._buses.pop(run_id, None)
+
+
+class _FakeTaskRegistry:
+    def __init__(self):
+        self._task_counter = 0
+
+    def register_task(self, **kwargs):
+        self._task_counter += 1
+        return f'task_{self._task_counter}'
+
+    def finish_task(self, task_id, **kwargs):
+        pass
+
+
 class _FakeContainer:
     def __init__(self, runtime_service):
         self._runtime_service = runtime_service
+        self._session_manager = _FakeSessionManager()
 
     def get_agent_api_runtime_service(self):
         return self._runtime_service
+
+    def get_session_manager(self):
+        return self._session_manager
 
 
 @pytest.fixture()
@@ -144,6 +183,7 @@ def test_execute_cron_task_updates_last_run_and_last_result(daemon_service, monk
     runtime_service = _FakeRuntimeService(store, exec_service)
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: _FakeTaskRegistry())
 
     task = CronTask(
         task_id='cron_1',
@@ -160,6 +200,8 @@ def test_execute_cron_task_updates_last_run_and_last_result(daemon_service, monk
     assert task.last_result == 'daily report'
     assert exec_service.calls == []
     assert exec_service.routed_calls[0]['source'] == 'daemon.cron'
+    # 验证 event_bus 已传递
+    assert exec_service.routed_calls[0].get('event_bus') is not None
 
 
 def test_execute_cron_task_uses_routed_agent_when_entry_agent_missing(daemon_service, monkeypatch):
@@ -168,6 +210,7 @@ def test_execute_cron_task_uses_routed_agent_when_entry_agent_missing(daemon_ser
     runtime_service = _FakeRuntimeService(store, exec_service)
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: _FakeTaskRegistry())
 
     task = CronTask(
         task_id='cron_2',
@@ -259,3 +302,66 @@ def test_daemon_config_rejects_duplicate_enabled_platforms():
                 },
             ],
         )
+
+
+# ──────────────────────────────────────────────
+# Session 解析优先级测试
+# ──────────────────────────────────────────────
+
+def test_configured_session_id_takes_priority(daemon_service, monkeypatch):
+    """显式 configured_session_id 优先于 auto-derive。"""
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    sid = daemon_service._get_or_create_session(
+        'chat_1', 'default', configured_session_id='my_custom_session'
+    )
+    assert sid == 'my_custom_session'
+    assert store.created[0]['session_id'] == 'my_custom_session'
+
+
+def test_configured_session_id_none_falls_back_to_derive(daemon_service, monkeypatch):
+    """configured_session_id=None 时回退到 auto-derive。"""
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    sid = daemon_service._get_or_create_session(
+        'chat_1', 'default', configured_session_id=None
+    )
+    assert sid.startswith('daemon_')
+
+
+def test_resolve_session_id_platform_overrides_agent(daemon_service, monkeypatch):
+    """platform.session_id 优先于 agent.session_id。"""
+    from daemon.models import DaemonAgentConfig, PlatformConnection, PlatformType, IncomingMessage
+
+    daemon_service._config.agents = [
+        DaemonAgentConfig(
+            team_name='default',
+            enabled=True,
+            session_id='agent_level_session',
+            platforms={
+                PlatformType.FEISHU: PlatformConnection(
+                    enabled=True,
+                    session_id='platform_level_session',
+                ),
+            },
+        ),
+    ]
+
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    msg = IncomingMessage(
+        message_id='m1', platform=PlatformType.FEISHU,
+        chat_id='chat_1', user_id='u1', content='hello', timestamp=0,
+    )
+    sid, cfg = daemon_service.resolve_session_id_for_message(msg)
+    assert sid == 'platform_level_session'
+    assert cfg.team_name == 'default'

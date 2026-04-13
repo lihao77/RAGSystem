@@ -45,6 +45,7 @@ class PlatformConnection(BaseModel):
     token: Optional[str] = Field(default=None, description="回调验证 Token")
     encoding_aes_key: Optional[str] = Field(default=None, description="消息加解密密钥")
     webhook_url: Optional[str] = Field(default=None, description="入站 Webhook URL（仅接收）")
+    session_id: Optional[str] = Field(default=None, description="平台级 session ID（覆盖 agent 级配置）")
     extra: Dict[str, Any] = Field(default_factory=dict, description="平台特有参数")
 
 
@@ -106,12 +107,43 @@ class HeartbeatStatus(BaseModel):
     reconnect_attempts: int = Field(default=0, description="重连尝试次数")
 
 
+# ==================== 守护权限配置 ====================
+
+class DaemonPermissionConfig(BaseModel):
+    """守护上下文的工具权限策略"""
+    mode: str = Field(
+        default="standard",
+        description="审批模式: strict(所有风险工具需审批) | standard(medium+high审批) | relaxed(仅high审批)",
+    )
+    tool_allowlist: List[str] = Field(
+        default_factory=list,
+        description="自动放行的工具名列表（无需审批）",
+    )
+    auto_approve_risk: str = Field(
+        default="low",
+        description="自动放行的最高风险级别: low | medium | high",
+    )
+    approval_timeout: int = Field(
+        default=120, ge=10, le=600,
+        description="交互审批超时秒数",
+    )
+    approval_fallback: str = Field(
+        default="deny",
+        description="审批超时后的默认行为: deny | allow",
+    )
+
+
 # ==================== 守护 Agent 配置 ====================
 
 class DaemonAgentConfig(BaseModel):
     """单个守护机器人的配置（以 team 为执行单元）"""
     team_name: str = Field(description="team 名称（对应 CONFIG_ROOT/agents/teams/<team_name>.yaml）")
     entry_agent: Optional[str] = Field(default=None, description="入口 Agent 名称（留空则用 team 的 default_entry）")
+    session_id: Optional[str] = Field(default=None, description="自定义 session ID（留空则按 team_name 自动派生）")
+    permissions: DaemonPermissionConfig = Field(
+        default_factory=DaemonPermissionConfig,
+        description="工具权限策略",
+    )
     platforms: Dict[PlatformType, PlatformConnection] = Field(
         default_factory=dict, description="各平台连接配置"
     )
