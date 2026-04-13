@@ -12,6 +12,7 @@ from daemon.models import (
     OutgoingMessage,
     PlatformType,
 )
+from daemon.utils import model_dump, model_validate
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ def get_config(request: Request) -> Dict[str, Any]:
     """获取守护系统配置。"""
     svc = _get_service(request)
     cfg = svc.config
-    return cfg.model_dump(mode='json')
+    return model_dump(cfg, mode='json')
 
 
 @router.put('/config')
@@ -46,16 +47,19 @@ async def update_config(request: Request) -> Dict[str, Any]:
     svc = _get_service(request)
     body = await request.json()
     try:
-        new_config = DaemonSystemConfig.model_validate(body)
+        new_config = model_validate(DaemonSystemConfig, body)
     except Exception as e:
         raise HTTPException(400, f'配置格式错误: {e}')
 
     was_running = svc.running
     if was_running:
         await svc.stop()
-    svc.save_config(new_config)
-    if was_running and new_config.enabled:
-        await svc.start()
+    try:
+        svc.save_config(new_config)
+        if was_running and new_config.enabled:
+            await svc.start()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     return {
         'status': 'ok',
@@ -243,10 +247,12 @@ async def create_cron_task(request: Request) -> Dict[str, Any]:
 
     try:
         task = CronTask(**body)
+        await svc.add_cron_task(task)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(400, f'任务参数错误: {e}')
 
-    svc.add_cron_task(task)
     return {'status': 'ok', 'task_id': task.task_id}
 
 
@@ -255,17 +261,20 @@ async def update_cron_task(task_id: str, request: Request) -> Dict[str, Any]:
     """更新 Cron 任务。"""
     svc = _get_service(request)
     body = await request.json()
-    updated = svc.update_cron_task(task_id, body)
+    try:
+        updated = await svc.update_cron_task(task_id, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not updated:
         raise HTTPException(404, f'任务不存在: {task_id}')
     return {'status': 'ok', 'task_id': task_id}
 
 
 @router.delete('/cron/tasks/{task_id}')
-def delete_cron_task(task_id: str, request: Request) -> Dict[str, Any]:
+async def delete_cron_task(task_id: str, request: Request) -> Dict[str, Any]:
     """删除 Cron 任务。"""
     svc = _get_service(request)
-    deleted = svc.delete_cron_task(task_id)
+    deleted = await svc.delete_cron_task(task_id)
     if not deleted:
         raise HTTPException(404, f'任务不存在: {task_id}')
     return {'status': 'ok'}

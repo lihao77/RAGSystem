@@ -661,8 +661,7 @@ daemon/
 │   ├── dingtalk.py     # 钉钉适配器
 │   └── feishu.py       # 飞书适配器
 ├── scheduler/
-│   ├── engine.py       # CronScheduler 调度引擎
-│   └── store.py        # 任务 YAML 持久化
+│   └── engine.py       # CronScheduler 调度引擎
 └── heartbeat.py        # 心跳监控（健康检查、自动重连）
 ```
 
@@ -677,6 +676,8 @@ daemon/
 - 守护系统只负责"消息入口+调度触发"，不引入新的 agent 运行时
 - 配置文件：`CONFIG_ROOT/daemon/daemon.yaml`（模板见 `config/yaml/daemon.yaml.example`）
 - 管理 API：`GET/PUT /api/daemon/config` 用于前端读取/保存 daemon YAML；若守护系统正在运行，保存后会自动 stop → save → start 热重载
+- Cron 任务的唯一持久化真相源也是 `daemon.yaml` 中的 `agents[].cron_tasks[]`；`/api/daemon/cron/tasks` 的新增、修改、删除会直接回写该配置，并在 daemon 运行中同步重建内存调度器
+- 当前约束为“同一社交平台仅允许被一个 enabled team 占用”；保存/启动阶段会显式拒绝重复平台声明，避免多 team 同平台被运行态静默覆盖
 - 飞书支持两种入站模式：`extra.receive_mode=webhook` 时继续走 `/api/daemon/webhook/feishu`；`extra.receive_mode=long_connection` 时由 `FeishuAdapter` 在 daemon 启动后建立官方 SDK 长连接，不需要公网回调地址
 - 飞书长连接模式依赖 `lark-oapi`，启动时会把 `P2ImMessageReceiveV1` 事件转换为统一 `IncomingMessage`，再复用 `MessageRouter` 与现有回复链路
 - 飞书 webhook 入口会在 `challenge` 校验请求时直接返回 `{"challenge": "..."}`，以通过事件订阅 URL 验证；实际消息事件再交给 `FeishuAdapter.parse_webhook()` 解析

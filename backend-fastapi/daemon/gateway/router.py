@@ -69,17 +69,28 @@ class MessageRouter:
                 message.chat_id, team_name, entry_agent
             )
 
-            # 执行 Agent（to_thread 避免阻塞事件循环；entry_agent=None 时由 team default_entry 路由）
-            result = await asyncio.to_thread(
-                exec_svc.invoke_agent,
-                mode='root',
-                agent_name=entry_agent,
-                task=message.content,
-                session_id=session_id,
-                source=f'daemon.{message.platform.value}',
-                persist_user_message=True,
-                persist_final_answer=True,
-            )
+            # 执行 Agent（to_thread 避免阻塞事件循环；entry_agent=None 时改走 team 默认入口路由）
+            if entry_agent:
+                result = await asyncio.to_thread(
+                    exec_svc.invoke_agent,
+                    mode='root',
+                    agent_name=entry_agent,
+                    task=message.content,
+                    session_id=session_id,
+                    source=f'daemon.{message.platform.value}',
+                    persist_user_message=True,
+                    persist_final_answer=True,
+                )
+            else:
+                result = await asyncio.to_thread(
+                    exec_svc.invoke_routed_agent,
+                    task=message.content,
+                    session_id=session_id,
+                    preferred_agent=None,
+                    source=f'daemon.{message.platform.value}',
+                    persist_user_message=True,
+                    persist_final_answer=True,
+                )
 
             # 回送响应
             if result.response and result.response.success and result.response.content:

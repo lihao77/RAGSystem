@@ -303,7 +303,7 @@ class AgentConfigManager:
         description: str,
         system_prompt: str,
         default_entry: bool = False,
-        agent_type: str = 'react',
+        agent_type: str = 'orchestrator',
         tools: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         delegation: Optional[List[str]] = None,

@@ -9,7 +9,13 @@ from typing import Optional, Dict, Any, List
 from enum import Enum
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field, model_validator
+    _HAS_MODEL_VALIDATOR = True
+except ImportError:  # pydantic v1
+    from pydantic import BaseModel, Field, root_validator
+    model_validator = None
+    _HAS_MODEL_VALIDATOR = False
 
 
 # ==================== 枚举 ====================
@@ -129,3 +135,30 @@ class DaemonSystemConfig(BaseModel):
     default_session_ttl: int = Field(
         default=86400, description="守护会话 TTL（秒）"
     )
+
+    @staticmethod
+    def _ensure_unique_enabled_platforms(agents: List[DaemonAgentConfig]) -> None:
+        used_platforms: Dict[PlatformType, str] = {}
+        for agent in agents:
+            if not agent.enabled:
+                continue
+            for platform, conn in agent.platforms.items():
+                if not conn.enabled:
+                    continue
+                existing_team = used_platforms.get(platform)
+                if existing_team and existing_team != agent.team_name:
+                    raise ValueError(
+                        f'平台 {platform.value} 只能被一个已启用 team 占用，冲突 team: {existing_team}, {agent.team_name}'
+                    )
+                used_platforms[platform] = agent.team_name
+
+    if _HAS_MODEL_VALIDATOR:
+        @model_validator(mode='after')
+        def validate_unique_enabled_platforms(self):
+            self._ensure_unique_enabled_platforms(self.agents)
+            return self
+    else:
+        @root_validator(pre=False, allow_reuse=True)
+        def validate_unique_enabled_platforms(cls, values):
+            cls._ensure_unique_enabled_platforms(values.get('agents') or [])
+            return values

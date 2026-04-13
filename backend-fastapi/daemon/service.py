@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -30,6 +31,7 @@ from daemon.gateway.base import PlatformAdapter
 from daemon.gateway.router import MessageRouter
 from daemon.scheduler.engine import CronScheduler
 from daemon.heartbeat import HeartbeatMonitor
+from daemon.utils import json_safe, model_dump, model_validate
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +66,17 @@ class DaemonService:
             config_root = Path.home() / '.ragsystem' / 'config'
         return config_root / 'daemon' / 'daemon.yaml'
 
+    def _validate_config(self, config: DaemonSystemConfig) -> DaemonSystemConfig:
+        """重新校验配置，确保约束在运行时修改后仍生效。"""
+        return model_validate(DaemonSystemConfig, model_dump(config))
+
     def load_config(self) -> DaemonSystemConfig:
         """从 CONFIG_ROOT/daemon/daemon.yaml 加载配置。"""
         config_path = self._resolve_config_path()
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
                 raw = yaml.safe_load(f) or {}
-            self._config = DaemonSystemConfig.model_validate(raw)
+            self._config = model_validate(DaemonSystemConfig, raw)
         else:
             self._config = DaemonSystemConfig()
             logger.info('守护配置文件不存在，使用默认配置（disabled）')
@@ -79,14 +85,15 @@ class DaemonService:
 
     def save_config(self, new_config: DaemonSystemConfig) -> None:
         """保存配置到 YAML 文件并热更新内存。"""
+        validated_config = self._validate_config(new_config)
         config_path = self._resolve_config_path()
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        raw = new_config.model_dump(mode='json')
+        raw = json_safe(model_dump(validated_config))
         with open(config_path, 'w', encoding='utf-8') as f:
             yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
 
-        self._config = new_config
+        self._config = validated_config
         logger.info('守护配置已保存到 %s', config_path)
 
     @property
@@ -100,6 +107,26 @@ class DaemonService:
         return self._running
 
     # ── 生命周期 ──────────────────────────────────────
+
+    async def _reload_scheduler(self) -> None:
+        """按当前配置重建 Cron 调度器。"""
+        if self._scheduler:
+            await self._scheduler.stop()
+            self._scheduler = None
+
+        if not self._running:
+            return
+
+        all_tasks = self.get_cron_tasks(enabled_only=True)
+        if not all_tasks:
+            return
+
+        self._scheduler = CronScheduler(
+            tasks=all_tasks,
+            daemon_service=self,
+        )
+        await self._scheduler.start()
+        logger.info('Cron 调度器已重载，共 %d 个任务', len(all_tasks))
 
     async def start(self) -> None:
         """启动守护子系统。"""
@@ -126,7 +153,7 @@ class DaemonService:
                     continue
                 adapter = self._create_adapter(platform, conn)
                 if adapter:
-                    # 先注册，即使连接失败也能查询状态
+                    # 当前配置约束为每个平台仅允许一个 enabled team 占用
                     self._adapters[platform] = adapter
                     try:
                         await adapter.connect()
@@ -134,23 +161,16 @@ class DaemonService:
                     except Exception as e:
                         logger.error('平台适配器连接失败 [%s]: %s', platform.value, e)
 
+        self._running = True
+
         # 3. 启动 Cron 调度器
-        all_tasks = []
-        for agent_cfg in cfg.agents:
-            all_tasks.extend(agent_cfg.cron_tasks)
-        if all_tasks:
-            self._scheduler = CronScheduler(
-                tasks=all_tasks,
-                daemon_service=self,
-            )
-            await self._scheduler.start()
-            logger.info('Cron 调度器已启动，共 %d 个任务', len(all_tasks))
+        await self._reload_scheduler()
 
         # 4. 启动心跳监控
         if self._adapters:
             heartbeat_interval = 30
             for agent_cfg in cfg.agents:
-                if agent_cfg.heartbeat_interval:
+                if agent_cfg.enabled and agent_cfg.heartbeat_interval:
                     heartbeat_interval = agent_cfg.heartbeat_interval
                     break
             self._heartbeat = HeartbeatMonitor(
@@ -161,7 +181,6 @@ class DaemonService:
             await self._heartbeat.start()
             logger.info('心跳监控已启动，间隔 %ds', heartbeat_interval)
 
-        self._running = True
         logger.info('守护 Agent 系统启动完成')
 
     async def stop(self) -> None:
@@ -211,6 +230,10 @@ class DaemonService:
             logger.error('创建适配器失败 [%s]: %s', platform.value, e)
             return None
 
+    def get_adapter(self, platform: PlatformType) -> Optional[PlatformAdapter]:
+        """获取指定平台适配器。"""
+        return self._adapters.get(platform)
+
     # ── 消息路由 ──────────────────────────────────────
 
     async def handle_incoming_message(self, message: IncomingMessage) -> None:
@@ -255,16 +278,27 @@ class DaemonService:
                 f"cron:{task.task_id}", task.team_name, task.entry_agent
             )
 
-            result = await asyncio.to_thread(
-                exec_svc.invoke_agent,
-                mode='root',
-                agent_name=task.entry_agent,  # None 时由 team default_entry 自动路由
-                task=task.task,
-                session_id=session_id,
-                source='daemon.cron',
-                persist_user_message=True,
-                persist_final_answer=True,
-            )
+            if task.entry_agent:
+                result = await asyncio.to_thread(
+                    exec_svc.invoke_agent,
+                    mode='root',
+                    agent_name=task.entry_agent,
+                    task=task.task,
+                    session_id=session_id,
+                    source='daemon.cron',
+                    persist_user_message=True,
+                    persist_final_answer=True,
+                )
+            else:
+                result = await asyncio.to_thread(
+                    exec_svc.invoke_routed_agent,
+                    task=task.task,
+                    session_id=session_id,
+                    preferred_agent=None,
+                    source='daemon.cron',
+                    persist_user_message=True,
+                    persist_final_answer=True,
+                )
 
             response_content = (
                 result.response.content
@@ -272,7 +306,6 @@ class DaemonService:
                 else None
             )
 
-            # 如果配置了推送，发送到社交平台
             if response_content and task.push_platform and task.push_chat_id:
                 await self.send_message(OutgoingMessage(
                     platform=task.push_platform,
@@ -347,19 +380,17 @@ class DaemonService:
             p.value: adapter.get_status().value
             for p, adapter in self._adapters.items()
         }
-        cron_tasks = []
-        if self._scheduler:
-            cron_tasks = [
-                {
-                    'task_id': t.task_id,
-                    'name': t.name,
-                    'cron': t.cron,
-                    'enabled': t.enabled,
-                    'last_run': t.last_run,
-                    'next_run': t.next_run,
-                }
-                for t in self._scheduler.get_all_tasks()
-            ]
+        cron_tasks = [
+            {
+                'task_id': t.task_id,
+                'name': t.name,
+                'cron': t.cron,
+                'enabled': t.enabled,
+                'last_run': t.last_run,
+                'next_run': t.next_run,
+            }
+            for t in self.get_cron_tasks()
+        ]
 
         return {
             'running': self._running,
@@ -402,7 +433,6 @@ class DaemonService:
         """记录心跳状态（由 HeartbeatMonitor 调用）。"""
         history = self._heartbeat_history.setdefault(status.platform, [])
         history.append(status)
-        # 只保留最近 100 条
         if len(history) > 100:
             self._heartbeat_history[status.platform] = history[-100:]
 
@@ -424,37 +454,90 @@ class DaemonService:
 
     def update_config(self, new_config: DaemonSystemConfig) -> None:
         """热更新配置（不重启守护系统）。"""
-        self._config = new_config
+        self._config = self._validate_config(new_config)
 
     # ── Cron 任务管理 ─────────────────────────────────
 
-    def get_cron_tasks(self) -> List[CronTask]:
-        """获取所有 Cron 任务。"""
-        if self._scheduler:
-            return self._scheduler.get_all_tasks()
-        return []
-
-    def add_cron_task(self, task: CronTask) -> None:
-        """添加 Cron 任务。"""
-        if self._scheduler:
-            self._scheduler.add_task(task)
-
-    def update_cron_task(self, task_id: str, updates: Dict[str, Any]) -> Optional[CronTask]:
-        """更新 Cron 任务。"""
-        if self._scheduler:
-            return self._scheduler.update_task(task_id, updates)
+    def _get_agent_config(self, team_name: str) -> Optional[DaemonAgentConfig]:
+        for agent_cfg in self.config.agents:
+            if agent_cfg.team_name == team_name:
+                return agent_cfg
         return None
 
-    def delete_cron_task(self, task_id: str) -> bool:
-        """删除 Cron 任务。"""
-        if self._scheduler:
-            return self._scheduler.delete_task(task_id)
+    def _get_cron_task(self, task_id: str) -> Optional[CronTask]:
+        for agent_cfg in self.config.agents:
+            for task in agent_cfg.cron_tasks:
+                if task.task_id == task_id:
+                    return task
+        return None
+
+    def get_cron_tasks(self, enabled_only: bool = False) -> List[CronTask]:
+        """获取所有 Cron 任务。"""
+        tasks: List[CronTask] = []
+        for agent_cfg in self.config.agents:
+            for task in agent_cfg.cron_tasks:
+                if not enabled_only or task.enabled:
+                    tasks.append(task)
+        return tasks
+
+    async def add_cron_task(self, task: CronTask) -> None:
+        """添加 Cron 任务并持久化。"""
+        if self._get_cron_task(task.task_id):
+            raise ValueError(f'任务已存在: {task.task_id}')
+
+        agent_cfg = self._get_agent_config(task.team_name)
+        if not agent_cfg:
+            raise ValueError(f'守护机器人不存在: {task.team_name}')
+
+        agent_cfg.cron_tasks.append(task)
+        self.save_config(self.config)
+        await self._reload_scheduler()
+
+    async def update_cron_task(self, task_id: str, updates: Dict[str, Any]) -> Optional[CronTask]:
+        """更新 Cron 任务并持久化。"""
+        task = self._get_cron_task(task_id)
+        if not task:
+            return None
+
+        old_team_name = task.team_name
+        for key, val in updates.items():
+            if hasattr(task, key):
+                setattr(task, key, val)
+
+        if task.team_name != old_team_name:
+            old_agent_cfg = self._get_agent_config(old_team_name)
+            new_agent_cfg = self._get_agent_config(task.team_name)
+            if not new_agent_cfg:
+                raise ValueError(f'守护机器人不存在: {task.team_name}')
+            if old_agent_cfg:
+                old_agent_cfg.cron_tasks = [t for t in old_agent_cfg.cron_tasks if t.task_id != task_id]
+            new_agent_cfg.cron_tasks.append(task)
+
+        self.save_config(self.config)
+        updated_task = self._get_cron_task(task_id)
+        await self._reload_scheduler()
+        return updated_task
+
+    async def delete_cron_task(self, task_id: str) -> bool:
+        """删除 Cron 任务并持久化。"""
+        for agent_cfg in self.config.agents:
+            before = len(agent_cfg.cron_tasks)
+            agent_cfg.cron_tasks = [t for t in agent_cfg.cron_tasks if t.task_id != task_id]
+            if len(agent_cfg.cron_tasks) < before:
+                self.save_config(self.config)
+                await self._reload_scheduler()
+                return True
         return False
 
     async def trigger_cron_task(self, task_id: str) -> Optional[str]:
         """手动触发 Cron 任务。"""
+        task = self._get_cron_task(task_id)
+        if not task:
+            return None
+        return await self.execute_cron_task(task)
+
+    def get_cron_history(self, task_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """获取 Cron 任务执行历史。"""
         if self._scheduler:
-            task = self._scheduler.get_task(task_id)
-            if task:
-                return await self.execute_cron_task(task)
-        return None
+            return self._scheduler.get_history(task_id, limit=limit)
+        return []
