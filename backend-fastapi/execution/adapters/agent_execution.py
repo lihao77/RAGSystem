@@ -223,6 +223,7 @@ class AgentExecutionAdapter:
                 store=conversation_store,
                 task=task,
                 user_message=user_msg,
+                source=source,
             )
 
             sse_adapter.start()
@@ -352,6 +353,7 @@ class AgentExecutionAdapter:
         store,
         task: str,
         user_message,
+        source: str = 'api',
     ):
         def execute_agent_task(_execution_context):
             context = execution_handle.context

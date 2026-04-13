@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from enum import Enum
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def model_validate(model_cls, data):
@@ -39,15 +42,20 @@ def json_safe(value):
 
 
 def consume_stream(sse_adapter) -> Optional[str]:
-    """同步消费 SSE 事件流，返回 final_answer 内容。"""
+    """同步消费 SSE 事件流，返回 final_answer 或错误信息。"""
     final_answer = None
+    last_error = None
     for sse_line in sse_adapter.stream_sync():
         try:
             if not sse_line.startswith('data: '):
                 continue
             event = json.loads(sse_line[6:].strip())
-            if event.get('type') == 'final_answer':
+            event_type = event.get('type', '')
+            if event_type == 'output.final_answer':
                 final_answer = (event.get('data') or {}).get('content')
-        except Exception:
-            pass
-    return final_answer
+            elif event_type in ('system.error', 'agent.error'):
+                err_data = event.get('data') or {}
+                last_error = err_data.get('message') if isinstance(err_data, dict) else str(err_data)
+        except json.JSONDecodeError:
+            logger.warning('daemon consume_stream: 非 JSON SSE 行: %s', sse_line[:80])
+    return final_answer or (f'ERROR: {last_error}' if last_error else None)

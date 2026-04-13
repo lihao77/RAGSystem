@@ -113,19 +113,24 @@ class _FakeExecutionService:
 class _FakeSSEAdapter:
     """Fake SSEAdapter that yields a FINAL_ANSWER event then terminates."""
 
-    def __init__(self, content='cron done'):
+    def __init__(self, content='cron done', error=None):
         self.content = content
+        self.error = error
         self.completed_normally = True
-        self.terminal_event_type = 'run_end'
+        self.terminal_event_type = 'run.end'
 
     def stream_sync(self):
+        if self.error:
+            err = {'type': 'system.error', 'data': {'message': self.error}}
+            yield f'data: {json.dumps(err)}\n\n'
+            return
         event = {
-            'type': 'final_answer',
+            'type': 'output.final_answer',
             'data': {'content': self.content},
             'session_id': 'test',
         }
         yield f'data: {json.dumps(event)}\n\n'
-        done = {'type': 'run_end', 'data': {}}
+        done = {'type': 'run.end', 'data': {}}
         yield f'data: {json.dumps(done)}\n\n'
 
     def start(self):
@@ -176,13 +181,17 @@ def daemon_service(monkeypatch):
         temp_dir.cleanup()
 
 
+# ──────────────────────────────────────────────
+# Session 管理测试
+# ──────────────────────────────────────────────
+
 def test_get_or_create_session_creates_session_with_team_metadata(daemon_service, monkeypatch):
     store = _FakeConversationStore()
     runtime_service = _FakeRuntimeService(store, _FakeExecService())
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    session_id = daemon_service._get_or_create_session('chat_1', 'default', 'agent_x')
+    session_id = asyncio.run(daemon_service._get_or_create_session('chat_1', 'default', 'agent_x'))
 
     assert session_id.startswith('daemon_')
     assert store.created == [
@@ -205,12 +214,12 @@ def test_session_id_is_deterministic_across_restarts(daemon_service, monkeypatch
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    sid_1 = daemon_service._get_or_create_session('chat_1', 'default')
+    sid_1 = asyncio.run(daemon_service._get_or_create_session('chat_1', 'default'))
 
     daemon_service._daemon_sessions.clear()
     daemon_service._session_timestamps.clear()
 
-    sid_2 = daemon_service._get_or_create_session('chat_1', 'default')
+    sid_2 = asyncio.run(daemon_service._get_or_create_session('chat_1', 'default'))
 
     assert sid_1 == sid_2
     assert store.created[0]['session_id'] == store.created[1]['session_id']
@@ -222,13 +231,13 @@ def test_different_chats_get_different_session_ids(daemon_service, monkeypatch):
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    sid_a = daemon_service._get_or_create_session('chat_a', 'default')
-    sid_b = daemon_service._get_or_create_session('chat_b', 'default')
+    sid_a = asyncio.run(daemon_service._get_or_create_session('chat_a', 'default'))
+    sid_b = asyncio.run(daemon_service._get_or_create_session('chat_b', 'default'))
 
     assert sid_a != sid_b
 
 
-def _make_fake_adapter_start_result(content='daily report'):
+def _make_fake_adapter_start_result(content='daily report', error=None):
     """Create a fake AgentStreamStartResult."""
     from execution.adapters.agent_execution import AgentStreamStartResult
     return AgentStreamStartResult(
@@ -237,9 +246,13 @@ def _make_fake_adapter_start_result(content='daily report'):
         run_id='test_run',
         task_id='test_task',
         request_id='test_req',
-        sse_adapter=_FakeSSEAdapter(content),
+        sse_adapter=_FakeSSEAdapter(content, error=error),
     )
 
+
+# ──────────────────────────────────────────────
+# Cron 任务执行测试
+# ──────────────────────────────────────────────
 
 def test_execute_cron_task_uses_adapter_and_returns_content(daemon_service, monkeypatch):
     """Cron 任务通过 AgentExecutionAdapter 执行，返回 final_answer。"""
@@ -268,7 +281,6 @@ def test_execute_cron_task_uses_adapter_and_returns_content(daemon_service, monk
     assert result == 'daily report'
     assert task.last_run is not None
     assert task.last_result == 'daily report'
-    # 验证 adapter 被调用并传入了 source='daemon.cron'
     call_kwargs = MockAdapter.return_value.start_stream_execution.call_args
     assert call_kwargs.kwargs['source'] == 'daemon.cron'
 
@@ -302,6 +314,48 @@ def test_execute_cron_task_handles_adapter_failure(daemon_service, monkeypatch):
     assert result is None
     assert '并发冲突' in task.last_result
 
+
+def test_execute_cron_task_uses_session_permission_override(daemon_service, monkeypatch):
+    """Cron 任务使用 session 级权限覆盖，不污染全局策略。"""
+    from tools.permission_manager import (
+        get_permission_policy,
+        get_effective_permission_policy,
+        set_session_permission_override,
+        clear_session_permission_override,
+    )
+    from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
+
+    store = _FakeConversationStore()
+    runtime_service = _FakeRuntimeService(store, _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+
+    # 记住全局策略
+    global_before = get_permission_policy().mode
+
+    fake_result = _make_fake_adapter_start_result('done')
+    with patch('execution.adapters.agent_execution.AgentExecutionAdapter') as MockAdapter:
+        MockAdapter.return_value.start_stream_execution.return_value = fake_result
+        monkeypatch.setattr('agents.context.session_cache.flush_session', lambda sid: None, raising=False)
+        monkeypatch.setattr('agents.events.session_manager.cleanup_run', lambda rid: None, raising=False)
+
+        task = CronTask(
+            task_id='cron_perm',
+            name='test',
+            cron='0 9 * * *',
+            task='test',
+            team_name='default',
+        )
+
+        asyncio.run(daemon_service.execute_cron_task(task))
+
+    # 全局策略未被修改
+    assert get_permission_policy().mode == global_before
+
+
+# ──────────────────────────────────────────────
+# Cron CRUD + 配置测试
+# ──────────────────────────────────────────────
 
 def test_cron_task_crud_persists_to_daemon_yaml(daemon_service):
     task = CronTask(
@@ -390,9 +444,9 @@ def test_configured_session_id_takes_priority(daemon_service, monkeypatch):
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    sid = daemon_service._get_or_create_session(
+    sid = asyncio.run(daemon_service._get_or_create_session(
         'chat_1', 'default', configured_session_id='my_custom_session'
-    )
+    ))
     assert sid == 'my_custom_session'
     assert store.created[0]['session_id'] == 'my_custom_session'
 
@@ -404,15 +458,15 @@ def test_configured_session_id_none_falls_back_to_derive(daemon_service, monkeyp
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    sid = daemon_service._get_or_create_session(
+    sid = asyncio.run(daemon_service._get_or_create_session(
         'chat_1', 'default', configured_session_id=None
-    )
+    ))
     assert sid.startswith('daemon_')
 
 
 def test_resolve_session_id_platform_overrides_agent(daemon_service, monkeypatch):
     """platform.session_id 优先于 agent.session_id。"""
-    from daemon.models import DaemonAgentConfig, PlatformConnection, PlatformType, IncomingMessage
+    from daemon.models import DaemonAgentConfig, IncomingMessage
 
     daemon_service._config.agents = [
         DaemonAgentConfig(
@@ -437,6 +491,24 @@ def test_resolve_session_id_platform_overrides_agent(daemon_service, monkeypatch
         message_id='m1', platform=PlatformType.FEISHU,
         chat_id='chat_1', user_id='u1', content='hello', timestamp=0,
     )
-    sid, cfg = daemon_service.resolve_session_id_for_message(msg)
+    sid, cfg = asyncio.run(daemon_service.resolve_session_id_for_message(msg))
     assert sid == 'platform_level_session'
     assert cfg.team_name == 'default'
+
+
+# ──────────────────────────────────────────────
+# consume_stream 测试
+# ──────────────────────────────────────────────
+
+def test_consume_stream_extracts_final_answer():
+    from daemon.utils import consume_stream
+    adapter = _FakeSSEAdapter('hello world')
+    result = consume_stream(adapter)
+    assert result == 'hello world'
+
+
+def test_consume_stream_returns_error_on_system_error():
+    from daemon.utils import consume_stream
+    adapter = _FakeSSEAdapter(error='something went wrong')
+    result = consume_stream(adapter)
+    assert result == 'ERROR: something went wrong'

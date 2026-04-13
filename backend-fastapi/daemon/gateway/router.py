@@ -33,6 +33,7 @@ class MessageRouter:
     def __init__(self, daemon_service: DaemonService):
         self._daemon_service = daemon_service
         self._approval_handlers: Dict[str, DaemonApprovalHandler] = {}
+        self._chat_locks: Dict[str, asyncio.Lock] = {}
 
     async def route_incoming(self, message: IncomingMessage) -> None:
         """
@@ -47,6 +48,15 @@ class MessageRouter:
         5. 消费事件流，提取 final_answer 回送社交平台
         6. 清理
         """
+        # Per-chat 锁：序列化同一 chat 的消息处理，避免并发执行和 handler 覆盖
+        chat_lock = self._chat_locks.setdefault(message.chat_id, asyncio.Lock())
+        async with chat_lock:
+            await self._route_incoming_inner(message)
+        # 清理无活跃处理的 lock（chat_lock 没有其他等待者时安全移除）
+        if not chat_lock.locked() and not chat_lock._waiters:
+            self._chat_locks.pop(message.chat_id, None)
+
+    async def _route_incoming_inner(self, message: IncomingMessage) -> None:
         logger.info(
             '收到消息 [%s] chat=%s user=%s: %s',
             message.platform.value,

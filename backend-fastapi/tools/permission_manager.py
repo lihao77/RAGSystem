@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from pathlib import PurePosixPath
+from typing import Dict, Optional
 
 from tools.contracts.permission_modes import AutoAcceptPattern, PermissionMode, PermissionPolicy
 from tools.contracts.permissions import RiskLevel, ToolPermission
@@ -12,6 +13,9 @@ from tools.contracts.permissions import RiskLevel, ToolPermission
 logger = logging.getLogger(__name__)
 
 _current_policy = PermissionPolicy()
+
+# ── per-session 权限覆盖（daemon Cron 等场景隔离全局策略）──
+_session_overrides: Dict[str, PermissionPolicy] = {}
 
 
 # ── policy CRUD ──────────────────────────────────────────────
@@ -27,6 +31,23 @@ def set_permission_policy(policy: PermissionPolicy) -> None:
 
 def set_permission_mode(mode: PermissionMode) -> None:
     _current_policy.mode = mode
+
+
+def set_session_permission_override(session_id: str, policy: PermissionPolicy) -> None:
+    """为指定 session 设置权限策略覆盖（不影响全局策略）。"""
+    _session_overrides[session_id] = policy
+
+
+def clear_session_permission_override(session_id: str) -> None:
+    """清除指定 session 的权限策略覆盖。"""
+    _session_overrides.pop(session_id, None)
+
+
+def get_effective_permission_policy(session_id: Optional[str] = None) -> PermissionPolicy:
+    """获取生效的权限策略：优先 session 级覆盖，fallback 到全局。"""
+    if session_id and session_id in _session_overrides:
+        return _session_overrides[session_id]
+    return _current_policy
 
 
 # ── auto-accept patterns ────────────────────────────────────
@@ -68,7 +89,7 @@ def _match_auto_accept(tool_name: str, permission: ToolPermission, arguments: di
     return False, ""
 
 
-def should_require_approval(tool_name: str, permission: ToolPermission, arguments: dict) -> tuple[bool, str]:
+def should_require_approval(tool_name: str, permission: ToolPermission, arguments: dict, *, session_id: Optional[str] = None) -> tuple[bool, str]:
     """
     根据当前权限策略判断是否需要用户审批。
     审批由 auto-accept 规则 + risk_level + PermissionMode 共同决定；
@@ -77,7 +98,8 @@ def should_require_approval(tool_name: str, permission: ToolPermission, argument
     Returns:
         (needs_approval: bool, reason: str)
     """
-    mode = _current_policy.mode
+    policy = get_effective_permission_policy(session_id)
+    mode = policy.mode
 
     if mode == PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS:
         return False, "dangerously_skip_permissions 模式，跳过审批"

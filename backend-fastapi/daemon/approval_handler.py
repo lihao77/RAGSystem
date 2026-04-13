@@ -68,7 +68,6 @@ class DaemonApprovalHandler:
         self._main_loop = main_loop
         self._pending: Dict[str, PendingApproval] = {}
         self._lock = threading.Lock()
-        self._async_lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------------
     # EventBus 回调（Agent 线程中同步执行）
@@ -218,16 +217,12 @@ class DaemonApprovalHandler:
             _schedule_timeout,
             pending.approval_id,
         )
-        if self._async_lock is None:
-            self._async_lock = asyncio.Lock()
-        async with self._async_lock:
+        with self._lock:
             if pending.approval_id in self._pending:
                 self._pending[pending.approval_id].timeout_handle = timeout_handle
 
     async def _on_timeout(self, approval_id: str) -> None:
-        if self._async_lock is None:
-            self._async_lock = asyncio.Lock()
-        async with self._async_lock:
+        with self._lock:
             pending = self._pending.pop(approval_id, None)
         if pending is None:
             return

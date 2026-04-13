@@ -155,11 +155,12 @@ def request_user_approval_if_needed(
     force_ask: bool = False,
 ) -> ApprovalOutcome:
     """检查工具权限并在需要时请求用户审批。"""
-    from tools.permission_manager import get_permission_policy, should_require_approval
+    from tools.permission_manager import get_effective_permission_policy, should_require_approval
     from tools.permissions import evaluate_tool_permission, get_tool_permission
 
-    permission_mode = get_permission_policy().mode.value
-    skip_all_approvals = get_permission_policy().skip_all_approvals
+    policy = get_effective_permission_policy(context.session_id)
+    permission_mode = policy.mode.value
+    skip_all_approvals = policy.skip_all_approvals
     approved_external_paths = _candidate_external_paths_for_approval(context)
 
     decision = evaluate_tool_permission(
@@ -183,7 +184,7 @@ def request_user_approval_if_needed(
     if not permission:
         return ApprovalOutcome(allowed=True)
 
-    requires, risk_reason = should_require_approval(context.tool_name, permission, context.arguments)
+    requires, risk_reason = should_require_approval(context.tool_name, permission, context.arguments, session_id=context.session_id)
     reason, secondary_reasons, reason_codes = _build_approval_reason_payload(
         risk_reason=risk_reason,
         approved_external_paths=approved_external_paths,
@@ -386,9 +387,10 @@ def request_inline_approval(
         (approved: bool, approval_note: str)
     """
     from tools.contracts.permissions import RiskLevel as _RL, ToolPermission
-    from tools.permission_manager import get_permission_policy, should_require_approval
+    from tools.permission_manager import get_effective_permission_policy, should_require_approval
 
-    if get_permission_policy().skip_all_approvals:
+    policy = get_effective_permission_policy(session_id)
+    if policy.skip_all_approvals:
         logger.info("内联审批跳过（skip_all_approvals）: %s", description)
         return True, ""
 
@@ -398,9 +400,9 @@ def request_inline_approval(
         risk_level=_risk_map.get(risk_level.lower(), _RL.HIGH),
         description=description,
     )
-    needs, skip_reason = should_require_approval(tool_name, _perm, arguments)
+    needs, skip_reason = should_require_approval(tool_name, _perm, arguments, session_id=session_id)
     if not needs:
-        logger.info("内联审批跳过（%s）: %s", skip_reason or get_permission_policy().mode.value, description)
+        logger.info("内联审批跳过（%s）: %s", skip_reason or policy.mode.value, description)
         return True, ""
 
     if not event_bus:
@@ -473,7 +475,7 @@ def _run_approval_hook(
         from hooks.config_loader import resolve_workspace_trust
         from hooks.executor import run_hooks
         from hooks.models import HookContext
-        from tools.permission_manager import get_permission_policy
+        from tools.permission_manager import get_effective_permission_policy
 
         workspace_root = None
         if context.agent_config is not None:
@@ -503,7 +505,7 @@ def _run_approval_hook(
             metadata={
                 "approval_reason": approval_reason,
                 "risk_level": permission.risk_level.value if permission else "unknown",
-                "permission_mode": get_permission_policy().mode.value,
+                "permission_mode": get_effective_permission_policy(context.session_id).mode.value,
                 "approved": approved,
                 "approval_note": approval_note,
                 "error": str(error) if error else None,

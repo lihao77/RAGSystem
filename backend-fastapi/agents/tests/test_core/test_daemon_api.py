@@ -21,6 +21,9 @@ class _FakeAdapter:
     def parse_webhook(self, payload):
         return []
 
+    def verify_webhook_signature(self, headers, raw_body):
+        return True
+
 
 class _FakeDaemonService:
     def __init__(self):
@@ -31,6 +34,9 @@ class _FakeDaemonService:
         self.added_task = None
         self.updated_task = None
         self.deleted_task_id = None
+
+    def get_adapter(self, platform):
+        return self._adapters.get(platform)
 
     async def stop(self):
         self.calls.append('stop')
@@ -115,6 +121,8 @@ def test_feishu_webhook_challenge_returns_raw_challenge():
     daemon_router = _load_daemon_router()
 
     daemon_service = _FakeDaemonService()
+    from daemon.models import PlatformType
+    daemon_service._adapters[PlatformType.FEISHU] = _FakeAdapter()
 
     app = FastAPI()
     app.include_router(daemon_router, prefix='/api/daemon')

@@ -88,7 +88,7 @@ class HeartbeatMonitor:
         adapter: PlatformAdapter,
         status: HeartbeatStatus,
     ) -> None:
-        """处理适配器连接异常，尝试重连。"""
+        """派发独立重连任务，不阻塞监控循环。"""
         attempts = self._reconnect_counts.get(platform, 0)
         if attempts >= _MAX_RECONNECT_ATTEMPTS:
             logger.error(
@@ -97,13 +97,21 @@ class HeartbeatMonitor:
             )
             return
 
-        delay = _RECONNECT_BASE_DELAY * (2 ** attempts)
         self._reconnect_counts[platform] = attempts + 1
         logger.warning(
-            '平台 [%s] 连接异常，%ds 后尝试第 %d 次重连: %s',
-            platform.value, delay, attempts + 1, status.error,
+            '平台 [%s] 连接异常，开始第 %d 次重连: %s',
+            platform.value, attempts + 1, status.error,
         )
+        asyncio.create_task(self._reconnect(platform, adapter, attempts))
 
+    async def _reconnect(
+        self,
+        platform: PlatformType,
+        adapter: PlatformAdapter,
+        attempts: int,
+    ) -> None:
+        """独立执行重连（指数退避后重试）。"""
+        delay = _RECONNECT_BASE_DELAY * (2 ** attempts)
         await asyncio.sleep(delay)
 
         try:

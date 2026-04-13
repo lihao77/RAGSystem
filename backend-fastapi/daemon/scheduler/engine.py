@@ -74,19 +74,57 @@ def matches_cron(cron_expr: str, dt: datetime) -> bool:
 
 
 def next_cron_time(cron_expr: str, after: Optional[datetime] = None) -> datetime:
-    """计算下一个匹配时间（简单实现，逐分钟迭代）。"""
+    """计算下一个匹配时间（逐级跳过优化）。"""
     from datetime import timedelta
-    dt = after or datetime.now()
-    dt = dt.replace(second=0, microsecond=0)
-    # 最多搜索 1 年
+    dt = (after or datetime.now()).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        return dt
+
+    minutes = set(_parse_cron_field(parts[0], 0, 59))
+    hours = set(_parse_cron_field(parts[1], 0, 23))
+    doms = set(_parse_cron_field(parts[2], 1, 31))
+    months = set(_parse_cron_field(parts[3], 1, 12))
+    dows = set(_parse_cron_field(parts[4], 0, 6))
+
     limit = dt + timedelta(days=366)
-    dt += timedelta(minutes=1)
     while dt < limit:
-        try:
-            if matches_cron(cron_expr, dt):
-                return dt
-        except (ValueError, OverflowError):
-            break
+        # 月份不匹配 → 跳到下一个匹配月的1号 00:00
+        if dt.month not in months:
+            next_month = None
+            for m in sorted(months):
+                if m > dt.month:
+                    next_month = m
+                    break
+            if next_month is None:
+                dt = dt.replace(year=dt.year + 1, month=min(months), day=1, hour=0, minute=0)
+            else:
+                dt = dt.replace(month=next_month, day=1, hour=0, minute=0)
+            continue
+
+        # 小时不匹配 → 跳到下一个匹配小时
+        if dt.hour not in hours:
+            next_hour = None
+            for h in sorted(hours):
+                if h > dt.hour:
+                    next_hour = h
+                    break
+            if next_hour is None:
+                dt = dt.replace(hour=0, minute=0) + timedelta(days=1)
+            else:
+                dt = dt.replace(hour=next_hour, minute=0)
+            continue
+
+        # 日+星期 不匹配 → 跳到下一天
+        cron_dow = (dt.weekday() + 1) % 7
+        if dt.day not in doms or cron_dow not in dows:
+            dt += timedelta(days=1)
+            dt = dt.replace(hour=0, minute=0)
+            continue
+
+        # 分钟匹配检查
+        if dt.minute in minutes:
+            return dt
         dt += timedelta(minutes=1)
     return dt
 

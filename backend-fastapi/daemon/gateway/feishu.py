@@ -133,6 +133,7 @@ class FeishuAdapter(PlatformAdapter):
                 loop.run_until_complete(self._run_long_connection_client(ready_event, state))
             except Exception as e:
                 self._long_conn_error = str(e)
+                self._status = AdapterStatus.ERROR
                 state['error'] = str(e)
                 logger.error('飞书长连接异常: %s', e, exc_info=True)
                 ready_event.set()

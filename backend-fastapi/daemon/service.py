@@ -309,13 +309,17 @@ class DaemonService:
                 task.last_result = f'ERROR: {started.error_message}'
                 return None
 
-            # ── 注入权限策略（cron 无人交互，跳过所有审批）──
-            from tools.permission_manager import set_permission_policy
+            # ── 注入权限策略（cron 无人交互，session 级跳过审批）──
+            from tools.permission_manager import set_session_permission_override, clear_session_permission_override
             from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
+            from daemon.models import DaemonPermissionConfig
 
-            set_permission_policy(PermissionPolicy(mode=PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS))
+            set_session_permission_override(
+                session_id,
+                PermissionPolicy(mode=PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS),
+            )
 
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
@@ -357,6 +361,7 @@ class DaemonService:
                 except Exception:
                     pass
                 cron_handler.cleanup()
+                clear_session_permission_override(session_id)
                 try:
                     from agents.context.session_cache import flush_session
                     flush_session(session_id)
@@ -371,6 +376,11 @@ class DaemonService:
         except Exception as e:
             logger.error('Cron 任务执行失败 [%s]: %s', task.task_id, e)
             task.last_result = f'ERROR: {e}'
+            # 确保异常路径也清理 session 级覆盖
+            try:
+                clear_session_permission_override(session_id)
+            except Exception:
+                pass
             return None
 
     # ── Session 管理 ──────────────────────────────────
