@@ -174,9 +174,11 @@ async def webhook_entry(platform: str, request: Request) -> Dict[str, Any]:
     # 查找对应适配器
     adapter = svc.get_adapter(p)
 
-    # 飞书 URL challenge 验证：先验签（若适配器已就绪），再响应 challenge
+    # 飞书 URL challenge 验证：适配器必须就绪且签名合法才响应
     if p == PlatformType.FEISHU and 'challenge' in body:
-        if adapter and not adapter.verify_webhook_signature(headers, raw_body):
+        if not adapter:
+            raise HTTPException(503, f'平台适配器未连接: {platform}')
+        if not adapter.verify_webhook_signature(headers, raw_body):
             raise HTTPException(403, '签名验证失败')
         return {'challenge': body['challenge']}
 

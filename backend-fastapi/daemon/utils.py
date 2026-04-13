@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
+from typing import Optional
 
 
 def model_validate(model_cls, data):
@@ -34,3 +36,18 @@ def json_safe(value):
     if isinstance(value, Enum):
         return value.value
     return value
+
+
+def consume_stream(sse_adapter) -> Optional[str]:
+    """同步消费 SSE 事件流，返回 final_answer 内容。"""
+    final_answer = None
+    for sse_line in sse_adapter.stream_sync():
+        try:
+            if not sse_line.startswith('data: '):
+                continue
+            event = json.loads(sse_line[6:].strip())
+            if event.get('type') == 'final_answer':
+                final_answer = (event.get('data') or {}).get('content')
+        except Exception:
+            pass
+    return final_answer

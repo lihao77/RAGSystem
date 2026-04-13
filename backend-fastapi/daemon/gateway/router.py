@@ -10,37 +10,21 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict
 
 import commands as cmd_mod
 from daemon.models import (
     IncomingMessage,
     OutgoingMessage,
 )
+from daemon.utils import consume_stream
 
 if TYPE_CHECKING:
     from daemon.approval_handler import DaemonApprovalHandler
     from daemon.service import DaemonService
 
 logger = logging.getLogger(__name__)
-
-
-def _consume_stream(sse_adapter) -> Optional[str]:
-    """同步消费 SSE 事件流，返回 final_answer 内容。"""
-    final_answer = None
-    for sse_line in sse_adapter.stream_sync():
-        try:
-            if not sse_line.startswith('data: '):
-                continue
-            event = json.loads(sse_line[6:].strip())
-            event_type = event.get('type', '')
-            if event_type == 'final_answer':
-                final_answer = (event.get('data') or {}).get('content')
-        except Exception:
-            pass
-    return final_answer
 
 
 class MessageRouter:
@@ -190,7 +174,7 @@ class MessageRouter:
 
             # ── 5. 消费事件流 + 回送 ──
             try:
-                final_answer = await asyncio.to_thread(_consume_stream, started.sse_adapter)
+                final_answer = await asyncio.to_thread(consume_stream, started.sse_adapter)
                 if final_answer:
                     await self._daemon_service.send_message(OutgoingMessage(
                         platform=message.platform,

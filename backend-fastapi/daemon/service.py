@@ -335,10 +335,10 @@ class DaemonService:
             )
 
             # ── 消费事件流 ──
-            from daemon.gateway.router import _consume_stream
+            from daemon.utils import consume_stream
 
             try:
-                response_content = await asyncio.to_thread(_consume_stream, started.sse_adapter)
+                response_content = await asyncio.to_thread(consume_stream, started.sse_adapter)
 
                 if response_content and task.push_platform and task.push_chat_id:
                     await self.send_message(OutgoingMessage(
@@ -393,40 +393,37 @@ class DaemonService:
         优先使用 configured_session_id（显式配置），否则按 chat_id + team_name 确定性派生。
         """
         now = time.time()
+        # 快速路径：持锁检查缓存，避免不必要的 I/O
         async with self._session_lock:
             self._evict_expired_sessions(now)
-
-            # 内存缓存命中则直接返回
             if chat_id in self._daemon_sessions:
                 self._session_timestamps[chat_id] = now
                 return self._daemon_sessions[chat_id]
-
             session_id = configured_session_id or self._derive_session_id(chat_id, team_name)
 
-            try:
-                from runtime.container import get_current_runtime_container
-                container = get_current_runtime_container()
-                runtime_svc = container.get_agent_api_runtime_service()
-                store = runtime_svc.get_conversation_store()
+        # 慢路径：锁外执行 I/O（create_session 是幂等的，重复调用无害）
+        try:
+            from runtime.container import get_current_runtime_container
+            container = get_current_runtime_container()
+            runtime_svc = container.get_agent_api_runtime_service()
+            store = runtime_svc.get_conversation_store()
 
-                metadata: Dict[str, Any] = {
-                    'source': 'daemon',
-                    'chat_id': chat_id,
-                    'team': team_name,
-                }
-                if entry_agent:
-                    metadata['entry_agent'] = entry_agent
-                # create_session 是幂等的（ON CONFLICT DO UPDATE），已有 session 会直接复用
-                store.create_session(
-                    session_id=session_id,
-                    metadata=metadata,
-                )
-                self._daemon_sessions[chat_id] = session_id
-                self._session_timestamps[chat_id] = now
-                return session_id
-            except Exception as e:
-                logger.error('创建守护 session 失败: %s', e)
-                return session_id
+            metadata: Dict[str, Any] = {
+                'source': 'daemon',
+                'chat_id': chat_id,
+                'team': team_name,
+            }
+            if entry_agent:
+                metadata['entry_agent'] = entry_agent
+            store.create_session(session_id=session_id, metadata=metadata)
+        except Exception as e:
+            logger.error('创建守护 session 失败: %s', e)
+
+        # 写回缓存时再加锁
+        async with self._session_lock:
+            self._daemon_sessions[chat_id] = session_id
+            self._session_timestamps[chat_id] = now
+        return session_id
 
     def _evict_expired_sessions(self, now: float) -> None:
         """清理超过 TTL 的守护 session（懒惰清理）。调用方需持有 _session_lock。"""

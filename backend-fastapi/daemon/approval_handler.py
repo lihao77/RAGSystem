@@ -69,8 +69,8 @@ class DaemonApprovalHandler:
         self._pending: Dict[str, PendingApproval] = {}
         # threading.Lock 保护跨线程的同步方法（on_approval_required / try_resolve_from_message / cleanup）
         self._lock = threading.Lock()
-        # asyncio.Lock 保护 async 方法内的访问（_send_and_schedule_timeout / _on_timeout）
-        self._async_lock = asyncio.Lock()
+        # asyncio.Lock 延迟初始化，确保在主事件循环中首次使用时创建，避免跨循环问题
+        self._async_lock: Optional[asyncio.Lock] = None
 
         # 预计算自动放行的风险级别集合
         self._auto_approve_levels = self._build_auto_approve_levels()
@@ -241,11 +241,15 @@ class DaemonApprovalHandler:
             _schedule_timeout,
             pending.approval_id,
         )
+        if self._async_lock is None:
+            self._async_lock = asyncio.Lock()
         async with self._async_lock:
             if pending.approval_id in self._pending:
                 self._pending[pending.approval_id].timeout_handle = timeout_handle
 
     async def _on_timeout(self, approval_id: str) -> None:
+        if self._async_lock is None:
+            self._async_lock = asyncio.Lock()
         async with self._async_lock:
             pending = self._pending.pop(approval_id, None)
         if pending is None:
