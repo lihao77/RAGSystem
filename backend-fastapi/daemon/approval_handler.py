@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-守护上下文审批处理器。
+守护上下文交互处理器。
 
-订阅 EventBus 的 USER_APPROVAL_REQUIRED 事件，
-根据 DaemonPermissionConfig 做策略决策：
-- 白名单/低风险 → 立即 auto-approve
-- 需要交互 → 发送审批消息到社交平台 + 超时计时
+订阅 EventBus 的审批和用户输入事件：
+- USER_APPROVAL_REQUIRED：工具审批（白名单自动放行 / 交互审批）
+- USER_INPUT_REQUIRED：用户输入（发送 prompt 到社交平台，等待回复）
 """
 
 from __future__ import annotations
@@ -28,12 +27,29 @@ _APPROVE_KEYWORDS = frozenset({'同意', '允许', '通过', 'yes', 'y', '是', 
 _DENY_KEYWORDS = frozenset({'拒绝', '不允许', '否决', 'no', 'n', '否', 'deny', 'reject'})
 
 
+_INPUT_TIMEOUT = 300  # 用户输入超时 5 分钟
+
+
 @dataclass
 class PendingApproval:
     """单个待审批请求的跟踪信息"""
     approval_id: str
     tool_name: str
     risk_level: str
+    session_id: str
+    chat_id: str
+    platform: object  # PlatformType
+    created_at: float = field(default_factory=time.time)
+    timeout_handle: Optional[asyncio.TimerHandle] = None
+
+
+@dataclass
+class PendingInput:
+    """单个待用户输入的跟踪信息"""
+    input_id: str
+    prompt: str
+    input_type: str
+    options: list
     session_id: str
     chat_id: str
     platform: object  # PlatformType
@@ -67,6 +83,7 @@ class DaemonApprovalHandler:
         self._config = permission_config
         self._main_loop = main_loop
         self._pending: Dict[str, PendingApproval] = {}
+        self._pending_inputs: Dict[str, PendingInput] = {}
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -116,6 +133,40 @@ class DaemonApprovalHandler:
             self._main_loop,
         )
 
+    def on_input_required(self, event) -> None:
+        """EventBus 同步回调 — Agent 需要用户输入。"""
+        data = event.data or {}
+        input_id = data.get('input_id')
+        prompt = data.get('prompt', '')
+        input_type = data.get('input_type', 'text')
+        options = data.get('options', [])
+        session_id = event.session_id or self._session_id
+
+        if not input_id:
+            logger.warning('DaemonInteractionHandler: 输入事件缺少 input_id')
+            return
+
+        logger.info(
+            '守护输入: 需要用户输入 input_id=%s prompt=%s chat_id=%s',
+            input_id, prompt[:60], self._chat_id,
+        )
+        pending = PendingInput(
+            input_id=input_id,
+            prompt=prompt,
+            input_type=input_type,
+            options=options,
+            session_id=session_id,
+            chat_id=self._chat_id,
+            platform=self._platform,
+        )
+        with self._lock:
+            self._pending_inputs[input_id] = pending
+
+        asyncio.run_coroutine_threadsafe(
+            self._send_input_prompt(pending),
+            self._main_loop,
+        )
+
     # ------------------------------------------------------------------
     # 路由器调用：检查入站消息是否为审批回复
     # ------------------------------------------------------------------
@@ -123,6 +174,10 @@ class DaemonApprovalHandler:
     def has_pending(self, chat_id: str) -> bool:
         with self._lock:
             return any(p.chat_id == chat_id for p in self._pending.values())
+
+    def has_pending_input(self, chat_id: str) -> bool:
+        with self._lock:
+            return any(p.chat_id == chat_id for p in self._pending_inputs.values())
 
     def try_resolve_from_message(self, message) -> bool:
         """解析入站消息的审批关键词。返回 True 表示消息已被消费。"""
@@ -165,6 +220,38 @@ class DaemonApprovalHandler:
         )
         return True
 
+    def try_resolve_input_from_message(self, message) -> bool:
+        """解析入站消息作为用户输入回复。返回 True 表示消息已被消费。"""
+        content = (message.content or '').strip()
+        if not content:
+            return False
+
+        with self._lock:
+            target: Optional[PendingInput] = None
+            for pending in self._pending_inputs.values():
+                if pending.chat_id == message.chat_id:
+                    target = pending
+                    break
+            if target is None:
+                return False
+            self._pending_inputs.pop(target.input_id, None)
+            if target.timeout_handle:
+                target.timeout_handle.cancel()
+
+        # 提交用户输入
+        self._resolve_input(target.session_id, target.input_id, content)
+
+        logger.info(
+            '守护输入: 用户回复 input_id=%s length=%d',
+            target.input_id, len(content),
+        )
+
+        asyncio.run_coroutine_threadsafe(
+            self._send_input_confirmation(target, content),
+            self._main_loop,
+        )
+        return True
+
     # ------------------------------------------------------------------
     # 清理
     # ------------------------------------------------------------------
@@ -175,6 +262,10 @@ class DaemonApprovalHandler:
                 if pending.timeout_handle:
                     pending.timeout_handle.cancel()
             self._pending.clear()
+            for pending in self._pending_inputs.values():
+                if pending.timeout_handle:
+                    pending.timeout_handle.cancel()
+            self._pending_inputs.clear()
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -253,6 +344,79 @@ class DaemonApprovalHandler:
                 platform=pending.platform,
                 chat_id=pending.chat_id,
                 content=f'{icon} 已{action}执行工具: {pending.tool_name}',
+            ))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # 用户输入内部方法
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_input(session_id: str, input_id: str, value: str) -> None:
+        """提交用户输入（可在任意线程调用）。"""
+        from agents.task_registry import get_task_registry
+        registry = get_task_registry()
+        registry.resolve_input(session_id, input_id, value)
+
+    async def _send_input_prompt(self, pending: PendingInput) -> None:
+        """发送输入提示到社交平台并设置超时。"""
+        from daemon.models import OutgoingMessage
+
+        lines = [f'❓ 需要你的输入\n问题: {pending.prompt}']
+        if pending.options:
+            lines.append('选项: ' + ' / '.join(f'「{o}」' for o in pending.options))
+        lines.append(f'请直接回复内容。超时 {_INPUT_TIMEOUT} 秒后将自动提交空值。')
+        msg_content = '\n'.join(lines)
+
+        try:
+            await self._daemon_service.send_message(OutgoingMessage(
+                platform=pending.platform,
+                chat_id=pending.chat_id,
+                content=msg_content,
+            ))
+        except Exception as e:
+            logger.error('发送输入提示失败: %s', e)
+
+        def _schedule_timeout(iid: str) -> None:
+            asyncio.run_coroutine_threadsafe(self._on_input_timeout(iid), self._main_loop)
+
+        timeout_handle = self._main_loop.call_later(
+            _INPUT_TIMEOUT,
+            _schedule_timeout,
+            pending.input_id,
+        )
+        with self._lock:
+            if pending.input_id in self._pending_inputs:
+                self._pending_inputs[pending.input_id].timeout_handle = timeout_handle
+
+    async def _on_input_timeout(self, input_id: str) -> None:
+        with self._lock:
+            pending = self._pending_inputs.pop(input_id, None)
+        if pending is None:
+            return
+
+        logger.info('守护输入超时: input_id=%s，提交空值', input_id)
+        self._resolve_input(pending.session_id, input_id, '')
+
+        from daemon.models import OutgoingMessage
+        try:
+            await self._daemon_service.send_message(OutgoingMessage(
+                platform=pending.platform,
+                chat_id=pending.chat_id,
+                content=f'⏰ 输入超时，已提交空值（问题: {pending.prompt[:50]}）',
+            ))
+        except Exception:
+            pass
+
+    async def _send_input_confirmation(self, pending: PendingInput, value: str) -> None:
+        from daemon.models import OutgoingMessage
+        preview = value[:100] + ('...' if len(value) > 100 else '')
+        try:
+            await self._daemon_service.send_message(OutgoingMessage(
+                platform=pending.platform,
+                chat_id=pending.chat_id,
+                content=f'📝 已接收输入: {preview}',
             ))
         except Exception:
             pass

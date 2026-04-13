@@ -40,14 +40,29 @@ class MessageRouter:
         路由入站消息到 Agent 执行。
 
         流程：
-        0. 审批回复拦截
-        1. 斜杠命令预处理
-        2. 解析 session_id + agent 配置
-        3. 通过 AgentExecutionAdapter 启动执行（自动管理 EventBus / TaskRegistry / Persistence）
-        4. 挂载 DaemonApprovalHandler
-        5. 消费事件流，提取 final_answer 回送社交平台
-        6. 清理
+        0. 审批回复拦截（必须在 chat_lock 之前，否则死锁）
+        1. Per-chat 锁序列化
+        2. 斜杠命令预处理
+        3. 解析 session_id + agent 配置
+        4. 通过 AgentExecutionAdapter 启动执行（自动管理 EventBus / TaskRegistry / Persistence）
+        5. 挂载 DaemonApprovalHandler
+        6. 消费事件流，提取 final_answer 回送社交平台
+        7. 清理
         """
+        # ── 0. 交互拦截（必须在 chat_lock 之前，否则与 consume_stream 死锁）──
+        handler = self._approval_handlers.get(message.chat_id)
+        if handler:
+            if handler.has_pending(message.chat_id):
+                resolved = handler.try_resolve_from_message(message)
+                if resolved:
+                    logger.info('消息被当作审批回复处理: chat_id=%s', message.chat_id)
+                    return
+            if handler.has_pending_input(message.chat_id):
+                resolved = handler.try_resolve_input_from_message(message)
+                if resolved:
+                    logger.info('消息被当作用户输入处理: chat_id=%s', message.chat_id)
+                    return
+
         # Per-chat 锁：序列化同一 chat 的消息处理，避免并发执行和 handler 覆盖
         chat_lock = self._chat_locks.setdefault(message.chat_id, asyncio.Lock())
         async with chat_lock:
@@ -66,14 +81,6 @@ class MessageRouter:
         )
 
         try:
-            # ── 0. 审批回复拦截 ──
-            handler = self._approval_handlers.get(message.chat_id)
-            if handler and handler.has_pending(message.chat_id):
-                resolved = handler.try_resolve_from_message(message)
-                if resolved:
-                    logger.info('消息被当作审批回复处理: chat_id=%s', message.chat_id)
-                    return
-
             # ── 1. 斜杠命令预处理 ──
             task = message.content.strip()
             display_task = None
@@ -156,7 +163,7 @@ class MessageRouter:
                 ))
                 return
 
-            # ── 4. 挂载审批处理器 ──
+            # ── 2. 挂载审批处理器 ──
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
             from daemon.models import DaemonPermissionConfig
@@ -180,9 +187,37 @@ class MessageRouter:
                 event_types=[EventType.USER_APPROVAL_REQUIRED],
                 handler=approval_handler.on_approval_required,
             )
+            event_bus.subscribe(
+                event_types=[EventType.USER_INPUT_REQUIRED],
+                handler=approval_handler.on_input_required,
+            )
+
+            # ── 2.5 错误实时推送：订阅 AGENT_ERROR，立即转发到社交平台 ──
+            _main_loop = asyncio.get_running_loop()
+            _platform = message.platform
+            _chat_id = message.chat_id
+
+            def _on_agent_error(event):
+                error_data = event.data or {}
+                error_msg = error_data.get('error', '未知错误')
+                error_type = error_data.get('error_type', '')
+                label = f' ({error_type})' if error_type else ''
+                asyncio.run_coroutine_threadsafe(
+                    self._daemon_service.send_message(OutgoingMessage(
+                        platform=_platform,
+                        chat_id=_chat_id,
+                        content=f'❌ 执行出错{label}: {error_msg}',
+                    )),
+                    _main_loop,
+                )
+
+            event_bus.subscribe(
+                event_types=[EventType.AGENT_ERROR],
+                handler=_on_agent_error,
+            )
             self._approval_handlers[message.chat_id] = approval_handler
 
-            # ── 5. 消费事件流 + 回送 ──
+            # ── 3. 消费事件流 + 回送 ──
             try:
                 final_answer = await asyncio.to_thread(consume_stream, started.sse_adapter)
                 if final_answer:
@@ -192,7 +227,7 @@ class MessageRouter:
                         content=final_answer,
                     ))
             finally:
-                # ── 6. 清理 ──
+                # ── 4. 清理 ──
                 try:
                     started.sse_adapter.stop()
                 except Exception:

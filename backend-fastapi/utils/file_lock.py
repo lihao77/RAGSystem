@@ -92,7 +92,8 @@ class FileLock:
         self._acquired = False
 
     def _is_stale_lock(self) -> bool:
-        if not self.lock_path.exists():
+        try:
+            age_seconds = time.time() - self.lock_path.stat().st_mtime
+            return age_seconds > self.stale_timeout
+        except FileNotFoundError:
             return False
-        age_seconds = time.time() - self.lock_path.stat().st_mtime
-        return age_seconds > self.stale_timeout
