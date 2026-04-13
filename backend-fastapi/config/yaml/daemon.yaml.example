@@ -22,23 +22,31 @@ agents:
     # 心跳间隔（秒），默认 30
     heartbeat_interval: 30
 
-    # 工具权限策略（守护上下文复用系统审批能力）
+    # 工具权限策略（直接复用系统统一 PermissionPolicy 模型）
     permissions:
-      # 审批模式: strict(所有工具需审批) | standard(仅 low 自动放行) | relaxed(low+medium 自动放行)
+      # 审批模式: strict | standard | relaxed | dangerously_skip_permissions
       mode: standard
-      # 自动放行的工具名列表（白名单内工具无需审批）
-      tool_allowlist:
-        - read_file
-        - glob
-        - grep
-        - web_fetch
-        - preview_data_structure
-      # 自动放行的最高风险级别（该字段尚未对接，预留）
-      # auto_approve_risk: low
-      # 交互审批超时秒数（超时后按 approval_fallback 处理）
-      approval_timeout: 120
-      # 审批超时后的默认行为: deny(拒绝) | allow(放行)
-      approval_fallback: deny
+      # 自动放行规则（与 /api/permissions/policy 同语义）
+      auto_accept_patterns:
+        - pattern_type: tool_name
+          pattern_value: read_file
+          description: daemon read-only allowlist
+        - pattern_type: tool_name
+          pattern_value: glob
+          description: daemon read-only allowlist
+        - pattern_type: tool_name
+          pattern_value: grep
+          description: daemon read-only allowlist
+        - pattern_type: tool_name
+          pattern_value: web_fetch
+          description: daemon read-only allowlist
+        - pattern_type: tool_name
+          pattern_value: preview_data_structure
+          description: daemon read-only allowlist
+      # 是否跳过所有 ask 审批（仅保留执行权限 deny）
+      skip_all_approvals: false
+      # 审批超时字段沿用统一模型，当前 runtime 尚未消费
+      approval_timeout: 300
 
     # 社交平台连接配置
     platforms:

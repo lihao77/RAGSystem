@@ -161,7 +161,6 @@ class MessageRouter:
             # ── 4. 挂载审批处理器 + 事件桥接 ──
             from agents.events.bus import EventType
             from daemon.approval_handler import DaemonApprovalHandler
-            from daemon.models import DaemonPermissionConfig
 
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
@@ -184,7 +183,7 @@ class MessageRouter:
 
             permission_config = getattr(agent_config, 'permissions', None)
             if permission_config is None:
-                permission_config = DaemonPermissionConfig()
+                permission_config = self._daemon_service._build_default_daemon_permission_policy()
 
             approval_handler = DaemonApprovalHandler(
                 daemon_service=self._daemon_service,

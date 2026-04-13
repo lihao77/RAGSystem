@@ -27,6 +27,7 @@ from daemon.models import (
     OutgoingMessage,
     PlatformType,
 )
+from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
 from daemon.gateway.base import PlatformAdapter
 from daemon.gateway.router import MessageRouter
 from daemon.scheduler.engine import CronScheduler
@@ -290,6 +291,16 @@ class DaemonService:
                 f"cron:{task.task_id}", task.team_name, task.entry_agent
             )
 
+            # ── 注入统一权限策略（cron 复用系统 PermissionPolicy）──
+            from tools.permission_manager import set_session_permission_override, clear_session_permission_override
+            from agents.events.bus import EventType
+            from daemon.approval_handler import DaemonApprovalHandler
+
+            _agent_config = self._get_agent_config(task.team_name)
+            _perm_policy = (_agent_config.permissions if _agent_config else None) or self._build_default_daemon_permission_policy()
+            _perm_policy_copy = model_validate(PermissionPolicy, model_dump(_perm_policy))
+            set_session_permission_override(session_id, _perm_policy_copy)
+
             # ── 通过 AgentExecutionAdapter 启动执行 ──
             from execution.adapters.agent_execution import AgentExecutionAdapter
 
@@ -313,41 +324,8 @@ class DaemonService:
             if not started.started or started.sse_adapter is None:
                 logger.error('Cron 任务启动失败 [%s]: %s', task.task_id, started.error_message)
                 task.last_result = f'ERROR: {started.error_message}'
+                clear_session_permission_override(session_id)
                 return None
-
-            # ── 注入权限策略（基于 agent 配置的审批模式而非全量跳过）──
-            from tools.permission_manager import set_session_permission_override, clear_session_permission_override
-            from tools.contracts.permission_modes import PermissionMode, PermissionPolicy, AutoAcceptPattern
-            from agents.events.bus import EventType
-            from daemon.approval_handler import DaemonApprovalHandler
-            from daemon.models import DaemonPermissionConfig
-
-            # 查找该 cron 任务所属 agent 的权限配置
-            _agent_config = self._get_agent_config(task.team_name)
-            _perm_config = _agent_config.permissions if _agent_config else DaemonPermissionConfig()
-
-            # 映射 daemon mode → PermissionMode
-            _mode_map = {
-                'strict': PermissionMode.STRICT,
-                'standard': PermissionMode.STANDARD,
-                'relaxed': PermissionMode.RELAXED,
-            }
-            _permission_mode = _mode_map.get(_perm_config.mode, PermissionMode.STANDARD)
-
-            # 白名单工具自动放行
-            _auto_accept = [
-                AutoAcceptPattern(pattern_type='tool_name', pattern_value=t, description='daemon allowlist')
-                for t in _perm_config.tool_allowlist
-            ]
-
-            set_session_permission_override(
-                session_id,
-                PermissionPolicy(
-                    mode=_permission_mode,
-                    auto_accept_patterns=_auto_accept,
-                    approval_timeout=_perm_config.approval_timeout,
-                ),
-            )
 
             session_manager = container.get_session_manager()
             event_bus = session_manager.get_or_create(started.run_id, session_id=session_id)
@@ -357,7 +335,7 @@ class DaemonService:
                 session_id=session_id,
                 platform=task.push_platform or PlatformType.FEISHU,
                 chat_id=task.push_chat_id or f'cron:{task.task_id}',
-                permission_config=_perm_config,
+                permission_config=_perm_policy,
                 main_loop=asyncio.get_running_loop(),
             )
             _cron_sub_id = event_bus.subscribe(
@@ -480,10 +458,9 @@ class DaemonService:
         if expired:
             logger.debug('清理过期守护 session %d 个', len(expired))
 
-    async def _periodic_session_eviction(self) -> None:
-        """由 HeartbeatMonitor 周期性调用，清理过期会话。"""
-        async with self._session_lock:
-            self._evict_expired_sessions(time.time())
+    def _build_default_daemon_permission_policy(self) -> PermissionPolicy:
+        """守护场景默认复用系统标准权限策略。"""
+        return PermissionPolicy(mode=PermissionMode.STANDARD)
 
     def _find_agent_config_for_platform(self, platform: PlatformType) -> Optional[DaemonAgentConfig]:
         """查找指定平台对应的已启用 agent 配置。"""

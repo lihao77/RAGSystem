@@ -73,9 +73,15 @@ def clear_auto_accept_patterns() -> None:
 
 # ── core decision ────────────────────────────────────────────
 
-def _match_auto_accept(tool_name: str, permission: ToolPermission, arguments: dict) -> tuple[bool, str]:
+def _match_auto_accept(
+    tool_name: str,
+    permission: ToolPermission,
+    arguments: dict,
+    *,
+    policy: PermissionPolicy,
+) -> tuple[bool, str]:
     """检查自动接受规则，返回 (matched, reason)。"""
-    for pat in _current_policy.auto_accept_patterns:
+    for pat in policy.auto_accept_patterns:
         if pat.pattern_type == "tool_name":
             if fnmatch.fnmatch(tool_name, pat.pattern_value):
                 return True, f"工具名匹配规则 '{pat.pattern_value}' 自动接受"
@@ -104,7 +110,7 @@ def should_require_approval(tool_name: str, permission: ToolPermission, argument
     if mode == PermissionMode.DANGEROUSLY_SKIP_PERMISSIONS:
         return False, "dangerously_skip_permissions 模式，跳过审批"
 
-    matched, reason = _match_auto_accept(tool_name, permission, arguments)
+    matched, reason = _match_auto_accept(tool_name, permission, arguments, policy=policy)
     if matched:
         return False, reason
 

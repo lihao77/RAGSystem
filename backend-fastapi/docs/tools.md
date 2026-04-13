@@ -199,6 +199,7 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 
 - 当前权限模式由 `tools.permission_manager` 的全局 `PermissionPolicy` 统一管理。
 - `/api/permissions/policy`、`/api/permissions/mode` 只操作全局策略，不区分 session。
+- runtime 内部可按 session 临时覆写同一个 `PermissionPolicy`（如 daemon / cron），但不额外引入 daemon 专属审批字段或平行语义。
 - `dangerously_skip_permissions` 表示“跳过审批”，仅针对常规风险审批；若需要完全关闭所有 ask 流程，应通过 `PermissionPolicy.skip_all_approvals=true` 启用总开关。
 - 审批事件 `user.approval_required` 会直接下发后端判定得到的 `permission_mode`、`approval_reason` 与 `approval_hook`，供前端展示。
 - 审批事件与执行结果 metadata 现在会同时携带结构化原因字段：`approval_reason_codes` / `reason_codes`（如 `ask-risk`、`ask-path`）以及可选 `approval_secondary_reasons` / `secondary_reasons`，用于表达一次审批同时命中多种原因的场景。
@@ -365,7 +366,7 @@ class PermissionMode(str, Enum):
     STRICT = "strict"                        # 全部风险工具需审批；命中 auto-accept 时仍可跳过
     STANDARD = "standard"                    # 默认 MEDIUM/HIGH 风险需审批；命中 auto-accept 时可跳过
     RELAXED = "relaxed"                      # 仅 HIGH 风险需审批；命中 auto-accept 时可跳过
-    DANGEROUSLY_SKIP_PERMISSIONS = "dangerously_skip_permissions"  # 跳过所有审批
+    DANGEROUSLY_SKIP_PERMISSIONS = "dangerously_skip_permissions"  # 跳过常规风险审批
 ```
 
 当前审批语义：
@@ -374,7 +375,7 @@ class PermissionMode(str, Enum):
 - `strict`：LOW / MEDIUM / HIGH 全部需要审批
 - `standard`：MEDIUM / HIGH 需要审批（默认档）
 - `relaxed`：仅 HIGH 需要审批
-- `dangerously_skip_permissions`：全部不审批
+- `dangerously_skip_permissions`：跳过常规风险审批；若还需跳过路径越界、hook force_ask、inline approval 等 ask，应额外启用 `skip_all_approvals=true`
 - `auto-accept` 优先级高于模式判断，因此即使在 `strict` 模式下，命中规则的工具仍可自动通过
 - 慢工具超时配置：`execute_skill_script` 设为 120s
 

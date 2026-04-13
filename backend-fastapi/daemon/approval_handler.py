@@ -3,7 +3,7 @@
 守护上下文交互处理器。
 
 订阅 EventBus 的审批和用户输入事件：
-- USER_APPROVAL_REQUIRED：工具审批（白名单自动放行 / 交互审批）
+- USER_APPROVAL_REQUIRED：统一审批事件桥接到社交平台
 - USER_INPUT_REQUIRED：用户输入（发送 prompt 到社交平台，等待回复）
 """
 
@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
-    from daemon.models import DaemonPermissionConfig, PlatformType
+    from tools.contracts.permission_modes import PermissionPolicy
+    from daemon.models import PlatformType
     from daemon.service import DaemonService
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ class DaemonApprovalHandler:
     """守护上下文审批处理器。
 
     - on_approval_required: EventBus 同步回调，在 Agent 工作线程中执行。
-      auto-approve 时直接调 resolve_approval → wait_evt.set() → Agent 立即继续。
+      daemon 仅负责把统一审批事件桥接到社交平台。
     - try_resolve_from_message: 路由器入口调用，解析用户审批回复。
     - has_pending: 检查指定 chat_id 是否有待处理的审批。
     """
@@ -74,7 +75,7 @@ class DaemonApprovalHandler:
         session_id: str,
         platform: PlatformType,
         chat_id: str,
-        permission_config: DaemonPermissionConfig,
+        permission_config: PermissionPolicy,
         main_loop: asyncio.AbstractEventLoop,
         send_message: Optional[Callable[[str], Awaitable[None]]] = None,
     ):
@@ -105,16 +106,7 @@ class DaemonApprovalHandler:
             logger.warning('DaemonApprovalHandler: 审批事件缺少 approval_id')
             return
 
-        # 策略 1：白名单自动放行
-        if tool_name in self._config.tool_allowlist:
-            logger.info(
-                '守护审批: 工具 %s 在白名单中，自动放行 approval_id=%s',
-                tool_name, approval_id,
-            )
-            self._auto_resolve(session_id, approval_id, True, '守护策略白名单自动放行')
-            return
-
-        # 策略 2：交互审批 — 发消息到社交平台 + 启动超时
+        # 统一审批事件：daemon 只做桥接，不再定义额外自动放行语义
         logger.info(
             '守护审批: 工具 %s 需要交互审批 approval_id=%s chat_id=%s',
             tool_name, approval_id, self._chat_id,
@@ -130,9 +122,11 @@ class DaemonApprovalHandler:
         with self._lock:
             self._pending[approval_id] = pending
 
+        timeout_seconds = max(int(getattr(self._config, 'approval_timeout', 300) or 300), 1)
+
         # 桥接到 asyncio 事件循环：发送审批消息 + 设超时
         asyncio.run_coroutine_threadsafe(
-            self._send_and_schedule_timeout(pending),
+            self._send_and_schedule_timeout(pending, timeout_seconds),
             self._main_loop,
         )
 
@@ -292,15 +286,14 @@ class DaemonApprovalHandler:
             content=content,
         ))
 
-    async def _send_and_schedule_timeout(self, pending: PendingApproval) -> None:
+    async def _send_and_schedule_timeout(self, pending: PendingApproval, timeout_seconds: int) -> None:
         """发送审批消息到社交平台并设置超时。在主事件循环中执行。"""
-        fallback_text = '放行' if self._config.approval_fallback == 'allow' else '拒绝'
         msg_content = (
             f'🔧 工具审批请求\n'
             f'工具: {pending.tool_name}\n'
             f'风险级别: {pending.risk_level}\n'
             f'请回复「同意」或「拒绝」来决定是否允许执行。\n'
-            f'超时 {self._config.approval_timeout} 秒后将自动{fallback_text}。'
+            f'超时 {timeout_seconds} 秒后将自动拒绝。'
         )
         try:
             await self._send_text(msg_content)
@@ -312,7 +305,7 @@ class DaemonApprovalHandler:
             asyncio.run_coroutine_threadsafe(self._on_timeout(aid), self._main_loop)
 
         timeout_handle = self._main_loop.call_later(
-            self._config.approval_timeout,
+            timeout_seconds,
             _schedule_timeout,
             pending.approval_id,
         )
@@ -326,8 +319,8 @@ class DaemonApprovalHandler:
         if pending is None:
             return
 
-        approved = self._config.approval_fallback == 'allow'
-        fallback_msg = '审批超时，自动放行' if approved else '审批超时，自动拒绝'
+        approved = False
+        fallback_msg = '审批超时，自动拒绝'
         logger.info('守护审批超时: approval_id=%s %s', approval_id, fallback_msg)
 
         self._auto_resolve(pending.session_id, approval_id, approved, fallback_msg)

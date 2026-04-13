@@ -6,7 +6,14 @@ import pytest
 
 from tools.bootstrap import bootstrap_tool_system
 from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
-from tools.permission_manager import add_auto_accept_pattern, get_permission_policy, set_permission_policy, should_require_approval
+from tools.permission_manager import (
+    add_auto_accept_pattern,
+    clear_session_permission_override,
+    get_permission_policy,
+    set_permission_policy,
+    set_session_permission_override,
+    should_require_approval,
+)
 from tools.permissions import (
     TOOL_PERMISSIONS,
     RiskLevel,
@@ -39,6 +46,8 @@ def _reset_tool_permissions():
 def _reset_permission_policy():
     """重置全局权限策略，避免测试间互相污染。"""
     set_permission_policy(PermissionPolicy())
+    yield
+    clear_session_permission_override('session-auto-accept')
 
 
 def test_permission_policy_defaults_skip_all_approvals_to_false():
@@ -221,6 +230,36 @@ def test_strict_mode_allows_auto_accept_override():
     add_auto_accept_pattern("tool_name", "execute_bash")
 
     requires, reason = should_require_approval("execute_bash", permission, {})
+
+    assert requires is False
+    assert "自动接受" in reason
+
+
+def test_session_override_auto_accept_patterns_take_effect():
+    permission = get_tool_permission("execute_bash")
+    assert permission is not None
+
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STRICT))
+    set_session_permission_override(
+        'session-auto-accept',
+        PermissionPolicy(
+            mode=PermissionMode.STRICT,
+            auto_accept_patterns=[
+                {
+                    'pattern_type': 'tool_name',
+                    'pattern_value': 'execute_bash',
+                    'description': 'session scoped allow',
+                }
+            ],
+        ),
+    )
+
+    requires, reason = should_require_approval(
+        'execute_bash',
+        permission,
+        {},
+        session_id='session-auto-accept',
+    )
 
     assert requires is False
     assert "自动接受" in reason

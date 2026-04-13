@@ -4,12 +4,13 @@ import asyncio
 import threading
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from daemon.approval_handler import DaemonApprovalHandler, PendingApproval
-from daemon.models import DaemonPermissionConfig, PlatformType
+from daemon.approval_handler import DaemonApprovalHandler
+from daemon.models import PlatformType
+from tools.contracts.permission_modes import PermissionPolicy
 
 
 class _FakeDaemonService:
@@ -55,57 +56,25 @@ def handler(loop):
         session_id='s1',
         platform=PlatformType.FEISHU,
         chat_id='chat_1',
-        permission_config=DaemonPermissionConfig(
-            tool_allowlist=['read_file', 'glob'],
-            auto_approve_risk='low',
-            approval_timeout=10,
-            approval_fallback='deny',
-        ),
+        permission_config=PermissionPolicy(approval_timeout=10),
         main_loop=loop,
     )
 
 
-# ── 白名单自动放行 ──
+# ── 统一审批事件桥接 ──
 
-def test_whitelist_auto_approve(handler):
-    """白名单中的工具应立即 auto-approve。"""
+def test_approval_event_bridged_to_interactive(handler, loop):
+    """统一审批事件应记录 pending 并发送审批消息。"""
     event = _make_event(tool_name='read_file', risk_level='low')
 
-    resolved = {}
-
     with patch('agents.task_registry.get_task_registry') as mock_reg:
         registry = MagicMock()
         mock_reg.return_value = registry
         handler.on_approval_required(event)
-        registry.resolve_approval.assert_called_once_with('s1', 'ap_1', True, '守护策略白名单自动放行')
-
-
-# ── 风险级别自动放行 ──
-
-def test_risk_level_auto_approve(handler):
-    """风险级别 ≤ auto_approve_risk 应自动放行。"""
-    event = _make_event(tool_name='preview_data_structure', risk_level='low')
-
-    with patch('agents.task_registry.get_task_registry') as mock_reg:
-        registry = MagicMock()
-        mock_reg.return_value = registry
-        handler.on_approval_required(event)
-        registry.resolve_approval.assert_called_once()
-        args = registry.resolve_approval.call_args
-        assert args[0][2] is True  # approved
-
-
-# ── 高风险触发交互审批 ──
-
-def test_high_risk_triggers_interactive(handler, loop):
-    """高风险工具应记录 pending 并发送审批消息。"""
-    event = _make_event(tool_name='execute_bash', risk_level='high')
-
-    handler.on_approval_required(event)
+        registry.resolve_approval.assert_not_called()
 
     assert handler.has_pending('chat_1')
 
-    # 等待异步消息发送完成（loop 在后台线程运行）
     time.sleep(0.3)
     assert len(handler._daemon_service.sent_messages) == 1
     assert '审批请求' in handler._daemon_service.sent_messages[0].content
@@ -183,29 +152,31 @@ def test_cleanup_cancels_timeouts(handler, loop):
     assert not handler.has_pending('chat_1')
 
 
-# ── auto_approve_risk=medium 放行 medium 风险 ──
+# ── 超时默认拒绝 ──
 
-def test_medium_risk_auto_approve_when_configured():
-    """配置 auto_approve_risk=medium 时，medium 风险工具应自动放行。"""
+def test_timeout_auto_denies_even_if_policy_is_skip_permissions():
+    """daemon 只做桥接，超时固定自动拒绝，不扩展 allow fallback 语义。"""
     loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
     try:
         h = DaemonApprovalHandler(
             daemon_service=_FakeDaemonService(),
             session_id='s1',
             platform=PlatformType.FEISHU,
             chat_id='chat_1',
-            permission_config=DaemonPermissionConfig(
-                auto_approve_risk='medium',
-            ),
+            permission_config=PermissionPolicy(approval_timeout=1),
             main_loop=loop,
         )
-        event = _make_event(tool_name='execute_code', risk_level='medium')
+        event = _make_event(tool_name='execute_bash', risk_level='high')
 
         with patch('agents.task_registry.get_task_registry') as mock_reg:
             registry = MagicMock()
             mock_reg.return_value = registry
             h.on_approval_required(event)
-            args = registry.resolve_approval.call_args
-            assert args[0][2] is True  # approved
+            time.sleep(1.3)
+            registry.resolve_approval.assert_called_once_with('s1', 'ap_1', False, '审批超时，自动拒绝')
     finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
         loop.close()

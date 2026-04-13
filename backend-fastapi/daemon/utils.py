@@ -42,7 +42,7 @@ def json_safe(value):
 
 
 def consume_stream(sse_adapter) -> Optional[str]:
-    """同步消费 SSE 事件流，返回 final_answer。错误由 EventBus 订阅者实时推送。"""
+    """同步消费 SSE 事件流，返回 final_answer 或 system.error。"""
     final_answer = None
     for sse_line in sse_adapter.stream_sync():
         try:
@@ -52,6 +52,9 @@ def consume_stream(sse_adapter) -> Optional[str]:
             event_type = event.get('type', '')
             if event_type == 'output.final_answer':
                 final_answer = (event.get('data') or {}).get('content')
+            elif event_type == 'system.error':
+                message = (event.get('data') or {}).get('message') or 'unknown error'
+                return f'ERROR: {message}'
         except json.JSONDecodeError:
             logger.warning('daemon consume_stream: 非 JSON SSE 行: %s', sse_line[:80])
     return final_answer

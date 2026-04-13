@@ -8,6 +8,8 @@
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
+from tools.contracts.permission_modes import PermissionPolicy
+
 try:
     from pydantic import BaseModel, Field, model_validator
     _HAS_MODEL_VALIDATOR = True
@@ -106,28 +108,6 @@ class HeartbeatStatus(BaseModel):
     reconnect_attempts: int = Field(default=0, description="重连尝试次数")
 
 
-# ==================== 守护权限配置 ====================
-
-class DaemonPermissionConfig(BaseModel):
-    """守护上下文的工具权限策略"""
-    mode: str = Field(
-        default="standard",
-        description="审批模式: strict(所有风险工具需审批) | standard(medium+high审批) | relaxed(仅high审批)",
-    )
-    tool_allowlist: List[str] = Field(
-        default_factory=list,
-        description="自动放行的工具名列表（无需审批）",
-    )
-    approval_timeout: int = Field(
-        default=120, ge=10, le=600,
-        description="交互审批超时秒数",
-    )
-    approval_fallback: str = Field(
-        default="deny",
-        description="审批超时后的默认行为: deny | allow",
-    )
-
-
 # ==================== 守护 Agent 配置 ====================
 
 class DaemonAgentConfig(BaseModel):
@@ -135,9 +115,9 @@ class DaemonAgentConfig(BaseModel):
     team_name: str = Field(description="team 名称（对应 CONFIG_ROOT/agents/teams/<team_name>.yaml）")
     entry_agent: Optional[str] = Field(default=None, description="入口 Agent 名称（留空则用 team 的 default_entry）")
     session_id: Optional[str] = Field(default=None, description="自定义 session ID（留空则按 team_name 自动派生）")
-    permissions: DaemonPermissionConfig = Field(
-        default_factory=DaemonPermissionConfig,
-        description="工具权限策略",
+    permissions: PermissionPolicy = Field(
+        default_factory=PermissionPolicy,
+        description="复用系统统一权限策略模型",
     )
     platforms: Dict[PlatformType, PlatformConnection] = Field(
         default_factory=dict, description="各平台连接配置"

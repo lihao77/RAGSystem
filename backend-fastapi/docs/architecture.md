@@ -266,8 +266,8 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 
 ### 全局权限策略与审批事件
 
-- 当前权限策略仅有全局作用域，唯一状态源为 `tools.permission_manager` 内的全局 `_current_policy`。
-- `/api/permissions/policy` 与 `/api/permissions/mode` 只读写全局策略，不引入 session 级权限模式。
+- 当前权限策略对外暴露为全局 `PermissionPolicy`：`/api/permissions/policy` 与 `/api/permissions/mode` 读写的是全局策略。
+- runtime 内部允许按 session 临时覆写 `PermissionPolicy`，用于 daemon / cron 等桥接场景复用统一审批语义；这类 session 覆写不引入新的权限模式或新字段，也不会改变全局策略。
 - `dangerously_skip_permissions` 的中文语义统一为“跳过审批”，表示跳过常规风险审批，不等于跳过所有 ask。
 - `PermissionPolicy.skip_all_approvals` 是独立总开关：为 `true` 时跳过所有 ask 流程（常规风险审批、路径越界审批、hook force_ask、inline approval），但不绕过 `evaluate_tool_permission(...)` 这类执行权限 deny。
 - `tools.runtime.approvals.request_user_approval_if_needed()` 在发布 `USER_APPROVAL_REQUIRED` 时，会追加：
@@ -674,6 +674,7 @@ daemon/
 **关键设计：**
 - 守护 Agent 本身是普通 team agent，通过 `AgentConfig` 配置，复用现有 `AgentExecutionService` 执行
 - 守护系统只负责"消息入口+调度触发"，不引入新的 agent 运行时
+- daemon / cron 的审批桥接直接复用系统统一 `PermissionPolicy` 与 `USER_APPROVAL_REQUIRED` 事件，不再维护 daemon 专属审批模式或白名单语义
 - 配置文件：`CONFIG_ROOT/daemon/daemon.yaml`（模板见 `config/yaml/daemon.yaml.example`）
 - 管理 API：`GET/PUT /api/daemon/config` 用于前端读取/保存 daemon YAML；若守护系统正在运行，保存后会自动 stop → save → start 热重载
 - Cron 任务的唯一持久化真相源也是 `daemon.yaml` 中的 `agents[].cron_tasks[]`；`/api/daemon/cron/tasks` 的新增、修改、删除会直接回写该配置，并在 daemon 运行中同步重建内存调度器

@@ -317,25 +317,26 @@ def test_execute_cron_task_handles_adapter_failure(daemon_service, monkeypatch):
 
 def test_execute_cron_task_uses_session_permission_override(daemon_service, monkeypatch):
     """Cron 任务使用 session 级权限覆盖，不污染全局策略。"""
-    from tools.permission_manager import (
-        get_permission_policy,
-        get_effective_permission_policy,
-        set_session_permission_override,
-        clear_session_permission_override,
-    )
+    from tools.permission_manager import get_permission_policy, get_effective_permission_policy
     from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
+
+    daemon_service._config.agents[0].permissions = PermissionPolicy(mode=PermissionMode.RELAXED)
 
     store = _FakeConversationStore()
     runtime_service = _FakeRuntimeService(store, _FakeExecService())
     container = _FakeContainer(runtime_service)
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
 
-    # 记住全局策略
     global_before = get_permission_policy().mode
+    observed = {}
 
     fake_result = _make_fake_adapter_start_result('done')
     with patch('execution.adapters.agent_execution.AgentExecutionAdapter') as MockAdapter:
-        MockAdapter.return_value.start_stream_execution.return_value = fake_result
+        def _start_stream_execution(**kwargs):
+            observed['effective_mode_during_start'] = get_effective_permission_policy(kwargs['session_id']).mode
+            return fake_result
+
+        MockAdapter.return_value.start_stream_execution.side_effect = _start_stream_execution
         monkeypatch.setattr('agents.context.session_cache.flush_session', lambda sid: None, raising=False)
         monkeypatch.setattr('agents.events.session_manager.cleanup_run', lambda rid: None, raising=False)
 
@@ -349,7 +350,7 @@ def test_execute_cron_task_uses_session_permission_override(daemon_service, monk
 
         asyncio.run(daemon_service.execute_cron_task(task))
 
-    # 全局策略未被修改
+    assert observed['effective_mode_during_start'] == PermissionMode.RELAXED
     assert get_permission_policy().mode == global_before
 
 
