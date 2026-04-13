@@ -1,381 +1,407 @@
 <template>
-  <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 社交消息网关 · 定时调度 · 心跳监控" max-width="960px">
+  <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 飞书消息网关 · 定时调度 · 心跳监控" max-width="960px">
     <template #header-actions>
-      <div class="header-actions">
+      <div class="hdr-actions">
         <button
-          class="pl-btn"
-          :class="status.running ? 'pl-btn--danger' : 'pl-btn--primary'"
-          @click="toggleDaemon"
-          :disabled="loading"
+          class="pl-btn" :class="status.running ? 'pl-btn--danger' : 'pl-btn--primary'"
+          @click="toggleDaemon" :disabled="loading"
         >
+          <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+          </svg>
+          <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span v-if="loading" class="btn-spin"/>
           {{ loading ? '...' : (status.running ? '停止' : '启动') }}
         </button>
-        <button class="pl-btn pl-btn--ghost" @click="refresh" :disabled="loading">
-          刷新
+        <button class="pl-btn pl-btn--ghost pl-btn--icon" @click="refresh" :disabled="loading" title="刷新">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
         </button>
       </div>
     </template>
 
-    <div class="daemon-content">
-      <!-- 系统状态 -->
-      <section class="section">
-        <div class="section-head">
-          <h2>系统状态</h2>
-          <span class="badge" :class="statusBadgeClass">{{ statusBadgeText }}</span>
+    <div class="dmgr">
+
+      <!-- 状态概览 -->
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">状态概览</span>
+          <span class="status-badge" :class="statusBadgeClass">{{ statusBadgeText }}</span>
         </div>
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-value">{{ status.adapter_count || 0 }}</div>
-            <div class="stat-label">已连接平台</div>
+            <div class="stat-icon stat-icon--blue">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-value">{{ status.adapter_count || 0 }}</div>
+              <div class="stat-label">已连接平台</div>
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">{{ cronTaskCount }}</div>
-            <div class="stat-label">定时任务</div>
+            <div class="stat-icon stat-icon--green">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-value">{{ cronTaskCount }}</div>
+              <div class="stat-label">定时任务</div>
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">{{ status.daemon_sessions || 0 }}</div>
-            <div class="stat-label">守护会话</div>
+            <div class="stat-icon stat-icon--purple">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div class="stat-body">
+              <div class="stat-value">{{ status.daemon_sessions || 0 }}</div>
+              <div class="stat-label">守护会话</div>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- 基础配置 -->
-      <section class="section">
-        <div class="section-head">
-          <h2>基础配置</h2>
-          <button class="pl-btn pl-btn--primary" @click="saveBaseConfig" :disabled="baseSaving">
-            {{ baseSaving ? '保存中...' : '保存配置' }}
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">基础配置</span>
+          <button class="act-btn act-btn--accent" @click="saveBaseConfig" :disabled="baseSaving">
+            {{ baseSaving ? '保存中...' : '保存' }}
           </button>
         </div>
-        <div class="base-config-card">
-          <div class="form-grid two-col">
+        <div class="config-card">
+          <div class="config-grid">
             <div class="form-item">
               <label class="form-label">守护系统开关</label>
-              <div class="switch-row">
-                <span class="badge" :class="baseForm.enabled ? 'badge-success' : 'badge-neutral'">
+              <div class="toggle-row">
+                <span class="status-badge" :class="baseForm.enabled ? 'status-badge--success' : 'status-badge--neutral'">
                   {{ baseForm.enabled ? '已启用' : '未启用' }}
                 </span>
-                <div class="platform-config-toggle" @click="baseForm.enabled = !baseForm.enabled">
-                  <span class="toggle-track" :class="{ 'toggle-track--on': baseForm.enabled }">
-                    <span class="toggle-thumb" />
-                  </span>
-                </div>
+                <button
+                  class="toggle-btn" :class="{ 'toggle-btn--on': baseForm.enabled }"
+                  @click="baseForm.enabled = !baseForm.enabled"
+                  role="switch" :aria-checked="baseForm.enabled"
+                ><span class="toggle-thumb"/></button>
               </div>
             </div>
             <div class="form-item">
               <label class="form-label">默认会话 TTL（秒）</label>
-              <input v-model.number="baseForm.default_session_ttl" type="number" min="60" class="form-control" />
+              <input v-model.number="baseForm.default_session_ttl" type="number" min="60" class="form-ctrl" />
             </div>
             <div class="form-item">
               <label class="form-label">Team 名称</label>
-              <input v-model="baseForm.team_name" class="form-control" placeholder="default" />
+              <input v-model="baseForm.team_name" class="form-ctrl" placeholder="default" />
             </div>
             <div class="form-item">
-              <label class="form-label">入口 Agent（留空用 team 默认）</label>
-              <input v-model="baseForm.entry_agent" class="form-control" placeholder="留空则用 team 的 default_entry" />
+              <label class="form-label">入口 Agent</label>
+              <input v-model="baseForm.entry_agent" class="form-ctrl" placeholder="留空则用 team 的 default_entry" />
             </div>
             <div class="form-item">
               <label class="form-label">心跳间隔（秒）</label>
-              <input v-model.number="baseForm.heartbeat_interval" type="number" min="5" class="form-control" />
+              <input v-model.number="baseForm.heartbeat_interval" type="number" min="5" class="form-ctrl" />
             </div>
           </div>
-          <p class="section-tip">保存后，若守护系统正在运行，会自动重载并应用新配置。</p>
+          <p class="section-tip">保存后若守护系统正在运行，会自动重载并应用新配置。</p>
         </div>
       </section>
 
       <!-- 平台配置 -->
-      <section class="section">
-        <div class="section-head">
-          <h2>平台配置</h2>
-          <button class="act-btn act-btn--accent" @click="openAddPlatform">+ 添加平台</button>
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">平台配置</span>
+          <button class="act-btn act-btn--accent" @click="openAddPlatform">+ 添加</button>
         </div>
-        <div v-if="platformConfigs.length" class="platform-config-grid">
+        <div v-if="platformConfigs.length" class="platform-grid">
           <div
-            v-for="pc in platformConfigs"
-            :key="pc.key"
-            class="platform-config-card"
-            :class="{ 'platform-config-card--active': pc.enabled }"
+            v-for="pc in platformConfigs" :key="pc.key"
+            class="platform-card" :class="{ 'platform-card--active': pc.enabled }"
           >
-            <div class="platform-config-head">
-              <div class="platform-config-name">
-                {{ platformLabel(pc.key) }}
+            <div class="platform-card-head">
+              <div class="platform-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                </svg>
               </div>
-              <div class="platform-config-toggle" @click="togglePlatformEnabled(pc.key)">
-                <span class="toggle-track" :class="{ 'toggle-track--on': pc.enabled }">
-                  <span class="toggle-thumb" />
-                </span>
+              <span class="platform-name">{{ platformLabel(pc.key) }}</span>
+              <button
+                class="toggle-btn toggle-btn--sm" :class="{ 'toggle-btn--on': pc.enabled }"
+                @click="togglePlatformEnabled(pc.key)"
+                role="switch" :aria-checked="pc.enabled"
+              ><span class="toggle-thumb"/></button>
+            </div>
+            <div class="platform-fields">
+              <div class="platform-field">
+                <span class="pf-lbl">App ID</span>
+                <span class="pf-val mono">{{ mask(pc.app_id) || '—' }}</span>
+              </div>
+              <div class="platform-field">
+                <span class="pf-lbl">App Secret</span>
+                <span class="pf-val mono">{{ mask(pc.app_secret) || '—' }}</span>
+              </div>
+              <div v-for="ef in pc.extra_fields" :key="ef.key" class="platform-field">
+                <span class="pf-lbl">{{ ef.label }}</span>
+                <span class="pf-val">{{ ef.value || '—' }}</span>
               </div>
             </div>
-            <div class="platform-config-body">
-              <div class="platform-config-field">
-                <span class="platform-config-label">App ID</span>
-                <span class="platform-config-value">{{ mask(pc.app_id) || '未配置' }}</span>
-              </div>
-              <div class="platform-config-field">
-                <span class="platform-config-label">App Secret</span>
-                <span class="platform-config-value">{{ mask(pc.app_secret) || '未配置' }}</span>
-              </div>
-              <div v-if="pc.extra_fields.length" class="platform-config-extra">
-                <div v-for="ef in pc.extra_fields" :key="ef.key" class="platform-config-field">
-                  <span class="platform-config-label">{{ ef.label }}</span>
-                  <span class="platform-config-value">{{ mask(ef.value) || '未配置' }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="platform-config-actions">
+            <div class="platform-card-foot">
               <button class="act-btn" @click="openEditPlatform(pc.key)">编辑</button>
               <button class="act-btn act-btn--danger" @click="removePlatform(pc.key)">移除</button>
             </div>
           </div>
         </div>
-        <div v-else class="state-panel state-panel--empty">
-          <p>暂无平台配置，点击右上角添加</p>
+        <div v-else class="empty-panel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          <p>暂无平台配置，点击「添加」开始</p>
         </div>
       </section>
 
-      <!-- 平台适配器状态 -->
-      <section class="section">
-        <div class="section-head"><h2>适配器状态</h2></div>
-        <div class="adapter-grid">
-          <div
-            v-for="agent in agents"
-            :key="agent.team_name"
-            class="adapter-group"
-          >
-            <div class="adapter-group-title">{{ agent.team_name }}</div>
-            <div class="adapter-cards">
+      <!-- 适配器状态 -->
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">适配器状态</span>
+        </div>
+        <div v-if="agents.length">
+          <div v-for="agent in agents" :key="agent.team_name" class="adapter-group">
+            <div class="adapter-group-lbl">{{ agent.team_name }}</div>
+            <div class="adapter-row">
               <div
-                v-for="(info, platform) in agent.platforms"
-                :key="platform"
-                class="adapter-card"
+                v-for="(info, platform) in agent.platforms" :key="platform"
+                class="adapter-chip"
                 :class="{
-                  'adapter-card--connected': info.status === 'connected',
-                  'adapter-card--error': info.status === 'error'
+                  'adapter-chip--connected': info.status === 'connected',
+                  'adapter-chip--error': info.status === 'error',
+                  'adapter-chip--connecting': info.status === 'connecting',
                 }"
               >
-                <div class="adapter-platform">{{ platformLabel(platform) }}</div>
-                <div class="adapter-status">
-                  <span class="dot" :class="'dot-' + info.status"></span>
-                  {{ statusLabel(info.status) }}
-                </div>
+                <span class="adp-dot"/>
+                <span class="adp-name">{{ platformLabel(platform) }}</span>
+                <span class="adp-status">{{ statusLabel(info.status) }}</span>
                 <button
                   v-if="info.enabled && info.status === 'connected'"
-                  class="act-btn"
+                  class="act-btn act-btn--xs"
                   @click="openTestDialog(agent.team_name, platform)"
-                >
-                  测试
-                </button>
+                >测试</button>
               </div>
             </div>
           </div>
-          <div v-if="!agents.length" class="state-panel state-panel--empty">
-            <p>守护系统未运行或无适配器</p>
-          </div>
+        </div>
+        <div v-else class="empty-panel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
+            <path d="M18 20V10M12 20V4M6 20v-6"/>
+          </svg>
+          <p>守护系统未运行或无已连接适配器</p>
         </div>
       </section>
 
-      <!-- Cron 任务 -->
-      <section class="section">
-        <div class="section-head">
-          <h2>定时任务</h2>
+      <!-- 定时任务 -->
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">定时任务</span>
           <button class="act-btn act-btn--accent" @click="showAddTask = true">+ 新增</button>
         </div>
-        <div class="cron-table-wrap">
-          <table v-if="cronTasks.length" class="cron-table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>Cron</th>
-                <th>Agent</th>
-                <th>推送</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="task in cronTasks" :key="task.task_id">
-                <td>
-                  <div class="task-name">{{ task.name || task.task_id }}</div>
-                  <div class="task-desc">{{ taskDesc(task.task) }}</div>
-                </td>
-                <td><code class="cron-expr">{{ task.cron }}</code></td>
-                <td>{{ task.team_name }}</td>
-                <td>{{ task.push_platform ? platformLabel(task.push_platform) : '-' }}</td>
-                <td>
-                  <span class="badge" :class="task.enabled ? 'badge-success' : 'badge-neutral'">
-                    {{ task.enabled ? '启用' : '禁用' }}
-                  </span>
-                </td>
-                <td class="task-actions">
-                  <button class="act-btn" @click="handleTriggerTask(task.task_id)" title="手动触发">&#9654;</button>
-                  <button class="act-btn" @click="handleToggleTask(task)" title="切换状态">
-                    {{ task.enabled ? '&#9208;' : '&#9654;' }}
-                  </button>
-                  <button class="act-btn act-btn--danger" @click="handleDeleteTask(task.task_id)" title="删除">&#10005;</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else class="state-panel state-panel--empty">
-            <p>暂无定时任务</p>
+        <div v-if="cronTasks.length" class="cron-list">
+          <div v-for="task in cronTasks" :key="task.task_id" class="cron-row">
+            <div class="cron-row-main">
+              <div class="cron-meta">
+                <span class="cron-name">{{ task.name || task.task_id }}</span>
+                <code class="cron-expr">{{ task.cron }}</code>
+                <span class="status-badge" :class="task.enabled ? 'status-badge--success' : 'status-badge--neutral'">
+                  {{ task.enabled ? '启用' : '禁用' }}
+                </span>
+              </div>
+              <div class="cron-desc">{{ taskDesc(task.task) }}</div>
+              <div class="cron-footer">
+                <span class="cron-team">{{ task.team_name }}</span>
+                <span v-if="task.push_platform" class="cron-push">→ {{ platformLabel(task.push_platform) }}</span>
+                <span v-if="task.last_run" class="cron-time">上次: {{ formatTime(task.last_run) }}</span>
+              </div>
+            </div>
+            <div class="cron-row-actions">
+              <button class="act-btn act-btn--icon" @click="handleTriggerTask(task.task_id)" title="手动触发">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+              <button class="act-btn act-btn--icon" @click="handleToggleTask(task)" :title="task.enabled ? '禁用' : '启用'">
+                <svg v-if="task.enabled" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+              <button class="act-btn act-btn--icon act-btn--danger" @click="handleDeleteTask(task.task_id)" title="删除">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
           </div>
+        </div>
+        <div v-else class="empty-panel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <p>暂无定时任务</p>
         </div>
       </section>
 
       <!-- 主动推送 -->
-      <section class="section">
-        <div class="section-head"><h2>主动推送</h2></div>
-        <div class="push-form">
-          <div class="form-grid two-col">
-            <select v-model="pushForm.platform" class="form-control">
-              <option value="wechat">企业微信</option>
-              <option value="dingtalk">钉钉</option>
+      <section class="dmgr-section">
+        <div class="dmgr-section-head">
+          <span class="dmgr-section-title">主动推送</span>
+        </div>
+        <div class="config-card">
+          <div class="push-row">
+            <select v-model="pushForm.platform" class="form-ctrl form-ctrl--sm">
               <option value="feishu">飞书</option>
             </select>
-            <input v-model="pushForm.chat_id" class="form-control" placeholder="目标 chat_id（飞书请先通过入站消息获取）" />
+            <input v-model="pushForm.chat_id" class="form-ctrl" placeholder="目标 chat_id" />
           </div>
-          <textarea v-model="pushForm.content" class="form-control" placeholder="推送内容" rows="2"></textarea>
-          <button class="pl-btn pl-btn--primary" @click="handlePush" :disabled="pushSending">
-            {{ pushSending ? '发送中...' : '发送' }}
-          </button>
+          <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
+          <div class="push-foot">
+            <button class="pl-btn pl-btn--primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">
+              {{ pushSending ? '发送中...' : '发送' }}
+            </button>
+          </div>
         </div>
       </section>
+
     </div>
 
-    <!-- 平台配置编辑弹窗 -->
-    <div v-if="showConfigModal" class="modal-backdrop" @click.self="showConfigModal = false">
-      <div class="modal-shell modal-shell--narrow">
-        <div class="modal-header">
-          <h3>{{ isNewPlatform ? '添加平台' : '编辑配置' }} — {{ platformLabel(platformForm.key) }}</h3>
-          <button class="modal-close" @click="showConfigModal = false">&#10005;</button>
-        </div>
-        <div class="modal-body">
-          <div v-if="isNewPlatform" class="form-item">
-            <label class="form-label">选择平台</label>
-            <select v-model="platformForm.key" class="form-control">
-              <option value="wechat">企业微信</option>
-              <option value="dingtalk">钉钉</option>
-              <option value="feishu">飞书</option>
-            </select>
+    <!-- 平台配置弹窗 -->
+    <teleport to="body">
+      <div v-if="showConfigModal" class="modal-bg" @click.self="showConfigModal = false">
+        <div class="modal-box">
+          <div class="modal-hdr">
+            <h3>{{ isNewPlatform ? '添加平台' : '编辑配置' }} — {{ platformLabel(platformForm.key) }}</h3>
+            <button class="modal-close" @click="showConfigModal = false">×</button>
           </div>
-          <div class="form-item">
-            <label class="form-label">{{ fieldLabel('app_id') }}</label>
-            <input v-model="platformForm.app_id" class="form-control" :placeholder="fieldPlaceholder('app_id')" />
-          </div>
-          <div class="form-item">
-            <label class="form-label">{{ fieldLabel('app_secret') }}</label>
-            <input v-model="platformForm.app_secret" class="form-control" type="password" :placeholder="fieldPlaceholder('app_secret')" />
-          </div>
-          <div v-if="platformForm.key === 'wechat'" class="form-item">
-            <label class="form-label">企业 CorpID</label>
-            <input v-model="platformForm.extra_corp_id" class="form-control" placeholder="ww1234567890abcdef" />
-          </div>
-          <div v-if="platformForm.key === 'dingtalk'" class="form-item">
-            <label class="form-label">企业应用 AgentId</label>
-            <input v-model="platformForm.extra_agent_id" class="form-control" placeholder="123456789" />
-          </div>
-          <div v-if="platformForm.key === 'feishu'" class="form-item">
-            <label class="form-label">接收方式</label>
-            <select v-model="platformForm.receive_mode" class="form-control">
-              <option value="long_connection">长连接（推荐，无需公网）</option>
-              <option value="webhook">Webhook（需要公网 HTTPS）</option>
-            </select>
-            <p class="section-tip">长连接模式下无需公网地址；Webhook 模式下需配置公网 HTTPS 回调地址。</p>
-          </div>
-          <div class="form-item">
-            <label class="form-label">{{ platformForm.key === 'feishu' ? '事件订阅 Token（推荐）' : '回调 Token（可选）' }}</label>
-            <input v-model="platformForm.token" class="form-control" :placeholder="platformForm.key === 'feishu' && platformForm.receive_mode === 'long_connection' ? '飞书事件订阅 Token' : '用于验证 webhook 消息来源'" />
-          </div>
-          <div class="form-item">
-            <label class="form-label">{{ platformForm.key === 'feishu' ? 'Encrypt Key（可选）' : 'EncodingAESKey（可选）' }}</label>
-            <input v-model="platformForm.encoding_aes_key" class="form-control" :placeholder="platformForm.key === 'feishu' && platformForm.receive_mode === 'long_connection' ? '未开启消息加密可留空' : '消息加解密密钥'" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="pl-btn pl-btn--ghost" @click="showConfigModal = false">取消</button>
-          <button class="pl-btn pl-btn--primary" @click="savePlatformConfig" :disabled="configSaving">
-            {{ configSaving ? '保存中...' : '保存' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 新增 Cron 任务弹窗 -->
-    <div v-if="showAddTask" class="modal-backdrop" @click.self="showAddTask = false">
-      <div class="modal-shell modal-shell--narrow">
-        <div class="modal-header">
-          <h3>新增定时任务</h3>
-          <button class="modal-close" @click="showAddTask = false">&#10005;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-item">
-            <label class="form-label">任务名称</label>
-            <input v-model="newTask.name" class="form-control" placeholder="如：早间简报" />
-          </div>
-          <div class="form-item">
-            <label class="form-label">Cron 表达式</label>
-            <input v-model="newTask.cron" class="form-control" placeholder="0 9 * * 1-5" />
-          </div>
-          <div class="form-item">
-            <label class="form-label">任务描述</label>
-            <textarea v-model="newTask.task" class="form-control" placeholder="传给 Agent 的任务文本" rows="2"></textarea>
-          </div>
-          <div class="form-item">
-            <label class="form-label">Team</label>
-            <input v-model="newTask.team_name" class="form-control" placeholder="default" />
-          </div>
-          <div class="form-item">
-            <label class="form-label">入口 Agent（可选）</label>
-            <input v-model="newTask.entry_agent" class="form-control" placeholder="留空用 team 默认" />
-          </div>
-          <div class="form-grid two-col">
-            <div class="form-item">
-              <label class="form-label">推送平台（可选）</label>
-              <select v-model="newTask.push_platform" class="form-control">
-                <option :value="null">不推送</option>
-                <option value="wechat">企业微信</option>
-                <option value="dingtalk">钉钉</option>
+          <div class="modal-body">
+            <div v-if="isNewPlatform" class="form-item">
+              <label class="form-label">平台</label>
+              <select v-model="platformForm.key" class="form-ctrl">
                 <option value="feishu">飞书</option>
               </select>
             </div>
             <div class="form-item">
-              <label class="form-label">推送 chat_id</label>
-              <input v-model="newTask.push_chat_id" class="form-control" placeholder="可选" />
+              <label class="form-label">App ID</label>
+              <input v-model="platformForm.app_id" class="form-ctrl" placeholder="cli_xxxxxxxxxxxx" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">App Secret</label>
+              <input v-model="platformForm.app_secret" class="form-ctrl" type="password" placeholder="粘贴你的应用密钥" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">接收方式</label>
+              <select v-model="platformForm.receive_mode" class="form-ctrl">
+                <option value="long_connection">长连接（推荐，无需公网）</option>
+                <option value="webhook">Webhook（需要公网 HTTPS）</option>
+              </select>
+              <p class="section-tip">长连接无需公网地址；Webhook 需配置公网 HTTPS 回调。</p>
+            </div>
+            <div class="form-item">
+              <label class="form-label">事件订阅 Token</label>
+              <input v-model="platformForm.token" class="form-ctrl" placeholder="飞书事件订阅 Token" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">Encrypt Key（可选）</label>
+              <input v-model="platformForm.encoding_aes_key" class="form-ctrl" placeholder="未开启消息加密可留空" />
             </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button class="pl-btn pl-btn--ghost" @click="showAddTask = false">取消</button>
-          <button class="pl-btn pl-btn--primary" @click="handleAddTask">创建</button>
+          <div class="modal-foot">
+            <button class="pl-btn pl-btn--ghost" @click="showConfigModal = false">取消</button>
+            <button class="pl-btn pl-btn--primary" @click="savePlatformConfig" :disabled="configSaving">
+              {{ configSaving ? '保存中...' : '保存' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </teleport>
+
+    <!-- 新增 Cron 任务弹窗 -->
+    <teleport to="body">
+      <div v-if="showAddTask" class="modal-bg" @click.self="showAddTask = false">
+        <div class="modal-box">
+          <div class="modal-hdr">
+            <h3>新增定时任务</h3>
+            <button class="modal-close" @click="showAddTask = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-item">
+              <label class="form-label">任务名称</label>
+              <input v-model="newTask.name" class="form-ctrl" placeholder="如：早间简报" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">Cron 表达式</label>
+              <input v-model="newTask.cron" class="form-ctrl" placeholder="0 9 * * 1-5" />
+              <p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p>
+            </div>
+            <div class="form-item">
+              <label class="form-label">任务描述（传给 Agent）</label>
+              <textarea v-model="newTask.task" class="form-ctrl" placeholder="请生成今日简报..." rows="2"/>
+            </div>
+            <div class="form-item">
+              <label class="form-label">Team</label>
+              <input v-model="newTask.team_name" class="form-ctrl" placeholder="default" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">入口 Agent（可选）</label>
+              <input v-model="newTask.entry_agent" class="form-ctrl" placeholder="留空用 team 默认" />
+            </div>
+            <div class="form-two-col">
+              <div class="form-item">
+                <label class="form-label">推送平台</label>
+                <select v-model="newTask.push_platform" class="form-ctrl">
+                  <option :value="null">不推送</option>
+                  <option value="feishu">飞书</option>
+                </select>
+              </div>
+              <div class="form-item">
+                <label class="form-label">推送 chat_id</label>
+                <input v-model="newTask.push_chat_id" class="form-ctrl" placeholder="可选" />
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="pl-btn pl-btn--ghost" @click="showAddTask = false">取消</button>
+            <button class="pl-btn pl-btn--primary" @click="handleAddTask">创建</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
 
     <!-- 测试消息弹窗 -->
-    <div v-if="showTestDialog" class="modal-backdrop" @click.self="showTestDialog = false">
-      <div class="modal-shell modal-shell--narrow">
-        <div class="modal-header">
-          <h3>测试消息 — {{ platformLabel(testTarget.platform) }}</h3>
-          <button class="modal-close" @click="showTestDialog = false">&#10005;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-item">
-            <label class="form-label">Chat ID</label>
-            <input v-model="testForm.chat_id" class="form-control" placeholder="真实 chat_id（飞书勿填 test_user）" />
+    <teleport to="body">
+      <div v-if="showTestDialog" class="modal-bg" @click.self="showTestDialog = false">
+        <div class="modal-box modal-box--sm">
+          <div class="modal-hdr">
+            <h3>测试 — {{ platformLabel(testTarget.platform) }}</h3>
+            <button class="modal-close" @click="showTestDialog = false">×</button>
           </div>
-          <div class="form-item">
-            <label class="form-label">消息内容</label>
-            <input v-model="testForm.content" class="form-control" placeholder="测试消息" />
+          <div class="modal-body">
+            <div class="form-item">
+              <label class="form-label">Chat ID</label>
+              <input v-model="testForm.chat_id" class="form-ctrl" placeholder="真实 chat_id" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">消息内容</label>
+              <input v-model="testForm.content" class="form-ctrl" placeholder="测试消息" />
+            </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button class="pl-btn pl-btn--ghost" @click="showTestDialog = false">取消</button>
-          <button class="pl-btn pl-btn--primary" @click="handleTest">发送</button>
+          <div class="modal-foot">
+            <button class="pl-btn pl-btn--ghost" @click="showTestDialog = false">取消</button>
+            <button class="pl-btn pl-btn--primary" @click="handleTest">发送</button>
+          </div>
         </div>
       </div>
-    </div>
+    </teleport>
+
   </PageLayout>
 </template>
+
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import PageLayout from '../components/PageLayout.vue'
@@ -403,8 +429,7 @@ const baseForm = ref({
 
 const testTarget = ref({ team_name: '', platform: '' })
 const testForm = ref({ chat_id: '', content: '测试消息' })
-
-const pushForm = ref({ platform: 'wechat', chat_id: '', content: '' })
+const pushForm = ref({ platform: 'feishu', chat_id: '', content: '' })
 const pushSending = ref(false)
 
 const newTask = ref({
@@ -416,15 +441,14 @@ const platformForm = ref({
   key: 'feishu',
   app_id: '', app_secret: '', token: '', encoding_aes_key: '',
   receive_mode: 'long_connection',
-  extra_corp_id: '', extra_agent_id: '',
 })
 
 // ── 计算属性 ──
 
 const statusBadgeClass = computed(() => {
-  if (status.value.running) return 'badge-success'
-  if (status.value.enabled) return 'badge-warning'
-  return 'badge-neutral'
+  if (status.value.running) return 'status-badge--success'
+  if (status.value.enabled) return 'status-badge--warning'
+  return 'status-badge--neutral'
 })
 
 const statusBadgeText = computed(() => {
@@ -438,44 +462,29 @@ const cronTaskCount = computed(() => cronTasks.value.length)
 const platformConfigs = computed(() => {
   const agent = daemonConfig.value?.agents?.[0]
   if (!agent) return []
-  const platforms = agent.platforms || {}
-  return Object.entries(platforms).map(([key, conn]) => {
+  return Object.entries(agent.platforms || {}).map(([key, conn]) => {
     const extra = conn.extra || {}
     const extraFields = []
-    if (key === 'wechat' && extra.corp_id !== undefined) {
-      extraFields.push({ key: 'corp_id', label: 'Corp ID', value: extra.corp_id })
-    }
-    if (key === 'dingtalk' && extra.agent_id !== undefined) {
-      extraFields.push({ key: 'agent_id', label: 'Agent ID', value: extra.agent_id })
-    }
     if (key === 'feishu') {
-      extraFields.push({ key: 'receive_mode', label: '接收方式', value: extra.receive_mode || 'webhook' })
+      extraFields.push({ key: 'receive_mode', label: '接收方式', value: extra.receive_mode === 'long_connection' ? '长连接' : 'Webhook' })
     }
-    return {
-      key,
-      enabled: conn.enabled,
-      app_id: conn.app_id,
-      app_secret: conn.app_secret,
-      extra_fields: extraFields,
-    }
+    return { key, enabled: conn.enabled, app_id: conn.app_id, app_secret: conn.app_secret, extra_fields: extraFields }
   })
 })
 
-// ── 标签工具 ──
+// ── 工具函数 ──
 
 function platformLabel(p) {
-  const map = { wechat: '企业微信', dingtalk: '钉钉', feishu: '飞书' }
-  return map[p] || p
+  return { feishu: '飞书' }[p] || p
 }
 
 function statusLabel(s) {
-  const map = { connected: '已连接', disconnected: '未连接', connecting: '连接中', error: '异常' }
-  return map[s] || s
+  return { connected: '已连接', disconnected: '未连接', connecting: '连接中', error: '异常' }[s] || s
 }
 
 function taskDesc(text) {
   if (!text) return ''
-  return text.length > 60 ? text.slice(0, 60) + '...' : text
+  return text.length > 80 ? text.slice(0, 80) + '...' : text
 }
 
 function mask(val) {
@@ -484,24 +493,10 @@ function mask(val) {
   return val.slice(0, 4) + '****' + val.slice(-4)
 }
 
-const FIELD_LABELS = {
-  wechat: { app_id: 'AgentId（应用 ID）', app_secret: '应用 Secret' },
-  dingtalk: { app_id: 'AppKey', app_secret: 'AppSecret' },
-  feishu: { app_id: 'App ID', app_secret: 'App Secret' },
-}
-
-function fieldLabel(field) {
-  const labels = FIELD_LABELS[platformForm.value.key] || {}
-  return labels[field] || field
-}
-
-function fieldPlaceholder(field) {
-  if (field === 'app_id') {
-    const map = { wechat: '1000002', dingtalk: 'dingxxxxxx', feishu: 'cli_xxxxxxxxxxxx' }
-    return map[platformForm.value.key] || ''
-  }
-  if (field === 'app_secret') return '粘贴你的应用密钥'
-  return ''
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts * 1000)
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 // ── 数据刷新 ──
@@ -536,16 +531,12 @@ async function refresh() {
   }
 }
 
-// ── 守护系统控制 ──
+// ── 系统控制 ──
 
 async function toggleDaemon() {
   loading.value = true
   try {
-    if (status.value.running) {
-      await api.stopDaemon()
-    } else {
-      await api.startDaemon()
-    }
+    status.value.running ? await api.stopDaemon() : await api.startDaemon()
     await refresh()
   } catch (e) {
     console.error('操作失败:', e)
@@ -587,26 +578,20 @@ function ensureAgentEntry() {
 
 function openAddPlatform() {
   isNewPlatform.value = true
-  platformForm.value = {
-    key: 'feishu', app_id: '', app_secret: '',
-    token: '', encoding_aes_key: '', receive_mode: 'long_connection', extra_corp_id: '', extra_agent_id: '',
-  }
+  platformForm.value = { key: 'feishu', app_id: '', app_secret: '', token: '', encoding_aes_key: '', receive_mode: 'long_connection' }
   showConfigModal.value = true
 }
 
 function openEditPlatform(platformKey) {
   isNewPlatform.value = false
-  const agent = daemonConfig.value?.agents?.[0]
-  const conn = agent?.platforms?.[platformKey] || {}
+  const conn = daemonConfig.value?.agents?.[0]?.platforms?.[platformKey] || {}
   platformForm.value = {
     key: platformKey,
     app_id: conn.app_id || '',
     app_secret: conn.app_secret || '',
     token: conn.token || '',
     encoding_aes_key: conn.encoding_aes_key || '',
-    receive_mode: conn.extra?.receive_mode || (platformKey === 'feishu' ? 'long_connection' : 'webhook'),
-    extra_corp_id: conn.extra?.corp_id || '',
-    extra_agent_id: conn.extra?.agent_id || '',
+    receive_mode: conn.extra?.receive_mode || 'long_connection',
   }
   showConfigModal.value = true
 }
@@ -616,11 +601,7 @@ async function savePlatformConfig() {
   try {
     const agent = ensureAgentEntry()
     const f = platformForm.value
-    const extra = { ...agent.platforms[f.key]?.extra }
-    if (f.key === 'wechat' && f.extra_corp_id) extra.corp_id = f.extra_corp_id
-    if (f.key === 'dingtalk' && f.extra_agent_id) extra.agent_id = f.extra_agent_id
-    if (f.key === 'feishu') extra.receive_mode = f.receive_mode || 'long_connection'
-
+    const extra = { ...agent.platforms[f.key]?.extra, receive_mode: f.receive_mode || 'long_connection' }
     agent.platforms[f.key] = {
       enabled: true,
       app_id: f.app_id || null,
@@ -629,7 +610,6 @@ async function savePlatformConfig() {
       encoding_aes_key: f.encoding_aes_key || null,
       extra,
     }
-
     await api.updateConfig(daemonConfig.value)
     showConfigModal.value = false
     await refresh()
@@ -644,24 +624,16 @@ async function togglePlatformEnabled(platformKey) {
   const agent = daemonConfig.value?.agents?.[0]
   if (!agent?.platforms?.[platformKey]) return
   agent.platforms[platformKey].enabled = !agent.platforms[platformKey].enabled
-  try {
-    await api.updateConfig(daemonConfig.value)
-    await refresh()
-  } catch (e) {
-    console.error('更新失败:', e)
-  }
+  try { await api.updateConfig(daemonConfig.value); await refresh() }
+  catch (e) { console.error('更新失败:', e) }
 }
 
 async function removePlatform(platformKey) {
   const agent = daemonConfig.value?.agents?.[0]
   if (!agent?.platforms?.[platformKey]) return
   delete agent.platforms[platformKey]
-  try {
-    await api.updateConfig(daemonConfig.value)
-    await refresh()
-  } catch (e) {
-    console.error('移除失败:', e)
-  }
+  try { await api.updateConfig(daemonConfig.value); await refresh() }
+  catch (e) { console.error('移除失败:', e) }
 }
 
 // ── 测试 ──
@@ -680,9 +652,7 @@ async function handleTest() {
       chat_id: testForm.value.chat_id,
     })
     showTestDialog.value = false
-  } catch (e) {
-    console.error('测试失败:', e)
-  }
+  } catch (e) { console.error('测试失败:', e) }
 }
 
 // ── 主动推送 ──
@@ -703,17 +673,11 @@ async function handlePush() {
 
 async function handleAddTask() {
   try {
-    const payload = { ...newTask.value, task_id: 'cron_' + Date.now() }
-    await api.createCronTask(payload)
+    await api.createCronTask({ ...newTask.value, task_id: 'cron_' + Date.now() })
     showAddTask.value = false
-    newTask.value = {
-      name: '', cron: '', task: '', team_name: 'default', entry_agent: '',
-      push_platform: null, push_chat_id: '',
-    }
+    newTask.value = { name: '', cron: '', task: '', team_name: 'default', entry_agent: '', push_platform: null, push_chat_id: '' }
     await refresh()
-  } catch (e) {
-    console.error('创建任务失败:', e)
-  }
+  } catch (e) { console.error('创建任务失败:', e) }
 }
 
 async function handleTriggerTask(taskId) {
@@ -733,216 +697,327 @@ async function handleDeleteTask(taskId) {
 
 onMounted(refresh)
 </script>
+
 <style scoped>
-.daemon-content { max-width: 900px; margin: 0 auto; }
-
-/* ── Sections ── */
-.section { margin-bottom: var(--spacing-lg); }
-.section-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: var(--spacing-md);
+/* ── 顶部操作栏 ── */
+.hdr-actions { display: flex; align-items: center; gap: 6px; }
+.btn-spin {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
 }
-.section-head h2 {
-  font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin: 0;
-}
-.header-actions { display: flex; gap: var(--spacing-sm); }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Buttons ── */
+/* ── 页面容器 ── */
+.dmgr { display: flex; flex-direction: column; gap: var(--spacing-lg); }
+
+/* ── Section ── */
+.dmgr-section {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-lg);
+  display: flex; flex-direction: column; gap: var(--spacing-md);
+}
+.dmgr-section-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm);
+}
+.dmgr-section-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.section-tip {
+  font-size: 11px; color: var(--color-text-muted);
+  margin: 0; line-height: 1.5;
+}
+.section-tip code {
+  font-family: var(--font-mono, monospace);
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  color: var(--color-brand-accent-light);
+  padding: 1px 5px; border-radius: 4px;
+}
+
+/* ── 状态徽章 ── */
+.status-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 500; line-height: 1.6;
+}
+.status-badge--success { background: rgba(var(--color-success-rgb),.14); color: var(--color-success); }
+.status-badge--warning { background: rgba(var(--color-warning-rgb),.14); color: var(--color-warning); }
+.status-badge--neutral { background: var(--color-hover-overlay); color: var(--color-text-secondary); }
+
+/* ── 按钮 ── */
 .pl-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  gap: var(--spacing-xs); height: 44px; min-height: 44px; padding: 0 16px;
-  border-radius: 22px; border: 1px solid var(--color-border);
+  gap: 6px; height: 36px; min-height: 36px; padding: 0 14px;
+  border-radius: 18px; border: 1px solid var(--color-border);
   background: var(--color-interactive); color: var(--color-text-primary);
-  font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, opacity 0.18s;
+  white-space: nowrap; flex-shrink: 0; user-select: none;
 }
-.pl-btn:hover { background: var(--color-interactive-hover); }
-.pl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pl-btn:hover:not(:disabled) { background: var(--color-interactive-hover); border-color: var(--color-border-hover); }
+.pl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .pl-btn--primary { background: var(--color-brand-accent); color: #fff; border-color: transparent; }
-.pl-btn--primary:hover { opacity: 0.85; background: var(--color-brand-accent); }
-.pl-btn--danger { background: rgba(var(--color-error-rgb), 0.12); color: var(--color-error); border-color: rgba(var(--color-error-rgb), 0.3); }
-.pl-btn--danger:hover { background: rgba(var(--color-error-rgb), 0.2); }
+.pl-btn--primary:hover:not(:disabled) { opacity: 0.88; background: var(--color-brand-accent); }
+.pl-btn--danger { background: rgba(var(--color-error-rgb),.12); color: var(--color-error); border-color: rgba(var(--color-error-rgb),.28); }
+.pl-btn--danger:hover:not(:disabled) { background: rgba(var(--color-error-rgb),.2); }
 .pl-btn--ghost { background: transparent; color: var(--color-text-secondary); border-color: transparent; }
-.pl-btn--ghost:hover { color: var(--color-text-primary); background: var(--color-bg-secondary); }
+.pl-btn--ghost:hover:not(:disabled) { background: var(--color-hover-overlay); color: var(--color-text-primary); }
+.pl-btn--icon { width: 36px; min-width: 36px; padding: 0; }
 
 .act-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 6px 11px; border-radius: var(--radius-sm); border: 1px solid var(--color-border);
+  gap: 4px; padding: 5px 10px;
+  border-radius: var(--radius-sm); border: 1px solid var(--color-border);
   background: transparent; color: var(--color-text-secondary);
-  font-size: var(--font-size-xs); font-weight: 500; cursor: pointer; transition: all 0.2s;
+  font-size: 11px; font-weight: 500; cursor: pointer;
+  transition: all 0.18s; white-space: nowrap; flex-shrink: 0;
 }
-.act-btn:hover { color: var(--color-text-primary); background: var(--color-interactive); border-color: var(--color-border-hover); }
+.act-btn:hover { color: var(--color-text-primary); background: var(--color-hover-overlay); border-color: var(--color-border-hover); }
 .act-btn--accent {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.4);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  border-color: rgba(var(--color-brand-accent-rgb),.35);
+  background: rgba(var(--color-brand-accent-rgb),.1);
   color: var(--color-brand-accent-light); font-weight: 600;
 }
-.act-btn--accent:hover { background: rgba(var(--color-brand-accent-rgb), 0.2); border-color: rgba(var(--color-brand-accent-rgb), 0.5); color: var(--color-brand-accent); }
-.act-btn--danger { color: var(--color-error); border-color: rgba(var(--color-error-rgb), 0.3); }
-.act-btn--danger:hover { background: rgba(var(--color-error-rgb), 0.1); }
-
-/* ── Badges ── */
-.badge { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); padding: 3px 9px; font-size: 11px; font-weight: 500; }
-.badge-success { background: rgba(var(--color-success-rgb), 0.12); color: var(--color-success); }
-.badge-warning { background: rgba(var(--color-warning-rgb), 0.12); color: var(--color-warning); }
-.badge-neutral { background: var(--color-hover-overlay); color: var(--color-text-secondary); }
-
-/* ── Stats Grid ── */
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md); }
-.stat-card {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 20px; border-radius: 18px; background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border); gap: 4px;
-}
-.stat-value { font-size: 28px; font-weight: 700; color: var(--color-brand-accent); }
-.stat-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
-
-/* ── Base Config ── */
-.base-config-card {
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-}
-.switch-row {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-}
-.section-tip {
-  margin: var(--spacing-md) 0 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-/* ── Platform Config Cards ── */
-.platform-config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--spacing-md); }
-.platform-config-card {
-  border-radius: var(--radius-xl); padding: var(--spacing-lg);
-  border: 1px solid var(--color-border); background: var(--color-bg-secondary);
-  display: flex; flex-direction: column; gap: var(--spacing-md);
-  transition: border-color 0.2s;
-}
-.platform-config-card:hover { border-color: var(--color-border-hover); }
-.platform-config-card--active { border-color: rgba(var(--color-success-rgb), 0.35); }
-.platform-config-head { display: flex; align-items: center; justify-content: space-between; }
-.platform-config-name { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
-.platform-config-body { display: flex; flex-direction: column; gap: 6px; }
-.platform-config-field { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.platform-config-label { font-size: var(--font-size-xs); color: var(--color-text-muted); flex-shrink: 0; }
-.platform-config-value {
-  font-size: var(--font-size-xs); color: var(--color-text-secondary);
-  font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.platform-config-actions { display: flex; gap: var(--spacing-sm); }
+.act-btn--accent:hover { background: rgba(var(--color-brand-accent-rgb),.18); }
+.act-btn--danger { color: var(--color-error); border-color: rgba(var(--color-error-rgb),.28); }
+.act-btn--danger:hover { background: rgba(var(--color-error-rgb),.1); }
+.act-btn--icon { width: 28px; height: 28px; padding: 0; }
+.act-btn--xs { padding: 2px 8px; font-size: 10px; }
 
 /* ── Toggle ── */
-.platform-config-toggle { cursor: pointer; }
-.toggle-track {
-  width: 36px; height: 20px; border-radius: var(--radius-full);
-  background: var(--color-bg-secondary); border: 1px solid var(--color-border);
-  position: relative; transition: all 0.2s;
+.toggle-row { display: flex; align-items: center; gap: var(--spacing-sm); min-height: 36px; }
+.toggle-btn {
+  width: 36px; height: 20px; border-radius: 10px; border: none; padding: 0;
+  background: var(--color-bg-tertiary); cursor: pointer;
+  position: relative; transition: background 0.2s;
+  flex-shrink: 0;
 }
-.toggle-track--on { background: rgba(var(--color-success-rgb), 0.25); border-color: rgba(var(--color-success-rgb), 0.5); }
+.toggle-btn--on { background: var(--color-success); }
+.toggle-btn--sm { width: 30px; height: 16px; border-radius: 8px; }
 .toggle-thumb {
-  width: 14px; height: 14px; border-radius: 50%; background: var(--color-text-secondary);
-  position: absolute; top: 2px; left: 2px; transition: all 0.2s;
+  position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: transform 0.2s;
+  display: block;
 }
-.toggle-track--on .toggle-thumb { transform: translateX(16px); background: var(--color-success); }
+.toggle-btn--on .toggle-thumb { transform: translateX(16px); }
+.toggle-btn--sm .toggle-thumb { width: 10px; height: 10px; top: 3px; left: 3px; }
+.toggle-btn--sm.toggle-btn--on .toggle-thumb { transform: translateX(14px); }
 
-/* ── Adapter Cards ── */
-.adapter-grid { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.adapter-group-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-bottom: var(--spacing-sm); }
-.adapter-cards { display: flex; gap: var(--spacing-md); flex-wrap: wrap; }
-.adapter-card {
-  border-radius: var(--radius-xl); padding: var(--spacing-lg);
-  min-width: 160px; display: flex; flex-direction: column; gap: 8px;
-  border: 1px solid var(--color-border); background: var(--color-bg-secondary);
-  transition: border-color 0.2s;
+/* ── 统计卡片 ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-md);
 }
-.adapter-card:hover { border-color: var(--color-border-hover); }
-.adapter-card--connected { border-color: rgba(var(--color-success-rgb), 0.3); }
-.adapter-card--error { border-color: rgba(var(--color-error-rgb), 0.3); }
-.adapter-platform { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
-.adapter-status { font-size: var(--font-size-xs); color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px; }
+.stat-card {
+  display: flex; align-items: center; gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+}
+.stat-icon {
+  width: 38px; height: 38px; border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.stat-icon--blue { background: rgba(var(--color-brand-accent-rgb),.14); color: var(--color-brand-accent); }
+.stat-icon--green { background: rgba(var(--color-success-rgb),.14); color: var(--color-success); }
+.stat-icon--purple { background: rgba(168,85,247,.14); color: #c084fc; }
+.stat-body { display: flex; flex-direction: column; gap: 2px; }
+.stat-value { font-size: 22px; font-weight: 700; color: var(--color-text-primary); line-height: 1; }
+.stat-label { font-size: 11px; color: var(--color-text-muted); }
 
-.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-.dot-connected { background: var(--color-success); }
-.dot-disconnected { background: var(--color-text-secondary); }
-.dot-connecting { background: var(--color-warning); }
-.dot-error { background: var(--color-error); }
+/* ── 配置卡片 ── */
+.config-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  display: flex; flex-direction: column; gap: var(--spacing-md);
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
 
-/* ── Cron Table ── */
-.cron-table-wrap { overflow-x: auto; }
-.cron-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
-.cron-table th, .cron-table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--color-border); }
-.cron-table th { color: var(--color-text-muted); font-weight: 500; font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.5px; }
-.task-name { font-weight: 500; color: var(--color-text-primary); }
-.task-desc { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px; }
+/* ── 表单控件 ── */
+.form-item { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 11px; font-weight: 500; color: var(--color-text-secondary); }
+.form-ctrl {
+  width: 100%; min-height: 36px; padding: 0 12px;
+  border-radius: var(--radius-md); border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary); color: var(--color-text-primary);
+  font-size: 13px; outline: none; box-sizing: border-box;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.form-ctrl:focus { border-color: rgba(var(--color-brand-accent-rgb),.5); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb),.1); }
+textarea.form-ctrl { padding: 10px 12px; resize: vertical; min-height: 72px; font-family: inherit; }
+select.form-ctrl { cursor: pointer; }
+.form-ctrl--sm { min-width: 100px; flex-shrink: 0; }
+.form-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); }
+
+/* ── 平台卡片 ── */
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--spacing-md);
+}
+.platform-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  padding: var(--spacing-md);
+  display: flex; flex-direction: column; gap: var(--spacing-sm);
+  transition: border-color 0.18s;
+}
+.platform-card:hover { border-color: var(--color-border-hover); }
+.platform-card--active { border-color: rgba(var(--color-success-rgb),.3); }
+.platform-card-head {
+  display: flex; align-items: center; gap: var(--spacing-sm);
+}
+.platform-icon {
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  background: rgba(var(--color-brand-accent-rgb),.12);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-brand-accent); flex-shrink: 0;
+}
+.platform-name { font-size: 14px; font-weight: 600; color: var(--color-text-primary); flex: 1; }
+.platform-fields { display: flex; flex-direction: column; gap: 4px; }
+.platform-field { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pf-lbl { font-size: 11px; color: var(--color-text-muted); flex-shrink: 0; }
+.pf-val { font-size: 11px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-val.mono { font-family: var(--font-mono, monospace); }
+.platform-card-foot { display: flex; gap: var(--spacing-sm); padding-top: 4px; }
+
+/* ── 适配器状态 ── */
+.adapter-group { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.adapter-group-lbl { font-size: 12px; font-weight: 500; color: var(--color-text-muted); }
+.adapter-row { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.adapter-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: 13px; transition: border-color 0.18s;
+}
+.adapter-chip--connected { border-color: rgba(var(--color-success-rgb),.3); }
+.adapter-chip--error { border-color: rgba(var(--color-error-rgb),.3); }
+.adapter-chip--connecting { border-color: rgba(var(--color-warning-rgb),.3); }
+.adp-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--color-text-muted);
+}
+.adapter-chip--connected .adp-dot { background: var(--color-success); }
+.adapter-chip--error .adp-dot { background: var(--color-error); }
+.adapter-chip--connecting .adp-dot { background: var(--color-warning); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.adp-name { font-weight: 500; color: var(--color-text-primary); }
+.adp-status { font-size: 11px; color: var(--color-text-muted); }
+
+/* ── Cron 列表 ── */
+.cron-list {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.cron-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md);
+  padding: 12px var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.15s;
+}
+.cron-row:last-child { border-bottom: none; }
+.cron-row:hover { background: var(--color-hover-overlay); }
+.cron-row-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.cron-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cron-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
 .cron-expr {
-  background: rgba(var(--color-brand-accent-rgb), 0.1); padding: 2px 8px;
-  border-radius: var(--radius-sm); font-size: var(--font-size-xs);
-  color: var(--color-brand-accent); font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace); font-size: 11px;
+  background: rgba(var(--color-brand-accent-rgb),.1);
+  color: var(--color-brand-accent-light);
+  padding: 2px 7px; border-radius: 5px;
 }
-.task-actions { display: flex; gap: 4px; }
+.cron-desc { font-size: 12px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cron-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cron-team { font-size: 11px; color: var(--color-text-muted); }
+.cron-push { font-size: 11px; color: var(--color-brand-accent-light); }
+.cron-time { font-size: 11px; color: var(--color-text-muted); }
+.cron-row-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
-/* ── Push Form ── */
-.push-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
+/* ── 推送表单 ── */
+.push-row { display: flex; gap: var(--spacing-sm); }
+.push-foot { display: flex; justify-content: flex-end; }
 
-/* ── Form Controls ── */
-.form-control {
-  width: 100%; min-height: 44px; border-radius: 14px;
-  border: 1px solid var(--color-border); background: var(--color-bg-secondary);
-  color: var(--color-text-primary); padding: 0 14px; font-size: var(--font-size-sm);
-  outline: none; transition: border-color 0.18s, box-shadow 0.18s;
-}
-.form-control:focus { border-color: rgba(var(--color-brand-accent-rgb), 0.52); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12); }
-textarea.form-control { padding: 12px 14px; resize: vertical; min-height: 80px; font-family: inherit; }
-select.form-control { cursor: pointer; }
-
-.form-grid { display: grid; gap: var(--spacing-md); }
-.form-grid.two-col { grid-template-columns: 1fr 1fr; }
-.form-item { display: flex; flex-direction: column; gap: 6px; }
-.form-label { font-size: var(--font-size-xs); font-weight: 500; color: var(--color-text-secondary); }
-
-/* ── Modal ── */
-.modal-backdrop {
-  position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center;
-}
-.modal-shell {
-  width: min(480px, 100%); border-radius: var(--radius-xl);
-  background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-border); max-height: 80vh; overflow-y: auto;
-}
-.modal-shell--narrow { width: min(480px, 100%); }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: var(--spacing-lg) var(--spacing-lg) 0; }
-.modal-header h3 { font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin: 0; }
-.modal-close {
-  width: 32px; height: 32px; border-radius: var(--radius-md); border: none;
-  background: transparent; color: var(--color-text-secondary); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s;
-}
-.modal-close:hover { background: var(--color-interactive); color: var(--color-text-primary); }
-.modal-body { padding: var(--spacing-lg); display: flex; flex-direction: column; gap: var(--spacing-md); }
-.modal-footer {
-  display: flex; justify-content: flex-end; gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg); border-top: 1px solid var(--color-border);
-}
-
-/* ── State Panel ── */
-.state-panel {
+/* ── 空状态 ── */
+.empty-panel {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 16px; padding: 40px 20px; border-radius: var(--radius-lg);
-  text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-sm);
+  gap: 10px; padding: 36px 20px;
+  color: var(--color-text-muted); font-size: 13px; text-align: center;
+}
+.empty-panel p { margin: 0; }
+
+/* ── 弹窗 ── */
+.modal-bg {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--spacing-md);
+}
+.modal-box {
+  width: min(480px, 100%); max-height: 88vh; overflow-y: auto;
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg); backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-glass-border);
+  box-shadow: var(--shadow-xl);
+  display: flex; flex-direction: column;
+}
+.modal-box--sm { width: min(360px, 100%); }
+.modal-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--spacing-lg) var(--spacing-lg) 0;
+  flex-shrink: 0;
+}
+.modal-hdr h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
+.modal-close {
+  width: 28px; height: 28px; border-radius: var(--radius-sm); border: none;
+  background: transparent; color: var(--color-text-secondary);
+  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background 0.18s, color 0.18s; flex-shrink: 0;
+}
+.modal-close:hover { background: var(--color-hover-overlay); color: var(--color-text-primary); }
+.modal-body {
+  padding: var(--spacing-lg);
+  display: flex; flex-direction: column; gap: var(--spacing-md);
+  flex: 1; min-height: 0;
+}
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
+  border-top: 1px solid var(--color-border); flex-shrink: 0;
 }
 
-/* ── Responsive ── */
-@media (max-width: 640px) {
+/* ── 响应式 ── */
+@media (max-width: 680px) {
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .config-grid { grid-template-columns: 1fr; }
+  .form-two-col { grid-template-columns: 1fr; }
+  .platform-grid { grid-template-columns: 1fr; }
+  .push-row { flex-direction: column; }
+  .cron-row { flex-direction: column; align-items: flex-start; }
+  .cron-row-actions { align-self: flex-end; }
+}
+@media (max-width: 400px) {
   .stats-grid { grid-template-columns: 1fr; }
-  .form-grid.two-col { grid-template-columns: 1fr; }
-  .adapter-cards { flex-direction: column; }
-  .platform-config-grid { grid-template-columns: 1fr; }
+  .stat-card { padding: var(--spacing-md); }
 }
 </style>
