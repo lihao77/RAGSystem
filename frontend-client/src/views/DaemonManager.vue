@@ -109,8 +109,8 @@
               <input v-model.number="baseForm.heartbeat_interval" type="number" min="5" class="form-ctrl" />
             </div>
             <div class="form-item">
-              <label class="form-label">默认 Session ID</label>
-              <input v-model="baseForm.default_session_id" class="form-ctrl" placeholder="留空则按 chat_id 自动生成" />
+              <label class="form-label">Agent 级 Session ID（可选）</label>
+              <input v-model="baseForm.agent_session_id" class="form-ctrl" placeholder="留空则按 team_name + chat_id 自动派生" />
               <span class="section-tip">相同 ID 将复用历史上下文</span>
             </div>
           </div>
@@ -220,26 +220,47 @@
           <div class="config-grid">
             <div class="form-item">
               <label class="form-label">审批模式</label>
-              <CustomSelect v-model="permForm.mode" :options="PERM_MODE_OPTIONS" />
-              <p class="section-tip">strict: 所有风险工具须审批 | standard: medium+high | relaxed: 仅 high</p>
+              <CustomSelect v-model="permForm.mode" :options="PERM_MODE_OPTIONS" :disabled="isSkipAllApprovals" />
+              <p class="section-tip">strict: 所有风险工具须审批 | standard: medium+high | relaxed: 仅 high | dangerously_skip_permissions: 跳过常规风险审批</p>
             </div>
             <div class="form-item">
               <label class="form-label">审批超时（秒）</label>
-              <input v-model.number="permForm.approval_timeout" type="number" min="10" max="600" class="form-ctrl" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">超时后默认行为</label>
-              <CustomSelect v-model="permForm.approval_fallback" :options="FALLBACK_OPTIONS" />
+              <input v-model.number="permForm.approval_timeout" type="number" min="1" class="form-ctrl" />
+              <p class="section-tip">仅控制 daemon 桥接审批消息的等待时长；超时后自动拒绝。</p>
             </div>
           </div>
-          <div class="form-item" style="margin-top:12px">
-            <label class="form-label">工具白名单（自动放行，逗号分隔）</label>
-            <input
-              :value="permForm.tool_allowlist.join(', ')"
-              @change="e => permForm.tool_allowlist = e.target.value.split(',').map(s => s.trim()).filter(Boolean)"
-              class="form-ctrl"
-              placeholder="如: web_fetch, read_file"
-            />
+          <div class="toggle-row permission-toggle-row">
+            <button class="toggle-btn toggle-btn--sm" :class="{ 'toggle-btn--on': permForm.skip_all_approvals }" @click="toggleSkipAllApprovals">
+              <span class="toggle-thumb"></span>
+            </button>
+            <span>跳过所有审批</span>
+          </div>
+          <p class="section-tip">开启后跳过所有 ask 流程，但仍保留工具执行权限 deny。</p>
+
+          <div class="permission-rule-head">
+            <label class="form-label">自动接受规则</label>
+            <span class="permission-rule-count">{{ autoAcceptPatternCount }} 条</span>
+          </div>
+          <div class="permission-rule-form">
+            <CustomSelect v-model="newPatternForm.pattern_type" :options="autoAcceptPatternOptions" />
+            <input v-model="newPatternForm.pattern_value" class="form-ctrl" placeholder="如: read_file / *.md / high" />
+            <input v-model="newPatternForm.description" class="form-ctrl" placeholder="描述（可选）" />
+            <button class="act-btn act-btn--accent" @click="addAutoAcceptPattern" :disabled="!newPatternForm.pattern_value.trim()">添加</button>
+          </div>
+          <div v-if="permForm.auto_accept_patterns.length" class="permission-rule-list">
+            <div v-for="(pattern, index) in permForm.auto_accept_patterns" :key="`${pattern.pattern_type}-${pattern.pattern_value}-${index}`" class="permission-rule-item">
+              <div class="permission-rule-main">
+                <span class="permission-rule-type">{{ patternTypeLabel(pattern.pattern_type) }}</span>
+                <code class="permission-rule-value">{{ pattern.pattern_value }}</code>
+                <span v-if="pattern.description" class="permission-rule-desc">{{ pattern.description }}</span>
+              </div>
+              <button class="act-btn act-btn--icon act-btn--danger" @click="removeAutoAcceptPattern(index)" title="删除规则">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div v-else class="empty-panel empty-panel--compact">
+            <p>暂无自动接受规则</p>
           </div>
         </div>
       </section>
@@ -459,6 +480,12 @@ import PageLayout from '../components/PageLayout.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import * as api from '../api/daemon'
 import { getTeams, getAllAgentConfigs } from '../api/agentConfig'
+import {
+  AUTO_ACCEPT_PATTERN_OPTIONS,
+  createEmptyAutoAcceptPattern,
+  normalizePermissionPolicy,
+  serializePermissionPolicy,
+} from '../utils/permissionPresentation'
 
 const teamOptions = ref([])
 const agentOptions = ref([])
@@ -480,14 +507,10 @@ const RECEIVE_MODE_OPTIONS = [
 ]
 
 const PERM_MODE_OPTIONS = [
-  { value: 'standard', label: 'standard（medium+high 须审批）' },
   { value: 'strict', label: 'strict（所有风险工具须审批）' },
+  { value: 'standard', label: 'standard（medium+high 须审批）' },
   { value: 'relaxed', label: 'relaxed（仅 high 须审批）' },
-]
-
-const FALLBACK_OPTIONS = [
-  { value: 'deny', label: 'deny（超时自动拒绝）' },
-  { value: 'allow', label: 'allow（超时自动允许）' },
+  { value: 'dangerously_skip_permissions', label: 'dangerously_skip_permissions（跳过常规风险审批）' },
 ]
 
 const loading = ref(false)
@@ -503,17 +526,13 @@ const baseSaving = ref(false)
 const permSaving = ref(false)
 const isNewPlatform = ref(false)
 
-const permForm = ref({
-  mode: 'standard',
-  tool_allowlist: [],
-  approval_timeout: 120,
-  approval_fallback: 'deny',
-})
+const permForm = ref(normalizePermissionPolicy())
+const newPatternForm = ref(createEmptyAutoAcceptPattern())
 
 const baseForm = ref({
   enabled: false,
   default_session_ttl: 86400,
-  default_session_id: '',
+  agent_session_id: '',
   team_name: 'default',
   entry_agent: '',
   heartbeat_interval: 30,
@@ -551,6 +570,9 @@ const statusBadgeText = computed(() => {
 })
 
 const cronTaskCount = computed(() => cronTasks.value.length)
+const autoAcceptPatternOptions = AUTO_ACCEPT_PATTERN_OPTIONS
+const autoAcceptPatternCount = computed(() => permForm.value.auto_accept_patterns.length)
+const isSkipAllApprovals = computed(() => Boolean(permForm.value.skip_all_approvals))
 
 const platformConfigs = computed(() => {
   const agent = daemonConfig.value?.agents?.[0]
@@ -592,6 +614,32 @@ function formatTime(ts) {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function patternTypeLabel(type) {
+  return autoAcceptPatternOptions.find(option => option.value === type)?.label || type
+}
+
+function addAutoAcceptPattern() {
+  const pattern = {
+    pattern_type: newPatternForm.value.pattern_type,
+    pattern_value: String(newPatternForm.value.pattern_value || '').trim(),
+    description: String(newPatternForm.value.description || '').trim(),
+  }
+  if (!pattern.pattern_value) return
+  permForm.value.auto_accept_patterns = [
+    ...permForm.value.auto_accept_patterns,
+    pattern,
+  ]
+  newPatternForm.value = createEmptyAutoAcceptPattern()
+}
+
+function removeAutoAcceptPattern(index) {
+  permForm.value.auto_accept_patterns = permForm.value.auto_accept_patterns.filter((_, i) => i !== index)
+}
+
+function toggleSkipAllApprovals() {
+  permForm.value.skip_all_approvals = !permForm.value.skip_all_approvals
+}
+
 // ── 数据刷新 ──
 
 async function refresh() {
@@ -612,19 +660,13 @@ async function refresh() {
       baseForm.value = {
         enabled: !!cfg.enabled,
         default_session_ttl: cfg.default_session_ttl || 86400,
-        default_session_id: agent?.session_id || '',
+        agent_session_id: agent?.session_id || '',
         team_name: agent?.team_name || 'default',
         entry_agent: agent?.entry_agent || '',
         heartbeat_interval: agent?.heartbeat_interval || 30,
       }
-      const perm = agent?.permissions || {}
-      permForm.value = {
-        mode: perm.mode || 'standard',
-        tool_allowlist: perm.tool_allowlist || [],
-        auto_approve_risk: perm.auto_approve_risk || 'low',
-        approval_timeout: perm.approval_timeout || 120,
-        approval_fallback: perm.approval_fallback || 'deny',
-      }
+      permForm.value = normalizePermissionPolicy(agent?.permissions || {})
+      newPatternForm.value = createEmptyAutoAcceptPattern()
     }
   } catch (e) {
     console.error('刷新失败:', e)
@@ -655,7 +697,7 @@ async function saveBaseConfig() {
     daemonConfig.value.default_session_ttl = Number(baseForm.value.default_session_ttl) || 86400
     agent.team_name = baseForm.value.team_name || 'default'
     agent.entry_agent = baseForm.value.entry_agent || null
-    agent.session_id = baseForm.value.default_session_id || null
+    agent.session_id = baseForm.value.agent_session_id || null
     agent.heartbeat_interval = Math.max(5, Number(baseForm.value.heartbeat_interval) || 30)
     await api.updateConfig(daemonConfig.value)
     await refresh()
@@ -672,7 +714,7 @@ async function savePermissions() {
   permSaving.value = true
   try {
     const agent = ensureAgentEntry()
-    agent.permissions = { ...permForm.value }
+    agent.permissions = serializePermissionPolicy(permForm.value)
     await api.updateConfig(daemonConfig.value)
     await refresh()
   } catch (e) {
@@ -1007,6 +1049,45 @@ select.form-ctrl { cursor: pointer; }
 .form-ctrl--sm { min-width: 100px; flex-shrink: 0; }
 .form-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); }
 
+/* ── 权限配置 ── */
+.permission-toggle-row { margin-top: 4px; }
+.permission-rule-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm);
+}
+.permission-rule-count {
+  font-size: 11px; color: var(--color-text-muted);
+}
+.permission-rule-form {
+  display: grid; grid-template-columns: 160px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--spacing-sm); align-items: center;
+}
+.permission-rule-list {
+  display: flex; flex-direction: column; gap: var(--spacing-sm);
+}
+.permission-rule-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm);
+  padding: 10px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border); background: var(--color-bg-tertiary);
+}
+.permission-rule-main {
+  display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap;
+}
+.permission-rule-type {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+  background: rgba(var(--color-brand-accent-rgb),.12); color: var(--color-brand-accent-light);
+  font-size: 11px; font-weight: 500;
+}
+.permission-rule-value {
+  font-family: var(--font-mono, monospace); font-size: 12px;
+  color: var(--color-text-primary); word-break: break-all;
+}
+.permission-rule-desc {
+  font-size: 11px; color: var(--color-text-muted);
+}
+.empty-panel--compact {
+  padding: 16px 12px;
+}
+
 /* ── 平台卡片 ── */
 .platform-grid {
   display: grid;
@@ -1166,6 +1247,8 @@ select.form-ctrl { cursor: pointer; }
   .push-row { flex-direction: column; }
   .cron-row { flex-direction: column; align-items: flex-start; }
   .cron-row-actions { align-self: flex-end; }
+  .permission-rule-form { grid-template-columns: 1fr; }
+  .permission-rule-item { align-items: flex-start; }
 }
 @media (max-width: 400px) {
   .stats-grid { grid-template-columns: 1fr; }

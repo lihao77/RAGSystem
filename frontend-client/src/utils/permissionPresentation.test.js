@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createEmptyAutoAcceptPattern,
   getApprovalReasonLabels,
   getApprovalReasonText,
   getPermissionModeLabel,
   getPermissionModeMeta,
+  normalizePermissionPolicy,
+  sanitizeAutoAcceptPatterns,
+  serializePermissionPolicy,
   SKIP_ALL_APPROVALS_META,
 } from './permissionPresentation.js';
 
@@ -32,4 +36,53 @@ test('approval_reason_codes 可映射为双重展示标签', () => {
 test('skip_all_approvals 文案可展示', () => {
   assert.equal(SKIP_ALL_APPROVALS_META.label, '跳过所有审批');
   assert.match(SKIP_ALL_APPROVALS_META.desc, /路径越界/);
+});
+
+test('normalizePermissionPolicy 归一化 daemon 权限策略', () => {
+  assert.deepEqual(normalizePermissionPolicy({
+    mode: 'relaxed',
+    auto_accept_patterns: [
+      { pattern_type: 'tool_name', pattern_value: ' read_file ', description: ' 只读 ' },
+      { pattern_type: 'tool_name', pattern_value: '   ' },
+    ],
+    approval_timeout: '120',
+    skip_all_approvals: 1,
+    audit_all_checks: '',
+  }), {
+    mode: 'relaxed',
+    auto_accept_patterns: [
+      { pattern_type: 'tool_name', pattern_value: 'read_file', description: '只读' },
+    ],
+    audit_all_checks: false,
+    approval_timeout: 120,
+    skip_all_approvals: true,
+  });
+});
+
+test('serializePermissionPolicy 仅保留统一权限字段', () => {
+  assert.deepEqual(serializePermissionPolicy({
+    mode: 'standard',
+    unexpected_legacy_field: 'obsolete',
+    auto_accept_patterns: [
+      { pattern_type: 'tool_name', pattern_value: 'glob', description: '' },
+    ],
+    approval_timeout: 90,
+  }), {
+    mode: 'standard',
+    auto_accept_patterns: [
+      { pattern_type: 'tool_name', pattern_value: 'glob', description: '' },
+    ],
+    audit_all_checks: false,
+    approval_timeout: 90,
+    skip_all_approvals: false,
+  });
+});
+
+test('sanitizeAutoAcceptPatterns 过滤空规则', () => {
+  assert.deepEqual(sanitizeAutoAcceptPatterns([
+    createEmptyAutoAcceptPattern(),
+    { pattern_type: 'risk_level', pattern_value: ' high ', description: ' 高风险 ' },
+  ]), [
+    { pattern_type: 'risk_level', pattern_value: 'high', description: '高风险' },
+  ]);
 });
