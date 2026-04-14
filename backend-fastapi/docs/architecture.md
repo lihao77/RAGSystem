@@ -672,7 +672,7 @@ daemon/
 
 1. **消息路由**：社交平台 webhook → PlatformAdapter.parse_webhook → IncomingMessage → MessageRouter → AgentExecutionService.invoke_agent → OutgoingMessage → PlatformAdapter.send_message
 2. **定时调度**：CronScheduler 每分钟检查到期任务 → invoke_agent 执行 → 可选推送结果到社交平台
-3. **心跳监控**：HeartbeatMonitor 定期调用 adapter.health_check → 异常时指数退避重连 → EventBus 发布事件
+3. **心跳监控**：HeartbeatMonitor 定期调用 adapter.health_check → 异常时指数退避重连；每轮心跳结束后还会触发 DaemonService 的守护 session TTL 清理，回收长期未活跃的 chat_id→session_id 缓存映射
 
 **关键设计：**
 - 守护 Agent 本身是普通 team agent，通过 `AgentConfig` 配置，复用现有 `AgentExecutionService` 执行

@@ -458,6 +458,11 @@ class DaemonService:
         if expired:
             logger.debug('清理过期守护 session %d 个', len(expired))
 
+    async def _periodic_session_eviction(self) -> None:
+        """供 HeartbeatMonitor 周期触发的 session TTL 清理入口。"""
+        async with self._session_lock:
+            self._evict_expired_sessions(time.time())
+
     def _build_default_daemon_permission_policy(self) -> PermissionPolicy:
         """守护场景默认复用系统标准权限策略。"""
         return PermissionPolicy(mode=PermissionMode.STANDARD)

@@ -543,6 +543,24 @@ def test_resolve_session_id_platform_overrides_agent(daemon_service, monkeypatch
     assert cfg.team_name == 'default'
 
 
+def test_periodic_session_eviction_removes_expired_sessions(daemon_service):
+    daemon_service._daemon_sessions = {
+        'expired_chat': 'session_old',
+        'fresh_chat': 'session_new',
+    }
+    now = 10_000.0
+    daemon_service._session_timestamps = {
+        'expired_chat': now - daemon_service.config.default_session_ttl - 1,
+        'fresh_chat': now,
+    }
+
+    with patch('daemon.service.time.time', return_value=now):
+        asyncio.run(daemon_service._periodic_session_eviction())
+
+    assert daemon_service._daemon_sessions == {'fresh_chat': 'session_new'}
+    assert daemon_service._session_timestamps == {'fresh_chat': now}
+
+
 # ──────────────────────────────────────────────
 # consume_stream 测试
 # ──────────────────────────────────────────────
