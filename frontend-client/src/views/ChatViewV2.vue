@@ -2883,9 +2883,6 @@ const handleSend = async (payload = null) => {
     isCompressing.value = false;
     isLoading.value = false;
     await refreshSessionExecutionState(sessionId, { silent: true });
-    window.setTimeout(() => {
-      refreshSessionExecutionState(sessionId, { silent: true });
-    }, 600);
     scrollToBottom();
     if (activeStreamToken.value === streamToken) {
       currentStreamController.value = null;

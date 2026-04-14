@@ -195,57 +195,63 @@ class MessageRouter:
                 send_message=_ordered_send,
             )
 
-            # 保存所有订阅 ID，确保 finally 中能显式取消
-            _subscription_ids: list[str] = []
-            _subscription_ids.append(event_bus.subscribe(
-                event_types=[EventType.USER_APPROVAL_REQUIRED],
-                handler=approval_handler.on_approval_required,
-            ))
-            _subscription_ids.append(event_bus.subscribe(
-                event_types=[EventType.USER_INPUT_REQUIRED],
-                handler=approval_handler.on_input_required,
-            ))
+            # 保存订阅 ID，确保 finally 中能显式取消
+            daemon_event_types = [
+                EventType.USER_APPROVAL_REQUIRED,
+                EventType.USER_INPUT_REQUIRED,
+                EventType.AGENT_ERROR,
+                EventType.CALL_TOOL_START,
+                EventType.CALL_TOOL_END,
+                EventType.AGENT_RETRY_SCHEDULED,
+                EventType.INTENT_COMPLETE,
+            ]
 
-            def _on_agent_error(event):
-                error_data = event.data or {}
-                error_msg = error_data.get('error', '未知错误')
-                error_type = error_data.get('error_type', '')
-                label = f' ({error_type})' if error_type else ''
-                _send_to_platform(f'❌ 执行出错{label}: {error_msg}')
+            def _handle_daemon_event(event):
+                if event.type == EventType.USER_APPROVAL_REQUIRED:
+                    approval_handler.on_approval_required(event)
+                    return
+                if event.type == EventType.USER_INPUT_REQUIRED:
+                    approval_handler.on_input_required(event)
+                    return
+                if event.type == EventType.AGENT_ERROR:
+                    error_data = event.data or {}
+                    error_msg = error_data.get('error', '未知错误')
+                    error_type = error_data.get('error_type', '')
+                    label = f' ({error_type})' if error_type else ''
+                    _send_to_platform(f'❌ 执行出错{label}: {error_msg}')
+                    return
+                if event.type == EventType.CALL_TOOL_START:
+                    data = event.data or {}
+                    tool_name = data.get('tool_name', '?')
+                    _send_to_platform(f'🔧 正在执行: {tool_name}')
+                    return
+                if event.type == EventType.CALL_TOOL_END:
+                    data = event.data or {}
+                    tool_name = data.get('tool_name', '?')
+                    success = data.get('success', True)
+                    elapsed = data.get('execution_time')
+                    time_label = f' ({elapsed:.1f}s)' if elapsed else ''
+                    icon = '✅' if success else '❌'
+                    status = '完成' if success else '失败'
+                    _send_to_platform(f'{icon} {tool_name} {status}{time_label}')
+                    return
+                if event.type == EventType.AGENT_RETRY_SCHEDULED:
+                    data = event.data or {}
+                    attempt = data.get('failed_attempt', '?')
+                    max_a = data.get('max_attempts', '?')
+                    wait = data.get('wait_seconds', 0)
+                    _send_to_platform(f'⚠️ 模型调用失败，第 {attempt}/{max_a} 次重试（等待 {wait:.1f}s）...')
+                    return
+                if event.type == EventType.INTENT_COMPLETE:
+                    data = event.data or {}
+                    content = data.get('content', '')
+                    if content:
+                        _send_to_platform(f'💭 {content[:500]}')
 
-            def _on_tool_start(event):
-                data = event.data or {}
-                tool_name = data.get('tool_name', '?')
-                _send_to_platform(f'🔧 正在执行: {tool_name}')
-
-            def _on_tool_end(event):
-                data = event.data or {}
-                tool_name = data.get('tool_name', '?')
-                success = data.get('success', True)
-                elapsed = data.get('execution_time')
-                time_label = f' ({elapsed:.1f}s)' if elapsed else ''
-                icon = '✅' if success else '❌'
-                status = '完成' if success else '失败'
-                _send_to_platform(f'{icon} {tool_name} {status}{time_label}')
-
-            def _on_retry_scheduled(event):
-                data = event.data or {}
-                attempt = data.get('failed_attempt', '?')
-                max_a = data.get('max_attempts', '?')
-                wait = data.get('wait_seconds', 0)
-                _send_to_platform(f'⚠️ 模型调用失败，第 {attempt}/{max_a} 次重试（等待 {wait:.1f}s）...')
-
-            def _on_intent_complete(event):
-                data = event.data or {}
-                content = data.get('content', '')
-                if content:
-                    _send_to_platform(f'💭 {content[:500]}')
-
-            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.AGENT_ERROR], handler=_on_agent_error))
-            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.CALL_TOOL_START], handler=_on_tool_start))
-            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.CALL_TOOL_END], handler=_on_tool_end))
-            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.AGENT_RETRY_SCHEDULED], handler=_on_retry_scheduled))
-            _subscription_ids.append(event_bus.subscribe(event_types=[EventType.INTENT_COMPLETE], handler=_on_intent_complete))
+            _subscription_id = event_bus.subscribe(
+                event_types=daemon_event_types,
+                handler=_handle_daemon_event,
+            )
             self._approval_handlers[message.chat_id] = approval_handler
 
             # ── 5. 消费事件流 + 回送 ──
@@ -255,12 +261,11 @@ class MessageRouter:
                     await _ordered_send(final_answer)
             finally:
                 # ── 6. 清理 ──
-                # 显式取消所有事件订阅，防止 cleanup_run 失败时泄漏
-                for sid in _subscription_ids:
-                    try:
-                        event_bus.unsubscribe(sid)
-                    except Exception:
-                        pass
+                # 显式取消事件订阅，防止 cleanup_run 失败时泄漏
+                try:
+                    event_bus.unsubscribe(_subscription_id)
+                except Exception:
+                    pass
                 try:
                     started.sse_adapter.stop()
                 except Exception:

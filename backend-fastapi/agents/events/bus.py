@@ -28,6 +28,14 @@ from runtime.dependencies import get_runtime_dependency
 logger = logging.getLogger(__name__)
 
 
+def _format_subscription_event_types(event_types: "List[str | EventType]") -> str:
+    formatted = [t.value if hasattr(t, 'value') else str(t) for t in event_types]
+    if len(formatted) > 8:
+        preview = ', '.join(formatted[:3])
+        return f'[{preview}, ...] (total={len(formatted)})'
+    return str(formatted)
+
+
 # ==================== 事件类型定义 ====================
 
 class EventType(str, Enum):
@@ -283,7 +291,7 @@ class EventBus:
                 # 按优先级排序（优先级高的先执行）
                 self._subscriptions[event_type].sort(key=lambda s: s.priority, reverse=True)
 
-        logger.info(f"新订阅: {subscription_id} → {[t.value if hasattr(t, 'value') else t for t in event_types]}")
+        logger.info("新订阅: %s → %s", subscription_id, _format_subscription_event_types(event_types))
         return subscription_id
 
     def unsubscribe(self, subscription_id: str):

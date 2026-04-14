@@ -5,10 +5,11 @@ import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agents.events.bus import EventType
 from daemon.models import CronTask, DaemonSystemConfig, PlatformConnection, PlatformType
 from daemon.service import DaemonService
 
@@ -72,8 +73,10 @@ class _FakeSessionManager:
         self._buses = {}
 
     def get_or_create(self, run_id, *, session_id=None):
-        bus = _FakeEventBus()
-        self._buses[run_id] = bus
+        bus = self._buses.get(run_id)
+        if bus is None:
+            bus = _FakeEventBus()
+            self._buses[run_id] = bus
         return bus
 
     def remove(self, run_id):
@@ -352,6 +355,49 @@ def test_execute_cron_task_uses_session_permission_override(daemon_service, monk
 
     assert observed['effective_mode_during_start'] == PermissionMode.RELAXED
     assert get_permission_policy().mode == global_before
+
+
+def test_daemon_event_bridge_uses_single_subscription(monkeypatch):
+    from daemon.gateway.router import MessageRouter
+    from daemon.models import IncomingMessage
+
+    router = MessageRouter(daemon_service=MagicMock())
+    message = IncomingMessage(
+        message_id='m1',
+        platform=PlatformType.FEISHU,
+        chat_id='chat_1',
+        user_id='u1',
+        content='hello',
+        timestamp=0,
+    )
+
+    event_bus = _FakeEventBus()
+    approval_handler = MagicMock()
+    approval_handler.cleanup.return_value = None
+    started = _make_fake_adapter_start_result('done')
+    runtime_service = _FakeRuntimeService(_FakeConversationStore(), _FakeExecService())
+    container = _FakeContainer(runtime_service)
+    container._session_manager._buses[started.run_id] = event_bus
+
+    fake_agent_cfg = SimpleNamespace(permissions=None)
+    monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
+    monkeypatch.setattr(router._daemon_service, 'resolve_session_id_for_message', AsyncMock(return_value=('daemon_session', fake_agent_cfg)))
+    monkeypatch.setattr(router._daemon_service, '_build_default_daemon_permission_policy', lambda: SimpleNamespace(approval_timeout=300))
+    router._daemon_service.send_message = AsyncMock()
+    with patch('execution.adapters.agent_execution.AgentExecutionAdapter', return_value=MagicMock(start_stream_execution=MagicMock(return_value=started))):
+        with patch('daemon.approval_handler.DaemonApprovalHandler', return_value=approval_handler):
+            asyncio.run(router._route_incoming_inner(message))
+
+    assert len(event_bus.subscriptions) == 1
+    assert event_bus.subscriptions[0]['event_types'] == [
+        EventType.USER_APPROVAL_REQUIRED,
+        EventType.USER_INPUT_REQUIRED,
+        EventType.AGENT_ERROR,
+        EventType.CALL_TOOL_START,
+        EventType.CALL_TOOL_END,
+        EventType.AGENT_RETRY_SCHEDULED,
+        EventType.INTENT_COMPLETE,
+    ]
 
 
 # ──────────────────────────────────────────────

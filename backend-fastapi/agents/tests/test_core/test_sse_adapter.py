@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import logging
 from queue import Empty
 
 from agents.events.bus import Event, EventBus, EventType
@@ -36,3 +37,14 @@ def test_sse_adapter_preserves_critical_tool_events_under_backpressure():
         raise AssertionError('expected queue to contain only the critical event')
     except Empty:
         pass
+
+
+def test_event_bus_subscription_log_is_summarized_for_many_event_types(caplog):
+    bus = EventBus()
+    caplog.set_level(logging.INFO)
+
+    bus.subscribe(event_types=list(EventType), handler=lambda event: None)
+
+    assert 'total=' in caplog.text
+    assert 'run.start' in caplog.text
+    assert 'daemon.adapter.status' not in caplog.text

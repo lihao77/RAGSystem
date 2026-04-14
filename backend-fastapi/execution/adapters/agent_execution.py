@@ -226,7 +226,6 @@ class AgentExecutionAdapter:
                 source=source,
             )
 
-            sse_adapter.start()
             handle = self._execution_service.submit(
                 ExecutionRequest(
                     execution_kind='agent_stream',
@@ -423,7 +422,6 @@ class AgentExecutionAdapter:
                 logger.info('Agent 任务执行完成: %s', task)
 
                 if response and getattr(response, 'error', None) == 'interrupted':
-                    registry.finish_task(task_id, 'interrupted')
                     return ExecutionResult(
                         success=False,
                         status=ExecutionStatus.INTERRUPTED,
@@ -431,7 +429,6 @@ class AgentExecutionAdapter:
                         error='interrupted',
                     )
                 if isinstance(response, AgentResponse) and not response.success:
-                    registry.finish_task(task_id, 'failed')
                     return ExecutionResult(
                         success=False,
                         status=ExecutionStatus.FAILED,
@@ -439,11 +436,9 @@ class AgentExecutionAdapter:
                         error=response.error or '任务执行失败',
                     )
 
-                registry.finish_task(task_id, 'completed')
                 return response
             except Exception as error:
                 logger.error('后台执行 Agent 失败: %s', error, exc_info=True)
-                registry.finish_task(task_id, 'failed')
                 publisher = EventPublisher(
                     agent_name='system',
                     session_id=session_id,

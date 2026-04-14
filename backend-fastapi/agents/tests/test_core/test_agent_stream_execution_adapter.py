@@ -184,6 +184,47 @@ def test_stream_adapter_preserves_llm_override_passthrough():
     assert service.prepare_calls[0]['llm_override']['thinking_budget_tokens'] == 4096
 
 
+
+def test_stream_adapter_defers_sse_subscription_until_stream_consumption():
+    response = AgentResponse(
+        success=True,
+        content='final content',
+        agent_name='orchestrator_agent',
+        execution_time=0.1,
+    )
+    event_bus = _FakeEventBus()
+    registry = _FakeRegistry()
+    service = _FakePreparedExecutionService(response)
+    adapter = AgentExecutionAdapter(
+        execution_service=SimpleNamespace(
+            get_task_registry=lambda: registry,
+            get_session_manager=lambda: SimpleNamespace(get_or_create=lambda run_id, session_id=None: event_bus),
+            submit=lambda *args, **kwargs: SimpleNamespace(thread=None),
+        ),
+        agent_execution_service=service,
+    )
+    conversation_store = SimpleNamespace(
+        get_session=lambda session_id: {'id': session_id},
+        create_session=lambda **kwargs: kwargs,
+    )
+    orchestrator = SimpleNamespace(resolve_default_entry_agent=lambda: _FakeAgent())
+
+    result = adapter.start_stream_execution(
+        task='hello',
+        session_id='session-1',
+        user_id='user-1',
+        llm_override=None,
+        llm_tier=None,
+        request_id='req-1',
+        conversation_store=conversation_store,
+        orchestrator=orchestrator,
+        history_loader=lambda context, session_id, limit: None,
+    )
+
+    assert result.started is True
+    assert len(event_bus.subscriptions) == 7
+
+
 def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_write():
     event_bus = _FakeEventBus()
     store = _FakeStore()
@@ -272,4 +313,4 @@ def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_
     assert len(final_events) == 1
     assert len(message_saved_events) >= 2
     assert store.updated == [('session-1', 'run-1', 'msg-2')]
-    assert registry.finished == [('task-1', 'completed')]
+    assert registry.finished == []
