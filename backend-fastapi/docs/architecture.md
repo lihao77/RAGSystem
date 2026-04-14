@@ -17,7 +17,7 @@ backend-fastapi/
 │   ├── config/                # Agent 配置管理与 team 模型（manager/loader）
 │   ├── configs/               # 源码侧 agent 示例配置与历史输入来源
 │   ├── context/               # 上下文管道、压缩、观察格式化
-│   ├── events/                # EventBus、EventPublisher、SSEAdapter
+│   ├── events/                # run 级 EventBus、EventPublisher、SSEAdapter（有序分发 + history replay）
 │   ├── streaming/             # XML 流式解析（StreamingXMLParser, tool_xml_parser）
 │   ├── skills/                # Skills 目录（每个 Skill 一个子目录）
 │   ├── monitoring/            # 指标收集、观察窗口
@@ -538,8 +538,8 @@ canonical step 当前覆盖的语义：
 
 - `execution/step_projector.py` 是 raw event → canonical step 的唯一投影层
 - `agents/core/base.py` 中的 tool start/end 事件统一直接走 `EventPublisher` 主链，避免 round / parent_call_id 等字段在兼容分支中丢失
-- `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件；`AgentExecutionAdapter.start_stream_execution()` 只构造 adapter，真正订阅在 `stream_sync()` 开始消费时惰性建立，避免启动阶段重复 `start()` 噪音
-- `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`
+- `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件；`AgentExecutionAdapter.start_stream_execution()` 构造 adapter 后立即建立订阅，避免首次 `/stream` 在线程调度窗口内漏掉早期事件
+- `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`；history 依赖 `sequence_number` 维持稳定顺序，并通过 `skip_before_seq` 做实时去重
 - 子 Agent 递归显示依赖同一棵 root execution tree：`call_agent` / `send_message` 创建的可见 subtask 节点 `call_id`，必须继续透传到子 Agent 执行上下文 `context.metadata.call_id`；这样 child agent 内部的 `intent/tool` 才会以同一 `call_id` 继续发事件，并递归挂入该 subtask，而不是生成新的孤立调用节点
 - `execution/runstep_normalizer.py` 已删除，不再存在 raw run_steps → normalized steps 的兼容层
 - 守护消息路由 `daemon/gateway/router.py` 现在将审批、用户输入、工具开始/结束、重试、intent 完成等事件合并为单个 daemon 订阅，在 handler 内按 `event.type` 分发，减少 run event bus 上的订阅/取消订阅数量
@@ -550,16 +550,16 @@ canonical step 当前覆盖的语义：
 ### 事件流转
 
 ```
-EventBus (agents/events/bus.py)
-  ↓ publish()
+EventBus (agents/events/bus.py, run-scoped)
+  ↓ publish()/publish_async()（按 priority 有序分发，可在 handler 内再次 publish）
 EventPublisher (agents/events/publisher.py)  ← Agent 使用的简化 API
   ↓
-SSEAdapter (agents/events/sse_adapter.py)    ← 桥接到前端 SSE（有界队列 + 背压保护）
+SSEAdapter (agents/events/sse_adapter.py)    ← 桥接到前端 SSE（有界队列 + 背压保护 + reconnect 去重）
   ↓
 api/v1/stream.py                             ← HTTP SSE 端点
 ```
 
-Event 携带全局递增 `sequence_number`（`seq` 字段），前端可检测事件 gap。
+Event 携带全局递增 `sequence_number`（`seq` 字段），前端可检测事件 gap。EventBus 内部按 `subscription_id` 精确取消订阅，并保留最近窗口的有序 history 供 reconnect 回放。
 
 关键事件类型（`CRITICAL_EVENT_TYPES`）在队列满时不会被丢弃：RUN_START/END, AGENT_START/END/ERROR, SESSION_END, USER_INTERRUPT, FINAL_ANSWER, MESSAGE_SAVED, USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED。
 

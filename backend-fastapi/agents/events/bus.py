@@ -20,7 +20,7 @@ from typing import Dict, List, Callable, Any, Optional, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextvars import ContextVar
 
 from runtime.dependencies import get_runtime_dependency
@@ -28,8 +28,12 @@ from runtime.dependencies import get_runtime_dependency
 logger = logging.getLogger(__name__)
 
 
+def _normalize_event_type(event_type: "str | EventType") -> str:
+    return event_type.value if hasattr(event_type, 'value') else str(event_type)
+
+
 def _format_subscription_event_types(event_types: "List[str | EventType]") -> str:
-    formatted = [t.value if hasattr(t, 'value') else str(t) for t in event_types]
+    formatted = [_normalize_event_type(t) for t in event_types]
     if len(formatted) > 8:
         preview = ', '.join(formatted[:3])
         return f'[{preview}, ...] (total={len(formatted)})'
@@ -204,7 +208,7 @@ class Subscription:
     """事件订阅"""
 
     subscription_id: str
-    event_types: List["str | EventType"]
+    event_types: tuple[str, ...]
     handler: Callable[[Event], Any]
     is_async: bool
     filter_func: Optional[Callable[[Event], bool]] = None
@@ -233,10 +237,11 @@ class EventBus:
             enable_persistence: 是否启用事件持久化（用于审计）
             max_history: 最大事件历史数量（防止内存泄漏）
         """
-        self._subscriptions: Dict[str | EventType, List[Subscription]] = defaultdict(list)
-        self._event_history: List[Event] = []  # 事件历史（内存中）
+        self._subscriptions_by_id: Dict[str, Subscription] = {}
+        self._subscription_ids_by_event: Dict[str, List[str]] = defaultdict(list)
+        self._event_history: deque[Event] = deque(maxlen=max_history)
         self._enable_persistence = enable_persistence
-        self._max_history = max_history  # ✨ 限制历史大小
+        self._max_history = max_history
 
         # 用户许可等待队列
         self._pending_approvals: Dict[str, asyncio.Future] = {}
@@ -245,10 +250,9 @@ class EventBus:
         self._stats = {
             "total_events": 0,
             "events_by_type": defaultdict(int),
-            "failed_events": 0
+            "failed_events": 0,
         }
 
-        # ✨ 添加锁保护订阅操作
         self._lock = threading.RLock()
 
         logger.info(f"EventBus 初始化完成 (持久化: {enable_persistence}, 最大历史: {max_history})")
@@ -258,7 +262,7 @@ class EventBus:
         event_types: "List[str | EventType]",
         handler: Callable[[Event], Any],
         filter_func: Optional[Callable[[Event], bool]] = None,
-        priority: int = 0
+        priority: int = 0,
     ) -> str:
         """
         订阅事件
@@ -273,36 +277,46 @@ class EventBus:
             subscription_id: 订阅ID（用于取消订阅）
         """
         subscription_id = str(uuid.uuid4())
-        is_async = asyncio.iscoroutinefunction(handler)
-
+        normalized_types = tuple(_normalize_event_type(event_type) for event_type in event_types)
         subscription = Subscription(
             subscription_id=subscription_id,
-            event_types=event_types,
+            event_types=normalized_types,
             handler=handler,
-            is_async=is_async,
+            is_async=asyncio.iscoroutinefunction(handler),
             filter_func=filter_func,
-            priority=priority
+            priority=priority,
         )
 
-        # ✨ 使用锁保护订阅操作
         with self._lock:
-            for event_type in event_types:
-                self._subscriptions[event_type].append(subscription)
-                # 按优先级排序（优先级高的先执行）
-                self._subscriptions[event_type].sort(key=lambda s: s.priority, reverse=True)
+            self._subscriptions_by_id[subscription_id] = subscription
+            for event_type in normalized_types:
+                event_subscription_ids = self._subscription_ids_by_event[event_type]
+                event_subscription_ids.append(subscription_id)
+                event_subscription_ids.sort(
+                    key=lambda sid: self._subscriptions_by_id[sid].priority,
+                    reverse=True,
+                )
 
-        logger.info("新订阅: %s → %s", subscription_id, _format_subscription_event_types(event_types))
+        logger.info("新订阅: %s → %s", subscription_id, _format_subscription_event_types(list(normalized_types)))
         return subscription_id
 
     def unsubscribe(self, subscription_id: str):
         """取消订阅"""
-        # ✨ 使用锁保护取消订阅操作
         with self._lock:
-            for event_type in list(self._subscriptions.keys()):
-                self._subscriptions[event_type] = [
-                    s for s in self._subscriptions[event_type]
-                    if s.subscription_id != subscription_id
+            subscription = self._subscriptions_by_id.pop(subscription_id, None)
+            if subscription is None:
+                logger.info(f"取消订阅: {subscription_id} (ignored, not found)")
+                return
+
+            for event_type in subscription.event_types:
+                event_subscription_ids = self._subscription_ids_by_event.get(event_type)
+                if not event_subscription_ids:
+                    continue
+                self._subscription_ids_by_event[event_type] = [
+                    sid for sid in event_subscription_ids if sid != subscription_id
                 ]
+                if not self._subscription_ids_by_event[event_type]:
+                    del self._subscription_ids_by_event[event_type]
         logger.info(f"取消订阅: {subscription_id}")
 
     def publish(self, event: Event):
@@ -312,56 +326,23 @@ class EventBus:
         Args:
             event: 事件对象
         """
-        # 在异步环境中运行
-        try:
-            loop = asyncio.get_running_loop()
-            asyncio.create_task(self.publish_async(event))
-        except RuntimeError:
-            # 如果不在异步环境中，使用同步方式
-            self._publish_sync(event)
+        self._record_event(event)
+        self._handle_run_end_side_effect(event)
+        subscriptions = self._collect_subscriptions(event.type)
+        event_type = _normalize_event_type(event.type)
 
-    def _publish_sync(self, event: Event):
-        """同步发布事件（内部方法）"""
-        self._stats["total_events"] += 1
-        self._stats["events_by_type"][event.type] += 1
+        logger.debug(f"发布事件: {event_type} (订阅者: {len(subscriptions)})")
 
-        # ✨ 持久化（限制历史大小）
-        if self._enable_persistence:
-            self._event_history.append(event)
-            # 限制历史大小，防止内存泄漏
-            if len(self._event_history) > self._max_history:
-                self._event_history = self._event_history[-self._max_history:]
-
-        if event.type == EventType.RUN_END:
-            try:
-                from agents.events.session_manager import get_session_manager
-                run_id = (event.data or {}).get('run_id')
-                if run_id:
-                    get_session_manager().mark_run_ended(run_id)
-            except Exception:
-                pass
-
-        # ✨ 获取订阅者（在锁内复制列表）
-        with self._lock:
-            subscriptions = list(self._subscriptions.get(event.type, []))
-
-        logger.debug(f"发布事件: {event.type.value if hasattr(event.type, 'value') else event.type} (订阅者: {len(subscriptions)})")
-
-        # 分发事件（在锁外执行，避免死锁）
         for subscription in subscriptions:
+            if not self._should_deliver(subscription, event):
+                continue
             try:
-                # 应用过滤器
-                if subscription.filter_func and not subscription.filter_func(event):
-                    continue
-
-                # 调用处理函数
                 if subscription.is_async:
                     logger.warning(f"异步处理器在同步上下文中跳过: {subscription.subscription_id}")
-                else:
-                    subscription.handler(event)
+                    continue
+                subscription.handler(event)
             except Exception as e:
-                self._stats["failed_events"] += 1
-                logger.error(f"事件处理失败: {subscription.subscription_id}, 错误: {e}", exc_info=True)
+                self._record_failed_delivery(subscription.subscription_id, e, "事件处理失败")
 
     async def publish_async(self, event: Event):
         """
@@ -370,61 +351,63 @@ class EventBus:
         Args:
             event: 事件对象
         """
-        self._stats["total_events"] += 1
-        self._stats["events_by_type"][event.type] += 1
+        self._record_event(event)
+        self._handle_run_end_side_effect(event)
+        subscriptions = self._collect_subscriptions(event.type)
+        event_type = _normalize_event_type(event.type)
 
-        # ✨ 持久化（限制历史大小）
+        logger.debug(f"发布事件: {event_type} (订阅者: {len(subscriptions)})")
+
+        for subscription in subscriptions:
+            if not self._should_deliver(subscription, event):
+                continue
+            if subscription.is_async:
+                try:
+                    await subscription.handler(event)
+                except Exception as e:
+                    self._record_failed_delivery(subscription.subscription_id, e, "异步事件处理失败")
+                continue
+            try:
+                subscription.handler(event)
+            except Exception as e:
+                self._record_failed_delivery(subscription.subscription_id, e, "事件处理失败")
+
+    def _record_event(self, event: Event):
+        event_type = _normalize_event_type(event.type)
+        self._stats["total_events"] += 1
+        self._stats["events_by_type"][event_type] += 1
         if self._enable_persistence:
             self._event_history.append(event)
-            # 限制历史大小，防止内存泄漏
-            if len(self._event_history) > self._max_history:
-                self._event_history = self._event_history[-self._max_history:]
 
-        if event.type == EventType.RUN_END:
-            try:
-                from agents.events.session_manager import get_session_manager
-                run_id = (event.data or {}).get('run_id')
-                if run_id:
-                    get_session_manager().mark_run_ended(run_id)
-            except Exception:
-                pass
-
-        # ✨ 获取订阅者（在锁内复制列表）
-        with self._lock:
-            subscriptions = list(self._subscriptions.get(event.type, []))
-
-        logger.debug(f"发布事件: {event.type.value if hasattr(event.type, 'value') else event.type} (订阅者: {len(subscriptions)})")
-
-        # 分发事件（在锁外执行，避免死锁）
-        tasks = []
-        for subscription in subscriptions:
-            try:
-                # 应用过滤器
-                if subscription.filter_func and not subscription.filter_func(event):
-                    continue
-
-                # 调用处理函数
-                if subscription.is_async:
-                    tasks.append(self._safe_async_call(subscription, event))
-                else:
-                    # 同步函数在线程池中执行
-                    loop = asyncio.get_running_loop()
-                    tasks.append(loop.run_in_executor(None, subscription.handler, event))
-            except Exception as e:
-                self._stats["failed_events"] += 1
-                logger.error(f"事件处理失败: {subscription.subscription_id}, 错误: {e}", exc_info=True)
-
-        # 并发执行所有处理器
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _safe_async_call(self, subscription: Subscription, event: Event):
-        """安全的异步调用（捕获异常）"""
+    def _handle_run_end_side_effect(self, event: Event):
+        if _normalize_event_type(event.type) != EventType.RUN_END.value:
+            return
         try:
-            await subscription.handler(event)
-        except Exception as e:
-            self._stats["failed_events"] += 1
-            logger.error(f"异步事件处理失败: {subscription.subscription_id}, 错误: {e}", exc_info=True)
+            from agents.events.session_manager import get_session_manager
+            run_id = (event.data or {}).get('run_id')
+            if run_id:
+                get_session_manager().mark_run_ended(run_id)
+        except Exception:
+            pass
+
+    def _collect_subscriptions(self, event_type: "str | EventType") -> List[Subscription]:
+        normalized_type = _normalize_event_type(event_type)
+        with self._lock:
+            subscription_ids = list(self._subscription_ids_by_event.get(normalized_type, []))
+            return [
+                self._subscriptions_by_id[sid]
+                for sid in subscription_ids
+                if sid in self._subscriptions_by_id
+            ]
+
+    def _should_deliver(self, subscription: Subscription, event: Event) -> bool:
+        if subscription.filter_func is None:
+            return True
+        return bool(subscription.filter_func(event))
+
+    def _record_failed_delivery(self, subscription_id: str, error: Exception, message: str):
+        self._stats["failed_events"] += 1
+        logger.error(f"{message}: {subscription_id}, 错误: {error}", exc_info=True)
 
     # ==================== 用户许可机制 ====================
 
@@ -521,7 +504,7 @@ class EventBus:
             "total_events": self._stats["total_events"],
             "events_by_type": dict(self._stats["events_by_type"]),
             "failed_events": self._stats["failed_events"],
-            "active_subscriptions": sum(len(subs) for subs in self._subscriptions.values()),
+            "active_subscriptions": len(self._subscriptions_by_id),
             "pending_approvals": len(self._pending_approvals)
         }
 
@@ -542,13 +525,17 @@ class EventBus:
         Returns:
             事件列表
         """
-        filtered_events = self._event_history
+        filtered_events: List[Event] = list(self._event_history)
 
         if event_types:
-            filtered_events = [e for e in filtered_events if e.type in event_types]
+            normalized_types = {_normalize_event_type(event_type) for event_type in event_types}
+            filtered_events = [
+                event for event in filtered_events
+                if _normalize_event_type(event.type) in normalized_types
+            ]
 
         if session_id:
-            filtered_events = [e for e in filtered_events if e.session_id == session_id]
+            filtered_events = [event for event in filtered_events if event.session_id == session_id]
 
         return filtered_events[-limit:]
 
