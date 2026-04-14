@@ -5,9 +5,11 @@
 
 from abc import ABC, abstractmethod
 from typing import Callable, ClassVar, Dict, List, Any, Optional, Tuple
+import concurrent.futures
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 
@@ -737,17 +739,67 @@ class BaseAgent(ABC):
             return text
         return text[: max_chars - 3].rstrip() + "..."
 
-    def _handle_actions(
+    # 依赖检测正则，与 result_references._PLACEHOLDER_PATTERN 保持一致
+    _DEP_PATTERN = re.compile(r'\{result_?(\d+)', re.IGNORECASE)
+
+    @staticmethod
+    def _action_has_unmet_deps(arguments: Any, completed: set) -> bool:
+        """检查 arguments 中是否存在尚未完成的 result_N 依赖（N 不在 completed 中）。"""
+        text = json.dumps(arguments) if not isinstance(arguments, str) else arguments
+        for m in BaseAgent._DEP_PATTERN.finditer(text):
+            if int(m.group(1)) not in completed:
+                return True
+        return False
+
+    @staticmethod
+    def _build_execution_batches(actions: List[Dict[str, Any]]) -> List[List[Tuple[int, Dict[str, Any]]]]:
+        """
+        将 actions 分组为顺序执行的批次。
+        同一批次内的 action 互不依赖，可并行执行。
+        批次间保持串行（后批依赖前批结果）。
+        """
+        batches: List[List[Tuple[int, Dict[str, Any]]]] = []
+        completed: set = set()  # 已分配到前批的 idx（1-based）
+
+        remaining = [(idx, action) for idx, action in enumerate(actions, 1)]
+        while remaining:
+            batch: List[Tuple[int, Dict[str, Any]]] = []
+            next_remaining: List[Tuple[int, Dict[str, Any]]] = []
+            for idx, action in remaining:
+                arguments = action.get('arguments', {})
+                if BaseAgent._action_has_unmet_deps(arguments, completed):
+                    next_remaining.append((idx, action))
+                else:
+                    batch.append((idx, action))
+            if not batch:
+                # 剩余全部有依赖但无法满足（循环依赖或引用不存在），强制串行推进
+                batch.append(remaining[0])
+                next_remaining = remaining[1:]
+            completed.update(idx for idx, _ in batch)
+            batches.append(batch)
+            remaining = next_remaining
+        return batches
+
+    _MAX_PARALLEL_WORKERS = 8
+
+    def _execute_one_action(
         self,
-        actions: List[Dict[str, Any]],
+        idx: int,
+        action: Dict[str, Any],
+        tool_results: Dict[int, Any],
+        lock: threading.Lock,
         context: AgentContext,
         state: Dict[str, Any],
         rounds: int,
         log_prefix: str,
-    ) -> None:
-        """默认动作处理：直接工具执行。"""
-        from tools.runtime.response_builder import success_result, error_result
-        from tools.refs.result_references import result_event_payload, result_display_text
+        total: int,
+    ) -> Tuple[int, str]:
+        """执行单个 action，返回 (idx, observation_str)。线程安全。"""
+        from tools.runtime.response_builder import error_result
+        from tools.refs.result_references import (
+            detect_unresolved_placeholders,
+            result_event_payload,
+        )
         from tools.runtime.executor import execute_tool
         from tools.tool_registry import get_tool_registry
 
@@ -755,46 +807,47 @@ class BaseAgent(ABC):
         event_bus = state.get('event_bus')
         publisher = state.get('publisher')
         current_session_id = getattr(context, 'session_id', None)
-        observations: List[str] = []
-        tool_results: Dict[int, Any] = {}
 
-        for idx, action in enumerate(actions, 1):
-            self._check_interrupt(context)
+        tool_name = action.get('tool')
+        arguments = action.get('arguments', {})
 
-            tool_name = action.get('tool')
-            arguments = action.get('arguments', {})
-            if not tool_name:
-                continue
-
-            resolver = getattr(self, '_resolve_tool_references', None)
-            if callable(resolver) and tool_results:
+        resolver = getattr(self, '_resolve_tool_references', None)
+        if callable(resolver):
+            with lock:
+                snapshot = dict(tool_results)
+            if snapshot:
                 original_arguments = arguments
                 try:
-                    arguments = resolver(arguments, tool_results, idx)
+                    arguments = resolver(arguments, snapshot, idx)
                     if arguments != original_arguments:
                         self.logger.debug(
                             f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}"
                         )
                 except Exception as error:
                     self.logger.warning(
-                        "%s 占位符替换失败，沿用原始参数: %s",
-                        log_prefix,
-                        error,
+                        "%s 占位符替换失败，沿用原始参数: %s", log_prefix, error
                     )
 
-            self.logger.debug(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
-            tool_call_id = f"tool_{uuid.uuid4()}"
+        self.logger.debug(
+            f"{log_prefix} [{idx}/{total}] 执行工具: {tool_name}, 参数: {arguments}"
+        )
+        tool_call_id = f"tool_{uuid.uuid4()}"
 
-            # C6: 拦截未替换的占位符
-            from tools.refs.result_references import detect_unresolved_placeholders
-            unresolved = detect_unresolved_placeholders(arguments)
-            if unresolved:
-                observation = f"[{tool_name}] 参数中包含未替换的占位符: {', '.join(unresolved)}，请检查引用路径是否正确"
-                observations.append(observation)
+        unresolved = detect_unresolved_placeholders(arguments)
+        if unresolved:
+            observation = (
+                f"[{tool_name}] 参数中包含未替换的占位符: {', '.join(unresolved)}，"
+                "请检查引用路径是否正确"
+            )
+            with lock:
                 tool_results[idx] = error_result(observation, tool_name=tool_name)
-                continue
+            return idx, observation
 
-            if publisher:
+        # 执行前检查中断，避免并行批次中已取消仍继续执行
+        self._check_interrupt(context)
+
+        if publisher:
+            with lock:
                 publisher.tool_call_start(
                     call_id=tool_call_id,
                     tool_name=tool_name,
@@ -804,37 +857,42 @@ class BaseAgent(ABC):
                     agent_display_name=self.display_name or self.name,
                 )
 
-            tool_started_at = time.time()
-            result = execute_tool(
-                tool_name,
-                arguments,
-                agent_config=self.agent_config,
-                event_bus=event_bus,
-                session_id=current_session_id,
-                team_name=context.metadata.get('team') if hasattr(context, 'metadata') else None,
-                workspace_root=context.metadata.get('workspace_root') if hasattr(context, 'metadata') else None,
-                run_id=context.metadata.get('run_id') if hasattr(context, 'metadata') else None,
-                cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
-                parent_call_id=state.get('call_id'),
-                current_agent_name=self.name,
-                tool_call_id=tool_call_id,
-                round=rounds,
-                order=idx,
-                round_index=idx,
-            )
-            elapsed_time = time.time() - tool_started_at
-            is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
-            observation = self._format_tool_observation(
-                result,
-                tool_name=tool_name,
-                session_id=current_session_id,
-                is_skills_tool=is_skills_tool,
-            )
+        tool_started_at = time.time()
+        result = execute_tool(
+            tool_name,
+            arguments,
+            agent_config=self.agent_config,
+            event_bus=event_bus,
+            session_id=current_session_id,
+            team_name=context.metadata.get('team') if hasattr(context, 'metadata') else None,
+            workspace_root=context.metadata.get('workspace_root') if hasattr(context, 'metadata') else None,
+            run_id=context.metadata.get('run_id') if hasattr(context, 'metadata') else None,
+            cancel_event=context.metadata.get('cancel_event') if hasattr(context, 'metadata') else None,
+            parent_call_id=state.get('call_id'),
+            current_agent_name=self.name,
+            tool_call_id=tool_call_id,
+            round=rounds,
+            order=idx,
+            round_index=idx,
+        )
+        elapsed_time = time.time() - tool_started_at
+        is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
+        observation = self._format_tool_observation(
+            result,
+            tool_name=tool_name,
+            session_id=current_session_id,
+            is_skills_tool=is_skills_tool,
+        )
 
-            if publisher:
-                preview_text = f"[{tool_name}]\n{observation}" if observation else ""
-                tool_success = getattr(result, 'success', True) if result is not None else True
-                approval_message = result.metadata.get('approval_message', '') if result and hasattr(result, 'metadata') else ''
+        if publisher:
+            preview_text = f"[{tool_name}]\n{observation}" if observation else ""
+            tool_success = getattr(result, 'success', True) if result is not None else True
+            approval_message = (
+                result.metadata.get('approval_message', '')
+                if result and hasattr(result, 'metadata')
+                else ''
+            )
+            with lock:
                 publisher.tool_call_end(
                     call_id=tool_call_id,
                     tool_name=tool_name,
@@ -854,17 +912,95 @@ class BaseAgent(ABC):
                     approval_message=approval_message,
                 )
 
+        with lock:
             self._record_visualization_result(tool_name, result, state)
             tool_results[idx] = result
             state.setdefault('tool_calls_history', []).append({
                 'tool_name': tool_name,
                 'arguments': arguments,
                 'result': result,
+                'order': idx,
             })
-            if observation:
-                observations.append(f"[{tool_name}]\n{observation}")
 
-        combined_observations = "\n\n".join(observations)
+        return idx, f"[{tool_name}]\n{observation}" if observation else ""
+
+    def _handle_actions(
+        self,
+        actions: List[Dict[str, Any]],
+        context: AgentContext,
+        state: Dict[str, Any],
+        rounds: int,
+        log_prefix: str,
+    ) -> None:
+        """动作处理：对无依赖的工具并行执行，有占位符依赖的批次间串行。"""
+        from tools.runtime.response_builder import error_result
+
+        publisher = state.get('publisher')
+        observations: List[str] = [None] * (len(actions) + 1)  # idx 1-based
+        tool_results: Dict[int, Any] = {}
+        lock = threading.Lock()
+        total = len(actions)
+
+        batches = self._build_execution_batches(actions)
+        for batch in batches:
+            self._check_interrupt(context)
+
+            if len(batch) == 1:
+                idx, action = batch[0]
+                tool_name = action.get('tool')
+                if not tool_name:
+                    continue
+                try:
+                    result_idx, obs = self._execute_one_action(
+                        idx, action, tool_results, lock, context, state, rounds, log_prefix, total
+                    )
+                    observations[result_idx] = obs
+                except Exception as exc:
+                    self.logger.error(f"{log_prefix} 工具执行异常 (action {idx}): {exc}", exc_info=True)
+                    observations[idx] = f"[{action.get('tool', '?')}] 执行异常: {exc}"
+                    with lock:
+                        tool_results[idx] = error_result(str(exc), tool_name=action.get('tool', '?'))
+            else:
+                # 并行执行批次内所有工具
+                self.logger.debug(
+                    f"{log_prefix} 并行执行 {len(batch)} 个工具: "
+                    f"{[a.get('tool') for _, a in batch]}"
+                )
+                valid_batch = [(idx, a) for idx, a in batch if a.get('tool')]
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(len(valid_batch), self._MAX_PARALLEL_WORKERS)
+                ) as executor:
+                    futures = {
+                        executor.submit(
+                            self._execute_one_action,
+                            idx, action, tool_results, lock,
+                            context, state, rounds, log_prefix, total,
+                        ): (idx, action)
+                        for idx, action in valid_batch
+                    }
+                    for future in concurrent.futures.as_completed(futures):
+                        f_idx, f_action = futures[future]
+                        try:
+                            result_idx, obs = future.result()
+                            observations[result_idx] = obs
+                        except Exception as exc:
+                            self.logger.error(
+                                f"{log_prefix} 工具执行异常 (action {f_idx}): {exc}", exc_info=True
+                            )
+                            observations[f_idx] = f"[{f_action.get('tool', '?')}] 执行异常: {exc}"
+                            with lock:
+                                tool_results[f_idx] = error_result(
+                                    str(exc), tool_name=f_action.get('tool', '?')
+                                )
+
+        # 按原始 action 顺序排列 tool_calls_history
+        history = state.get('tool_calls_history', [])
+        history.sort(key=lambda x: x.get('order', 0))
+
+        ordered_observations = [
+            observations[i] for i in range(1, total + 1) if observations[i]
+        ]
+        combined_observations = "\n\n".join(ordered_observations)
         state['current_session'].append({
             "role": "user",
             "content": combined_observations,
