@@ -143,6 +143,13 @@ class FeishuAdapter(PlatformAdapter):
                     task.cancel()
                 if pending:
                     loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                # 回收所有已完成但异常未被 retrieve 的 task，避免 asyncio 输出噪声警告
+                for task in asyncio.all_tasks(loop):
+                    if task.done() and not task.cancelled():
+                        try:
+                            task.exception()
+                        except Exception:
+                            pass
                 loop.close()
                 self._long_conn_loop = None
                 self._long_conn_stop_event = None
@@ -193,6 +200,22 @@ class FeishuAdapter(PlatformAdapter):
         sdk_loop = asyncio.get_running_loop()
         previous_loop = ws_client_module.loop
         ws_client_module.loop = sdk_loop
+
+        # 安装异常处理器：静默 ConnectionClosedOK（code=1000）噪声
+        # asyncio 在 task 析构时若异常未被 retrieve 会调用此处理器
+        _orig_exception_handler = sdk_loop.get_exception_handler()
+
+        def _exception_handler(loop, context):
+            exc = context.get('exception')
+            if exc is not None and type(exc).__name__ == 'ConnectionClosedOK':
+                return  # 正常关闭，忽略
+            if _orig_exception_handler:
+                _orig_exception_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        sdk_loop.set_exception_handler(_exception_handler)
+
         # 用 loop.create_future() 替代 asyncio.Event()，显式绑定到当前 loop，
         # 避免 lark-oapi SDK 内部操作导致 Event 懒绑定到错误的 loop
         stop_future = sdk_loop.create_future()
@@ -217,8 +240,23 @@ class FeishuAdapter(PlatformAdapter):
             ping_task = asyncio.create_task(client._ping_loop(), name='feishu-long-connection-ping')
             ready_event.set()
             await stop_future
-            client._auto_reconnect = False
-            await client._disconnect()
+            # stop_future 触发时，SDK 内部的 _receive_message_loop task 可能已结束且异常未被 retrieve
+            # 必须在 _disconnect() 之前回收，否则 asyncio 会打印 "Task exception was never retrieved"
+            for t in list(asyncio.all_tasks(sdk_loop)):
+                if t is not asyncio.current_task() and t.done() and not t.cancelled():
+                    try:
+                        t.exception()
+                    except Exception:
+                        pass
+            # 关闭前静音 lark SDK logger，避免正常断开被当作 ERROR 输出
+            lark_logger = logging.getLogger('Lark')
+            prev_lark_level = lark_logger.level
+            lark_logger.setLevel(logging.CRITICAL)
+            try:
+                client._auto_reconnect = False
+                await client._disconnect()
+            finally:
+                lark_logger.setLevel(prev_lark_level)
             ping_task.cancel()
             await asyncio.gather(ping_task, return_exceptions=True)
         except Exception as e:
@@ -229,6 +267,7 @@ class FeishuAdapter(PlatformAdapter):
             ready_event.set()
             raise
         finally:
+            sdk_loop.set_exception_handler(_orig_exception_handler)
             ws_client_module.loop = previous_loop
 
     def _handle_long_connection_message(self, data) -> None:
