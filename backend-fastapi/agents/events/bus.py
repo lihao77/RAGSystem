@@ -255,7 +255,7 @@ class EventBus:
 
         self._lock = threading.RLock()
 
-        logger.info(f"EventBus 初始化完成 (持久化: {enable_persistence}, 最大历史: {max_history})")
+        logger.debug(f"EventBus 初始化完成 (持久化: {enable_persistence}, 最大历史: {max_history})")
 
     def subscribe(
         self,
@@ -297,7 +297,7 @@ class EventBus:
                     reverse=True,
                 )
 
-        logger.info("新订阅: %s → %s", subscription_id, _format_subscription_event_types(list(normalized_types)))
+        logger.debug("新订阅: %s → %s", subscription_id, _format_subscription_event_types(list(normalized_types)))
         return subscription_id
 
     def unsubscribe(self, subscription_id: str):
@@ -305,7 +305,7 @@ class EventBus:
         with self._lock:
             subscription = self._subscriptions_by_id.pop(subscription_id, None)
             if subscription is None:
-                logger.info(f"取消订阅: {subscription_id} (ignored, not found)")
+                logger.debug(f"取消订阅: {subscription_id} (ignored, not found)")
                 return
 
             for event_type in subscription.event_types:
@@ -317,7 +317,7 @@ class EventBus:
                 ]
                 if not self._subscription_ids_by_event[event_type]:
                     del self._subscription_ids_by_event[event_type]
-        logger.info(f"取消订阅: {subscription_id}")
+        logger.debug(f"取消订阅: {subscription_id}")
 
     def publish(self, event: Event):
         """
@@ -456,12 +456,12 @@ class EventBus:
 
         await self.publish_async(event)
 
-        logger.info(f"[{agent_name}] 等待用户许可: {action_description} (超时: {timeout}s)")
+        logger.debug(f"[{agent_name}] 等待用户许可: {action_description} (超时: {timeout}s)")
 
         # 等待用户响应（带超时）
         try:
             result = await asyncio.wait_for(future, timeout=timeout)
-            logger.info(f"[{agent_name}] 用户许可结果: {'同意' if result else '拒绝'}")
+            logger.debug(f"[{agent_name}] 用户许可结果: {'同意' if result else '拒绝'}")
             return result
         except asyncio.TimeoutError:
             logger.warning(f"[{agent_name}] 用户许可超时")
@@ -494,7 +494,7 @@ class EventBus:
         )
         self.publish(event)
 
-        logger.info(f"用户许可响应: {approval_id} → {'同意' if approved else '拒绝'}")
+        logger.debug(f"用户许可响应: {approval_id} → {'同意' if approved else '拒绝'}")
 
     # ==================== 工具方法 ====================
 
@@ -542,7 +542,7 @@ class EventBus:
     def clear_history(self):
         """清空事件历史"""
         self._event_history.clear()
-        logger.info("事件历史已清空")
+        logger.debug("事件历史已清空")
 
 
 # ==================== 全局事件总线 ====================

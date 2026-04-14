@@ -327,7 +327,7 @@ class ContextPipeline:
         if cleared:
             tokens_before = self._token_counter.count_messages(messages)
             tokens_after = self._token_counter.count_messages(result)
-            self.logger.info(
+            self.logger.debug(
                 f"微压缩: 清除 {cleared} 条旧工具结果"
                 f"（保留最近 {keep} 条），"
                 f"节省约 {tokens_before - tokens_after} tokens"
@@ -492,7 +492,7 @@ class ContextPipeline:
 
         history_tokens = self._token_counter.count_messages(history_resolved)
         trigger_threshold = self.config.max_tokens * self.config.compression_trigger_ratio
-        self.logger.info(
+        self.logger.debug(
             f"压缩检查: history_msgs={len(history_resolved)}, "
             f"history_tokens={history_tokens}, "
             f"threshold={trigger_threshold:.0f} "
@@ -500,7 +500,7 @@ class ContextPipeline:
         )
 
         if history_tokens >= trigger_threshold:
-            self.logger.info(
+            self.logger.debug(
                 f"触发上下文压缩: tokens={history_tokens}/{self.config.max_tokens} "
                 f"({history_tokens / self.config.max_tokens * 100:.1f}%)"
             )
@@ -689,7 +689,7 @@ class ContextPipeline:
             existing_summary = history_resolved[0].get("content", "")
 
         try:
-            self.logger.info(f"开始 LLM 摘要: 待压缩 {len(segment)} 条消息, 已有摘要={bool(existing_summary)}")
+            self.logger.debug(f"开始 LLM 摘要: 待压缩 {len(segment)} 条消息, 已有摘要={bool(existing_summary)}")
             if publisher:
                 publisher.compression_start(
                     message_count=len(segment),
@@ -761,7 +761,7 @@ class ContextPipeline:
             provider_type = llm_config.get("provider_type")
             model_name = llm_config.get('model_name', 'unknown')
             try:
-                self.logger.info(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
+                self.logger.debug(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
                 # 优先流式收集（部分反代非流式 content 为空）
                 raw_parts = []
                 stream_error = None
@@ -788,7 +788,7 @@ class ContextPipeline:
                 if not raw:
                     raise ContextCompressionError("摘要模型返回空内容")
                 content = self._format_compact_response(raw)
-                self.logger.info(f"LLM 摘要生成成功（{tier_label}）: {len(content)} 字符")
+                self.logger.debug(f"LLM 摘要生成成功（{tier_label}）: {len(content)} 字符")
                 return content
 
             except ContextCompressionError as e:
@@ -922,7 +922,7 @@ class ContextPipeline:
             publisher.compression_summary(summary_content, replaces_up_to_seq=replaces_up_to_seq)
 
         resolved = resolve_compression_view(updated_raw)
-        self.logger.info(
+        self.logger.debug(
             f"LLM 压缩完成: {len(history_raw)} -> {len(updated_raw)} 条原始消息, "
             f"{len(resolved)} 条解析后消息"
         )

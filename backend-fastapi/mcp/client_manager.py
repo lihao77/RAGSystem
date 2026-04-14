@@ -86,7 +86,7 @@ class MCPClientManager:
             daemon=True
         )
         self._thread.start()
-        logger.info("MCP 后台事件循环已启动")
+        logger.debug("MCP 后台事件循环已启动")
 
         # 自动连接已启用的 Server
         self._auto_connect_all()
@@ -111,7 +111,7 @@ class MCPClientManager:
         if self._thread:
             self._thread.join(timeout=5)
         self._started = False
-        logger.info("MCP 后台事件循环已停止")
+        logger.debug("MCP 后台事件循环已停止")
 
     def _run_loop(self):
         """后台线程：运行 asyncio 事件循环直到被停止"""
@@ -183,7 +183,7 @@ class MCPClientManager:
             conn.config = srv_cfg
 
         if conn.is_connected():
-            logger.info("MCP Server %s 已连接，跳过%s", server_name, _obs_suffix())
+            logger.debug("MCP Server %s 已连接，跳过%s", server_name, _obs_suffix())
             return True
 
         timeout = srv_cfg.get("timeout", 30)
@@ -513,12 +513,12 @@ class MCPClientManager:
         timeout = srv_cfg.get("timeout", 30)
 
         try:
-            logger.info('MCP 工具调用开始 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
+            logger.debug('MCP 工具调用开始 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
             result = self._run_async(
                 self._async_call_tool(conn, tool_name, arguments),
                 timeout=timeout
             )
-            logger.info('MCP 工具调用完成 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
+            logger.debug('MCP 工具调用完成 server=%s tool=%s %s', server_name, tool_name, format_observability_for_log())
             return result
         except TimeoutError:
             return error_result(f"MCP 工具调用超时: {server_name}/{tool_name}", tool_name=full_tool_name)

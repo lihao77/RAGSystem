@@ -31,7 +31,7 @@ def register_agent_type(type_name: str, agent_class: Type[BaseAgent]):
         agent_class: 智能体类
     """
     AGENT_TYPES[type_name] = agent_class
-    logger.info(f"已注册智能体类型: {type_name} -> {agent_class.__name__}")
+    logger.debug(f"已注册智能体类型: {type_name} -> {agent_class.__name__}")
 
 
 class AgentLoader:
@@ -91,10 +91,10 @@ class AgentLoader:
 
             # 检查是否启用
             if not ignore_enabled and not agent_config.enabled:
-                logger.info(f"智能体 '{agent_name}' 已禁用")
+                logger.debug(f"智能体 '{agent_name}' 已禁用")
                 return None
             if ignore_enabled and not agent_config.enabled:
-                logger.info(f"智能体 '{agent_name}' 作为系统入口加载，忽略 enabled=false")
+                logger.debug(f"智能体 '{agent_name}' 作为系统入口加载，忽略 enabled=false")
 
             # 确定智能体类型
             agent_type = self._get_agent_type(agent_name, agent_config)
@@ -116,7 +116,7 @@ class AgentLoader:
                 agent_config
             )
 
-            logger.info(f"成功加载智能体: {agent_name} (类型: {agent_type})")
+            logger.debug(f"成功加载智能体: {agent_name} (类型: {agent_type})")
             return agent
 
         except Exception as e:
@@ -148,7 +148,7 @@ class AgentLoader:
             orchestrator_agent = self._load_system_orchestrator_agent()
             if orchestrator_agent is not None:
                 agents['orchestrator_agent'] = orchestrator_agent
-                logger.info("✅ 已加载系统智能体: orchestrator_agent（默认配置兜底）")
+                logger.debug("✅ 已加载系统智能体: orchestrator_agent（默认配置兜底）")
 
         logger.info(f"成功加载 {len(agents)} 个智能体")
         return agents
@@ -204,7 +204,7 @@ class AgentLoader:
         """构建 orchestrator_agent 的默认配置。"""
         from .models import AgentConfig, AgentLLMConfig
 
-        logger.info("Orchestrator Agent：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
+        logger.debug("Orchestrator Agent：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
         return AgentConfig(
             agent_name='orchestrator_agent',
             display_name='Orchestrator Agent',
@@ -282,9 +282,9 @@ class AgentLoader:
                 tool for tool in direct_tools
                 if tool.get('function', {}).get('name') in direct_tool_names
             ])
-            logger.info(f"{agent_config.agent_name} 启用 direct 工具: {sorted(direct_tool_names)}")
+            logger.debug(f"{agent_config.agent_name} 启用 direct 工具: {sorted(direct_tool_names)}")
         else:
-            logger.info(f"{agent_config.agent_name} 未配置 direct 工具")
+            logger.debug(f"{agent_config.agent_name} 未配置 direct 工具")
 
         filtered_skills = []
         skill_loader = get_skill_loader()
@@ -295,7 +295,7 @@ class AgentLoader:
                 skill for skill in all_skills
                 if skill.name in enabled_skill_names
             ]
-            logger.info(f"{agent_config.agent_name} 启用 Skills: {enabled_skill_names}")
+            logger.debug(f"{agent_config.agent_name} 启用 Skills: {enabled_skill_names}")
 
             if exposure['inject_skill_tools']:
                 existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
@@ -304,7 +304,7 @@ class AgentLoader:
                     if tool_name and decisions.get(tool_name) and tool_name not in existing_tool_names:
                         filtered_tools.append(skill_tool)
         else:
-            logger.info(f"{agent_config.agent_name} 未配置 Skills")
+            logger.debug(f"{agent_config.agent_name} 未配置 Skills")
 
         mcp_config = getattr(agent_config, 'mcp', None)
         if mcp_config and getattr(mcp_config, 'enabled_servers', None):
@@ -318,7 +318,7 @@ class AgentLoader:
                     mcp_tools = manager.get_tools_openai_format(server_name)
                     if mcp_tools:
                         filtered_tools.extend(mcp_tools)
-                        logger.info(
+                        logger.debug(
                             f"  → {agent_config.agent_name} 注入 MCP 工具 ({server_name}): {len(mcp_tools)} 个"
                         )
                     else:
@@ -335,7 +335,7 @@ class AgentLoader:
                 tool_name = agent_tool.get('function', {}).get('name')
                 if tool_name and decisions.get(tool_name) and tool_name not in existing_tool_names:
                     filtered_tools.append(agent_tool)
-            logger.info(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
+            logger.debug(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
 
         if decisions.get('request_user_input'):
             builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}

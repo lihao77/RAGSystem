@@ -17,21 +17,16 @@ _runtime_initialized = False
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI 应用生命周期：启动 → 运行 → 关闭。"""
-    logger.info('=' * 70)
     logger.info('FastAPI 应用启动中...')
-    logger.info('=' * 70)
 
     await _startup(app)
 
-    logger.info('=' * 70)
     logger.info('FastAPI 应用已就绪')
-    logger.info('=' * 70)
 
     yield  # 应用运行中
 
-    logger.info('FastAPI 应用正在关闭...')
+    logger.info('FastAPI 应用关闭')
     await _shutdown(app)
-    logger.info('FastAPI 应用已关闭')
 
 
 async def _startup(app: FastAPI) -> None:
@@ -45,7 +40,7 @@ async def _startup(app: FastAPI) -> None:
     try:
         from core.path_resolution import ensure_directories
         ensure_directories()
-        logger.info('✓ 数据目录结构已初始化')
+        logger.debug('✓ 数据目录结构已初始化')
     except Exception as e:
         logger.warning('数据目录初始化失败: %s', e)
 
@@ -58,7 +53,7 @@ async def _startup(app: FastAPI) -> None:
     # ── 第零·五步：迁移配置文件到 CONFIG_ROOT ──────────────────────────
     try:
         _migrate_configs()
-        logger.info('✓ 配置文件位置已确认')
+        logger.debug('✓ 配置文件位置已确认')
     except Exception as e:
         logger.warning('配置文件迁移失败: %s', e)
 
@@ -68,7 +63,7 @@ async def _startup(app: FastAPI) -> None:
         container = create_runtime_container()
         # 把 container 存到 app.state，方便后续访问
         app.state.runtime_container = container
-        logger.info('✓ RuntimeContainer 已初始化')
+        logger.debug('✓ RuntimeContainer 已初始化')
     except Exception as e:
         logger.error('✗ RuntimeContainer 初始化失败: %s', e, exc_info=True)
         raise  # 这是核心依赖，失败则终止启动
@@ -79,7 +74,7 @@ async def _startup(app: FastAPI) -> None:
         if not run_health_check():
             logger.warning('健康检查未完全通过，但继续启动...')
         else:
-            logger.info('✓ 健康检查通过')
+            logger.debug('✓ 健康检查通过')
     except Exception as e:
         logger.warning('健康检查失败（不影响启动）: %s', e)
 
@@ -88,9 +83,9 @@ async def _startup(app: FastAPI) -> None:
         from vector_store.init_store import init_vector_store, is_vector_db_configured
         if is_vector_db_configured():
             success = init_vector_store()
-            logger.info('✓ 向量数据库初始化: %s', '成功' if success else '失败')
+            logger.debug('✓ 向量数据库初始化: %s', '成功' if success else '失败')
         else:
-            logger.info('向量数据库未配置，跳过初始化')
+            logger.debug('向量数据库未配置，跳过初始化')
     except Exception as e:
         logger.warning('向量数据库初始化失败（不影响其他功能）: %s', e)
 
@@ -98,7 +93,7 @@ async def _startup(app: FastAPI) -> None:
     try:
         from services.agent_api_runtime_service import get_agent_api_runtime_service
         runtime = get_agent_api_runtime_service()
-        logger.info('✓ Agent API 运行时已初始化')
+        logger.debug('✓ Agent API 运行时已初始化')
     except Exception as e:
         logger.warning('Agent API 运行时初始化失败: %s', e)
 
@@ -106,7 +101,7 @@ async def _startup(app: FastAPI) -> None:
     try:
         from agents.context.session_cache import bind_store
         bind_store(runtime.get_conversation_store())
-        logger.info('✓ SessionCache 已绑定 ConversationStore')
+        logger.debug('✓ SessionCache 已绑定 ConversationStore')
     except Exception as e:
         logger.warning('SessionCache 绑定失败（不影响核心功能）: %s', e)
 
@@ -119,7 +114,7 @@ async def _startup(app: FastAPI) -> None:
         if warnings:
             logger.warning('工具一致性校验发现 %d 个问题', len(warnings))
         else:
-            logger.info('✓ 工具系统 bootstrap 完成')
+            logger.debug('✓ 工具系统 bootstrap 完成')
     except Exception as e:
         logger.warning('工具系统 bootstrap 失败（不影响核心功能）: %s', e)
 
@@ -128,14 +123,14 @@ async def _startup(app: FastAPI) -> None:
         from hooks.bootstrap import bootstrap_hook_system
 
         bootstrap_hook_system()
-        logger.info('✓ Hook 系统 bootstrap 完成')
+        logger.debug('✓ Hook 系统 bootstrap 完成')
     except Exception as e:
         logger.warning('Hook 系统 bootstrap 失败（不影响核心功能）: %s', e)
 
     # ── 第 4.7 步：注册内建斜杠命令 ─────────────────────────────────────────
     try:
         import commands.builtin  # noqa: F401 — 触发内建命令注册
-        logger.info('✓ 内建斜杠命令已注册')
+        logger.debug('✓ 内建斜杠命令已注册')
     except Exception as e:
         logger.warning('斜杠命令注册失败（不影响核心功能）: %s', e)
 
@@ -173,7 +168,7 @@ async def _startup(app: FastAPI) -> None:
             for ext in loaded_extensions:
                 await ext.on_startup(container)
 
-            logger.info('✓ 加载 %d 个外部扩展', len(loaded_extensions))
+            logger.debug('✓ 加载 %d 个外部扩展', len(loaded_extensions))
     except Exception as e:
         logger.warning('扩展加载失败（不影响核心功能）: %s', e)
 
@@ -182,7 +177,7 @@ async def _startup(app: FastAPI) -> None:
     # ── 第六步：启动 MCP Client Manager ────────────────────────────────────
     try:
         container.startup_mcp()
-        logger.info('✓ MCP Client Manager 已启动')
+        logger.debug('✓ MCP Client Manager 已启动')
     except Exception as e:
         logger.warning('MCP Client Manager 启动失败（不影响其他功能）: %s', e)
 
@@ -191,9 +186,9 @@ async def _startup(app: FastAPI) -> None:
         daemon_svc = container.get_daemon_service()
         await daemon_svc.start()
         if daemon_svc.config.enabled:
-            logger.info('✓ 守护 Agent 系统已启动')
+            logger.debug('✓ 守护 Agent 系统已启动')
         else:
-            logger.info('守护 Agent 系统未启用')
+            logger.debug('守护 Agent 系统未启用')
     except Exception as e:
         logger.warning('守护 Agent 系统启动失败（不影响核心功能）: %s', e)
 
@@ -210,14 +205,14 @@ async def _shutdown(app: FastAPI) -> None:
         if daemon_svc is not None and getattr(daemon_svc, '_running', False):
             try:
                 await daemon_svc.stop()
-                logger.info('守护 Agent 系统已停止')
+                logger.debug('守护 Agent 系统已停止')
             except Exception as e:
                 logger.warning('停止守护 Agent 系统失败: %s', e)
 
     if container is not None:
         try:
             container.shutdown()
-            logger.info('RuntimeContainer 已关闭')
+            logger.debug('RuntimeContainer 已关闭')
         except Exception as e:
             logger.warning('关闭 RuntimeContainer 失败: %s', e)
 
@@ -260,12 +255,12 @@ def _seed_runtime_configs() -> None:
         for src in sources:
             if src.exists():
                 shutil.copy2(src, dst)
-                logger.info('配置文件已迁移: %s → %s', src.name, dst)
+                logger.debug('配置文件已迁移: %s → %s', src.name, dst)
                 copied = True
                 break
         if not copied and inline_default is not None:
             dst.write_text(inline_default, encoding='utf-8')
-            logger.info('配置文件已初始化: %s', dst)
+            logger.debug('配置文件已初始化: %s', dst)
 
 
 def _migrate_configs() -> None:

@@ -134,7 +134,7 @@ class TaskRegistry:
                 self._tasks[session_id] = info
             self._sync_concurrency_index_locked(info)
 
-        logger.info(
+        logger.debug(
             'TaskRegistry: 注册任务 task_id=%s session=%s run_id=%s request_id=%s kind=%s status=%s',
             resolved_task_id,
             session_id,
@@ -182,7 +182,7 @@ class TaskRegistry:
                 info.finished_at = time.time()
             info.status = status
             self._sync_concurrency_index_locked(info)
-            logger.info('TaskRegistry: 任务结束 task_id=%s session=%s status=%s', task_id, info.session_id, status)
+            logger.debug('TaskRegistry: 任务结束 task_id=%s session=%s status=%s', task_id, info.session_id, status)
             return True
 
     def unregister(self, session_id: str, status: str = 'completed'):
@@ -253,7 +253,7 @@ class TaskRegistry:
             info.pending_inputs.clear()
             self._sync_concurrency_index_locked(info)
 
-        logger.info(
+        logger.debug(
             'TaskRegistry: 取消任务 task_id=%s session=%s，拒绝 %s 个待审批，取消 %s 个待输入',
             task_id,
             info.session_id,
@@ -371,7 +371,7 @@ class TaskRegistry:
             info.pending_approvals[approval_id] = evt
             info.approval_results[approval_id] = {'approved': False, 'message': ''}
             self._approval_to_task[approval_id] = task_id
-            logger.info('TaskRegistry: 注册审批请求 task_id=%s approval_id=%s', task_id, approval_id)
+            logger.debug('TaskRegistry: 注册审批请求 task_id=%s approval_id=%s', task_id, approval_id)
             return evt
 
     def resolve_task_approval(self, task_id: str, approval_id: str, approved: bool, message: str = '') -> bool:
@@ -384,7 +384,7 @@ class TaskRegistry:
             evt = info.pending_approvals.pop(approval_id)
             self._approval_to_task.pop(approval_id, None)
         evt.set()
-        logger.info('TaskRegistry: 审批响应 task_id=%s approval_id=%s approved=%s', task_id, approval_id, approved)
+        logger.debug('TaskRegistry: 审批响应 task_id=%s approval_id=%s approved=%s', task_id, approval_id, approved)
         return True
 
     def get_task_approval_result(self, task_id: str, approval_id: str) -> tuple:
@@ -404,7 +404,7 @@ class TaskRegistry:
             info.pending_inputs[input_id] = evt
             info.input_results[input_id] = ''
             self._input_to_task[input_id] = task_id
-            logger.info('TaskRegistry: 注册用户输入请求 task_id=%s input_id=%s', task_id, input_id)
+            logger.debug('TaskRegistry: 注册用户输入请求 task_id=%s input_id=%s', task_id, input_id)
             return evt
 
     def resolve_task_input(self, task_id: str, input_id: str, value: str) -> bool:
@@ -417,7 +417,7 @@ class TaskRegistry:
             evt = info.pending_inputs.pop(input_id)
             self._input_to_task.pop(input_id, None)
         evt.set()
-        logger.info('TaskRegistry: 用户输入已提交 task_id=%s input_id=%s', task_id, input_id)
+        logger.debug('TaskRegistry: 用户输入已提交 task_id=%s input_id=%s', task_id, input_id)
         return True
 
     def get_task_input_result(self, task_id: str, input_id: str) -> str:
@@ -458,7 +458,7 @@ class TaskRegistry:
                     bus.unsubscribe(sub_id)
                 except Exception as error:
                     logger.debug('TaskRegistry: 清理订阅 %s 失败: %s', sub_id, error)
-            logger.info('TaskRegistry: 已清理 %s 个持久化订阅 session=%s task_id=%s', len(subs), session_id, task_id)
+            logger.debug('TaskRegistry: 已清理 %s 个持久化订阅 session=%s task_id=%s', len(subs), session_id, task_id)
 
     def _get_session_task_locked(self, session_id: str) -> Optional[TaskInfo]:
         return self._tasks.get(session_id)

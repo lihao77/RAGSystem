@@ -49,7 +49,7 @@ class RunEventBusManager:
         )
         self._cleanup_thread.start()
 
-        logger.info(
+        logger.debug(
             "RunEventBusManager 初始化 (TTL: %ss, 清理间隔: %ss, 最大历史: %s)",
             session_ttl,
             cleanup_interval,
@@ -71,7 +71,7 @@ class RunEventBusManager:
             )
             self._run_buses[run_id] = event_bus
             self._run_to_session[run_id] = session_id
-            logger.info("✨ 创建 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
+            logger.debug("✨ 创建 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
             return event_bus
 
     def get(self, run_id: str) -> Optional[EventBus]:
@@ -103,7 +103,7 @@ class RunEventBusManager:
             self._run_buses.pop(run_id, None)
             self._last_activity.pop(run_id, None)
             self._run_to_session.pop(run_id, None)
-            logger.info("🗑️ 移除 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
+            logger.debug("🗑️ 移除 run 事件总线: run_id=%s session_id=%s", run_id, session_id)
             return True
 
     def mark_run_ended(self, run_id: str) -> None:
@@ -164,13 +164,13 @@ class RunEventBusManager:
         }
 
     def _cleanup_loop(self) -> None:
-        logger.info("事件总线清理线程已启动")
+        logger.debug("事件总线清理线程已启动")
         while not self._shutdown_event.wait(self.cleanup_interval):
             try:
                 self._cleanup_expired_runs()
             except Exception as error:
                 logger.error("清理线程异常: %s", error, exc_info=True)
-        logger.info("事件总线清理线程已停止")
+        logger.debug("事件总线清理线程已停止")
 
     def _cleanup_expired_runs(self) -> None:
         now = time.time()
@@ -181,11 +181,11 @@ class RunEventBusManager:
                     expired_run_ids.append(run_id)
 
         for run_id in dict.fromkeys(expired_run_ids):
-            logger.info("🕒 清理过期 run: %s", run_id)
+            logger.debug("🕒 清理过期 run: %s", run_id)
             self.remove(run_id)
 
         if expired_run_ids:
-            logger.info("清理完成，移除 %s 个过期 run", len(dict.fromkeys(expired_run_ids)))
+            logger.debug("清理完成，移除 %s 个过期 run", len(dict.fromkeys(expired_run_ids)))
 
     def shutdown(self) -> None:
         logger.info("关闭 RunEventBusManager，清理所有 run...")
@@ -199,7 +199,7 @@ class RunEventBusManager:
             run_ids = list(self._run_buses.keys())
         for run_id in run_ids:
             self.remove(run_id)
-        logger.info("已清理 %s 个 run", len(run_ids))
+        logger.debug("已清理 %s 个 run", len(run_ids))
 
 
 SessionEventBusManager = RunEventBusManager

@@ -80,18 +80,14 @@ def init_vector_store(force=False):
 
     try:
         if force:
-            logger.info("=" * 60)
-            logger.info("重新初始化向量数据库...")
-            logger.info("=" * 60)
+            logger.debug("重新初始化向量数据库...")
         else:
-            logger.info("=" * 60)
-            logger.info("开始初始化向量数据库...")
-            logger.info("=" * 60)
+            logger.debug("开始初始化向量数据库...")
 
         config = get_config()
 
         # 1. 先初始化 Embedder（从向量库管理「当前激活向量化器」）
-        logger.info("步骤 1/3: 预加载嵌入模型...")
+        logger.debug("步骤 1/3: 预加载嵌入模型...")
         embedder = get_embedder()
         embedder.initialize(config, force=force)
 
@@ -116,10 +112,10 @@ def init_vector_store(force=False):
             else:
                 logger.warning("embed 返回类型异常: %s", type(test_embedding))
 
-            logger.info("✓ 嵌入模型已加载 (向量化器: %s)", active_key or "(无)")
+            logger.debug("✓ 嵌入模型已加载 (向量化器: %s)", active_key or "(无)")
             if active_cfg:
-                logger.info("✓ Provider: %s, 模型: %s", active_cfg.get("provider_key"), active_cfg.get("model_name"))
-            logger.info("✓ 向量维度: %s", embedding_dim)
+                logger.debug("✓ Provider: %s, 模型: %s", active_cfg.get("provider_key"), active_cfg.get("model_name"))
+            logger.debug("✓ 向量维度: %s", embedding_dim)
         except Exception as e:
             logger.warning(f"⚠ 嵌入模型初始化失败: {e}")
             logger.warning("向量数据库将跳过初始化")
@@ -132,10 +128,10 @@ def init_vector_store(force=False):
             return False
 
         # 2. 初始化向量数据库客户端（会自动从 Embedder 获取维度）
-        logger.info("步骤 2/3: 初始化向量数据库客户端...")
+        logger.debug("步骤 2/3: 初始化向量数据库客户端...")
         client = get_vector_client()
         client.initialize(config, force=force)
-        logger.info("✓ 向量数据库客户端已就绪 (后端: %s)", config.vector_store.backend)
+        logger.debug("✓ 向量数据库客户端已就绪 (后端: %s)", config.vector_store.backend)
 
         # 2.5 在 DB 的 embedding_models 中注册/绑定当前激活的向量化器，供索引与检索使用
         if active_key and active_cfg:
@@ -154,28 +150,24 @@ def init_vector_store(force=False):
                 logger.warning("注册激活向量化器到 model_manager 失败（索引/检索可能受影响）: %s", reg_err)
 
         # 3. 验证集合
-        logger.info("步骤 3/3: 验证现有集合...")
+        logger.debug("步骤 3/3: 验证现有集合...")
         collections = client.list_collections()
-        logger.info(f"✓ 找到 {len(collections)} 个向量集合")
+        logger.debug(f"✓ 找到 {len(collections)} 个向量集合")
 
         for collection_name in collections:
             try:
                 count = client.count_documents(collection_name)
-                logger.info(f"  - {collection_name}: {count} 个文档")
+                logger.debug(f"  - {collection_name}: {count} 个文档")
             except Exception as e:
                 logger.warning(f"  - {collection_name}: 无法获取统计信息 ({e})")
 
-        logger.info("=" * 60)
-        logger.info("✅ 向量数据库初始化完成")
-        logger.info("=" * 60)
+        logger.info("向量数据库初始化完成")
 
         _vector_store_initialized = True
         return True
 
     except Exception as e:
-        logger.error("=" * 60)
-        logger.error("❌ 向量数据库初始化失败: %s", e, exc_info=True)
-        logger.error("=" * 60)
+        logger.error("向量数据库初始化失败: %s", e, exc_info=True)
         _vector_store_initialized = False
         return False
 

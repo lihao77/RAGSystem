@@ -173,7 +173,7 @@ def request_user_approval_if_needed(
         )
 
     if skip_all_approvals:
-        logger.info("工具 %s 启用 skip_all_approvals，跳过审批%s", context.tool_name, format_observability_suffix())
+        logger.debug("工具 %s 启用 skip_all_approvals，跳过审批%s", context.tool_name, format_observability_suffix())
         return ApprovalOutcome(allowed=True, approved_external_paths=approved_external_paths)
 
     permission = get_tool_permission(context.tool_name)
@@ -190,7 +190,7 @@ def request_user_approval_if_needed(
         requires = True
     if not requires and not force_ask:
         if reason:
-            logger.info("工具 %s 审批跳过: %s%s", context.tool_name, reason, format_observability_suffix())
+            logger.debug("工具 %s 审批跳过: %s%s", context.tool_name, reason, format_observability_suffix())
         return ApprovalOutcome(allowed=True)
 
     approval_required_hook = _run_approval_hook("approval.required", context, permission, reason)
@@ -252,7 +252,7 @@ def request_user_approval_if_needed(
             session_id=context.session_id,
             data=event_data,
         ))
-        logger.info("已发布工具 %s 的审批请求事件 approval_id=%s%s", context.tool_name, approval_id, format_observability_suffix())
+        logger.debug("已发布工具 %s 的审批请求事件 approval_id=%s%s", context.tool_name, approval_id, format_observability_suffix())
 
         if wait_evt is None:
             logger.warning("工具 %s 需要审批但缺少 session_id，拒绝执行%s", context.tool_name, format_observability_suffix())
@@ -328,9 +328,9 @@ def request_user_approval_if_needed(
             secondary_reasons=secondary_reasons,
         )
 
-        logger.info("工具 %s 审批通过，继续执行%s", context.tool_name, format_observability_suffix())
+        logger.debug("工具 %s 审批通过，继续执行%s", context.tool_name, format_observability_suffix())
         if approval_note:
-            logger.info("用户审批附言: %s%s", approval_note, format_observability_suffix())
+            logger.debug("用户审批附言: %s%s", approval_note, format_observability_suffix())
         return ApprovalOutcome(
             allowed=True,
             approval_message=approval_note or "",
@@ -387,7 +387,7 @@ def request_inline_approval(
 
     policy = get_effective_permission_policy(session_id)
     if policy.skip_all_approvals:
-        logger.info("内联审批跳过（skip_all_approvals）: %s", description)
+        logger.debug("内联审批跳过（skip_all_approvals）: %s", description)
         return True, ""
 
     _risk_map = {"low": _RL.LOW, "medium": _RL.MEDIUM, "high": _RL.HIGH}
@@ -398,7 +398,7 @@ def request_inline_approval(
     )
     needs, skip_reason = should_require_approval(tool_name, _perm, arguments, session_id=session_id)
     if not needs:
-        logger.info("内联审批跳过（%s）: %s", skip_reason or policy.mode.value, description)
+        logger.debug("内联审批跳过（%s）: %s", skip_reason or policy.mode.value, description)
         return True, ""
 
     if not event_bus:

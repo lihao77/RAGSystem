@@ -141,7 +141,7 @@ class BaseAgent(ABC):
 
     def before_execute(self, task: str, context: AgentContext):
         """执行前钩子"""
-        self.logger.info(f"[{self.name}] 开始执行任务: {task}")
+        self.logger.debug(f"[{self.name}] 开始执行任务: {task}")
 
     def after_execute(self, task: str, context: AgentContext, result: AgentResponse):
         """执行后钩子"""
@@ -425,7 +425,7 @@ class BaseAgent(ABC):
         )
 
         label = runtime_label or self.__class__.__name__
-        self.logger.info(
+        self.logger.debug(
             "%s '%s' 运行时初始化完成，可用工具: %s，可用 Skills: %s，模型输出限制: %s tokens，上下文窗口: %s，上下文预算: %s tokens",
             label,
             self.name,
@@ -435,7 +435,7 @@ class BaseAgent(ABC):
             model_context_window or '未配置',
             max_context_tokens,
         )
-        self.logger.info("%s '%s' 使用上下文预算档位: %s", label, self.name, budget_profile.name)
+        self.logger.debug("%s '%s' 使用上下文预算档位: %s", label, self.name, budget_profile.name)
 
     def _resolve_event_bus(self, context: AgentContext, event_bus = None):
         """获取当前 run 的事件总线。"""
@@ -772,7 +772,7 @@ class BaseAgent(ABC):
                 try:
                     arguments = resolver(arguments, tool_results, idx)
                     if arguments != original_arguments:
-                        self.logger.info(
+                        self.logger.debug(
                             f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}"
                         )
                 except Exception as error:
@@ -782,7 +782,7 @@ class BaseAgent(ABC):
                         error,
                     )
 
-            self.logger.info(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
+            self.logger.debug(f"{log_prefix} [{idx}/{len(actions)}] 执行工具: {tool_name}, 参数: {arguments}")
             tool_call_id = f"tool_{uuid.uuid4()}"
 
             # C6: 拦截未替换的占位符
@@ -1095,7 +1095,7 @@ class BaseAgent(ABC):
                 self._check_interrupt(context)
                 llm_config = self.get_llm_config(context, task_type='default')
                 log_prefix = self._log_prefix(llm_config, self._get_runtime_log_label())
-                self.logger.info(f"{log_prefix} 第 {rounds} 轮推理")
+                self.logger.debug(f"{log_prefix} 第 {rounds} 轮推理")
 
                 prepared = self.context_pipeline.prepare_execution_messages(
                     system_prompt=self._build_system_prompt(),
@@ -1105,7 +1105,7 @@ class BaseAgent(ABC):
                     llm_config=llm_config,
                 )
                 managed_messages = prepared.messages
-                self.logger.info(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
+                self.logger.debug(f"{log_prefix} {self.context_pipeline.format_summary(managed_messages)}")
                 self._publish_context_usage(
                     {
                         'used_tokens': prepared.total_tokens,
@@ -1146,15 +1146,15 @@ class BaseAgent(ABC):
                 final_answer = result.answer
                 full_response = result.full_response
                 if actions and final_answer:
-                    self.logger.info("%s 同轮同时返回了 actions 与 answer，当前轮先忽略 answer", log_prefix)
+                    self.logger.debug("%s 同轮同时返回了 actions 与 answer，当前轮先忽略 answer", log_prefix)
                     final_answer = None
 
                 if intent:
-                    self.logger.info(f"{log_prefix} Intent: {intent[:100]}...")
+                    self.logger.debug(f"{log_prefix} Intent: {intent[:100]}...")
                 elif actions:
-                    self.logger.info(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name', '?') for a in actions]}")
+                    self.logger.debug(f"{log_prefix} Actions: {len(actions)} tool(s): {[a.get('tool_name', '?') for a in actions]}")
                 elif final_answer:
-                    self.logger.info(f"{log_prefix} Answer: {final_answer[:100]}...")
+                    self.logger.debug(f"{log_prefix} Answer: {final_answer[:100]}...")
 
                 assistant_message = self._format_assistant_context_message(
                     intent=intent,
@@ -1169,7 +1169,7 @@ class BaseAgent(ABC):
                 self._on_assistant_message(intent, actions, full_response, final_answer, rounds, state)
 
                 if actions:
-                    self.logger.info(f"{log_prefix} 执行 {len(actions)} 个动作")
+                    self.logger.debug(f"{log_prefix} 执行 {len(actions)} 个动作")
                     self._handle_actions(actions, context, state, rounds, log_prefix)
                     continue
 
