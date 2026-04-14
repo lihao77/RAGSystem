@@ -207,7 +207,6 @@ class SSEAdapter:
             str: SSE格式的数据（"data: {...}\\n\\n"）
         """
         try:
-            self.start()
             last_heartbeat = time.time()
 
             while not self._stopped:

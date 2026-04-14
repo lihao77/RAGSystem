@@ -162,6 +162,7 @@ class AgentExecutionAdapter:
                 buffer_size=100,
                 heartbeat_interval=15.0,
             )
+            sse_adapter.start()
 
             persistence_handler = StreamPersistenceHandler(
                 event_bus=event_bus,
@@ -247,11 +248,7 @@ class AgentExecutionAdapter:
             subscription_ids = [
                 step_projector_subscription_id,
                 subscriptions['run_steps'],
-                subscriptions['final_answer'],
-                subscriptions['entry_call_id'],
-                subscriptions['compression'],
-                subscriptions['react_intermediate'],
-                subscriptions['interrupt'],
+                subscriptions['persistence'],
             ]
             if metrics_subscription_id:
                 subscription_ids.append(metrics_subscription_id)
