@@ -12,6 +12,10 @@
   - 当前项目工具体系与 Claude Code 的差异分析
   - 聚焦工具注册、执行上下文、权限、hooks、结果协议与大结果回读的差异诊断
 
+- `RUNTIME_EXECUTION_GAPS_AND_ROADMAP.md`
+  - 运行时缺陷分析与实施路线（2026-04-14）
+  - 聚焦工具并行、后台任务闭环、文件回退、日志治理、子 Agent 并行与超时熔断的差距、优先级与落地顺序
+
 ## 历史归档入口
 
 - `../archive/refactor/AGENT_FIRST_REFACTOR_PLAN.md`
