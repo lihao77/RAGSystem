@@ -156,63 +156,9 @@ class OrchestratorAgent(BaseAgent):
 
         return state
 
-    def _handle_actions(
-        self,
-        actions: List[Dict[str, Any]],
-        context: AgentContext,
-        state: Dict[str, Any],
-        rounds: int,
-        log_prefix: str,
-    ) -> None:
-        from .tool_router import route_direct_tool
-
-        event_bus = state.get('event_bus')
-        publisher = state.get('publisher')
-        observations = []
-        agent_results = {}
-
-        for idx, action in enumerate(actions, 1):
-            self._check_interrupt(context)
-
-            tool_name = action.get('tool')
-            arguments = action.get('arguments', {})
-            if not tool_name:
-                continue
-
-            original_arguments = arguments.copy()
-            arguments = self._replace_placeholders(arguments, agent_results)
-            if original_arguments != arguments:
-                self.logger.info(f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}")
-            action = {**action, 'arguments': arguments}
-
-            route_result = route_direct_tool(
-                agent=self,
-                action=action,
-                context=context,
-                event_bus=event_bus,
-                publisher=publisher,
-                run_id=state['run_id'],
-                rounds=rounds,
-                idx=idx,
-                orchestrator_call_id=state['call_id'],
-                log_prefix=log_prefix,
-            )
-
-            agent_results[idx] = route_result['result']
-            observations.append(route_result['observation'])
-
-        combined_observations = "\n\n".join(observations)
-        state['current_session'].append({
-            "role": "user",
-            "content": combined_observations,
-        })
-        if publisher:
-            publisher.react_intermediate(
-                role="user",
-                content=state['current_session'][-1]["content"],
-                round=rounds,
-                msg_type="observation",
-            )
+    def _resolve_references(self, arguments: Any, results_snapshot: Dict[int, Any], current_idx: int) -> Any:
+        """Orchestrator 使用自己的占位符替换逻辑（支持递归 dict/list 和 {result_N.path} 语法）。"""
+        return self._replace_placeholders(arguments, results_snapshot)
 
     def _handle_no_action(
         self,

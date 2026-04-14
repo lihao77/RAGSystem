@@ -693,14 +693,9 @@ class BaseAgent(ABC):
             msg_type="intent",
         )
 
-    def _record_visualization_result(
-        self,
-        tool_name: str,
-        result: Any,
-        state: Dict[str, Any],
-    ) -> None:
-        """[Deprecated] 新架构下可视化通过 artifact_id 持久化，不再收集事件。"""
-        pass
+    def _resolve_references(self, arguments: Any, results_snapshot: Dict[int, Any], current_idx: int) -> Any:
+        """占位符替换。子类可覆盖以定制替换策略。默认无操作。"""
+        return arguments
 
     def _format_tool_observation(
         self,
@@ -782,19 +777,18 @@ class BaseAgent(ABC):
 
     _MAX_PARALLEL_WORKERS = 8
 
-    def _execute_one_action(
+    def _execute_single_action(
         self,
         idx: int,
         action: Dict[str, Any],
-        tool_results: Dict[int, Any],
+        results: Dict[int, Any],
         lock: threading.Lock,
         context: AgentContext,
         state: Dict[str, Any],
         rounds: int,
         log_prefix: str,
-        total: int,
     ) -> Tuple[int, str]:
-        """执行单个 action，返回 (idx, observation_str)。线程安全。"""
+        """执行单个 action，返回 (idx, observation_str)。线程安全。子类可覆盖 _resolve_references 定制占位符替换。"""
         from tools.runtime.response_builder import error_result
         from tools.refs.result_references import (
             detect_unresolved_placeholders,
@@ -811,28 +805,39 @@ class BaseAgent(ABC):
         tool_name = action.get('tool')
         arguments = action.get('arguments', {})
 
-        resolver = getattr(self, '_resolve_tool_references', None)
-        if callable(resolver):
+        # 工具名校验
+        available_tool_names = {
+            t.get('function', {}).get('name') for t in (self.available_tools or [])
+        }
+        if available_tool_names and tool_name not in available_tool_names:
+            error_msg = f"无效的工具名称: {tool_name}（未在当前 Agent 可用工具列表中）"
+            self.logger.warning(f"{log_prefix} {error_msg}")
             with lock:
-                snapshot = dict(tool_results)
-            if snapshot:
-                original_arguments = arguments
-                try:
-                    arguments = resolver(arguments, snapshot, idx)
-                    if arguments != original_arguments:
-                        self.logger.debug(
-                            f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}"
-                        )
-                except Exception as error:
-                    self.logger.warning(
-                        "%s 占位符替换失败，沿用原始参数: %s", log_prefix, error
+                results[idx] = error_result(error_msg, tool_name=tool_name)
+            return idx, f"[{tool_name}]\n错误: {error_msg}"
+
+        # 占位符替换
+        with lock:
+            snapshot = dict(results)
+        if snapshot:
+            original_arguments = arguments
+            try:
+                arguments = self._resolve_references(arguments, snapshot, idx)
+                if arguments != original_arguments:
+                    self.logger.debug(
+                        f"{log_prefix} 占位符替换: {original_arguments} -> {arguments}"
                     )
+            except Exception as error:
+                self.logger.warning(
+                    "%s 占位符替换失败，沿用原始参数: %s", log_prefix, error
+                )
 
         self.logger.debug(
-            f"{log_prefix} [{idx}/{total}] 执行工具: {tool_name}, 参数: {arguments}"
+            f"{log_prefix} [{idx}] 执行工具: {tool_name}, 参数: {arguments}"
         )
         tool_call_id = f"tool_{uuid.uuid4()}"
 
+        # 未替换占位符检测
         unresolved = detect_unresolved_placeholders(arguments)
         if unresolved:
             observation = (
@@ -840,10 +845,9 @@ class BaseAgent(ABC):
                 "请检查引用路径是否正确"
             )
             with lock:
-                tool_results[idx] = error_result(observation, tool_name=tool_name)
+                results[idx] = error_result(observation, tool_name=tool_name)
             return idx, observation
 
-        # 执行前检查中断，避免并行批次中已取消仍继续执行
         self._check_interrupt(context)
 
         if publisher:
@@ -913,8 +917,7 @@ class BaseAgent(ABC):
                 )
 
         with lock:
-            self._record_visualization_result(tool_name, result, state)
-            tool_results[idx] = result
+            results[idx] = result
             state.setdefault('tool_calls_history', []).append({
                 'tool_name': tool_name,
                 'arguments': arguments,
@@ -937,7 +940,7 @@ class BaseAgent(ABC):
 
         publisher = state.get('publisher')
         observations: List[str] = [None] * (len(actions) + 1)  # idx 1-based
-        tool_results: Dict[int, Any] = {}
+        results: Dict[int, Any] = {}
         lock = threading.Lock()
         total = len(actions)
 
@@ -951,15 +954,15 @@ class BaseAgent(ABC):
                 if not tool_name:
                     continue
                 try:
-                    result_idx, obs = self._execute_one_action(
-                        idx, action, tool_results, lock, context, state, rounds, log_prefix, total
+                    result_idx, obs = self._execute_single_action(
+                        idx, action, results, lock, context, state, rounds, log_prefix,
                     )
                     observations[result_idx] = obs
                 except Exception as exc:
                     self.logger.error(f"{log_prefix} 工具执行异常 (action {idx}): {exc}", exc_info=True)
                     observations[idx] = f"[{action.get('tool', '?')}] 执行异常: {exc}"
                     with lock:
-                        tool_results[idx] = error_result(str(exc), tool_name=action.get('tool', '?'))
+                        results[idx] = error_result(str(exc), tool_name=action.get('tool', '?'))
             else:
                 # 并行执行批次内所有工具
                 self.logger.debug(
@@ -972,9 +975,9 @@ class BaseAgent(ABC):
                 ) as executor:
                     futures = {
                         executor.submit(
-                            self._execute_one_action,
-                            idx, action, tool_results, lock,
-                            context, state, rounds, log_prefix, total,
+                            self._execute_single_action,
+                            idx, action, results, lock,
+                            context, state, rounds, log_prefix,
                         ): (idx, action)
                         for idx, action in valid_batch
                     }
@@ -989,7 +992,7 @@ class BaseAgent(ABC):
                             )
                             observations[f_idx] = f"[{f_action.get('tool', '?')}] 执行异常: {exc}"
                             with lock:
-                                tool_results[f_idx] = error_result(
+                                results[f_idx] = error_result(
                                     str(exc), tool_name=f_action.get('tool', '?')
                                 )
 

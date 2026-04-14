@@ -218,7 +218,7 @@ class _PlaceholderAwareAgent(BaseAgent):
         del task, context
         raise NotImplementedError
 
-    def _resolve_tool_references(self, arguments, tool_results, current_idx):
+    def _resolve_references(self, arguments, results_snapshot, current_idx):
         del current_idx
         from tools.refs.result_references import resolve_result_path, stringify_result_value, result_primary_content
 
@@ -229,10 +229,10 @@ class _PlaceholderAwareAgent(BaseAgent):
                 prefix, _, path = placeholder.partition(".")
                 result_idx = int(prefix.lower().replace("result_", ""))
                 resolved_value = (
-                    result_primary_content(tool_results[result_idx])
+                    result_primary_content(results_snapshot[result_idx])
                     if not path
                     else resolve_result_path(
-                        tool_results[result_idx],
+                        results_snapshot[result_idx],
                         path,
                         prefer_primary_content_root=True,
                         case_insensitive=True,

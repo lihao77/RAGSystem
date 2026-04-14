@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from agents.core import AgentResponse
 from agents.core.context import AgentContext
 from agents.implementations.orchestrator.prompting import format_agent_result_summary, replace_placeholders
-from agents.implementations.orchestrator.tool_router import route_direct_tool
 from services.agent_execution_service import AgentExecutionService
 from tools.runtime.response_builder import error_result, success_result
 from tools.contracts.result_models import ToolExecutionResult
@@ -76,56 +75,6 @@ class _FakeReActAgent:
     def _safe_json_dumps(obj):
         import json
         return json.dumps(obj, ensure_ascii=False)
-
-
-def test_route_direct_tool_passes_run_id_to_execute_tool(monkeypatch):
-    from tools.runtime import executor as tool_executor
-
-    captured = {}
-
-    def fake_execute_tool(tool_name, arguments, **kwargs):
-        captured["tool_name"] = tool_name
-        captured["arguments"] = arguments
-        captured.update(kwargs)
-        return success_result(
-            content="ok",
-            summary="ok",
-            output_type="text",
-            tool_name=tool_name,
-        )
-
-    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
-
-    agent = SimpleNamespace(
-        logger=_FakeLogger(),
-        name="orchestrator_agent",
-        available_tools=[{"function": {"name": "write_file"}}],
-        agent_config=None,
-        _format_tool_observation=lambda result, **kwargs: "formatted",
-    )
-    context = AgentContext(session_id="session-1")
-    context.metadata["run_id"] = "run-route-1"
-
-    routed = route_direct_tool(
-        agent=agent,
-        action={"tool": "write_file", "arguments": {"content": "demo"}},
-        context=context,
-        event_bus=None,
-        publisher=None,
-        run_id="run-route-1",
-        rounds=1,
-        idx=1,
-        orchestrator_call_id="orchestrator-1",
-        log_prefix="[test]",
-    )
-
-    assert routed["result"].success is True
-    assert captured["tool_name"] == "write_file"
-    assert captured["arguments"] == {"content": "demo"}
-    assert captured["session_id"] == "session-1"
-    assert captured["run_id"] == "run-route-1"
-    assert captured["parent_call_id"] == "orchestrator-1"
-    assert captured["current_agent_name"] == "orchestrator_agent"
 
 
 def test_master_placeholder_supports_tool_execution_result_and_failure_message():
