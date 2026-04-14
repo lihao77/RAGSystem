@@ -3,6 +3,7 @@
 配置管理器 - 支持优先级加载和热重载
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -10,6 +11,8 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 from utils.yaml_store import load_yaml_file
 from .models import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -45,7 +48,7 @@ class ConfigManager:
         try:
             self._config = AppConfig(**config_dict)
         except ValidationError as e:
-            print(f"配置验证失败: {e}")
+            logger.error("配置验证失败: %s", e, exc_info=True)
             raise
 
     def reload(self):
@@ -63,7 +66,7 @@ class ConfigManager:
         try:
             return load_yaml_file(path, default_factory=dict)
         except Exception as e:
-            print(f"加载配置文件失败 {path}: {e}")
+            logger.error("加载配置文件失败 %s: %s", path, e, exc_info=True)
             return None
 
     def _deep_merge(self, base: dict, override: dict) -> dict:

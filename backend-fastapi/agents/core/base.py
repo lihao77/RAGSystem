@@ -16,9 +16,6 @@ from .context import AgentContext
 from . import prompting as core_prompting
 
 
-logger = logging.getLogger(__name__)
-
-
 class InterruptedError(Exception):
     """Agent 执行被用户中断"""
     pass
@@ -261,8 +258,6 @@ class BaseAgent(ABC):
         """
         requested_tier = getattr(context, 'requested_llm_tier', None) if context else None
         effective_tier = (task_type or requested_tier or 'default' or '').strip().lower() or 'default'
-        logger = getattr(self, 'logger', None)
-
         def _merge_agent_llm(llm_config_obj):
             if not llm_config_obj:
                 return {}
@@ -277,14 +272,14 @@ class BaseAgent(ABC):
             tier_config = llm_tiers.get(effective_tier)
             if tier_config:
                 config = _merge_agent_llm(tier_config)
-                if logger:
-                    logger.debug(f"[{self.name}] 使用 {effective_tier} 层级模型: {config.get('model_name', 'default')}")
+                if self.logger:
+                    self.logger.debug("[%s] 使用 %s 层级模型: %s", self.name, effective_tier, config.get('model_name', 'default'))
             elif effective_tier != 'default':
                 default_tier_config = llm_tiers.get('default')
                 if default_tier_config:
                     config = _merge_agent_llm(default_tier_config)
-                    if logger:
-                        logger.debug(f"[{self.name}] {effective_tier} 层级未配置，回退到 default 层级")
+                    if self.logger:
+                        self.logger.debug("[%s] %s 层级未配置，回退到 default 层级", self.name, effective_tier)
 
         if not config and self.system_config:
             llm_config = getattr(self.system_config, 'llm', None)

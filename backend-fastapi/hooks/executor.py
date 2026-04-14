@@ -74,7 +74,9 @@ async def run_hooks(context: HookContext) -> HookResult:
         return _empty_result_for_event(context.event_name)
 
     logger.info(
-        f"Executing {len(matching_hooks)} hooks for event {context.event_name}"
+        "Executing %d hooks for event %s",
+        len(matching_hooks),
+        context.event_name,
     )
 
     results = []
@@ -83,7 +85,7 @@ async def run_hooks(context: HookContext) -> HookResult:
         results.append(result)
 
         if result.block_execution:
-            logger.info(f"Hook {hook.id} blocked execution: {result.block_reason}")
+            logger.info("Hook %s blocked execution: %s", hook.id, result.block_reason)
             break
 
     merged = _merge_hook_results(results, matching_hooks, event_name=context.event_name)
@@ -143,7 +145,7 @@ async def _execute_single_hook(
 
     except asyncio.TimeoutError:
         duration_ms = (time.time() - start_time) * 1000
-        logger.warning(f"Hook {hook.id} timed out after {hook.timeout_ms}ms")
+        logger.warning("Hook %s timed out after %sms", hook.id, hook.timeout_ms)
 
         if hook.broadcast:
             await broadcast_hook_event(
@@ -166,7 +168,7 @@ async def _execute_single_hook(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.error(f"Hook {hook.id} failed: {e}", exc_info=True)
+        logger.error("Hook %s failed: %s", hook.id, e, exc_info=True)
 
         if hook.broadcast:
             await broadcast_hook_event(
@@ -199,7 +201,7 @@ async def _dispatch_hook_backend(
     elif hook.backend.type == "callback":
         return await _execute_callback_backend(hook, context)
     else:
-        logger.error(f"Unsupported hook backend type: {hook.backend.type}")
+        logger.error("Unsupported hook backend type: %s", hook.backend.type)
         return _empty_result_for_event(context.event_name)
 
 
@@ -220,7 +222,7 @@ async def _execute_function_backend(
         return result
 
     except Exception as e:
-        logger.error(f"Failed to execute function backend {hook.backend.target}: {e}")
+        logger.error("Failed to execute function backend %s: %s", hook.backend.target, e)
         raise
 
 
@@ -245,7 +247,7 @@ async def _execute_callback_backend(
     hook: HookDefinition, context: HookContext
 ) -> HookResult:
     """Execute a callback hook (observation only, no decision)."""
-    logger.debug(f"Callback hook {hook.id} observed event {context.event_name}")
+    logger.debug("Callback hook %s observed event %s", hook.id, context.event_name)
     return _empty_result_for_event(context.event_name)
 
 

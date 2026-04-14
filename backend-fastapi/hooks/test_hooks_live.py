@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Hook 系统实际测试脚本"""
 
-import sys
 import asyncio
+import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.logging_config import setup_logging
 from hooks.bootstrap import bootstrap_hook_system
-from hooks.registry import get_hook_registry
-from hooks.models import HookContext
 from hooks.executor import run_hooks
+from hooks.models import HookContext
+from hooks.registry import get_hook_registry
+
+setup_logging()
 
 
 async def test_tool_execution_hooks():
@@ -19,7 +22,6 @@ async def test_tool_execution_hooks():
     print("\n" + "=" * 70)
     print("测试 1: 模拟工具执行 - 观察 Hook 日志")
     print("=" * 70)
-
     print("\n▶️  模拟执行 read_file 工具...")
 
     context = HookContext(
@@ -37,14 +39,12 @@ async def test_tool_execution_hooks():
     )
 
     result = await run_hooks(context)
-
     print(f"\n✅ Hook 执行完成")
     print(f"   - 继续执行: {result.continue_execution}")
     print(f"   - 阻止执行: {result.block_execution}")
     print(f"   - 附加上下文: {len(result.additional_context)} 条")
-    if result.additional_context:
-        for ctx in result.additional_context:
-            print(f"     • {ctx}")
+    for ctx in result.additional_context:
+        print(f"     • {ctx}")
     print(f"   - 标签: {result.tags}")
 
 
@@ -53,7 +53,6 @@ async def test_bash_validation_hook():
     print("\n" + "=" * 70)
     print("测试 2: Bash 命令校验 - 测试危险命令阻止")
     print("=" * 70)
-
     print("\n▶️  模拟执行危险 bash 命令: rm -rf /")
 
     context = HookContext(
@@ -68,7 +67,6 @@ async def test_bash_validation_hook():
     )
 
     result = await run_hooks(context)
-
     print(f"\n✅ Hook 执行完成")
     print(f"   - 继续执行: {result.continue_execution}")
     print(f"   - 阻止执行: {result.block_execution}")
@@ -83,10 +81,9 @@ async def main():
     print("\n" + "=" * 70)
     print("🧪 Hook 系统实际测试")
     print("=" * 70)
-
     print("\n📦 正在加载 Hook 系统...")
-    bootstrap_hook_system()
 
+    bootstrap_hook_system()
     registry = get_hook_registry()
     all_hooks = registry.get_all_hooks()
     print(f"✅ 成功加载 {len(all_hooks)} 个 Hook")

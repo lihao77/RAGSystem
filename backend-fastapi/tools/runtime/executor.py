@@ -10,8 +10,9 @@ import time
 from collections.abc import Coroutine
 from typing import Any
 
+from execution.observability import format_observability_suffix
 from tools.contracts.result_models import ToolExecutionResult
-from tools.runtime.approvals import _obs_suffix, request_user_approval_if_needed
+from tools.runtime.approvals import request_user_approval_if_needed
 from tools.runtime.dispatcher import build_handler_call_arguments, execute_mcp_tool, get_tool_handler
 from tools.runtime.models import ToolUseContext
 from tools.runtime.registration import TOOL_HANDLERS
@@ -50,7 +51,7 @@ def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
                 pass
             elapsed = time.monotonic() - start - (timer.paused_duration - paused_at_start)
             if elapsed >= timeout:
-                logger.error(f"工具 {tool_name} 执行超时 ({timeout}s){_obs_suffix()}")
+                logger.error("工具 %s 执行超时 (%ss)%s", tool_name, timeout, format_observability_suffix())
                 return error_result(f"工具 {tool_name} 执行超时（{timeout}秒）", tool_name=tool_name)
 
 
@@ -314,9 +315,7 @@ def execute_tool(
             phase="on_error",
         )
 
-        logger.error(f"执行工具 {tool_name} 失败: {error}{_obs_suffix()}")
-        import traceback
-        traceback.print_exc()
+        logger.error("执行工具 %s 失败: %s%s", tool_name, error, format_observability_suffix(), exc_info=True)
         result = error_result(str(error), tool_name=tool_name)
         _merge_approval_metadata(result, approval_outcome.approval_metadata, approval_outcome.approval_message)
         if approval_outcome.approval_message:
@@ -375,7 +374,7 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> Any:
         return _run_coroutine_sync(run_hooks(hook_context))
 
     except Exception as e:
-        logger.warning(f"Hook execution failed for {event_name}: {e}")
+        logger.warning("Hook execution failed for %s: %s", event_name, e)
         return None
 
 

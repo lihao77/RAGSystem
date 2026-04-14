@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import logging
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -16,6 +17,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from core.logging_config import setup_logging
 from tools.runtime.result_normalizer import TOOL_OUTPUT_TYPE_MAP, ToolResultNormalizer
 from tools.refs.result_references import resolve_result_path
 from tools.contracts.result_models import ToolExecutionResult
@@ -24,6 +26,9 @@ from tools.local.document_tools import edit_file, preview_data_structure, read_f
 from tools.runtime.registration import TOOL_HANDLERS
 from tools.tool_registry import get_tool_registry
 
+logger = logging.getLogger(__name__)
+
+setup_logging()
 bootstrap_tool_system()
 
 

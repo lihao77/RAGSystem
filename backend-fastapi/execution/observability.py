@@ -153,3 +153,8 @@ def format_observability_for_log(fields: Optional[Mapping[str, Any]] = None) -> 
     resolved = dict(fields or get_current_execution_observability_fields())
     parts = [f'{key}={resolved[key]}' for key in EXECUTION_OBSERVABILITY_KEYS if resolved.get(key)]
     return ' '.join(parts)
+
+
+def format_observability_suffix(fields: Optional[Mapping[str, Any]] = None) -> str:
+    suffix = format_observability_for_log(fields)
+    return f' [{suffix}]' if suffix else ''

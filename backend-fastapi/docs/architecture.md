@@ -44,6 +44,7 @@ backend-fastapi/
 ├── capabilities/              # 能力模块（文档检索、向量检索、MCP）
 ├── config/yaml/               # 源码侧系统级 app 配置示例
 ├── execution/                 # 执行层（持久化、可观测性）
+├── core/                      # 核心基础设施（路径解析、统一日志配置）
 ├── lifespan.py                # 启动生命周期
 ├── main.py                    # 应用入口
 └── <DATA_ROOT>/              # 运行时数据根目录（默认 ~/.ragsystem，可通过 RAG_DATA_ROOT 覆盖）
@@ -145,6 +146,13 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 共享 skeleton 当前固定承载：工作目标、执行决策顺序、工具与执行路径选择、输出格式、停止条件、失败恢复规则，以及按工具能力条件注入的 `execute_code` 提示段；agent 专属策略则通过扩展 section 追加。
 
 关键属性：`name`, `description`, `available_tools`, `available_skills`, `max_rounds`, `model_adapter`, `agent_config`, `_publisher`
+
+日志治理补充：
+- `main.py` 在应用导入早期统一调用 `core.logging_config.setup_logging()`，不再散落 `logging.basicConfig(...)`
+- HTTP 请求日志统一由 `middleware/logging.py` 负责，继续透传 `X-Request-ID`
+- execution/run 级字段统一复用 `execution/observability.py`（如 `task_id/session_id/run_id/execution_kind/request_id`）
+- `BaseAgent` 实例日志统一走 `self.logger = logging.getLogger(f"Agent.{name}")`，不再混用模块级 logger
+- 历史悬空的 `agents/logging/structured_logger.py` 已移除；脚本类入口也统一接入 `core.logging_config.setup_logging()`
 
 LLM 分层配置约定：
 - `agent_config.llm`：Agent 主默认模型配置，也是 tier fallback

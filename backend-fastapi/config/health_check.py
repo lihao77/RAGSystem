@@ -5,11 +5,14 @@
 在应用启动时执行，确保必需配置存在且格式正确；警告仅打印不阻止启动。
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import List
 
 from core.path_resolution import CONFIG_ROOT
+
+logger = logging.getLogger(__name__)
 
 # 路径：以 backend 为根（config/health_check.py -> backend）
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -142,7 +145,7 @@ class ConfigHealthCheck:
         """
         self.errors.clear()
         self.warnings.clear()
-        print("正在检查配置...")
+        logger.info("正在检查配置...")
 
         self.check_gitignore()
         self.check_required_configs()
@@ -152,21 +155,17 @@ class ConfigHealthCheck:
             self.check_config_validity()
 
         if self.errors:
-            print("\n" + "=" * 60)
-            print("配置检查未通过，请处理以下错误：\n")
+            logger.error("配置检查未通过，请处理以下错误:")
             for err in self.errors:
-                print(err)
-            print("=" * 60 + "\n")
+                logger.error("  %s", err)
             return False
 
         if self.warnings:
-            print("\n" + "=" * 60)
-            print("配置检查通过，但有以下建议：\n")
+            logger.warning("配置检查通过，但有以下建议:")
             for w in self.warnings:
-                print(w)
-            print("=" * 60 + "\n")
+                logger.warning("  %s", w)
         else:
-            print("配置检查通过。\n")
+            logger.info("配置检查通过")
 
         return True
 

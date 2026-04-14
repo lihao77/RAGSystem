@@ -58,7 +58,7 @@ class MCPConfigStore:
                 sort_keys=False,
             )
         except Exception as e:
-            logger.warning(f"读取 MCP 配置失败，使用默认: {e}")
+            logger.warning("读取 MCP 配置失败，使用默认: %s", e)
             return self._build_empty_payload()
         return data
 
@@ -96,7 +96,7 @@ class MCPConfigStore:
         entry["created_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         data["servers"][config.name] = entry
         self._save_raw(data)
-        logger.info(f"已添加 MCP Server: {config.name}")
+        logger.info("已添加 MCP Server: %s", config.name)
         return config.name
 
     def update_server(self, server_name: str, updates: Dict[str, Any]) -> None:
@@ -109,7 +109,7 @@ class MCPConfigStore:
         data["servers"][server_name].update(updates)
         data["servers"][server_name]["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._save_raw(data)
-        logger.info(f"已更新 MCP Server: {server_name}")
+        logger.info("已更新 MCP Server: %s", server_name)
 
     def remove_server(self, server_name: str) -> None:
         """删除 Server 配置"""
@@ -118,7 +118,7 @@ class MCPConfigStore:
             raise ValueError(f"MCP Server 不存在: {server_name}")
         del data["servers"][server_name]
         self._save_raw(data)
-        logger.info(f"已删除 MCP Server: {server_name}")
+        logger.info("已删除 MCP Server: %s", server_name)
 
 
 def get_mcp_config_store(config_path: Optional[Path] = None) -> MCPConfigStore:

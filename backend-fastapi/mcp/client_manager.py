@@ -103,7 +103,7 @@ class MCPClientManager:
             try:
                 self.disconnect_server(name)
             except Exception as e:
-                logger.warning(f"断开 MCP Server {name} 时出错: {e}")
+                logger.warning("断开 MCP Server %s 时出错: %s", name, e)
 
         # 停止事件循环
         if self._loop and self._loop.is_running():
@@ -156,7 +156,7 @@ class MCPClientManager:
                     try:
                         self.connect_server(name)
                     except Exception as e:
-                        logger.warning(f"自动连接 MCP Server {name} 失败: {e}")
+                        logger.warning("自动连接 MCP Server %s 失败: %s", name, e)
 
     def connect_server(self, server_name: str) -> bool:
         """
@@ -183,7 +183,7 @@ class MCPClientManager:
             conn.config = srv_cfg
 
         if conn.is_connected():
-            logger.info(f"MCP Server {server_name} 已连接，跳过{_obs_suffix()}")
+            logger.info("MCP Server %s 已连接，跳过%s", server_name, _obs_suffix())
             return True
 
         timeout = srv_cfg.get("timeout", 30)
@@ -201,7 +201,7 @@ class MCPClientManager:
                 conn.tools,
                 risk_level=srv_cfg.get("risk_level", "medium"),
             )
-            logger.info(f"✓ MCP Server {server_name} 连接成功，发现 {len(conn.tools)} 个工具{_obs_suffix()}")
+            logger.info("✓ MCP Server %s 连接成功，发现 %d 个工具%s", server_name, len(conn.tools), _obs_suffix())
             return True
         except Exception as e:
             conn.status = "error"
@@ -394,7 +394,7 @@ class MCPClientManager:
         try:
             self._run_async(self._async_disconnect(conn), timeout=10)
         except Exception as e:
-            logger.warning(f"Error disconnecting MCP Server {server_name}: {e}{_obs_suffix()}")
+            logger.warning("Error disconnecting MCP Server %s: %s%s", server_name, e, _obs_suffix())
         finally:
             conn.status = "disconnected"
             conn.tools = []
@@ -472,7 +472,7 @@ class MCPClientManager:
             with self._lock:
                 conn = self._connections.get(server_name)
             if conn is None or not conn.is_connected():
-                logger.warning(f"MCP Server {server_name} 未连接，无法获取工具")
+                logger.warning("MCP Server %s 未连接，无法获取工具", server_name)
                 return []
             return _TOOL_REGISTRY.mcp_tools_to_openai_format(server_name, conn.tools)
 
@@ -523,7 +523,7 @@ class MCPClientManager:
         except TimeoutError:
             return error_result(f"MCP 工具调用超时: {server_name}/{tool_name}", tool_name=full_tool_name)
         except Exception as e:
-            logger.error(f"MCP 工具调用失败 ({server_name}/{tool_name}): {e}{_obs_suffix()}")
+            logger.error("MCP 工具调用失败 (%s/%s): %s%s", server_name, tool_name, e, _obs_suffix())
             return error_result(f"MCP 工具调用失败: {e}", tool_name=full_tool_name)
 
     async def _async_call_tool(self, conn: MCPConnection, tool_name: str, arguments: dict):

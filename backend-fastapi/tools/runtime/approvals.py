@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from execution.observability import format_observability_for_log, get_current_execution_observability_fields
+from execution.observability import format_observability_suffix
 from tools.runtime.models import ToolUseContext
 from tools.runtime.response_builder import error_result
 from utils.timeout_pause import pause_current, resume_current
@@ -145,10 +145,6 @@ def _build_approval_metadata(
     return metadata
 
 
-def _obs_suffix() -> str:
-    suffix = format_observability_for_log(get_current_execution_observability_fields())
-    return f" [{suffix}]" if suffix else ""
-
 
 def request_user_approval_if_needed(
     context: ToolUseContext,
@@ -170,14 +166,14 @@ def request_user_approval_if_needed(
         caller=context.caller,
     )
     if not decision.execution_allowed:
-        logger.warning(f"工具权限检查失败: {decision.deny_reason}{_obs_suffix()}")
+        logger.warning("工具权限检查失败: %s%s", decision.deny_reason, format_observability_suffix())
         return ApprovalOutcome(
             allowed=False,
             error_result=error_result(decision.deny_reason, tool_name=context.tool_name),
         )
 
     if skip_all_approvals:
-        logger.info(f"工具 {context.tool_name} 启用 skip_all_approvals，跳过审批{_obs_suffix()}")
+        logger.info("工具 %s 启用 skip_all_approvals，跳过审批%s", context.tool_name, format_observability_suffix())
         return ApprovalOutcome(allowed=True, approved_external_paths=approved_external_paths)
 
     permission = get_tool_permission(context.tool_name)
@@ -194,16 +190,16 @@ def request_user_approval_if_needed(
         requires = True
     if not requires and not force_ask:
         if reason:
-            logger.info(f"工具 {context.tool_name} 审批跳过: {reason}{_obs_suffix()}")
+            logger.info("工具 %s 审批跳过: %s%s", context.tool_name, reason, format_observability_suffix())
         return ApprovalOutcome(allowed=True)
 
     approval_required_hook = _run_approval_hook("approval.required", context, permission, reason)
     approval_hook_payload = _approval_hook_payload(approval_required_hook)
 
-    logger.info(f"工具 {context.tool_name} 需要用户审批{_obs_suffix()}")
+    logger.info("工具 %s 需要用户审批%s", context.tool_name, format_observability_suffix())
 
     if not context.event_bus:
-        logger.warning(f"工具 {context.tool_name} 需要审批但无事件总线，拒绝执行{_obs_suffix()}")
+        logger.warning("工具 %s 需要审批但无事件总线，拒绝执行%s", context.tool_name, format_observability_suffix())
         return ApprovalOutcome(
             allowed=False,
             error_result=error_result(
@@ -256,10 +252,10 @@ def request_user_approval_if_needed(
             session_id=context.session_id,
             data=event_data,
         ))
-        logger.info(f"已发布工具 {context.tool_name} 的审批请求事件 approval_id={approval_id}{_obs_suffix()}")
+        logger.info("已发布工具 %s 的审批请求事件 approval_id=%s%s", context.tool_name, approval_id, format_observability_suffix())
 
         if wait_evt is None:
-            logger.warning(f"工具 {context.tool_name} 需要审批但缺少 session_id，拒绝执行{_obs_suffix()}")
+            logger.warning("工具 %s 需要审批但缺少 session_id，拒绝执行%s", context.tool_name, format_observability_suffix())
             approval_metadata = _build_approval_metadata(
                 reason=reason,
                 hook_result=approval_required_hook,
@@ -302,7 +298,7 @@ def request_user_approval_if_needed(
                 secondary_reasons=secondary_reasons,
             )
 
-            logger.info(f"工具 {context.tool_name} 审批被拒绝或任务已停止{_obs_suffix()}")
+            logger.info("工具 %s 审批被拒绝或任务已停止%s", context.tool_name, format_observability_suffix())
             deny_reason = approval_note if approval_note else "用户拒绝执行此操作"
             return ApprovalOutcome(
                 allowed=False,
@@ -332,9 +328,9 @@ def request_user_approval_if_needed(
             secondary_reasons=secondary_reasons,
         )
 
-        logger.info(f"工具 {context.tool_name} 审批通过，继续执行{_obs_suffix()}")
+        logger.info("工具 %s 审批通过，继续执行%s", context.tool_name, format_observability_suffix())
         if approval_note:
-            logger.info(f"用户审批附言: {approval_note}{_obs_suffix()}")
+            logger.info("用户审批附言: %s%s", approval_note, format_observability_suffix())
         return ApprovalOutcome(
             allowed=True,
             approval_message=approval_note or "",
@@ -354,7 +350,7 @@ def request_user_approval_if_needed(
             secondary_reasons=secondary_reasons,
         )
 
-        logger.error(f"审批流程异常: {error}{_obs_suffix()}")
+        logger.error("审批流程异常: %s%s", error, format_observability_suffix())
         return ApprovalOutcome(
             allowed=False,
             error_result=error_result(
@@ -515,5 +511,5 @@ def _run_approval_hook(
         return _filter_approval_hook_result(_run_hook_coroutine(run_hooks(hook_context)))
 
     except Exception as e:
-        logger.warning(f"Approval hook execution failed for {event_name}: {e}")
+        logger.warning("Approval hook execution failed for %s: %s", event_name, e)
         return None

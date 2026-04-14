@@ -1066,11 +1066,11 @@ class ConversationStore:
                 if expired_sessions:
                     import logging
                     logger = logging.getLogger(__name__)
-                    logger.info(f"清理了 {len(expired_sessions)} 个过期 session 锁")
+                    logger.info("清理了 %d 个过期 session 锁", len(expired_sessions))
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"清理 session 锁失败: {e}")
+            logger.warning("清理 session 锁失败: %s", e)
 
     def _cleanup_temp_data_files(self):
         """
@@ -1085,10 +1085,10 @@ class ConversationStore:
         try:
             deleted_count = self.artifact_store.cleanup(24 * 60 * 60)
             if deleted_count > 0:
-                logger.info(f"清理了 {deleted_count} 个过期临时数据文件")
+                logger.info("清理了 %d 个过期临时数据文件", deleted_count)
 
         except Exception as e:
-            logger.warning(f"清理临时数据文件失败: {e}")
+            logger.warning("清理临时数据文件失败: %s", e)
 
     def create_child_agent(
         self,

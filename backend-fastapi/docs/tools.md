@@ -152,6 +152,9 @@ def my_tool(arguments, **kwargs):
 - `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
 - `tools/permissions.py` 明确拆分”暴露权限”与”执行权限”，并输出结构化 `PermissionDecision`
 - `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway 复用该上下文
+- runtime 与审批日志统一由 `core/logging_config.py` 配置；`main.py` 启动时一次性初始化 logging，运行时异常统一使用 `logger.error(..., exc_info=True)`
+- `tools/runtime/tool_output_type_audit.py` 等独立审计脚本也已接入统一 logging 入口，不再直接 `print()`
+- execution observability 继续复用 `execution/observability.py`，运行时日志可附带 `task_id/session_id/run_id/execution_kind/request_id` 后缀
 - **Hook 系统已实现**：runtime 与 approval 主链都已接入 Hook，approval hook 结果会进入审批事件 payload / 最终结果 metadata，`workspace_trust` 也已从配置真实注入（详见 `docs/hooks.md`）
 - Observation 路径已承接大结果预算控制：`ObservationPolicy` 输出 `inline / artifact_ref` 两阶段决策，`PromptMaterializer` + `LargePayloadFormatter` 在 observation 格式化阶段完成落盘
 - `CALL_TOOL_END` / `execution.step` / 前端 `executionProjector.js` 统一围绕 `result_preview / raw_result / raw_result_ref / approval_message` 工作

@@ -174,10 +174,8 @@ def init_vector_store(force=False):
 
     except Exception as e:
         logger.error("=" * 60)
-        logger.error(f"❌ 向量数据库初始化失败: {e}")
+        logger.error("❌ 向量数据库初始化失败: %s", e, exc_info=True)
         logger.error("=" * 60)
-        import traceback
-        traceback.print_exc()
         _vector_store_initialized = False
         return False
 
@@ -193,6 +191,6 @@ if __name__ == '__main__':
     success = init_vector_store()
 
     if success:
-        print("\n✅ 向量数据库已就绪，可以启动应用")
+        logger.info("向量数据库已就绪，可以启动应用")
     else:
-        print("\n❌ 向量数据库初始化失败，请检查配置")
+        logger.error("向量数据库初始化失败，请检查配置")

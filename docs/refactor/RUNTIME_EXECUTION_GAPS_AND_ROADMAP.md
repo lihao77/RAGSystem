@@ -101,18 +101,19 @@
 **好的部分**：
 - 大部分代码遵循 `logger = logging.getLogger(__name__)`。
 - 核心模块（tools/runtime、hooks、services、daemon）日志命名总体规范。
-- 已存在 `agents/logging/structured_logger.py`，说明系统曾有结构化日志方向的设计基础。
+- 已新增统一日志入口 `backend-fastapi/core/logging_config.py`，启动入口已统一初始化 logging。
+- `execution/observability.py` 与 `middleware/logging.py` 已作为 request/run 级日志上下文真源复用。
 
 **主要问题**：
-1. `main.py` 使用最简单的 `logging.basicConfig(level=logging.INFO)`，且注释掉了按环境变量调级的版本。
-2. `structured_logger.py` 的配置能力未被接入启动流程，基本处于死代码状态。
-3. 局部存在 `traceback.print_exc()`、`print()` 与 logger 混用。
-4. 个别模块（尤其 `agents/core/base.py`）同时混用模块级 logger 和实例级 `self.logger`。
-5. 缺统一 formatter、缺 request/run 级 trace 字段、缺分模块分级控制。
+1. 历史上 `main.py` 使用最简单的 `logging.basicConfig(level=logging.INFO)`，且注释掉了按环境变量调级的版本；现已收敛到统一入口。
+2. 历史悬空的 `structured_logger.py` 已删除，避免形成第二套日志主线。
+3. 运行时核心路径与独立脚本中的 `traceback.print_exc()` / `print()` 已基本收敛到 logger。
+4. `agents/core/base.py` 的模块级 logger / `self.logger` 混用已收敛为实例 logger 主线。
+5. 当前剩余工作更偏向日志降噪与体验优化，而非主线治理缺失。
 
 **结论**：
-- 不是“日志系统崩坏”，而是“**日志系统尚未治理完成**”。
-- 这是一个适合尽早治理、收益很高的工程质量问题。
+- D4 主线治理已完成：统一 logging 入口、`LOG_LEVEL` 恢复、运行时核心与脚本输出已收敛、悬空 `structured_logger` 已移除。
+- 后续如继续投入，应聚焦脚本模式下的降噪与更细粒度观测，而不是再建设第二套日志体系。
 
 ---
 
@@ -179,17 +180,18 @@
 1. 新增统一日志配置模块，如：`backend-fastapi/core/logging_config.py`
 2. 在启动入口统一初始化 logging，而不是散落 `basicConfig`
 3. 恢复并启用 `LOG_LEVEL` 环境变量
-4. 接入 `structured_logger.py` 或收敛为统一日志配置入口
+4. 收敛悬空的 `agents/logging/structured_logger.py`，统一到标准 logging 主线
 5. 全局替换：
    - `traceback.print_exc()` -> `logger.error(..., exc_info=True)`
    - 运行时 `print()` -> logger
 6. 清理 `agents/core/base.py` 中模块级 logger / `self.logger` 混用问题
+7. 复用 `execution/observability.py` 与 `middleware/logging.py`，统一 request/run 级日志上下文
 
 ### 验收标准
 - 日志格式统一，至少包含时间、级别、logger 名、消息。
 - `LOG_LEVEL` 可配置并生效。
-- 运行时核心模块不再使用 `print()` 和 `traceback.print_exc()`。
-- `structured_logger.py` 要么接入主线，要么删除/合并，不能继续悬空。
+- 运行时核心模块与独立验证脚本不再使用 `print()` 和 `traceback.print_exc()`。
+- 历史悬空的 `structured_logger.py` 已删除/合并，不再保留第二套日志入口。
 
 ---
 

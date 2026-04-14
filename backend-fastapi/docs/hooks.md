@@ -457,7 +457,9 @@ async def async_handler(context: HookContext, config: dict) -> HookResult:
 
 ### 日志
 
-Hook 执行日志：
+Hook 执行日志统一走标准 `logging` 主线，并复用应用入口的统一 formatter（时间、级别、logger 名、消息）。异常路径统一使用 `exc_info=True`；timeout / error 的日志建议通过 `caplog` 断言关键字段，而不是绑定完整文案。`verify_hooks.py`、`test_hooks_live.py` 这类独立脚本也已切到统一 logging 入口。
+
+Hook 执行日志示例：
 
 ```
 INFO: Executing 2 hooks for event tool.before_execute

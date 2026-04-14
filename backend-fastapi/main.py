@@ -20,6 +20,10 @@ BACKEND_FASTAPI_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BACKEND_FASTAPI_DIR, '..'))
 SKILLS_DIR = os.path.join(BACKEND_FASTAPI_DIR, 'agents', 'skills')
 
+from core.logging_config import setup_logging
+
+setup_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,8 +36,6 @@ from middleware.logging import LoggingMiddleware
 from api.v1 import router as api_v1_router
 from core.path_resolution import UPLOADS_ROOT
 
-# logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEFAULT_CORS_ORIGINS = [
