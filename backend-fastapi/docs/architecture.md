@@ -596,18 +596,18 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 ### 后台等待与 KV Cache 保活
 
-`run_in_background=true` 现在只表示后台启动，不会让 ReAct 主循环自动进入 waiting loop。后台工具（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）只返回 `background_task_id`，后续由 Agent 显式调用 `task_output` / `task_stop` 管理后台任务。
+`run_in_background=true` 现在只表示后台启动，不会自动让模型直接看到完整输出。后台工具（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）会返回 `background_task_id` 与 `background_output_path`；后台任务完成后，runtime 会向当前 run 自动注入完成通知，通知中包含 `output_path`，模型随后通过 `read_file(file_path=output_path)` 读取结果。
 
-当 `task_output(block=true)` 返回 `suggest_wait=true` 时，ReAct 主循环才会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop，`task_output(block=true)` 只返回“任务仍在运行中”的当前状态。若 waiting loop 在等待窗口内等到任务完成，则当前轮直接回灌完成结果，而不会先暴露“已进入等待”的中间 observation。
+waiting loop 仍由等待信号触发：当某些后台控制入口返回 `suggest_wait=true` 时，ReAct 主循环会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop；后台任务完成后仍会通过统一通知进入后续轮次。若 waiting loop 在等待窗口内等到任务完成，则当前轮直接回灌完成通知，而不会先暴露“已进入等待”的中间 observation。
 
-等待机制基于三层保障：
+等待机制基于四层保障：
 
-1. **事件唤醒**：`agent_execution.py` 为每个 run 注册 `BACKGROUND_TASK_COMPLETED` 订阅，完成事件通过 `TaskRegistry.resolve_task_wait()` 即时唤醒等待线程。
+1. **事件唤醒**：`agent_execution.py` 为每个 run 注册 `BACKGROUND_TASK_COMPLETED` 订阅，完成事件通过 `TaskRegistry.resolve_task_wait()` 即时唤醒等待线程，并把 completion snapshot 交给当前 run。
 2. **Poll 兜底**：waiting loop 按 `waiting_poll_interval_seconds`（默认 3s）周期轮询 `BackgroundTaskManager.get_task()`，防止订阅建立前任务已完成或事件丢失。
-3. **结构化结果回灌**：`BackgroundTaskManager.submit_callable()` 会把 callable 的返回结果写成结构化 JSON；若结果是 `ToolExecutionResult`，则完整保留 `summary/output_type/content/metadata/artifacts/llm_hint`，等待结束后由 waiting loop 作为 observation 回灌。
+3. **notification + output_path 主路径**：后台任务完成后，无论是事件唤醒还是 poll 兜底，最终都会回灌统一的完成通知 observation；通知中携带 `output_path`，模型主路径统一是 `read_file(file_path=output_path)`。
 4. **Hidden keepalive**：仅当 `allow_provider_keepalive=true` 时，按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
 
-等待完成后，后台任务输出作为 observation 回灌到 `current_session`，Agent 继续 ReAct 推理直至最终答案。
+等待完成后，后台任务以 `<task-notification>` XML 格式的完成通知回灌到 `current_session`（对标 Claude Code 的 `task-notification`）；通知包含 `task-id`、`output-file`、`status` 等结构化字段，真正的结果内容由模型后续通过 `read_file` 读取。通知统一走 session 级队列（`TaskRegistry._session_notifications`），在每轮推理开头和工具执行后自动 drain。
 
 配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 仅控制是否启用显式等待触发的 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
 

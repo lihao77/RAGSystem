@@ -464,7 +464,7 @@ def test_handle_actions_keeps_completed_task_output_observation(monkeypatch):
     ]
 
 
-def test_append_waiting_observation_replays_task_output_result():
+def test_append_waiting_observation_returns_notification_with_output_path():
     from tools.runtime.background_tasks import get_background_task_manager
 
     temp_dir = Path(tempfile.mkdtemp(prefix="waiting_replay_", dir=Path(__file__).parent))
@@ -474,7 +474,7 @@ def test_append_waiting_observation_replays_task_output_result():
         bg_manager._processes.clear()
 
         task = bg_manager.spawn_bash(
-            "printf 'start\\ndone\\n'",
+            "printf 'start\ndone\n'",
             bash_executable=None,
             cwd=temp_dir,
             output_dir=temp_dir,
@@ -488,44 +488,12 @@ def test_append_waiting_observation_replays_task_output_result():
             _time.sleep(0.02)
 
         agent = _PlaceholderAwareAgent()
-        agent.result_normalizer = ToolResultNormalizer()
-        agent.observation_policy = ObservationPolicy(
-            max_context_tokens=8000,
-            inline_text_limit=1000,
-            inline_json_limit=1000,
-            summarize_limit=2000,
-        )
-        agent.prompt_materializer = PromptMaterializer(
-            artifact_store=ArtifactStore(base_dir=str(temp_dir / "artifacts")),
-            large_data_threshold=4000,
-        )
 
         class _Registry:
             def clear_task_waiting(self, *args, **kwargs):
                 pass
 
         publisher = _DummyPublisher()
-        pending_tool_call = {
-            "tool_name": "task_output",
-            "arguments": {"task_id": task.task_id, "block": True},
-            "result": success_result(
-                content={
-                    "background_task_id": task.task_id,
-                    "suggest_wait": True,
-                    "wait_timeout_ms": 130000,
-                },
-                summary="后台任务等待中",
-                output_type="json",
-                tool_name="task_output",
-            ),
-            "tool_call_id": "tool-1",
-            "parent_call_id": "call-root",
-            "round": 1,
-            "agent_display_name": "Placeholder Agent",
-            "current_session_id": "session-1",
-            "elapsed_time": 0.02,
-            "approval_message": "",
-        }
         state = {
             "publisher": publisher,
             "current_session": [],
@@ -533,6 +501,8 @@ def test_append_waiting_observation_replays_task_output_result():
         bg_wait_state = SimpleNamespace(
             completed_task_ids=[task.task_id],
             pending_task_ids=[],
+            task_ids=[task.task_id],
+            wake_reason='completed',
         )
 
         observation = agent._append_waiting_observation(
@@ -542,18 +512,18 @@ def test_append_waiting_observation_replays_task_output_result():
             bg_manager,
             state,
             bg_wait_state,
-            [pending_tool_call],
+            [],
+            1,
         )
 
         assert observation
-        assert "[task_output]" in observation
-        assert "start" in observation
-        assert "done" in observation
+        assert f"<task-id>{task.task_id}</task-id>" in observation
+        assert "<output-file>" in observation
+        assert "<task-notification>" in observation
         assert state["current_session"] == [{"role": "user", "content": observation}]
-        tool_end_calls = [item for item in publisher.calls if item[0] == "tool_call_end"]
-        assert len(tool_end_calls) == 1
-        assert tool_end_calls[0][1]["call_id"] == "tool-1"
-        assert "done" in tool_end_calls[0][1]["result_preview"]
+        react_calls = [item for item in publisher.calls if item[0] == "react_intermediate"]
+        assert len(react_calls) == 1
+        assert react_calls[0][1]["content"] == observation
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -614,15 +584,190 @@ def test_run_hidden_keepalive_uses_context_budget_and_refreshes_cache():
     assert context.metadata["_cache"]["t"] > 0
 
 
-def test_waiting_enabled_false_skips_waiting_loop_gate():
+def test_pending_notifications_drain_into_current_session():
+    """session 级通知队列应在 drain 时注入 current_session（对标 Claude Code enqueuePendingNotification）。"""
     agent = _PlaceholderAwareAgent()
-    agent.context_pipeline = SimpleNamespace(config=ContextConfig(waiting_enabled=False))
+    publisher = _DummyPublisher()
 
-    waiting_request = SimpleNamespace(background_task_ids=["bg-1"])
-    should_wait = (
-        agent.context_pipeline.config.waiting_enabled
-        and waiting_request
-        and waiting_request.background_task_ids
+    class _Registry:
+        def drain_session_notifications(self, session_id):
+            assert session_id == "session-1"
+            return [
+                {
+                    "background_task_id": "bg-9",
+                    "status": "completed",
+                    "output_path": "E:/tmp/bg_9.log",
+                    "summary": "后台任务 bg-9 已完成",
+                }
+            ]
+
+    import agents.task_registry as task_registry_module
+    original_getter = task_registry_module.get_task_registry
+    task_registry_module.get_task_registry = lambda: _Registry()
+    try:
+        context = AgentContext(session_id="session-1")
+        state = {
+            "publisher": publisher,
+            "current_session": [],
+        }
+
+        agent._drain_pending_notifications(context, state, 3)
+
+        assert len(state["current_session"]) == 1
+        content = state["current_session"][0]["content"]
+        assert "<task-notification>" in content
+        assert "<task-id>bg-9</task-id>" in content
+        assert "<output-file>E:/tmp/bg_9.log</output-file>" in content
+        assert "<status>completed</status>" in content
+        react_calls = [item for item in publisher.calls if item[0] == "react_intermediate"]
+        assert len(react_calls) == 1
+        assert react_calls[0][1]["round"] == 3
+    finally:
+        task_registry_module.get_task_registry = original_getter
+
+
+def test_cross_run_notifications_drain_at_run_start():
+    """上次 run 结束后到达的通知应在下次 run 开头被消费。"""
+    agent = _PlaceholderAwareAgent()
+    publisher = _DummyPublisher()
+
+    class _Registry:
+        def drain_session_notifications(self, session_id):
+            assert session_id == "session-1"
+            return [
+                {
+                    "background_task_id": "bg-cross-run",
+                    "status": "completed",
+                    "output_path": "E:/tmp/bg_cross.log",
+                }
+            ]
+
+    import agents.task_registry as task_registry_module
+    original_getter = task_registry_module.get_task_registry
+    task_registry_module.get_task_registry = lambda: _Registry()
+    try:
+        context = AgentContext(session_id="session-1")
+        state = {
+            "publisher": publisher,
+            "current_session": [],
+        }
+
+        agent._drain_pending_notifications(context, state, 1)
+
+        assert len(state["current_session"]) == 1
+        content = state["current_session"][0]["content"]
+        assert "<task-id>bg-cross-run</task-id>" in content
+        assert "<output-file>E:/tmp/bg_cross.log</output-file>" in content
+    finally:
+        task_registry_module.get_task_registry = original_getter
+
+
+def test_session_notification_queue_basic_operations():
+    """session 级通知队列的入队/消费/幂等性。"""
+    from agents.task_registry import TaskRegistry
+
+    registry = TaskRegistry()
+    # 入队应成功
+    assert registry.add_session_notification("session-1", {"bg": 1}) is True
+    assert registry.add_session_notification("session-1", {"bg": 2}) is True
+    # drain 应拿到两条
+    notifications = registry.drain_session_notifications("session-1")
+    assert len(notifications) == 2
+    assert notifications[0]["bg"] == 1
+    assert notifications[1]["bg"] == 2
+    # 再 drain 应为空
+    assert registry.drain_session_notifications("session-1") == []
+    # 空 session_id 应返回 False
+    assert registry.add_session_notification("", {"bg": 3}) is False
+
+
+def test_peek_session_notifications():
+    """peek 不消费队列内容。"""
+    from agents.task_registry import TaskRegistry
+
+    registry = TaskRegistry()
+    assert registry.peek_session_notifications("session-1") is False
+    registry.add_session_notification("session-1", {"bg": 1})
+    assert registry.peek_session_notifications("session-1") is True
+    # peek 不消费
+    assert registry.peek_session_notifications("session-1") is True
+    # drain 后变空
+    registry.drain_session_notifications("session-1")
+    assert registry.peek_session_notifications("session-1") is False
+
+
+def test_is_session_idle():
+    """session idle 判断与并发控制对齐。"""
+    from agents.task_registry import TaskRegistry
+    import threading
+
+    registry = TaskRegistry()
+    assert registry.is_session_idle("session-1") is True
+
+    # 注册一个活跃任务
+    registry.register_task(
+        session_id="session-1",
+        run_id="run-1",
+        task="test",
+        thread=threading.current_thread(),
+        cancel_event=threading.Event(),
+        status="running",
+        execution_kind="agent_run",
+        concurrency_key="session:session-1",
+    )
+    assert registry.is_session_idle("session-1") is False
+
+    # 结束任务后恢复空闲
+    task_id = registry.get_task_id_by_session("session-1")
+    registry.finish_task(task_id, status="completed")
+    assert registry.is_session_idle("session-1") is True
+
+
+def test_notification_trigger_skips_when_session_busy():
+    """session 有活跃 run 时，自动触发应跳过。"""
+    from agents.task_registry import TaskRegistry
+    from execution.notification_trigger import _do_auto_run
+    import threading
+
+    registry = TaskRegistry()
+    registry.add_session_notification("session-1", {"bg": 1})
+
+    # 注册活跃任务
+    registry.register_task(
+        session_id="session-1",
+        run_id="run-1",
+        task="test",
+        thread=threading.current_thread(),
+        cancel_event=threading.Event(),
+        status="running",
+        execution_kind="agent_run",
+        concurrency_key="session:session-1",
     )
 
-    assert should_wait is False
+    import agents.task_registry as task_registry_module
+    original_getter = task_registry_module.get_task_registry
+    task_registry_module.get_task_registry = lambda: registry
+    try:
+        _do_auto_run("session-1")
+        # 通知应仍在队列（未被消费，因为 session 忙）
+        assert registry.peek_session_notifications("session-1") is True
+    finally:
+        task_registry_module.get_task_registry = original_getter
+
+
+def test_notification_trigger_build_xml():
+    """通知 XML 构建格式验证。"""
+    from execution.notification_trigger import _build_notification_xml
+
+    xml = _build_notification_xml({
+        "background_task_id": "abc-123",
+        "status": "completed",
+        "output_path": "/tmp/bg_abc.log",
+        "return_code": 0,
+        "result_type": "bash_output",
+    })
+    assert "<task-notification>" in xml
+    assert "<task-id>abc-123</task-id>" in xml
+    assert "<output-file>/tmp/bg_abc.log</output-file>" in xml
+    assert "<status>completed</status>" in xml
+    assert "<return-code>0</return-code>" in xml

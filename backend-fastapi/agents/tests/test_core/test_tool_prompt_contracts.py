@@ -356,14 +356,15 @@ def test_prompt_only_renders_examples_for_whitelisted_complex_tools():
 
 def test_react_prompt_includes_background_task_hint_only_when_task_tools_are_available():
     execute_bash_tool = _decorated_tool("execute_bash")
-    task_output_tool = _tool_from_registry("task_output")
     task_stop_tool = _tool_from_registry("task_stop")
-    fake_agent = _fake_agent(available_tools=[execute_bash_tool, task_output_tool, task_stop_tool])
+    fake_agent = _fake_agent(available_tools=[execute_bash_tool, task_stop_tool])
 
     prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
-    assert "如需查看结果请调用 `task_output`" in prompt
+    assert "系统会注入完成通知" in prompt
+    assert "read_file(file_path=output_path)" in prompt
     assert "如需停止请调用 `task_stop`" in prompt
+    assert "如需查看结果请调用 `task_output`" not in prompt
 
 
 def test_react_prompt_avoids_background_task_hint_when_task_tools_are_unavailable():
@@ -372,7 +373,8 @@ def test_react_prompt_avoids_background_task_hint_when_task_tools_are_unavailabl
 
     prompt = core_prompting.build_shared_system_prompt(fake_agent)
 
-    assert "当前 agent 未暴露后台任务管理工具时" in prompt
+    assert "当前 agent 未暴露后台停止能力时" in prompt
+    assert "read_file(file_path=output_path)" in prompt
     assert "如需查看结果请调用 `task_output`" not in prompt
 
 
@@ -416,7 +418,7 @@ def test_prompt_shrinks_skill_descriptions_and_whitelisted_examples():
 
     assert "每个任务通常只需激活一个 Skill" not in activate_section
     assert "调用格式" not in execute_skill_section
-    assert prompt.count('<tool name="execute_bash">') == 2
+    assert prompt.count('<tool name="execute_bash">') == 1
     assert prompt.count('<tool name="read_file">') == 2
     assert prompt.count('<tool name="write_file">') == 2
     assert prompt.count('<tool name="execute_code">') == 1

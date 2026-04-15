@@ -94,6 +94,7 @@ def test_task_output_parses_completed_callable_json_payload():
         assert result.success is True
         assert result.content["completed"] is True
         assert result.content["result_type"] == "dict"
+        assert result.content["output_path"]
         assert result.content["output"] == {"success": True, "result_type": "dict", "result": {"answer": 42}}
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

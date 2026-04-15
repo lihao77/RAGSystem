@@ -255,7 +255,7 @@ class AgentExecutionAdapter:
 
             # 后台任务完成 → TaskRegistry 等待唤醒桥接
             bg_completion_sub_id = _subscribe_background_completion(
-                event_bus=event_bus, registry=registry, task_id=task_id,
+                event_bus=event_bus, registry=registry, task_id=task_id, session_id=session_id,
             )
             subscription_ids.append(bg_completion_sub_id)
 
@@ -462,27 +462,29 @@ class AgentExecutionAdapter:
         return execute_agent_task
 
 
-def _subscribe_background_completion(*, event_bus, registry, task_id: str) -> str:
-    """为当前 run 的 event_bus 注册 BACKGROUND_TASK_COMPLETED 订阅，桥接到 TaskRegistry 等待态。"""
+def _subscribe_background_completion(*, event_bus, registry, task_id: str, session_id: str) -> str:
+    """为当前 run 的 event_bus 注册 BACKGROUND_TASK_COMPLETED 订阅。
+
+    仅用于 waiting loop 的即时唤醒。
+    session 级通知入队已由 _publish_completed 直接完成，此处不再重复入队。
+    """
 
     def _on_bg_completed(event: Event):
-        data = event.data or {}
+        data = dict(event.data or {})
         bg_task_id = data.get('task_id')
         if not bg_task_id:
             return
+        data.setdefault('background_task_id', bg_task_id)
+        data.setdefault('status', 'completed')
+        logger.debug('后台任务完成事件到达桥接: bg_task_id=%s execution_task_id=%s', bg_task_id, task_id)
+
+        # 仅检查是否有 waiting loop 在等这个任务
         match = registry.find_task_by_wait_target(bg_task_id)
-        if match is None:
-            return
-        matched_task_id, wait_id = match
-        if matched_task_id != task_id:
-            return
-        registry.resolve_task_wait(task_id, wait_id, {
-            'status': 'completed',
-            'background_task_id': bg_task_id,
-            'return_code': data.get('return_code'),
-            'success': data.get('success', False),
-            'completed_at': data.get('completed_at'),
-        })
+        if match is not None:
+            matched_task_id, wait_id = match
+            if matched_task_id != task_id:
+                return
+            registry.resolve_task_wait(task_id, wait_id, data)
 
     return event_bus.subscribe(
         [EventType.BACKGROUND_TASK_COMPLETED],

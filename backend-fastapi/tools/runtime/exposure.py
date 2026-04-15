@@ -23,7 +23,6 @@ _TASK_WORKFLOW_TOOL_NAMES = {
     "task_list",
 }
 _TASK_BACKGROUND_TOOL_NAMES = {
-    "task_output",
     "task_stop",
 }
 _TASK_TOOL_NAMES = _TASK_WORKFLOW_TOOL_NAMES | _TASK_BACKGROUND_TOOL_NAMES

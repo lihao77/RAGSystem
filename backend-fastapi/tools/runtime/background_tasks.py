@@ -151,6 +151,11 @@ class BackgroundTaskManager:
         with self._tasks_lock:
             self._tasks[task_id] = task
 
+        logger.info(
+            "spawn_bash: task_id=%s event_bus=%s session=%s run_id=%s",
+            task_id, 'present' if event_bus else 'NONE', session_id, run_id,
+        )
+
         merged_env = {**os.environ, "LC_ALL": "C.UTF-8", **(env or {})}
 
         try:
@@ -409,26 +414,56 @@ def _publish_completed(
     output_path: Optional[Path] = None,
     result_type: Optional[str] = None,
 ):
-    if not event_bus:
-        return
-    try:
-        from agents.events.bus import Event, EventType
-        event_bus.publish(Event(
-            type=EventType.BACKGROUND_TASK_COMPLETED,
-            session_id=session_id,
-            data={
-                "task_id": task_id,
-                "return_code": return_code,
-                "success": return_code == 0,
-                "run_id": run_id,
-                "owner_task_id": owner_task_id,
-                "completed_at": time.time(),
-                "output_path": str(output_path) if output_path else None,
-                "result_type": result_type,
-            },
-        ))
-    except Exception as exc:
-        logger.debug("发布后台任务完成事件失败: %s", exc)
+    completed_at = time.time()
+    payload = {
+        "task_id": task_id,
+        "background_task_id": task_id,
+        "status": "completed" if return_code == 0 else "failed",
+        "return_code": return_code,
+        "success": return_code == 0,
+        "run_id": run_id,
+        "owner_task_id": owner_task_id,
+        "completed_at": completed_at,
+        "output_path": str(output_path) if output_path else None,
+        "result_type": result_type,
+        "session_id": session_id,
+    }
+
+    # 1. 直接入 session 级通知队列（对标 Claude Code 的 enqueuePendingNotification）
+    #    如果有 waiting loop 在等这个任务，则不入队（由 event bus 走即时唤醒路径，
+    #    waiting loop 自己会构建 observation）；否则无论 run 是否活跃都一定入队。
+    if session_id:
+        try:
+            from agents.task_registry import get_task_registry
+            registry = get_task_registry()
+            is_waited = registry.find_task_by_wait_target(task_id) is not None
+            if not is_waited:
+                registry.add_session_notification(session_id, payload)
+        except Exception as exc:
+            logger.warning("后台任务完成通知入队失败: task_id=%s error=%s", task_id, exc)
+
+    # 2. event_bus 发布仅用于 waiting loop 的即时唤醒
+    if event_bus:
+        try:
+            from agents.events.bus import Event, EventType
+            logger.info("发布后台任务完成事件: task_id=%s rc=%s session=%s run_id=%s", task_id, return_code, session_id, run_id)
+            event_bus.publish(Event(
+                type=EventType.BACKGROUND_TASK_COMPLETED,
+                session_id=session_id,
+                data=payload,
+            ))
+        except Exception as exc:
+            logger.warning("发布后台任务完成事件失败: task_id=%s error=%s", task_id, exc)
+    elif not session_id:
+        logger.warning("后台任务完成但 event_bus 和 session_id 均为空，通知可能丢失: task_id=%s", task_id)
+
+    # 3. 如果 session 空闲，自动触发系统 run 消费通知（对标 Claude Code idle delivery）
+    if session_id:
+        try:
+            from execution.notification_trigger import try_auto_trigger
+            try_auto_trigger(session_id)
+        except Exception as exc:
+            logger.debug("自动触发通知 run 失败: %s", exc)
 
 
 def get_background_task_manager() -> BackgroundTaskManager:

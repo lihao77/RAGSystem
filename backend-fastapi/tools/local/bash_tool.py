@@ -330,22 +330,7 @@ def _run_foreground_command(
     risk_level=RiskLevel.HIGH,
     timeout_seconds=120,
     allowed_callers=["direct"],
-    extended_usage="""### 后台执行说明
-
-设置 `run_in_background: true` 后，命令在后台执行，立即返回 `background_task_id`。如需后续读取结果或等待完成，请显式调用 `task_output`；如需停止任务，请调用 `task_stop`。
-
-**后台执行示例**：
-```xml
-<tool name="execute_bash">
-<command>npm run build</command>
-<run_in_background>true</run_in_background>
-<description>构建前端项目</description>
-</tool>
-```
-
-返回：`{"background_task_id": "task_123"}`，并可通过 `task_output` / `task_stop` 继续管理后台任务
-
-### 工作目录说明
+    extended_usage="""### 工作目录说明
 
 三个受管目录空间：`workspace`（默认）、`transient`（临时）、`exports`（导出）。
 
@@ -496,7 +481,7 @@ def execute_bash(
                 "background_started": True,
                 "classification": classification.value,
             },
-            summary="后台任务已启动，可使用 task_output 查询结果或 task_stop 停止任务",
+            summary="后台任务已启动",
             output_type="json",
             metadata={
                 "command": command,

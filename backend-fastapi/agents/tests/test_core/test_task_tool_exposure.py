@@ -29,15 +29,15 @@ def test_resolve_effective_tool_exposure_exposes_background_task_tools_from_task
     exposure = resolve_effective_tool_exposure(_agent_config(workflow=False, background=True))
 
     assert exposure['task_workflow_tool_names'] == []
-    assert set(exposure['task_background_tool_names']) == {'task_output', 'task_stop'}
-    assert set(exposure['task_tool_names']) == {'task_output', 'task_stop'}
+    assert set(exposure['task_background_tool_names']) == {'task_stop'}
+    assert set(exposure['task_tool_names']) == {'task_stop'}
 
 
 def test_get_tool_exposure_decision_for_task_tools_uses_tasks_config():
     config = _agent_config(workflow=True, background=False)
 
     workflow_decision = get_tool_exposure_decision('task_create', config)
-    background_decision = get_tool_exposure_decision('task_output', config)
+    background_decision = get_tool_exposure_decision('task_stop', config)
 
     assert workflow_decision.visible is True
     assert workflow_decision.source == 'task'

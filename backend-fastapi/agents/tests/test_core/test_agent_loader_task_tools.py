@@ -15,7 +15,6 @@ class _FakeRegistry:
             {"function": {"name": "task_get", "source": "task"}},
             {"function": {"name": "task_update", "source": "task"}},
             {"function": {"name": "task_list", "source": "task"}},
-            {"function": {"name": "task_output", "source": "task"}},
             {"function": {"name": "task_stop", "source": "task"}},
         ]
 
@@ -69,7 +68,8 @@ def test_agent_loader_injects_background_task_tools_from_tasks_config():
     tools, _ = loader._resolve_tools_and_skills(_agent_config(workflow=False, background=True))
 
     tool_names = {tool['function']['name'] for tool in tools}
-    assert {'task_output', 'task_stop'} <= tool_names
+    assert {'task_stop'} <= tool_names
+    assert 'task_output' not in tool_names
     assert 'task_create' not in tool_names
     assert 'task_get' not in tool_names
     assert 'task_update' not in tool_names
@@ -83,7 +83,8 @@ def test_agent_loader_injects_both_task_domains_together():
     tools, _ = loader._resolve_tools_and_skills(_agent_config(workflow=True, background=True))
 
     tool_names = {tool['function']['name'] for tool in tools}
-    assert {'task_create', 'task_get', 'task_update', 'task_list', 'task_output', 'task_stop'} <= tool_names
+    assert {'task_create', 'task_get', 'task_update', 'task_list', 'task_stop'} <= tool_names
+    assert 'task_output' not in tool_names
 
 
 def test_agent_loader_does_not_require_enabled_tools_for_task_capability():

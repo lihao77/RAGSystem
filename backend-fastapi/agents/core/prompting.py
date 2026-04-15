@@ -173,9 +173,9 @@ def format_tool_contract(tool_or_func: Dict[str, Any], *, include_examples: bool
 
 def build_tool_calling_global_rules(agent) -> str:
     background_task_hint = (
-        "- `run_in_background` 只负责后台启动，不会自动等待；如需查看结果请调用 `task_output`，如需等待完成请调用 `task_output(block=true)`，如需停止请调用 `task_stop`"
-        if _invoke_prompt_hook(agent, '_has_tool', 'task_output') and _invoke_prompt_hook(agent, '_has_tool', 'task_stop')
-        else "- `run_in_background` 只负责后台启动，不会自动等待；当前 agent 未暴露后台任务管理工具时，不要假设可以查询、等待或停止后台任务"
+        "- `run_in_background` 只负责后台启动，不会自动等待；后台任务完成后系统会注入完成通知，并在通知中提供 `output_path`；如需结果内容请调用 `read_file(file_path=output_path)`；如需停止请调用 `task_stop`"
+        if _invoke_prompt_hook(agent, '_has_tool', 'task_stop')
+        else "- `run_in_background` 只负责后台启动，不会自动等待；后台任务完成后系统会注入完成通知并提供 `output_path`，如需结果内容请调用 `read_file(file_path=output_path)`；当前 agent 未暴露后台停止能力时，不要假设可以停止后台任务"
     )
     return f"""## 工具调用总规则
 
@@ -188,7 +188,6 @@ def build_tool_calling_global_rules(agent) -> str:
 `execute_bash` 支持 `run_in_background=true` 后台执行，适合耗时较长、不需要立即获取输出的命令（如数据处理脚本、批量转换、长时间构建等）。
 
 使用规则：
-- 后台执行需要当前存在有效 `session_id`，否则会直接报错
 - 启动后立即返回，结果中包含 `background_task_id`，命令继续在后台运行
 {background_task_hint}
 - 建议同时传 `description` 参数，让审批弹窗和后台任务列表显示可读描述

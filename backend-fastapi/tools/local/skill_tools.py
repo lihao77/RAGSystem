@@ -555,7 +555,7 @@ def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_
     allowed_callers=["direct"],
     returns={
         "type": "object",
-        "description": "成功时返回脚本执行结果；后台模式立即返回 background_task_id，可后续通过 task_output/task_stop 管理",
+        "description": "成功时返回脚本执行结果；后台模式立即返回 background_task_id 与输出文件路径",
         "shape": {
             "script_name": "string",
             "stdout": "string",
@@ -571,7 +571,7 @@ def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_
         "不要把整段 JSON 调用体序列化后塞进 arguments",
         "优先根据 activate_skill 返回的主文件说明选择脚本和参数",
         "return_code 为 0 通常表示成功",
-        "run_in_background=true 时必须有 session_id，工具会立即返回 background_task_id，后续通过 task_output/task_stop 管理后台任务",
+        "run_in_background=true 时会立即返回 background_task_id 与输出文件路径",
     ],
     examples=[
         {
@@ -658,7 +658,7 @@ def execute_skill_script(skill_name, script_name, arguments=None, run_in_backgro
                 "skill": skill_name,
                 "script_name": script_name,
             },
-            summary="Skill 脚本后台任务已启动，可使用 task_output 查询结果或 task_stop 停止任务",
+            summary="Skill 脚本后台任务已启动",
             output_type="json",
             metadata={
                 "skill": skill_name,

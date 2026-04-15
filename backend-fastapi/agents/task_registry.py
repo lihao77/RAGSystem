@@ -80,6 +80,7 @@ class TaskRegistry:
         self._approval_to_task: Dict[str, str] = {}   # approval_id → task_id
         self._input_to_task: Dict[str, str] = {}       # input_id → task_id
         self._wait_to_task: Dict[str, str] = {}         # wait_id → task_id
+        self._session_notifications: Dict[str, List[dict]] = {}  # session_id → pending notifications
         self._lock = threading.RLock()
 
     def register(
@@ -504,6 +505,52 @@ class TaskRegistry:
             if info is None:
                 return {}
             return info.wait_results.pop(wait_id, {})
+
+    def add_session_notification(self, session_id: str, payload: dict) -> bool:
+        """将后台完成通知存入 session 级队列（对标 Claude Code 的 enqueuePendingNotification）。
+
+        通知在以下时机被消费：
+        - 每个 run 开头
+        - 每轮推理开头
+        - 每次工具执行后
+        """
+        if not session_id:
+            return False
+        with self._lock:
+            self._session_notifications.setdefault(session_id, []).append(dict(payload or {}))
+            logger.debug(
+                'TaskRegistry: 通知入队 session=%s bg_task_id=%s queue_size=%d',
+                session_id,
+                (payload or {}).get('background_task_id', '?'),
+                len(self._session_notifications[session_id]),
+            )
+            return True
+
+    def drain_session_notifications(self, session_id: str) -> List[dict]:
+        """消费 session 级后台完成通知。"""
+        if not session_id:
+            return []
+        with self._lock:
+            payloads = self._session_notifications.pop(session_id, [])
+            return payloads
+
+    def peek_session_notifications(self, session_id: str) -> bool:
+        """非消费式检查 session 是否有待处理的后台完成通知。"""
+        if not session_id:
+            return False
+        with self._lock:
+            return bool(self._session_notifications.get(session_id))
+
+    def is_session_idle(self, session_id: str) -> bool:
+        """检查 session 是否空闲（无活跃 run）。"""
+        if not session_id:
+            return False
+        concurrency_key = f'session:{session_id}'
+        with self._lock:
+            conflict = self._find_active_conflict_locked(
+                session_id=session_id, concurrency_key=concurrency_key,
+            )
+            return conflict is None
 
     def clear_task_waiting(self, task_id: str, wait_id: str):
         with self._lock:

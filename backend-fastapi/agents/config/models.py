@@ -214,7 +214,7 @@ class AgentTaskConfig(BaseModel):
     )
     background: bool = Field(
         default=False,
-        description="是否启用后台任务管理工具：task_output/task_stop"
+        description="是否启用后台任务控制能力：后台完成通知注入与 task_stop"
     )
 
 

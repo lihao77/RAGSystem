@@ -281,11 +281,13 @@ Agent 可见工具: mcp__server__tool
 
 task 工具已不再通过普通 `tools.enabled_tools` 单独勾选，而是由独立的 `tasks` capability 配置域控制：
 - `tasks.workflow=true` 时，自动暴露：`task_create`、`task_get`、`task_update`、`task_list`
-- `tasks.background=true` 时，自动暴露：`task_output`、`task_stop`
+- `tasks.background=true` 时，自动暴露：`task_stop`
 
 这意味着：
-- `task_create/get/update/list` 负责任务编排与状态追踪
-- `task_output/task_stop` 负责后台任务查询、显式等待与停止
+- `task_create/get/update/list` 只负责 workflow 任务编排与状态追踪
+- `tasks.background` 表示后台任务控制能力与完成通知注入能力
+- 后台任务完成后，runtime 会向 session 级通知队列入队 `<task-notification>` XML 通知（对标 Claude Code 的 `enqueuePendingNotification`），通知在每轮推理开头、每次工具执行后自动 drain 注入当前 run
+- 模型读取后台结果的主路径是 `read_file(file_path=output_path)`
 - `/api/agent-config/tools` 只列 direct tools，不再把 task 工具作为 direct 工具入口暴露
 - task 工具在 `ToolRegistry` 中使用 `source="task"` 分类，`get_direct_tools()` 不再返回它们
 
@@ -508,8 +510,9 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - **后台执行约束**：`execute_bash` 与 `execute_skill_script` 都必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）
 - `execute_bash` 后台 stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
 - `execute_skill_script` 后台结果写入 transient 目录 JSON 文件，路径通过返回值 `metadata.background_output_path` 获取
-- `run_in_background` 现在只表示后台启动，不会自动触发 waiting loop；如需读取结果请显式调用 `task_output`，如需等待请调用 `task_output(block=true)`，如需停止请调用 `task_stop`
-- `task_output` 支持非阻塞查询与显式等待：`block=false` 返回当前状态；`block=true` 会触发 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive）。若在等待窗口内完成，则当前轮只回灌完成结果；只有等待超时仍未完成时，才返回“任务仍在运行中”的状态提示
+- `run_in_background` 现在只表示后台启动；后台任务完成后系统会自动向当前 run 注入完成通知，通知中包含 `output_path`
+- 读取后台结果的主路径统一为 `read_file(file_path=output_path)`；若需要提前中止任务，再调用 `task_stop`
+- waiting loop 仍由等待信号触发，但等待结束后回灌的是 `<task-notification>` XML 格式的统一完成通知
 - `execute_bash` 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, classification}`
 - `execute_skill_script` 前台仍返回原有脚本结果；后台模式立即返回 `{stdout:"", stderr:"", return_code:null, background_task_id, background_started, skill, script_name}`
 - `task_stop` 只对可取消任务返回成功；当前 callable 型后台任务会明确返回“不支持可靠停止”
