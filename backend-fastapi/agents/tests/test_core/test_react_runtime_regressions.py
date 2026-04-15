@@ -363,9 +363,49 @@ def test_handle_actions_returns_waiting_request_when_tool_suggests_wait(monkeypa
     assert waiting_request is not None
     assert waiting_request.background_task_ids == ["bg-1"]
     assert waiting_request.run_id == "run-1"
+    assert waiting_request.timeout_ms is None
 
 
-def test_run_hidden_keepalive_respects_disabled_config():
+
+
+def test_handle_actions_captures_wait_timeout_from_task_output(monkeypatch):
+    import tools.runtime.executor as tool_executor
+
+    def fake_execute_tool(tool_name, arguments, **kwargs):
+        del tool_name, arguments, kwargs
+        return success_result(
+            content={
+                "background_task_id": "bg-2",
+                "suggest_wait": True,
+                "wait_timeout_ms": 42000,
+            },
+            summary="后台任务等待中",
+            output_type="json",
+            tool_name="task_output",
+        )
+
+    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
+
+    agent = _PlaceholderAwareAgent()
+    context = AgentContext(session_id="session-1")
+    state = {
+        "event_bus": None,
+        "tool_calls_history": [],
+        "current_session": [],
+        "run_id": "run-2",
+    }
+
+    waiting_request = agent._handle_actions(
+        [{"tool": "task_output", "arguments": {"task_id": "bg-2", "block": True}}],
+        context,
+        state,
+        rounds=1,
+        log_prefix="[test]",
+    )
+
+    assert waiting_request is not None
+    assert waiting_request.background_task_ids == ["bg-2"]
+    assert waiting_request.timeout_ms == 42000
     agent = _PlaceholderAwareAgent()
     chat_calls = []
     agent.model_adapter = SimpleNamespace(

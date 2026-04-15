@@ -261,7 +261,7 @@ def test_execute_skill_script_bridges_team_protocol(monkeypatch):
     assert result.metadata['team_applied'] is True
 
 
-def test_execute_skill_script_background_returns_wait_hint_and_structured_output(monkeypatch):
+def test_execute_skill_script_background_returns_task_info_and_structured_output(monkeypatch):
     temp_dir = Path(_make_temp_dir())
     try:
         class StubSkill:
@@ -308,7 +308,9 @@ def test_execute_skill_script_background_returns_wait_hint_and_structured_output
         assert isinstance(result, ToolExecutionResult)
         assert result.success is True
         assert result.content["background_started"] is True
-        assert result.content["suggest_wait"] is True
+        assert "suggest_wait" not in result.content
+        assert result.metadata["background_kind"] == "callable"
+        assert result.metadata["cancel_supported"] is False
         task_id = result.content["background_task_id"]
         assert task_id
 

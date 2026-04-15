@@ -29,6 +29,7 @@ class WaitingRequest:
     """工具返回后标记需要进入 waiting loop。"""
     background_task_ids: List[str] = field(default_factory=list)
     run_id: Optional[str] = None
+    timeout_ms: Optional[int] = None
 
 
 def parse_llm_json(content: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -1080,6 +1081,7 @@ class BaseAgent(ABC):
     ) -> Optional[WaitingRequest]:
         """扫描本轮工具结果，提取需要等待的后台任务 ID。"""
         bg_task_ids = []
+        timeout_ms = None
         for result in results.values():
             if result is None:
                 continue
@@ -1093,16 +1095,21 @@ class BaseAgent(ABC):
                 tid = content.get('background_task_id')
                 if tid:
                     bg_task_ids.append(tid)
+                    if timeout_ms is None and content.get('wait_timeout_ms') is not None:
+                        timeout_ms = content.get('wait_timeout_ms')
                 continue
             if isinstance(metadata, dict) and metadata.get('suggest_wait'):
                 tid = metadata.get('background_task_id')
                 if tid:
                     bg_task_ids.append(tid)
+                    if timeout_ms is None and metadata.get('wait_timeout_ms') is not None:
+                        timeout_ms = metadata.get('wait_timeout_ms')
         if not bg_task_ids:
             return None
         return WaitingRequest(
             background_task_ids=bg_task_ids,
             run_id=state.get('run_id'),
+            timeout_ms=timeout_ms,
         )
 
     def _run_waiting_loop(
@@ -1127,6 +1134,12 @@ class BaseAgent(ABC):
 
         poll_interval = config.waiting_poll_interval_seconds
         idle_timeout = config.waiting_idle_timeout_seconds
+        timeout_override_ms = waiting_request.timeout_ms
+        if timeout_override_ms is not None:
+            try:
+                idle_timeout = max(0.1, float(timeout_override_ms) / 1000.0)
+            except (TypeError, ValueError):
+                idle_timeout = config.waiting_idle_timeout_seconds
         keepalive_interval = config.keepalive_interval_seconds
         keepalive_grace = config.keepalive_grace_seconds
         max_keepalive = config.max_hidden_keepalive_rounds

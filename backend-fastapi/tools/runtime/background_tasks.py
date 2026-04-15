@@ -86,6 +86,8 @@ class BackgroundTask:
     session_id: Optional[str] = None
     completed_at: Optional[float] = None
     result_type: Optional[str] = None
+    kind: str = "generic"
+    cancel_supported: bool = False
 
     def is_done(self) -> bool:
         return self.status in ("completed", "failed", "cancelled")
@@ -142,6 +144,8 @@ class BackgroundTaskManager:
             run_id=run_id,
             owner_task_id=owner_task_id,
             session_id=session_id,
+            kind="bash",
+            cancel_supported=True,
         )
 
         with self._tasks_lock:
@@ -252,6 +256,8 @@ class BackgroundTaskManager:
             owner_task_id=owner_task_id,
             session_id=session_id,
             expires_at=time.time() + self._retention_seconds,
+            kind="callable",
+            cancel_supported=False,
         )
         with self._tasks_lock:
             self._tasks[task_id] = task
@@ -343,6 +349,35 @@ class BackgroundTaskManager:
         except Exception:
             return None
 
+    def read_output(self, task_id: str, *, max_chars: Optional[int] = None) -> Optional[str]:
+        output = self.get_output(task_id)
+        if output is None or max_chars is None or max_chars <= 0:
+            return output
+        if len(output) <= max_chars:
+            return output
+        return output[:max_chars]
+
+    def get_task_snapshot(self, task_id: str) -> Optional[dict[str, Any]]:
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        return {
+            "task_id": task.task_id,
+            "description": task.description,
+            "status": task.status,
+            "return_code": task.return_code,
+            "error": task.error,
+            "started_at": task.started_at,
+            "completed_at": task.completed_at,
+            "result_type": task.result_type,
+            "output_path": str(task.output_path),
+            "run_id": task.run_id,
+            "owner_task_id": task.owner_task_id,
+            "session_id": task.session_id,
+            "kind": task.kind,
+            "cancel_supported": task.cancel_supported,
+        }
+
     def cancel(self, task_id: str) -> bool:
         with self._tasks_lock:
             task = self._tasks.get(task_id)
@@ -350,7 +385,7 @@ class BackgroundTaskManager:
 
         if task is None:
             return False
-        if task.is_done():
+        if task.is_done() or not task.cancel_supported:
             return False
 
         if proc is not None:

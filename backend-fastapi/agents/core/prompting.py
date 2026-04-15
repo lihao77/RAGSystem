@@ -185,7 +185,7 @@ def build_tool_calling_global_rules() -> str:
 使用规则：
 - 后台执行需要当前存在有效 `session_id`，否则会直接报错
 - 启动后立即返回，结果中包含 `background_task_id`，命令继续在后台运行
-- 后台任务完成后系统会发布通知，可在后续轮次中告知用户任务已完成
+- `run_in_background` 只负责后台启动，不会自动等待；如需查看结果请调用 `task_output`，如需等待完成请调用 `task_output(block=true)`，如需停止请调用 `task_stop`
 - 建议同时传 `description` 参数，让审批弹窗和后台任务列表显示可读描述
 - 后台任务的 stdout/stderr 写入 transient 目录的日志文件，路径在返回的 `background_output_path` 中
 

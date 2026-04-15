@@ -499,9 +499,11 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - **后台执行约束**：`execute_bash` 与 `execute_skill_script` 都必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）
 - `execute_bash` 后台 stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
 - `execute_skill_script` 后台结果写入 transient 目录 JSON 文件，路径通过返回值 `metadata.background_output_path` 获取
-- 后台执行返回 `suggest_wait=true` 标记；若 `waiting.enabled=true`，ReAct 主循环会进入 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive），后台任务完成后结果作为 observation 回灌；若关闭 waiting，则保持原异步语义，仅返回后台任务信息
-- `execute_bash` 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, suggest_wait, classification}`
-- `execute_skill_script` 前台仍返回原有脚本结果；后台模式立即返回 `{stdout:"", stderr:"", return_code:null, background_task_id, background_started, suggest_wait, skill, script_name}`
+- `run_in_background` 现在只表示后台启动，不会自动触发 waiting loop；如需读取结果请显式调用 `task_output`，如需等待请调用 `task_output(block=true)`，如需停止请调用 `task_stop`
+- `task_output` 支持非阻塞查询与显式等待：`block=false` 返回当前状态，`block=true` 才会触发 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive）
+- `execute_bash` 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, classification}`
+- `execute_skill_script` 前台仍返回原有脚本结果；后台模式立即返回 `{stdout:"", stderr:"", return_code:null, background_task_id, background_started, skill, script_name}`
+- `task_stop` 只对可取消任务返回成功；当前 callable 型后台任务会明确返回“不支持可靠停止”
 - stdout 保留 50K 截断；更大结果仍由 observation 层负责持久化与预览
 
 `execute_bash` 与 direct 文件工具共享同一套 managed location language：

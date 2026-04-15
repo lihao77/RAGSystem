@@ -332,7 +332,7 @@ def _run_foreground_command(
     allowed_callers=["direct"],
     extended_usage="""### 后台执行说明
 
-设置 `run_in_background: true` 后，命令在后台执行，立即返回 `background_task_id`。后台任务完成后，系统会发送完成事件，包含 stdout、stderr、exit_code。
+设置 `run_in_background: true` 后，命令在后台执行，立即返回 `background_task_id`。如需后续读取结果或等待完成，请显式调用 `task_output`；如需停止任务，请调用 `task_stop`。
 
 **后台执行示例**：
 ```xml
@@ -343,7 +343,7 @@ def _run_foreground_command(
 </tool>
 ```
 
-返回：`{"background_task_id": "task_123"}`
+返回：`{"background_task_id": "task_123"}`，并可通过 `task_output` / `task_stop` 继续管理后台任务
 
 ### 工作目录说明
 
@@ -494,10 +494,9 @@ def execute_bash(
                 "interrupted": False,
                 "background_task_id": task.task_id,
                 "background_started": True,
-                "suggest_wait": True,
                 "classification": classification.value,
             },
-            summary="后台任务已启动",
+            summary="后台任务已启动，可使用 task_output 查询结果或 task_stop 停止任务",
             output_type="json",
             metadata={
                 "command": command,
@@ -506,9 +505,10 @@ def execute_bash(
                 "risk_level": risk_level.value,
                 "background_task_id": task.task_id,
                 "background_started": True,
-                "suggest_wait": True,
                 "run_id": run_id,
                 "background_output_path": to_display_path(task.output_path),
+                "background_kind": task.kind,
+                "cancel_supported": task.cancel_supported,
                 "cwd_isolated": caller != "direct",
                 **({"approval_required_commands": approval_commands} if approval_commands else {}),
                 **({"approval_message": approval_message} if approval_message else {}),

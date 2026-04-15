@@ -596,7 +596,9 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 ### 后台等待与 KV Cache 保活
 
-当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。若 `waiting.enabled=false`，则不会进入 waiting loop，后台任务保持异步运行。
+`run_in_background=true` 现在只表示后台启动，不会让 ReAct 主循环自动进入 waiting loop。后台工具（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）只返回 `background_task_id`，后续由 Agent 显式调用 `task_output` / `task_stop` 管理后台任务。
+
+当 `task_output(block=true)` 返回 `suggest_wait=true` 时，ReAct 主循环才会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop，`task_output(block=true)` 只返回“任务仍在运行中”的当前状态。
 
 等待机制基于三层保障：
 
@@ -607,7 +609,7 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 等待完成后，后台任务输出作为 observation 回灌到 `current_session`，Agent 继续 ReAct 推理直至最终答案。
 
-配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 控制是否启用 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
+配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 仅控制是否启用显式等待触发的 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
 
 关键文件：
 - 等待入口：`agents/core/base.py`（`_run_waiting_loop`、`_run_hidden_keepalive`）

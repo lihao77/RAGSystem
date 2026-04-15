@@ -295,22 +295,17 @@
 | 参数 | 说明 |
 |------|------|
 | task_id | 后台任务 ID |
-| block | 是否等待完成（默认 true） |
+| block | 是否等待完成（默认 false） |
 | timeout | 最大等待毫秒（0-600000，默认 30000） |
 
-**输出**：retrieval_status(success/timeout/not_ready) + task 详情（含 exitCode/output/error）
-
-**设计亮点**：
-- block=false 立即返回当前状态（非阻塞轮询）
-- 100ms 间隔轮询，超时返回 not_ready
-- aliases: ['AgentOutputTool', 'BashOutputTool']（向后兼容）
+**当前状态**：已实现基础版。`block=false` 立即返回当前状态；`block=true` 通过显式等待触发 run 内 waiting loop。
 
 ---
 
 #### 5.6 TaskStop（停止后台任务）
 
-- **参数**：task_id 或 shell_id（兼容旧 KillShell 工具名）
-- **设计**：任务不为 running 状态时报错（errorCode=3）；aliases: ['KillShell']
+- **参数**：task_id
+- **当前状态**：已实现基础版；bash 类型后台任务支持停止，callable 类型会明确返回“不支持可靠停止”
 
 ---
 
@@ -537,7 +532,7 @@
 |------|------|------|
 | 1 | **TaskCreate/Get/Update/List** | Agent 无法自我分解任务、追踪进度、管理依赖 |
 | 2 | **AskUserQuestion 升级** | 当前单问题单选，无法支持结构化多选问卷 |
-| 3 | **TaskOutput / TaskStop** | 无法读取后台任务结果，无法停止失控任务 |
+| 3 | **TaskOutput / TaskStop** | 已补齐基础闭环：可读取后台任务结果，并可停止可取消的后台任务 |
 | 4 | **Glob / Grep 独立工具** | 文件搜索必须走 execute_bash 审批链路，性能低且引入不必要风险 |
 
 ### 中优先级（安全和架构改进）

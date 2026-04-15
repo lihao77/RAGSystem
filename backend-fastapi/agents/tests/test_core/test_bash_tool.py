@@ -15,6 +15,7 @@ from tools.local.bash_tool import (
     _validate_command,
     execute_bash,
 )
+from tools.runtime.background_tasks import get_background_task_manager
 from tools.runtime.bash_security import (
     classify_command,
     classify_command_name,
@@ -188,6 +189,8 @@ def test_execute_bash_returns_error_when_non_whitelisted_command_is_denied(monke
     assert not (workspace / "target.txt").exists()
 
 
+
+
 def test_execute_bash_marks_dangerous_command_with_stronger_approval_prompt(monkeypatch):
     workspace = _make_workspace()
     registry = _FakeApprovalRegistry()
@@ -224,7 +227,40 @@ def test_execute_bash_marks_dangerous_command_with_stronger_approval_prompt(monk
     assert "删除文件" in published["event"].data["description"]
 
 
-def test_execute_bash_requests_approval_when_pipeline_contains_non_whitelisted_command(monkeypatch):
+def test_execute_bash_background_returns_task_info_without_wait_hint(monkeypatch):
+    workspace = _make_workspace()
+    transient_root = workspace / "transient"
+    transient_root.mkdir()
+    agent_config = SimpleNamespace(custom_params={"workspace_root": str(workspace)})
+    bg_manager = get_background_task_manager()
+    bg_manager._tasks.clear()
+    bg_manager._processes.clear()
+
+    monkeypatch.setattr(
+        "tools.local.bash_tool.get_current_execution_observability_fields",
+        lambda: {"run_id": "run-1", "task_id": "task-1"},
+    )
+    monkeypatch.setattr(
+        "tools.local.bash_tool.get_session_transient_root",
+        lambda session_id: transient_root,
+    )
+
+    result = execute_bash(
+        command="pwd",
+        working_dir=".",
+        agent_config=agent_config,
+        session_id="session-bash-bg",
+        run_in_background=True,
+    )
+
+    assert result.success is True
+    assert result.content["background_started"] is True
+    assert "suggest_wait" not in result.content
+    assert result.metadata["background_kind"] == "bash"
+    assert result.metadata["cancel_supported"] is True
+    assert result.content["background_task_id"]
+
+
     workspace = _make_workspace()
     registry = _FakeApprovalRegistry()
     monkeypatch.setattr("agents.task_registry.get_task_registry", lambda: registry)
