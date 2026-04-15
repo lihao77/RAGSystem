@@ -425,7 +425,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 |------|------|------|
 | `activate_skill` | skill_name | 激活 Skill，加载 SKILL.md |
 | `load_skill_resource` | skill_name, resource_file | 加载 Skill 资源文件 |
-| `execute_skill_script` | skill_name, script_name, arguments, session_id | 执行 Skill 脚本（含 artifact 协议桥接） |
+| `execute_skill_script` | skill_name, script_name, arguments, run_in_background, session_id | 执行 Skill 脚本（含 artifact / team 协议桥接，支持后台执行） |
 | `get_skill_info` | skill_name | 获取 Skill 元信息 |
 
 ### 文档工具（local/document_tools.py）
@@ -493,12 +493,15 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 执行特性：
 - 前台执行统一走单次 `subprocess.Popen(...)` 无状态模型；每次调用显式使用解析后的 `working_dir` 作为 `cwd`，不保留跨调用的 shell cwd / 环境变量状态
 - `execute_bash` 在工具内部发布审批事件，复用现有通用审批弹窗
-- 长命令每 2 秒发布一次 `tool.progress` 事件（前台模式支持）
-- 支持 `run_in_background=true` 后台执行，返回 `background_task_id`
-- 后台任务由 `tools.runtime.background_tasks.BackgroundTaskManager` 管理，完成后发布 `background.task.completed` 事件
-- **后台执行约束**：必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）；stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
+- `execute_skill_script` 支持 `run_in_background=true` 后台执行，返回 `background_task_id`
+- 后台 callable 任务统一由 `tools.runtime.background_tasks.BackgroundTaskManager.submit_callable()` 管理，结果落盘为结构化 JSON；若返回 `ToolExecutionResult`，会完整保留 `success/summary/output_type/content/metadata/artifacts/llm_hint`
+- 后台任务由 `tools.runtime.background_tasks.BackgroundTaskManager` 管理，完成后发布 `background.task.completed` 事件，事件负载额外包含 `output_path` 与 `result_type`
+- **后台执行约束**：`execute_bash` 与 `execute_skill_script` 都必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）
+- `execute_bash` 后台 stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
+- `execute_skill_script` 后台结果写入 transient 目录 JSON 文件，路径通过返回值 `metadata.background_output_path` 获取
 - 后台执行返回 `suggest_wait=true` 标记；若 `waiting.enabled=true`，ReAct 主循环会进入 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive），后台任务完成后结果作为 observation 回灌；若关闭 waiting，则保持原异步语义，仅返回后台任务信息
-- 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, suggest_wait, classification}`
+- `execute_bash` 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, suggest_wait, classification}`
+- `execute_skill_script` 前台仍返回原有脚本结果；后台模式立即返回 `{stdout:"", stderr:"", return_code:null, background_task_id, background_started, suggest_wait, skill, script_name}`
 - stdout 保留 50K 截断；更大结果仍由 observation 层负责持久化与预览
 
 `execute_bash` 与 direct 文件工具共享同一套 managed location language：

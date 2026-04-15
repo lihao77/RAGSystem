@@ -5,9 +5,13 @@ skill_tools 工具模块。
 
 import json
 import logging
+
+from core.path_resolution import get_session_transient_root, to_display_path
+from execution.observability import get_current_execution_observability_fields
 from tools.local.shared import error_result, success_result
 from tools.decorators import tool
 from tools.contracts.permissions import RiskLevel
+from tools.runtime.background_tasks import get_background_task_manager
 
 logger = logging.getLogger(__name__)
 
@@ -381,97 +385,11 @@ def load_skill_resource(skill_name, resource_file):
         traceback.print_exc()
         return error_result(f"加载失败: {str(e)}", tool_name="load_skill_resource")
 
-@tool(
-    name="execute_skill_script",
-    source="skill",
-    description=(
-        "执行 Skill 的实用脚本（零上下文执行），只返回脚本结果，不把代码加载进上下文。"
-        "参数通过 `skill_name`、`script_name` 和 `arguments` 传入；arguments 必须是字符串数组。"
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "skill_name": {
-                "type": "string",
-                "description": "Skill 名称",
-            },
-            "script_name": {
-                "type": "string",
-                "description": "脚本文件名，例如：'validate_data.py'",
-            },
-            "arguments": {
-                "type": "array",
-                "description": (
-                    "传递给脚本的命令行参数列表，每个参数单独一个元素。"
-                    "在 XML 调用时使用 `<item>` 子标签；在 JSON 调用时使用数组。"
-                ),
-                "items": {"type": "string"},
-            },
-        },
-        "required": ["skill_name", "script_name"],
-    },
-    risk_level=RiskLevel.MEDIUM,
-    timeout_seconds=120,
-    allowed_callers=["direct"],
-    returns={
-        "type": "object",
-        "description": "成功时返回脚本执行结果",
-        "shape": {
-            "script_name": "string",
-            "stdout": "string",
-            "stderr": "string",
-            "return_code": "number",
-            "skill": "string",
-        },
-    },
-    usage_contract=[
-        "arguments 必须是字符串数组，每个命令行参数单独一个元素",
-        "不要把整段 JSON 调用体序列化后塞进 arguments",
-        "优先根据 activate_skill 返回的主文件说明选择脚本和参数",
-        "return_code 为 0 通常表示成功",
-    ],
-    examples=[
-        {
-            "input": {
-                "skill_name": "kg-advanced-query",
-                "script_name": "query.py",
-                "arguments": [
-                    "--cypher",
-                    "MATCH (s:State) WHERE s.id CONTAINS $name RETURN s.id LIMIT 10",
-                    "--params",
-                    '{"name": "潘厂水库"}',
-                ],
-            }
-        },
-        {
-            "input": {
-                "skill_name": "kg-advanced-query",
-                "script_name": "region_aggregate.py",
-                "arguments": ["--region", "广西", "--attr", "受灾人口", "--start", "2022-01-01", "--end", "2022-12-31"],
-            }
-        },
-    ],
-)
-def execute_skill_script(skill_name, script_name, arguments=None, session_id=None):
-    """
-    执行 Skill 的实用脚本（Utility Scripts）
 
-    零上下文执行：脚本内容不加载到上下文，只返回执行结果。
-    支持 artifact 协议：脚本输出含 artifact 字段时自动持久化可视化配置。
-
-    Args:
-        skill_name: Skill 名称
-        script_name: 脚本文件名
-        arguments: 传递给脚本的命令行参数列表
-        session_id: 会话 ID（dispatcher 自动注入）
-
-    Returns:
-        脚本执行结果（stdout, stderr, return_code）
-    """
+def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_id=None):
     try:
         from agents.skills.skill_loader import get_skill_loader
 
-        # 获取 Skill
         skill_loader = get_skill_loader()
         all_skills = skill_loader.load_all_skills()
         skill = next((s for s in all_skills if s.name == skill_name), None)
@@ -479,34 +397,31 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
         if not skill:
             return error_result(f"Skill '{skill_name}' 不存在", tool_name="execute_skill_script")
 
-        # 检查是否有 scripts 目录
         if not skill.has_scripts():
             return error_result(
                 f"Skill '{skill_name}' 没有 scripts 目录",
                 tool_name="execute_skill_script",
             )
 
-        # 🔧 使用 Skill 的 execute_script 方法（支持环境隔离）
         script_args = arguments if arguments else []
         logger.info(f"执行 Skill 脚本: {skill_name}/{script_name} {script_args}")
 
         result = skill.execute_script(
             script_name=script_name,
             arguments=script_args,
-            timeout=30
+            timeout=30,
         )
 
         logger.info(f"脚本执行完成，返回码: {result['return_code']}")
 
-        # 构建 metadata，大输出自动强制落盘
-        meta = {"success": result['return_code'] == 0}
-        stdout = result['stdout']
-        stderr = result['stderr']
+        meta = {"success": result["return_code"] == 0}
+        stdout = result["stdout"]
+        stderr = result["stderr"]
         if len(stdout) > 4000:
             meta["force_artifact"] = True
 
         parsed_stdout = None
-        if result['return_code'] == 0:
+        if result["return_code"] == 0:
             parsed_stdout = _parse_json_stdout(stdout)
 
         if parsed_stdout is not None:
@@ -586,8 +501,8 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
                 "script_name": script_name,
                 "stdout": stdout,
                 "stderr": stderr,
-                "return_code": result['return_code'],
-                "skill": skill_name
+                "return_code": result["return_code"],
+                "skill": skill_name,
             },
             summary=f"脚本 {script_name} 执行完成（返回码: {result['return_code']}）",
             metadata=meta,
@@ -600,6 +515,171 @@ def execute_skill_script(skill_name, script_name, arguments=None, session_id=Non
         import traceback
         traceback.print_exc()
         return error_result(f"执行失败: {str(e)}", tool_name="execute_skill_script")
+
+
+@tool(
+    name="execute_skill_script",
+    source="skill",
+    description=(
+        "执行 Skill 的实用脚本（零上下文执行），只返回脚本结果，不把代码加载进上下文。"
+        "参数通过 `skill_name`、`script_name` 和 `arguments` 传入；arguments 必须是字符串数组。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "skill_name": {
+                "type": "string",
+                "description": "Skill 名称",
+            },
+            "script_name": {
+                "type": "string",
+                "description": "脚本文件名，例如：'validate_data.py'",
+            },
+            "arguments": {
+                "type": "array",
+                "description": (
+                    "传递给脚本的命令行参数列表，每个参数单独一个元素。"
+                    "在 XML 调用时使用 `<item>` 子标签；在 JSON 调用时使用数组。"
+                ),
+                "items": {"type": "string"},
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "是否后台执行。true 时立即返回 background_task_id。",
+            },
+        },
+        "required": ["skill_name", "script_name"],
+    },
+    risk_level=RiskLevel.MEDIUM,
+    timeout_seconds=120,
+    allowed_callers=["direct"],
+    returns={
+        "type": "object",
+        "description": "成功时返回脚本执行结果；后台模式立即返回 background_task_id 与等待提示",
+        "shape": {
+            "script_name": "string",
+            "stdout": "string",
+            "stderr": "string",
+            "return_code": "number",
+            "skill": "string",
+            "background_task_id": "string|null",
+            "background_started": "boolean",
+            "suggest_wait": "boolean",
+        },
+    },
+    usage_contract=[
+        "arguments 必须是字符串数组，每个命令行参数单独一个元素",
+        "不要把整段 JSON 调用体序列化后塞进 arguments",
+        "优先根据 activate_skill 返回的主文件说明选择脚本和参数",
+        "return_code 为 0 通常表示成功",
+        "run_in_background=true 时必须有 session_id，工具会立即返回 background_task_id 与 suggest_wait=true",
+    ],
+    examples=[
+        {
+            "input": {
+                "skill_name": "kg-advanced-query",
+                "script_name": "query.py",
+                "arguments": [
+                    "--cypher",
+                    "MATCH (s:State) WHERE s.id CONTAINS $name RETURN s.id LIMIT 10",
+                    "--params",
+                    '{"name": "潘厂水库"}',
+                ],
+            }
+        },
+        {
+            "input": {
+                "skill_name": "kg-advanced-query",
+                "script_name": "region_aggregate.py",
+                "arguments": ["--region", "广西", "--attr", "受灾人口", "--start", "2022-01-01", "--end", "2022-12-31"],
+            }
+        },
+        {
+            "input": {
+                "skill_name": "visualization",
+                "script_name": "create_chart.py",
+                "arguments": ["--title", "雨量统计"],
+                "run_in_background": True,
+            }
+        },
+    ],
+)
+def execute_skill_script(skill_name, script_name, arguments=None, run_in_background=False, session_id=None, event_bus=None):
+    """
+    执行 Skill 的实用脚本（Utility Scripts）
+
+    零上下文执行：脚本内容不加载到上下文，只返回执行结果。
+    支持 artifact 协议：脚本输出含 artifact 字段时自动持久化可视化配置。
+
+    Args:
+        skill_name: Skill 名称
+        script_name: 脚本文件名
+        arguments: 传递给脚本的命令行参数列表
+        run_in_background: 是否后台执行
+        session_id: 会话 ID（dispatcher 自动注入）
+
+    Returns:
+        脚本执行结果（stdout, stderr, return_code）
+    """
+    if run_in_background:
+        if not session_id:
+            return error_result(
+                "后台执行需要 session_id（无 session_id 时无法路由完成通知）",
+                tool_name="execute_skill_script",
+                metadata={
+                    "skill": skill_name,
+                    "script_name": script_name,
+                },
+            )
+        current_fields = get_current_execution_observability_fields()
+        run_id = current_fields.get("run_id")
+        owner_task_id = current_fields.get("task_id")
+        output_dir = get_session_transient_root(session_id)
+        task = get_background_task_manager().submit_callable(
+            lambda: _execute_skill_script_sync(
+                skill_name=skill_name,
+                script_name=script_name,
+                arguments=arguments,
+                session_id=session_id,
+            ),
+            description=f"skill:{skill_name}/{script_name}",
+            output_dir=output_dir,
+            event_bus=event_bus,
+            session_id=session_id,
+            run_id=run_id,
+            owner_task_id=owner_task_id,
+        )
+        return success_result(
+            content={
+                "stdout": "",
+                "stderr": "",
+                "return_code": None,
+                "background_task_id": task.task_id,
+                "background_started": True,
+                "suggest_wait": True,
+                "skill": skill_name,
+                "script_name": script_name,
+            },
+            summary="Skill 脚本后台任务已启动",
+            output_type="json",
+            metadata={
+                "skill": skill_name,
+                "script_name": script_name,
+                "background_task_id": task.task_id,
+                "background_started": True,
+                "suggest_wait": True,
+                "run_id": run_id,
+                "background_output_path": to_display_path(task.output_path),
+            },
+            tool_name="execute_skill_script",
+        )
+
+    return _execute_skill_script_sync(
+        skill_name=skill_name,
+        script_name=script_name,
+        arguments=arguments,
+        session_id=session_id,
+    )
 
 
 @tool(

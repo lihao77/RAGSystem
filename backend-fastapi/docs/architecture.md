@@ -596,13 +596,14 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 ### 后台等待与 KV Cache 保活
 
-当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。若 `waiting.enabled=false`，则不会进入 waiting loop，后台任务保持异步运行。
+当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。若 `waiting.enabled=false`，则不会进入 waiting loop，后台任务保持异步运行。
 
 等待机制基于三层保障：
 
 1. **事件唤醒**：`agent_execution.py` 为每个 run 注册 `BACKGROUND_TASK_COMPLETED` 订阅，完成事件通过 `TaskRegistry.resolve_task_wait()` 即时唤醒等待线程。
 2. **Poll 兜底**：waiting loop 按 `waiting_poll_interval_seconds`（默认 3s）周期轮询 `BackgroundTaskManager.get_task()`，防止订阅建立前任务已完成或事件丢失。
-3. **Hidden keepalive**：仅当 `allow_provider_keepalive=true` 时，按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
+3. **结构化结果回灌**：`BackgroundTaskManager.submit_callable()` 会把 callable 的返回结果写成结构化 JSON；若结果是 `ToolExecutionResult`，则完整保留 `summary/output_type/content/metadata/artifacts/llm_hint`，等待结束后由 waiting loop 作为 observation 回灌。
+4. **Hidden keepalive**：仅当 `allow_provider_keepalive=true` 时，按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
 
 等待完成后，后台任务输出作为 observation 回灌到 `current_session`，Agent 继续 ReAct 推理直至最终答案。
 

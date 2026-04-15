@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 
+import json
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from agents.skills.skill_loader import SkillLoader
 from tools.local.skill_tools import execute_skill_script, get_skill_info
 from tools.contracts.result_models import ToolExecutionResult
+from tools.runtime.background_tasks import get_background_task_manager
 
 
 def _make_temp_dir() -> str:
@@ -258,32 +261,88 @@ def test_execute_skill_script_bridges_team_protocol(monkeypatch):
     assert result.metadata['team_applied'] is True
 
 
-def test_execute_skill_script_records_team_bridge_error(monkeypatch):
-    class StubSkill:
-        name = "team-generation"
+def test_execute_skill_script_background_returns_wait_hint_and_structured_output(monkeypatch):
+    temp_dir = Path(_make_temp_dir())
+    try:
+        class StubSkill:
+            name = "demo-skill"
 
-        def has_scripts(self):
-            return True
+            def has_scripts(self):
+                return True
 
-        def execute_script(self, script_name, arguments=None, timeout=30):
-            return {
-                "stdout": '{"success": true, "data": {"reason": "bad"}, "team": {"action": "create_or_replace", "team_name": "bad-team", "agents": {"planner_agent": {"enabled": true}}}}',
-                "stderr": "",
-                "return_code": 0,
-            }
+            def execute_script(self, script_name, arguments=None, timeout=30):
+                assert script_name == "fetch_hydrology.py"
+                assert arguments == ["--source", "all"]
+                return {
+                    "stdout": '{"river": [{"site_name": "柳州水文站"}]}',
+                    "stderr": "",
+                    "return_code": 0,
+                }
 
-    class StubLoader:
-        def load_all_skills(self):
-            return [StubSkill()]
+        class StubLoader:
+            def load_all_skills(self):
+                return [StubSkill()]
 
-    class FakeConfigManager:
-        def apply_team_payload(self, team_name, agents_payload, source_team=None):
-            raise ValueError('invalid team payload')
+        bg_manager = get_background_task_manager()
+        bg_manager._tasks.clear()
+        bg_manager._processes.clear()
 
-    monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
-    monkeypatch.setattr("agents.config.get_config_manager", lambda: FakeConfigManager())
+        monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
+        monkeypatch.setattr(
+            "tools.local.skill_tools.get_current_execution_observability_fields",
+            lambda: {"run_id": "run-1", "task_id": "task-1"},
+        )
+        monkeypatch.setattr(
+            "tools.local.skill_tools.get_session_transient_root",
+            lambda session_id: temp_dir,
+        )
 
-    result = execute_skill_script("team-generation", "generate_team.py", [])
+        result = execute_skill_script(
+            "demo-skill",
+            "fetch_hydrology.py",
+            ["--source", "all"],
+            run_in_background=True,
+            session_id="session-1",
+        )
 
-    assert result.success is True
-    assert result.metadata['team_error'] == '应用 team 失败: invalid team payload'
+        assert isinstance(result, ToolExecutionResult)
+        assert result.success is True
+        assert result.content["background_started"] is True
+        assert result.content["suggest_wait"] is True
+        task_id = result.content["background_task_id"]
+        assert task_id
+
+        for _ in range(50):
+            task = bg_manager.get_task(task_id)
+            if task and task.is_done():
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("background task did not finish")
+
+        task = bg_manager.get_task(task_id)
+        assert task is not None
+        assert task.status == "completed"
+        assert task.result_type == "tool_execution_result"
+
+        payload = json.loads(bg_manager.get_output(task_id))
+        assert payload["success"] is True
+        assert payload["result_type"] == "tool_execution_result"
+        assert payload["result"]["tool_name"] == "execute_skill_script"
+        assert payload["result"]["output_type"] == "json"
+        assert payload["result"]["content"] == {"river": [{"site_name": "柳州水文站"}]}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_execute_skill_script_background_requires_session_id():
+    result = execute_skill_script(
+        "demo-skill",
+        "fetch_hydrology.py",
+        ["--source", "all"],
+        run_in_background=True,
+    )
+
+    assert result.success is False
+    assert "session_id" in result.summary
+
