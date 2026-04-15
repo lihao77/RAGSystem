@@ -666,10 +666,12 @@ const syncSessionFromRoute = async (sessionId) => {
     pendingAttachments.value = [];
     await loadSessionMessages(sessionId);
     await loadSessionFiles(sessionId);
+    subscribeSessionPush(sessionId);
     return;
   }
 
   if (!sessionId && currentSessionId.value) {
+    unsubscribeSessionPush();
     invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
@@ -723,6 +725,59 @@ const invalidateActiveStream = () => {
     currentStreamController.value.abort();
     currentStreamController.value = null;
   }
+};
+
+// ── session 级 push 通道（系统 run 完成后自动刷新消息）──────────────
+let _sessionPushSource = null;
+
+const subscribeSessionPush = (sessionId) => {
+  unsubscribeSessionPush();
+  if (!sessionId) return;
+  const url = `/api/agent/sessions/${encodeURIComponent(sessionId)}/push`;
+  const src = new EventSource(url);
+  src.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.type === 'session.run_started') {
+        _onSessionRunStarted(sessionId);
+      } else if (event.type === 'session.updated') {
+        _onSessionUpdated(sessionId);
+      }
+    } catch (e) {
+      console.debug('[session-push] parse error:', e);
+    }
+  };
+  src.onerror = () => {
+    if (src.readyState === EventSource.CLOSED) {
+      setTimeout(() => subscribeSessionPush(sessionId), 5000);
+    }
+  };
+  _sessionPushSource = src;
+};
+
+const unsubscribeSessionPush = () => {
+  if (_sessionPushSource) {
+    _sessionPushSource.close();
+    _sessionPushSource = null;
+  }
+};
+
+const _onSessionUpdated = (sessionId) => {
+  if (sessionId !== currentSessionId.value) return;
+  if (isLoading.value) return; // 当前有活跃 run，不打断
+  messageCache.value.delete(sessionId);
+  loadSessionMessages(sessionId);
+};
+
+// 系统 run 已启动，立即接管 SSE 流（等同于用户发送消息后的体验）
+const _onSessionRunStarted = (sessionId) => {
+  if (sessionId !== currentSessionId.value) return;
+  if (isLoading.value) return; // 已有活跃 run，不重复连接
+  const lastMsg = messages.value[messages.value.length - 1];
+  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+    messages.value.push(createAssistantMessage());
+  }
+  reconnectToRunningTask(sessionId);
 };
 
 // 移动端状态
@@ -2914,6 +2969,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopRetryTicker();
+  unsubscribeSessionPush();
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 

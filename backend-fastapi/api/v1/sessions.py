@@ -10,7 +10,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from typing import Optional
 
 from schemas.session import (
@@ -276,3 +276,63 @@ async def list_session_checkpoints(
     except Exception as e:
         logger.error('获取检查点列表失败: %s', e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/sessions/{session_id}/push')
+async def session_push_stream(session_id: str):
+    """
+    Session 级 SSE 推送通道。
+
+    前端订阅后，当系统自动触发 run（如后台任务完成通知）并写入新消息时，
+    会收到 session.run_started / session.updated 事件。
+    通过全局 EventBus 订阅，filter_func 按 session_id 过滤。
+    心跳间隔 30s，连接断开时自动取消订阅。
+    """
+    from runtime.container import get_current_runtime_container
+    from agents.events import EventType
+
+    container = get_current_runtime_container()
+    if not container:
+        raise HTTPException(status_code=503, detail='Runtime not ready')
+
+    bus = container.get_event_bus()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    loop = asyncio.get_running_loop()
+
+    def _handler(event):
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, event.data)
+        except asyncio.QueueFull:
+            logger.warning('session_push: queue full session=%s, dropping event=%s',
+                           session_id, getattr(event, 'type', None))
+        except RuntimeError:
+            pass  # loop closed
+
+    sub_id = bus.subscribe(
+        event_types=[EventType.SESSION_RUN_STARTED, EventType.SESSION_UPDATED],
+        handler=_handler,
+        filter_func=lambda e: e.session_id == session_id,
+    )
+
+    async def event_stream():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    # 心跳保活
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            bus.unsubscribe(sub_id)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )

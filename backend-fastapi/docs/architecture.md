@@ -607,7 +607,11 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 3. **notification + output_path 主路径**：后台任务完成后，无论是事件唤醒还是 poll 兜底，最终都会回灌统一的完成通知 observation；通知中携带 `output_path`，模型主路径统一是 `read_file(file_path=output_path)`。
 4. **Hidden keepalive**：仅当 `allow_provider_keepalive=true` 时，按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
 
-等待完成后，后台任务以 `<task-notification>` XML 格式的完成通知回灌到 `current_session`（对标 Claude Code 的 `task-notification`）；通知包含 `task-id`、`output-file`、`status` 等结构化字段，真正的结果内容由模型后续通过 `read_file` 读取。通知统一走 session 级队列（`TaskRegistry._session_notifications`），在每轮推理开头和工具执行后自动 drain。
+等待完成后，后台任务以 `<task-notification>` XML 格式的完成通知回灌到 `current_session`（对标 Claude Code 的 `task-notification`）；通知包含 `task-id`、`output-file`、`status` 等结构化字段，真正的结果内容由模型后续通过 `read_file` 读取。通知统一走 session 级队列（`TaskRegistry._session_notifications`），消费路径有两条：
+1. **run 内 drain**：每轮推理开头和工具执行后自动消费
+2. **自动触发 run**：后台任务完成且 session 空闲时，`execution/notification_trigger.py` 自动发起系统 run（`source='system.bg_notification'`），让模型处理通知并把结果持久化到会话历史（对标 Claude Code 的 idle notification delivery）
+
+自动触发 run 时，前端通过 session push SSE 通道（`GET /sessions/{id}/push`）实时感知。该通道通过全局 EventBus 订阅 `SESSION_RUN_STARTED` / `SESSION_UPDATED` 事件，以 `filter_func` 按 session_id 过滤，无独立注册表。前端收到 `session.run_started` 后立即调用 `/stream/reconnect` 接入实时流，`session.updated` 作为兜底触发全量历史刷新。
 
 配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 仅控制是否启用显式等待触发的 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
 
@@ -616,6 +620,7 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 - 等待状态：`agents/task_registry.py`（`BackgroundWaitState`、`pending_waits`、`get_task_id_by_session`）
 - 后台任务：`tools/runtime/background_tasks.py`（`BackgroundTask`、completion event）
 - 事件桥接：`execution/adapters/agent_execution.py`（`_subscribe_background_completion`）
+- 自动触发：`execution/notification_trigger.py`（空闲时自动 run + session push 事件发布）
 - 系统配置：`config/models.py`（`WaitingConfig`）
 - 上下文配置：`agents/context/config.py`（`ContextConfig` 的 `waiting_enabled`、`allow_provider_keepalive` 等字段）
 

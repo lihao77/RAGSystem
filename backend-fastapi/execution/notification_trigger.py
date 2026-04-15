@@ -113,7 +113,7 @@ def _build_notification_xml(payload: dict) -> str:
 
 
 def _start_system_run(session_id: str, task: str) -> Optional[str]:
-    """启动系统 run 并同步等待完成。复用 daemon 的 consume_stream 模式。"""
+    """启动系统 run，立即推送 session.run_started 让前端实时订阅，后台 drain 清理 adapter。"""
     from runtime.container import get_current_runtime_container
     container = get_current_runtime_container()
     if not container:
@@ -148,14 +148,60 @@ def _start_system_run(session_id: str, task: str) -> Optional[str]:
         )
         return None
 
-    # 同步消费 SSE 流直到 run 结束（消息由 StreamPersistenceHandler 自动持久化）
-    from daemon.utils import consume_stream
-    try:
-        result = consume_stream(started.sse_adapter)
-        logger.info('notification_trigger: 系统 run 完成 session=%s', session_id)
-        return result
-    finally:
+    run_id = started.run_id
+    logger.info('notification_trigger: 系统 run 已启动 session=%s run_id=%s', session_id, run_id)
+
+    # 立即通知前端有新 run 可订阅，前端通过 /stream/reconnect 获得实时流
+    _push_event(session_id, {
+        'type': 'session.run_started',
+        'session_id': session_id,
+        'run_id': run_id,
+        'source': 'system.bg_notification',
+    })
+
+    # 后台 drain 原始 adapter（防止 event_bus 订阅泄漏）
+    # run 完成后推送 session.updated 兜底（前端未及时连接时触发全量历史刷新）
+    sse_adapter = started.sse_adapter
+
+    def _drain_and_notify():
         try:
-            started.sse_adapter.stop()
-        except Exception:
-            pass
+            for _ in sse_adapter.stream_sync():
+                pass
+            logger.info('notification_trigger: 系统 run 完成 session=%s run_id=%s', session_id, run_id)
+        except Exception as exc:
+            logger.debug('notification_trigger: drain 线程异常: %s', exc)
+        finally:
+            try:
+                sse_adapter.stop()
+            except Exception:
+                pass
+            # 兜底：前端若未连上实时流，session.updated 触发完整历史刷新
+            _push_event(session_id, {
+                'type': 'session.updated',
+                'session_id': session_id,
+                'run_id': run_id,
+                'source': 'system.bg_notification',
+            })
+
+    threading.Thread(
+        target=_drain_and_notify,
+        daemon=True,
+        name=f'bg-drain-{session_id[:8]}',
+    ).start()
+    return run_id
+
+
+def _push_event(session_id: str, event: dict) -> None:
+    """通过全局 EventBus 推送 session 级事件（线程安全）。"""
+    event.setdefault('timestamp', time.time())
+    try:
+        from runtime.container import get_current_runtime_container
+        container = get_current_runtime_container()
+        if not container:
+            return
+        from agents.events import Event, EventType
+        bus = container.get_event_bus()
+        event_type = EventType(event['type'])
+        bus.publish(Event(type=event_type, data=event, session_id=session_id))
+    except Exception as exc:
+        logger.debug('notification_trigger: push 事件失败: %s', exc)
