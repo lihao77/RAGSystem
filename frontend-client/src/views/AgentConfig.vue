@@ -401,6 +401,48 @@
             </div>
           </section>
 
+          <section id="section-tasks" class="form-section">
+            <div class="section-head">
+              <h2>任务</h2>
+              <span>配置 task capability；task 工具不再通过普通工具白名单单独勾选</span>
+            </div>
+            <div class="section-body toggle-grid">
+              <div
+                class="toggle-card"
+                :class="{ active: configForm.tasks.workflow }"
+                @click="configForm.tasks.workflow = !configForm.tasks.workflow"
+              >
+                <div class="toggle-card__indicator">
+                  <svg v-if="configForm.tasks.workflow"
+                    xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </div>
+                <div class="toggle-card__name">workflow</div>
+                <div class="toggle-card__desc">暴露 task_create / task_get / task_update / task_list，用于任务编排与状态追踪</div>
+              </div>
+
+              <div
+                class="toggle-card"
+                :class="{ active: configForm.tasks.background }"
+                @click="configForm.tasks.background = !configForm.tasks.background"
+              >
+                <div class="toggle-card__indicator">
+                  <svg v-if="configForm.tasks.background"
+                    xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </div>
+                <div class="toggle-card__name">background</div>
+                <div class="toggle-card__desc">暴露 task_output / task_stop，用于后台任务查询、显式等待与停止</div>
+              </div>
+            </div>
+          </section>
+
           <section id="section-skills" class="form-section">
             <div class="section-head">
               <h2>技能</h2>
@@ -688,6 +730,7 @@ const sections = [
   { id: 'section-llm', label: 'LLM' },
   { id: 'section-prompt', label: '提示词' },
   { id: 'section-tools', label: '工具' },
+  { id: 'section-tasks', label: '任务' },
   { id: 'section-skills', label: '技能' },
   { id: 'section-memory', label: '记忆' },
   { id: 'section-mcp', label: 'MCP' },
@@ -953,6 +996,7 @@ function createEmptyForm() {
     default_entry: false,
     llm_tiers: { default: createEmptyLLM(), fast: null, powerful: null },
     tools: { enabled_tools: [] },
+    tasks: { workflow: false, background: false },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
     memory: {
@@ -995,6 +1039,10 @@ function applyConfigToForm(config) {
     },
     tools: {
       enabled_tools: Array.isArray(safeConfig.tools?.enabled_tools) ? [...safeConfig.tools.enabled_tools] : []
+    },
+    tasks: {
+      workflow: !!safeConfig.tasks?.workflow,
+      background: !!safeConfig.tasks?.background
     },
     skills: {
       enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : [],
@@ -1116,6 +1164,12 @@ function buildPayload() {
   merged.tools = {
     ...(merged.tools || {}),
     enabled_tools: configForm.value.tools.enabled_tools
+  };
+
+  merged.tasks = {
+    ...(merged.tasks || {}),
+    workflow: !!configForm.value.tasks.workflow,
+    background: !!configForm.value.tasks.background
   };
 
   merged.skills = {
