@@ -528,6 +528,8 @@ class TaskRegistry:
                 if ws and background_task_id in ws.task_ids:
                     return (task_id, wait_id)
         return None
+
+    def get_task_id_by_session(self, session_id: str) -> Optional[str]:
         with self._lock:
             info = self._get_session_task_locked(session_id)
             return info.task_id if info is not None else None

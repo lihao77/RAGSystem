@@ -414,6 +414,10 @@ class BaseAgent(ABC):
                 'waiting_local_cache_ttl_seconds',
                 _sys_waiting.local_cache_ttl_seconds,
             ),
+            waiting_enabled=behavior_config.get(
+                'waiting_enabled',
+                _sys_waiting.enabled,
+            ),
             waiting_poll_interval_seconds=behavior_config.get(
                 'waiting_poll_interval_seconds',
                 _sys_waiting.default_poll_interval_seconds,
@@ -421,6 +425,10 @@ class BaseAgent(ABC):
             waiting_idle_timeout_seconds=behavior_config.get(
                 'waiting_idle_timeout_seconds',
                 _sys_waiting.idle_wait_timeout_seconds,
+            ),
+            allow_provider_keepalive=behavior_config.get(
+                'allow_provider_keepalive',
+                _sys_waiting.allow_provider_keepalive,
             ),
             keepalive_interval_seconds=behavior_config.get(
                 'waiting_keepalive_interval_seconds',
@@ -433,6 +441,10 @@ class BaseAgent(ABC):
             max_hidden_keepalive_rounds=behavior_config.get(
                 'waiting_max_keepalive_rounds',
                 _sys_waiting.max_keepalive_rounds,
+            ),
+            hidden_keepalive_token_budget=behavior_config.get(
+                'hidden_keepalive_token_budget',
+                _sys_waiting.hidden_keepalive_token_budget,
             ),
         )
         observation_window = ObservationWindowCollector()
@@ -1069,15 +1081,19 @@ class BaseAgent(ABC):
         """扫描本轮工具结果，提取需要等待的后台任务 ID。"""
         bg_task_ids = []
         for result in results.values():
-            if not isinstance(result, dict):
+            if result is None:
                 continue
-            content = result.get('content')
+            if isinstance(result, dict):
+                content = result.get('content')
+                metadata = result.get('metadata')
+            else:
+                content = getattr(result, 'content', None)
+                metadata = getattr(result, 'metadata', None)
             if isinstance(content, dict) and content.get('suggest_wait'):
                 tid = content.get('background_task_id')
                 if tid:
                     bg_task_ids.append(tid)
                 continue
-            metadata = result.get('metadata')
             if isinstance(metadata, dict) and metadata.get('suggest_wait'):
                 tid = metadata.get('background_task_id')
                 if tid:
@@ -1114,6 +1130,7 @@ class BaseAgent(ABC):
         keepalive_interval = config.keepalive_interval_seconds
         keepalive_grace = config.keepalive_grace_seconds
         max_keepalive = config.max_hidden_keepalive_rounds
+        allow_provider_keepalive = config.allow_provider_keepalive
 
         bg_wait_state = BackgroundWaitState(
             wait_id=wait_id,
@@ -1191,6 +1208,8 @@ class BaseAgent(ABC):
                     return
 
                 # hidden keepalive
+                if not allow_provider_keepalive:
+                    continue
                 if (now - last_keepalive_at) >= (keepalive_interval - keepalive_grace):
                     if keepalive_count < max_keepalive:
                         self._run_hidden_keepalive(context, state, log_prefix)
@@ -1275,6 +1294,11 @@ class BaseAgent(ABC):
         极小 token budget，不带 tools，结果不写入 session/store。
         """
         try:
+            config = self.context_pipeline.config
+            if not config.allow_provider_keepalive:
+                self.logger.debug("%s keepalive 跳过：配置已禁用", log_prefix)
+                return
+
             llm_config = self.get_llm_config(context, task_type='default')
             provider_name = llm_config.get('provider', '')
             if not provider_name:
@@ -1297,21 +1321,12 @@ class BaseAgent(ABC):
                 'content': '[keepalive] 请回复 OK。',
             })
 
-            # 极小 token budget
-            keepalive_budget = self.context_pipeline.config.max_hidden_keepalive_rounds  # 复用字段做 budget 不合适
-            # 从系统配置读取
-            try:
-                from config.base import ConfigManager
-                keepalive_budget = ConfigManager().get_config().waiting.hidden_keepalive_token_budget
-            except Exception:
-                keepalive_budget = 8
-
             response = self.model_adapter.chat_completion(
                 messages=messages,
                 provider=provider_name,
                 model=llm_config.get('model_name'),
                 temperature=0.0,
-                max_tokens=keepalive_budget,
+                max_tokens=config.hidden_keepalive_token_budget,
                 provider_type=llm_config.get('provider_type'),
             )
 
@@ -1622,7 +1637,11 @@ class BaseAgent(ABC):
                 if actions:
                     self.logger.debug(f"{log_prefix} 执行 {len(actions)} 个动作")
                     waiting_request = self._handle_actions(actions, context, state, rounds, log_prefix)
-                    if waiting_request and waiting_request.background_task_ids:
+                    if (
+                        self.context_pipeline.config.waiting_enabled
+                        and waiting_request
+                        and waiting_request.background_task_ids
+                    ):
                         self.logger.debug(
                             f"{log_prefix} 进入 waiting loop，等待后台任务: {waiting_request.background_task_ids}"
                         )

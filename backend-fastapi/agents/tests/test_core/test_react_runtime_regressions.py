@@ -6,6 +6,7 @@ from types import MethodType, SimpleNamespace
 from pathlib import Path
 
 from agents.core import AgentContext, AgentResponse, BaseAgent
+from agents.context.config import ContextConfig
 from agents.context.observation_policy import ObservationPolicy
 from agents.context.prompt_materializer import PromptMaterializer
 from agents.implementations.orchestrator.agent import OrchestratorAgent
@@ -323,3 +324,113 @@ def test_base_handle_actions_resolves_same_round_tool_placeholders(monkeypatch):
 
     assert captured_arguments[1][0] == "read_file"
     assert captured_arguments[1][1]["file_path"] == "E:/tmp/generated.json"
+
+
+def test_handle_actions_returns_waiting_request_when_tool_suggests_wait(monkeypatch):
+    import tools.runtime.executor as tool_executor
+
+    def fake_execute_tool(tool_name, arguments, **kwargs):
+        del tool_name, arguments, kwargs
+        return success_result(
+            content={
+                "background_task_id": "bg-1",
+                "suggest_wait": True,
+            },
+            summary="后台任务已启动",
+            output_type="json",
+            tool_name="execute_bash",
+        )
+
+    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
+
+    agent = _PlaceholderAwareAgent()
+    context = AgentContext(session_id="session-1")
+    state = {
+        "event_bus": None,
+        "tool_calls_history": [],
+        "current_session": [],
+        "run_id": "run-1",
+    }
+
+    waiting_request = agent._handle_actions(
+        [{"tool": "execute_bash", "arguments": {"command": "sleep 1"}}],
+        context,
+        state,
+        rounds=1,
+        log_prefix="[test]",
+    )
+
+    assert waiting_request is not None
+    assert waiting_request.background_task_ids == ["bg-1"]
+    assert waiting_request.run_id == "run-1"
+
+
+def test_run_hidden_keepalive_respects_disabled_config():
+    agent = _PlaceholderAwareAgent()
+    chat_calls = []
+    agent.model_adapter = SimpleNamespace(
+        chat_completion=lambda **kwargs: chat_calls.append(kwargs),
+    )
+    agent.context_pipeline = SimpleNamespace(
+        config=ContextConfig(
+            allow_provider_keepalive=False,
+            hidden_keepalive_token_budget=11,
+        ),
+        prepare_execution_messages=lambda **kwargs: SimpleNamespace(messages=[]),
+        _session_cache=lambda context: context.metadata.setdefault("_cache", {}),
+    )
+    agent.get_llm_config = lambda context, task_type=None: {"provider": "demo", "model_name": "x"}
+    agent._build_system_prompt = lambda: "system"
+
+    context = AgentContext(session_id="session-1")
+    state = {"current_session": []}
+
+    agent._run_hidden_keepalive(context, state, "[test]")
+
+    assert chat_calls == []
+    assert context.metadata.get("_cache") is None
+
+
+def test_run_hidden_keepalive_uses_context_budget_and_refreshes_cache():
+    agent = _PlaceholderAwareAgent()
+    chat_calls = []
+    agent.model_adapter = SimpleNamespace(
+        chat_completion=lambda **kwargs: chat_calls.append(kwargs) or SimpleNamespace(error=None),
+    )
+    agent.context_pipeline = SimpleNamespace(
+        config=ContextConfig(
+            allow_provider_keepalive=True,
+            hidden_keepalive_token_budget=11,
+        ),
+        prepare_execution_messages=lambda **kwargs: SimpleNamespace(messages=[{"role": "system", "content": "s"}]),
+        _session_cache=lambda context: context.metadata.setdefault("_cache", {}),
+    )
+    agent.get_llm_config = lambda context, task_type=None: {
+        "provider": "demo",
+        "model_name": "x",
+        "provider_type": "test",
+    }
+    agent._build_system_prompt = lambda: "system"
+
+    context = AgentContext(session_id="session-1")
+    state = {"current_session": []}
+
+    agent._run_hidden_keepalive(context, state, "[test]")
+
+    assert len(chat_calls) == 1
+    assert chat_calls[0]["max_tokens"] == 11
+    assert context.metadata["_cache"]["t"] > 0
+
+
+def test_waiting_enabled_false_skips_waiting_loop_gate():
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(config=ContextConfig(waiting_enabled=False))
+
+    waiting_request = SimpleNamespace(background_task_ids=["bg-1"])
+    should_wait = (
+        agent.context_pipeline.config.waiting_enabled
+        and waiting_request
+        and waiting_request.background_task_ids
+    )
+
+    assert should_wait is False

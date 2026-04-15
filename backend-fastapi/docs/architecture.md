@@ -596,25 +596,25 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 ### 后台等待与 KV Cache 保活
 
-当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。
+当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。若 `waiting.enabled=false`，则不会进入 waiting loop，后台任务保持异步运行。
 
 等待机制基于三层保障：
 
 1. **事件唤醒**：`agent_execution.py` 为每个 run 注册 `BACKGROUND_TASK_COMPLETED` 订阅，完成事件通过 `TaskRegistry.resolve_task_wait()` 即时唤醒等待线程。
 2. **Poll 兜底**：waiting loop 按 `waiting_poll_interval_seconds`（默认 3s）周期轮询 `BackgroundTaskManager.get_task()`，防止订阅建立前任务已完成或事件丢失。
-3. **Hidden keepalive**：按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
+3. **Hidden keepalive**：仅当 `allow_provider_keepalive=true` 时，按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
 
 等待完成后，后台任务输出作为 observation 回灌到 `current_session`，Agent 继续 ReAct 推理直至最终答案。
 
-配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。
+配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 控制是否启用 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
 
 关键文件：
 - 等待入口：`agents/core/base.py`（`_run_waiting_loop`、`_run_hidden_keepalive`）
-- 等待状态：`agents/task_registry.py`（`BackgroundWaitState`、`pending_waits`）
+- 等待状态：`agents/task_registry.py`（`BackgroundWaitState`、`pending_waits`、`get_task_id_by_session`）
 - 后台任务：`tools/runtime/background_tasks.py`（`BackgroundTask`、completion event）
 - 事件桥接：`execution/adapters/agent_execution.py`（`_subscribe_background_completion`）
 - 系统配置：`config/models.py`（`WaitingConfig`）
-- 上下文配置：`agents/context/config.py`（`ContextConfig` 的 `local_cache_ttl_seconds` 等字段）
+- 上下文配置：`agents/context/config.py`（`ContextConfig` 的 `waiting_enabled`、`allow_provider_keepalive` 等字段）
 
 ## 配置系统
 

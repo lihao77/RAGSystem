@@ -21,13 +21,19 @@ class ContextConfig:
     microcompact_keep_recent_tools: int = 5
     # 本地缓存 TTL：距上次准备超过此秒数才允许清理旧工具结果（保护 KV 缓存）
     local_cache_ttl_seconds: float = 600.0
+    # 是否启用 run 内 waiting loop
+    waiting_enabled: bool = True
     # waiting loop 轮询间隔
     waiting_poll_interval_seconds: float = 3.0
     # waiting loop 空闲超时
     waiting_idle_timeout_seconds: float = 300.0
+    # 是否允许 hidden keepalive 续命 provider KV cache
+    allow_provider_keepalive: bool = True
     # hidden keepalive 间隔
     keepalive_interval_seconds: float = 240.0
     # hidden keepalive 提前发送余量
     keepalive_grace_seconds: float = 30.0
     # hidden keepalive 最大轮数
     max_hidden_keepalive_rounds: int = 20
+    # hidden keepalive 最大输出 token
+    hidden_keepalive_token_budget: int = 8
