@@ -26,6 +26,24 @@ _ACTIVE_STATUSES = {'starting', 'running', 'cancel_requested'}
 
 
 @dataclass
+class BackgroundWaitState:
+    """单次后台等待的运行时状态。"""
+    wait_id: str
+    task_ids: List[str]  # 正在等待的后台任务 ID 列表
+    created_at: float = field(default_factory=time.time)
+    deadline_at: Optional[float] = None
+    poll_interval_seconds: float = 3.0
+    keepalive_interval_seconds: float = 240.0
+    last_poll_at: Optional[float] = None
+    last_keepalive_at: Optional[float] = None
+    keepalive_count: int = 0
+    wake_reason: Optional[str] = None  # 'completed' | 'cancelled' | 'timeout' | 'poll'
+    completed_task_ids: List[str] = field(default_factory=list)
+    pending_task_ids: List[str] = field(default_factory=list)
+    last_result_snapshot: Optional[Dict[str, Any]] = None
+
+
+@dataclass
 class TaskInfo:
     task_id: str
     session_id: Optional[str]
@@ -46,6 +64,10 @@ class TaskInfo:
     approval_results: Dict[str, dict] = field(default_factory=dict)
     pending_inputs: Dict[str, threading.Event] = field(default_factory=dict)
     input_results: Dict[str, str] = field(default_factory=dict)
+    pending_waits: Dict[str, threading.Event] = field(default_factory=dict)
+    wait_results: Dict[str, dict] = field(default_factory=dict)
+    background_waits: Dict[str, BackgroundWaitState] = field(default_factory=dict)
+    waiting_status: Optional[str] = None
 
 
 class TaskRegistry:
@@ -57,6 +79,7 @@ class TaskRegistry:
         self._active_concurrency: Dict[str, str] = {}
         self._approval_to_task: Dict[str, str] = {}   # approval_id → task_id
         self._input_to_task: Dict[str, str] = {}       # input_id → task_id
+        self._wait_to_task: Dict[str, str] = {}         # wait_id → task_id
         self._lock = threading.RLock()
 
     def register(
@@ -251,14 +274,26 @@ class TaskRegistry:
                 evt.set()
                 self._input_to_task.pop(input_id, None)
             info.pending_inputs.clear()
+
+            wait_count = len(info.pending_waits)
+            for wait_id, evt in list(info.pending_waits.items()):
+                info.wait_results[wait_id] = {'status': 'cancelled'}
+                ws = info.background_waits.get(wait_id)
+                if ws:
+                    ws.wake_reason = 'cancelled'
+                evt.set()
+                self._wait_to_task.pop(wait_id, None)
+            info.pending_waits.clear()
+            info.waiting_status = None
             self._sync_concurrency_index_locked(info)
 
         logger.debug(
-            'TaskRegistry: 取消任务 task_id=%s session=%s，拒绝 %s 个待审批，取消 %s 个待输入',
+            'TaskRegistry: 取消任务 task_id=%s session=%s，拒绝 %s 个待审批，取消 %s 个待输入，取消 %s 个后台等待',
             task_id,
             info.session_id,
             pending_count,
             input_count,
+            wait_count,
         )
         return True
 
@@ -427,7 +462,72 @@ class TaskRegistry:
                 return ''
             return info.input_results.pop(input_id, '')
 
-    def get_task_id_by_session(self, session_id: str) -> Optional[str]:
+    # ── 后台等待 helpers ──
+
+    def add_task_pending_wait(
+        self, task_id: str, wait_id: str, bg_wait_state: BackgroundWaitState,
+    ) -> Optional[threading.Event]:
+        with self._lock:
+            info = self._tasks_by_task_id.get(task_id)
+            if info is None:
+                return None
+            evt = threading.Event()
+            info.pending_waits[wait_id] = evt
+            info.wait_results[wait_id] = {}
+            info.background_waits[wait_id] = bg_wait_state
+            info.waiting_status = 'waiting'
+            self._wait_to_task[wait_id] = task_id
+            logger.debug('TaskRegistry: 注册后台等待 task_id=%s wait_id=%s bg_tasks=%s', task_id, wait_id, bg_wait_state.task_ids)
+            return evt
+
+    def resolve_task_wait(self, task_id: str, wait_id: str, result_payload: dict) -> bool:
+        with self._lock:
+            info = self._tasks_by_task_id.get(task_id)
+            if info is None or wait_id not in info.pending_waits:
+                logger.warning('TaskRegistry: 未找到后台等待 task_id=%s wait_id=%s', task_id, wait_id)
+                return False
+            info.wait_results[wait_id] = result_payload
+            ws = info.background_waits.get(wait_id)
+            if ws and ws.wake_reason is None:
+                ws.wake_reason = 'completed'
+            evt = info.pending_waits.pop(wait_id)
+            self._wait_to_task.pop(wait_id, None)
+            if not info.pending_waits:
+                info.waiting_status = None
+        evt.set()
+        logger.debug('TaskRegistry: 后台等待完成 task_id=%s wait_id=%s', task_id, wait_id)
+        return True
+
+    def get_task_wait_result(self, task_id: str, wait_id: str) -> dict:
+        with self._lock:
+            info = self._tasks_by_task_id.get(task_id)
+            if info is None:
+                return {}
+            return info.wait_results.pop(wait_id, {})
+
+    def clear_task_waiting(self, task_id: str, wait_id: str):
+        with self._lock:
+            info = self._tasks_by_task_id.get(task_id)
+            if info is None:
+                return
+            info.pending_waits.pop(wait_id, None)
+            info.wait_results.pop(wait_id, None)
+            info.background_waits.pop(wait_id, None)
+            self._wait_to_task.pop(wait_id, None)
+            if not info.pending_waits:
+                info.waiting_status = None
+
+    def find_task_by_wait_target(self, background_task_id: str) -> Optional[tuple]:
+        """通过后台任务 ID 找到等待它的 (task_id, wait_id)。"""
+        with self._lock:
+            for wait_id, task_id in self._wait_to_task.items():
+                info = self._tasks_by_task_id.get(task_id)
+                if info is None:
+                    continue
+                ws = info.background_waits.get(wait_id)
+                if ws and background_task_id in ws.task_ids:
+                    return (task_id, wait_id)
+        return None
         with self._lock:
             info = self._get_session_task_locked(session_id)
             return info.task_id if info is not None else None
@@ -556,6 +656,8 @@ class TaskRegistry:
             'finished_at': finished_at,
             'elapsed_seconds': round(elapsed_end - info.started_at, 1),
             'thread_alive': thread_alive,
+            'waiting_status': info.waiting_status,
+            'pending_wait_ids': list(info.pending_waits.keys()),
         }
 
     def _remove_task_locked(self, task_id: str) -> None:
@@ -570,6 +672,8 @@ class TaskRegistry:
             self._approval_to_task.pop(approval_id, None)
         for input_id in info.pending_inputs:
             self._input_to_task.pop(input_id, None)
+        for wait_id in info.pending_waits:
+            self._wait_to_task.pop(wait_id, None)
 
 
 def get_task_registry() -> TaskRegistry:

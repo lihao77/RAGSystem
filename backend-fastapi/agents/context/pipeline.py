@@ -362,7 +362,7 @@ class ContextPipeline:
         last_time = cache.get('t')
         if last_time is None:
             return True
-        threshold = self.config.microcompact_time_threshold_seconds
+        threshold = self.config.local_cache_ttl_seconds
         if time.time() - last_time >= threshold:
             return True
         return False

@@ -472,6 +472,7 @@ def execute_bash(
                 tool_name="execute_bash",
                 metadata={"command": command},
             )
+        owner_task_id = current_fields.get("task_id")
         output_dir = get_session_transient_root(session_id)
         task = get_background_task_manager().spawn_bash(
             command,
@@ -482,6 +483,8 @@ def execute_bash(
             max_runtime_seconds=timeout,
             event_bus=event_bus,
             session_id=session_id,
+            run_id=run_id,
+            owner_task_id=owner_task_id,
         )
         return success_result(
             content={
@@ -490,6 +493,8 @@ def execute_bash(
                 "return_code": None,
                 "interrupted": False,
                 "background_task_id": task.task_id,
+                "background_started": True,
+                "suggest_wait": True,
                 "classification": classification.value,
             },
             summary="后台任务已启动",
@@ -500,6 +505,9 @@ def execute_bash(
                 "classification": classification.value,
                 "risk_level": risk_level.value,
                 "background_task_id": task.task_id,
+                "background_started": True,
+                "suggest_wait": True,
+                "run_id": run_id,
                 "background_output_path": to_display_path(task.output_path),
                 "cwd_isolated": caller != "direct",
                 **({"approval_required_commands": approval_commands} if approval_commands else {}),

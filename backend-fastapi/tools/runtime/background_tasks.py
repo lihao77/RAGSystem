@@ -31,6 +31,10 @@ class BackgroundTask:
     return_code: Optional[int] = None
     error: Optional[str] = None
     expires_at: Optional[float] = None
+    run_id: Optional[str] = None
+    owner_task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    completed_at: Optional[float] = None
 
     def is_done(self) -> bool:
         return self.status in ("completed", "failed", "cancelled")
@@ -66,6 +70,8 @@ class BackgroundTaskManager:
         max_runtime_seconds: int | None = None,
         event_bus=None,
         session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        owner_task_id: Optional[str] = None,
     ) -> BackgroundTask:
         """
         启动后台 bash 命令，stdout/stderr 写入文件。
@@ -82,6 +88,9 @@ class BackgroundTaskManager:
             description=description or command[:80],
             output_path=output_path,
             expires_at=time.time() + self._retention_seconds,
+            run_id=run_id,
+            owner_task_id=owner_task_id,
+            session_id=session_id,
         )
 
         with self._tasks_lock:
@@ -133,8 +142,10 @@ class BackgroundTaskManager:
                         if t and not t.is_done():
                             t.return_code = proc.returncode
                             t.status = "completed" if proc.returncode == 0 else "failed"
+                            t.completed_at = time.time()
                     logger.info("后台任务完成: task_id=%s rc=%s", task_id, proc.returncode)
-                    _publish_completed(task_id, proc.returncode, event_bus, session_id)
+                    _publish_completed(task_id, proc.returncode, event_bus, session_id,
+                                       run_id=run_id, owner_task_id=owner_task_id)
                 except Exception as exc:
                     logger.warning("后台任务监控异常: %s", exc)
                 finally:
@@ -165,6 +176,8 @@ class BackgroundTaskManager:
         output_dir: Path,
         event_bus=None,
         session_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        owner_task_id: Optional[str] = None,
     ) -> BackgroundTask:
         """提交任意 callable 在后台线程中执行。"""
         task_id = str(uuid.uuid4())
@@ -175,6 +188,9 @@ class BackgroundTaskManager:
             task_id=task_id,
             description=description,
             output_path=output_path,
+            run_id=run_id,
+            owner_task_id=owner_task_id,
+            session_id=session_id,
         )
         with self._tasks_lock:
             self._tasks[task_id] = task
@@ -192,14 +208,18 @@ class BackgroundTaskManager:
                     if t:
                         t.status = "completed"
                         t.return_code = 0
-                _publish_completed(task_id, 0, event_bus, session_id)
+                        t.completed_at = time.time()
+                _publish_completed(task_id, 0, event_bus, session_id,
+                                   run_id=run_id, owner_task_id=owner_task_id)
             except Exception as exc:
                 with self._tasks_lock:
                     t = self._tasks.get(task_id)
                     if t:
                         t.status = "failed"
                         t.error = str(exc)
-                _publish_completed(task_id, 1, event_bus, session_id)
+                        t.completed_at = time.time()
+                _publish_completed(task_id, 1, event_bus, session_id,
+                                   run_id=run_id, owner_task_id=owner_task_id)
 
         threading.Thread(target=_run, daemon=True).start()
         return task
@@ -255,7 +275,10 @@ class BackgroundTaskManager:
         return True
 
 
-def _publish_completed(task_id: str, return_code: int, event_bus, session_id: Optional[str]):
+def _publish_completed(
+    task_id: str, return_code: int, event_bus, session_id: Optional[str],
+    *, run_id: Optional[str] = None, owner_task_id: Optional[str] = None,
+):
     if not event_bus:
         return
     try:
@@ -267,6 +290,9 @@ def _publish_completed(task_id: str, return_code: int, event_bus, session_id: Op
                 "task_id": task_id,
                 "return_code": return_code,
                 "success": return_code == 0,
+                "run_id": run_id,
+                "owner_task_id": owner_task_id,
+                "completed_at": time.time(),
             },
         ))
     except Exception as exc:

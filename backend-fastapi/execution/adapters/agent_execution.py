@@ -252,6 +252,13 @@ class AgentExecutionAdapter:
             ]
             if metrics_subscription_id:
                 subscription_ids.append(metrics_subscription_id)
+
+            # 后台任务完成 → TaskRegistry 等待唤醒桥接
+            bg_completion_sub_id = _subscribe_background_completion(
+                event_bus=event_bus, registry=registry, task_id=task_id,
+            )
+            subscription_ids.append(bg_completion_sub_id)
+
             registry.set_task_persistent_subscriptions(task_id, subscription_ids, event_bus)
 
             return AgentStreamStartResult(
@@ -453,3 +460,31 @@ class AgentExecutionAdapter:
                 registry.cleanup_task_subscriptions(task_id)
 
         return execute_agent_task
+
+
+def _subscribe_background_completion(*, event_bus, registry, task_id: str) -> str:
+    """为当前 run 的 event_bus 注册 BACKGROUND_TASK_COMPLETED 订阅，桥接到 TaskRegistry 等待态。"""
+
+    def _on_bg_completed(event: Event):
+        data = event.data or {}
+        bg_task_id = data.get('task_id')
+        if not bg_task_id:
+            return
+        match = registry.find_task_by_wait_target(bg_task_id)
+        if match is None:
+            return
+        matched_task_id, wait_id = match
+        if matched_task_id != task_id:
+            return
+        registry.resolve_task_wait(task_id, wait_id, {
+            'status': 'completed',
+            'background_task_id': bg_task_id,
+            'return_code': data.get('return_code'),
+            'success': data.get('success', False),
+            'completed_at': data.get('completed_at'),
+        })
+
+    return event_bus.subscribe(
+        [EventType.BACKGROUND_TASK_COMPLETED],
+        _on_bg_completed,
+    )

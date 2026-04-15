@@ -445,7 +445,7 @@ class TestStablePrefixFingerprint:
         """连续两轮相同输入 → fingerprint 不变 → microcompact 被跳过。"""
         pipeline = _make_pipeline()
         pipeline.config.microcompact_keep_recent_tools = 3
-        pipeline.config.microcompact_time_threshold_seconds = 600
+        pipeline.config.local_cache_ttl_seconds = 600
 
         obs_msgs = self._make_observation_messages(8)
         ctx = _make_context_with_messages(obs_msgs)
@@ -469,7 +469,7 @@ class TestStablePrefixFingerprint:
     def test_time_threshold_allows_microcompact(self):
         """超过时间阈值 → 服务端缓存已过期 → microcompact 执行。"""
         pipeline = _make_pipeline()
-        pipeline.config.microcompact_time_threshold_seconds = 600
+        pipeline.config.local_cache_ttl_seconds = 600
         cache = {'t': 1000.0}
 
         with patch('time.time', return_value=2000.0):  # 过了 1000 秒 > 600
@@ -478,7 +478,7 @@ class TestStablePrefixFingerprint:
     def test_time_threshold_blocks_microcompact(self):
         """未超时且 fingerprint 未变 → microcompact 被阻止。"""
         pipeline = _make_pipeline()
-        pipeline.config.microcompact_time_threshold_seconds = 600
+        pipeline.config.local_cache_ttl_seconds = 600
         cache = {'t': 1000.0}
 
         with patch('time.time', return_value=1200.0):  # 过了 200 秒 < 600

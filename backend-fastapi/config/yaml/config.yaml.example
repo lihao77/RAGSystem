@@ -27,3 +27,15 @@ hooks:
   workspace_trust:
     default: trusted
     rules: []
+
+waiting:
+  enabled: true
+  default_poll_interval_seconds: 3.0
+  max_poll_interval_seconds: 15.0
+  idle_wait_timeout_seconds: 300.0
+  local_cache_ttl_seconds: 600.0
+  keepalive_interval_seconds: 240.0
+  keepalive_grace_seconds: 30.0
+  max_keepalive_rounds: 20
+  allow_provider_keepalive: true
+  hidden_keepalive_token_budget: 8

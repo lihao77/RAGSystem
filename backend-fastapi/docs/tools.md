@@ -497,7 +497,8 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - 支持 `run_in_background=true` 后台执行，返回 `background_task_id`
 - 后台任务由 `tools.runtime.background_tasks.BackgroundTaskManager` 管理，完成后发布 `background.task.completed` 事件
 - **后台执行约束**：必须提供有效 `session_id`，否则直接报错（无 session_id 时无法路由完成通知）；stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
-- 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, classification}`
+- 后台执行返回 `suggest_wait=true` 标记，ReAct 主循环识别后进入 run 内 waiting loop（事件唤醒 + poll 兜底 + hidden keepalive），后台任务完成后结果作为 observation 回灌，Agent 在同一 run 内继续推理
+- 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, suggest_wait, classification}`
 - stdout 保留 50K 截断；更大结果仍由 observation 层负责持久化与预览
 
 `execute_bash` 与 direct 文件工具共享同一套 managed location language：

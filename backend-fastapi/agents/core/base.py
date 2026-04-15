@@ -12,6 +12,7 @@ import re
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 
 from .models import AgentResponse
 from .context import AgentContext
@@ -21,6 +22,13 @@ from . import prompting as core_prompting
 class InterruptedError(Exception):
     """Agent 执行被用户中断"""
     pass
+
+
+@dataclass
+class WaitingRequest:
+    """工具返回后标记需要进入 waiting loop。"""
+    background_task_ids: List[str] = field(default_factory=list)
+    run_id: Optional[str] = None
 
 
 def parse_llm_json(content: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -378,6 +386,14 @@ class BaseAgent(ABC):
             ),
         )
 
+        # waiting/keepalive: 从系统配置读取默认值，允许 agent behavior 覆盖
+        from config.models import WaitingConfig as _WaitingConfigModel
+        try:
+            from config.base import ConfigManager
+            _sys_waiting = ConfigManager().get_config().waiting
+        except Exception:
+            _sys_waiting = _WaitingConfigModel()
+
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
             budget_profile=budget_profile.name,
@@ -393,6 +409,30 @@ class BaseAgent(ABC):
             preserve_recent_turns=behavior_config.get(
                 'preserve_recent_turns',
                 budget_profile.preserve_recent_turns,
+            ),
+            local_cache_ttl_seconds=behavior_config.get(
+                'waiting_local_cache_ttl_seconds',
+                _sys_waiting.local_cache_ttl_seconds,
+            ),
+            waiting_poll_interval_seconds=behavior_config.get(
+                'waiting_poll_interval_seconds',
+                _sys_waiting.default_poll_interval_seconds,
+            ),
+            waiting_idle_timeout_seconds=behavior_config.get(
+                'waiting_idle_timeout_seconds',
+                _sys_waiting.idle_wait_timeout_seconds,
+            ),
+            keepalive_interval_seconds=behavior_config.get(
+                'waiting_keepalive_interval_seconds',
+                _sys_waiting.keepalive_interval_seconds,
+            ),
+            keepalive_grace_seconds=behavior_config.get(
+                'waiting_keepalive_grace_seconds',
+                _sys_waiting.keepalive_grace_seconds,
+            ),
+            max_hidden_keepalive_rounds=behavior_config.get(
+                'waiting_max_keepalive_rounds',
+                _sys_waiting.max_keepalive_rounds,
             ),
         )
         observation_window = ObservationWindowCollector()
@@ -934,8 +974,12 @@ class BaseAgent(ABC):
         state: Dict[str, Any],
         rounds: int,
         log_prefix: str,
-    ) -> None:
-        """动作处理：对无依赖的工具并行执行，有占位符依赖的批次间串行。"""
+    ) -> Optional[WaitingRequest]:
+        """动作处理：对无依赖的工具并行执行，有占位符依赖的批次间串行。
+
+        Returns:
+            WaitingRequest if any tool result suggests background waiting, else None.
+        """
         from tools.runtime.response_builder import error_result
 
         publisher = state.get('publisher')
@@ -1015,6 +1059,274 @@ class BaseAgent(ABC):
                 round=rounds,
                 msg_type="observation",
             )
+
+        # 检查是否有工具结果建议进入等待态
+        return self._build_waiting_request_from_results(results, state)
+
+    def _build_waiting_request_from_results(
+        self, results: Dict[int, Any], state: Dict[str, Any],
+    ) -> Optional[WaitingRequest]:
+        """扫描本轮工具结果，提取需要等待的后台任务 ID。"""
+        bg_task_ids = []
+        for result in results.values():
+            if not isinstance(result, dict):
+                continue
+            content = result.get('content')
+            if isinstance(content, dict) and content.get('suggest_wait'):
+                tid = content.get('background_task_id')
+                if tid:
+                    bg_task_ids.append(tid)
+                continue
+            metadata = result.get('metadata')
+            if isinstance(metadata, dict) and metadata.get('suggest_wait'):
+                tid = metadata.get('background_task_id')
+                if tid:
+                    bg_task_ids.append(tid)
+        if not bg_task_ids:
+            return None
+        return WaitingRequest(
+            background_task_ids=bg_task_ids,
+            run_id=state.get('run_id'),
+        )
+
+    def _run_waiting_loop(
+        self,
+        waiting_request: WaitingRequest,
+        context: AgentContext,
+        state: Dict[str, Any],
+        rounds: int,
+        log_prefix: str,
+    ) -> None:
+        """在同一 run 内等待后台任务完成，支持事件唤醒 + poll 兜底 + hidden keepalive。"""
+        from agents.task_registry import get_task_registry, BackgroundWaitState
+        from tools.runtime.background_tasks import get_background_task_manager
+        from utils.timeout_pause import pause_current, resume_current
+
+        config = self.context_pipeline.config
+        registry = get_task_registry()
+        bg_manager = get_background_task_manager()
+        task_id = state.get('_execution', {}).get('task_id') or context.metadata.get('task_id', '')
+        wait_id = str(uuid.uuid4())
+        publisher = state.get('publisher')
+
+        poll_interval = config.waiting_poll_interval_seconds
+        idle_timeout = config.waiting_idle_timeout_seconds
+        keepalive_interval = config.keepalive_interval_seconds
+        keepalive_grace = config.keepalive_grace_seconds
+        max_keepalive = config.max_hidden_keepalive_rounds
+
+        bg_wait_state = BackgroundWaitState(
+            wait_id=wait_id,
+            task_ids=list(waiting_request.background_task_ids),
+            deadline_at=time.time() + idle_timeout,
+            poll_interval_seconds=poll_interval,
+            keepalive_interval_seconds=keepalive_interval,
+            pending_task_ids=list(waiting_request.background_task_ids),
+        )
+
+        evt = registry.add_task_pending_wait(task_id, wait_id, bg_wait_state)
+        if evt is None:
+            self.logger.warning("%s 无法注册后台等待（task_id=%s 不存在）", log_prefix, task_id)
+            return
+
+        # 先立即 poll 一次，防止订阅建立前任务已完成
+        completed_early = self._poll_background_tasks(
+            bg_manager, bg_wait_state, wait_id, task_id, registry,
+        )
+        if completed_early:
+            self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+            return
+
+        last_keepalive_at = time.time()
+        keepalive_count = 0
+
+        pause_current()
+        try:
+            while True:
+                # 计算下次唤醒：取 poll 和 keepalive 触发时间的最小值
+                now = time.time()
+                next_poll = poll_interval
+                next_keepalive = max(0.0, (keepalive_interval - keepalive_grace) - (now - last_keepalive_at))
+                sleep_time = min(next_poll, next_keepalive)
+                sleep_time = max(0.1, min(sleep_time, poll_interval))
+
+                # 事件驱动唤醒
+                awoken = evt.wait(timeout=sleep_time)
+
+                # 检查中断
+                cancel_event = context.metadata.get('cancel_event')
+                if cancel_event and cancel_event.is_set():
+                    registry.clear_task_waiting(task_id, wait_id)
+                    self.logger.debug("%s waiting loop 被取消", log_prefix)
+                    raise InterruptedError("等待后台任务期间被用户取消")
+
+                if awoken:
+                    # 事件唤醒：检查结果
+                    result = registry.get_task_wait_result(task_id, wait_id)
+                    if result.get('status') == 'cancelled':
+                        self.logger.debug("%s waiting loop 被系统取消", log_prefix)
+                        raise InterruptedError("等待后台任务期间被系统取消")
+                    self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+                    return
+
+                # poll 兜底
+                now = time.time()
+                bg_wait_state.last_poll_at = now
+                completed = self._poll_background_tasks(
+                    bg_manager, bg_wait_state, wait_id, task_id, registry,
+                )
+                if completed:
+                    self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+                    return
+
+                # 超时检查
+                if bg_wait_state.deadline_at and now >= bg_wait_state.deadline_at:
+                    self.logger.warning("%s waiting loop 超时（%.0fs）", log_prefix, idle_timeout)
+                    bg_wait_state.wake_reason = 'timeout'
+                    registry.clear_task_waiting(task_id, wait_id)
+                    state['current_session'].append({
+                        "role": "user",
+                        "content": f"[system] 等待后台任务超时（{idle_timeout:.0f}s），任务仍在运行中。",
+                    })
+                    return
+
+                # hidden keepalive
+                if (now - last_keepalive_at) >= (keepalive_interval - keepalive_grace):
+                    if keepalive_count < max_keepalive:
+                        self._run_hidden_keepalive(context, state, log_prefix)
+                        last_keepalive_at = time.time()
+                        keepalive_count += 1
+                        bg_wait_state.last_keepalive_at = last_keepalive_at
+                        bg_wait_state.keepalive_count = keepalive_count
+        finally:
+            resume_current()
+
+    def _poll_background_tasks(
+        self,
+        bg_manager,
+        bg_wait_state,
+        wait_id: str,
+        task_id: str,
+        registry,
+    ) -> bool:
+        """轮询后台任务状态，返回是否全部完成。"""
+        all_done = True
+        for bg_tid in bg_wait_state.task_ids:
+            bg_task = bg_manager.get_task(bg_tid)
+            if bg_task is None:
+                continue
+            if bg_task.is_done():
+                if bg_tid not in bg_wait_state.completed_task_ids:
+                    bg_wait_state.completed_task_ids.append(bg_tid)
+                    if bg_tid in bg_wait_state.pending_task_ids:
+                        bg_wait_state.pending_task_ids.remove(bg_tid)
+            else:
+                all_done = False
+        if all_done and bg_wait_state.completed_task_ids:
+            bg_wait_state.wake_reason = 'poll'
+            registry.resolve_task_wait(task_id, wait_id, {
+                'status': 'completed',
+                'completed_task_ids': bg_wait_state.completed_task_ids,
+            })
+            return True
+        return False
+
+    def _append_waiting_observation(
+        self,
+        wait_id: str,
+        task_id: str,
+        registry,
+        bg_manager,
+        state: Dict[str, Any],
+        bg_wait_state,
+    ) -> None:
+        """后台任务完成后，将结果作为 observation 回灌到当前 session。"""
+        parts = []
+        for bg_tid in bg_wait_state.completed_task_ids:
+            bg_task = bg_manager.get_task(bg_tid)
+            output = bg_manager.get_output(bg_tid)
+            status = bg_task.status if bg_task else 'unknown'
+            rc = bg_task.return_code if bg_task else None
+            header = f"[background_task:{bg_tid[:8]}] status={status} return_code={rc}"
+            if output:
+                # 截断过长的输出
+                max_len = 8000
+                if len(output) > max_len:
+                    output = output[:max_len] + f"\n... (truncated, total {len(output)} chars)"
+                parts.append(f"{header}\n{output}")
+            else:
+                parts.append(header)
+        observation = "\n\n".join(parts) if parts else "[system] 后台任务已完成但无输出。"
+        state['current_session'].append({
+            "role": "user",
+            "content": observation,
+        })
+        registry.clear_task_waiting(task_id, wait_id)
+
+    def _run_hidden_keepalive(
+        self,
+        context: AgentContext,
+        state: Dict[str, Any],
+        log_prefix: str,
+    ) -> None:
+        """隐藏 keepalive：发送极小请求续命 provider KV cache，不落库不可见。
+
+        构造当前稳定前缀 + 一条隐藏指令，走非流式 chat_completion，
+        极小 token budget，不带 tools，结果不写入 session/store。
+        """
+        try:
+            llm_config = self.get_llm_config(context, task_type='default')
+            provider_name = llm_config.get('provider', '')
+            if not provider_name:
+                self.logger.debug("%s keepalive 跳过：无 provider", log_prefix)
+                return
+
+            # 构造消息快照（只读，不修改 session）
+            prepared = self.context_pipeline.prepare_execution_messages(
+                system_prompt=self._build_system_prompt(),
+                context=context,
+                current_session=state['current_session'],
+                publisher=None,  # 不发布事件
+                llm_config=llm_config,
+            )
+            messages = list(prepared.messages)
+
+            # 追加隐藏 keepalive 指令（不落库）
+            messages.append({
+                'role': 'user',
+                'content': '[keepalive] 请回复 OK。',
+            })
+
+            # 极小 token budget
+            keepalive_budget = self.context_pipeline.config.max_hidden_keepalive_rounds  # 复用字段做 budget 不合适
+            # 从系统配置读取
+            try:
+                from config.base import ConfigManager
+                keepalive_budget = ConfigManager().get_config().waiting.hidden_keepalive_token_budget
+            except Exception:
+                keepalive_budget = 8
+
+            response = self.model_adapter.chat_completion(
+                messages=messages,
+                provider=provider_name,
+                model=llm_config.get('model_name'),
+                temperature=0.0,
+                max_tokens=keepalive_budget,
+                provider_type=llm_config.get('provider_type'),
+            )
+
+            if response and not getattr(response, 'error', None):
+                self.logger.debug("%s hidden keepalive 成功", log_prefix)
+            else:
+                err = getattr(response, 'error', 'unknown')
+                self.logger.debug("%s hidden keepalive 失败: %s", log_prefix, err)
+
+            # 刷新本地缓存时间戳
+            cache = self.context_pipeline._session_cache(context)
+            cache['t'] = time.time()
+
+        except Exception as exc:
+            self.logger.debug("%s hidden keepalive 异常: %s", log_prefix, exc)
 
     def _handle_no_action(
         self,
@@ -1309,7 +1621,12 @@ class BaseAgent(ABC):
 
                 if actions:
                     self.logger.debug(f"{log_prefix} 执行 {len(actions)} 个动作")
-                    self._handle_actions(actions, context, state, rounds, log_prefix)
+                    waiting_request = self._handle_actions(actions, context, state, rounds, log_prefix)
+                    if waiting_request and waiting_request.background_task_ids:
+                        self.logger.debug(
+                            f"{log_prefix} 进入 waiting loop，等待后台任务: {waiting_request.background_task_ids}"
+                        )
+                        self._run_waiting_loop(waiting_request, context, state, rounds, log_prefix)
                     continue
 
                 if final_answer:

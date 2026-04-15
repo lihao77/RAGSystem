@@ -104,6 +104,22 @@ class HooksConfig(BaseModel):
     workspace_trust: HooksWorkspaceTrustConfig = Field(default_factory=HooksWorkspaceTrustConfig)
 
 
+class WaitingConfig(BaseModel):
+    """后台任务等待与 KV cache 保活配置"""
+    model_config = ConfigDict(extra='allow')
+
+    enabled: bool = True
+    default_poll_interval_seconds: float = 3.0
+    max_poll_interval_seconds: float = 15.0
+    idle_wait_timeout_seconds: float = 300.0
+    local_cache_ttl_seconds: float = 600.0
+    keepalive_interval_seconds: float = 240.0
+    keepalive_grace_seconds: float = 30.0
+    max_keepalive_rounds: int = 20
+    allow_provider_keepalive: bool = True
+    hidden_keepalive_token_budget: int = 8
+
+
 class AppConfig(BaseModel):
     """主配置模型"""
     model_config = ConfigDict(
@@ -117,3 +133,4 @@ class AppConfig(BaseModel):
     system: SystemConfig = Field(default_factory=SystemConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
+    waiting: WaitingConfig = Field(default_factory=WaitingConfig)

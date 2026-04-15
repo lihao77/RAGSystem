@@ -594,6 +594,28 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 压缩降级策略：当 LLM 摘要失败（`ContextCompressionError`）时，自动降级为截断模式——丢弃最早的消息，保留最近 `preserve_recent_turns` 轮，插入 `[历史摘要]\n（LLM 摘要不可用，已丢弃 N 条消息）` 标记。降级不会终止 ReAct 循环，确保对话可以继续。
 
+### 后台等待与 KV Cache 保活
+
+当工具返回 `suggest_wait=true`（如 `execute_bash(run_in_background=true)`）时，ReAct 主循环在 `_handle_actions()` 完成后进入 run 内 **waiting loop**，而非结束 run。
+
+等待机制基于三层保障：
+
+1. **事件唤醒**：`agent_execution.py` 为每个 run 注册 `BACKGROUND_TASK_COMPLETED` 订阅，完成事件通过 `TaskRegistry.resolve_task_wait()` 即时唤醒等待线程。
+2. **Poll 兜底**：waiting loop 按 `waiting_poll_interval_seconds`（默认 3s）周期轮询 `BackgroundTaskManager.get_task()`，防止订阅建立前任务已完成或事件丢失。
+3. **Hidden keepalive**：按 `keepalive_interval_seconds`（默认 240s）发送隐藏请求续命 provider KV cache，极小 token budget，不落库不可见，完成后刷新本地 `cache['t']`。
+
+等待完成后，后台任务输出作为 observation 回灌到 `current_session`，Agent 继续 ReAct 推理直至最终答案。
+
+配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。
+
+关键文件：
+- 等待入口：`agents/core/base.py`（`_run_waiting_loop`、`_run_hidden_keepalive`）
+- 等待状态：`agents/task_registry.py`（`BackgroundWaitState`、`pending_waits`）
+- 后台任务：`tools/runtime/background_tasks.py`（`BackgroundTask`、completion event）
+- 事件桥接：`execution/adapters/agent_execution.py`（`_subscribe_background_completion`）
+- 系统配置：`config/models.py`（`WaitingConfig`）
+- 上下文配置：`agents/context/config.py`（`ContextConfig` 的 `local_cache_ttl_seconds` 等字段）
+
 ## 配置系统
 
 | 配置文件 | 职责 | 热加载 |
@@ -602,7 +624,7 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 | `CONFIG_ROOT/agents/teams/*.yaml` | Agent 定义（LLM、工具、Skills、MCP、delegation、memory） | 支持 |
 | `CONFIG_ROOT/model_adapter/providers.yaml` | LLM Provider（API key、模型列表） | 支持 |
 | `CONFIG_ROOT/mcp/mcp_servers.yaml` | MCP 服务器连接 | 支持 |
-| `CONFIG_ROOT/app/config.yaml` | 系统级（向量库、embedding、hooks.workspace_trust） | 否 |
+| `CONFIG_ROOT/app/config.yaml` | 系统级（向量库、embedding、hooks.workspace_trust、waiting） | 否 |
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
 - 源码目录中的 app / agent `.example` 文件仅作为启动时初始化来源；MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
