@@ -57,7 +57,7 @@ from tools.runtime.response_builder import error_result, success_result
         "description": "创建结果，包含 task 详情",
         "shape": {"task": {"id": "string", "subject": "string", "status": "string"}},
     },
-    source="decorator",
+    source="task",
 )
 def task_create(
     subject: str,
@@ -113,7 +113,7 @@ def task_create(
         "description": "任务详情，不存在时 task 为 null",
         "shape": {"task": "object | null"},
     },
-    source="decorator",
+    source="task",
 )
 def task_get(
     task_id: str,
@@ -196,7 +196,7 @@ def task_get(
             "status_change": "object | null",
         },
     },
-    source="decorator",
+    source="task",
 )
 def task_update(
     task_id: str,
@@ -354,7 +354,7 @@ def _build_background_output_content(task_snapshot: dict[str, Any], raw_output: 
             "output": "any",
         },
     },
-    source="decorator",
+    source="task",
 )
 def task_output(
     task_id: str,
@@ -435,7 +435,7 @@ def task_output(
             "cancel_supported": "boolean",
         },
     },
-    source="decorator",
+    source="task",
 )
 def task_stop(
     task_id: str,
@@ -532,7 +532,7 @@ def task_stop(
             ]
         },
     },
-    source="decorator",
+    source="task",
 )
 def task_list(
     session_id: Optional[str] = None,

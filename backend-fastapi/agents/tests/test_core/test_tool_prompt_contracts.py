@@ -354,11 +354,34 @@ def test_prompt_only_renders_examples_for_whitelisted_complex_tools():
     assert "**示例**:" not in skill_section
 
 
+def test_react_prompt_includes_background_task_hint_only_when_task_tools_are_available():
+    execute_bash_tool = _decorated_tool("execute_bash")
+    task_output_tool = _tool_from_registry("task_output")
+    task_stop_tool = _tool_from_registry("task_stop")
+    fake_agent = _fake_agent(available_tools=[execute_bash_tool, task_output_tool, task_stop_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    assert "如需查看结果请调用 `task_output`" in prompt
+    assert "如需停止请调用 `task_stop`" in prompt
+
+
+def test_react_prompt_avoids_background_task_hint_when_task_tools_are_unavailable():
+    execute_bash_tool = _decorated_tool("execute_bash")
+    fake_agent = _fake_agent(available_tools=[execute_bash_tool])
+
+    prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
+    assert "当前 agent 未暴露后台任务管理工具时" in prompt
+    assert "如需查看结果请调用 `task_output`" not in prompt
+
+
 def test_execute_code_prompt_uses_neutral_call_tool_example():
     execute_code_tool = _decorated_tool("execute_code")
     fake_agent = _fake_agent(available_tools=[execute_code_tool])
 
     prompt = core_prompting.build_shared_system_prompt(fake_agent)
+
     code_section = prompt.split("## execute_code 中可调用的工具", 1)[1].split("## 子 Agent 委派", 1)[0] if "## 子 Agent 委派" in prompt else prompt.split("## execute_code 中可调用的工具", 1)[1]
 
     assert "call_tool('tool_name'" in code_section
@@ -366,6 +389,7 @@ def test_execute_code_prompt_uses_neutral_call_tool_example():
     assert "['content']" in code_section
 
 
+def test_prompt_omits_execute_code_section_when_tool_is_unavailable():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 
@@ -398,6 +422,7 @@ def test_prompt_shrinks_skill_descriptions_and_whitelisted_examples():
     assert prompt.count('<tool name="execute_code">') == 1
 
 
+def test_react_prompt_keeps_claude_code_style_guidance_and_section_order():
     execute_skill_script_tool = _decorated_tool("execute_skill_script")
     fake_agent = _fake_agent(available_tools=[execute_skill_script_tool])
 

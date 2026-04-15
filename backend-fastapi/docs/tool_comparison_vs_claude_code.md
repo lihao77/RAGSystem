@@ -15,8 +15,8 @@
 | 文件系统 | Read, Write, Edit, Glob, Grep, NotebookEdit | 6 |
 | Shell 执行 | Bash, PowerShell | 2 |
 | 网络 | WebFetch, WebSearch | 2 |
-| 子 Agent | Agent, SendMessage, TaskStop | 3 |
-| 任务管理 | TaskCreate, TaskGet, TaskUpdate, TaskList, TaskOutput, TodoWrite | 6 |
+| 子 Agent | Agent, SendMessage | 2 |
+| 任务管理 | TaskCreate, TaskGet, TaskUpdate, TaskList, TaskOutput, TaskStop, TodoWrite | 7 |
 | 定时任务 | CronCreate, CronDelete, CronList | 3 |
 | 多 Agent 团队 | TeamCreate, TeamDelete | 2 |
 | Git 工作区 | EnterWorktree, ExitWorktree | 2 |
@@ -24,7 +24,7 @@
 | MCP 集成 | mcp, McpAuth, ListMcpResources, ReadMcpResource | 4 |
 | 其他 | LSP, Skill, AskUserQuestion, Config, ToolSearch, Sleep, RemoteTrigger, StructuredOutput, SendUserMessage | 9 |
 
-### RAGSystem（23 个工具）
+### RAGSystem（29 个工具）
 
 | 类别 | 工具名 | 数量 |
 |------|--------|------|
@@ -36,7 +36,7 @@
 | Skill 系统 | activate_skill, load_skill_resource, execute_skill_script, get_skill_info | 4 |
 | 用户交互 | request_user_input | 1 |
 | MCP 集成 | （动态，通过 mcp_gateway.py 代理）| 动态 |
-| 任务管理 | ❌ 缺失 | 0 |
+| 任务管理 | task_create, task_get, task_update, task_list, task_output, task_stop | 6 |
 | 定时任务 | ❌ 缺失 | 0 |
 | 多 Agent 团队 | ❌ 缺失 | 0 |
 | Git 工作区 | ❌ 缺失 | 0 |
@@ -234,9 +234,9 @@
 
 ---
 
-### 类型 5：任务管理工具（RAGSystem 完全缺失）
+### 类型 5：任务管理工具
 
-> RAGSystem **无任何任务管理工具**，Claude Code 有完整的 6 个工具体系。
+> RAGSystem 已实现基础任务管理工具，并已补齐后台任务查询/停止闭环；当前与 Claude Code 的主要差距不在“有没有工具”，而在高级钩子、UI 联动与团队任务语义。
 
 #### 5.1 TaskCreate
 

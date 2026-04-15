@@ -1,8 +1,10 @@
 # 移植方案：Claude Code Task/Todo 工具到 RAGSystem
 
+> 状态更新（2026-04-15）：本文档对应的移植任务已大部分完成。`task_create` / `task_get` / `task_update` / `task_list` / `task_output` / `task_stop` 已落地；其中 task 工具现已从普通 direct tools 收敛为独立 `tasks.workflow` / `tasks.background` capability。文中关于“当前缺少任务追踪类工具”的表述仅代表历史方案背景。
+
 ## Context
 
-RAGSystem 已完成工具 runtime 重构（对标度 ~90%），当前缺少任务追踪类工具。
+RAGSystem 已完成工具 runtime 重构（对标度 ~90%）。本文撰写时系统尚缺任务追踪类工具；当前主线已完成 task 工具落地，因此这里保留的是历史迁移背景。
 Claude Code 的 TaskCreate/Get/Update/List + TodoWrite 是 Agent 自我管理执行进度的核心能力，
 移植后 Agent 可在多步骤任务中追踪进度、建立依赖关系、向用户展示执行状态。
 

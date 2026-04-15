@@ -205,6 +205,19 @@ class AgentMemoryConfig(BaseModel):
             return values
 
 
+class AgentTaskConfig(BaseModel):
+    """智能体的 tasks capability 配置。"""
+
+    workflow: bool = Field(
+        default=False,
+        description="是否启用任务编排工具：task_create/task_get/task_update/task_list"
+    )
+    background: bool = Field(
+        default=False,
+        description="是否启用后台任务管理工具：task_output/task_stop"
+    )
+
+
 class AgentDelegationConfig(BaseModel):
     """智能体的 delegation 配置。"""
 
@@ -249,6 +262,10 @@ class AgentConfig(BaseModel):
                 "skills": {
                     "enabled_skills": ["disaster-report-example"],
                     "auto_inject": True
+                },
+                "tasks": {
+                    "workflow": True,
+                    "background": False
                 },
                 "custom_params": {
                     "type": "orchestrator",
@@ -310,6 +327,11 @@ class AgentConfig(BaseModel):
     memory: AgentMemoryConfig = Field(
         default_factory=AgentMemoryConfig,
         description="memory 配置"
+    )
+
+    tasks: AgentTaskConfig = Field(
+        default_factory=AgentTaskConfig,
+        description="tasks capability 配置"
     )
 
     delegation: AgentDelegationConfig = Field(

@@ -15,6 +15,7 @@ from agents.config import (
     AgentConfigPreset,
     AgentMCPConfig,
     AgentSkillConfig,
+    AgentTaskConfig,
     AgentToolConfig,
     AgentMemoryConfig,
     get_config_manager,
@@ -128,6 +129,7 @@ class AgentConfigService:
             skills = self._merge_model_config(config.skills, payload.get('skills'), AgentSkillConfig)
             mcp = self._merge_model_config(config.mcp, payload.get('mcp'), AgentMCPConfig)
             memory = self._merge_model_config(config.memory, payload.get('memory'), AgentMemoryConfig)
+            tasks = self._merge_model_config(config.tasks, payload.get('tasks'), AgentTaskConfig)
         except Exception as error:
             raise AgentConfigServiceError(str(error), status_code=400) from error
 
@@ -156,6 +158,7 @@ class AgentConfigService:
             skills=skills,
             mcp=mcp,
             memory=memory,
+            tasks=tasks,
             custom_params=payload.get('custom_params'),
             enabled=payload.get('enabled'),
             save=True,

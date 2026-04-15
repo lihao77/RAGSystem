@@ -16,6 +16,17 @@ _MEMORY_TOOL_NAMES = {
     "write_memory",
     "archive_memory",
 }
+_TASK_WORKFLOW_TOOL_NAMES = {
+    "task_create",
+    "task_get",
+    "task_update",
+    "task_list",
+}
+_TASK_BACKGROUND_TOOL_NAMES = {
+    "task_output",
+    "task_stop",
+}
+_TASK_TOOL_NAMES = _TASK_WORKFLOW_TOOL_NAMES | _TASK_BACKGROUND_TOOL_NAMES
 
 
 def _safe_list(value) -> list:
@@ -63,8 +74,41 @@ def _memory_exposure_decisions(agent_config) -> Dict[str, ToolExposureDecision]:
     return decisions
 
 
+def _task_exposure_decisions(agent_config) -> Dict[str, ToolExposureDecision]:
+    task_config = getattr(agent_config, 'tasks', None)
+    if not task_config:
+        return {}
+
+    decisions: Dict[str, ToolExposureDecision] = {}
+
+    if getattr(task_config, 'workflow', False):
+        for tool_name in _TASK_WORKFLOW_TOOL_NAMES:
+            decisions[tool_name] = ToolExposureDecision(
+                tool_name=tool_name,
+                visible=True,
+                source='task',
+                reason='task workflow enabled',
+                derived_from=['tasks.workflow'],
+            )
+
+    if getattr(task_config, 'background', False):
+        for tool_name in _TASK_BACKGROUND_TOOL_NAMES:
+            decisions[tool_name] = ToolExposureDecision(
+                tool_name=tool_name,
+                visible=True,
+                source='task',
+                reason='task background enabled',
+                derived_from=['tasks.background'],
+            )
+
+    return decisions
+
+
 def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
-    direct_enabled = set(_safe_list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', [])))
+    direct_enabled = {
+        tool_name for tool_name in _safe_list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []))
+        if tool_name not in _TASK_TOOL_NAMES
+    }
     decisions: Dict[str, ToolExposureDecision] = {}
 
     for tool_name in sorted(direct_enabled):
@@ -77,6 +121,7 @@ def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
         )
 
     decisions.update(_memory_exposure_decisions(agent_config))
+    decisions.update(_task_exposure_decisions(agent_config))
 
     skills_config = getattr(agent_config, 'skills', None)
     enabled_skills = _safe_list(getattr(skills_config, 'enabled_skills', []) if skills_config else [])
@@ -162,9 +207,12 @@ def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
         'decisions': decisions,
         'direct_tool_names': sorted(
             name for name, decision in decisions.items()
-            if decision.visible and decision.source not in {'skill', 'builtin', 'agent', 'mcp'}
+            if decision.visible and decision.source not in {'skill', 'builtin', 'agent', 'mcp', 'memory', 'task'}
         ),
         'memory_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'memory'),
+        'task_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'task'),
+        'task_workflow_tool_names': sorted(name for name, d in decisions.items() if d.visible and name in _TASK_WORKFLOW_TOOL_NAMES),
+        'task_background_tool_names': sorted(name for name, d in decisions.items() if d.visible and name in _TASK_BACKGROUND_TOOL_NAMES),
         'builtin_tool_names': builtin_tools,
         'delegation_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'agent'),
         'inject_skill_tools': inject_skill_tools,
@@ -218,6 +266,16 @@ def get_tool_exposure_decision(tool_name: str, agent_config) -> ToolExposureDeci
         return ToolExposureDecision(
             tool_name=tool_name, visible=False, source='memory',
             reason='memory scope not configured', derived_from=[],
+        )
+
+    # task capability 工具
+    if tool_name in _TASK_TOOL_NAMES:
+        task_decisions = _task_exposure_decisions(agent_config)
+        if tool_name in task_decisions:
+            return task_decisions[tool_name]
+        return ToolExposureDecision(
+            tool_name=tool_name, visible=False, source='task',
+            reason='task capability not enabled', derived_from=[],
         )
 
     # agent delegation 工具

@@ -118,6 +118,7 @@ def my_tool(arguments, **kwargs):
 
 `source` 字段决定工具分类：
 - `document` / `decorator`：本地 direct 工具
+- `task`：task capability 工具（workflow/background 两个子域）
 - `skill`：Skill 系统工具
 - `builtin`：框架内置工具（如 `request_user_input`）
 - `agent`：子 Agent delegation 工具（`call_agent` / `send_message`）
@@ -149,7 +150,7 @@ def my_tool(arguments, **kwargs):
 
 当前工具 runtime 已完成进一步收敛，语义上更贴近 Claude Code：
 
-- `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
+- `tools/runtime/exposure.py` 成为 Agent 工具暴露真源：统一解析 direct / task capability 工具 / memory 派生工具 / skill system tools / builtin / delegation / MCP server 工具暴露
 - `tools/permissions.py` 明确拆分”暴露权限”与”执行权限”，并输出结构化 `PermissionDecision`
 - `tools/runtime/executor.py` 内部统一先构造 `ToolUseContext`，approval / dispatcher / mcp gateway 复用该上下文
 - runtime 与审批日志统一由 `core/logging_config.py` 配置；`main.py` 启动时一次性初始化 logging，运行时异常统一使用 `logger.error(..., exc_info=True)`
@@ -276,9 +277,17 @@ Agent 可见工具: mcp__server__tool
 这保证了“对外工具面不变、对内运行时收口”。
 
 
-### memory 工具（agent-first）
+### task capability 工具
 
-memory 采用 Claude Code 风格的“索引注入 + 明细按需读取”模型，但当前系统是 agent-first，因此除 runtime 自动注入 `MEMORY.md` 索引外，还为 Agent 提供了显式的 memory 操作工具。
+task 工具已不再通过普通 `tools.enabled_tools` 单独勾选，而是由独立的 `tasks` capability 配置域控制：
+- `tasks.workflow=true` 时，自动暴露：`task_create`、`task_get`、`task_update`、`task_list`
+- `tasks.background=true` 时，自动暴露：`task_output`、`task_stop`
+
+这意味着：
+- `task_create/get/update/list` 负责任务编排与状态追踪
+- `task_output/task_stop` 负责后台任务查询、显式等待与停止
+- `/api/agent-config/tools` 只列 direct tools，不再把 task 工具作为 direct 工具入口暴露
+- task 工具在 `ToolRegistry` 中使用 `source="task"` 分类，`get_direct_tools()` 不再返回它们
 
 这些 memory 工具不是通过普通 `tools.enabled_tools` 单独勾选，而是**主要**由 `allowed_scopes / write_scopes / archive_scopes` 自动推导暴露；若 `memory.enabled=false` 被显式关闭，则整体不暴露：
 - `list_memory_index`
@@ -351,7 +360,7 @@ class ToolContract:
     usage_contract: list[str]        # 使用约定（给 LLM 的指导）
     examples: list[dict]             # 使用示例
     tags: list[str]                  # 标签
-    source: str                      # decorator/skill/document/builtin/agent/mcp
+    source: str                      # decorator/task/skill/document/builtin/agent/mcp
 ```
 
 ### 权限配置（permissions.py / contracts/permission_modes.py）

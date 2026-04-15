@@ -202,7 +202,7 @@ class AgentLoader:
 
     def _build_default_orchestrator_agent_config(self):
         """构建 orchestrator_agent 的默认配置。"""
-        from .models import AgentConfig, AgentLLMConfig
+        from .models import AgentConfig, AgentLLMConfig, AgentTaskConfig
 
         logger.debug("Orchestrator Agent：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
         return AgentConfig(
@@ -230,6 +230,7 @@ class AgentLoader:
                     'data_save_dir': None
                 }
             },
+            tasks=AgentTaskConfig(workflow=True, background=True),
             delegation={'enabled_agents': []},
         )
 
@@ -285,6 +286,15 @@ class AgentLoader:
             logger.debug(f"{agent_config.agent_name} 启用 direct 工具: {sorted(direct_tool_names)}")
         else:
             logger.debug(f"{agent_config.agent_name} 未配置 direct 工具")
+
+        task_tool_names = set(exposure.get('task_tool_names', []))
+        if task_tool_names:
+            existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+            for task_tool in self._tool_registry.get_task_tools():
+                tool_name = task_tool.get('function', {}).get('name')
+                if tool_name and tool_name in task_tool_names and tool_name not in existing_tool_names:
+                    filtered_tools.append(task_tool)
+            logger.debug(f"{agent_config.agent_name} 启用 task 工具: {sorted(task_tool_names)}")
 
         filtered_skills = []
         skill_loader = get_skill_loader()

@@ -25,6 +25,7 @@ from .models import (
     AgentMCPConfig,
     AgentMemoryConfig,
     AgentSkillConfig,
+    AgentTaskConfig,
     AgentToolConfig,
     apply_preset,
 )
@@ -52,6 +53,11 @@ _DEFAULT_MEMORY_CONFIG = {
     'allowed_scopes': ['team', 'session', 'agent', 'workspace'],
     'write_scopes': ['session', 'agent', 'workspace'],
     'archive_scopes': ['session', 'agent', 'workspace'],
+}
+
+_DEFAULT_TASK_CONFIG = {
+    'workflow': False,
+    'background': False,
 }
 
 
@@ -246,6 +252,7 @@ class AgentConfigManager:
                     agent_type='orchestrator',
                     tools=['read_file', 'write_file', 'edit_file', 'preview_data_structure', 'execute_bash'],
                     delegation=specialist_agents,
+                    tasks={'workflow': True, 'background': True},
                 ),
                 'team_maker': self._build_system_agent_config(
                     agent_name='team_maker',
@@ -307,6 +314,7 @@ class AgentConfigManager:
         tools: Optional[List[str]] = None,
         skills: Optional[List[str]] = None,
         delegation: Optional[List[str]] = None,
+        tasks: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, Any]:
         return {
             'agent_name': agent_name,
@@ -328,6 +336,10 @@ class AgentConfigManager:
                 'enabled_servers': [],
             },
             'memory': copy.deepcopy(_DEFAULT_MEMORY_CONFIG),
+            'tasks': {
+                **copy.deepcopy(_DEFAULT_TASK_CONFIG),
+                **dict(tasks or {}),
+            },
             'delegation': {
                 'enabled_agents': list(delegation or []),
             },
@@ -680,6 +692,7 @@ class AgentConfigManager:
         skills: Optional['AgentSkillConfig'] = None,
         mcp: Optional['AgentMCPConfig'] = None,
         memory: Optional['AgentMemoryConfig'] = None,
+        tasks: Optional['AgentTaskConfig'] = None,
         custom_params: Optional[Dict] = None,
         enabled: Optional[bool] = None,
         save: bool = True,
@@ -697,6 +710,8 @@ class AgentConfigManager:
             config.mcp = mcp
         if memory is not None:
             config.memory = memory
+        if tasks is not None:
+            config.tasks = tasks
         if custom_params is not None:
             config.custom_params = custom_params
         if enabled is not None:

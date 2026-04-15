@@ -63,11 +63,14 @@ class ToolRegistry:
     def get_agent_tools(self):
         return self.get_tools_by_source("agent")
 
+    def get_task_tools(self):
+        return self.get_tools_by_source("task")
+
     def get_direct_tools(self):
         """只返回由 tools.enabled_tools 显式配置的本地 direct 工具。"""
         return [
             tool for tool in self.get_base_tools()
-            if tool.get("function", {}).get("source") not in {"builtin", "agent", "skill", "mcp"}
+            if tool.get("function", {}).get("source") not in {"builtin", "agent", "skill", "mcp", "task"}
         ]
 
     def get_tool_names(self):
@@ -97,6 +100,8 @@ class ToolRegistry:
             return "builtin"
         if source == "agent":
             return "agent"
+        if source == "task":
+            return "task"
         if source == "mcp":
             return "mcp"
         return "local"

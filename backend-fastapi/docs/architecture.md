@@ -170,7 +170,7 @@ LLM 分层配置约定：
 - `agents/core/prompting.py`：共享 prompt skeleton 的唯一实现处，当前已对齐 Claude Code 风格主骨架，按稳定顺序组织为：`System`、`Doing tasks`、`Core principles`、`Executing actions with care`、`Output efficiency`、`Using your tools`、direct 工具段、工具契约渲染、`Skills`、输出格式、执行规则、数据文件传递规则；动态 section（direct tools / skills / execute_code / agent-specific sections）统一挂在静态骨架后部
 - `agents/context/pipeline.py`：除主 system prompt 外，还负责把运行时上下文渲染为 Claude Code 风格的 `<system-reminder>` system messages；当前会消费持久化的 stable memory prefix snapshot，把 memory 前缀作为稳定 reminder 注入；同时 execution 级消息缓存、增量追加、token 统计与压缩阈值判断也已收口到 pipeline 内；刷新边界收敛到 memory 配置语义变化与真实 compact/rebase（`_apply_compression()` / `_fallback_truncate()`）后，普通 run 初始化与技术性 rebuild 不刷新
 - `OrchestratorAgent`：已收敛为统一的通用 ReAct Agent 实现；在共享 skeleton 之上只覆盖主编排器特有的目标/原则，并在主编排器模式下追加 `call_agent` 契约、委派门槛与 `delegation.enabled_agents` 驱动的动态 agent roster；普通 worker 模式下不暴露委派 roster
-- `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / skill / builtin / agent / mcp 工具视图
+- `ToolRegistry` 是运行时唯一读模型：统一提供 direct / document / task / skill / builtin / agent / mcp 工具视图
 - 工具 runtime 已进一步收敛到 Claude Code 风格语义：`tools/runtime/exposure.py` 负责工具暴露真源，`tools/runtime/models.py` 提供统一 `ToolUseContext / ToolExposureDecision / PermissionDecision`，`tools/runtime/executor.py` 以 context 为中心串联 approval / dispatcher / MCP gateway；hooks 空壳已移除；大结果预算控制与落盘由 Observation 路径承接；`execution.step` 与前端 projector 统一消费 `result_preview / raw_result / raw_result_ref`
 
 ### MCP 运行时收口
@@ -632,8 +632,9 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
 - 源码目录中的 app / agent `.example` 文件仅作为启动时初始化来源；MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
 - legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
-- `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`
+- `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`tasks.workflow/background`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`
 - `call_agent` 不属于 `tools.enabled_tools` 域，而由 `delegation.enabled_agents` 是否非空决定是否注入
+- task 工具也不属于 `tools.enabled_tools` 域，而由 `tasks.workflow/background` 决定是否注入
 
 - `model_adapter/base.py` 中的 `AIProvider` 暴露统一能力声明：`supports_prompt_caching`、`prompt_cache_style`、`prompt_cache_min_tokens`
 - 当前已接入原生缓存语义的 provider：

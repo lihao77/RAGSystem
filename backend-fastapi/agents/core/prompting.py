@@ -171,8 +171,13 @@ def format_tool_contract(tool_or_func: Dict[str, Any], *, include_examples: bool
     return lines
 
 
-def build_tool_calling_global_rules() -> str:
-    return """## 工具调用总规则
+def build_tool_calling_global_rules(agent) -> str:
+    background_task_hint = (
+        "- `run_in_background` 只负责后台启动，不会自动等待；如需查看结果请调用 `task_output`，如需等待完成请调用 `task_output(block=true)`，如需停止请调用 `task_stop`"
+        if _invoke_prompt_hook(agent, '_has_tool', 'task_output') and _invoke_prompt_hook(agent, '_has_tool', 'task_stop')
+        else "- `run_in_background` 只负责后台启动，不会自动等待；当前 agent 未暴露后台任务管理工具时，不要假设可以查询、等待或停止后台任务"
+    )
+    return f"""## 工具调用总规则
 
 - 每个工具条目中的 `调用能力` 字段是唯一准则：`direct` 表示可直接输出为 XML 工具调用；`code_execution` 表示仅可在 `execute_code` 中通过 `call_tool(tool_name, arguments)` 调用
 - 如果某个工具没有标注 `code_execution`，就不要假设它能在 `execute_code` 中调用
@@ -185,7 +190,7 @@ def build_tool_calling_global_rules() -> str:
 使用规则：
 - 后台执行需要当前存在有效 `session_id`，否则会直接报错
 - 启动后立即返回，结果中包含 `background_task_id`，命令继续在后台运行
-- `run_in_background` 只负责后台启动，不会自动等待；如需查看结果请调用 `task_output`，如需等待完成请调用 `task_output(block=true)`，如需停止请调用 `task_stop`
+{background_task_hint}
 - 建议同时传 `description` 参数，让审批弹窗和后台任务列表显示可读描述
 - 后台任务的 stdout/stderr 写入 transient 目录的日志文件，路径在返回的 `background_output_path` 中
 
@@ -359,7 +364,7 @@ def build_prompt_tools_section(agent) -> str:
     direct_tools_section = _invoke_prompt_hook(agent, '_build_direct_tools_section')
     if direct_tools_section:
         parts.append(direct_tools_section)
-    parts.append(build_tool_calling_global_rules())
+    parts.append(build_tool_calling_global_rules(agent))
     return "\n\n".join(part for part in parts if part)
 
 
