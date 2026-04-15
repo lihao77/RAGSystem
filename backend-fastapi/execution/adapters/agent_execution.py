@@ -179,6 +179,12 @@ class AgentExecutionAdapter:
             subscriptions = persistence_handler.subscribe_all()
             final_answer_saved = persistence_handler.final_answer_saved
 
+            _extra: dict = {}
+            if display_task and display_task != task:
+                _extra['display_only'] = True
+            if source and source != 'api':
+                _extra['source'] = source
+
             user_msg = self._agent_execution_service.persist_user_message(
                 session_id=session_id,
                 task=display_task or task,
@@ -189,7 +195,7 @@ class AgentExecutionAdapter:
                 child_agent_id=execution_handle.child_agent_id,
                 visible_to_user=True,
                 attachments=current_attachments,
-                extra_metadata={'display_only': True} if display_task and display_task != task else None,
+                extra_metadata=_extra or None,
             )
 
             # prompt 斜杠命令：持久化展开后的完整 prompt 供 Agent 历史上下文使用

@@ -77,7 +77,7 @@ def _do_auto_run(session_id: str) -> None:
     )
 
     try:
-        _start_system_run(session_id, task_text)
+        _start_system_run(session_id, task_text, notifications)
     except Exception as exc:
         logger.warning('notification_trigger: 自动 run 失败 session=%s error=%s', session_id, exc)
         # 把通知放回队列，下次重试
@@ -112,7 +112,7 @@ def _build_notification_xml(payload: dict) -> str:
     return '\n'.join(parts)
 
 
-def _start_system_run(session_id: str, task: str) -> Optional[str]:
+def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> Optional[str]:
     """启动系统 run，立即推送 session.run_started 让前端实时订阅，后台 drain 清理 adapter。"""
     from runtime.container import get_current_runtime_container
     container = get_current_runtime_container()
@@ -157,6 +157,14 @@ def _start_system_run(session_id: str, task: str) -> Optional[str]:
         'session_id': session_id,
         'run_id': run_id,
         'source': 'system.bg_notification',
+        'notifications': [
+            {
+                'task_id': p.get('background_task_id') or p.get('task_id') or 'unknown',
+                'status': p.get('status', 'completed'),
+                'result_type': p.get('result_type'),
+            }
+            for p in notifications
+        ],
     })
 
     # 后台 drain 原始 adapter（防止 event_bus 订阅泄漏）

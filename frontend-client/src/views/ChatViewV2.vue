@@ -142,8 +142,22 @@
 
                   <!-- User Message -->
                   <template v-if="msg.role === 'user'">
+                    <!-- Task Notification Block -->
+                    <div v-if="msg.metadata?.source === 'system.bg_notification'" class="task-notification-block">
+                      <div class="task-notification-header">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                        <span>Background Task Notification</span>
+                      </div>
+                      <div class="task-notification-body">
+                        <div v-for="item in parseTaskNotifications(msg)" :key="item.taskId" class="task-notification-item">
+                          <span class="tn-status" :class="item.status">{{ item.status }}</span>
+                          <code class="tn-task-id">{{ item.taskId.slice(0, 8) }}</code>
+                          <span v-if="item.resultType" class="tn-type">{{ item.resultType }}</span>
+                        </div>
+                      </div>
+                    </div>
                     <!-- 非编辑态：气泡 -->
-                    <div v-if="editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
+                    <div v-else-if="editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
                       <div class="user-text">{{ msg.content }}</div>
                       <div v-if="msg.attachments?.length" class="user-attachments">
                         <div v-for="attachment in msg.attachments" :key="attachment.file_id || attachment.id" class="user-attachment-card">
@@ -739,7 +753,7 @@ const subscribeSessionPush = (sessionId) => {
     try {
       const event = JSON.parse(e.data);
       if (event.type === 'session.run_started') {
-        _onSessionRunStarted(sessionId);
+        _onSessionRunStarted(sessionId, event);
       } else if (event.type === 'session.updated') {
         _onSessionUpdated(sessionId);
       }
@@ -770,14 +784,33 @@ const _onSessionUpdated = (sessionId) => {
 };
 
 // 系统 run 已启动，立即接管 SSE 流（等同于用户发送消息后的体验）
-const _onSessionRunStarted = (sessionId) => {
+const _onSessionRunStarted = (sessionId, event = {}) => {
   if (sessionId !== currentSessionId.value) return;
   if (isLoading.value) return; // 已有活跃 run，不重复连接
+  isLoading.value = true; // 立即锁定，防止 session.updated 闪烁
+
+  // 插入通知消息块（本地临时，后续 loadSessionMessages 会以持久化版本覆盖）
+  if (event.source === 'system.bg_notification') {
+    messages.value.push({
+      role: 'user',
+      content: '',
+      metadata: { source: 'system.bg_notification' },
+      _notifications: event.notifications || [],
+      _local: true,
+    });
+  }
+
   const lastMsg = messages.value[messages.value.length - 1];
   if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
     messages.value.push(createAssistantMessage());
   }
-  reconnectToRunningTask(sessionId);
+  // reconnect 结束后同步最新消息（session.updated 可能在 isLoading 期间被忽略）
+  reconnectToRunningTask(sessionId).finally(() => {
+    if (sessionId === currentSessionId.value) {
+      messageCache.value.delete(sessionId);
+      loadSessionMessages(sessionId);
+    }
+  });
 };
 
 // 移动端状态
@@ -1920,6 +1953,28 @@ const executionStatusTooltip = computed(() => {
     obs.run_id ? `run_id: ${obs.run_id}` : null,
   ].filter(Boolean).join('\n');
 });
+
+/**
+ * 解析 task-notification 消息为结构化数组。
+ * 优先从 _notifications（本地临时消息）取，否则解析 XML content。
+ */
+function parseTaskNotifications(msg) {
+  if (msg._notifications?.length) return msg._notifications;
+  const content = msg.content || '';
+  const items = [];
+  const re = /<task-notification>([\s\S]*?)<\/task-notification>/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const xml = m[1];
+    const get = (tag) => { const r = new RegExp(`<${tag}>(.*?)</${tag}>`); const v = xml.match(r); return v ? v[1] : ''; };
+    items.push({
+      taskId: get('task-id') || 'unknown',
+      status: get('status') || 'completed',
+      resultType: get('result-type') || '',
+    });
+  }
+  return items.length ? items : [{ taskId: 'unknown', status: 'completed', resultType: '' }];
+}
 
 function parseMessageParts(msg) {
   const contents = msg.multimodalContents || [];
