@@ -598,7 +598,7 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 `run_in_background=true` 现在只表示后台启动，不会让 ReAct 主循环自动进入 waiting loop。后台工具（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）只返回 `background_task_id`，后续由 Agent 显式调用 `task_output` / `task_stop` 管理后台任务。
 
-当 `task_output(block=true)` 返回 `suggest_wait=true` 时，ReAct 主循环才会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop，`task_output(block=true)` 只返回“任务仍在运行中”的当前状态。
+当 `task_output(block=true)` 返回 `suggest_wait=true` 时，ReAct 主循环才会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop，`task_output(block=true)` 只返回“任务仍在运行中”的当前状态。若 waiting loop 在等待窗口内等到任务完成，则当前轮直接回灌完成结果，而不会先暴露“已进入等待”的中间 observation。
 
 等待机制基于三层保障：
 

@@ -509,7 +509,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 - `execute_bash` 后台 stdout/stderr 写入 transient 目录日志文件，路径通过返回值 `metadata.background_output_path` 获取
 - `execute_skill_script` 后台结果写入 transient 目录 JSON 文件，路径通过返回值 `metadata.background_output_path` 获取
 - `run_in_background` 现在只表示后台启动，不会自动触发 waiting loop；如需读取结果请显式调用 `task_output`，如需等待请调用 `task_output(block=true)`，如需停止请调用 `task_stop`
-- `task_output` 支持非阻塞查询与显式等待：`block=false` 返回当前状态，`block=true` 才会触发 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive）
+- `task_output` 支持非阻塞查询与显式等待：`block=false` 返回当前状态；`block=true` 会触发 run 内 waiting loop（事件唤醒 + poll 兜底 + 可选 hidden keepalive）。若在等待窗口内完成，则当前轮只回灌完成结果；只有等待超时仍未完成时，才返回“任务仍在运行中”的状态提示
 - `execute_bash` 返回结构化结果：`{stdout, stderr, return_code, interrupted, background_task_id, background_started, classification}`
 - `execute_skill_script` 前台仍返回原有脚本结果；后台模式立即返回 `{stdout:"", stderr:"", return_code:null, background_task_id, background_started, skill, script_name}`
 - `task_stop` 只对可取消任务返回成功；当前 callable 型后台任务会明确返回“不支持可靠停止”

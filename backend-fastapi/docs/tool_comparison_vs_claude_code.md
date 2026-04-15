@@ -298,7 +298,7 @@
 | block | 是否等待完成（默认 false） |
 | timeout | 最大等待毫秒（0-600000，默认 30000） |
 
-**当前状态**：已实现基础版。`block=false` 立即返回当前状态；`block=true` 通过显式等待触发 run 内 waiting loop。
+**当前状态**：已实现基础版。`block=false` 立即返回当前状态；`block=true` 通过显式等待触发 run 内 waiting loop，并在等待窗口内完成时直接回灌最终结果，超时后才返回仍在运行中的状态。
 
 ---
 

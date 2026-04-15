@@ -34,6 +34,15 @@ class _DummyPublisher:
     def run_end(self, **kwargs):
         self.calls.append(("run_end", kwargs))
 
+    def tool_call_start(self, **kwargs):
+        self.calls.append(("tool_call_start", kwargs))
+
+    def tool_call_end(self, **kwargs):
+        self.calls.append(("tool_call_end", kwargs))
+
+    def react_intermediate(self, **kwargs):
+        self.calls.append(("react_intermediate", kwargs))
+
 
 def _make_uninitialized_orchestrator() -> OrchestratorAgent:
     agent = OrchestratorAgent.__new__(OrchestratorAgent)
@@ -364,6 +373,7 @@ def test_handle_actions_returns_waiting_request_when_tool_suggests_wait(monkeypa
     assert waiting_request.background_task_ids == ["bg-1"]
     assert waiting_request.run_id == "run-1"
     assert waiting_request.timeout_ms is None
+    assert state["current_session"] == []
 
 
 
@@ -406,6 +416,148 @@ def test_handle_actions_captures_wait_timeout_from_task_output(monkeypatch):
     assert waiting_request is not None
     assert waiting_request.background_task_ids == ["bg-2"]
     assert waiting_request.timeout_ms == 42000
+    assert state["current_session"] == []
+
+
+def test_handle_actions_keeps_completed_task_output_observation(monkeypatch):
+    import tools.runtime.executor as tool_executor
+
+    def fake_execute_tool(tool_name, arguments, **kwargs):
+        del tool_name, arguments, kwargs
+        return success_result(
+            content={
+                "task_id": "bg-3",
+                "status": "completed",
+                "completed": True,
+                "output": {"result": 42},
+            },
+            summary="后台任务 bg-3 已完成，状态：completed",
+            output_type="json",
+            tool_name="task_output",
+        )
+
+    monkeypatch.setattr(tool_executor, "execute_tool", fake_execute_tool)
+
+    agent = _PlaceholderAwareAgent()
+    context = AgentContext(session_id="session-1")
+    state = {
+        "event_bus": None,
+        "tool_calls_history": [],
+        "current_session": [],
+        "run_id": "run-3",
+    }
+
+    waiting_request = agent._handle_actions(
+        [{"tool": "task_output", "arguments": {"task_id": "bg-3", "block": True}}],
+        context,
+        state,
+        rounds=1,
+        log_prefix="[test]",
+    )
+
+    assert waiting_request is None
+    assert state["current_session"] == [
+        {
+            "role": "user",
+            "content": "[task_output]\n{'task_id': 'bg-3', 'status': 'completed', 'completed': True, 'output': {'result': 42}}",
+        }
+    ]
+
+
+def test_append_waiting_observation_replays_task_output_result():
+    from tools.runtime.background_tasks import get_background_task_manager
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="waiting_replay_", dir=Path(__file__).parent))
+    try:
+        bg_manager = get_background_task_manager()
+        bg_manager._tasks.clear()
+        bg_manager._processes.clear()
+
+        task = bg_manager.spawn_bash(
+            "printf 'start\\ndone\\n'",
+            bash_executable=None,
+            cwd=temp_dir,
+            output_dir=temp_dir,
+            session_id="session-1",
+        )
+        for _ in range(100):
+            current = bg_manager.get_task(task.task_id)
+            if current and current.is_done():
+                break
+            import time as _time
+            _time.sleep(0.02)
+
+        agent = _PlaceholderAwareAgent()
+        agent.result_normalizer = ToolResultNormalizer()
+        agent.observation_policy = ObservationPolicy(
+            max_context_tokens=8000,
+            inline_text_limit=1000,
+            inline_json_limit=1000,
+            summarize_limit=2000,
+        )
+        agent.prompt_materializer = PromptMaterializer(
+            artifact_store=ArtifactStore(base_dir=str(temp_dir / "artifacts")),
+            large_data_threshold=4000,
+        )
+
+        class _Registry:
+            def clear_task_waiting(self, *args, **kwargs):
+                pass
+
+        publisher = _DummyPublisher()
+        pending_tool_call = {
+            "tool_name": "task_output",
+            "arguments": {"task_id": task.task_id, "block": True},
+            "result": success_result(
+                content={
+                    "background_task_id": task.task_id,
+                    "suggest_wait": True,
+                    "wait_timeout_ms": 130000,
+                },
+                summary="后台任务等待中",
+                output_type="json",
+                tool_name="task_output",
+            ),
+            "tool_call_id": "tool-1",
+            "parent_call_id": "call-root",
+            "round": 1,
+            "agent_display_name": "Placeholder Agent",
+            "current_session_id": "session-1",
+            "elapsed_time": 0.02,
+            "approval_message": "",
+        }
+        state = {
+            "publisher": publisher,
+            "current_session": [],
+        }
+        bg_wait_state = SimpleNamespace(
+            completed_task_ids=[task.task_id],
+            pending_task_ids=[],
+        )
+
+        observation = agent._append_waiting_observation(
+            "wait-1",
+            "task-1",
+            _Registry(),
+            bg_manager,
+            state,
+            bg_wait_state,
+            [pending_tool_call],
+        )
+
+        assert observation
+        assert "[task_output]" in observation
+        assert "start" in observation
+        assert "done" in observation
+        assert state["current_session"] == [{"role": "user", "content": observation}]
+        tool_end_calls = [item for item in publisher.calls if item[0] == "tool_call_end"]
+        assert len(tool_end_calls) == 1
+        assert tool_end_calls[0][1]["call_id"] == "tool-1"
+        assert "done" in tool_end_calls[0][1]["result_preview"]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
     agent = _PlaceholderAwareAgent()
     chat_calls = []
     agent.model_adapter = SimpleNamespace(

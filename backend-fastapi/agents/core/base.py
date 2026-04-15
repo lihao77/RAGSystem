@@ -30,6 +30,7 @@ class WaitingRequest:
     background_task_ids: List[str] = field(default_factory=list)
     run_id: Optional[str] = None
     timeout_ms: Optional[int] = None
+    pending_tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def parse_llm_json(content: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -780,6 +781,29 @@ class BaseAgent(ABC):
         )
 
     @staticmethod
+    def _extract_wait_signal(result: Any) -> Optional[Dict[str, Any]]:
+        if result is None:
+            return None
+        if isinstance(result, dict):
+            content = result.get('content')
+            metadata = result.get('metadata')
+        else:
+            content = getattr(result, 'content', None)
+            metadata = getattr(result, 'metadata', None)
+
+        for payload in (content, metadata):
+            if not isinstance(payload, dict) or not payload.get('suggest_wait'):
+                continue
+            background_task_id = payload.get('background_task_id')
+            if not background_task_id:
+                continue
+            return {
+                'background_task_id': background_task_id,
+                'wait_timeout_ms': payload.get('wait_timeout_ms'),
+            }
+        return None
+
+    @staticmethod
     def _compact_text(value: Any, *, max_chars: int = 220) -> str:
         text = "" if value is None else str(value)
         text = re.sub(r"\s+", " ", text).strip()
@@ -934,7 +958,8 @@ class BaseAgent(ABC):
         )
         elapsed_time = time.time() - tool_started_at
         is_skills_tool = tool_name in tool_registry.get_skill_tool_names()
-        observation = self._format_tool_observation(
+        wait_signal = self._extract_wait_signal(result)
+        observation = "" if wait_signal else self._format_tool_observation(
             result,
             tool_name=tool_name,
             session_id=current_session_id,
@@ -949,25 +974,26 @@ class BaseAgent(ABC):
                 if result and hasattr(result, 'metadata')
                 else ''
             )
-            with lock:
-                publisher.tool_call_end(
-                    call_id=tool_call_id,
-                    tool_name=tool_name,
-                    result=preview_text,
-                    result_preview=preview_text,
-                    raw_result=result_event_payload(result),
-                    raw_result_ref={
-                        'session_id': current_session_id,
-                        'call_id': tool_call_id,
-                        'tool_name': tool_name,
-                    },
-                    execution_time=elapsed_time,
-                    parent_call_id=state.get('call_id'),
-                    success=tool_success,
-                    round=rounds,
-                    agent_display_name=self.display_name or self.name,
-                    approval_message=approval_message,
-                )
+            if not wait_signal:
+                with lock:
+                    publisher.tool_call_end(
+                        call_id=tool_call_id,
+                        tool_name=tool_name,
+                        result=preview_text,
+                        result_preview=preview_text,
+                        raw_result=result_event_payload(result),
+                        raw_result_ref={
+                            'session_id': current_session_id,
+                            'call_id': tool_call_id,
+                            'tool_name': tool_name,
+                        },
+                        execution_time=elapsed_time,
+                        parent_call_id=state.get('call_id'),
+                        success=tool_success,
+                        round=rounds,
+                        agent_display_name=self.display_name or self.name,
+                        approval_message=approval_message,
+                    )
 
         with lock:
             results[idx] = result
@@ -976,6 +1002,14 @@ class BaseAgent(ABC):
                 'arguments': arguments,
                 'result': result,
                 'order': idx,
+                'tool_call_id': tool_call_id,
+                'parent_call_id': state.get('call_id'),
+                'round': rounds,
+                'agent_display_name': self.display_name or self.name,
+                'current_session_id': current_session_id,
+                'tool_started_at': tool_started_at,
+                'elapsed_time': elapsed_time,
+                'approval_message': approval_message if publisher else '',
             })
 
         return idx, f"[{tool_name}]\n{observation}" if observation else ""
@@ -1061,10 +1095,11 @@ class BaseAgent(ABC):
             observations[i] for i in range(1, total + 1) if observations[i]
         ]
         combined_observations = "\n\n".join(ordered_observations)
-        state['current_session'].append({
-            "role": "user",
-            "content": combined_observations,
-        })
+        if combined_observations:
+            state['current_session'].append({
+                "role": "user",
+                "content": combined_observations,
+            })
         if publisher and combined_observations:
             publisher.react_intermediate(
                 role="user",
@@ -1082,34 +1117,27 @@ class BaseAgent(ABC):
         """扫描本轮工具结果，提取需要等待的后台任务 ID。"""
         bg_task_ids = []
         timeout_ms = None
-        for result in results.values():
-            if result is None:
+        pending_tool_calls = []
+        history_by_order = {
+            item.get('order'): item for item in state.get('tool_calls_history', [])
+        }
+        for order, result in results.items():
+            wait_signal = self._extract_wait_signal(result)
+            if not wait_signal:
                 continue
-            if isinstance(result, dict):
-                content = result.get('content')
-                metadata = result.get('metadata')
-            else:
-                content = getattr(result, 'content', None)
-                metadata = getattr(result, 'metadata', None)
-            if isinstance(content, dict) and content.get('suggest_wait'):
-                tid = content.get('background_task_id')
-                if tid:
-                    bg_task_ids.append(tid)
-                    if timeout_ms is None and content.get('wait_timeout_ms') is not None:
-                        timeout_ms = content.get('wait_timeout_ms')
-                continue
-            if isinstance(metadata, dict) and metadata.get('suggest_wait'):
-                tid = metadata.get('background_task_id')
-                if tid:
-                    bg_task_ids.append(tid)
-                    if timeout_ms is None and metadata.get('wait_timeout_ms') is not None:
-                        timeout_ms = metadata.get('wait_timeout_ms')
+            bg_task_ids.append(wait_signal['background_task_id'])
+            if timeout_ms is None and wait_signal.get('wait_timeout_ms') is not None:
+                timeout_ms = wait_signal.get('wait_timeout_ms')
+            history_item = history_by_order.get(order)
+            if history_item:
+                pending_tool_calls.append(history_item)
         if not bg_task_ids:
             return None
         return WaitingRequest(
             background_task_ids=bg_task_ids,
             run_id=state.get('run_id'),
             timeout_ms=timeout_ms,
+            pending_tool_calls=pending_tool_calls,
         )
 
     def _run_waiting_loop(
@@ -1164,7 +1192,15 @@ class BaseAgent(ABC):
             bg_manager, bg_wait_state, wait_id, task_id, registry,
         )
         if completed_early:
-            self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+            self._append_waiting_observation(
+                wait_id,
+                task_id,
+                registry,
+                bg_manager,
+                state,
+                bg_wait_state,
+                waiting_request.pending_tool_calls,
+            )
             return
 
         last_keepalive_at = time.time()
@@ -1196,7 +1232,25 @@ class BaseAgent(ABC):
                     if result.get('status') == 'cancelled':
                         self.logger.debug("%s waiting loop 被系统取消", log_prefix)
                         raise InterruptedError("等待后台任务期间被系统取消")
-                    self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+                    completed_task_ids = result.get('completed_task_ids') or []
+                    if not completed_task_ids:
+                        single_bg_tid = result.get('background_task_id')
+                        if single_bg_tid:
+                            completed_task_ids = [single_bg_tid]
+                    for bg_tid in completed_task_ids:
+                        if bg_tid not in bg_wait_state.completed_task_ids:
+                            bg_wait_state.completed_task_ids.append(bg_tid)
+                        if bg_tid in bg_wait_state.pending_task_ids:
+                            bg_wait_state.pending_task_ids.remove(bg_tid)
+                    self._append_waiting_observation(
+                        wait_id,
+                        task_id,
+                        registry,
+                        bg_manager,
+                        state,
+                        bg_wait_state,
+                        waiting_request.pending_tool_calls,
+                    )
                     return
 
                 # poll 兜底
@@ -1206,18 +1260,35 @@ class BaseAgent(ABC):
                     bg_manager, bg_wait_state, wait_id, task_id, registry,
                 )
                 if completed:
-                    self._append_waiting_observation(wait_id, task_id, registry, bg_manager, state, bg_wait_state)
+                    self._append_waiting_observation(
+                        wait_id,
+                        task_id,
+                        registry,
+                        bg_manager,
+                        state,
+                        bg_wait_state,
+                        waiting_request.pending_tool_calls,
+                    )
                     return
 
                 # 超时检查
                 if bg_wait_state.deadline_at and now >= bg_wait_state.deadline_at:
                     self.logger.warning("%s waiting loop 超时（%.0fs）", log_prefix, idle_timeout)
                     bg_wait_state.wake_reason = 'timeout'
-                    registry.clear_task_waiting(task_id, wait_id)
-                    state['current_session'].append({
-                        "role": "user",
-                        "content": f"[system] 等待后台任务超时（{idle_timeout:.0f}s），任务仍在运行中。",
-                    })
+                    timeout_observation = self._append_waiting_observation(
+                        wait_id,
+                        task_id,
+                        registry,
+                        bg_manager,
+                        state,
+                        bg_wait_state,
+                        waiting_request.pending_tool_calls,
+                    )
+                    if not timeout_observation:
+                        state['current_session'].append({
+                            "role": "user",
+                            "content": f"[system] 等待后台任务超时（{idle_timeout:.0f}s），任务仍在运行中。",
+                        })
                     return
 
                 # hidden keepalive
@@ -1263,6 +1334,75 @@ class BaseAgent(ABC):
             return True
         return False
 
+    def _build_task_output_result(self, bg_manager, bg_tid: str, *, max_chars: int = 8000):
+        from tools.local.task_tools import _build_background_output_content
+        from tools.runtime.response_builder import error_result, success_result
+
+        snapshot = bg_manager.get_task_snapshot(bg_tid)
+        if snapshot is None:
+            return error_result(f"后台任务 {bg_tid} 不存在", tool_name="task_output")
+
+        raw_output = bg_manager.read_output(bg_tid, max_chars=max_chars)
+        content = _build_background_output_content(snapshot, raw_output)
+        completed = content["completed"]
+        summary = f"后台任务 {bg_tid} 当前状态：{content['status']}"
+        if completed:
+            summary = f"后台任务 {bg_tid} 已完成，状态：{content['status']}"
+        return success_result(
+            content=content,
+            summary=summary,
+            output_type="json",
+            metadata={
+                "task_id": str(bg_tid),
+                "status": content["status"],
+                "completed": completed,
+            },
+            tool_name="task_output",
+        )
+
+    def _finalize_waiting_tool_call(
+        self,
+        pending_tool_call: Dict[str, Any],
+        final_result: Any,
+        *,
+        state: Dict[str, Any],
+    ) -> str:
+        from tools.refs.result_references import result_event_payload
+        from tools.tool_registry import get_tool_registry
+
+        tool_name = pending_tool_call.get('tool_name') or getattr(final_result, 'tool_name', None) or 'task_output'
+        current_session_id = pending_tool_call.get('current_session_id')
+        is_skills_tool = tool_name in get_tool_registry().get_skill_tool_names()
+        observation = self._format_tool_observation(
+            final_result,
+            tool_name=tool_name,
+            session_id=current_session_id,
+            is_skills_tool=is_skills_tool,
+        )
+        preview_text = f"[{tool_name}]\n{observation}" if observation else ""
+        publisher = state.get('publisher')
+        if publisher:
+            publisher.tool_call_end(
+                call_id=pending_tool_call.get('tool_call_id'),
+                tool_name=tool_name,
+                result=preview_text,
+                result_preview=preview_text,
+                raw_result=result_event_payload(final_result),
+                raw_result_ref={
+                    'session_id': current_session_id,
+                    'call_id': pending_tool_call.get('tool_call_id'),
+                    'tool_name': tool_name,
+                },
+                execution_time=pending_tool_call.get('elapsed_time'),
+                parent_call_id=pending_tool_call.get('parent_call_id'),
+                success=getattr(final_result, 'success', True),
+                round=pending_tool_call.get('round'),
+                agent_display_name=pending_tool_call.get('agent_display_name'),
+                approval_message=pending_tool_call.get('approval_message', ''),
+            )
+        pending_tool_call['result'] = final_result
+        return preview_text
+
     def _append_waiting_observation(
         self,
         wait_id: str,
@@ -1271,8 +1411,48 @@ class BaseAgent(ABC):
         bg_manager,
         state: Dict[str, Any],
         bg_wait_state,
-    ) -> None:
+        pending_tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         """后台任务完成后，将结果作为 observation 回灌到当前 session。"""
+        pending_tool_calls = pending_tool_calls or []
+        if pending_tool_calls:
+            parts = []
+            for pending_tool_call in pending_tool_calls:
+                result_obj = pending_tool_call.get('result')
+                result_content = getattr(result_obj, 'content', None)
+                bg_tid = result_content.get('background_task_id') if isinstance(result_content, dict) else None
+                if not bg_tid:
+                    bg_tid = pending_tool_call.get('arguments', {}).get('task_id')
+                if not bg_tid:
+                    continue
+                if bg_tid not in bg_wait_state.completed_task_ids:
+                    bg_wait_state.completed_task_ids.append(bg_tid)
+                    if bg_tid in bg_wait_state.pending_task_ids:
+                        bg_wait_state.pending_task_ids.remove(bg_tid)
+                final_result = self._build_task_output_result(bg_manager, bg_tid)
+                started_at = pending_tool_call.get('tool_started_at')
+                if started_at:
+                    pending_tool_call['elapsed_time'] = max(0.0, time.time() - started_at)
+                preview_text = self._finalize_waiting_tool_call(pending_tool_call, final_result, state=state)
+                if preview_text:
+                    parts.append(preview_text)
+            if parts:
+                observation = "\n\n".join(parts)
+                state['current_session'].append({
+                    "role": "user",
+                    "content": observation,
+                })
+                publisher = state.get('publisher')
+                if publisher:
+                    publisher.react_intermediate(
+                        role="user",
+                        content=observation,
+                        round=pending_tool_calls[0].get('round') or 1,
+                        msg_type="observation",
+                    )
+                registry.clear_task_waiting(task_id, wait_id)
+                return observation
+
         parts = []
         for bg_tid in bg_wait_state.completed_task_ids:
             bg_task = bg_manager.get_task(bg_tid)
@@ -1281,7 +1461,6 @@ class BaseAgent(ABC):
             rc = bg_task.return_code if bg_task else None
             header = f"[background_task:{bg_tid[:8]}] status={status} return_code={rc}"
             if output:
-                # 截断过长的输出
                 max_len = 8000
                 if len(output) > max_len:
                     output = output[:max_len] + f"\n... (truncated, total {len(output)} chars)"
@@ -1294,6 +1473,7 @@ class BaseAgent(ABC):
             "content": observation,
         })
         registry.clear_task_waiting(task_id, wait_id)
+        return observation
 
     def _run_hidden_keepalive(
         self,
