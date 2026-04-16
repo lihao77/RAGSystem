@@ -102,25 +102,6 @@ def _ensure_request_id(request_id=None) -> str:
         return request_id or str(uuid.uuid4())[:8]
 
 
-def _drain_sse_adapter_background(sse_adapter, session_id: str, run_id: str):
-    """后台线程消费 SSEAdapter 防止 queue 溢出，run 结束后清理资源。"""
-    from execution.cleanup import cleanup_after_run
-
-    def _drain():
-        try:
-            for _ in sse_adapter.stream_sync():
-                pass
-        except Exception as exc:
-            logger.debug('drain SSEAdapter 异常 session=%s: %s', session_id, exc)
-        finally:
-            try:
-                sse_adapter.stop()
-            except Exception:
-                pass
-            cleanup_after_run(session_id, run_id)
-
-    threading.Thread(target=_drain, daemon=True, name=f'drain-{session_id[:8]}').start()
-
 
 def _publish_command_result(session_id: str, result: dict):
     """通过 EventBus 推送斜杠命令结果（WebSocket 会收到）。"""
@@ -285,8 +266,19 @@ async def execute_task(
     if not started.started:
         return {'started': False, 'session_id': session_id, 'error': started.error_message or '启动执行失败'}
 
-    if started.sse_adapter:
-        _drain_sse_adapter_background(started.sse_adapter, session_id, started.run_id or '')
+    # 通知 WS watcher 立即绑定新 run 的事件总线（替代轮询等待）
+    try:
+        from runtime.container import get_current_runtime_container
+        from agents.events.bus import Event, EventType
+        container = get_current_runtime_container()
+        if container:
+            container.get_event_bus().publish(Event(
+                type=EventType.SESSION_RUN_STARTED,
+                data={'run_id': started.run_id, 'source': 'execute_task'},
+                session_id=session_id,
+            ))
+    except Exception:
+        pass
 
     return {
         'started': True,

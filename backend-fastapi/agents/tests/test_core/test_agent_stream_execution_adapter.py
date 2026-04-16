@@ -222,10 +222,8 @@ def test_stream_adapter_eagerly_starts_sse_subscription_before_submit():
     )
 
     assert result.started is True
-    # SSEAdapter 在 submit() 之前已订阅，确保 agent 线程发出的早期事件不会丢失
-    assert len(event_bus.subscriptions) == 4  # sse_adapter(1) + persistence(1) + run_steps(1) + step_projector(1)
-    assert result.sse_adapter is not None
-    assert result.sse_adapter._subscription_id is not None  # 验证 SSEAdapter 已完成订阅
+    # persistence(1) + run_steps(1) + step_projector(1) + bg_completion(1)
+    assert len(event_bus.subscriptions) == 4
 
 
 def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_write():

@@ -42,7 +42,10 @@ def json_safe(value):
 
 
 def consume_stream(sse_adapter) -> Optional[str]:
-    """同步消费 SSE 事件流，返回 final_answer 或 system.error。"""
+    """同步消费 SSE 事件流，返回 final_answer 或 system.error。
+
+    DEPRECATED: 仅保留兼容签名。新代码应使用 wait_for_run_end()。
+    """
     final_answer = None
     for sse_line in sse_adapter.stream_sync():
         try:
@@ -58,3 +61,64 @@ def consume_stream(sse_adapter) -> Optional[str]:
         except json.JSONDecodeError:
             logger.warning('daemon consume_stream: 非 JSON SSE 行: %s', sse_line[:80])
     return final_answer
+
+
+def wait_for_run_end(
+    event_bus,
+    session_id: str,
+    timeout: float = 600.0,
+) -> Optional[str]:
+    """直接订阅 EventBus 等待 run 结束，返回 final_answer 或 error 消息。
+
+    替代 consume_stream(sse_adapter) 的双重序列化路径，
+    直接从 Event 对象提取结果，无需 SSE 格式中转。
+
+    Args:
+        event_bus: run 级 EventBus 实例
+        session_id: 当前会话 ID
+        timeout: 最大等待秒数
+
+    Returns:
+        final_answer 文本、错误消息、或 None
+    """
+    import threading as _threading
+
+    done_event = _threading.Event()
+    result_holder: list = [None]  # [Optional[str]]
+
+    def _on_event(event):
+        if event.session_id and event.session_id != session_id:
+            return
+        from agents.events.bus import EventType
+        if event.type == EventType.FINAL_ANSWER:
+            content = (event.data or {}).get('content')
+            if content:
+                result_holder[0] = content
+        elif event.type == EventType.ERROR:
+            message = (event.data or {}).get('message') or 'unknown error'
+            result_holder[0] = f'ERROR: {message}'
+            done_event.set()
+        elif event.type in (EventType.RUN_END, EventType.USER_INTERRUPT, EventType.SESSION_END):
+            done_event.set()
+
+    from agents.events.bus import EventType
+    sub_id = event_bus.subscribe(
+        event_types=[
+            EventType.FINAL_ANSWER,
+            EventType.ERROR,
+            EventType.RUN_END,
+            EventType.USER_INTERRUPT,
+            EventType.SESSION_END,
+        ],
+        handler=_on_event,
+    )
+    try:
+        done_event.wait(timeout=timeout)
+        if not done_event.is_set():
+            logger.warning('wait_for_run_end 超时 session=%s', session_id)
+        return result_holder[0]
+    finally:
+        try:
+            event_bus.unsubscribe(sub_id)
+        except Exception:
+            pass

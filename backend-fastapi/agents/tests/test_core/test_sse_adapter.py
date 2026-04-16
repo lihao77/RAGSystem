@@ -41,7 +41,7 @@ def test_sse_adapter_preserves_critical_tool_events_under_backpressure():
 
 def test_event_bus_subscription_log_is_summarized_for_many_event_types(caplog):
     bus = EventBus()
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
 
     bus.subscribe(event_types=list(EventType), handler=lambda event: None)
 

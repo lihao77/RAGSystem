@@ -303,6 +303,40 @@ class EventBus:
         logger.debug("新订阅: %s → %s", subscription_id, _format_subscription_event_types(list(normalized_types)))
         return subscription_id
 
+    def subscribe_all(
+        self,
+        handler: Callable[[Event], Any],
+        filter_func: Optional[Callable[[Event], bool]] = None,
+        priority: int = 0,
+    ) -> str:
+        """
+        订阅所有事件类型（通配符订阅）。
+
+        比 subscribe(list(EventType)) 高效：只注册一个 '*' 索引条目，
+        而非为每个事件类型分别注册。
+        """
+        subscription_id = str(uuid.uuid4())
+        subscription = Subscription(
+            subscription_id=subscription_id,
+            event_types=('*',),
+            handler=handler,
+            is_async=asyncio.iscoroutinefunction(handler),
+            filter_func=filter_func,
+            priority=priority,
+        )
+
+        with self._lock:
+            self._subscriptions_by_id[subscription_id] = subscription
+            wildcard_ids = self._subscription_ids_by_event['*']
+            wildcard_ids.append(subscription_id)
+            wildcard_ids.sort(
+                key=lambda sid: self._subscriptions_by_id[sid].priority,
+                reverse=True,
+            )
+
+        logger.debug("新通配符订阅: %s", subscription_id)
+        return subscription_id
+
     def unsubscribe(self, subscription_id: str):
         """取消订阅"""
         with self._lock:
@@ -396,12 +430,22 @@ class EventBus:
     def _collect_subscriptions(self, event_type: "str | EventType") -> List[Subscription]:
         normalized_type = _normalize_event_type(event_type)
         with self._lock:
-            subscription_ids = list(self._subscription_ids_by_event.get(normalized_type, []))
-            return [
-                self._subscriptions_by_id[sid]
-                for sid in subscription_ids
-                if sid in self._subscriptions_by_id
-            ]
+            # 合并具体类型订阅 + 通配符订阅
+            specific_ids = list(self._subscription_ids_by_event.get(normalized_type, []))
+            wildcard_ids = list(self._subscription_ids_by_event.get('*', []))
+            all_ids = specific_ids + wildcard_ids
+            # 去重并按优先级排序
+            seen = set()
+            unique_ids = []
+            for sid in all_ids:
+                if sid not in seen and sid in self._subscriptions_by_id:
+                    seen.add(sid)
+                    unique_ids.append(sid)
+            unique_ids.sort(
+                key=lambda sid: self._subscriptions_by_id[sid].priority,
+                reverse=True,
+            )
+            return [self._subscriptions_by_id[sid] for sid in unique_ids]
 
     def _should_deliver(self, subscription: Subscription, event: Event) -> bool:
         if subscription.filter_func is None:

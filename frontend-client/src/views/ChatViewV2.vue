@@ -742,6 +742,7 @@ const invalidateActiveStream = () => {
 // ── session 级 WebSocket 连接（替代 SSE push + reconnect）──────────────
 let _ws = null;
 let _wsReconnectTimer = null;
+let _wsReconnectAttempts = 0;
 
 // 当前活跃 run 的状态（WS 事件处理用）
 const _activeRun = reactive({
@@ -789,6 +790,7 @@ const connectSessionWS = (sessionId) => {
   const ws = new WebSocket(url);
   ws.onopen = () => {
     console.debug('[WS] 连接建立', sessionId);
+    _wsReconnectAttempts = 0;
     if (_wsReconnectTimer) {
       clearTimeout(_wsReconnectTimer);
       _wsReconnectTimer = null;
@@ -811,7 +813,9 @@ const connectSessionWS = (sessionId) => {
     }
     _clearCommandFallback();
     if (currentSessionId.value === sessionId) {
-      _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), 3000);
+      const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;
+      _wsReconnectAttempts++;
+      _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), delay);
     }
   };
   ws.onerror = () => {
@@ -822,6 +826,7 @@ const connectSessionWS = (sessionId) => {
 
 const disconnectSessionWS = () => {
   _clearCommandFallback();
+  _wsReconnectAttempts = 0;
   if (_wsReconnectTimer) {
     clearTimeout(_wsReconnectTimer);
     _wsReconnectTimer = null;

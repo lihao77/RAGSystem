@@ -321,7 +321,7 @@ class DaemonService:
                 source='daemon.cron',
             )
 
-            if not started.started or started.sse_adapter is None:
+            if not started.started:
                 logger.error('Cron 任务启动失败 [%s]: %s', task.task_id, started.error_message)
                 task.last_result = f'ERROR: {started.error_message}'
                 clear_session_permission_override(session_id)
@@ -344,10 +344,10 @@ class DaemonService:
             )
 
             # ── 消费事件流 ──
-            from daemon.utils import consume_stream
+            from daemon.utils import wait_for_run_end
 
             try:
-                response_content = await asyncio.to_thread(consume_stream, started.sse_adapter)
+                response_content = await asyncio.to_thread(wait_for_run_end, event_bus, session_id)
 
                 if response_content and task.push_platform and task.push_chat_id:
                     await self.send_message(OutgoingMessage(
@@ -363,10 +363,6 @@ class DaemonService:
             finally:
                 try:
                     event_bus.unsubscribe(_cron_sub_id)
-                except Exception:
-                    pass
-                try:
-                    started.sse_adapter.stop()
                 except Exception:
                     pass
                 cron_handler.cleanup()

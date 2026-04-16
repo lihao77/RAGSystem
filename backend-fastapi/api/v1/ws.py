@@ -358,7 +358,7 @@ async def _watch_active_run(
     send_gate: asyncio.Event,
     run_changed: asyncio.Event,
 ):
-    """等待 run 变更事件或 5s 兜底轮询，动态切换到正确的 run 事件总线。"""
+    """等待 run 变更事件或 30s 兜底轮询，动态切换到正确的 run 事件总线。"""
     while True:
         try:
             await _sync_active_run_subscription(ws, session_id, container, queue, send_lock, run_binding, on_event, send_gate)
@@ -366,10 +366,10 @@ async def _watch_active_run(
             raise
         except Exception as exc:
             logger.debug('[WS] 检查活跃 run 失败 session=%s: %s', session_id, exc)
-        # 等待事件驱动唤醒或 5s 兜底
+        # 等待事件驱动唤醒或 30s 兜底
         run_changed.clear()
         try:
-            await asyncio.wait_for(run_changed.wait(), timeout=5.0)
+            await asyncio.wait_for(run_changed.wait(), timeout=30.0)
         except asyncio.TimeoutError:
             pass
 
@@ -421,8 +421,7 @@ async def _sync_active_run_subscription(
 
     runtime_svc = container.get_agent_api_runtime_service()
     run_bus = runtime_svc.get_run_event_bus(run_id, session_id=session_id)
-    run_sub_id = run_bus.subscribe(
-        event_types=list(EventType),
+    run_sub_id = run_bus.subscribe_all(
         handler=on_event,
         filter_func=lambda e: bool(e.session_id) and e.session_id == session_id,
     )

@@ -138,7 +138,7 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
         source='system.bg_notification',
     )
 
-    if not started.started or started.sse_adapter is None:
+    if not started.started:
         logger.warning(
             'notification_trigger: 系统 run 启动失败 session=%s error=%s',
             session_id, started.error_message,
@@ -161,32 +161,27 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
     except Exception as exc:
         logger.debug('notification_trigger: 发布 session.run_started 失败: %s', exc)
 
-    # 后台 drain SSEAdapter（防止 queue 溢出）
-    sse_adapter = started.sse_adapter
+    # 注册 RUN_END 回调进行资源清理（替代原来的 drain 线程）
+    from agents.events.session_manager import get_session_manager
+    run_event_bus = get_session_manager().get_or_create(run_id, session_id=session_id)
 
-    def _drain():
+    def _on_run_end(event: Event):
+        logger.info('notification_trigger: 系统 run 完成 session=%s run_id=%s', session_id, run_id)
+        from execution.cleanup import cleanup_after_run
+        cleanup_after_run(session_id, run_id)
         try:
-            for _ in sse_adapter.stream_sync():
-                pass
-            logger.info('notification_trigger: 系统 run 完成 session=%s run_id=%s', session_id, run_id)
-        except Exception as exc:
-            logger.debug('notification_trigger: drain 线程异常: %s', exc)
-        finally:
-            try:
-                sse_adapter.stop()
-            except Exception:
-                pass
-            from execution.cleanup import cleanup_after_run
-            cleanup_after_run(session_id, run_id)
-            # 兜底：WS 断连期间可能错过事件，推送 session.updated 触发前端全量历史刷新
-            try:
-                global_bus.publish(Event(
-                    type=EventType.SESSION_UPDATED,
-                    data={'run_id': run_id, 'source': 'system.bg_notification'},
-                    session_id=session_id,
-                ))
-            except Exception:
-                pass
+            global_bus.publish(Event(
+                type=EventType.SESSION_UPDATED,
+                data={'run_id': run_id, 'source': 'system.bg_notification'},
+                session_id=session_id,
+            ))
+        except Exception:
+            pass
 
-    threading.Thread(target=_drain, daemon=True, name=f'bg-drain-{session_id[:8]}').start()
+    run_event_bus.subscribe(
+        [EventType.RUN_END],
+        _on_run_end,
+        filter_func=lambda e: bool(e.session_id) and e.session_id == session_id,
+    )
+
     return run_id

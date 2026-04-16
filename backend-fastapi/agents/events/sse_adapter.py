@@ -125,8 +125,7 @@ class SSEAdapter:
         self._stopped = False
 
         # 订阅所有事件类型
-        self._subscription_id = self.event_bus.subscribe(
-            event_types=list(EventType),
+        self._subscription_id = self.event_bus.subscribe_all(
             handler=self._handle_event,
             filter_func=self._filter_event
         )

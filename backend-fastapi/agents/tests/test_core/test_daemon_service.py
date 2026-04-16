@@ -249,7 +249,6 @@ def _make_fake_adapter_start_result(content='daily report', error=None):
         run_id='test_run',
         task_id='test_task',
         request_id='test_req',
-        sse_adapter=_FakeSSEAdapter(content, error=error),
     )
 
 
@@ -270,6 +269,7 @@ def test_execute_cron_task_uses_adapter_and_returns_content(daemon_service, monk
         MockAdapter.return_value.start_stream_execution.return_value = fake_result
         monkeypatch.setattr('agents.context.session_cache.flush_session', lambda sid: None, raising=False)
         monkeypatch.setattr('agents.events.session_manager.cleanup_run', lambda rid: None, raising=False)
+        monkeypatch.setattr('daemon.utils.wait_for_run_end', lambda *args, **kwargs: 'daily report')
 
         task = CronTask(
             task_id='cron_1',
@@ -342,6 +342,7 @@ def test_execute_cron_task_uses_session_permission_override(daemon_service, monk
         MockAdapter.return_value.start_stream_execution.side_effect = _start_stream_execution
         monkeypatch.setattr('agents.context.session_cache.flush_session', lambda sid: None, raising=False)
         monkeypatch.setattr('agents.events.session_manager.cleanup_run', lambda rid: None, raising=False)
+        monkeypatch.setattr('daemon.utils.wait_for_run_end', lambda *args, **kwargs: 'done')
 
         task = CronTask(
             task_id='cron_perm',
@@ -383,11 +384,13 @@ def test_daemon_event_bridge_uses_single_subscription(monkeypatch):
     monkeypatch.setattr('runtime.container.get_current_runtime_container', lambda: container)
     monkeypatch.setattr(router._daemon_service, 'resolve_session_id_for_message', AsyncMock(return_value=('daemon_session', fake_agent_cfg)))
     monkeypatch.setattr(router._daemon_service, '_build_default_daemon_permission_policy', lambda: SimpleNamespace(approval_timeout=300))
+    monkeypatch.setattr('daemon.utils.wait_for_run_end', lambda *args, **kwargs: 'done')
     router._daemon_service.send_message = AsyncMock()
     with patch('execution.adapters.agent_execution.AgentExecutionAdapter', return_value=MagicMock(start_stream_execution=MagicMock(return_value=started))):
         with patch('daemon.approval_handler.DaemonApprovalHandler', return_value=approval_handler):
-            asyncio.run(router._route_incoming_inner(message))
+            run_ctx = asyncio.run(router._start_agent_run(message))
 
+    assert run_ctx is not None
     assert len(event_bus.subscriptions) == 1
     assert event_bus.subscriptions[0]['event_types'] == [
         EventType.USER_APPROVAL_REQUIRED,

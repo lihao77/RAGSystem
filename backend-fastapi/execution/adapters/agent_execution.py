@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from agents import AgentContext
 from agents.core.models import AgentResponse
-from agents.events import EventPublisher, EventType, SSEAdapter
+from agents.events import EventPublisher, EventType
 from agents.events.bus import Event
 from execution import ExecutionRequest, ExecutionResult, ExecutionStatus
 from execution.observability import apply_observability_fields, attach_execution_metadata
@@ -33,7 +33,6 @@ class AgentStreamStartResult:
     run_id: Optional[str] = None
     task_id: Optional[str] = None
     request_id: Optional[str] = None
-    sse_adapter: Optional[SSEAdapter] = None
     error_message: Optional[str] = None
     handle: Any = None
 
@@ -104,7 +103,6 @@ class AgentExecutionAdapter:
         event_bus = session_manager.get_or_create(run_id, session_id=session_id)
 
         metrics_subscription_id = None
-        sse_adapter = None
         step_projector_subscription_id = None
         subscription_ids: List[str] = []
         try:
@@ -155,14 +153,6 @@ class AgentExecutionAdapter:
 
             step_projector = StepProjector(event_bus=event_bus, session_id=session_id)
             step_projector_subscription_id = step_projector.subscribe()
-
-            sse_adapter = SSEAdapter(
-                event_bus=event_bus,
-                session_id=session_id,
-                buffer_size=100,
-                heartbeat_interval=15.0,
-            )
-            sse_adapter.start()
 
             persistence_handler = StreamPersistenceHandler(
                 event_bus=event_bus,
@@ -273,17 +263,11 @@ class AgentExecutionAdapter:
                 run_id=run_id,
                 task_id=task_id,
                 request_id=request_id,
-                sse_adapter=sse_adapter,
                 handle=handle,
             )
         except Exception as error:
             logger.error('启动 Agent 流式执行失败 session=%s: %s', session_id, error, exc_info=True)
             registry.finish_task(task_id, status='failed')
-            if sse_adapter is not None:
-                try:
-                    sse_adapter.stop()
-                except Exception:
-                    pass
             for subscription_id in subscription_ids:
                 try:
                     event_bus.unsubscribe(subscription_id)
