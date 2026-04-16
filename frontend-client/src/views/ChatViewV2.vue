@@ -1782,6 +1782,17 @@ const checkSessionTaskStatus = async (sessionId) => {
     if (!result.data?.has_running_task && !isLoading.value) {
       await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     }
+    // 刷新后恢复系统命令（如 /compact）的 loading 状态
+    if (result.data?.has_active_system_command && !isLoading.value) {
+      isLoading.value = true;
+      const lastMsg = messages.value[messages.value.length - 1];
+      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+        messages.value.push(createAssistantMessage());
+      }
+      _activeRun.active = true;
+      _activeRun.assistantMsgIndex = messages.value.length - 1;
+      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
+    }
   } catch (e) {
     // 查询失败不影响主流程
   }

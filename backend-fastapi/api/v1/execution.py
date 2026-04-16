@@ -178,9 +178,12 @@ async def get_session_task_status(session_id: str):
     execution_service = get_execution_service()
     status = await asyncio.to_thread(execution_service.get_status_by_session, session_id)
     diagnostics = await asyncio.to_thread(execution_service.get_diagnostics_by_session, session_id)
+    from api.v1.stream import has_active_system_command
+    has_sys_cmd = has_active_system_command(session_id)
     return ok(data={
         'session_id': session_id,
-        'has_running_task': status is not None and status.get('status') == 'running',
+        'has_running_task': (status is not None and status.get('status') == 'running') or has_sys_cmd,
+        'has_active_system_command': has_sys_cmd,
         'task_info': status,
         'observability': (
             {

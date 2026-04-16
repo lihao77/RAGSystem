@@ -29,6 +29,11 @@ router = APIRouter()
 _active_system_commands: Dict[str, threading.Event] = {}
 
 
+def has_active_system_command(session_id: str) -> bool:
+    """检查指定会话是否有正在执行的系统命令（如 /compact）。"""
+    return session_id in _active_system_commands
+
+
 def _parse_selected_llm(selected_llm: str):
     """解析前端选择的 LLM 字符串。"""
     selected_llm = (selected_llm or '').strip()
