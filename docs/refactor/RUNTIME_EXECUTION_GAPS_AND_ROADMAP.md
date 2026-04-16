@@ -2,7 +2,7 @@
 
 > 状态更新（2026-04-16）：经代码复审，D1（工具并行执行）与 D2（后台任务完成结果自动注入）均已完成。`BaseAgent._handle_actions()` 已按 `result_N` 依赖分批，并在批次内使用 `ThreadPoolExecutor` 并行执行；后台任务完成后也已通过 session 通知队列与 waiting loop 自动注入 Agent observation。本文其余内容若仍将 D1 / D2 标记为待做，均属于过期结论，已在本次更新中修正。
 
-> 状态更新（2026-04-16）：D3（文件变更回退）已完成。采用 **git worktree 隔离方案**对标 Claude Code：为 session 自动创建独立 worktree，agent 文件操作在隔离环境中进行，root run 结束时自动 commit 形成 snapshot，支持 `list_file_snapshots` 列出和 `restore_file_snapshot` 回滚到任意 snapshot（`git reset --hard`），session 删除时自动清理 worktree。核心模块：`utils/worktree.py`。
+> 状态更新（2026-04-16）：D3（文件变更回退）已完成并重构。对齐 Claude Code 分层设计：入口 agent 直接在用户原目录操作（不创建 worktree），通过 git auto-snapshot 记录 per-run 变更历史；非 git 目录就地 `git init`，session 清理时移除。回退通过 bash `git log` / `git reset --hard` 完成，不再暴露专用工具。Worktree 基础设施保留给 D5 子 Agent 并行隔离。核心模块：`utils/worktree.py`。
 
 > 目标：沉淀当前系统在运行时/执行层相对 Claude Code 的关键差距，并给出可直接排期实施的顺序化路线。
 >
@@ -84,25 +84,25 @@
 
 ---
 
-### 2.3 回退能力现状：已完成（git worktree 隔离）
+### 2.3 回退能力现状：已完成（git snapshot 回退，对齐 Claude Code 分层）
 
 **已落地能力**：
-- `backend-fastapi/utils/worktree.py`：git worktree 隔离管理模块。
-- `backend-fastapi/services/agent_api_runtime_service.py`：`_get_session_workspace_root` 自动为 git repo workspace 创建 worktree 并重定向。
+- `backend-fastapi/utils/worktree.py`：拆分为 Snapshot 层（通用）+ Worktree 层（保留给 D5 子 Agent 并行）。
+- `backend-fastapi/services/agent_api_runtime_service.py`：`_get_session_workspace_root` 调用 `ensure_git_snapshot` 启用回退能力，不再创建 worktree 或重定向 workspace。
 - `backend-fastapi/agents/core/base.py`：`_worktree_auto_snapshot` 在 root run 结束时自动 commit 形成 snapshot。
-- `backend-fastapi/tools/local/document_tools.py`：`list_file_snapshots` / `restore_file_snapshot` 工具。
-- `backend-fastapi/application/agent_session.py`：session 删除时自动清理 worktree。
+- `backend-fastapi/application/agent_session.py`：session 删除时自动清理 snapshot 元数据（若为 agent 创建的 .git 则一并清理）。
 
 **核心机制**：
-- session workspace 指向 git repo 时，自动创建独立 worktree（`DATA_ROOT/worktrees/<session_id>/`）
-- 所有工具通过 `workspace_root` 重定向自动操作 worktree，零工具层改动
+- 入口 agent 直接在用户原目录操作，不创建 worktree
+- 已有 git repo → 直接利用 git 做 snapshot
+- 非 git 目录 → 就地 `git init`，session 清理时移除 `.git`
 - root run 结束时 `git add -A && git commit`（有变更才 commit）
-- 回滚 = `git reset --hard <commit>`
-- session 删除 = `git worktree remove` + 分支清理
+- 回退通过 bash `git log` / `git reset --hard` 完成，不暴露专用工具
+- Worktree 基础设施保留给 D5 子 Agent 并行隔离
 
 **验收结论**：
-- 系统已同时具备对话级恢复能力和文件系统级回退能力。
-- 对标 Claude Code 的 worktree 隔离 + fileHistoryRewind 语义。
+- 对齐 Claude Code 分层设计：回退层（FileHistory）与隔离层（Worktree）分离。
+- 主对话在原目录操作 + auto-snapshot 记录历史，agent 通过 bash git 命令自主回退。
 
 ---
 
@@ -240,49 +240,28 @@
 
 ---
 
-## D3. 文件变更回退
+## D3. 文件变更回退（已完成）
 
-## 方案 A：轻量文件快照（当前推荐）
+### 实际落地方案：git snapshot 回退，对齐 Claude Code 分层设计
 
-### 建议实现
-1. 在 `write_file` / `edit_file` 执行前：
-   - 若目标文件已存在，则备份到 `transient/{session_id}/file_snapshots/`
-2. 记录：
-   - 原路径
-   - 快照路径
-   - 时间
-   - tool_call_id
-3. 新增工具：
-   - `list_file_snapshots()`
-   - `restore_file_snapshot(snapshot_id)`
+**核心设计**：
+- 回退层（Snapshot）与隔离层（Worktree）分离
+- 入口 agent 直接在用户原目录操作，不创建 worktree
+- 通过 git auto-snapshot 记录 per-run 变更历史
+- 非 git 目录就地 `git init`，session 清理时移除 `.git`
+- 回退通过 bash `git log` / `git reset --hard` 完成
+- Worktree 基础设施保留给 D5 子 Agent 并行隔离
 
-### 优点
-- 成本低
-- 不改变现有工具接口太多
-- 适合当前阶段快速落地
+**已落地模块**：
+- `utils/worktree.py`：Snapshot 层（`ensure_git_snapshot` / `create_snapshot` / `snapshot_enabled`）+ Worktree 层（保留）
+- `services/agent_api_runtime_service.py`：`ensure_git_snapshot` 启用回退，不重定向 workspace
+- `agents/core/base.py`：root run 结束时 auto-snapshot
+- `application/agent_session.py`：session 删除时 `cleanup_snapshot`
 
-### 局限
-- 只能回退文件级修改
-- 无法完整隔离 bash 带来的目录级副作用
-
-## 方案 B：git worktree 隔离（后续可选）
-
-### 目标
-对标 Claude Code 的 worktree/workspace 隔离思路。
-
-### 适用场景
-- 高风险改动
-- 大规模重构
-- 用户要求可撤销工作区
-
-### 当前建议
-- **已不再受 D1/D2/D4 完成状态阻塞**
-- 当前是否推进 worktree 隔离，主要取决于是否优先解决 D3 的轻量快照方案后仍有更强隔离需求
-
-### 验收标准（方案 A）
-- 修改已有文件时自动生成快照
-- Agent 或用户能恢复到某次写入前状态
-- 快照目录可按 session 自动清理
+### 验收结论
+- 对齐 Claude Code 分层：主对话在原目录操作 + auto-snapshot 记录历史
+- git repo / 非 git 目录 / 系统默认目录均支持
+- agent 通过 bash git 命令自主查看历史与回退
 
 ---
 

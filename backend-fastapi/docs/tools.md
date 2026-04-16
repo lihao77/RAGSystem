@@ -449,8 +449,8 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `write_file` | content, file_path, encoding | 写文件（仅支持 direct） |
 | `read_file` | file_path, encoding, offset, limit | 读文件（分页，仅支持 direct） |
 | `edit_file` | file_path, old_text, new_text, encoding | 编辑文件（仅支持 direct） |
-| `list_file_snapshots` | — | 列出当前 session worktree 中的文件快照 |
-| `restore_file_snapshot` | snapshot_id | 回滚 worktree 到指定快照（HIGH risk） |
+
+> **注意**：文件回退能力通过 auto-snapshot（run 结束自动 git commit）提供，agent 可通过 bash 执行 `git log` / `git reset --hard` 操作。
 
 ### 代码沙箱（local/code_sandbox.py）
 

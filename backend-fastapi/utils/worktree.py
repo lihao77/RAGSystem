@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Git worktree 隔离管理模块。
+Git snapshot 回退与 worktree 隔离模块。
 
-对标 Claude Code 的 worktree 隔离方案：
-- 为 session 创建独立 git worktree，agent 的文件操作在隔离环境中进行
-- 每次 root run 结束时自动 commit 形成 snapshot
-- 支持按 snapshot 回滚（git reset --hard）
-- session 删除时自动清理 worktree
+分为两层：
+- **Snapshot 层**（所有场景通用）：入口 agent 直接在用户原目录操作，
+  通过 git 记录变更历史，支持 per-run snapshot 与按 commit 回滚。
+- **Worktree 层**（保留给 D5 子 Agent 并行）：为子 agent 创建独立 worktree。
 """
-
-from __future__ import annotations
 
 import datetime
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
@@ -22,17 +20,36 @@ from core.path_resolution import DATA_ROOT
 
 logger = logging.getLogger(__name__)
 
-WORKTREES_ROOT: Path = DATA_ROOT / "worktrees"
+# ── 常量 ──────────────────────────────────────────────────────────────────
+
+WORKTREES_ROOT = DATA_ROOT / "worktrees"
 
 
-# ── 检测 ──────────────────────────────────────────────────────────
+# ── 内部辅助 ────────────────────────────────────────────────────────────────
+
+def _worktree_dir(session_id: str) -> Path:
+    return WORKTREES_ROOT / session_id
+
+
+def _meta_path(session_id: str) -> Path:
+    return WORKTREES_ROOT / f"{session_id}.meta.json"
+
+
+def _branch_name(session_id: str) -> str:
+    return f"agent/{session_id}"
+
+
+# ── 检测辅助 ────────────────────────────────────────────────────────────────
 
 def is_git_repo(path: str) -> bool:
-    """检测路径是否在 git 仓库内。"""
+    """检测目录是否在 git 仓库内。"""
+    p = Path(path)
+    if not p.is_dir():
+        return False
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=str(path),
+            cwd=str(p),
             capture_output=True, text=True, timeout=5,
         )
         return result.returncode == 0 and result.stdout.strip() == "true"
@@ -41,153 +58,160 @@ def is_git_repo(path: str) -> bool:
 
 
 def is_already_worktree(path: str) -> bool:
-    """检测路径是否已经是一个 git worktree（而非主仓库），防止嵌套。"""
-    git_path = Path(path) / ".git"
-    # worktree 的 .git 是文件（含 gitdir: 指针），主仓库的 .git 是目录
-    return git_path.is_file()
-
-
-# ── 生命周期 ──────────────────────────────────────────────────────
-
-def _meta_path(session_id: str) -> Path:
-    return WORKTREES_ROOT / f"{session_id}.meta.json"
-
-
-def _worktree_dir(session_id: str) -> Path:
-    return WORKTREES_ROOT / session_id
-
-
-def _branch_name(session_id: str) -> str:
-    return f"agent/{session_id}"
-
-
-def create_worktree(original_workspace: str, session_id: str) -> str:
-    """为 session 创建 git worktree，返回 worktree 路径。"""
-    worktree_path = _worktree_dir(session_id)
-    branch = _branch_name(session_id)
-
-    WORKTREES_ROOT.mkdir(parents=True, exist_ok=True)
-
-    result = subprocess.run(
-        ["git", "worktree", "add", "-B", branch, str(worktree_path)],
-        cwd=str(original_workspace),
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git worktree add 失败: {result.stderr.strip()}")
-
-    # 写入元数据文件
-    meta = {
-        "original_workspace": str(original_workspace),
-        "session_id": session_id,
-        "branch": branch,
-        "created_at": datetime.datetime.now().isoformat(),
-    }
-    _meta_path(session_id).write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    logger.info(
-        "worktree 创建成功: session=%s path=%s branch=%s",
-        session_id, worktree_path, branch,
-    )
-    return str(worktree_path)
-
-
-def remove_worktree(session_id: str) -> bool:
-    """删除 session 的 worktree 和元数据。"""
-    meta_file = _meta_path(session_id)
-    worktree_path = _worktree_dir(session_id)
-
-    if not meta_file.exists() and not worktree_path.exists():
+    """检测目录是否已经是一个 worktree（而非主仓库）。"""
+    p = Path(path)
+    git_dir = p / ".git"
+    if git_dir.is_file():
+        return True
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=str(p),
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return False
+        common = Path(result.stdout.strip()).resolve()
+        git_dir_result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(p),
+            capture_output=True, text=True, timeout=5,
+        )
+        if git_dir_result.returncode != 0:
+            return False
+        git_d = Path(git_dir_result.stdout.strip()).resolve()
+        return common != git_d
+    except Exception:
         return False
 
-    original_workspace = get_original_workspace(session_id)
 
-    # 尝试 git worktree remove
-    if original_workspace and worktree_path.exists():
-        try:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree_path)],
-                cwd=str(original_workspace),
-                capture_output=True, text=True, timeout=30,
-            )
-        except Exception as exc:
-            logger.warning("git worktree remove 失败，回退到目录删除: %s", exc)
-            import shutil
-            try:
-                shutil.rmtree(str(worktree_path), ignore_errors=True)
-            except Exception:
-                pass
-            # prune 残留引用
-            if original_workspace:
-                try:
-                    subprocess.run(
-                        ["git", "worktree", "prune"],
-                        cwd=str(original_workspace),
-                        capture_output=True, timeout=10,
-                    )
-                except Exception:
-                    pass
-    elif worktree_path.exists():
-        import shutil
-        shutil.rmtree(str(worktree_path), ignore_errors=True)
+# ══════════════════════════════════════════════════════════════════════════
+#  Snapshot 层（所有场景通用）
+# ══════════════════════════════════════════════════════════════════════════
 
-    # 删除分支
-    if original_workspace:
-        branch = _branch_name(session_id)
-        try:
-            subprocess.run(
-                ["git", "branch", "-D", branch],
-                cwd=str(original_workspace),
-                capture_output=True, text=True, timeout=10,
-            )
-        except Exception:
-            pass
+def ensure_git_snapshot(workspace_path: str, session_id: str) -> bool:
+    """
+    确保 workspace 具有 git snapshot 能力。
 
-    # 清理元数据文件
-    try:
-        meta_file.unlink(missing_ok=True)
-    except Exception:
-        pass
+    - 已是 git repo → 直接可用，仅写 meta
+    - 非 git 目录 → git init + 初始 commit
 
-    logger.info("worktree 已清理: session=%s", session_id)
+    Returns:
+        True 表示 snapshot 已就绪
+    """
+    if is_git_repo(workspace_path):
+        _ensure_snapshot_meta(workspace_path, session_id)
+        return True
+
+    # 非 git 目录：就地 git init
+    path = Path(workspace_path)
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init"],
+        cwd=str(path), capture_output=True, timeout=10,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "agent@ragsystem.local"],
+        cwd=str(path), capture_output=True, timeout=5,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "RAG Agent"],
+        cwd=str(path), capture_output=True, timeout=5,
+    )
+    # .gitignore
+    gitignore = path / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text("__pycache__/\n*.pyc\n.DS_Store\nThumbs.db\n")
+    subprocess.run(["git", "add", "-A"], cwd=str(path), capture_output=True, timeout=10)
+    subprocess.run(
+        ["git", "commit", "-m", "initial workspace", "--allow-empty"],
+        cwd=str(path), capture_output=True, text=True, timeout=15,
+    )
+    _ensure_snapshot_meta(workspace_path, session_id, git_initialized=True)
+    logger.info("git snapshot 已启用 (git init): session=%s path=%s", session_id, workspace_path)
     return True
 
 
-def worktree_exists(session_id: str) -> bool:
-    """检查 session 的 worktree 是否存在。"""
-    return _worktree_dir(session_id).is_dir()
+def _ensure_snapshot_meta(workspace_path: str, session_id: str, *, git_initialized: bool = False):
+    """写入 snapshot meta（追踪 session 与 workspace 的关联）。"""
+    meta_file = _meta_path(session_id)
+    # 已有 meta 且 workspace 一致 → 跳过
+    if meta_file.exists():
+        try:
+            existing = json.loads(meta_file.read_text(encoding="utf-8"))
+            if existing.get("original_workspace") == str(workspace_path):
+                return
+        except Exception:
+            pass
+
+    WORKTREES_ROOT.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "original_workspace": str(workspace_path),
+        "session_id": session_id,
+        "type": "snapshot",
+        "git_initialized": git_initialized,
+        "created_at": datetime.datetime.now().isoformat(),
+    }
+    meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def get_worktree_path(session_id: str) -> Optional[str]:
-    """获取 session 的 worktree 路径，不存在则返回 None。"""
-    wt = _worktree_dir(session_id)
-    return str(wt) if wt.is_dir() else None
+def snapshot_enabled(session_id: str) -> bool:
+    """检查 session 是否已启用 snapshot。"""
+    return _meta_path(session_id).exists()
 
 
-def get_original_workspace(session_id: str) -> Optional[str]:
-    """从元数据文件读取原始 workspace 路径。"""
+def get_snapshot_workspace(session_id: str) -> Optional[str]:
+    """获取 session 的 snapshot 工作目录。"""
     meta_file = _meta_path(session_id)
     if not meta_file.exists():
         return None
     try:
         meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        return meta.get("original_workspace")
+        ws = meta.get("original_workspace")
+        if ws and Path(ws).is_dir():
+            return ws
     except Exception:
-        return None
+        pass
+    return None
 
 
-# ── Snapshot 操作 ─────────────────────────────────────────────────
+def cleanup_snapshot(session_id: str) -> None:
+    """清理 snapshot 元数据。如果是我们 git init 的，也清理 .git。"""
+    meta_file = _meta_path(session_id)
+    if not meta_file.exists():
+        return
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        if meta.get("git_initialized"):
+            git_dir = Path(meta["original_workspace"]) / ".git"
+            if git_dir.is_dir():
+                import shutil
+                import stat
+                def _rm_readonly(func, path, _exc_info):
+                    """Windows: 移除只读属性后重试删除。"""
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                shutil.rmtree(str(git_dir), onerror=_rm_readonly)
+                logger.info("已清理 agent 创建的 .git: %s", meta["original_workspace"])
+            # 也清理 .gitignore（我们创建的）
+            gitignore = Path(meta["original_workspace"]) / ".gitignore"
+            if gitignore.exists():
+                gitignore.unlink(missing_ok=True)
+    except Exception as e:
+        logger.debug("cleanup_snapshot 清理 .git 失败: %s", e)
+    meta_file.unlink(missing_ok=True)
 
-def create_snapshot(worktree_path: str, *, run_id: Optional[str] = None) -> Optional[str]:
+
+# ── Snapshot 操作（通用，只需一个 git 目录路径）──────────────────────────────
+
+def create_snapshot(workspace_path: str, *, run_id: Optional[str] = None) -> Optional[str]:
     """
-    在 worktree 中执行 git add -A && git commit，形成一个 snapshot。
+    在 workspace 中创建 snapshot（git add + commit）。
 
-    仅在有文件变更时才 commit。返回 commit hash，无变更返回 None。
+    Returns:
+        commit hash（短），无变更时返回 None
     """
-    cwd = str(worktree_path)
+    cwd = str(workspace_path)
 
     # 检查是否有变更
     status = subprocess.run(
@@ -195,17 +219,11 @@ def create_snapshot(worktree_path: str, *, run_id: Optional[str] = None) -> Opti
         cwd=cwd, capture_output=True, text=True, timeout=10,
     )
     if not status.stdout.strip():
-        logger.debug("worktree 无变更，跳过 snapshot: %s", worktree_path)
         return None
 
-    # stage all
-    subprocess.run(
-        ["git", "add", "-A"],
-        cwd=cwd, capture_output=True, timeout=10,
-    )
-
-    # commit
-    message = f"agent snapshot [run:{run_id or 'unknown'}]"
+    # stage + commit
+    subprocess.run(["git", "add", "-A"], cwd=cwd, capture_output=True, timeout=10)
+    message = f"agent snapshot (run={run_id})" if run_id else "agent snapshot"
     result = subprocess.run(
         ["git", "commit", "-m", message, "--allow-empty-message"],
         cwd=cwd, capture_output=True, text=True, timeout=15,
@@ -215,21 +233,20 @@ def create_snapshot(worktree_path: str, *, run_id: Optional[str] = None) -> Opti
         return None
 
     # 获取 commit hash
-    rev = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+    hash_result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
         cwd=cwd, capture_output=True, text=True, timeout=5,
     )
-    commit_hash = rev.stdout.strip() if rev.returncode == 0 else None
-
-    logger.info("worktree snapshot 创建: commit=%s run_id=%s", commit_hash, run_id)
+    commit_hash = hash_result.stdout.strip()
+    logger.info("snapshot 已创建: %s (run=%s)", commit_hash, run_id)
     return commit_hash
 
 
-def list_snapshots(worktree_path: str) -> list[dict[str, Any]]:
-    """列出 worktree 中的所有 snapshot（git log）。"""
+def list_snapshots(workspace_path: str) -> list[dict[str, Any]]:
+    """列出 workspace 中所有 snapshot commit。"""
     result = subprocess.run(
-        ["git", "log", "--format=%H|%s|%ai|%an", "--no-merges"],
-        cwd=str(worktree_path),
+        ["git", "log", "--oneline", "--format=%H|%h|%s|%ci"],
+        cwd=str(workspace_path),
         capture_output=True, text=True, timeout=10,
     )
     if result.returncode != 0:
@@ -238,83 +255,162 @@ def list_snapshots(worktree_path: str) -> list[dict[str, Any]]:
     snapshots = []
     for line in result.stdout.strip().splitlines():
         parts = line.split("|", 3)
-        if len(parts) < 3:
-            continue
-        commit_hash = parts[0]
-
-        # 获取变更文件数
-        stat = subprocess.run(
-            ["git", "diff", "--stat", "--name-only", f"{commit_hash}~1..{commit_hash}"],
-            cwd=str(worktree_path),
-            capture_output=True, text=True, timeout=5,
-        )
-        files = [f for f in stat.stdout.strip().splitlines() if f] if stat.returncode == 0 else []
-
-        snapshots.append({
-            "commit_hash": commit_hash,
-            "message": parts[1] if len(parts) > 1 else "",
-            "timestamp": parts[2] if len(parts) > 2 else "",
-            "files_changed": len(files),
-            "files": files[:20],  # 最多返回 20 个文件名
-        })
+        if len(parts) == 4:
+            snapshots.append({
+                "hash": parts[0],
+                "short_hash": parts[1],
+                "message": parts[2],
+                "date": parts[3],
+            })
     return snapshots
 
 
-def get_diff_stats(worktree_path: str, commit_hash: str) -> dict[str, Any]:
-    """预览回滚到指定 commit 的影响。"""
+def get_diff_stats(workspace_path: str, commit_hash: str) -> Optional[str]:
+    """获取某个 commit 相对前一个 commit 的 diff 统计。"""
     result = subprocess.run(
-        ["git", "diff", "--stat", f"{commit_hash}..HEAD"],
-        cwd=str(worktree_path),
+        ["git", "diff", "--stat", f"{commit_hash}~1", commit_hash],
+        cwd=str(workspace_path),
         capture_output=True, text=True, timeout=10,
     )
-    name_result = subprocess.run(
-        ["git", "diff", "--name-status", f"{commit_hash}..HEAD"],
-        cwd=str(worktree_path),
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def get_current_changes(workspace_path: str) -> Optional[str]:
+    """获取当前未提交的变更摘要。"""
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=str(workspace_path),
         capture_output=True, text=True, timeout=10,
     )
-
-    files = []
-    if name_result.returncode == 0:
-        for line in name_result.stdout.strip().splitlines():
-            parts = line.split("\t", 1)
-            if len(parts) == 2:
-                files.append({"status": parts[0], "file": parts[1]})
-
-    return {
-        "target_commit": commit_hash,
-        "stat_summary": result.stdout.strip() if result.returncode == 0 else "",
-        "files_affected": len(files),
-        "files": files[:50],
-    }
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 
-def rewind_to_snapshot(worktree_path: str, commit_hash: str) -> dict[str, Any]:
-    """回滚 worktree 到指定 snapshot（git reset --hard）。"""
-    # 先获取影响预览
-    diff_stats = get_diff_stats(worktree_path, commit_hash)
+def rewind_to_snapshot(workspace_path: str, commit_hash: str) -> dict[str, Any]:
+    """
+    回滚到指定 snapshot。
 
+    Returns:
+        {"success": bool, "message": str}
+    """
     result = subprocess.run(
         ["git", "reset", "--hard", commit_hash],
-        cwd=str(worktree_path),
+        cwd=str(workspace_path),
         capture_output=True, text=True, timeout=15,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"git reset 失败: {result.stderr.strip()}")
+        return {"success": False, "message": f"回滚失败: {result.stderr.strip()}"}
 
-    logger.info("worktree 已回滚: commit=%s files=%d", commit_hash, diff_stats["files_affected"])
-    return {
-        "success": True,
-        "reverted_to": commit_hash,
-        "files_affected": diff_stats["files_affected"],
-        "files": diff_stats["files"],
-    }
+    logger.info("已回滚到 snapshot: %s", commit_hash)
+    return {"success": True, "message": f"已回滚到 {commit_hash}"}
 
 
-def get_current_changes(worktree_path: str) -> str:
-    """获取 worktree 中未提交的变更。"""
+# ══════════════════════════════════════════════════════════════════════════
+#  Worktree 层（保留给 D5 子 Agent 并行）
+# ══════════════════════════════════════════════════════════════════════════
+
+def create_worktree(original_workspace: str, session_id: str) -> str:
+    """
+    为 session 创建独立 worktree（用于子 agent 隔离）。
+
+    Returns:
+        worktree 路径字符串
+    """
+    worktree_path = _worktree_dir(session_id)
+    branch = _branch_name(session_id)
+
+    if worktree_path.exists():
+        logger.info("worktree 已存在: %s", worktree_path)
+        return str(worktree_path)
+
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["git", "diff"],
-        cwd=str(worktree_path),
-        capture_output=True, text=True, timeout=10,
+        ["git", "worktree", "add", "-B", branch, str(worktree_path)],
+        cwd=str(original_workspace),
+        capture_output=True, text=True, timeout=30,
     )
-    return result.stdout if result.returncode == 0 else ""
+    if result.returncode != 0:
+        raise RuntimeError(f"git worktree add 失败: {result.stderr.strip()}")
+
+    # 写 meta
+    meta = {
+        "original_workspace": str(original_workspace),
+        "session_id": session_id,
+        "type": "worktree",
+        "branch": branch,
+        "created_at": datetime.datetime.now().isoformat(),
+    }
+    _meta_path(session_id).write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    logger.info("worktree 已创建: %s (branch=%s)", worktree_path, branch)
+    return str(worktree_path)
+
+
+def remove_worktree(session_id: str) -> bool:
+    """移除 session 对应的 worktree 和分支。"""
+    worktree_path = _worktree_dir(session_id)
+    meta_file = _meta_path(session_id)
+
+    if not worktree_path.exists() and not meta_file.exists():
+        return False
+
+    original = get_original_workspace(session_id)
+
+    # 移除 worktree
+    if worktree_path.exists():
+        try:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree_path)],
+                cwd=str(original) if original else str(worktree_path),
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception as e:
+            logger.warning("worktree remove 失败: %s", e)
+            import shutil
+            shutil.rmtree(str(worktree_path), ignore_errors=True)
+
+    # 删除分支
+    branch = _branch_name(session_id)
+    if original:
+        try:
+            subprocess.run(
+                ["git", "branch", "-D", branch],
+                cwd=str(original),
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            pass
+
+    # 清理 meta
+    meta_file.unlink(missing_ok=True)
+    logger.info("worktree 已清理: session=%s", session_id)
+    return True
+
+
+# ── Worktree 查询辅助 ──────────────────────────────────────────────────────
+
+def worktree_exists(session_id: str) -> bool:
+    """检查 session 是否有对应的 worktree 目录。"""
+    return _worktree_dir(session_id).is_dir()
+
+
+def get_worktree_path(session_id: str) -> Optional[str]:
+    """获取 session 的 worktree 路径，不存在则返回 None。"""
+    d = _worktree_dir(session_id)
+    return str(d) if d.is_dir() else None
+
+
+def get_original_workspace(session_id: str) -> Optional[str]:
+    """从 meta 获取原始 workspace 路径。"""
+    meta_file = _meta_path(session_id)
+    if not meta_file.exists():
+        return None
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        return meta.get("original_workspace")
+    except Exception:
+        return None

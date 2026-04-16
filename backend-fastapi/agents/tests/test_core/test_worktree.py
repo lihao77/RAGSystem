@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Git worktree 隔离模块测试。
+Git snapshot 回退与 worktree 隔离模块测试。
 """
 
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -12,15 +11,19 @@ from pathlib import Path
 import pytest
 
 from utils.worktree import (
+    cleanup_snapshot,
     create_snapshot,
     create_worktree,
+    ensure_git_snapshot,
     get_original_workspace,
+    get_snapshot_workspace,
     get_worktree_path,
     is_already_worktree,
     is_git_repo,
     list_snapshots,
     remove_worktree,
     rewind_to_snapshot,
+    snapshot_enabled,
     worktree_exists,
 )
 
@@ -33,7 +36,6 @@ def git_repo(tmp_path):
     subprocess.run(["git", "init"], cwd=str(repo), capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(repo), capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=str(repo), capture_output=True)
-    # 初始 commit（git worktree add 需要至少一个 commit）
     (repo / "README.md").write_text("# Test Project\n")
     subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=str(repo), capture_output=True)
@@ -43,8 +45,6 @@ def git_repo(tmp_path):
 @pytest.fixture
 def non_git_dir(tmp_path):
     """在 git 仓库外创建普通目录。"""
-    # 使用独立的临时目录确保不在任何 git repo 内
-    import tempfile
     d = Path(tempfile.mkdtemp(prefix="non_git_"))
     yield d
     import shutil
@@ -59,6 +59,10 @@ def _patch_worktrees_root(tmp_path, monkeypatch):
     test_root.mkdir()
     monkeypatch.setattr(wt_mod, "WORKTREES_ROOT", test_root)
 
+
+# ══════════════════════════════════════════════════════════════════════════
+#  检测辅助
+# ══════════════════════════════════════════════════════════════════════════
 
 class TestIsGitRepo:
     def test_detects_git_repo(self, git_repo):
@@ -82,107 +86,166 @@ class TestIsAlreadyWorktree:
             cwd=str(git_repo), capture_output=True,
         )
         assert is_already_worktree(str(wt_path)) is True
-        # cleanup
         subprocess.run(["git", "worktree", "remove", "--force", str(wt_path)], cwd=str(git_repo), capture_output=True)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  Snapshot 层
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestEnsureGitSnapshot:
+    def test_existing_git_repo(self, git_repo):
+        """已有 git repo 直接可用，写 meta。"""
+        result = ensure_git_snapshot(str(git_repo), "sess-git-1")
+        assert result is True
+        assert snapshot_enabled("sess-git-1")
+        assert get_snapshot_workspace("sess-git-1") == str(git_repo)
+
+    def test_non_git_dir_gets_initialized(self, non_git_dir):
+        """非 git 目录被 git init。"""
+        assert not is_git_repo(str(non_git_dir))
+        result = ensure_git_snapshot(str(non_git_dir), "sess-nongit-1")
+        assert result is True
+        assert is_git_repo(str(non_git_dir))
+        assert snapshot_enabled("sess-nongit-1")
+
+    def test_idempotent(self, git_repo):
+        """重复调用不出错。"""
+        ensure_git_snapshot(str(git_repo), "sess-idem-1")
+        ensure_git_snapshot(str(git_repo), "sess-idem-1")
+        assert snapshot_enabled("sess-idem-1")
+
+
+class TestSnapshotEnabled:
+    def test_false_without_setup(self):
+        assert snapshot_enabled("nonexistent-session") is False
+
+    def test_true_after_ensure(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-enabled-1")
+        assert snapshot_enabled("sess-enabled-1") is True
+
+
+class TestGetSnapshotWorkspace:
+    def test_returns_none_without_setup(self):
+        assert get_snapshot_workspace("nonexistent") is None
+
+    def test_returns_path_after_ensure(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-ws-1")
+        assert get_snapshot_workspace("sess-ws-1") == str(git_repo)
+
+
+class TestSnapshotCycleGitRepo:
+    def test_write_snapshot_list_rewind(self, git_repo):
+        """git repo: 写文件 → snapshot → list → rewind。"""
+        session_id = "sess-cycle-git-1"
+        ensure_git_snapshot(str(git_repo), session_id)
+        workspace = str(git_repo)
+
+        # snapshot 1: 写入 file1
+        (git_repo / "file1.txt").write_text("original")
+        hash1 = create_snapshot(workspace, run_id="run-1")
+        assert hash1 is not None
+
+        # snapshot 2: 修改 file1，新建 file2
+        (git_repo / "file1.txt").write_text("modified")
+        (git_repo / "file2.txt").write_text("new file")
+        hash2 = create_snapshot(workspace, run_id="run-2")
+        assert hash2 is not None
+
+        # 验证 list
+        snapshots = list_snapshots(workspace)
+        assert len(snapshots) >= 2
+        messages = [s["message"] for s in snapshots]
+        assert any("run-1" in m for m in messages)
+        assert any("run-2" in m for m in messages)
+
+        # 验证当前状态
+        assert (git_repo / "file1.txt").read_text() == "modified"
+        assert (git_repo / "file2.txt").exists()
+
+        # 回滚到 snapshot 1
+        result = rewind_to_snapshot(workspace, hash1)
+        assert result["success"] is True
+
+        # 验证回滚
+        assert (git_repo / "file1.txt").read_text() == "original"
+        assert not (git_repo / "file2.txt").exists()
+
+
+class TestSnapshotCycleNonGit:
+    def test_init_write_snapshot_rewind(self, non_git_dir):
+        """非 git 目录: init → 写文件 → snapshot → rewind。"""
+        session_id = "sess-cycle-nongit-1"
+        ensure_git_snapshot(str(non_git_dir), session_id)
+        workspace = str(non_git_dir)
+
+        # 写入文件并 snapshot
+        (non_git_dir / "data.txt").write_text("version1")
+        hash1 = create_snapshot(workspace, run_id="run-1")
+        assert hash1 is not None
+
+        # 修改并 snapshot
+        (non_git_dir / "data.txt").write_text("version2")
+        hash2 = create_snapshot(workspace, run_id="run-2")
+        assert hash2 is not None
+
+        # 回滚
+        result = rewind_to_snapshot(workspace, hash1)
+        assert result["success"] is True
+        assert (non_git_dir / "data.txt").read_text() == "version1"
+
+
+class TestCreateSnapshot:
+    def test_skips_when_no_changes(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-nochange")
+        commit_hash = create_snapshot(str(git_repo), run_id="run-empty")
+        assert commit_hash is None
+
+
+class TestCleanupSnapshot:
+    def test_cleanup_existing_repo(self, git_repo):
+        """已有 git 的 → 不删 .git。"""
+        ensure_git_snapshot(str(git_repo), "sess-cleanup-git")
+        cleanup_snapshot("sess-cleanup-git")
+        # .git 应该仍存在（不是我们创建的）
+        assert (git_repo / ".git").exists()
+        assert not snapshot_enabled("sess-cleanup-git")
+
+    def test_cleanup_git_initialized(self, non_git_dir):
+        """我们 init 的 → 清理 .git。"""
+        ensure_git_snapshot(str(non_git_dir), "sess-cleanup-nongit")
+        assert (non_git_dir / ".git").exists()
+        cleanup_snapshot("sess-cleanup-nongit")
+        assert not (non_git_dir / ".git").exists()
+        assert not snapshot_enabled("sess-cleanup-nongit")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  Worktree 层（保留给 D5）
+# ══════════════════════════════════════════════════════════════════════════
+
 class TestCreateWorktree:
     def test_creates_worktree_and_returns_path(self, git_repo):
-        session_id = "sess-001"
+        session_id = "sess-wt-001"
         result = create_worktree(str(git_repo), session_id)
         assert Path(result).is_dir()
         assert worktree_exists(session_id)
-        # meta 文件存在
         assert get_original_workspace(session_id) == str(git_repo)
 
     def test_worktree_file_isolation(self, git_repo):
         """在 worktree 中写文件不影响原 repo。"""
-        session_id = "sess-002"
+        session_id = "sess-wt-002"
         wt_path = create_worktree(str(git_repo), session_id)
-
-        # 在 worktree 中写入新文件
         (Path(wt_path) / "agent_output.txt").write_text("hello from agent")
-
-        # 原 repo 中该文件不存在
         assert not (git_repo / "agent_output.txt").exists()
-
-        # worktree 中存在
         assert (Path(wt_path) / "agent_output.txt").exists()
-
-
-class TestCreateSnapshot:
-    def test_creates_commit_when_changes_exist(self, git_repo):
-        session_id = "sess-snap-1"
-        wt_path = create_worktree(str(git_repo), session_id)
-
-        # 写入文件
-        (Path(wt_path) / "new_file.txt").write_text("content")
-
-        commit_hash = create_snapshot(wt_path, run_id="run-001")
-        assert commit_hash is not None
-        assert len(commit_hash) >= 7
-
-    def test_skips_when_no_changes(self, git_repo):
-        session_id = "sess-snap-2"
-        wt_path = create_worktree(str(git_repo), session_id)
-
-        # 不做任何修改
-        commit_hash = create_snapshot(wt_path, run_id="run-002")
-        assert commit_hash is None
-
-
-class TestListSnapshots:
-    def test_lists_snapshots(self, git_repo):
-        session_id = "sess-list-1"
-        wt_path = create_worktree(str(git_repo), session_id)
-
-        # 创建两个 snapshot
-        (Path(wt_path) / "file1.txt").write_text("v1")
-        create_snapshot(wt_path, run_id="run-1")
-
-        (Path(wt_path) / "file2.txt").write_text("v2")
-        create_snapshot(wt_path, run_id="run-2")
-
-        snapshots = list_snapshots(wt_path)
-        # 至少 2 个 agent snapshot + 1 个 initial commit
-        assert len(snapshots) >= 2
-        assert any("run-1" in s["message"] for s in snapshots)
-        assert any("run-2" in s["message"] for s in snapshots)
-
-
-class TestRewindToSnapshot:
-    def test_rewind_restores_file_state(self, git_repo):
-        session_id = "sess-rewind-1"
-        wt_path = create_worktree(str(git_repo), session_id)
-
-        # snapshot 1: 写入 file1
-        (Path(wt_path) / "file1.txt").write_text("original")
-        hash1 = create_snapshot(wt_path, run_id="run-1")
-
-        # snapshot 2: 修改 file1，新建 file2
-        (Path(wt_path) / "file1.txt").write_text("modified")
-        (Path(wt_path) / "file2.txt").write_text("new file")
-        create_snapshot(wt_path, run_id="run-2")
-
-        # 验证当前状态
-        assert (Path(wt_path) / "file1.txt").read_text() == "modified"
-        assert (Path(wt_path) / "file2.txt").exists()
-
-        # 回滚到 snapshot 1
-        result = rewind_to_snapshot(wt_path, hash1)
-        assert result["success"] is True
-
-        # 验证回滚结果
-        assert (Path(wt_path) / "file1.txt").read_text() == "original"
-        assert not (Path(wt_path) / "file2.txt").exists()
 
 
 class TestRemoveWorktree:
     def test_removes_worktree_and_meta(self, git_repo):
-        session_id = "sess-rm-1"
+        session_id = "sess-wt-rm-1"
         create_worktree(str(git_repo), session_id)
         assert worktree_exists(session_id)
-
         result = remove_worktree(session_id)
         assert result is True
         assert not worktree_exists(session_id)
@@ -197,7 +260,6 @@ class TestNonGitWorkspaceSkips:
         assert is_git_repo(str(non_git_dir)) is False
 
     def test_worktree_not_created_for_non_git(self, non_git_dir):
-        """非 git 目录场景下 worktree 不会被创建。"""
         assert not worktree_exists("fake-session")
         assert get_worktree_path("fake-session") is None
 
@@ -205,17 +267,12 @@ class TestNonGitWorkspaceSkips:
 class TestChildAgentNoSnapshot:
     def test_parent_call_id_skips_snapshot(self, git_repo):
         """模拟子 agent 的 state（有 parent_call_id），验证不触发 snapshot。"""
-        from unittest.mock import MagicMock
-
         session_id = "sess-child-1"
-        wt_path = create_worktree(str(git_repo), session_id)
-
-        # 写入文件
-        (Path(wt_path) / "child_output.txt").write_text("from child")
+        ensure_git_snapshot(str(git_repo), session_id)
+        (git_repo / "child_output.txt").write_text("from child")
 
         # 模拟 BaseAgent._worktree_auto_snapshot 的判断逻辑
         state = {"parent_call_id": "some-parent-id", "run_id": "child-run"}
-        # 子 agent 有 parent_call_id → 应该跳过
         if state.get("parent_call_id"):
             skipped = True
         else:
@@ -226,8 +283,7 @@ class TestChildAgentNoSnapshot:
         # 确认没有新 commit（除了 initial）
         result = subprocess.run(
             ["git", "log", "--oneline"],
-            cwd=wt_path, capture_output=True, text=True,
+            cwd=str(git_repo), capture_output=True, text=True,
         )
-        # 只有 initial commit，没有 agent snapshot
         lines = result.stdout.strip().splitlines()
         assert not any("agent snapshot" in line for line in lines)

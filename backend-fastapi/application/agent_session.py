@@ -82,15 +82,15 @@ class AgentSessionApplication:
         if not session:
             return False
 
-        # ── 清理 git worktree ──
+        # ── 清理 snapshot 元数据 ──
         try:
-            from utils.worktree import get_worktree_path, remove_worktree
-            if get_worktree_path(session_id):
-                remove_worktree(session_id)
+            from utils.worktree import snapshot_enabled, cleanup_snapshot
+            if snapshot_enabled(session_id):
+                cleanup_snapshot(session_id)
         except Exception:
             import logging
             logging.getLogger(__name__).warning(
-                "delete_session: 清理 worktree 失败 (session=%s)", session_id, exc_info=True
+                "delete_session: 清理 snapshot 失败 (session=%s)", session_id, exc_info=True
             )
 
         try:
