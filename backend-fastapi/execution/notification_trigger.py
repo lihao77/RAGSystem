@@ -176,6 +176,8 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
                 sse_adapter.stop()
             except Exception:
                 pass
+            from execution.cleanup import cleanup_after_run
+            cleanup_after_run(session_id, run_id)
             # 兜底：WS 断连期间可能错过事件，推送 session.updated 触发前端全量历史刷新
             try:
                 global_bus.publish(Event(

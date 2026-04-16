@@ -913,8 +913,13 @@ const handleWSMessage = (event, sessionId) => {
 
   // command.result — 斜杠命令结果
   if (eventType === 'command.result') {
-    _clearCommandFallback();
     const cmdData = event.data || event;
+    // command.started：命令已开始执行，延长 fallback 超时
+    if (cmdData.type === 'command.started') {
+      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
+      return;
+    }
+    _clearCommandFallback();
     // 查找或创建 assistant 占位消息（保持 role=assistant，用 metadata.type 区分渲染）
     let targetIndex = messages.value.length - 1;
     let targetMsg = messages.value[targetIndex];

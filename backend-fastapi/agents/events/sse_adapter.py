@@ -45,7 +45,7 @@ def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
 
 def event_to_client_dict(event: "Event") -> dict:
     """将 Event 对象转换为客户端字典格式（SSE 和 WebSocket 共用）。"""
-    return {
+    d = {
         "type": event.type.value,
         "event_id": event.event_id,
         "timestamp": event.timestamp,
@@ -61,6 +61,7 @@ def event_to_client_dict(event: "Event") -> dict:
         "user_action_timeout": event.user_action_timeout,
         "seq": event.sequence_number,
     }
+    return {k: v for k, v in d.items() if v is not None}
 
 
 class SSEAdapter:

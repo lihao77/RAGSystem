@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections import defaultdict
 from typing import Optional
@@ -117,7 +118,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
     run_changed = asyncio.Event()  # SESSION_RUN_STARTED 时 set，唤醒 watcher
     global_bus = None
     global_sub_id: Optional[str] = None
-    closed = False
+    closed = threading.Event()
     run_binding = {'run_id': None, 'bus': None, 'subscription_id': None}
 
     try:
@@ -130,7 +131,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
 
         def _on_event(event: Event):
             """EventBus handler（同步，在发布线程调用）。"""
-            if closed:
+            if closed.is_set():
                 return
             try:
                 loop.call_soon_threadsafe(_enqueue_event, queue, event, session_id)
@@ -175,7 +176,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
     except Exception as exc:
         logger.warning('[WS] 异常断开 session=%s: %s', session_id, exc)
     finally:
-        closed = True
+        closed.set()
         if global_bus is not None and global_sub_id:
             try:
                 global_bus.unsubscribe(global_sub_id)
@@ -223,7 +224,11 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
 # ── 接收循环 ──────────────────────────────────────────────
 
 async def _ws_recv_loop(ws: WebSocket, session_id: str):
-    """接收客户端消息（stop / approve / user_input）。"""
+    """接收客户端消息（stop / approve / user_input）。
+
+    注意：当前前端仍通过 REST API 发送审批/输入/停止请求。
+    此处的 WS 双向通道为后续迁移预留，前端迁移后可移除对应 REST 端点。
+    """
     while True:
         try:
             raw = await ws.receive_text()
@@ -339,6 +344,19 @@ async def _sync_active_run_subscription(
     """确保当前 WS 已订阅 session 的活跃 run 总线，并在 run 切换时自动回放。"""
     status = await _get_running_status(container, session_id)
     if not status:
+        # run 已结束但 WS 仍持有旧订阅 → 清理并通知前端
+        if run_binding.get('run_id'):
+            finished_run_id = run_binding['run_id']
+            _clear_run_subscription(run_binding)
+            try:
+                await _send_json(ws, {
+                    'type': 'run.end',
+                    'session_id': session_id,
+                    'run_id': finished_run_id,
+                    'synthetic': True,
+                }, send_lock)
+            except Exception:
+                pass
         return
 
     run_id = status.get('run_id')
@@ -460,7 +478,7 @@ def _drain_stale_events(queue: asyncio.Queue, max_seq: int):
 
 
 def _evict_non_critical(queue: asyncio.Queue):
-    """从 queue 尾部扫描最多 10 个元素，驱逐第一个非关键事件腾出空间。"""
+    """从 queue 头部扫描最多 10 个元素，驱逐第一个非关键事件腾出空间。"""
     scanned = []
     evicted = False
     scan_limit = min(10, queue.qsize())

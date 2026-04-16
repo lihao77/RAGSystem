@@ -98,6 +98,7 @@ def _ensure_request_id(request_id=None) -> str:
 
 def _drain_sse_adapter_background(sse_adapter, session_id: str, run_id: str):
     """后台线程消费 SSEAdapter 防止 queue 溢出，run 结束后清理资源。"""
+    from execution.cleanup import cleanup_after_run
 
     def _drain():
         try:
@@ -110,28 +111,7 @@ def _drain_sse_adapter_background(sse_adapter, session_id: str, run_id: str):
                 sse_adapter.stop()
             except Exception:
                 pass
-            # 清理 run event bus
-            try:
-                current_status = get_execution_service().get_status_by_session(session_id)
-                should_cleanup = not current_status or current_status.get('status') != 'running'
-                if current_status:
-                    current_run_id = current_status.get('run_id')
-                    should_cleanup = current_run_id == run_id or current_status.get('status') != 'running'
-                if should_cleanup:
-                    from agents.events.session_manager import cleanup_run
-                    cleanup_run(run_id)
-            except Exception:
-                pass
-            # flush session cache
-            try:
-                from agents.context.session_cache import flush_session
-                flush_session(session_id)
-            except Exception:
-                pass
-            try:
-                get_execution_service().cleanup_finished()
-            except Exception:
-                pass
+            cleanup_after_run(session_id, run_id)
 
     threading.Thread(target=_drain, daemon=True, name=f'drain-{session_id[:8]}').start()
 
@@ -159,6 +139,11 @@ async def _execute_system_command_async(session_id: str, cmd_name: str, cmd_args
     cancel_event = threading.Event()
     _active_system_commands[session_id] = cancel_event
     try:
+        # 通知前端命令已开始执行（用于延长 fallback 超时）
+        _publish_command_result(session_id, {
+            'command': cmd_name.lstrip('/'), 'type': 'command.started',
+        })
+
         # 持久化用户命令消息
         try:
             from dependencies import get_agent_runtime_service
