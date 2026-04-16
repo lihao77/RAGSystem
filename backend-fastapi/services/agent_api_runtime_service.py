@@ -91,14 +91,29 @@ class AgentApiRuntimeService:
         session = self._conversation_store.get_session(normalized_session_id) or {}
         metadata = session.get('metadata') or {}
         workspace_root = metadata.get('workspace_root')
-        resolved_workspace_root = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else str(get_session_workspace_root(normalized_session_id))
+        original = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else str(get_session_workspace_root(normalized_session_id))
+
+        # ── git worktree 隔离：自动为 git repo 创建独立工作副本 ──
+        try:
+            from utils.worktree import is_git_repo, is_already_worktree, create_worktree, get_worktree_path
+            existing = get_worktree_path(normalized_session_id)
+            if existing:
+                logger.debug('session workspace_root → worktree: session_id=%s path=%s', normalized_session_id, existing)
+                return existing
+            if original and is_git_repo(original) and not is_already_worktree(original):
+                worktree = create_worktree(original, normalized_session_id)
+                logger.info('session workspace_root → 新建 worktree: session_id=%s path=%s', normalized_session_id, worktree)
+                return worktree
+        except Exception as exc:
+            logger.warning('worktree 创建失败，回退到原路径: session_id=%s error=%s', normalized_session_id, exc)
+
         logger.debug(
             'session workspace_root 查询: session_id=%s workspace_root=%s metadata_keys=%s',
             normalized_session_id,
-            resolved_workspace_root,
+            original,
             sorted(metadata.keys()),
         )
-        return resolved_workspace_root
+        return original
 
     def _normalize_session_entry_agent(self, entry_agent: str | None, orchestrator=None) -> Optional[str]:
         normalized_entry_agent = entry_agent.strip() if isinstance(entry_agent, str) and entry_agent.strip() else None

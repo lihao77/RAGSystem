@@ -1917,9 +1917,28 @@ class BaseAgent(ABC):
                 )
         finally:
             try:
+                self._worktree_auto_snapshot(context, state)
+            except Exception:
+                pass
+            try:
                 self._cleanup_execution(context, state)
             except Exception as cleanup_error:
                 self.logger.warning("清理执行态资源失败: %s", cleanup_error, exc_info=True)
+
+    def _worktree_auto_snapshot(self, context: AgentContext, state: dict):
+        """root agent run 结束时，在 worktree 里自动 commit 形成 snapshot。"""
+        if state.get('parent_call_id'):
+            return
+        session_id = context.metadata.get('session_id') if hasattr(context, 'metadata') else None
+        workspace_root = context.metadata.get('workspace_root') if hasattr(context, 'metadata') else None
+        if not session_id or not workspace_root:
+            return
+        try:
+            from utils.worktree import create_snapshot, worktree_exists
+            if worktree_exists(session_id):
+                create_snapshot(workspace_root, run_id=state.get('run_id'))
+        except Exception as e:
+            self.logger.debug("worktree auto-snapshot 失败: %s", e)
 
     def _check_interrupt(self, context: AgentContext):
         """检查是否被用户中断"""

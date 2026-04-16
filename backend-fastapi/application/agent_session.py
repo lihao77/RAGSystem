@@ -81,6 +81,18 @@ class AgentSessionApplication:
         session = self.get_session(session_id)
         if not session:
             return False
+
+        # ── 清理 git worktree ──
+        try:
+            from utils.worktree import get_worktree_path, remove_worktree
+            if get_worktree_path(session_id):
+                remove_worktree(session_id)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "delete_session: 清理 worktree 失败 (session=%s)", session_id, exc_info=True
+            )
+
         try:
             from tools.artifacts.visualization_artifact_manager import get_visualization_artifact_manager
             removed = get_visualization_artifact_manager().delete_by_session(session_id)

@@ -1,6 +1,8 @@
 # 运行时缺陷分析与实施路线（2026-04-14）
 
-> 状态更新（2026-04-15）：D2 Phase 1 已完成，系统已具备 `task_output` / `task_stop`，并支持 `task_output(block=true)` 驱动 run 内 waiting loop。本文中关于“后台任务只能启动、尚无查询/停止工具”的表述仅代表旧阶段结论；当前 D2 剩余重点是 Phase 2：后台任务完成结果的自动注入。
+> 状态更新（2026-04-16）：经代码复审，D1（工具并行执行）与 D2（后台任务完成结果自动注入）均已完成。`BaseAgent._handle_actions()` 已按 `result_N` 依赖分批，并在批次内使用 `ThreadPoolExecutor` 并行执行；后台任务完成后也已通过 session 通知队列与 waiting loop 自动注入 Agent observation。本文其余内容若仍将 D1 / D2 标记为待做，均属于过期结论，已在本次更新中修正。
+
+> 状态更新（2026-04-16）：D3（文件变更回退）已完成。采用 **git worktree 隔离方案**对标 Claude Code：为 session 自动创建独立 worktree，agent 文件操作在隔离环境中进行，root run 结束时自动 commit 形成 snapshot，支持 `list_file_snapshots` 列出和 `restore_file_snapshot` 回滚到任意 snapshot（`git reset --hard`），session 删除时自动清理 worktree。核心模块：`utils/worktree.py`。
 
 > 目标：沉淀当前系统在运行时/执行层相对 Claude Code 的关键差距，并给出可直接排期实施的顺序化路线。
 >
@@ -10,19 +12,22 @@
 
 ## 0. 先说结论
 
-当前系统的主要短板不在基础工具框架，而在**执行编排层**：
+当前系统的主要剩余短板已经收敛到**执行编排层的后半段能力**：
 
-1. **工具执行完全串行**，一轮内多个独立工具不能并发。
-2. **后台任务闭环当前只剩 Phase 2**，Phase 1（查询 / 停止 / 显式等待）已完成，但尚未形成“后台完成结果自动注入 Agent 语境”的闭环。
-3. **Checkpoint 只覆盖对话状态，不覆盖文件变更状态**，写错文件后缺乏系统级回退手段。
-4. **日志基础可用，但缺统一治理**，已有 structured logger 基础设施未真正接入。
-5. **子 Agent 调用仍然串行**，无法高效做多路并发收集。
+1. **工具并行执行已完成**，`BaseAgent._handle_actions()` 已支持按 `result_N` 依赖分批，并在批次内并行执行。
+2. **后台任务闭环已完成**，后台任务完成结果已可通过 session 通知队列与 waiting loop 自动注入 Agent 语境。
+3. **文件变更回退已完成**，采用 git worktree 隔离方案，agent 文件操作在独立 worktree 中进行，支持 per-run auto-commit snapshot 与按 commit 回滚。
+4. **日志主线治理已完成**，后续更偏向降噪与体验优化，而不是补主线缺口。
+5. **子 Agent 调度仍缺专门的并行能力确认与专项验收**，虽然已受益于工具层并行调度，但仍值得单独作为上层编排能力评估。
 6. **超时只有单次超时控制，没有重试/熔断策略**。
 
 **已确认不是缺陷的项**：
 - 上下文压缩：**已有**，不属于当前缺口。
 - Hooks：**已完成**，不再纳入本报告。
 - 大结果落盘：**已完成**，不再纳入本报告。
+- D1 工具并行执行：**已完成**。
+- D2 后台任务自动注入：**已完成**。
+- D3 文件变更回退：**已完成**（git worktree 隔离）。
 
 ---
 
@@ -30,33 +35,33 @@
 
 | 编号 | 缺陷 | 优先级 | 当前状态 | 建议策略 |
 |---|---|---:|---|---|
-| D1 | 工具并行执行缺失 | P0 | 完全串行 | 先做 |
-| D2 | 后台任务闭环剩余 Phase 2 | P0 | Phase 1 已完成，自动注入待补 | 与 D1 并行推进 |
-| D3 | 文件变更无系统级回退 | P1 | 仅对话级回退 | 第二批 |
-| D4 | 日志统一治理不足 | P1 | 基础可用但分散 | 第一批先做 |
-| D5 | 子 Agent 并行缺失 | P2 | call_agent 串行 | 依赖 D1 |
-| D6 | 超时重试/熔断缺失 | P2 | 只有 timeout | 第二/三批 |
+| D1 | 工具并行执行 | - | 已完成 | 转为已交付能力，保留验收结论 |
+| D2 | 后台任务闭环 | - | 已完成（含自动注入） | 转为已交付能力，保留闭环说明 |
+| D3 | 文件变更无系统级回退 | - | 已完成（git worktree 隔离） | 转为已交付能力 |
+| D4 | 日志统一治理 | - | 主线治理已完成 | 后续仅做降噪/体验优化 |
+| D5 | 子 Agent 并行能力专项收口 | P1 | 需补专项验证与文档收口 | 在 D3 之后推进 |
+| D6 | 超时重试/熔断缺失 | P1 | 只有 timeout | 与 D5 同批或随后推进 |
 
 ---
 
 ## 2. 已验证事实
 
-### 2.1 工具执行现状：完全串行
+### 2.1 工具执行现状：已支持依赖分批并行
 
 **关键证据**：
-- `backend-fastapi/agents/core/base.py` 中 `_handle_actions()` 对 `actions` 使用串行 `for` 循环逐个调用 `execute_tool()`。
-- `backend-fastapi/tools/runtime/executor.py` 的 `execute_tool()` 是**单工具同步执行入口**，没有批量接口，也没有并发调度层。
-- `backend-fastapi/agents/streaming/tool_xml_parser.py` 虽然支持一轮解析多个 `<tool>`，但这些 action 进入 `_handle_actions()` 后仍然串行消费。
-- `backend-fastapi/api/v1/execution.py` 已明确对非 `sequential` 模式返回“并行模式尚未实现”。
+- `backend-fastapi/agents/core/base.py` 中 `_build_execution_batches()` 会按 `result_N` 依赖对 actions 分批。
+- 同文件 `_handle_actions()` 对单个批次使用 `ThreadPoolExecutor` 并行执行，并在批次之间保持串行。
+- `_execute_single_action()` 在并发执行时通过 `threading.Lock()` 保护共享结果与历史记录。
+- `backend-fastapi/tools/runtime/executor.py` 仍是**单工具执行入口**；并行调度发生在 agent core 层，而非 runtime executor 批量 API。
 
 **结论**：
-- 当前系统支持“一轮输出多个工具调用”，但**不支持一轮并行执行多个工具**。
+- 当前系统已支持“同一轮多个独立工具并行执行”。
 - 当前实现本质是：
-  `LLM 输出 -> actions 列表 -> 串行执行 -> observations 汇总 -> 下一轮推理`
+  `LLM 输出 -> actions 列表 -> 依赖分批 -> 批次内并行执行 -> observations 稳定合并 -> 下一轮推理`
 
 ---
 
-### 2.2 后台任务现状：Phase 1 已完成，Phase 2 待补
+### 2.2 后台任务现状：闭环已完成
 
 **关键证据**：
 - `backend-fastapi/tools/local/bash_tool.py` 已支持 `run_in_background=true`。
@@ -66,36 +71,38 @@
   - 状态记录
   - 超时结束
   - 完成事件发布
+  - session 级完成通知入队
+  - session 空闲时自动触发通知消费
 - `BACKGROUND_TASK_COMPLETED` 事件已接入 EventBus，并可经 SSE 推送到前端。
 - 系统已经提供 `task_output` / `task_stop` 供 Agent 查询、显式等待与停止后台任务。
-
-**当前剩余缺口**：
-- Agent 主循环默认不会把“已完成后台任务结果”自动注入后续推理语境。
-- 因此当前仍需要 Agent 显式调用 `task_output` 回收结果，或通过 `task_output(block=true)` 进入 waiting loop。
+- `backend-fastapi/agents/core/base.py` 中 `_drain_pending_notifications()` 会在 run 开始、每轮开始和工具执行后消费 session 通知队列并注入 observation。
+- 同文件 `_run_waiting_loop()` / `_append_waiting_observation()` 会对等待中的后台任务做即时唤醒与 observation 注入。
 
 **结论**：
-- 当前后台执行已经不是单纯 fire-and-forget；Phase 1 闭环已完成。
-- D2 剩余重点收敛为：**后台任务完成结果的自动注入（Phase 2）**。
+- 当前后台执行已经不是单纯 fire-and-forget，而是具备查询、停止、显式等待与自动注入的完整闭环。
+- 自动注入采用“session 通知队列 + waiting loop 定向消费”实现，而不是全局 completed/unconsumed 扫描；差异在实现形态，不在能力闭环。
 
 ---
 
-### 2.3 回退能力现状：对话级有，文件级无
+### 2.3 回退能力现状：已完成（git worktree 隔离）
 
-**已有能力**：
-- `backend-fastapi/agents/recovery/checkpoint_manager.py`：有真实的 CheckpointManager。
-- `backend-fastapi/application/agent_session.py`：支持 `rollback_messages()` 与重试准备。
-- `backend-fastapi/utils/versioned_yaml_store.py`：YAML 文件具备备份语义。
-- `backend-fastapi/utils/backup_database.py`：SQLite 具备备份/恢复能力。
+**已落地能力**：
+- `backend-fastapi/utils/worktree.py`：git worktree 隔离管理模块。
+- `backend-fastapi/services/agent_api_runtime_service.py`：`_get_session_workspace_root` 自动为 git repo workspace 创建 worktree 并重定向。
+- `backend-fastapi/agents/core/base.py`：`_worktree_auto_snapshot` 在 root run 结束时自动 commit 形成 snapshot。
+- `backend-fastapi/tools/local/document_tools.py`：`list_file_snapshots` / `restore_file_snapshot` 工具。
+- `backend-fastapi/application/agent_session.py`：session 删除时自动清理 worktree。
 
-**缺失点**：
-- `write_file` / `edit_file` 不会在执行前自动做文件快照。
-- `execute_bash` 导致的文件系统变更没有回退记录。
-- 没有类似 Claude Code `git worktree` 的隔离工作副本能力。
+**核心机制**：
+- session workspace 指向 git repo 时，自动创建独立 worktree（`DATA_ROOT/worktrees/<session_id>/`）
+- 所有工具通过 `workspace_root` 重定向自动操作 worktree，零工具层改动
+- root run 结束时 `git add -A && git commit`（有变更才 commit）
+- 回滚 = `git reset --hard <commit>`
+- session 删除 = `git worktree remove` + 分支清理
 
-**结论**：
-- 不能说系统“完全没有 checkpoint / rollback”。
-- 更准确的说法是：
-  **系统已经有对话级恢复能力，但没有文件系统级回退能力。**
+**验收结论**：
+- 系统已同时具备对话级恢复能力和文件系统级回退能力。
+- 对标 Claude Code 的 worktree 隔离 + fileHistoryRewind 语义。
 
 ---
 
@@ -120,15 +127,16 @@
 
 ---
 
-### 2.5 子 Agent 执行现状：能力有，调度串行
+### 2.5 子 Agent 执行现状：会话能力已完成，并已受益于工具层并行
 
 **现状**：
 - `call_agent` / `send_message` / `list_child_agents` 已完成子 Agent 会话能力。
-- 但多个子 Agent 调用依然要经过 `_handle_actions()` 的串行执行。
+- `BaseAgent._handle_actions()` 已具备按依赖分批的并行调度能力，因此多个无依赖 agent 类工具调用在运行时调度层不再天然受限于串行 for 循环。
+- 当前仍缺针对多 `call_agent` 并发场景的专项验收与文档口径收口。
 
 **结论**：
-- 子 Agent 架构已经具备，但缺“并行调度层”。
-- 因此这是一个**依赖 D1 的次级缺陷**。
+- 子 Agent 能力基础已经具备，运行时底层并行能力也已就位。
+- 当前更准确的剩余问题不是“完全缺少并行”，而是**缺少子 Agent 并行的专项收口与验收结论**。
 
 ---
 
@@ -151,23 +159,15 @@
 
 推荐实施顺序如下：
 
-### 第一批：先做基础治理
-1. **D4 日志统一治理**
+### 当前主线
+1. **D5 子 Agent 并行专项收口**
+2. **D6 超时重试 / 熔断**
 
-### 第二批：补齐核心执行能力
-2. **D1 工具并行执行**
-3. **D2 后台任务闭环（Phase 2：自动完成注入）**
-
-### 第三批：补安全兜底与稳定性
-4. **D3 文件快照回退（轻量方案）**
-5. **D6 超时重试/熔断**
-
-### 第四批：基于前面能力扩展上层编排
-6. **D5 子 Agent 并行**
-7. **D2 后台任务闭环（Phase 2：自动完成注入）**
-
-### 可选增强（不是当前主线首要目标）
-8. **D3 文件隔离执行（git worktree 方案）**
+### 已完成能力（不再列入实施主线）
+- D1 工具并行执行
+- D2 后台任务闭环（含自动完成注入）
+- D3 文件变更回退（git worktree 隔离）
+- D4 日志主线治理
 
 ---
 
@@ -198,67 +198,45 @@
 
 ---
 
-## D1. 工具并行执行
+## D1. 工具并行执行（已完成）
 
-### 目标
-在**不破坏结果依赖语义**的前提下，让一轮中的独立工具支持并发执行。
+### 已落地实现
+1. `BaseAgent._build_execution_batches()` 会分析 arguments 中的 `result_N` 依赖并构建执行批次。
+2. `BaseAgent._handle_actions()` 对无依赖批次使用 `ThreadPoolExecutor` 并行执行。
+3. 结果完成后按原始 idx 排序，再写入 observations / `tool_calls_history`，保证展示顺序稳定。
+4. `execute_tool()` 仍保持单工具执行入口；并行调度统一放在 agent core 层完成。
 
-### 核心原则
-- **有依赖**：串行
-- **无依赖**：并行
-- 保持 observation 合并顺序稳定
-- 保持 `result_N` 占位符语义正确
+### 当前边界
+- 代码中尚未形成显式的 tool-level `concurrency_safe` 元数据体系，当前主要依靠依赖分批与执行层约束。
 
-### 建议实施步骤
-1. 在 `_handle_actions()` 中增加 action 分组逻辑：
-   - 先分析 arguments 中是否引用前置 `result_N`
-   - 无依赖 action 放入并行批次
-   - 有依赖 action 保持串行
-2. 用 `ThreadPoolExecutor` 先实现同步工具的并行执行
-3. 结果完成后按原始 idx 排序，再写入 observations / `tool_results`
-4. 明确禁止并行的一类工具（如显式依赖 session shell 状态的工具）
-
-### 风险点
-- event_bus 事件顺序可能乱序
-- 同一 session shell/同一文件路径的工具可能相互影响
-- 必须建立“可并行工具”的判定规则
-
-### 验收标准
-- 同一轮多个 `read_file/glob/grep/web_fetch` 可并发。
+### 验收结论
+- 同一轮多个无依赖工具可并发。
 - 有 `result_1` 引用关系的工具仍按依赖顺序执行。
-- 前端执行树顺序稳定，不因并行而混乱。
+- observation 与执行历史顺序保持稳定。
 
 ---
 
-## D2. 后台任务闭环
+## D2. 后台任务闭环（已完成）
 
-## Phase 1：先让 Agent 能查、能停
+### Phase 1：Agent 能查、能停、能显式等待
 
-### 建议新增工具
-- `get_background_task_output(task_id)`
-- `list_background_tasks()`
-- `cancel_background_task(task_id)`
+### 已落地能力
+- 已提供 `task_output` / `task_stop`。
+- 已支持 `task_output(block=true)` 驱动 run 内 waiting loop。
+- 后台任务状态、输出路径、退出码与完成状态已统一由后台任务管理器提供。
 
-### 实施点
-1. 将 `BackgroundTaskManager.get_task/get_output/cancel` 封装成 direct 工具
-2. 约束工具只能读取当前 session 的任务
-3. 输出结构标准化：状态、退出码、stdout/stderr 摘要、输出路径、是否完成
+### Phase 2：完成结果自动进入 Agent 语境
 
-### 验收标准
-- Agent 可以启动后台 bash 后，在后续轮次主动查询结果
-- Agent 可以取消后台任务
-- 前端和 Agent 看到的是同一任务状态来源
+### 已落地能力
+1. 后台任务完成时，`background_tasks.py::_publish_completed()` 会将 payload 写入 session 通知队列。
+2. `BaseAgent._drain_pending_notifications()` 会在 run 开始、每轮开始和工具执行后自动消费通知并注入 observation。
+3. 对正在等待的后台任务，`_run_waiting_loop()` / `_append_waiting_observation()` 会通过事件唤醒 + poll 兜底即时注入结果。
+4. session 空闲时还会触发自动通知消费，避免结果长期滞留。
 
-## Phase 2：让完成结果自动进入 Agent 语境
-
-### 建议实现
-1. 主循环每轮开始前检查当前 session 是否有“已完成未消费”的后台任务
-2. 将完成摘要注入为 observation
-3. 或引入更明确的后台任务结果消费通道
-
-### 验收标准
-- Agent 不必手动轮询，也能在后续推理中感知后台任务完成
-- 同一任务不会被重复消费
+### 验收结论
+- Agent 不必手动轮询，也能在后续推理中感知后台任务完成。
+- 等待中的后台任务可被即时唤醒并注入 observation。
+- 同一任务的自动通知与 waiting loop 路径已做区分，避免重复消费。
 
 ---
 
@@ -298,8 +276,8 @@
 - 用户要求可撤销工作区
 
 ### 当前建议
-- **暂不作为第一阶段主线**
-- 等 D1/D2/D4 稳定后再考虑
+- **已不再受 D1/D2/D4 完成状态阻塞**
+- 当前是否推进 worktree 隔离，主要取决于是否优先解决 D3 的轻量快照方案后仍有更强隔离需求
 
 ### 验收标准（方案 A）
 - 修改已有文件时自动生成快照
@@ -348,41 +326,24 @@
 
 ## 5. 推荐落地排期
 
-### Phase A（建议一周内先做完）
-- D4 日志统一治理
+### Phase A（已完成）
+- D3 文件变更回退（git worktree 隔离）
 
-### Phase B（核心能力补齐）
-- D1 工具并行执行
-- D2 后台任务闭环 Phase 2
-
-### Phase C（稳定性与安全兜底）
-- D3 文件快照回退
+### Phase B（当前主线）
+- D5 子 Agent 并行专项收口
 - D6 超时重试/熔断
-
-### Phase D（能力增强）
-- D5 子 Agent 并行
-- D2 后台任务闭环 Phase 2
-
-### Phase E（高级能力，按需）
-- D3 git worktree 隔离
 
 ---
 
-## 6. 具体建议：如果只能先做 3 件事
+## 6. 具体建议：下一步做 2 件事
 
-如果近期只想投入最少成本但拿到最大收益，建议优先做：
+1. **子 Agent 并行专项收口（D5）**
+   - 底层并行能力已具备
+   - 现在更需要把 agent 级并行入口、验收与文档口径补齐
 
-1. **日志统一治理（D4）**
-   - 成本最低
-   - 立即提升所有后续工作的调试效率
-
-2. **工具并行执行（D1）**
-   - 用户体感提升最大
-   - 对标 Claude Code 差距最明显
-
-3. **后台任务闭环 Phase 1（D2）**
-   - 现有后台能力才真正可用
-   - 能把 `run_in_background` 从“半成品”变成可落地能力
+2. **超时重试 / 熔断（D6）**
+   - 直接提升持续失败场景下的稳定性
+   - 能减少 Agent 在坏状态下的无效重复调用
 
 ---
 
@@ -401,22 +362,26 @@
 
 ## 8. 最终结论
 
-当前系统已经具备较成熟的工具运行时骨架，但仍缺少 Claude Code 风格的几个关键“执行层能力”：
+当前系统已经具备较成熟的工具运行时骨架，其中以下执行层能力已完成：
 
 - **并行执行**
 - **后台任务闭环**
-- **文件级回退**
-- **统一可观测治理**
+- **统一日志主线治理**
+- **文件变更回退**（git worktree 隔离）
 
-其中最值得优先投入的，不是再扩展更多工具，而是先把这几项执行层能力补齐。因为它们直接决定了：
+当前仍值得优先投入的，已经收敛为：
 
-1. 系统运行效率
-2. Agent 调用链的可控性
-3. 出错后的可恢复性
-4. 后续高级能力（多 Agent 并行、后台自动续接）的实现基础
+- **子 Agent 并行专项收口**
+- **超时重试 / 熔断**
+
+因为这些问题直接决定了：
+
+1. 多 Agent 编排能力的上层可验证性
+2. 持续失败场景下的稳定性
+3. 高风险任务的可控性
 
 **推荐主线顺序**：
 
-`D4 日志治理 -> D1 工具并行 -> D2 后台闭环 -> D3 文件快照 -> D6 熔断重试 -> D5 子 Agent 并行`
+`D5 子 Agent 并行专项收口 -> D6 熔断重试`
 
-这条顺序最稳，也最符合当前代码基的演进成本结构。
+这条顺序更符合当前代码基的真实完成状态，也能避免继续围绕已完成的 D1 / D2 / D3 / D4 重复投入。
