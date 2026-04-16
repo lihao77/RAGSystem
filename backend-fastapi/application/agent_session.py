@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from services.conversation_store import ConversationStore
 from runtime.dependencies import get_runtime_dependency
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionApplication:
@@ -141,11 +144,69 @@ class AgentSessionApplication:
         after_seq: Optional[int] = None,
         after_message_id: Optional[str] = None,
     ) -> int:
+        # ── 文件回退 ──
+        self._rollback_file_snapshot(session_id, after_seq, after_message_id)
+
+        # ── 消息回退 ──
         return self._conversation_store.delete_messages_after(
             session_id=session_id,
             after_seq=after_seq,
             after_message_id=after_message_id,
         )
+
+    def _rollback_file_snapshot(
+        self,
+        session_id: str,
+        after_seq: Optional[int],
+        after_message_id: Optional[str],
+    ):
+        """根据回退位置，自动恢复文件到对应 snapshot。"""
+        try:
+            from utils.worktree import snapshot_enabled, get_snapshot_workspace, find_snapshot_by_run_id, rewind_to_snapshot
+
+            if not snapshot_enabled(session_id):
+                return
+
+            workspace = get_snapshot_workspace(session_id)
+            if not workspace:
+                return
+
+            # 解析 after_seq
+            resolved_seq = after_seq
+            if resolved_seq is None and after_message_id:
+                # 通过 message_id 查找 seq
+                with self._conversation_store._get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT seq FROM messages WHERE session_id=? AND id=?",
+                        (session_id, after_message_id),
+                    ).fetchone()
+                    if row:
+                        resolved_seq = row["seq"]
+            if resolved_seq is None:
+                return
+
+            # 找到 seq<=resolved_seq 中最后一个有 run_id 的 assistant 消息
+            target_run_id = self._conversation_store.find_last_run_id_before_seq(
+                session_id, resolved_seq
+            )
+            if not target_run_id:
+                return
+
+            # 在 git log 中查找对应 commit
+            commit_hash = find_snapshot_by_run_id(workspace, target_run_id)
+            if not commit_hash:
+                return
+
+            # 执行回退
+            rewind_to_snapshot(workspace, commit_hash)
+            logger.info(
+                "对话回退自动恢复文件: session=%s run_id=%s commit=%s",
+                session_id, target_run_id, commit_hash[:8],
+            )
+        except Exception:
+            logger.warning(
+                "对话回退文件恢复失败: session=%s", session_id, exc_info=True,
+            )
 
     def prepare_retry(
         self,

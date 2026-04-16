@@ -757,6 +757,28 @@ class ConversationStore:
             )
             return len(message_ids)
 
+    def find_last_run_id_before_seq(self, session_id: str, seq: int) -> Optional[str]:
+        """查找 seq<=给定值 的消息中最后一个有 run_id 的 assistant 消息的 run_id。"""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT metadata FROM messages
+                WHERE session_id=? AND seq<=? AND role='assistant'
+                ORDER BY seq DESC
+                LIMIT 20
+                """,
+                (session_id, seq),
+            ).fetchall()
+            for row in rows:
+                try:
+                    meta = json.loads(row["metadata"] or "{}")
+                    run_id = meta.get("run_id")
+                    if run_id:
+                        return run_id
+                except Exception:
+                    continue
+        return None
+
     def update_message(
         self,
         message_id: str,

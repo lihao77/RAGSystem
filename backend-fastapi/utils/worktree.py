@@ -242,6 +242,18 @@ def create_snapshot(workspace_path: str, *, run_id: Optional[str] = None) -> Opt
     return commit_hash
 
 
+def find_snapshot_by_run_id(workspace_path: str, run_id: str) -> Optional[str]:
+    """根据 run_id 查找对应的 snapshot commit hash。"""
+    result = subprocess.run(
+        ["git", "log", "--format=%H", "--grep", f"run={run_id}"],
+        cwd=str(workspace_path),
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip().splitlines()[0]
+
+
 def list_snapshots(workspace_path: str) -> list[dict[str, Any]]:
     """列出 workspace 中所有 snapshot commit。"""
     result = subprocess.run(

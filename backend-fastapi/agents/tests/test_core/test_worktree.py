@@ -15,6 +15,7 @@ from utils.worktree import (
     create_snapshot,
     create_worktree,
     ensure_git_snapshot,
+    find_snapshot_by_run_id,
     get_original_workspace,
     get_snapshot_workspace,
     get_worktree_path,
@@ -287,3 +288,32 @@ class TestChildAgentNoSnapshot:
         )
         lines = result.stdout.strip().splitlines()
         assert not any("agent snapshot" in line for line in lines)
+
+
+class TestFindSnapshotByRunId:
+    def test_finds_commit_by_run_id(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-find-1")
+        (git_repo / "f.txt").write_text("v1")
+        create_snapshot(str(git_repo), run_id="run-abc")
+        commit = find_snapshot_by_run_id(str(git_repo), "run-abc")
+        assert commit is not None
+        assert len(commit) >= 7
+
+    def test_returns_none_for_unknown_run(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-find-2")
+        commit = find_snapshot_by_run_id(str(git_repo), "nonexistent")
+        assert commit is None
+
+    def test_finds_correct_commit_among_multiple(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-find-3")
+        (git_repo / "f1.txt").write_text("v1")
+        hash1 = create_snapshot(str(git_repo), run_id="run-first")
+        (git_repo / "f2.txt").write_text("v2")
+        hash2 = create_snapshot(str(git_repo), run_id="run-second")
+
+        found1 = find_snapshot_by_run_id(str(git_repo), "run-first")
+        found2 = find_snapshot_by_run_id(str(git_repo), "run-second")
+        # create_snapshot 返回 short hash，find 返回 full hash
+        assert found1.startswith(hash1)
+        assert found2.startswith(hash2)
+        assert found1 != found2
