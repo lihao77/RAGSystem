@@ -242,6 +242,18 @@ def create_snapshot(workspace_path: str, *, run_id: Optional[str] = None) -> Opt
     return commit_hash
 
 
+def get_head_commit(workspace_path: str) -> Optional[str]:
+    """获取当前 HEAD commit hash（短）。"""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=str(workspace_path),
+        capture_output=True, text=True, timeout=5,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
 def find_snapshot_by_run_id(workspace_path: str, run_id: str) -> Optional[str]:
     """根据 run_id 查找对应的 snapshot commit hash。"""
     result = subprocess.run(

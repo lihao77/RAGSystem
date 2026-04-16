@@ -160,9 +160,9 @@ class AgentSessionApplication:
         after_seq: Optional[int],
         after_message_id: Optional[str],
     ):
-        """根据回退位置，自动恢复文件到对应 snapshot。"""
+        """根据回退位置，自动恢复文件到目标用户消息绑定的 snapshot。"""
         try:
-            from utils.worktree import snapshot_enabled, get_snapshot_workspace, find_snapshot_by_run_id, rewind_to_snapshot
+            from utils.worktree import snapshot_enabled, get_snapshot_workspace, rewind_to_snapshot
 
             if not snapshot_enabled(session_id):
                 return
@@ -171,38 +171,49 @@ class AgentSessionApplication:
             if not workspace:
                 return
 
-            # 解析 after_seq
-            resolved_seq = after_seq
-            if resolved_seq is None and after_message_id:
-                # 通过 message_id 查找 seq
+            # 解析目标消息
+            target_message = None
+            if after_seq is not None:
+                target_message = self._conversation_store.get_message_by_seq(session_id=session_id, seq=after_seq)
+            elif after_message_id:
                 with self._conversation_store._get_connection() as conn:
                     row = conn.execute(
-                        "SELECT seq FROM messages WHERE session_id=? AND id=?",
+                        """
+                        SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+                        FROM messages
+                        WHERE session_id=? AND id=?
+                        """,
                         (session_id, after_message_id),
                     ).fetchone()
                     if row:
-                        resolved_seq = row["seq"]
-            if resolved_seq is None:
+                        import json
+                        target_message = {
+                            "seq": row["seq"],
+                            "id": row["id"],
+                            "role": row["role"],
+                            "content": row["content"],
+                            "metadata": json.loads(row["metadata"] or "{}"),
+                            "thread_key": row["thread_key"],
+                            "child_agent_id": row["child_agent_id"],
+                            "created_at": row["created_at"],
+                        }
+            if not target_message:
                 return
 
-            # 找到 seq<=resolved_seq 中最后一个有 run_id 的 assistant 消息
-            target_run_id = self._conversation_store.find_last_run_id_before_seq(
-                session_id, resolved_seq
-            )
-            if not target_run_id:
+            # 回退锚点只绑定在用户消息上
+            if target_message.get("role") != "user":
                 return
 
-            # 在 git log 中查找对应 commit
-            commit_hash = find_snapshot_by_run_id(workspace, target_run_id)
-            if not commit_hash:
+            snapshot_commit = (target_message.get("metadata") or {}).get("snapshot_commit")
+            if not snapshot_commit:
                 return
 
-            # 执行回退
-            rewind_to_snapshot(workspace, commit_hash)
-            logger.info(
-                "对话回退自动恢复文件: session=%s run_id=%s commit=%s",
-                session_id, target_run_id, commit_hash[:8],
-            )
+            result = rewind_to_snapshot(workspace, snapshot_commit)
+            if result.get("success"):
+                logger.info(
+                    "对话回退自动恢复文件: session=%s seq=%s commit=%s",
+                    session_id, target_message.get("seq"), snapshot_commit,
+                )
         except Exception:
             logger.warning(
                 "对话回退文件恢复失败: session=%s", session_id, exc_info=True,
@@ -220,6 +231,27 @@ class AgentSessionApplication:
             raise ValueError(f'未找到会话 {session_id} 中序号为 {after_seq} 的消息')
         if original_message.get('role') != 'user':
             raise ValueError('指定位置必须是用户消息（user），才能从此处重试')
+
+        # 如果修改了用户消息，需要重新绑定当前文件锚点
+        if modify_user_message is not None:
+            from utils.worktree import snapshot_enabled, get_snapshot_workspace, create_snapshot, get_current_changes, get_head_commit
+            workspace = get_snapshot_workspace(session_id) if snapshot_enabled(session_id) else None
+            if workspace:
+                if get_current_changes(workspace):
+                    create_snapshot(workspace)
+                head_commit = get_head_commit(workspace)
+                metadata = dict(original_message.get('metadata') or {})
+                if head_commit:
+                    metadata['snapshot_commit'] = head_commit
+                    self._conversation_store.update_message(
+                        message_id=original_message['id'],
+                        content=(modify_user_message or '').strip() or original_message.get('content') or '',
+                        metadata=metadata,
+                        session_id=session_id,
+                        role_filter='user',
+                    )
+                    original_message['metadata'] = metadata
+                    original_message['content'] = (modify_user_message or '').strip() or original_message.get('content') or ''
 
         deleted = self.rollback_messages(session_id=session_id, after_seq=after_seq)
         task = (modify_user_message or '').strip() or (original_message.get('content') or '').strip()

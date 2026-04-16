@@ -450,7 +450,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `read_file` | file_path, encoding, offset, limit | 读文件（分页，仅支持 direct） |
 | `edit_file` | file_path, old_text, new_text, encoding | 编辑文件（仅支持 direct） |
 
-> **注意**：文件回退能力通过 auto-snapshot（run 结束自动 git commit）提供，agent 可通过 bash 执行 `git log` / `git reset --hard` 操作。
+> **注意**：文件回退能力通过**用户消息提交时**绑定的 `snapshot_commit` 提供。系统会在用户消息入库时先确保 workspace 启用 git snapshot，并将当时的 `HEAD` 写入该用户消息 metadata；对话回退时据此自动执行 `git reset --hard`。
 
 ### 代码沙箱（local/code_sandbox.py）
 

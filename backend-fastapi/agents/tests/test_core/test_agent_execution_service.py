@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 from agents.core.models import AgentResponse
@@ -72,7 +74,15 @@ class _FakeStore:
 
     def add_message(self, **kwargs):
         self.messages.append(kwargs)
-        return {'id': f"msg-{len(self.messages)}", 'seq': len(self.messages)}
+        return {
+            'id': f"msg-{len(self.messages)}",
+            'seq': len(self.messages),
+            'metadata': kwargs.get('metadata', {}),
+            'role': kwargs.get('role'),
+            'content': kwargs.get('content'),
+            'thread_key': kwargs.get('thread_key'),
+            'child_agent_id': kwargs.get('child_agent_id'),
+        }
 
     def update_run_steps_message_id(self, session_id, run_id, message_id):
         self.updated_run_steps.append((session_id, run_id, message_id))
@@ -88,9 +98,14 @@ class _FakeRuntime:
         self.agent = _FakeAgent()
         self.fallback_agent = _FakeAgent(name='fallback_agent')
         self.orchestrator = _FakeOrchestrator(self.agent, self.fallback_agent)
+        self.workspace_root = None
 
     def get_conversation_store(self):
         return self.store
+
+    def _get_session_workspace_root(self, session_id):
+        del session_id
+        return self.workspace_root
 
     def create_execution_orchestrator(self, session_id=None):
         del session_id
@@ -218,6 +233,38 @@ def test_invoke_routed_agent_uses_default_entry_when_no_preferred_agent():
     assert result.response.agent_name == 'demo_agent'
     assert runtime.store.messages[0]['metadata']['agent'] == 'demo_agent'
     assert runtime.store.messages[1]['metadata']['agent'] == 'demo_agent'
+
+
+def test_persist_user_message_binds_snapshot_commit(tmp_path):
+    runtime = _FakeRuntime()
+    service = AgentExecutionService(runtime_service=runtime)
+
+    repo = tmp_path / 'workspace'
+    repo.mkdir()
+    subprocess.run(['git', 'init'], cwd=str(repo), capture_output=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=str(repo), capture_output=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=str(repo), capture_output=True)
+    (repo / 'README.md').write_text('# test\n')
+    subprocess.run(['git', 'add', '-A'], cwd=str(repo), capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=str(repo), capture_output=True)
+
+    # 制造未提交变更，验证用户消息提交时会先 snapshot 再绑定 HEAD
+    (repo / 'file.txt').write_text('hello')
+    runtime.workspace_root = str(repo)
+
+    message = service.persist_user_message(
+        session_id='session-1',
+        task='hello',
+        agent_name='demo_agent',
+        mode='root',
+        run_id='run-1',
+        visible_to_user=True,
+    )
+
+    metadata = message['metadata']
+    assert metadata['snapshot_commit'] is not None
+    assert len(metadata['snapshot_commit']) >= 7
+    assert runtime.store.messages[0]['metadata']['snapshot_commit'] == metadata['snapshot_commit']
 
 
 

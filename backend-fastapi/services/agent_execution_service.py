@@ -375,6 +375,21 @@ class AgentExecutionService:
         }
         if extra_metadata:
             metadata.update(extra_metadata)
+
+        # ── 用户消息提交时创建/绑定 snapshot 锚点 ──
+        if mode == 'root' and session_id:
+            try:
+                from utils.worktree import ensure_git_snapshot, create_snapshot, get_head_commit, get_current_changes
+                workspace_root = self._runtime._get_session_workspace_root(session_id)
+                if workspace_root and ensure_git_snapshot(workspace_root, session_id):
+                    if get_current_changes(workspace_root):
+                        create_snapshot(workspace_root)
+                    head_commit = get_head_commit(workspace_root)
+                    if head_commit:
+                        metadata['snapshot_commit'] = head_commit
+            except Exception:
+                pass
+
         return store.add_message(
             session_id=session_id,
             role='user',

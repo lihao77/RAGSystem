@@ -16,6 +16,7 @@ from utils.worktree import (
     create_worktree,
     ensure_git_snapshot,
     find_snapshot_by_run_id,
+    get_head_commit,
     get_original_workspace,
     get_snapshot_workspace,
     get_worktree_path,
@@ -317,3 +318,24 @@ class TestFindSnapshotByRunId:
         assert found1.startswith(hash1)
         assert found2.startswith(hash2)
         assert found1 != found2
+
+
+class TestGetHeadCommit:
+    def test_returns_current_head(self, git_repo):
+        ensure_git_snapshot(str(git_repo), "sess-head-1")
+        head1 = get_head_commit(str(git_repo))
+        assert head1 is not None
+
+        (git_repo / "new.txt").write_text("hello")
+        head2 = create_snapshot(str(git_repo), run_id="run-head")
+        current = get_head_commit(str(git_repo))
+        assert current == head2
+        assert current != head1
+
+    def test_returns_none_for_invalid_repo(self):
+        invalid_dir = Path(tempfile.mkdtemp(prefix="invalid_repo_"))
+        try:
+            assert get_head_commit(str(invalid_dir)) is None
+        finally:
+            import shutil
+            shutil.rmtree(str(invalid_dir), ignore_errors=True)
