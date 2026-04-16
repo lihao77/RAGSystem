@@ -43,6 +43,26 @@ def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
     return payload
 
 
+def event_to_client_dict(event: "Event") -> dict:
+    """将 Event 对象转换为客户端字典格式（SSE 和 WebSocket 共用）。"""
+    return {
+        "type": event.type.value,
+        "event_id": event.event_id,
+        "timestamp": event.timestamp,
+        "priority": event.priority.value,
+        "session_id": event.session_id,
+        "trace_id": event.trace_id,
+        "span_id": event.span_id,
+        "agent_name": event.agent_name,
+        "call_id": event.call_id,
+        "parent_call_id": event.parent_call_id,
+        "data": build_client_event_data(event.type.value, event.data),
+        "requires_user_action": event.requires_user_action,
+        "user_action_timeout": event.user_action_timeout,
+        "seq": event.sequence_number,
+    }
+
+
 class SSEAdapter:
     """
     SSE适配器 - 将事件总线桥接到前端
@@ -250,67 +270,9 @@ class SSEAdapter:
 
     def _format_sse(self, event: Event) -> str:
         """将事件格式化为SSE格式（纯序列化，不含业务逻辑）"""
-        full_event = self._to_full_event_dict(event)
+        full_event = event_to_client_dict(event)
         json_data = json.dumps(full_event, ensure_ascii=False)
         return f"data: {json_data}\n\n"
-
-    def _to_full_event_dict(self, event: Event) -> dict:
-        """
-        将 Event 对象转换为完整的字典格式（保留所有信息）
-
-        完整格式（新版）：
-            {
-                "type": "agent_start",
-                "event_id": "uuid...",
-                "timestamp": 123456.789,
-                "priority": "normal",
-                "session_id": "abc123",
-                "trace_id": "xyz789",
-                "span_id": "span123",
-                "agent_name": "orchestrator_agent",
-                "data": {
-                    "task": "...",
-                    "metadata": {}
-                },
-                "requires_user_action": false,
-                "user_action_timeout": null
-            }
-
-        Args:
-            event: Event 对象
-
-        Returns:
-            dict: 完整的事件字典
-        """
-        return {
-            # 事件类型（使用 EventType 的 value）
-            "type": event.type.value,
-
-            # 事件元数据
-            "event_id": event.event_id,
-            "timestamp": event.timestamp,
-            "priority": event.priority.value,
-
-            # 会话和追踪信息
-            "session_id": event.session_id,
-            "trace_id": event.trace_id,
-            "span_id": event.span_id,
-
-            # Agent 信息
-            "agent_name": event.agent_name,
-            "call_id": event.call_id,
-            "parent_call_id": event.parent_call_id,
-
-            # 事件数据（完整保留）
-            "data": build_client_event_data(event.type.value, event.data),
-
-            # 用户交互
-            "requires_user_action": event.requires_user_action,
-            "user_action_timeout": event.user_action_timeout,
-
-            # 事件序号
-            "seq": event.sequence_number,
-        }
 
     def _heartbeat(self) -> str:
         """

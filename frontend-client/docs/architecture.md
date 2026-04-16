@@ -73,7 +73,7 @@ frontend-client/src/
 | `/model-providers` | MainLayout → ModelProviderManager | 通过公共壳层在右侧主区渲染模型 Provider 页 |
 | `/daemon` | MainLayout → DaemonManager | 守护 Agent 系统页，统一管理基础配置、平台凭证、Cron 任务与主动推送 |
 
-## SSE 流式通信
+## WebSocket 实时通信
 
 ### 核心流程
 
@@ -85,15 +85,18 @@ handleSend({ content, attachments })
   → 附件面板（SessionFilesDrawer 已改造成输入区附件对话框）
       ├─ 先走 /api/agent/sessions/{session_id}/files/upload 上传到 session 文件池
       └─ 把返回文件记录收敛到 pendingAttachments（消息级附件）
-  → POST /api/agent/stream             # 发起流式请求，body = { task, attachments[], session_id, selected_llm }
+  → connectSessionWS(sessionId)        # 会话激活时建立单一持久 WS 连接
+  → POST /api/agent/stream             # 发起执行请求，body = { task, attachments[], session_id, selected_llm }
+      ├─ 返回 JSON { started, run_id, task_id, request_id, kind }
       └─ 后端按附件类型分流：图片继续自动进入多模态模型；普通文件只作为引用保留，由 agent 按需读取
-  → processSSEStream()                 # 逐 chunk 解析 SSE 事件
-      ├─ reader.read() 循环
-      ├─ 事件序号 gap 检测（lastSeenSeq 追踪）
+  → handleWSMessage()                  # 统一处理 WebSocket 事件
+      ├─ reconnect_start / reconnect_end：run 回放边界
       ├─ 消息流：output.chunk / output.final_answer / output.message_saved
       ├─ 执行树流：execution.step → executionProjector.applyStep()
+      ├─ 审批/输入：user.approval_required / user.input_required
+      ├─ 命令结果：command.result
       └─ scrollToBottom()
-  → 流结束 → 单次 refreshSessionExecutionState()   # 统一刷新 task-status + execution-diagnostics，避免延迟二次轮询
+  → run 结束 → _finalizeActiveRun() + refreshSessionExecutionState()
   → checkSituationScreenTrigger()
   → cacheMessages()
 
@@ -159,7 +162,7 @@ tool 归属规则：
 - 历史消息列表默认不再内联 `execution_steps`；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps sidecar
 - reconnect 回放与历史 run steps 懒加载都复用同一个 projector
 
-### SSE 事件类型处理
+### WebSocket 事件类型处理
 
 前端执行树以 `execution.step` 为唯一事实来源，历史 / 实时 / reconnect 三条路径都走同一套 projector。
 
@@ -174,11 +177,12 @@ tool 归属规则：
 | `context.usage` | 更新上下文用量 |
 | `context.compression_start` / `context.compression_summary` | 更新压缩状态与摘要占位 |
 | `reconnect_start` / `reconnect_end` | 标记重连回放开始与结束 |
+| `session.run_started` | 后台任务自动拉起系统 run 时，前端先插入 Background Task Notification 用户消息，再创建 assistant 占位并进入 running 状态 |
 | `heartbeat` | 保持连接活性 |
 | `agent.retry_scheduled` / `agent.end` | 更新 agent 生命周期提示 |
 | `agent.error` | 添加错误状态 |
 | `command.result` | 斜杠命令执行结果：原地修改占位 assistant 消息为 `role=system`，由 `CommandResultMessage.vue` 渲染 |
-| `done` | 标记流结束 |
+| `run.end` / `done` | 标记 run 结束并收尾当前 assistant 消息 |
 
 说明：
 - 不再使用 raw event 状态机构建执行树。

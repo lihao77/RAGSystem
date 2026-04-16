@@ -430,7 +430,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
@@ -621,8 +621,6 @@ const confirmDialog = ref({
   onConfirm: () => {},
   onCancel: () => {}
 });
-const currentStreamController = ref(null);
-const activeStreamToken = ref(0);
 const isExportingSession = ref(false);
 const contextUsage = ref({ used: 0, max: 0 });
 const isCompressing = ref(false);
@@ -680,12 +678,12 @@ const syncSessionFromRoute = async (sessionId) => {
     pendingAttachments.value = [];
     await loadSessionMessages(sessionId);
     await loadSessionFiles(sessionId);
-    subscribeSessionPush(sessionId);
+    connectSessionWS(sessionId);
     return;
   }
 
   if (!sessionId && currentSessionId.value) {
-    unsubscribeSessionPush();
+    disconnectSessionWS();
     invalidateActiveStream();
     clearExecutionState();
     currentSessionId.value = null;
@@ -734,83 +732,264 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
 };
 
 const invalidateActiveStream = () => {
-  activeStreamToken.value += 1;
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-    currentStreamController.value = null;
+  _activeRun.active = false;
+  _activeRun.assistantMsgIndex = -1;
+  _activeRun.runId = null;
+  _activeRun.lastSeenSeq = 0;
+  _activeRun.isReplaying = false;
+};
+
+// ── session 级 WebSocket 连接（替代 SSE push + reconnect）──────────────
+let _ws = null;
+let _wsReconnectTimer = null;
+
+// 当前活跃 run 的状态（WS 事件处理用）
+const _activeRun = reactive({
+  active: false,
+  assistantMsgIndex: -1,
+  runId: null,
+  lastSeenSeq: 0,
+  isReplaying: false,
+});
+
+// 命令 fallback 超时（防止 WS 未收到 command.result 时 UI 卡死）
+let _commandFallbackTimer = null;
+
+const _scheduleCommandFallback = (sessionId, msgIndex, timeout = 10000) => {
+  _clearCommandFallback();
+  _commandFallbackTimer = setTimeout(() => {
+    _commandFallbackTimer = null;
+    // 如果命令 WS handler 已经处理过（isLoading 已 false），跳过
+    if (!isLoading.value) return;
+    const msg = messages.value[msgIndex];
+    if (msg && !msg.finished) {
+      msg.content = msg.content || '[命令执行超时或结果未送达]';
+      msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
+      msg.finished = true;
+    }
+    _activeRun.active = false;
+    isLoading.value = false;
+    messageCache.value.delete(sessionId);
+    loadSessionMessages(sessionId, { silent: true });
+  }, timeout);
+};
+
+const _clearCommandFallback = () => {
+  if (_commandFallbackTimer) {
+    clearTimeout(_commandFallbackTimer);
+    _commandFallbackTimer = null;
   }
 };
 
-// ── session 级 push 通道（系统 run 完成后自动刷新消息）──────────────
-let _sessionPushSource = null;
-
-const subscribeSessionPush = (sessionId) => {
-  unsubscribeSessionPush();
+const connectSessionWS = (sessionId) => {
+  disconnectSessionWS();
   if (!sessionId) return;
-  const url = `/api/agent/sessions/${encodeURIComponent(sessionId)}/push`;
-  const src = new EventSource(url);
-  src.onmessage = (e) => {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${location.host}/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`;
+  const ws = new WebSocket(url);
+  ws.onopen = () => {
+    console.debug('[WS] 连接建立', sessionId);
+    if (_wsReconnectTimer) {
+      clearTimeout(_wsReconnectTimer);
+      _wsReconnectTimer = null;
+    }
+  };
+  ws.onmessage = (e) => {
     try {
       const event = JSON.parse(e.data);
-      if (event.type === 'session.run_started') {
-        _onSessionRunStarted(sessionId, event);
-      } else if (event.type === 'session.updated') {
-        _onSessionUpdated(sessionId);
+      handleWSMessage(event, sessionId);
+    } catch (err) {
+      console.debug('[WS] parse error:', err);
+    }
+  };
+  ws.onclose = () => {
+    console.debug('[WS] 连接关闭', sessionId);
+    // 兜底：如果 WS 断连时仍有活跃 run，清理 UI 状态防止卡死
+    // （重连后 replay 会重新恢复运行态）
+    if (_activeRun.active && currentSessionId.value === sessionId) {
+      _finalizeActiveRun(sessionId);
+    }
+    _clearCommandFallback();
+    if (currentSessionId.value === sessionId) {
+      _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), 3000);
+    }
+  };
+  ws.onerror = () => {
+    // onclose 会紧随其后，无需额外处理
+  };
+  _ws = ws;
+};
+
+const disconnectSessionWS = () => {
+  _clearCommandFallback();
+  if (_wsReconnectTimer) {
+    clearTimeout(_wsReconnectTimer);
+    _wsReconnectTimer = null;
+  }
+  if (_ws) {
+    _ws.close();
+    _ws = null;
+  }
+};
+
+/** WS 消息路由 */
+const handleWSMessage = (event, sessionId) => {
+  if (sessionId !== currentSessionId.value) return;
+
+  const eventType = event.type;
+
+  // 心跳
+  if (eventType === 'heartbeat') return;
+
+  // 回放协议
+  if (eventType === 'reconnect_start') {
+    _activeRun.isReplaying = true;
+    // 如果不在 loading 状态，说明是 WS 连接时自动回放
+    if (!isLoading.value) {
+      isLoading.value = true;
+      const lastMsg = messages.value[messages.value.length - 1];
+      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+        messages.value.push(createAssistantMessage());
       }
-    } catch (e) {
-      console.debug('[session-push] parse error:', e);
+      _activeRun.active = true;
+      _activeRun.assistantMsgIndex = messages.value.length - 1;
+      _activeRun.runId = event.run_id || null;
+      _activeRun.lastSeenSeq = 0;
     }
-  };
-  src.onerror = () => {
-    if (src.readyState === EventSource.CLOSED) {
-      setTimeout(() => subscribeSessionPush(sessionId), 5000);
+    if (event.run_id) {
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
+        run_id: event.run_id,
+        session_id: sessionId,
+        status: 'running',
+      };
     }
-  };
-  _sessionPushSource = src;
-};
-
-const unsubscribeSessionPush = () => {
-  if (_sessionPushSource) {
-    _sessionPushSource.close();
-    _sessionPushSource = null;
+    return;
   }
-};
-
-const _onSessionUpdated = (sessionId) => {
-  if (sessionId !== currentSessionId.value) return;
-  if (isLoading.value) return; // 当前有活跃 run，不打断
-  messageCache.value.delete(sessionId);
-  loadSessionMessages(sessionId);
-};
-
-// 系统 run 已启动，立即接管 SSE 流（等同于用户发送消息后的体验）
-const _onSessionRunStarted = (sessionId, event = {}) => {
-  if (sessionId !== currentSessionId.value) return;
-  if (isLoading.value) return; // 已有活跃 run，不重复连接
-  isLoading.value = true; // 立即锁定，防止 session.updated 闪烁
-
-  // 插入通知消息块（本地临时，后续 loadSessionMessages 会以持久化版本覆盖）
-  if (event.source === 'system.bg_notification') {
-    messages.value.push({
-      role: 'user',
-      content: '',
-      metadata: { source: 'system.bg_notification' },
-      _notifications: event.notifications || [],
-      _local: true,
-    });
+  if (eventType === 'reconnect_end') {
+    _activeRun.isReplaying = false;
+    return;
+  }
+  // 回放阶段跳过心跳和 done
+  if (_activeRun.isReplaying && (eventType === 'heartbeat' || eventType === 'done')) {
+    return;
   }
 
-  const lastMsg = messages.value[messages.value.length - 1];
-  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-    messages.value.push(createAssistantMessage());
+  // session.run_started — 后台任务自动拉起时提前进入运行态，避免必须等 replay 才有占位
+  if (eventType === 'session.run_started') {
+    const nextRunId = event.run_id || event.data?.run_id || null;
+    const shouldStartNewMessage = !_activeRun.active || (_activeRun.runId && nextRunId && _activeRun.runId !== nextRunId);
+    if (shouldStartNewMessage) {
+      const currentMsg = messages.value[_activeRun.assistantMsgIndex];
+      if (currentMsg && !currentMsg.finished) {
+        currentMsg.finished = true;
+      }
+
+      const hasNotificationMsg = messages.value.some(
+        msg => msg.role === 'user' && msg.metadata?.source === 'system.bg_notification' && msg._bgRunId === nextRunId
+      );
+      if (!hasNotificationMsg) {
+        messages.value.push(buildTaskNotificationMessage(sessionId, event));
+      }
+
+      messages.value.push(createAssistantMessage({ run_id: nextRunId }));
+      _activeRun.active = true;
+      _activeRun.assistantMsgIndex = messages.value.length - 1;
+      _activeRun.lastSeenSeq = 0;
+      _activeRun.isReplaying = false;
+    }
+    _activeRun.runId = nextRunId;
+    isLoading.value = true;
+    sessionTaskInfo.value = {
+      ...(sessionTaskInfo.value || {}),
+      run_id: nextRunId,
+      session_id: sessionId,
+      status: 'running',
+    };
+    refreshSessionExecutionState(sessionId, { silent: true });
+    nextTick(() => scrollToBottom(true));
+    return;
   }
-  // reconnect 结束后同步最新消息（session.updated 可能在 isLoading 期间被忽略）
-  reconnectToRunningTask(sessionId).finally(() => {
-    if (sessionId === currentSessionId.value) {
+
+  // command.result — 斜杠命令结果
+  if (eventType === 'command.result') {
+    _clearCommandFallback();
+    const cmdData = event.data || event;
+    // 查找或创建 assistant 占位消息（保持 role=assistant，用 metadata.type 区分渲染）
+    let targetIndex = messages.value.length - 1;
+    let targetMsg = messages.value[targetIndex];
+    if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
+      messages.value.push(createAssistantMessage());
+      targetIndex = messages.value.length - 1;
+      targetMsg = messages.value[targetIndex];
+    }
+    targetMsg.content = cmdData.content || '';
+    targetMsg.metadata = {
+      ...targetMsg.metadata,
+      type: 'command_result',
+      command: cmdData.command || 'unknown',
+      success: cmdData.success !== false,
+      error: cmdData.error || null,
+      data: cmdData.data || null,
+    };
+    targetMsg.finished = true;
+    isLoading.value = false;
+    // 静默刷新消息（命令可能改变了消息列表）
+    messageCache.value.delete(sessionId);
+    loadSessionMessages(sessionId, { silent: true });
+    nextTick(() => scrollToBottom(true));
+    return;
+  }
+
+  // session.updated — 兜底静默刷新（内容已由 WS 流式渲染）
+  if (eventType === 'session.updated') {
+    if (!isLoading.value) {
       messageCache.value.delete(sessionId);
-      loadSessionMessages(sessionId);
+      loadSessionMessages(sessionId, { silent: true });
     }
-  });
+    return;
+  }
+
+  // run.end / done — run 结束
+  if (eventType === 'run.end' || eventType === 'done') {
+    sessionTaskInfo.value = {
+      ...(sessionTaskInfo.value || {}),
+      thread_alive: false,
+      status: 'completed',
+    };
+    _finalizeActiveRun(sessionId);
+    return;
+  }
+
+  // 内容事件 — 转发到 handleRunEvent
+  if (_activeRun.active) {
+    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
+    if (currentMsg) {
+      mergeExecutionObservability(event);
+      handleRunEvent(event, currentMsg, sessionId);
+    }
+  }
+};
+
+/** 结束当前活跃 run */
+const _finalizeActiveRun = (sessionId) => {
+  if (_activeRun.active) {
+    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
+    if (currentMsg && !currentMsg.finished) {
+      currentMsg.finished = true;
+      if (currentMsg.content) {
+        updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+      }
+      checkSituationScreenTrigger(currentMsg.content);
+    }
+    cacheMessages(sessionId, messages.value);
+    _activeRun.active = false;
+  }
+  clearLlmRetryState();
+  isCompressing.value = false;
+  isLoading.value = false;
+  refreshSessionExecutionState(sessionId, { silent: true });
+  scrollToBottom();
 };
 
 // 移动端状态
@@ -1594,67 +1773,12 @@ const checkSessionTaskStatus = async (sessionId) => {
     } else if (result.data?.task_info) {
       mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
     }
-    if (result.data?.has_running_task) {
-      isLoading.value = true;
-      showToast('正在恢复执行中的任务...', 'warning');
-      // 创建一个占位 assistant 消息（如果最后一条不是未完成的 assistant）
-      const lastMsg = messages.value[messages.value.length - 1];
-      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-        messages.value.push(createAssistantMessage());
-      }
-      // 重连 SSE（不 await，避免阻塞 loadSessionMessages 的 finally 导致 messagesLoading 一直为 true）
-      reconnectToRunningTask(sessionId);
-    } else if (!isLoading.value) {
+    // WS 连接时服务端会自动回放活跃 run 的历史事件，无需手动 reconnect
+    if (!result.data?.has_running_task && !isLoading.value) {
       await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     }
   } catch (e) {
     // 查询失败不影响主流程
-  }
-};
-
-/** 重连到正在执行的任务，恢复 SSE 事件流 */
-const reconnectToRunningTask = async (sessionId) => {
-  const controller = new AbortController();
-  const streamToken = activeStreamToken.value + 1;
-  activeStreamToken.value = streamToken;
-  currentStreamController.value = controller;
-
-  const assistantMsgIndex = messages.value.length - 1;
-
-  try {
-    const response = await fetch('/api/agent/stream/reconnect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({ session_id: sessionId })
-    });
-    if (!response.ok) {
-      // 任务已结束（404）或其他错误：清理占位消息
-      _cleanupReconnectPlaceholder(assistantMsgIndex, sessionId);
-      isLoading.value = false;
-      return;
-    }
-
-    // 复用与 handleSend 相同的 SSE 读取+事件分发逻辑
-    await processSSEStream(response, assistantMsgIndex, sessionId, streamToken);
-  } catch (e) {
-    if (e.name !== 'AbortError') console.warn('重连失败:', e);
-  } finally {
-    isLoading.value = false;
-    if (activeStreamToken.value === streamToken) {
-      currentStreamController.value = null;
-    }
-    await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
-    scrollToBottom();
-  }
-};
-
-/** 重连失败时清理空的占位 assistant 消息 */
-const _cleanupReconnectPlaceholder = (msgIndex, sessionId) => {
-  const msg = messages.value[msgIndex];
-  if (msg && msg.role === 'assistant' && !msg.content && !msg.finished) {
-    messages.value.splice(msgIndex, 1);
-    cacheMessages(sessionId, messages.value);
   }
 };
 
@@ -1741,10 +1865,12 @@ const removeSessionFile = async (file) => {
   }
 };
 
-const loadSessionMessages = async (sessionId) => {
+const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
   if (!sessionId) return;
-  invalidateActiveStream();
-  messagesLoading.value = true;
+  if (!silent) {
+    invalidateActiveStream();
+    messagesLoading.value = true;
+  }
   historyError.value = '';
   try {
     const cached = messageCache.value.get(sessionId);
@@ -1974,6 +2100,42 @@ function parseTaskNotifications(msg) {
     });
   }
   return items.length ? items : [{ taskId: 'unknown', status: 'completed', resultType: '' }];
+}
+
+function buildTaskNotificationMessage(sessionId, event) {
+  const notifications = Array.isArray(event?.data?.notifications) ? event.data.notifications : [];
+  const runId = event?.run_id || event?.data?.run_id || null;
+  const content = notifications.map((item) => {
+    const taskId = item.background_task_id || item.task_id || 'unknown';
+    const outputPath = item.output_path || '';
+    const status = item.status || 'completed';
+    const returnCode = item.return_code;
+    const resultType = item.result_type || '';
+    const parts = ['<task-notification>'];
+    parts.push(`<task-id>${taskId}</task-id>`);
+    if (outputPath) parts.push(`<output-file>${outputPath}</output-file>`);
+    parts.push(`<status>${status}</status>`);
+    if (returnCode != null) parts.push(`<return-code>${returnCode}</return-code>`);
+    if (resultType) parts.push(`<result-type>${resultType}</result-type>`);
+    parts.push('</task-notification>');
+    return parts.join('\n');
+  }).join('\n\n');
+
+  return {
+    role: 'user',
+    content,
+    metadata: {
+      source: 'system.bg_notification',
+      run_id: runId,
+    },
+    _notifications: notifications.map((item) => ({
+      taskId: item.background_task_id || item.task_id || 'unknown',
+      status: item.status || 'completed',
+      resultType: item.result_type || '',
+    })),
+    _bgRunId: runId,
+    _bgSessionId: sessionId,
+  };
 }
 
 function parseMessageParts(msg) {
@@ -2433,7 +2595,6 @@ const handleStop = async () => {
   if (!currentSessionId.value) return;
 
   try {
-    // 先通知后端终止
     await fetch('/api/agent/stream/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2447,12 +2608,6 @@ const handleStop = async () => {
     console.warn('停止请求发送失败:', e);
   }
 
-  // 然后断开 SSE 接收
-  if (currentStreamController.value) {
-    currentStreamController.value.abort();
-    currentStreamController.value = null;
-  }
-
   // 标记当前助手消息已完成
   const lastMsg = messages.value[messages.value.length - 1];
   if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.finished) {
@@ -2460,6 +2615,7 @@ const handleStop = async () => {
     lastMsg.finished = true;
   }
 
+  _activeRun.active = false;
   isLoading.value = false;
 };
 
@@ -2476,348 +2632,190 @@ const closeExecutionDrawer = () => {
 };
 
 /**
- * 通用 SSE 流处理：读取 response body 并分发事件到 UI
- * handleSend 和 reconnectToRunningTask 共用
- *
- * @param {Response} response - fetch 返回的 Response 对象
- * @param {number} assistantMsgIndex - 当前 assistant 消息在 messages 中的索引
+ * 处理单个 run 事件（WebSocket 消息路由的核心事件处理）
+ * @param {Object} event - 完整事件对象
+ * @param {Object} currentMsg - 当前 assistant 消息
  * @param {string} sessionId - 会话 ID
  */
-const processSSEStream = async (response, assistantMsgIndex, sessionId, streamToken) => {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let sseBuffer = '';  // 缓冲跨 chunk 的不完整 SSE 事件
-    // 重连模式标记：收到 reconnect_start 后进入回放阶段，收到 reconnect_end 结束
-    let isReplaying = false;
-    let lastSeenSeq = 0;  // 事件序号 gap 检测
-    const isActiveStream = () =>
-      activeStreamToken.value === streamToken && currentSessionId.value === sessionId;
+const handleRunEvent = (event, currentMsg, sessionId) => {
+    const eventData = event.data || {};
+    const eventType = event.type;
 
-    while (true) {
-      if (!isActiveStream()) {
-        try { await reader.cancel(); } catch (_) {}
-        break;
+    // LLM 重试状态清除
+    if (
+      llmRetryState.value
+      && eventType !== 'agent.retry_scheduled'
+      && (
+        eventType === 'agent.intent_delta'
+        || eventType === 'agent.intent_complete'
+        || eventType === 'call.tool.start'
+        || eventType === 'output.chunk'
+        || eventType === 'output.final_answer'
+        || eventType === 'agent.end'
+        || eventType === 'agent.error'
+        || eventType === 'done'
+      )
+    ) {
+      clearLlmRetryState();
+    }
+
+    // 事件序号 gap 检测
+    if (event.seq) {
+      if (_activeRun.lastSeenSeq > 0 && event.seq > _activeRun.lastSeenSeq + 1) {
+        console.warn(`[WS] 事件序号 gap: expected=${_activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${event.seq - _activeRun.lastSeenSeq - 1}`);
       }
-      const { done, value } = await reader.read();
-      if (done) {
-        if (!isActiveStream()) break;
-        clearLlmRetryState();
-        const currentMsg = messages.value[assistantMsgIndex];
-        if (!currentMsg) break;
-        currentMsg.finished = true;
-        const assistantContent = currentMsg.content;
-        if (assistantContent) {
-          updateRecentSession(sessionId, assistantContent, new Date().toISOString());
-        }
+      _activeRun.lastSeenSeq = event.seq;
+    }
+
+    if (eventType === 'agent.retry_scheduled') {
+      const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
+      setLlmRetryState({
+        scope: eventData.scope || 'chat_completion_stream',
+        nextAttempt: eventData.next_attempt || ((eventData.failed_attempt || 0) + 1),
+        maxAttempts: eventData.max_attempts || 1,
+        waitMs,
+        error: eventData.error || '',
+        provider: eventData.provider || '',
+        model: eventData.model || '',
+      });
+      sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'running' };
+    }
+    else if (eventType === 'execution.step') {
+      const projector = ensureExecutionProjector(currentMsg);
+      applyStep(projector, eventData);
+      syncExecutionProjection(currentMsg);
+    }
+    else if (eventType === 'output.chunk') {
+      if (isMasterEvent(event)) {
+        currentMsg.content += eventData.content;
+        scrollToBottom();
+      } else {
+        const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+        if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
+      }
+    }
+    else if (eventType === 'output.final_answer') {
+      if (isMasterEvent(event)) {
+        Object.assign(currentMsg, {
+          ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
+          finished: true,
+        });
+        updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
         cacheMessages(sessionId, messages.value);
-        // 检查是否需要触发态势大屏
-        checkSituationScreenTrigger(assistantContent);
-        break;
-      }
-
-      sseBuffer += decoder.decode(value, { stream: true });
-      const parts = sseBuffer.split('\n\n');
-      // 最后一段可能不完整，保留到下次
-      sseBuffer = parts.pop() || '';
-
-      for (const line of parts) {
-        if (line.startsWith('data: ')) {
-          try {
-            if (!isActiveStream()) {
-              try { await reader.cancel(); } catch (_) {}
-              break;
-            }
-            const event = JSON.parse(line.substring(6));
-            if (event.type !== 'heartbeat' && event.session_id !== sessionId) {
-              continue;
-            }
-            const currentMsg = messages.value[assistantMsgIndex];
-            if (!currentMsg) {
-              continue;
-            }
-            mergeExecutionObservability(event);
-
-            // ── 重连协议：reconnect_start / reconnect_end ──
-            if (event.type === 'reconnect_start') {
-              sessionTaskInfo.value = {
-                ...(sessionTaskInfo.value || {}),
-                task_id: event.task_id || sessionTaskInfo.value?.task_id,
-                session_id: event.session_id || sessionTaskInfo.value?.session_id || sessionId,
-                run_id: event.run_id || sessionTaskInfo.value?.run_id,
-                execution_kind: event.execution_kind || sessionTaskInfo.value?.execution_kind,
-                request_id: event.request_id || sessionTaskInfo.value?.request_id,
-                status: 'running'
-              };
-              isReplaying = true;
-              continue;
-            }
-            if (event.type === 'reconnect_end') {
-              isReplaying = false;
-              continue;
-            }
-            // 回放阶段跳过心跳和 done
-            if (isReplaying && (event.type === 'heartbeat' || event.type === 'done')) {
-              continue;
-            }
-
-            // ✨ 提取事件数据（完整Event对象格式）
-            const eventData = event.data || {};
-            const eventType = event.type;
-
-            if (
-              llmRetryState.value
-              && eventType !== 'agent.retry_scheduled'
-              && (
-                eventType === 'agent.intent_delta'
-                || eventType === 'agent.intent_complete'
-                || eventType === 'call.tool.start'
-                || eventType === 'output.chunk'
-                || eventType === 'output.final_answer'
-                || eventType === 'agent.end'
-                || eventType === 'agent.error'
-                || eventType === 'done'
-              )
-            ) {
-              clearLlmRetryState();
-            }
-
-            // 事件序号 gap 检测
-            if (eventType === 'heartbeat') {
-              const hbLastSeq = event.last_seq || 0;
-              const hbDropped = event.dropped_count || 0;
-              if (hbLastSeq > lastSeenSeq + 1) {
-                console.warn(`[SSE] 心跳检测到事件 gap: lastSeenSeq=${lastSeenSeq}, server.last_seq=${hbLastSeq}, dropped=${hbDropped}`);
-              }
-              lastSeenSeq = Math.max(lastSeenSeq, hbLastSeq);
-              continue;
-            }
-            if (event.seq) {
-              if (lastSeenSeq > 0 && event.seq > lastSeenSeq + 1) {
-                console.warn(`[SSE] 事件序号 gap: expected=${lastSeenSeq + 1}, got=${event.seq}, missed=${event.seq - lastSeenSeq - 1}`);
-              }
-              lastSeenSeq = event.seq;
-            }
-
-            if (eventType === 'agent.retry_scheduled') {
-              const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
-              setLlmRetryState({
-                scope: eventData.scope || 'chat_completion_stream',
-                nextAttempt: eventData.next_attempt || ((eventData.failed_attempt || 0) + 1),
-                maxAttempts: eventData.max_attempts || 1,
-                waitMs,
-                error: eventData.error || '',
-                provider: eventData.provider || '',
-                model: eventData.model || '',
-              });
-              sessionTaskInfo.value = {
-                ...(sessionTaskInfo.value || {}),
-                status: 'running',
-              };
-            }
-            else if (eventType === 'execution.step') {
-              const projector = ensureExecutionProjector(currentMsg);
-              applyStep(projector, eventData);
-              syncExecutionProjection(currentMsg);
-            }
-            // 最终答案（完整）：内容 + 元数据 + 标记消息完成
-            // （流式内容已由 output.chunk 拼接，此处仅兜底与标记）
-            else if (eventType === 'output.chunk') {
-              if (isMasterEvent(event)) {
-                currentMsg.content += eventData.content;
-                scrollToBottom();
-              } else {
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
-              }
-            }
-            // 最终答案完成信号：仅标记 finished 并写入 metadata，content 已由 output.chunk 流式拼接
-            // id/seq 由独立的 output.message_saved 事件补全（持久化与 SSE 解耦）
-            else if (eventType === 'output.final_answer') {
-              if (isMasterEvent(event)) {
-                Object.assign(currentMsg, {
-                  ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
-                  finished: true,
-                });
-                updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-                cacheMessages(sessionId, messages.value);
-              } else {
-                // 子 agent 的 final_answer 足以说明该子任务已完成。
-                // 即使后续 call.agent.end 丢失，也不应继续停留在 running。
-                const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-                if (subtask) {
-                  if (!subtask.result_summary) subtask.result_summary = eventData.content || '';
-                  if (subtask.status === 'running') subtask.status = 'success';
-                  subtask.expanded = false;
-                }
-              }
-            }
-            // 消息持久化完成：补全 id/seq（由后端写库后发布，与 FINAL_ANSWER 解耦）
-            else if (eventType === 'output.message_saved') {
-              const target = eventData.role === 'user'
-                ? messages.value[assistantMsgIndex - 1]
-                : currentMsg;
-              if (target) {
-                if (eventData.id != null) target.id = eventData.id;
-                if (eventData.seq != null) target.seq = eventData.seq;
-              }
-              cacheMessages(sessionId, messages.value);
-            }
-            // 主 Agent 结束：仅兜底标记完成（若未在 output.final_answer 中标记）
-            else if (eventType === 'agent.end' && isMasterEvent(event)) {
-              if (!currentMsg.finished) {
-                currentMsg.finished = true;
-                if (currentMsg.content) {
-                  updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-                }
-                // 检查是否需要触发态势大屏
-                checkSituationScreenTrigger(currentMsg.content);
-              }
-            }
-            else if (eventType === 'command.result') {
-              const cmdData = eventData;
-              const cmdMsg = messages.value[assistantMsgIndex];
-              cmdMsg.role = 'system';
-              cmdMsg.content = cmdData.content || '';
-              cmdMsg.metadata = {
-                type: 'command_result',
-                command: cmdData.command || 'unknown',
-                success: cmdData.success !== false,
-                error: cmdData.error || null,
-                data: cmdData.data || null,
-              };
-              cmdMsg.finished = true;
-              nextTick(() => scrollToBottom(true));
-            }
-            else if (eventType === 'agent.error') {
-              currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
-            }
-            else if (eventType === 'done') {
-              sessionTaskInfo.value = {
-                ...(sessionTaskInfo.value || {}),
-                task_id: event.task_id || sessionTaskInfo.value?.task_id,
-                session_id: event.session_id || sessionTaskInfo.value?.session_id || sessionId,
-                run_id: event.run_id || sessionTaskInfo.value?.run_id,
-                execution_kind: event.execution_kind || sessionTaskInfo.value?.execution_kind,
-                request_id: event.request_id || sessionTaskInfo.value?.request_id,
-                thread_alive: false,
-                status: 'completed'
-              };
-            }
-            // 上下文用量
-            else if (eventType === 'context.usage') {
-              if (eventData.compressing) isCompressing.value = true;
-              const agentName = event.agent_name;
-              const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
-              if (isRootEvent(event)) {
-                contextUsage.value = ctx;
-              } else {
-                // 写入对应 subtask
-                const subtask = findRunningSubtaskByAgentName(currentMsg.subtasks, agentName);
-                if (subtask) subtask.ctx = ctx;
-              }
-            }
-            // 上下文压缩开始
-            else if (eventType === 'context.compression_start') {
-              isCompressing.value = true;
-            }
-            // 上下文压缩完成：将压缩摘要插入 messages 数组（去重，防止重连 replay 重复插入）
-            else if (eventType === 'context.compression_summary') {
-              isCompressing.value = false;
-              const summaryContent = eventData.content || '';
-              const alreadyExists = messages.value.some(
-                m => m.metadata?.compression && m.content === summaryContent
-              );
-              if (!alreadyExists) {
-                const compressionMsg = {
-                  role: 'system',
-                  content: summaryContent,
-                  metadata: { compression: true },
-                };
-                messages.value.splice(assistantMsgIndex, 0, compressionMsg);
-                assistantMsgIndex++;
-              }
-            }
-
-            // 工具审批请求：弹出确认对话框，等待用户操作
-            else if (eventType === 'user.approval_required') {
-              // 审批响应回调（复用）
-              const makeApprovalResponder = (approved) => async (aid, message) => {
-                try {
-                  const resp = await fetch(
-                    `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-                    {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ approved, message })
-                    }
-                  );
-                  if (!resp.ok) {
-                    const result = await resp.json().catch(() => ({}));
-                    throw new Error(result.message || `审批提交失败 (${resp.status})`);
-                  }
-                } catch (e) {
-                  console.warn('审批响应失败:', e);
-                  showToast(e.message || '审批提交失败', 'warning');
-                }
-              };
-
-              if (eventData.approval_type === 'file_read_confirm') {
-                // 大文件预览确认对话框
-                filePreviewDialogRef.value?.show(
-                  eventData,
-                  makeApprovalResponder(true),
-                  makeApprovalResponder(false)
-                );
-              } else {
-                // 通用工具审批对话框
-                approvalDialogRef.value?.show(
-                  { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
-                  makeApprovalResponder(true),
-                  makeApprovalResponder(false)
-                );
-              }
-            }
-
-            // 用户输入请求：弹出遮罩输入对话框
-            else if (eventType === 'user.input_required') {
-              const inputSessionId = sessionId;
-
-              userInputDialogRef.value?.show(
-                eventData,
-                // onSubmit: 用户提交 → POST 到后端
-                async (inputId, value) => {
-                  try {
-                    const resp = await fetch(
-                      `/api/agent/sessions/${encodeURIComponent(inputSessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
-                      {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ value })
-                      }
-                    );
-                    if (!resp.ok) {
-                      const result = await resp.json().catch(() => ({}));
-                      throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
-                    }
-                  } catch (e) {
-                    console.warn('用户输入提交失败:', e);
-                    showToast(e.message || '用户输入提交失败', 'warning');
-                  }
-                },
-                // onCancel: 停止任务
-                async (_inputId) => {
-                  await handleStop();
-                }
-              );
-            }
-
-            scrollToBottom();
-          } catch (e) {
-            console.error('Error parsing SSE data:', e);
-          }
+      } else {
+        const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
+        if (subtask) {
+          if (!subtask.result_summary) subtask.result_summary = eventData.content || '';
+          if (subtask.status === 'running') subtask.status = 'success';
+          subtask.expanded = false;
         }
       }
     }
+    else if (eventType === 'output.message_saved') {
+      const assistantMsgIndex = _activeRun.assistantMsgIndex;
+      const target = eventData.role === 'user'
+        ? messages.value[assistantMsgIndex - 1]
+        : currentMsg;
+      if (target) {
+        if (eventData.id != null) target.id = eventData.id;
+        if (eventData.seq != null) target.seq = eventData.seq;
+      }
+      cacheMessages(sessionId, messages.value);
+    }
+    else if (eventType === 'agent.end' && isMasterEvent(event)) {
+      if (!currentMsg.finished) {
+        currentMsg.finished = true;
+        if (currentMsg.content) {
+          updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+        }
+        checkSituationScreenTrigger(currentMsg.content);
+      }
+    }
+    else if (eventType === 'agent.error') {
+      currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
+    }
+    else if (eventType === 'context.usage') {
+      if (eventData.compressing) isCompressing.value = true;
+      const agentName = event.agent_name;
+      const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
+      if (isRootEvent(event)) {
+        contextUsage.value = ctx;
+      } else {
+        const subtask = findRunningSubtaskByAgentName(currentMsg.subtasks, agentName);
+        if (subtask) subtask.ctx = ctx;
+      }
+    }
+    else if (eventType === 'context.compression_start') {
+      isCompressing.value = true;
+    }
+    else if (eventType === 'context.compression_summary') {
+      isCompressing.value = false;
+      const summaryContent = eventData.content || '';
+      const alreadyExists = messages.value.some(
+        m => m.metadata?.compression && m.content === summaryContent
+      );
+      if (!alreadyExists) {
+        const compressionMsg = {
+          role: 'system',
+          content: summaryContent,
+          metadata: { compression: true },
+        };
+        messages.value.splice(_activeRun.assistantMsgIndex, 0, compressionMsg);
+        _activeRun.assistantMsgIndex++;
+      }
+    }
+    else if (eventType === 'user.approval_required') {
+      const makeApprovalResponder = (approved) => async (aid, message) => {
+        try {
+          const resp = await fetch(
+            `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ approved, message })
+            }
+          );
+          if (!resp.ok) {
+            const result = await resp.json().catch(() => ({}));
+            throw new Error(result.message || `审批提交失败 (${resp.status})`);
+          }
+        } catch (e) {
+          console.warn('审批响应失败:', e);
+          showToast(e.message || '审批提交失败', 'warning');
+        }
+      };
+      if (eventData.approval_type === 'file_read_confirm') {
+        filePreviewDialogRef.value?.show(eventData, makeApprovalResponder(true), makeApprovalResponder(false));
+      } else {
+        approvalDialogRef.value?.show(
+          { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
+          makeApprovalResponder(true), makeApprovalResponder(false)
+        );
+      }
+    }
+    else if (eventType === 'user.input_required') {
+      userInputDialogRef.value?.show(
+        eventData,
+        async (inputId, value) => {
+          try {
+            const resp = await fetch(
+              `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
+            );
+            if (!resp.ok) {
+              const result = await resp.json().catch(() => ({}));
+              throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
+            }
+          } catch (e) {
+            console.warn('用户输入提交失败:', e);
+            showToast(e.message || '用户输入提交失败', 'warning');
+          }
+        },
+        async (_inputId) => { await handleStop(); }
+      );
+    }
+
+    scrollToBottom();
 };
 
 // ── 态势大屏触发逻辑 ─────────────────────────────────────────────
@@ -2921,29 +2919,26 @@ const handleSend = async (payload = null) => {
 
   const assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
 
+  // 设置 _activeRun 状态，WS 事件处理器会使用
+  _activeRun.active = true;
+  _activeRun.assistantMsgIndex = assistantMsgIndex;
+  _activeRun.runId = null;
+  _activeRun.lastSeenSeq = 0;
+  _activeRun.isReplaying = false;
+
   beginOptimisticExecutionState(sessionId);
   isLoading.value = true;
   contextUsage.value = { used: 0, max: 0 };
-  const streamToken = activeStreamToken.value + 1;
 
   try {
-    const controller = new AbortController();
-    activeStreamToken.value = streamToken;
-    currentStreamController.value = controller;
     const body = {
       task: content,
       session_id: sessionId,
       use_v2: true,
       attachments: attachments.map(({ file_id, original_name, stored_name, mime, size, kind }) => ({
-        file_id,
-        original_name,
-        stored_name,
-        mime,
-        size,
-        kind,
+        file_id, original_name, stored_name, mime, size, kind,
       })),
     };
-    // 前端 llm-select-trigger 选择：临时指定默认主智能体及未配置 LLM 的智能体使用的模型（格式 provider|provider_type|model_name）
     const selectedLlm = getCurrentSelectedLlm();
     if (selectedLlm) {
       body.selected_llm = selectedLlm;
@@ -2951,52 +2946,50 @@ const handleSend = async (payload = null) => {
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     });
 
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
 
-    await processSSEStream(response, assistantMsgIndex, sessionId, streamToken);
-  } catch (error) {
-    clearLlmRetryState();
-    if (error.name === 'AbortError') {
-      console.log('Stream aborted by user');
-      const currentMsg = messages.value[assistantMsgIndex];
-      currentMsg.finished = true;
-      currentMsg.stopped = true;
-      currentMsg.metadata = { ...(currentMsg.metadata || {}), interrupted: true };
-      if (!sessionTaskInfo.value?.status || sessionTaskInfo.value.status === 'running') {
-        sessionTaskInfo.value = {
-          ...(sessionTaskInfo.value || {}),
-          status: 'interrupted'
-        };
+    if (!response.ok || !result.data?.started) {
+      const errorMsg = result.data?.error || result.message || '启动执行失败';
+      if (result.data?.kind === 'command') {
+        // 未知命令 / 缺参数：结果已通过 EventBus 推送，WS handler 会处理
+        // 但如果 WS 尚未连接或推送失败，设置 fallback 防止 UI 卡死
+        _scheduleCommandFallback(sessionId, assistantMsgIndex);
+        return;
       }
-    } else {
-      console.error('Error sending message:', error);
-      messages.value[assistantMsgIndex].content += '\n\n[System Error: Request failed]';
-      messages.value[assistantMsgIndex].finished = true;
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        status: 'failed'
-      };
-      showToast('消息发送失败', async () => {
-        if (lastFailedSendContent.value) {
-          inputMessage.value = lastFailedSendContent.value;
-          await nextTick();
-          handleSend();
-        }
-      });
+      throw new Error(errorMsg);
     }
-  } finally {
-    clearLlmRetryState();
-    isCompressing.value = false;
+
+    _activeRun.runId = result.data.run_id;
+
+    if (result.data.kind === 'command') {
+      // 系统命令异步执行中，UI 保持 loading 等 WS 推送 command.result
+      // 设置 fallback 防止命令执行失败且 WS 未收到结果时 UI 卡死
+      _scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
+      return;
+    }
+
+    // Agent run 已启动，内容通过 WS 实时到达
+
+  } catch (error) {
+    console.error('Error sending message:', error);
+    const currentMsg = messages.value[assistantMsgIndex];
+    if (currentMsg) {
+      currentMsg.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
+      currentMsg.finished = true;
+    }
+    sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
+    _activeRun.active = false;
     isLoading.value = false;
-    await refreshSessionExecutionState(sessionId, { silent: true });
-    scrollToBottom();
-    if (activeStreamToken.value === streamToken) {
-      currentStreamController.value = null;
-    }
+    showToast('消息发送失败', async () => {
+      if (lastFailedSendContent.value) {
+        inputMessage.value = lastFailedSendContent.value;
+        await nextTick();
+        handleSend();
+      }
+    });
   }
 };
 
@@ -3024,7 +3017,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopRetryTicker();
-  unsubscribeSessionPush();
+  disconnectSessionWS();
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 

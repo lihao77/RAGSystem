@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Agent 流式执行 API 路由（SSE）。
+Agent 流式执行 API 路由。
+
+内容交付已迁移到 WebSocket（ws.py），此模块仅负责：
+- POST /stream：启动执行，返回 JSON
+- POST /stream/stop：停止执行
+- 审批/输入响应端点
 """
 
 import asyncio
@@ -8,16 +13,13 @@ import json
 import logging
 import threading
 import uuid
-from typing import AsyncGenerator, Dict
+from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Request
-from starlette.responses import StreamingResponse
-from agents.events.sse_adapter import build_client_event_data
 
-from dependencies import get_execution_service, get_run_event_bus
-from schemas.execution import StreamExecuteRequest, StreamReconnectRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
+from dependencies import get_execution_service
+from schemas.execution import StreamExecuteRequest, StreamStopRequest, ApprovalRequest, UserInputRequest
 from schemas.common import ok
-from .stream_utils import sync_to_async_sse
 import commands as cmd_mod
 
 logger = logging.getLogger(__name__)
@@ -86,17 +88,7 @@ def _validate_session_attachments(session_id: str, attachments: list[dict]) -> l
     return validated
 
 
-def _apply_observability(payload: dict, obs: dict) -> None:
-    """注入可观测性字段。"""
-    try:
-        from execution.observability import apply_observability_fields
-        apply_observability_fields(payload, obs)
-    except Exception:
-        pass
-
-
 def _ensure_request_id(request_id=None) -> str:
-    """确保 request_id 存在。"""
     try:
         from execution.observability import ensure_request_id
         return ensure_request_id(request_id)
@@ -104,38 +96,70 @@ def _ensure_request_id(request_id=None) -> str:
         return request_id or str(uuid.uuid4())[:8]
 
 
-def _cleanup_run_bus_if_safe(session_id: str, run_id: str, *, natural_completion: bool) -> None:
-    """按流退出原因清理 run 事件总线，避免误删新 run 的 bus。"""
+def _drain_sse_adapter_background(sse_adapter, session_id: str, run_id: str):
+    """后台线程消费 SSEAdapter 防止 queue 溢出，run 结束后清理资源。"""
+
+    def _drain():
+        try:
+            for _ in sse_adapter.stream_sync():
+                pass
+        except Exception as exc:
+            logger.debug('drain SSEAdapter 异常 session=%s: %s', session_id, exc)
+        finally:
+            try:
+                sse_adapter.stop()
+            except Exception:
+                pass
+            # 清理 run event bus
+            try:
+                current_status = get_execution_service().get_status_by_session(session_id)
+                should_cleanup = not current_status or current_status.get('status') != 'running'
+                if current_status:
+                    current_run_id = current_status.get('run_id')
+                    should_cleanup = current_run_id == run_id or current_status.get('status') != 'running'
+                if should_cleanup:
+                    from agents.events.session_manager import cleanup_run
+                    cleanup_run(run_id)
+            except Exception:
+                pass
+            # flush session cache
+            try:
+                from agents.context.session_cache import flush_session
+                flush_session(session_id)
+            except Exception:
+                pass
+            try:
+                get_execution_service().cleanup_finished()
+            except Exception:
+                pass
+
+    threading.Thread(target=_drain, daemon=True, name=f'drain-{session_id[:8]}').start()
+
+
+def _publish_command_result(session_id: str, result: dict):
+    """通过 EventBus 推送斜杠命令结果（WebSocket 会收到）。"""
     try:
-        current_status = get_execution_service().get_status_by_session(session_id)
-        should_cleanup = not current_status or current_status.get('status') != 'running'
-        if natural_completion and current_status:
-            current_run_id = current_status.get('run_id')
-            should_cleanup = current_run_id == run_id or current_status.get('status') != 'running'
-        if should_cleanup:
-            from agents.events.session_manager import cleanup_run
-            cleanup_run(run_id)
-    except Exception:
-        pass
+        from runtime.container import get_current_runtime_container
+        from agents.events.bus import Event, EventType
+        container = get_current_runtime_container()
+        if not container:
+            return
+        bus = container.get_event_bus()
+        bus.publish(Event(
+            type=EventType.COMMAND_RESULT,
+            data=result,
+            session_id=session_id,
+        ))
+    except Exception as exc:
+        logger.debug('推送命令结果失败: %s', exc)
 
 
-def _sse_line(payload: dict, **dumps_kwargs) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
-
-
-async def _unknown_command_stream(session_id: str, cmd_name: str):
-    yield _sse_line({'type': 'command.result', 'data': {
-        'command': cmd_name.lstrip('/'), 'success': False,
-        'content': f'未知命令: {cmd_name}\n输入 /help 查看可用命令',
-    }, 'session_id': session_id})
-    yield _sse_line({'type': 'done', 'session_id': session_id})
-
-
-async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, task: str, defn, llm_override):
+async def _execute_system_command_async(session_id: str, cmd_name: str, cmd_args: str, task: str, defn, llm_override):
+    """异步执行系统命令，结果通过 EventBus → WebSocket 推送。"""
     cancel_event = threading.Event()
     _active_system_commands[session_id] = cancel_event
     try:
-        # 1. 先持久化用户命令消息，确保 seq 在压缩摘要之前
+        # 持久化用户命令消息
         try:
             from dependencies import get_agent_runtime_service
             store = get_agent_runtime_service().get_conversation_store()
@@ -145,16 +169,18 @@ async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, 
             )
         except Exception as persist_err:
             logger.warning('命令消息持久化失败: %s', persist_err)
-        # 2. 执行命令（如 /compact 在此插入压缩摘要），传入 cancel_event 支持中断
+
+        # 执行命令
         try:
             result = await defn.handler(session_id, cmd_args, selected_llm=llm_override, cancel_event=cancel_event)
         except Exception as e:
             logger.error('命令执行失败: %s', e, exc_info=True)
             result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': f'执行失败: {e}'}
-        # 若执行期间收到中断信号，覆盖结果
+
         if cancel_event.is_set():
             result = {'command': cmd_name.lstrip('/'), 'success': False, 'content': '操作已被用户中断'}
-        # 3. 持久化命令结果
+
+        # 持久化命令结果
         try:
             from dependencies import get_agent_runtime_service
             store = get_agent_runtime_service().get_conversation_store()
@@ -168,26 +194,19 @@ async def _system_command_stream(session_id: str, cmd_name: str, cmd_args: str, 
             )
         except Exception as persist_err:
             logger.warning('命令结果持久化失败: %s', persist_err)
-        yield _sse_line({'type': 'command.result', 'data': result, 'session_id': session_id})
-        yield _sse_line({'type': 'done', 'session_id': session_id})
+
+        # 通过 EventBus 推送结果到 WebSocket
+        _publish_command_result(session_id, result)
     finally:
         _active_system_commands.pop(session_id, None)
-
-
-async def _missing_args_stream(session_id: str, cmd_name: str, defn):
-    yield _sse_line({'type': 'command.result', 'data': {
-        'command': cmd_name.lstrip('/'), 'success': False, 'error': 'missing_args',
-        'content': f'用法: {cmd_name} <内容>\n{defn.description}',
-    }, 'session_id': session_id})
-    yield _sse_line({'type': 'done', 'session_id': session_id})
 
 
 @router.post('/stream')
 async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     """
-    流式执行智能体任务（SSE）。
+    启动智能体任务执行。
 
-    Response: text/event-stream
+    返回 JSON，内容通过 WebSocket 实时推送。
     """
     task = request.task.strip()
     session_id = request.session_id or str(uuid.uuid4())
@@ -198,116 +217,94 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     llm_tier = _parse_llm_tier(request.llm_tier or '')
 
     # ── 斜杠命令预处理 ──
-    display_task = None  # 用于持久化的原始显示文本
+    display_task = None
     if task.startswith('/'):
         parsed = cmd_mod.parse_slash_command(task)
         if parsed is not None:
             if parsed.defn is None:
-                return StreamingResponse(_unknown_command_stream(session_id, parsed.cmd_name), media_type='text/event-stream')
+                # 未知命令：直接通过 EventBus 推送错误
+                _publish_command_result(session_id, {
+                    'command': parsed.cmd_name.lstrip('/'), 'success': False,
+                    'content': f'未知命令: {parsed.cmd_name}\n输入 /help 查看可用命令',
+                })
+                return ok(data={
+                    'started': False, 'session_id': session_id,
+                    'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
+                })
             if parsed.defn.mode == 'system':
-                return StreamingResponse(
-                    _system_command_stream(session_id, parsed.cmd_name, parsed.args, task, parsed.defn, llm_override),
-                    media_type='text/event-stream',
+                # 异步执行系统命令，结果通过 WS 推送
+                def _log_cmd_exc(fut):
+                    if not fut.cancelled() and fut.exception():
+                        logger.error('系统命令异步执行失败 session=%s cmd=%s: %s',
+                                     session_id, parsed.cmd_name, fut.exception())
+                t = asyncio.create_task(
+                    _execute_system_command_async(
+                        session_id, parsed.cmd_name, parsed.args, task, parsed.defn, llm_override,
+                    )
                 )
-            # prompt 命令：展开模板
+                t.add_done_callback(_log_cmd_exc)
+                return ok(data={
+                    'started': True, 'session_id': session_id,
+                    'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
+                })
+            # prompt 命令：展开模板，走正常 agent run
             if not parsed.args.strip():
-                return StreamingResponse(_missing_args_stream(session_id, parsed.cmd_name, parsed.defn), media_type='text/event-stream')
-            display_task = task  # 保存原始命令文本
+                _publish_command_result(session_id, {
+                    'command': parsed.cmd_name.lstrip('/'), 'success': False,
+                    'error': 'missing_args',
+                    'content': f'用法: {parsed.cmd_name} <内容>\n{parsed.defn.description}',
+                })
+                return ok(data={
+                    'started': False, 'session_id': session_id,
+                    'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
+                })
+            display_task = task
             task = parsed.defn.template.replace('{args}', parsed.args)
 
     attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
     if not task and not attachment_records:
         raise HTTPException(status_code=400, detail='任务描述和附件不能同时为空')
 
-    logger.info('流式执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
+    logger.info('启动执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
 
-    async def event_generator() -> AsyncGenerator[str, None]:
-        try:
-            from execution.adapters.agent_execution import AgentExecutionAdapter
-            from dependencies import get_agent_runtime_service
+    # ── 启动 Agent 执行 ──
+    from execution.adapters.agent_execution import AgentExecutionAdapter
+    from dependencies import get_agent_runtime_service
 
-            runtime = get_agent_runtime_service()
+    runtime = get_agent_runtime_service()
 
-            def _start_stream():
-                return AgentExecutionAdapter().start_stream_execution(
-                    task=task,
-                    session_id=session_id,
-                    user_id=user_id,
-                    llm_override=llm_override,
-                    llm_tier=llm_tier,
-                    request_id=request_id,
-                    conversation_store=runtime.get_conversation_store(),
-                    orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
-                    history_loader=runtime.load_history_into_context,
-                    current_attachments=attachment_records,
-                    display_task=display_task,
-                )
+    def _start():
+        return AgentExecutionAdapter().start_stream_execution(
+            task=task,
+            session_id=session_id,
+            user_id=user_id,
+            llm_override=llm_override,
+            llm_tier=llm_tier,
+            request_id=request_id,
+            conversation_store=runtime.get_conversation_store(),
+            orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
+            history_loader=runtime.load_history_into_context,
+            current_attachments=attachment_records,
+            display_task=display_task,
+        )
 
-            started = await asyncio.to_thread(_start_stream)
+    started = await asyncio.to_thread(_start)
 
-            if not started.started or started.sse_adapter is None:
-                error_payload = {
-                    'type': 'error',
-                    'content': started.error_message or '启动流式任务失败',
-                    'session_id': session_id,
-                }
-                _apply_observability(error_payload, {
-                    'task_id': started.task_id,
-                    'session_id': session_id,
-                    'run_id': started.run_id,
-                    'execution_kind': 'agent_stream',
-                    'request_id': started.request_id or request_id,
-                })
-                yield _sse_line(error_payload)
-                return
+    if not started.started:
+        raise HTTPException(status_code=409, detail=started.error_message or '启动执行失败')
 
-            queue: asyncio.Queue = asyncio.Queue()
-            loop = asyncio.get_event_loop()
+    # SSEAdapter 后台 drain（防 queue 溢出 + run 结束后清理资源）
+    if started.sse_adapter:
+        _drain_sse_adapter_background(started.sse_adapter, session_id, started.run_id or '')
 
-            def _cleanup(*_, natural_completion: bool = False):
-                try:
-                    started.sse_adapter.stop()
-                except Exception:
-                    pass
-                # flush pipeline 缓存到 DB（per-run 持久化）
-                try:
-                    from agents.context.session_cache import flush_session
-                    flush_session(session_id)
-                except Exception:
-                    pass
-                try:
-                    from services.execution_service import get_execution_service as _get_exec
-                    _get_exec().cleanup_finished()
-                except Exception:
-                    pass
-                _cleanup_run_bus_if_safe(
-                    session_id,
-                    started.run_id or '',
-                    natural_completion=natural_completion or bool(started.sse_adapter.completed_normally),
-                )
-
-            async for sse_line in sync_to_async_sse(
-                sync_stream=started.sse_adapter.stream_sync,
-                session_id=session_id,
-                cleanup_callback=_cleanup,
-            ):
-                yield sse_line
-
-            done_payload = {'type': 'done', 'session_id': session_id}
-            _apply_observability(done_payload, {
-                'task_id': started.task_id,
-                'session_id': session_id,
-                'run_id': started.run_id,
-                'execution_kind': 'agent_stream',
-                'request_id': started.request_id or request_id,
-            })
-            yield _sse_line(done_payload)
-
-        except Exception as e:
-            logger.error('流式执行异常: session_id=%s request_id=%s error=%s', session_id, request_id, e, exc_info=True)
-            yield _sse_line({'type': 'error', 'content': str(e), 'session_id': session_id})
-
-    return StreamingResponse(event_generator(), media_type='text/event-stream')
+    return ok(data={
+        'started': True,
+        'session_id': session_id,
+        'run_id': started.run_id,
+        'task_id': started.task_id,
+        'request_id': started.request_id or request_id,
+        'kind': 'agent_run',
+    })
 
 
 @router.post('/stream/stop')
@@ -334,131 +331,6 @@ async def stream_stop(request: StreamStopRequest, http_request: Request):
     except Exception as e:
         logger.error('停止流式任务失败: %s', e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post('/stream/reconnect')
-async def stream_reconnect(request: StreamReconnectRequest, http_request: Request):
-    """重连到正在执行的任务的 SSE 流。"""
-    session_id = request.session_id
-    request_id = _ensure_request_id(http_request.headers.get('X-Request-ID'))
-
-    execution_service = get_execution_service()
-    status = await asyncio.to_thread(execution_service.get_status_by_session, session_id)
-    if not status or status.get('status') != 'running':
-        raise HTTPException(status_code=404, detail='该会话没有正在执行的任务')
-
-    run_started_at = status.get('started_at', 0)
-    logger.info(
-        '建立流式重连: session_id=%s task_id=%s run_id=%s request_id=%s',
-        session_id, status.get('task_id'), status.get('run_id'),
-        status.get('request_id') or request_id,
-    )
-
-    def _sse_line(payload: dict, **dumps_kwargs) -> str:
-        return f"data: {json.dumps(payload, ensure_ascii=False, **dumps_kwargs)}\n\n"
-
-    async def event_generator() -> AsyncGenerator[str, None]:
-        try:
-            from agents.events import SSEAdapter
-            from agents.events.bus import EventType
-            from dependencies import get_task_registry
-
-            run_id = status.get('run_id')
-            event_bus = get_run_event_bus(run_id, session_id=session_id)
-            registry = get_task_registry()
-
-            # ── 先启动 adapter 订阅实时事件（缓冲到队列），防止回放与订阅之间的事件缝隙 ──
-            adapter = SSEAdapter(
-                event_bus=event_bus,
-                session_id=session_id,
-                buffer_size=100,
-                heartbeat_interval=15.0,
-            )
-            adapter.start()
-
-            # ── 回放历史事件 ──
-            all_history = await asyncio.to_thread(
-                event_bus.get_event_history, session_id=session_id, limit=1000
-            )
-            history = [e for e in all_history if getattr(e, 'timestamp', 0) >= run_started_at]
-
-            # 记录历史事件的最大 sequence_number，用于实时事件去重
-            replay_max_seq = max(
-                (getattr(e, 'sequence_number', 0) for e in history),
-                default=0,
-            )
-
-            reconnect_start = {
-                'type': 'reconnect_start',
-                'session_id': session_id,
-                'replay_count': len(history),
-            }
-            _apply_observability(reconnect_start, {**status, 'request_id': status.get('request_id') or request_id})
-            yield _sse_line(reconnect_start)
-
-            for event in history:
-                # 过滤已处理的审批/输入事件：只重放仍在 pending 的
-                if event.type == EventType.USER_APPROVAL_REQUIRED:
-                    aid = (event.data or {}).get('approval_id', '')
-                    if aid and not registry.is_approval_pending(session_id, aid):
-                        continue
-                if event.type == EventType.USER_INPUT_REQUIRED:
-                    iid = (event.data or {}).get('input_id', '')
-                    if iid and not registry.is_input_pending(session_id, iid):
-                        continue
-
-                full_event = {
-                    'type': event.type.value,
-                    'event_id': getattr(event, 'event_id', None),
-                    'timestamp': getattr(event, 'timestamp', None),
-                    'priority': getattr(getattr(event, 'priority', None), 'value', None),
-                    'session_id': getattr(event, 'session_id', None),
-                    'trace_id': getattr(event, 'trace_id', None),
-                    'span_id': getattr(event, 'span_id', None),
-                    'agent_name': getattr(event, 'agent_name', None),
-                    'call_id': getattr(event, 'call_id', None),
-                    'parent_call_id': getattr(event, 'parent_call_id', None),
-                    'data': build_client_event_data(event.type.value, event.data),
-                    'requires_user_action': getattr(event, 'requires_user_action', False),
-                    'user_action_timeout': getattr(event, 'user_action_timeout', None),
-                }
-                _apply_observability(full_event, event.data or {})
-                yield _sse_line(full_event, default=str)
-
-            reconnect_end = {'type': 'reconnect_end', 'session_id': session_id}
-            _apply_observability(reconnect_end, {**status, 'request_id': status.get('request_id') or request_id})
-            yield _sse_line(reconnect_end)
-
-            # ── 设置去重分界线：adapter 消费时跳过已回放的事件 ──
-            adapter.skip_before_seq = replay_max_seq
-
-            def _reconnect_cleanup(*, natural_completion: bool = False):
-                try:
-                    adapter.stop()
-                except Exception:
-                    pass
-                _cleanup_run_bus_if_safe(
-                    session_id,
-                    status.get('run_id') or '',
-                    natural_completion=natural_completion or bool(adapter.completed_normally),
-                )
-
-            async for sse_line in sync_to_async_sse(
-                sync_stream=adapter.stream_sync,
-                session_id=session_id,
-                cleanup_callback=_reconnect_cleanup,
-            ):
-                yield sse_line
-
-            done_payload = {'type': 'done', 'session_id': session_id}
-            _apply_observability(done_payload, {**status, 'request_id': status.get('request_id') or request_id})
-            yield _sse_line(done_payload)
-
-        except Exception as e:
-            logger.error('重连流式执行异常: session_id=%s error=%s', session_id, e, exc_info=True)
-            yield _sse_line({'type': 'error', 'content': str(e), 'session_id': session_id})
-
-    return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
 @router.post('/sessions/{session_id}/approvals/{approval_id}/respond')

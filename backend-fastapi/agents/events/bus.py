@@ -117,6 +117,7 @@ class EventType(str, Enum):
     SESSION_END = "session.end"
     SESSION_RUN_STARTED = "session.run_started"
     SESSION_UPDATED = "session.updated"
+    COMMAND_RESULT = "command.result"
     ERROR = "system.error"
 
     # 守护 Agent 系统事件

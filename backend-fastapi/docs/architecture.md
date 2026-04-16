@@ -86,15 +86,24 @@ backend-fastapi/
 POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → api/v1/stream.py
       ├─ 斜杠命令预处理（task 以 `/` 开头时）
-      │   ├─ `system` 模式命令（`/help`、`/compact`）：直接执行，结果通过 `command.result` SSE 事件返回，不进入 agent 流程
+      │   ├─ `system` 模式命令（`/help`、`/compact`）：直接异步执行，结果通过 `command.result` WebSocket 事件返回，不进入 agent 流程
       │   │   └─ 持久化两条消息：user（原始命令，`type=command`）+ system（结果，`type=command_result`），均不进入 agent 上下文
       │   └─ `prompt` 模式命令（`/review`、`/analyze`、`/explain`）：展开模板后进入正常 agent 流程
       │       └─ 持久化两条消息：user（原始命令，`display_only=true`，前端展示）+ user（展开 prompt，`visible_to_user=false`，agent 上下文）
       ├─ 校验 attachments.file_id 是否属于当前 session
       ├─ 将附件补齐为 {file_id, original_name, stored_name, stored_path, mime, size, kind}
-      └─ 允许“纯附件消息”：task 为空时，只要 attachments 非空即可发送
+      ├─ 允许“纯附件消息”：task 为空时，只要 attachments 非空即可发送
+      └─ 返回 JSON { started, session_id, run_id, task_id, request_id, kind }
   → AgentExecutionAdapter.start_stream_execution()
-      └─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把完整附件元数据写入 user message.metadata.attachments 以供历史回显
+      ├─ 为本次 run 创建 run 级 EventBus
+      ├─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把完整附件元数据写入 user message.metadata.attachments 以供历史回显
+      └─ 启动内部 SSEAdapter 仅用于后台 drain 与资源清理，不再直接对浏览器返回 SSE
+  → /api/agent/sessions/{session_id}/ws
+      ├─ 建立 session 级长连接
+      ├─ 订阅全局 EventBus（承接 `command.result` 等非 run 级事件）
+      ├─ 动态绑定当前活跃 run 的 run 级 EventBus
+      ├─ 新 run 绑定时自动 replay 历史事件，再接续实时事件
+      └─ 前端统一经 WebSocket 接收 output / execution.step / approval / input / command 结果
   → AgentExecutionService.invoke_agent(mode=root)
   → BaseAgent._prepare_execution_state()
       ├─ 将图片附件放入当前轮 `user_message.metadata.attachments`，供 provider 自动转为多模态输入
@@ -110,7 +119,7 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
       └─ provider-specific request build
           ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
           └─ OpenAIProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
-  → SSEAdapter 转发事件 → 前端
+  → 事件发布到 run 级 EventBus / 全局 EventBus → WebSocket → 前端
 
 GET /api/agent/sessions/{session_id}/messages
   → api/v1/sessions.py

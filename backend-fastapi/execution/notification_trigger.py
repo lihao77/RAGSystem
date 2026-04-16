@@ -2,9 +2,8 @@
 """
 后台任务完成自动触发 Run。
 
-对标 Claude Code 的 idle notification delivery：
-当后台任务完成且 session 空闲时，自动发起系统 run，
-让模型处理通知并把结果持久化到会话历史。
+当后台任务完成且 session 空闲时，自动发起系统 run。
+事件通过 EventBus 自然流转到 WebSocket 连接。
 """
 
 from __future__ import annotations
@@ -13,6 +12,8 @@ import logging
 import threading
 import time
 from typing import Optional
+
+from agents.events.bus import Event, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,11 @@ def try_auto_trigger(session_id: str) -> None:
         return
     with _trigger_lock:
         if session_id in _pending_triggers:
-            return  # 已有触发在等待
+            return
         _pending_triggers.add(session_id)
 
     def _delayed_check():
         try:
-            # 给 run 内 drain 一个消费窗口
             time.sleep(1.0)
             _do_auto_run(session_id)
         finally:
@@ -51,17 +51,14 @@ def _do_auto_run(session_id: str) -> None:
         logger.debug('notification_trigger: TaskRegistry 不可用，跳过')
         return
 
-    # 队列已被 run 内 drain 消费？
     if not registry.peek_session_notifications(session_id):
         logger.debug('notification_trigger: session=%s 通知队列已空，跳过', session_id)
         return
 
-    # session 是否空闲？
     if not registry.is_session_idle(session_id):
         logger.debug('notification_trigger: session=%s 有活跃 run，跳过', session_id)
         return
 
-    # drain 通知，构建 task 输入
     notifications = registry.drain_session_notifications(session_id)
     if not notifications:
         return
@@ -80,7 +77,6 @@ def _do_auto_run(session_id: str) -> None:
         _start_system_run(session_id, task_text, notifications)
     except Exception as exc:
         logger.warning('notification_trigger: 自动 run 失败 session=%s error=%s', session_id, exc)
-        # 把通知放回队列，下次重试
         for payload in notifications:
             try:
                 registry.add_session_notification(session_id, payload)
@@ -113,7 +109,7 @@ def _build_notification_xml(payload: dict) -> str:
 
 
 def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> Optional[str]:
-    """启动系统 run，立即推送 session.run_started 让前端实时订阅，后台 drain 清理 adapter。"""
+    """启动系统 run。事件通过 EventBus 自然流转到 WebSocket。"""
     from runtime.container import get_current_runtime_container
     container = get_current_runtime_container()
     if not container:
@@ -121,6 +117,7 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
         return None
 
     runtime_svc = container.get_agent_api_runtime_service()
+    global_bus = container.get_event_bus()
 
     from execution.adapters.agent_execution import AgentExecutionAdapter
     adapter = AgentExecutionAdapter(
@@ -151,27 +148,23 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
     run_id = started.run_id
     logger.info('notification_trigger: 系统 run 已启动 session=%s run_id=%s', session_id, run_id)
 
-    # 立即通知前端有新 run 可订阅，前端通过 /stream/reconnect 获得实时流
-    _push_event(session_id, {
-        'type': 'session.run_started',
-        'session_id': session_id,
-        'run_id': run_id,
-        'source': 'system.bg_notification',
-        'notifications': [
-            {
-                'task_id': p.get('background_task_id') or p.get('task_id') or 'unknown',
-                'status': p.get('status', 'completed'),
-                'result_type': p.get('result_type'),
-            }
-            for p in notifications
-        ],
-    })
+    try:
+        global_bus.publish(Event(
+            type=EventType.SESSION_RUN_STARTED,
+            data={
+                'run_id': run_id,
+                'source': 'system.bg_notification',
+                'notifications': notifications,
+            },
+            session_id=session_id,
+        ))
+    except Exception as exc:
+        logger.debug('notification_trigger: 发布 session.run_started 失败: %s', exc)
 
-    # 后台 drain 原始 adapter（防止 event_bus 订阅泄漏）
-    # run 完成后推送 session.updated 兜底（前端未及时连接时触发全量历史刷新）
+    # 后台 drain SSEAdapter（防止 queue 溢出）
     sse_adapter = started.sse_adapter
 
-    def _drain_and_notify():
+    def _drain():
         try:
             for _ in sse_adapter.stream_sync():
                 pass
@@ -183,33 +176,15 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
                 sse_adapter.stop()
             except Exception:
                 pass
-            # 兜底：前端若未连上实时流，session.updated 触发完整历史刷新
-            _push_event(session_id, {
-                'type': 'session.updated',
-                'session_id': session_id,
-                'run_id': run_id,
-                'source': 'system.bg_notification',
-            })
+            # 兜底：WS 断连期间可能错过事件，推送 session.updated 触发前端全量历史刷新
+            try:
+                global_bus.publish(Event(
+                    type=EventType.SESSION_UPDATED,
+                    data={'run_id': run_id, 'source': 'system.bg_notification'},
+                    session_id=session_id,
+                ))
+            except Exception:
+                pass
 
-    threading.Thread(
-        target=_drain_and_notify,
-        daemon=True,
-        name=f'bg-drain-{session_id[:8]}',
-    ).start()
+    threading.Thread(target=_drain, daemon=True, name=f'bg-drain-{session_id[:8]}').start()
     return run_id
-
-
-def _push_event(session_id: str, event: dict) -> None:
-    """通过全局 EventBus 推送 session 级事件（线程安全）。"""
-    event.setdefault('timestamp', time.time())
-    try:
-        from runtime.container import get_current_runtime_container
-        container = get_current_runtime_container()
-        if not container:
-            return
-        from agents.events import Event, EventType
-        bus = container.get_event_bus()
-        event_type = EventType(event['type'])
-        bus.publish(Event(type=event_type, data=event, session_id=session_id))
-    except Exception as exc:
-        logger.debug('notification_trigger: push 事件失败: %s', exc)

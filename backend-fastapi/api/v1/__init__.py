@@ -21,6 +21,7 @@ from .embedding_models import router as embedding_models_router
 from .artifacts import router as artifacts_router
 from .permissions import router as permissions_router
 from .daemon import router as daemon_router
+from .ws import router as ws_router
 
 router = APIRouter()
 
@@ -69,3 +70,6 @@ router.include_router(permissions_router, prefix='/permissions', tags=['权限�
 
 # 守护 Agent 系统
 router.include_router(daemon_router, prefix='/daemon', tags=['守护 Agent'])
+
+# Session WebSocket
+router.include_router(ws_router, prefix='/agent', tags=['Session WebSocket'])
