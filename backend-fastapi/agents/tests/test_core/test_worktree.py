@@ -37,26 +37,10 @@ def git_repo(tmp_path):
 
 @pytest.fixture
 def non_git_dir(tmp_path):
-    """在 git 仓库外创建普通目录。"""
-    import tempfile
-    d = Path(tempfile.mkdtemp(prefix="non_git_"))
-    yield d
-    import shutil
-    shutil.rmtree(str(d), ignore_errors=True)
+    d = tmp_path / "non-git"
+    d.mkdir()
+    return d
 
-
-@pytest.fixture(autouse=True)
-def _patch_worktrees_root(tmp_path, monkeypatch):
-    """把 WORKTREES_ROOT 重定向到临时目录，避免污染真实环境。"""
-    import utils.worktree as wt_mod
-    test_root = tmp_path / "worktrees"
-    test_root.mkdir()
-    monkeypatch.setattr(wt_mod, "WORKTREES_ROOT", test_root)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-#  检测辅助
-# ══════════════════════════════════════════════════════════════════════════
 
 class TestIsGitRepo:
     def test_detects_git_repo(self, git_repo):
@@ -74,7 +58,7 @@ class TestIsAlreadyWorktree:
         assert is_already_worktree(str(git_repo)) is False
 
     def test_worktree_is_detected(self, git_repo, tmp_path):
-        wt_path = tmp_path / "worktrees" / "test-wt"
+        wt_path = tmp_path / "test-wt"
         subprocess.run(
             ["git", "worktree", "add", "-B", "test-branch", str(wt_path)],
             cwd=str(git_repo), capture_output=True,
@@ -83,39 +67,43 @@ class TestIsAlreadyWorktree:
         subprocess.run(["git", "worktree", "remove", "--force", str(wt_path)], cwd=str(git_repo), capture_output=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════
-#  Worktree 层
-# ══════════════════════════════════════════════════════════════════════════
-
 class TestCreateWorktree:
-    def test_creates_worktree_and_returns_path(self, git_repo):
-        session_id = "sess-wt-001"
-        result = create_worktree(str(git_repo), session_id)
-        assert Path(result).is_dir()
-        assert worktree_exists(session_id)
-        assert get_original_workspace(session_id) == str(git_repo)
+    def test_creates_repo_local_worktree_and_returns_path(self, git_repo):
+        child_agent_id = "child-wt-001"
+        result = create_worktree(str(git_repo), child_agent_id)
+        expected = git_repo / ".ragsystem" / "worktrees" / child_agent_id
+        assert Path(result) == expected
+        assert expected.is_dir()
+        assert worktree_exists(str(git_repo), child_agent_id)
+        assert get_worktree_path(str(git_repo), child_agent_id) == str(expected)
+        assert get_original_workspace(str(git_repo), child_agent_id) == str(git_repo.resolve())
 
     def test_worktree_file_isolation(self, git_repo):
-        """在 worktree 中写文件不影响原 repo。"""
-        session_id = "sess-wt-002"
-        wt_path = create_worktree(str(git_repo), session_id)
+        child_agent_id = "child-wt-002"
+        wt_path = create_worktree(str(git_repo), child_agent_id)
         (Path(wt_path) / "agent_output.txt").write_text("hello from agent")
         assert not (git_repo / "agent_output.txt").exists()
         assert (Path(wt_path) / "agent_output.txt").exists()
 
+    def test_reuses_existing_worktree(self, git_repo):
+        child_agent_id = "child-wt-003"
+        first = create_worktree(str(git_repo), child_agent_id)
+        second = create_worktree(str(git_repo), child_agent_id)
+        assert first == second
+
 
 class TestRemoveWorktree:
     def test_removes_worktree_and_meta(self, git_repo):
-        session_id = "sess-wt-rm-1"
-        create_worktree(str(git_repo), session_id)
-        assert worktree_exists(session_id)
-        result = remove_worktree(session_id)
+        child_agent_id = "child-wt-rm-1"
+        create_worktree(str(git_repo), child_agent_id)
+        assert worktree_exists(str(git_repo), child_agent_id)
+        result = remove_worktree(str(git_repo), child_agent_id)
         assert result is True
-        assert not worktree_exists(session_id)
-        assert get_original_workspace(session_id) is None
+        assert not worktree_exists(str(git_repo), child_agent_id)
+        assert get_original_workspace(str(git_repo), child_agent_id) is None
 
-    def test_returns_false_for_nonexistent(self):
-        assert remove_worktree("nonexistent-session") is False
+    def test_returns_false_for_nonexistent(self, git_repo):
+        assert remove_worktree(str(git_repo), "nonexistent-child") is False
 
 
 class TestNonGitWorkspaceSkips:
@@ -123,5 +111,5 @@ class TestNonGitWorkspaceSkips:
         assert is_git_repo(str(non_git_dir)) is False
 
     def test_worktree_not_created_for_non_git(self, non_git_dir):
-        assert not worktree_exists("fake-session")
-        assert get_worktree_path("fake-session") is None
+        assert not worktree_exists(str(non_git_dir), "fake-child")
+        assert get_worktree_path(str(non_git_dir), "fake-child") is None

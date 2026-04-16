@@ -28,6 +28,7 @@ class AgentSessionApplication:
         'raw_result_ref',
         'resource_refs',
     }
+    _MAX_CHILD_AGENTS_CLEANUP = 500
 
     def __init__(self, *, conversation_store: Optional[ConversationStore] = None):
         self._conversation_store = conversation_store or ConversationStore()
@@ -80,10 +81,43 @@ class AgentSessionApplication:
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         return self._conversation_store.get_session(session_id=session_id)
 
+    def _cleanup_child_worktrees(self, *, session_id: str, child_agents: list[dict], fallback_workspace_root: str = '') -> None:
+        from utils.worktree import remove_worktree
+
+        for child in child_agents:
+            metadata = child.get('metadata') or {}
+            if not metadata.get('uses_worktree'):
+                continue
+            original_workspace = metadata.get('original_workspace_root') or fallback_workspace_root
+            child_agent_id = child.get('child_agent_id')
+            if not original_workspace or not child_agent_id:
+                continue
+            try:
+                remove_worktree(original_workspace, child_agent_id)
+            except Exception:
+                logger.warning(
+                    "清理 child worktree 失败: child_agent_id=%s (session=%s)",
+                    child_agent_id, session_id, exc_info=True,
+                )
+
     def delete_session(self, session_id: str) -> bool:
         session = self.get_session(session_id)
         if not session:
             return False
+
+        # ── 清理 child worktree ──
+        try:
+            child_agents = self._conversation_store.list_child_agents(session_id=session_id, limit=self._MAX_CHILD_AGENTS_CLEANUP).get('items', [])
+            workspace_root = ((session.get('metadata') or {}).get('workspace_root') or '').strip()
+            self._cleanup_child_worktrees(
+                session_id=session_id,
+                child_agents=child_agents,
+                fallback_workspace_root=workspace_root,
+            )
+        except Exception:
+            logger.warning(
+                "delete_session: 清理 child worktree 失败 (session=%s)", session_id, exc_info=True
+            )
 
         # ── 清理 file history 备份数据 ──
         try:
@@ -146,6 +180,28 @@ class AgentSessionApplication:
         file_reverted = self._rollback_file_snapshot(session_id, after_seq, after_message_id)
         if not file_reverted:
             logger.debug("rollback_messages: 文件回退未执行 (session=%s)", session_id)
+
+        # ── child worktree 清理（仅 after_seq 路径：created_seq 比对需要整数 seq） ──
+        rollback_children = []
+        if after_seq is not None:
+            rollback_children = self._conversation_store.list_child_agents(session_id=session_id, limit=self._MAX_CHILD_AGENTS_CLEANUP).get('items', [])
+            rollback_children = [
+                item for item in rollback_children
+                if item.get('created_seq') is not None and item.get('created_seq') > after_seq
+            ]
+            if rollback_children:
+                session = self.get_session(session_id) or {}
+                workspace_root = ((session.get('metadata') or {}).get('workspace_root') or '').strip()
+                try:
+                    self._cleanup_child_worktrees(
+                        session_id=session_id,
+                        child_agents=rollback_children,
+                        fallback_workspace_root=workspace_root,
+                    )
+                except Exception:
+                    logger.warning(
+                        "rollback_messages: 清理 child worktree 失败 (session=%s)", session_id, exc_info=True
+                    )
 
         # ── 消息回退 ──
         return self._conversation_store.delete_messages_after(

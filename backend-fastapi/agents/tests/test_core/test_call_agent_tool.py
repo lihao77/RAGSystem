@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from agents.events.bus import EventType
@@ -67,6 +68,7 @@ class _FakeRuntime:
     def __init__(self):
         self.execution_calls = []
         self.store = _FakeStore()
+        self.workspace_root = None
 
     def get_config_manager(self):
         return _FakeConfigManager()
@@ -76,6 +78,10 @@ class _FakeRuntime:
 
     def get_agent_execution_service(self):
         return self
+
+    def get_session_workspace_root(self, session_id):
+        del session_id
+        return self.workspace_root
 
     def create_execution_orchestrator(self, session_id=None):
         del session_id
@@ -96,11 +102,20 @@ class _FakeRuntime:
         )
 
 
-def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
+def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch, tmp_path):
     runtime = _FakeRuntime()
+    runtime.workspace_root = str(tmp_path / 'workspace')
+    Path(runtime.workspace_root).mkdir()
     monkeypatch.setattr(
         'services.agent_api_runtime_service.get_agent_api_runtime_service',
         lambda: runtime,
+    )
+    import utils.worktree as worktree_mod
+    monkeypatch.setattr(worktree_mod, 'is_git_repo', lambda path: True)
+    monkeypatch.setattr(
+        worktree_mod,
+        'create_worktree',
+        lambda workspace, child_agent_id: f"{workspace}/.ragsystem/worktrees/{child_agent_id}",
     )
 
     result = call_agent(
@@ -127,6 +142,8 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch):
     assert runtime.store.created_children[0]['thread_key'] == f"child:{result.metadata['child_agent_id']}"
     assert runtime.store.created_children[0]['metadata']['created_via'] == 'call_agent'
     assert runtime.store.created_children[0]['metadata']['thread_key'] == f"child:{result.metadata['child_agent_id']}"
+    assert runtime.store.created_children[0]['metadata']['uses_worktree'] is True
+    assert runtime.store.created_children[0]['metadata']['workspace_root'].endswith(result.metadata['child_agent_id'])
     assert runtime.store.created_children[0]['created_seq'] == 42
     assert runtime.store.messages == []
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']

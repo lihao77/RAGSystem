@@ -13,6 +13,7 @@ class _FakeConversationStore:
         self.deleted_session_id = None
         self.created_sessions = []
         self.last_run_steps_call = None
+        self.child_agents = []
 
     def list_messages(self, *, session_id: str, limit: int, offset: int):
         assert session_id == 'session-1'
@@ -103,6 +104,11 @@ class _FakeConversationStore:
         self.deleted_session_id = session_id
         return True
 
+    def list_child_agents(self, *, session_id: str, agent_name=None, limit=100):
+        del agent_name, limit
+        assert session_id in {'session-delete', 'session-1'}
+        return {'items': list(self.child_agents), 'total': len(self.child_agents)}
+
 
 class _FakeConnection:
     def __init__(self, rows_by_query):
@@ -144,10 +150,19 @@ class _FakeRollbackStore(_FakeConversationStore):
         self.next_users = next_users or []
         self.prev_users = prev_users or []
         self.first_after = first_after
+        self.deleted_after = None
 
     def get_message_by_seq(self, session_id: str, seq: int):
         assert session_id == 'session-1'
         return self.by_seq.get(seq)
+
+    def delete_messages_after(self, *, session_id: str, after_seq=None, after_message_id=None):
+        self.deleted_after = {
+            'session_id': session_id,
+            'after_seq': after_seq,
+            'after_message_id': after_message_id,
+        }
+        return 0
 
     def _get_connection(self):
         return _FakeConnection({
@@ -278,14 +293,27 @@ def test_list_message_run_steps_returns_paginated_execution_steps():
     }
 
 
-def test_delete_session_delegates_cleanup_to_conversation_store():
+def test_delete_session_delegates_cleanup_to_conversation_store(monkeypatch):
+    removed = []
+    import utils.worktree as worktree_mod
+    monkeypatch.setattr(worktree_mod, 'remove_worktree', lambda workspace, child_id: removed.append((workspace, child_id)))
     store = _FakeConversationStore()
+    store.child_agents = [
+        {
+            'child_agent_id': 'child-1',
+            'metadata': {
+                'uses_worktree': True,
+                'original_workspace_root': '/fake/workspace',
+            },
+        }
+    ]
     app = AgentSessionApplication(conversation_store=store)
 
     result = app.delete_session('session-delete')
 
     assert result is True
     assert store.deleted_session_id == 'session-delete'
+    assert removed == [('/fake/workspace', 'child-1')]
 
 
 def test_create_session_persists_workspace_root_metadata():
@@ -317,7 +345,39 @@ def test_create_session_persists_entry_agent_metadata():
     assert store.created_sessions[0]['metadata']['entry_agent'] == 'qa_agent'
 
 
-def test_resolve_snapshot_anchor_user_message_returns_user_directly():
+def test_rollback_messages_cleans_up_later_child_worktrees(monkeypatch):
+    removed = []
+    import utils.worktree as worktree_mod
+    monkeypatch.setattr(worktree_mod, 'remove_worktree', lambda workspace, child_id: removed.append((workspace, child_id)))
+
+    store = _FakeRollbackStore(by_seq={3: {'seq': 3, 'role': 'user', 'id': 'msg-user-3', 'content': 'hello', 'metadata': {}}})
+    store.child_agents = [
+        {
+            'child_agent_id': 'child-keep',
+            'created_seq': 2,
+            'metadata': {
+                'uses_worktree': True,
+                'original_workspace_root': '/fake/workspace',
+            },
+        },
+        {
+            'child_agent_id': 'child-drop',
+            'created_seq': 5,
+            'metadata': {
+                'uses_worktree': True,
+                'original_workspace_root': '/fake/workspace',
+            },
+        },
+    ]
+    app = AgentSessionApplication(conversation_store=store)
+    monkeypatch.setattr(app, '_rollback_file_snapshot', lambda *args, **kwargs: True)
+
+    deleted = app.rollback_messages(session_id='session-1', after_seq=3)
+
+    assert deleted == 0
+    assert removed == [('/fake/workspace', 'child-drop')]
+
+
     user_msg = {
         'seq': 3,
         'id': 'msg-user-3',

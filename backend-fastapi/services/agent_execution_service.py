@@ -145,6 +145,9 @@ class AgentExecutionService:
     ) -> AgentExecutionHandle:
         store = self._runtime.get_conversation_store()
         resolved_child_agent_id = child_agent_id if mode == 'child' else None
+        child_workspace_root = None
+        child_original_workspace_root = None
+        child_uses_worktree = None
         if resolved_child_agent_id:
             child_agent = store.get_child_agent(session_id=session_id, child_agent_id=resolved_child_agent_id)
             if child_agent is None:
@@ -153,6 +156,10 @@ class AgentExecutionService:
                 raise LookupError(f"子 Agent '{resolved_child_agent_id}' 当前不可用")
             if child_agent.get('agent_name') != agent_name:
                 raise LookupError(f"子 Agent '{resolved_child_agent_id}' 与目标 Agent '{agent_name}' 不匹配")
+            child_metadata = child_agent.get('metadata') or {}
+            child_workspace_root = child_metadata.get('workspace_root')
+            child_original_workspace_root = child_metadata.get('original_workspace_root')
+            child_uses_worktree = child_metadata.get('uses_worktree')
             resolved_thread_key = child_agent.get('thread_key') or self._resolve_thread_key_for_mode(
                 mode,
                 thread_key=None,
@@ -192,8 +199,22 @@ class AgentExecutionService:
         context.metadata['execution_mode'] = mode
         context.metadata['thread_key'] = resolved_thread_key
         context.metadata['conversation_scope'] = conversation_scope
+        if child_workspace_root:
+            context.metadata['workspace_root'] = child_workspace_root
+        if child_original_workspace_root:
+            context.metadata['original_workspace_root'] = child_original_workspace_root
+        if child_uses_worktree is not None:
+            context.metadata['uses_worktree'] = child_uses_worktree
         if resolved_child_agent_id:
             context.metadata['child_agent_id'] = resolved_child_agent_id
+            # NOTE: target_agent 由 create_execution_orchestrator 每次新建，
+            # 此处 mutate custom_params 不会影响其他 execution 实例。
+            agent_config = getattr(target_agent, 'agent_config', None)
+            if agent_config is not None:
+                custom_params = getattr(agent_config, 'custom_params', None)
+                copied_params = dict(custom_params) if isinstance(custom_params, dict) else {}
+                copied_params['workspace_root'] = child_workspace_root or copied_params.get('workspace_root')
+                target_agent.agent_config.custom_params = copied_params
         if event_bus is not None:
             context.metadata['event_bus'] = event_bus
         if cancel_event is not None:

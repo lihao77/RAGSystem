@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 
 from agents.events import EventPublisher
 from tools.decorators import tool
@@ -12,6 +13,38 @@ from tools.contracts.permissions import RiskLevel
 from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
+
+
+def _build_child_workspace_metadata(runtime, *, session_id: str, child_agent_id: str, thread_key: str) -> dict:
+    from core.path_resolution import get_effective_workspace_root
+    from utils.worktree import create_worktree, is_git_repo
+
+    parent_workspace = runtime.get_session_workspace_root(session_id)
+    effective_parent = get_effective_workspace_root(session_id, parent_workspace)
+    resolved_parent = str(effective_parent) if effective_parent else None
+    metadata = {
+        "created_via": "call_agent",
+        "thread_key": thread_key,
+        "workspace_root": resolved_parent,
+        "original_workspace_root": resolved_parent,
+        "uses_worktree": False,
+    }
+    if not resolved_parent:
+        metadata["worktree_disabled_reason"] = "workspace_root is unavailable"
+        return metadata
+    if not is_git_repo(resolved_parent):
+        metadata["worktree_disabled_reason"] = "workspace is not a git repository"
+        return metadata
+
+    worktree_path = create_worktree(resolved_parent, child_agent_id)
+    metadata.update({
+        "workspace_root": worktree_path,
+        "original_workspace_root": resolved_parent,
+        "uses_worktree": True,
+        "worktree_path": worktree_path,
+        "worktree_branch": f"agent/{child_agent_id}",
+    })
+    return metadata
 
 
 @tool(
@@ -133,6 +166,12 @@ def call_agent(
         thread_key='root',
     )
     created_seq = latest_root_messages[-1]['seq'] if latest_root_messages else None
+    child_metadata = _build_child_workspace_metadata(
+        runtime,
+        session_id=effective_session_id,
+        child_agent_id=child_agent_id,
+        thread_key=resolved_thread_key,
+    )
     store.create_child_agent(
         child_agent_id=child_agent_id,
         session_id=effective_session_id,
@@ -143,7 +182,7 @@ def call_agent(
         created_by_call_id=agent_call_id,
         parent_run_id=run_id,
         parent_call_id=parent_call_id,
-        metadata={"created_via": "call_agent", "thread_key": resolved_thread_key},
+        metadata=child_metadata,
     )
     agent_call_event_extra = {
         'child_agent_id': child_agent_id,

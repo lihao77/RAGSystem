@@ -57,6 +57,11 @@ class _FakeStore:
             'agent_name': 'demo_agent',
             'thread_key': 'child:child-1',
             'status': 'active',
+            'metadata': {
+                'workspace_root': '/fake/workspace/.ragsystem/worktrees/child-1',
+                'original_workspace_root': '/fake/workspace',
+                'uses_worktree': True,
+            },
         }
 
     def get_child_agent(self, *, session_id, child_agent_id):
@@ -194,6 +199,9 @@ def test_invoke_agent_child_uses_child_thread_and_hidden_messages():
     assert runtime.store.messages[0]['metadata']['visible_to_user'] is False
     assert runtime.store.messages[1]['child_agent_id'] == 'child-1'
     assert runtime.store.updated_run_steps[0][1] == result.run_id
+    assert result.context.metadata['workspace_root'] == '/fake/workspace/.ragsystem/worktrees/child-1'
+    assert result.context.metadata['original_workspace_root'] == '/fake/workspace'
+    assert result.context.metadata['uses_worktree'] is True
 
 
 def test_invoke_routed_agent_uses_preferred_agent_route():

@@ -83,7 +83,7 @@ class AgentApiRuntimeService:
     def get_conversation_store(self) -> ConversationStore:
         return self._conversation_store
 
-    def _get_session_workspace_root(self, session_id: str | None) -> Optional[str]:
+    def get_session_workspace_root(self, session_id: str | None) -> Optional[str]:
         normalized_session_id = (session_id or '').strip()
         if not normalized_session_id:
             logger.debug('session workspace_root 查询跳过：session_id 为空')
@@ -180,7 +180,7 @@ class AgentApiRuntimeService:
         return config_manager.get_config(agent_name)
 
     def _apply_session_runtime_overrides(self, orchestrator, session_id: str | None):
-        workspace_root = self._get_session_workspace_root(session_id)
+        workspace_root = self.get_session_workspace_root(session_id)
         if workspace_root:
             injected_agents = []
             for agent in getattr(orchestrator, 'agents', {}).values():
@@ -220,7 +220,7 @@ class AgentApiRuntimeService:
         self._memory_prefix_service._memory_store = self._memory_store
 
     def _get_memory_workspace_key(self, session_id: str | None) -> Optional[str]:
-        workspace_root = self._get_session_workspace_root(session_id)
+        workspace_root = self.get_session_workspace_root(session_id)
         return get_workspace_memory_key(workspace_root)
 
     def _build_memory_scope_specs(self, *, memory_config, session_id: str, agent_name: Optional[str]):
@@ -406,7 +406,7 @@ class AgentApiRuntimeService:
         )
         context.metadata['thread_key'] = resolved_thread_key
         context.metadata['conversation_scope'] = 'root' if resolved_thread_key == 'root' else 'child'
-        session_workspace_root = self._get_session_workspace_root(session_id)
+        session_workspace_root = self.get_session_workspace_root(session_id)
         if session_workspace_root:
             context.metadata['workspace_root'] = session_workspace_root
         session_entry_agent = self._get_session_entry_agent(session_id)

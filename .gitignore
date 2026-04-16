@@ -37,6 +37,7 @@ pnpm-debug.log*
 
 # Local Claude / IDE workspaces
 .claude/
+.ragsystem/
 .agent/
 .trae/
 .cursor/

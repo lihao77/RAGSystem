@@ -329,10 +329,12 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 - `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录是 `~/.ragsystem/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
+- child agent 若通过 `call_agent` 创建且当前 workspace_root 指向 git 仓库，则会额外派生仓库内隔离目录 `<workspace_root>/.ragsystem/worktrees/<child_agent_id>` 作为 child 专属 workspace_root；`send_message(child_agent_id, ...)` 会复用同一 child worktree，root session workspace_root 本身不变
+- 对话回退 / retry 仍由 `file_history` 主导：系统会先按 snapshot 恢复实际被编辑文件的内容，再删除回退点之后的消息、run steps 与对应 child_agents；若这些 child agents 绑定了 worktree，也会同步回收其 `.ragsystem/worktrees/<child_agent_id>` 目录与分支，因此回退后的 child 会话、文件内容与 worktree 资源状态保持一致
 - 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；该值应优先使用真实 `agent_name`。runtime 会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口，并对 `default/orchestrator` 这类 UI alias 做归一化兜底
 - 同一个 session 还可在 `metadata.team` 中指定本次执行临时使用的 team 配置视图；runtime 只在 execution / context 作用域读取该字段，不修改全局 `active_team`
 - `AgentApiRuntimeService.build_context()` 会读取 `session.metadata.workspace_root` 并写入本次运行上下文；若配置了 `session.metadata.entry_agent` / `session.metadata.team`，也会一并写入 `context.metadata` 作为观测字段
-- `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖，以及按 `session.metadata.team` 临时选择 agent 配置快照；这些都只作用于本次 execution 实例，不污染全局 YAML / 其他会话
+- `create_execution_orchestrator(session_id=...)` 会为本次执行复制 agent_config 并注入 `custom_params.workspace_root`，同时在 execution orchestrator 上应用 `session.metadata.entry_agent` 默认入口覆盖，以及按 `session.metadata.team` 临时选择 agent 配置快照；对于 child mode，`AgentExecutionService.prepare_execution()` 会再以 `child_agents.metadata.workspace_root` 覆盖本次 child 执行的 workspace_root
 - `tools.local.document_tools._prepare_document_tool_args()` 会直接从 `agent_config.custom_params` 读取 `workspace_root/default_output_space`，并按“显式 run_id 优先，observability fallback”解析 `effective_run_id`
 - `write_file` 未指定路径时由 `resolve_managed_path(..., operation='write')` 按 `default_output_space` 分配受管路径（exports/workspace/transient），其中 `default_output_space=workspace` 会落到当前 effective workspace，而不是固定写死到 session/workspace
 - `read_file` / `write_file` / `edit_file` 仅允许 `direct` 调用，不再对 `caller=code_execution` 开放；`preview_data_structure` 仍允许 `code_execution`

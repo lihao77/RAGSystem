@@ -244,6 +244,9 @@ execute_tool(tool_name, arguments, agent_config, event_bus, user_role, caller, s
 - `caller=direct` 的 direct 文件工具仍通过 `path_resolution.resolve_managed_path(...)` 解析文件路径；`execute_bash` 在工具内部通过 `path_resolution.resolve_managed_directory(...)` 解析工作目录
 - `resolve_managed_path(...)` 与 `resolve_managed_directory(...)` 共同维护默认 managed roots；当审批结果携带 `approved_external_paths` 时，会把这些路径视为仅本次调用有效的附加允许根目录，再做最终边界校验
 - `workspace_root` 由 `POST /api/agent/sessions` 写入 `session.metadata.workspace_root`，运行期由 `AgentApiRuntimeService` 读取并只注入本次执行的 `agent_config.custom_params.workspace_root`；若 session 未显式配置该字段，则默认回退到受管目录 `~/.ragsystem/sessions/<session_id>/workspace/`
+- `call_agent` 创建 child agent 时，若当前 effective workspace 是 git 仓库，则会在仓库内创建 `<workspace_root>/.ragsystem/worktrees/<child_agent_id>` 作为 child 专属 workspace_root，并把该路径持久化到 `child_agents.metadata.workspace_root`；`send_message` 续接时复用同一 child workspace，不重新创建
+- 对 child mode，`AgentExecutionService.prepare_execution()` 会以 `child_agents.metadata.workspace_root` 覆盖 session 级 workspace_root；因此 document tools、bash、code sandbox 等仍沿用同一套 `agent_config.custom_params.workspace_root` 消费方式，无需新增工具侧分支
+- rollback / retry 不会用 git reset 或 worktree 切换来恢复状态；系统先通过 `services/file_history.py` 恢复实际编辑过的文件内容，再删除回退点之后的消息、run steps 和 child_agents；对于这些被删除的 child_agents，若 `metadata.uses_worktree=true`，还会同步清理对应的 `.ragsystem/worktrees/<child_agent_id>` 目录与分支
 - 文档工具的 `read_file` / `write_file` / `edit_file` 仅支持 `direct` 调用，不再对 `caller=code_execution` 开放
 - `preview_data_structure` 仍允许 `code_execution` 调用
 - 代码沙箱内部的文件访问不走文档工具链；沙箱代码读文件使用受限 `open()`，写文件通过共享审批函数 `request_inline_approval()` 触发审批后再写入，仍受 `resolve_managed_path(..., caller='code_execution')` 的受管边界约束；`SESSION_WORKSPACE_DIR` / `DATA_DIR` 与 direct 工具共享同一套 effective workspace 定义
@@ -450,7 +453,7 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `read_file` | file_path, encoding, offset, limit | 读文件（分页，仅支持 direct） |
 | `edit_file` | file_path, old_text, new_text, encoding | 编辑文件（仅支持 direct） |
 
-> **注意**：文件回退能力通过**用户消息提交时**绑定的 `snapshot_commit` 提供。系统会在用户消息入库时先确保 workspace 启用 git snapshot，并将当时的 `HEAD` 写入该用户消息 metadata；对话回退时据此自动执行 `git reset --hard`。
+> **注意**：文件回退能力不再依赖 `snapshot_commit + git reset --hard`。当前实现由 `services/file_history.py` 在工具编辑前备份原文件、在用户消息提交时记录 snapshot，并在对话回退时按 snapshot 恢复实际文件内容；若回退范围内创建过 child agent 且其使用了 repo-local worktree，则系统还会同步删除对应的 `.ragsystem/worktrees/<child_agent_id>` 目录与分支，保证消息、child 会话记录和 worktree 资源状态一致。
 
 ### 代码沙箱（local/code_sandbox.py）
 
