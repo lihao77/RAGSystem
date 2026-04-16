@@ -870,6 +870,59 @@ const handleWSMessage = (event, sessionId) => {
     _activeRun.isReplaying = false;
     return;
   }
+
+  // send.ack — WS 发送消息的确认响应
+  if (eventType === 'send.ack') {
+    _clearCommandFallback();
+    const ackData = event;
+    if (!ackData.started && ackData.kind !== 'command') {
+      // 启动失败
+      const currentMsg = messages.value[_activeRun.assistantMsgIndex];
+      if (currentMsg) {
+        currentMsg.content = `\n\n[System Error: ${ackData.error || '启动执行失败'}]`;
+        currentMsg.finished = true;
+      }
+      sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
+      _activeRun.active = false;
+      isLoading.value = false;
+      return;
+    }
+    if (ackData.kind === 'command' && !ackData.started) {
+      // 未知命令等：结果已通过 EventBus 推送
+      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex);
+      return;
+    }
+    _activeRun.runId = ackData.run_id || null;
+    if (ackData.kind === 'command') {
+      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 60000);
+    }
+    return;
+  }
+
+  // send.error — WS 发送消息失败
+  if (eventType === 'send.error') {
+    _clearCommandFallback();
+    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
+    if (currentMsg) {
+      currentMsg.content = `\n\n[System Error: ${event.error || 'Request failed'}]`;
+      currentMsg.finished = true;
+    }
+    sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
+    _activeRun.active = false;
+    isLoading.value = false;
+    showToast('消息发送失败', 'warning');
+    return;
+  }
+
+  // approve.error / user_input.error — WS 审批/输入失败
+  if (eventType === 'approve.error') {
+    showToast(event.error || '审批提交失败', 'warning');
+    return;
+  }
+  if (eventType === 'user_input.error') {
+    showToast(event.error || '用户输入提交失败', 'warning');
+    return;
+  }
   // 回放阶段跳过心跳和 done
   if (_activeRun.isReplaying && (eventType === 'heartbeat' || eventType === 'done')) {
     return;
@@ -2610,19 +2663,23 @@ const ensureSession = async () => {
 const handleStop = async () => {
   if (!currentSessionId.value) return;
 
-  try {
-    await fetch('/api/agent/stream/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: currentSessionId.value })
-    });
-    sessionTaskInfo.value = {
-      ...(sessionTaskInfo.value || {}),
-      status: 'cancel_requested'
-    };
-  } catch (e) {
-    console.warn('停止请求发送失败:', e);
+  if (_ws?.readyState === WebSocket.OPEN) {
+    _ws.send(JSON.stringify({ type: 'stop' }));
+  } else {
+    try {
+      await fetch('/api/agent/stream/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: currentSessionId.value })
+      });
+    } catch (e) {
+      console.warn('停止请求发送失败:', e);
+    }
   }
+  sessionTaskInfo.value = {
+    ...(sessionTaskInfo.value || {}),
+    status: 'cancel_requested'
+  };
 
   // 标记当前助手消息已完成
   const lastMsg = messages.value[messages.value.length - 1];
@@ -2782,22 +2839,26 @@ const handleRunEvent = (event, currentMsg, sessionId) => {
     }
     else if (eventType === 'user.approval_required') {
       const makeApprovalResponder = (approved) => async (aid, message) => {
-        try {
-          const resp = await fetch(
-            `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ approved, message })
+        if (_ws?.readyState === WebSocket.OPEN) {
+          _ws.send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
+        } else {
+          try {
+            const resp = await fetch(
+              `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ approved, message })
+              }
+            );
+            if (!resp.ok) {
+              const result = await resp.json().catch(() => ({}));
+              throw new Error(result.message || `审批提交失败 (${resp.status})`);
             }
-          );
-          if (!resp.ok) {
-            const result = await resp.json().catch(() => ({}));
-            throw new Error(result.message || `审批提交失败 (${resp.status})`);
+          } catch (e) {
+            console.warn('审批响应失败:', e);
+            showToast(e.message || '审批提交失败', 'warning');
           }
-        } catch (e) {
-          console.warn('审批响应失败:', e);
-          showToast(e.message || '审批提交失败', 'warning');
         }
       };
       if (eventData.approval_type === 'file_read_confirm') {
@@ -2813,18 +2874,22 @@ const handleRunEvent = (event, currentMsg, sessionId) => {
       userInputDialogRef.value?.show(
         eventData,
         async (inputId, value) => {
-          try {
-            const resp = await fetch(
-              `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
-              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
-            );
-            if (!resp.ok) {
-              const result = await resp.json().catch(() => ({}));
-              throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
+          if (_ws?.readyState === WebSocket.OPEN) {
+            _ws.send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
+          } else {
+            try {
+              const resp = await fetch(
+                `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
+              );
+              if (!resp.ok) {
+                const result = await resp.json().catch(() => ({}));
+                throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
+              }
+            } catch (e) {
+              console.warn('用户输入提交失败:', e);
+              showToast(e.message || '用户输入提交失败', 'warning');
             }
-          } catch (e) {
-            console.warn('用户输入提交失败:', e);
-            showToast(e.message || '用户输入提交失败', 'warning');
           }
         },
         async (_inputId) => { await handleStop(); }
@@ -2959,35 +3024,40 @@ const handleSend = async (payload = null) => {
     if (selectedLlm) {
       body.selected_llm = selectedLlm;
     }
+
+    let result;
+    if (_ws?.readyState === WebSocket.OPEN) {
+      // 通过 WS 发送，ack 结果由 handleWSMessage 中的 send.ack / send.error 处理
+      _ws.send(JSON.stringify({ type: 'send', ...body }));
+      // 设置 fallback：如果 WS 未回 ack，超时后 UI 不会卡死
+      _scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
+      return;
+    }
+
+    // REST fallback
     const response = await fetch('/api/agent/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
-    const result = await response.json();
+    result = (await response.json()).data || {};
 
-    if (!response.ok || !result.data?.started) {
-      const errorMsg = result.data?.error || result.message || '启动执行失败';
-      if (result.data?.kind === 'command') {
-        // 未知命令 / 缺参数：结果已通过 EventBus 推送，WS handler 会处理
-        // 但如果 WS 尚未连接或推送失败，设置 fallback 防止 UI 卡死
+    if (!response.ok || !result.started) {
+      const errorMsg = result.error || '启动执行失败';
+      if (result.kind === 'command') {
         _scheduleCommandFallback(sessionId, assistantMsgIndex);
         return;
       }
       throw new Error(errorMsg);
     }
 
-    _activeRun.runId = result.data.run_id;
+    _activeRun.runId = result.run_id;
 
-    if (result.data.kind === 'command') {
-      // 系统命令异步执行中，UI 保持 loading 等 WS 推送 command.result
-      // 设置 fallback 防止命令执行失败且 WS 未收到结果时 UI 卡死
+    if (result.kind === 'command') {
       _scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
       return;
     }
-
-    // Agent run 已启动，内容通过 WS 实时到达
 
   } catch (error) {
     console.error('Error sending message:', error);

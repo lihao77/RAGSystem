@@ -153,7 +153,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
         await _sync_active_run_subscription(ws, session_id, container, queue, send_lock, run_binding, _on_event, send_gate)
 
         send_task = asyncio.create_task(_ws_send_loop(ws, queue, session_id, send_lock, send_gate))
-        recv_task = asyncio.create_task(_ws_recv_loop(ws, session_id))
+        recv_task = asyncio.create_task(_ws_recv_loop(ws, session_id, send_lock))
         watch_task = asyncio.create_task(
             _watch_active_run(ws, session_id, container, queue, send_lock, run_binding, _on_event, send_gate, run_changed)
         )
@@ -223,12 +223,8 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
 
 # ── 接收循环 ──────────────────────────────────────────────
 
-async def _ws_recv_loop(ws: WebSocket, session_id: str):
-    """接收客户端消息（stop / approve / user_input）。
-
-    注意：当前前端仍通过 REST API 发送审批/输入/停止请求。
-    此处的 WS 双向通道为后续迁移预留，前端迁移后可移除对应 REST 端点。
-    """
+async def _ws_recv_loop(ws: WebSocket, session_id: str, send_lock: asyncio.Lock):
+    """接收客户端消息（send / stop / approve / user_input）。"""
     while True:
         try:
             raw = await ws.receive_text()
@@ -243,17 +239,26 @@ async def _ws_recv_loop(ws: WebSocket, session_id: str):
             continue
 
         msg_type = msg.get('type')
-        if msg_type == 'stop':
+        if msg_type == 'send':
+            await _handle_ws_send(ws, session_id, msg, send_lock)
+        elif msg_type == 'stop':
             await _handle_ws_stop(session_id)
         elif msg_type == 'approve':
-            await _handle_ws_approve(session_id, msg)
+            await _handle_ws_approve(ws, session_id, msg, send_lock)
         elif msg_type == 'user_input':
-            await _handle_ws_user_input(session_id, msg)
+            await _handle_ws_user_input(ws, session_id, msg, send_lock)
 
 
 # ── 客户端消息处理 ────────────────────────────────────────
 
 async def _handle_ws_stop(session_id: str):
+    # 优先检查系统命令（如 /compact）
+    from api.v1.stream import _active_system_commands
+    sys_cancel = _active_system_commands.get(session_id)
+    if sys_cancel is not None:
+        sys_cancel.set()
+        logger.info('[WS] 已中断系统命令 session=%s', session_id)
+        return
     try:
         from dependencies import get_execution_service
         svc = get_execution_service()
@@ -262,33 +267,82 @@ async def _handle_ws_stop(session_id: str):
         logger.warning('[WS] stop 失败 session=%s: %s', session_id, exc)
 
 
-async def _handle_ws_approve(session_id: str, msg: dict):
+async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
     try:
         from dependencies import get_task_registry
         registry = get_task_registry()
-        await asyncio.to_thread(
+        ok_result = await asyncio.to_thread(
             registry.resolve_approval,
             session_id,
             msg.get('approval_id', ''),
             msg.get('approved', False),
             msg.get('message', ''),
         )
+        if not ok_result:
+            await _send_json(ws, {
+                'type': 'approve.error', 'approval_id': msg.get('approval_id', ''),
+                'error': '未找到对应的审批请求，可能已超时或不存在',
+            }, send_lock)
     except Exception as exc:
         logger.warning('[WS] approve 失败 session=%s: %s', session_id, exc)
+        try:
+            await _send_json(ws, {
+                'type': 'approve.error', 'approval_id': msg.get('approval_id', ''),
+                'error': str(exc),
+            }, send_lock)
+        except Exception:
+            pass
 
 
-async def _handle_ws_user_input(session_id: str, msg: dict):
+async def _handle_ws_user_input(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
     try:
         from dependencies import get_task_registry
         registry = get_task_registry()
-        await asyncio.to_thread(
+        ok_result = await asyncio.to_thread(
             registry.resolve_input,
             session_id,
             msg.get('input_id', ''),
             msg.get('value', ''),
         )
+        if not ok_result:
+            await _send_json(ws, {
+                'type': 'user_input.error', 'input_id': msg.get('input_id', ''),
+                'error': '未找到对应的输入请求，可能已被取消或不存在',
+            }, send_lock)
     except Exception as exc:
         logger.warning('[WS] user_input 失败 session=%s: %s', session_id, exc)
+        try:
+            await _send_json(ws, {
+                'type': 'user_input.error', 'input_id': msg.get('input_id', ''),
+                'error': str(exc),
+            }, send_lock)
+        except Exception:
+            pass
+
+
+async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
+    """处理前端通过 WS 发送的消息/命令。"""
+    try:
+        from api.v1.stream import execute_task, _build_attachment_records
+        result = await execute_task(
+            task=msg.get('task', ''),
+            session_id=session_id,
+            user_id=msg.get('user_id', ''),
+            selected_llm=msg.get('selected_llm', ''),
+            llm_tier=msg.get('llm_tier', ''),
+            attachments=msg.get('attachments') or [],
+            request_id=msg.get('request_id'),
+        )
+        await _send_json(ws, {'type': 'send.ack', **result}, send_lock)
+    except Exception as exc:
+        logger.warning('[WS] send 失败 session=%s: %s', session_id, exc)
+        try:
+            await _send_json(ws, {
+                'type': 'send.error', 'session_id': session_id,
+                'error': str(exc),
+            }, send_lock)
+        except Exception:
+            pass
 
 
 # ── 动态 run 订阅 / 回放 ───────────────────────────────────

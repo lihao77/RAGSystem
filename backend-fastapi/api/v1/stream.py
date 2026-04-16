@@ -2,10 +2,11 @@
 """
 Agent 流式执行 API 路由。
 
-内容交付已迁移到 WebSocket（ws.py），此模块仅负责：
+内容交付已迁移到 WebSocket（ws.py），此模块负责：
 - POST /stream：启动执行，返回 JSON
 - POST /stream/stop：停止执行
 - 审批/输入响应端点
+- execute_task()：REST 和 WS 共用的统一任务执行入口
 """
 
 import asyncio
@@ -191,20 +192,22 @@ async def _execute_system_command_async(session_id: str, cmd_name: str, cmd_args
         _active_system_commands.pop(session_id, None)
 
 
-@router.post('/stream')
-async def stream_execute(request: StreamExecuteRequest, http_request: Request):
-    """
-    启动智能体任务执行。
-
-    返回 JSON，内容通过 WebSocket 实时推送。
-    """
-    task = request.task.strip()
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = request.user_id
-    request_id = _ensure_request_id(http_request.headers.get('X-Request-ID'))
-    selected_llm_str = request.selected_llm or ''
-    llm_override = _parse_selected_llm(selected_llm_str)
-    llm_tier = _parse_llm_tier(request.llm_tier or '')
+async def execute_task(
+    task: str,
+    session_id: str,
+    user_id: str = '',
+    selected_llm: str = '',
+    llm_tier: str = '',
+    attachments: list = None,
+    request_id: str = None,
+) -> dict:
+    """统一任务执行入口，REST 和 WS 共用。返回结果 dict。"""
+    task = task.strip()
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    request_id = _ensure_request_id(request_id)
+    llm_override = _parse_selected_llm(selected_llm)
+    tier = _parse_llm_tier(llm_tier)
 
     # ── 斜杠命令预处理 ──
     display_task = None
@@ -212,17 +215,15 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
         parsed = cmd_mod.parse_slash_command(task)
         if parsed is not None:
             if parsed.defn is None:
-                # 未知命令：直接通过 EventBus 推送错误
                 _publish_command_result(session_id, {
                     'command': parsed.cmd_name.lstrip('/'), 'success': False,
                     'content': f'未知命令: {parsed.cmd_name}\n输入 /help 查看可用命令',
                 })
-                return ok(data={
+                return {
                     'started': False, 'session_id': session_id,
                     'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
-                })
+                }
             if parsed.defn.mode == 'system':
-                # 异步执行系统命令，结果通过 WS 推送
                 def _log_cmd_exc(fut):
                     if not fut.cancelled() and fut.exception():
                         logger.error('系统命令异步执行失败 session=%s cmd=%s: %s',
@@ -233,31 +234,32 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
                     )
                 )
                 t.add_done_callback(_log_cmd_exc)
-                return ok(data={
+                return {
                     'started': True, 'session_id': session_id,
                     'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
-                })
-            # prompt 命令：展开模板，走正常 agent run
+                }
             if not parsed.args.strip():
                 _publish_command_result(session_id, {
                     'command': parsed.cmd_name.lstrip('/'), 'success': False,
                     'error': 'missing_args',
                     'content': f'用法: {parsed.cmd_name} <内容>\n{parsed.defn.description}',
                 })
-                return ok(data={
+                return {
                     'started': False, 'session_id': session_id,
                     'kind': 'command', 'command': parsed.cmd_name.lstrip('/'),
-                })
+                }
             display_task = task
             task = parsed.defn.template.replace('{args}', parsed.args)
 
-    attachment_records = _validate_session_attachments(session_id, _build_attachment_records(request.attachments))
+    attachment_records = _validate_session_attachments(
+        session_id, [a for a in (attachments or [])]
+    )
     if not task and not attachment_records:
-        raise HTTPException(status_code=400, detail='任务描述和附件不能同时为空')
+        return {'started': False, 'session_id': session_id, 'error': '任务描述和附件不能同时为空'}
 
-    logger.info('启动执行任务: session_id=%s request_id=%s task=%s attachments=%s', session_id, request_id, task, len(attachment_records))
+    logger.info('启动执行任务: session_id=%s request_id=%s task=%s attachments=%s',
+                session_id, request_id, task, len(attachment_records))
 
-    # ── 启动 Agent 执行 ──
     from execution.adapters.agent_execution import AgentExecutionAdapter
     from dependencies import get_agent_runtime_service
 
@@ -269,7 +271,7 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
             session_id=session_id,
             user_id=user_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
+            llm_tier=tier,
             request_id=request_id,
             conversation_store=runtime.get_conversation_store(),
             orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
@@ -281,20 +283,40 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
     started = await asyncio.to_thread(_start)
 
     if not started.started:
-        raise HTTPException(status_code=409, detail=started.error_message or '启动执行失败')
+        return {'started': False, 'session_id': session_id, 'error': started.error_message or '启动执行失败'}
 
-    # SSEAdapter 后台 drain（防 queue 溢出 + run 结束后清理资源）
     if started.sse_adapter:
         _drain_sse_adapter_background(started.sse_adapter, session_id, started.run_id or '')
 
-    return ok(data={
+    return {
         'started': True,
         'session_id': session_id,
         'run_id': started.run_id,
         'task_id': started.task_id,
         'request_id': started.request_id or request_id,
         'kind': 'agent_run',
-    })
+    }
+
+
+@router.post('/stream')
+async def stream_execute(request: StreamExecuteRequest, http_request: Request):
+    """
+    启动智能体任务执行。
+
+    返回 JSON，内容通过 WebSocket 实时推送。
+    """
+    result = await execute_task(
+        task=request.task,
+        session_id=request.session_id or '',
+        user_id=request.user_id or '',
+        selected_llm=request.selected_llm or '',
+        llm_tier=request.llm_tier or '',
+        attachments=_build_attachment_records(request.attachments),
+        request_id=http_request.headers.get('X-Request-ID'),
+    )
+    if result.get('error') and not result.get('started') and result.get('kind') != 'command':
+        raise HTTPException(status_code=400 if '为空' in result['error'] else 409, detail=result['error'])
+    return ok(data=result)
 
 
 @router.post('/stream/stop')
