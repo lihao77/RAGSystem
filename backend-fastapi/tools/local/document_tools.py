@@ -992,6 +992,14 @@ def write_file(
         )
         file_path_obj = Path(prepared["file_path"])
 
+        # 写入前备份原文件（用于回退）
+        if session_id:
+            try:
+                from services.file_history import get_file_history
+                get_file_history(session_id).track_edit(str(file_path_obj))
+            except Exception:
+                pass
+
         dir_path = file_path_obj.parent
         if dir_path:
             dir_path.mkdir(parents=True, exist_ok=True)
@@ -1401,6 +1409,14 @@ def edit_file(
 
         if not file_path_obj.exists():
             return error_result(f"文件不存在: {file_path}", tool_name="edit_file")
+
+        # 编辑前备份原文件（用于回退）
+        if session_id:
+            try:
+                from services.file_history import get_file_history
+                get_file_history(session_id).track_edit(str(file_path_obj))
+            except Exception:
+                pass
 
         with open(file_path_obj, "r", encoding=encoding) as f:
             content = f.read()

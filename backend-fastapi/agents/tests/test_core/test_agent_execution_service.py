@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -235,22 +234,25 @@ def test_invoke_routed_agent_uses_default_entry_when_no_preferred_agent():
     assert runtime.store.messages[1]['metadata']['agent'] == 'demo_agent'
 
 
-def test_persist_user_message_binds_snapshot_commit(tmp_path):
+def test_persist_user_message_creates_file_history_snapshot(tmp_path, monkeypatch):
+    """用户消息提交时，如果有 pending tracked files 则创建 file history snapshot。"""
+    import services.file_history as fh_mod
+    monkeypatch.setattr(fh_mod, "FILE_HISTORY_ROOT", tmp_path / "file-history")
+    fh_mod._instances.clear()
+
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
 
-    repo = tmp_path / 'workspace'
-    repo.mkdir()
-    subprocess.run(['git', 'init'], cwd=str(repo), capture_output=True)
-    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=str(repo), capture_output=True)
-    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=str(repo), capture_output=True)
-    (repo / 'README.md').write_text('# test\n')
-    subprocess.run(['git', 'add', '-A'], cwd=str(repo), capture_output=True)
-    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=str(repo), capture_output=True)
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    runtime.workspace_root = str(workspace)
 
-    # 制造未提交变更，验证用户消息提交时会先 snapshot 再绑定 HEAD
-    (repo / 'file.txt').write_text('hello')
-    runtime.workspace_root = str(repo)
+    # 模拟 agent 编辑了文件（在 persist_user_message 之前 track）
+    from services.file_history import get_file_history
+    fh = get_file_history('session-1')
+    target_file = workspace / 'file.txt'
+    fh.track_edit(str(target_file))
+    target_file.write_text('hello')
 
     message = service.persist_user_message(
         session_id='session-1',
@@ -262,9 +264,10 @@ def test_persist_user_message_binds_snapshot_commit(tmp_path):
     )
 
     metadata = message['metadata']
-    assert metadata['snapshot_commit'] is not None
-    assert len(metadata['snapshot_commit']) >= 7
-    assert runtime.store.messages[0]['metadata']['snapshot_commit'] == metadata['snapshot_commit']
+    assert 'snapshot_id' in metadata
+    assert metadata['snapshot_id'] is not None
+    assert fh.has_snapshots()
+    fh_mod._instances.clear()
 
 
 

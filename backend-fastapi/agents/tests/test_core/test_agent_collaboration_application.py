@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import pytest
 from types import SimpleNamespace
 
 from agents.core.models import AgentResponse
@@ -104,6 +105,7 @@ class _FakeSessionApplication:
             'task': '修改后的任务',
             'message': {'id': 'msg-user-1'},
         }
+        self.prepare_retry_error = None
 
     def add_assistant_message(self, *, session_id, content, metadata=None):
         self.assistant_messages.append({
@@ -113,6 +115,8 @@ class _FakeSessionApplication:
         })
 
     def prepare_retry(self, *, session_id, after_seq, modify_user_message=None):
+        if self.prepare_retry_error is not None:
+            raise self.prepare_retry_error
         assert session_id == 'session-1'
         assert after_seq == 3
         assert modify_user_message == '修改后的任务'
@@ -162,3 +166,20 @@ def test_rollback_and_retry_uses_unified_execution_service():
     assert invocation['persist_final_answer'] is False
     assert session_app.assistant_messages[0]['content'] == '重试答案'
     assert result['answer'] == '重试答案'
+
+
+def test_rollback_and_retry_still_requires_user_anchor():
+    runtime = _FakeRuntimeService()
+    session_app = _FakeSessionApplication()
+    session_app.prepare_retry_error = ValueError('指定位置必须是用户消息（user），才能从此处重试')
+    app = AgentCollaborationApplication(
+        checkpoint_manager=_FakeCheckpointManager(),
+        runtime_service=runtime,
+        session_application=session_app,
+    )
+
+    with pytest.raises(ValueError, match='指定位置必须是用户消息'):
+        app.rollback_and_retry(
+            'session-1',
+            {'after_seq': 3, 'modify_user_message': '修改后的任务', 'user_id': 'user-1'},
+        )

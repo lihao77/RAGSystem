@@ -85,15 +85,13 @@ class AgentSessionApplication:
         if not session:
             return False
 
-        # ── 清理 snapshot 元数据 ──
+        # ── 清理 file history 备份数据 ──
         try:
-            from utils.worktree import snapshot_enabled, cleanup_snapshot
-            if snapshot_enabled(session_id):
-                cleanup_snapshot(session_id)
+            from services.file_history import remove_file_history
+            remove_file_history(session_id)
         except Exception:
-            import logging
-            logging.getLogger(__name__).warning(
-                "delete_session: 清理 snapshot 失败 (session=%s)", session_id, exc_info=True
+            logger.warning(
+                "delete_session: 清理 file history 失败 (session=%s)", session_id, exc_info=True
             )
 
         try:
@@ -145,7 +143,9 @@ class AgentSessionApplication:
         after_message_id: Optional[str] = None,
     ) -> int:
         # ── 文件回退 ──
-        self._rollback_file_snapshot(session_id, after_seq, after_message_id)
+        file_reverted = self._rollback_file_snapshot(session_id, after_seq, after_message_id)
+        if not file_reverted:
+            logger.debug("rollback_messages: 文件回退未执行 (session=%s)", session_id)
 
         # ── 消息回退 ──
         return self._conversation_store.delete_messages_after(
@@ -154,70 +154,199 @@ class AgentSessionApplication:
             after_message_id=after_message_id,
         )
 
+    def _resolve_snapshot_anchor_user_message(
+        self,
+        session_id: str,
+        after_seq: Optional[int],
+        after_message_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """把 rollback 锚点解析成用于文件恢复的 user 消息。"""
+        target_message = None
+        if after_seq is not None:
+            target_message = self._conversation_store.get_message_by_seq(session_id=session_id, seq=after_seq)
+        elif after_message_id:
+            with self._conversation_store._get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+                    FROM messages
+                    WHERE session_id=? AND id=?
+                    """,
+                    (session_id, after_message_id),
+                ).fetchone()
+                if row:
+                    import json
+                    target_message = {
+                        "seq": row["seq"],
+                        "id": row["id"],
+                        "role": row["role"],
+                        "content": row["content"],
+                        "metadata": json.loads(row["metadata"] or "{}"),
+                        "thread_key": row["thread_key"],
+                        "child_agent_id": row["child_agent_id"],
+                        "created_at": row["created_at"],
+                    }
+
+        # after_seq 在该会话中不存在（全局 AUTOINCREMENT 导致 seq 不连续），
+        # 向后搜索该会话中最近的一条消息作为起点。
+        if not target_message and after_seq is not None:
+            with self._conversation_store._get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+                    FROM messages
+                    WHERE session_id=? AND seq>?
+                    ORDER BY seq ASC
+                    LIMIT 1
+                    """,
+                    (session_id, after_seq),
+                ).fetchone()
+                if row:
+                    import json
+                    target_message = {
+                        "seq": row["seq"],
+                        "id": row["id"],
+                        "role": row["role"],
+                        "content": row["content"],
+                        "metadata": json.loads(row["metadata"] or "{}"),
+                        "thread_key": row["thread_key"],
+                        "child_agent_id": row["child_agent_id"],
+                        "created_at": row["created_at"],
+                    }
+
+        if not target_message:
+            return None
+
+        if target_message.get("role") == "user":
+            return target_message
+
+        target_seq = target_message.get("seq")
+        if target_seq is None:
+            return None
+
+        # assistant 锚点：优先折算到后一个可见 root user。
+        # 因为该 user 的 snapshot_commit 表示“assistant 执行完成后、该 user 执行开始前”的文件状态。
+        with self._conversation_store._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+                FROM messages
+                WHERE session_id=? AND seq>?
+                ORDER BY seq ASC
+                LIMIT 20
+                """,
+                (session_id, target_seq),
+            ).fetchall()
+            import json
+            for row in rows:
+                metadata = json.loads(row["metadata"] or "{}")
+                if row["role"] != "user":
+                    continue
+                if row["thread_key"] not in (None, "", "root"):
+                    continue
+                if row["child_agent_id"] is not None:
+                    continue
+                if metadata.get("visible_to_user") is False:
+                    continue
+                if metadata.get("conversation_scope") == "child":
+                    continue
+                return {
+                    "seq": row["seq"],
+                    "id": row["id"],
+                    "role": row["role"],
+                    "content": row["content"],
+                    "metadata": metadata,
+                    "thread_key": row["thread_key"],
+                    "child_agent_id": row["child_agent_id"],
+                    "created_at": row["created_at"],
+                }
+
+        # 若没有后一个 user，则回退到前一个 user 作为保底。
+        with self._conversation_store._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
+                FROM messages
+                WHERE session_id=? AND seq<=?
+                ORDER BY seq DESC
+                LIMIT 20
+                """,
+                (session_id, target_seq),
+            ).fetchall()
+            import json
+            for row in rows:
+                metadata = json.loads(row["metadata"] or "{}")
+                if row["role"] != "user":
+                    continue
+                if row["thread_key"] not in (None, "", "root"):
+                    continue
+                if row["child_agent_id"] is not None:
+                    continue
+                if metadata.get("visible_to_user") is False:
+                    continue
+                if metadata.get("conversation_scope") == "child":
+                    continue
+                return {
+                    "seq": row["seq"],
+                    "id": row["id"],
+                    "role": row["role"],
+                    "content": row["content"],
+                    "metadata": metadata,
+                    "thread_key": row["thread_key"],
+                    "child_agent_id": row["child_agent_id"],
+                    "created_at": row["created_at"],
+                }
+        return None
+
     def _rollback_file_snapshot(
         self,
         session_id: str,
         after_seq: Optional[int],
         after_message_id: Optional[str],
-    ):
-        """根据回退位置，自动恢复文件到目标用户消息绑定的 snapshot。"""
+    ) -> bool:
+        """根据回退位置，使用 file history 恢复文件。返回是否成功。"""
         try:
-            from utils.worktree import snapshot_enabled, get_snapshot_workspace, rewind_to_snapshot
+            from services.file_history import get_file_history
+            fh = get_file_history(session_id)
+            if not fh.has_snapshots():
+                logger.debug("文件回退跳过: 无快照记录 (session=%s)", session_id)
+                return False
 
-            if not snapshot_enabled(session_id):
-                return
+            target_user_message = self._resolve_snapshot_anchor_user_message(
+                session_id=session_id,
+                after_seq=after_seq,
+                after_message_id=after_message_id,
+            )
+            if not target_user_message:
+                logger.debug(
+                    "文件回退跳过: 未找到锚点用户消息 (session=%s after_seq=%s after_message_id=%s)",
+                    session_id, after_seq, after_message_id,
+                )
+                return False
 
-            workspace = get_snapshot_workspace(session_id)
-            if not workspace:
-                return
+            target_seq = target_user_message.get("seq")
+            if target_seq is None:
+                logger.debug("文件回退跳过: 锚点消息无 seq (session=%s)", session_id)
+                return False
 
-            # 解析目标消息
-            target_message = None
-            if after_seq is not None:
-                target_message = self._conversation_store.get_message_by_seq(session_id=session_id, seq=after_seq)
-            elif after_message_id:
-                with self._conversation_store._get_connection() as conn:
-                    row = conn.execute(
-                        """
-                        SELECT seq, id, role, content, metadata, thread_key, child_agent_id, created_at
-                        FROM messages
-                        WHERE session_id=? AND id=?
-                        """,
-                        (session_id, after_message_id),
-                    ).fetchone()
-                    if row:
-                        import json
-                        target_message = {
-                            "seq": row["seq"],
-                            "id": row["id"],
-                            "role": row["role"],
-                            "content": row["content"],
-                            "metadata": json.loads(row["metadata"] or "{}"),
-                            "thread_key": row["thread_key"],
-                            "child_agent_id": row["child_agent_id"],
-                            "created_at": row["created_at"],
-                        }
-            if not target_message:
-                return
-
-            # 回退锚点只绑定在用户消息上
-            if target_message.get("role") != "user":
-                return
-
-            snapshot_commit = (target_message.get("metadata") or {}).get("snapshot_commit")
-            if not snapshot_commit:
-                return
-
-            result = rewind_to_snapshot(workspace, snapshot_commit)
+            result = fh.rewind(target_seq)
             if result.get("success"):
                 logger.info(
-                    "对话回退自动恢复文件: session=%s seq=%s commit=%s",
-                    session_id, target_message.get("seq"), snapshot_commit,
+                    "对话回退自动恢复文件: session=%s target_seq=%s reverted=%s",
+                    session_id, target_seq, result.get("reverted_files"),
                 )
+                return True
+
+            logger.warning(
+                "文件回退 rewind 失败: session=%s reason=%s",
+                session_id, result.get("message"),
+            )
+            return False
         except Exception:
             logger.warning(
-                "对话回退文件恢复失败: session=%s", session_id, exc_info=True,
+                "对话回退文件恢复异常: session=%s", session_id, exc_info=True,
             )
+            return False
 
     def prepare_retry(
         self,
@@ -232,39 +361,31 @@ class AgentSessionApplication:
         if original_message.get('role') != 'user':
             raise ValueError('指定位置必须是用户消息（user），才能从此处重试')
 
-        # 如果修改了用户消息，需要重新绑定当前文件锚点
+        # 如果修改了用户消息，需要重新绑定当前 file history snapshot
         if modify_user_message is not None:
-            from utils.worktree import snapshot_enabled, get_snapshot_workspace, create_snapshot, get_current_changes, get_head_commit
-            workspace = get_snapshot_workspace(session_id) if snapshot_enabled(session_id) else None
-            if workspace:
-                if get_current_changes(workspace):
-                    create_snapshot(workspace)
-                head_commit = get_head_commit(workspace)
+            try:
+                from services.file_history import get_file_history
+                fh = get_file_history(session_id)
+                snapshot_id = fh.make_snapshot(after_seq)
                 metadata = dict(original_message.get('metadata') or {})
-                if head_commit:
-                    metadata['snapshot_commit'] = head_commit
-                    self._conversation_store.update_message(
-                        message_id=original_message['id'],
-                        content=(modify_user_message or '').strip() or original_message.get('content') or '',
-                        metadata=metadata,
-                        session_id=session_id,
-                        role_filter='user',
-                    )
-                    original_message['metadata'] = metadata
-                    original_message['content'] = (modify_user_message or '').strip() or original_message.get('content') or ''
+                if snapshot_id:
+                    metadata['snapshot_id'] = snapshot_id
+                self._conversation_store.update_message(
+                    message_id=original_message['id'],
+                    content=(modify_user_message or '').strip() or original_message.get('content') or '',
+                    metadata=metadata,
+                    session_id=session_id,
+                    role_filter='user',
+                )
+                original_message['metadata'] = metadata
+                original_message['content'] = (modify_user_message or '').strip() or original_message.get('content') or ''
+            except Exception:
+                logger.debug("prepare_retry: file history snapshot 失败", exc_info=True)
 
         deleted = self.rollback_messages(session_id=session_id, after_seq=after_seq)
         task = (modify_user_message or '').strip() or (original_message.get('content') or '').strip()
         if not task:
             raise ValueError('无法获取要重试的任务内容')
-
-        if modify_user_message is not None:
-            self._conversation_store.update_message(
-                message_id=original_message['id'],
-                content=task,
-                session_id=session_id,
-                role_filter='user',
-            )
 
         return {
             'deleted': deleted,

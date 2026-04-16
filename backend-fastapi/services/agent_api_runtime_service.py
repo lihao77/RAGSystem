@@ -93,13 +93,6 @@ class AgentApiRuntimeService:
         workspace_root = metadata.get('workspace_root')
         original = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else str(get_session_workspace_root(normalized_session_id))
 
-        # ── 启用 git snapshot 回退能力（不重定向 workspace）──
-        try:
-            from utils.worktree import ensure_git_snapshot
-            ensure_git_snapshot(original, normalized_session_id)
-        except Exception as exc:
-            logger.debug('git snapshot 启用失败: session_id=%s error=%s', normalized_session_id, exc)
-
         return original
 
     def _normalize_session_entry_agent(self, entry_agent: str | None, orchestrator=None) -> Optional[str]:

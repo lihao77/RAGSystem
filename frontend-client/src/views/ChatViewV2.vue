@@ -2647,10 +2647,17 @@ const rollbackAndRetry = async (msg) => {
   if (idx < 0) return;
   const prevMessages = messages.value.slice();
   try {
+    let body;
+    if (idx === 0) {
+      body = { after_seq: -1 };
+    } else {
+      const prev = messages.value[idx - 1];
+      body = prev.id ? { after_message_id: prev.id } : (prev.seq != null ? { after_seq: prev.seq } : { after_seq: -1 });
+    }
     const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ after_seq: msg.seq - 1 })
+      body: JSON.stringify(body)
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

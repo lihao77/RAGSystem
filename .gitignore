@@ -49,6 +49,7 @@ backend-fastapi/services/data/
 backend-fastapi/__pycache__/
 backend-fastapi/.pytest_cache/
 backend-fastapi/.pytest-tmp/
+backend-fastapi/.pytest_tmp/
 backend-fastapi/test_output.txt
 backend-fastapi/test_read_write.txt
 backend-fastapi/agents/tests/test_core/tmp*/
