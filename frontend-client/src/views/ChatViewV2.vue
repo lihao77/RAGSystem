@@ -649,6 +649,8 @@ let llmRetryTimer = null;
 const messageCache = ref(new Map());
 const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
+const approvalQueue = ref([]);
+const approvalSubmittingId = ref('');
 
 // ── 态势大屏状态 ──────────────────────────────────────────
 const situationScreenActive = ref(false);
@@ -739,6 +741,107 @@ const invalidateActiveStream = () => {
   _activeRun.isReplaying = false;
 };
 
+const normalizeApprovalEventData = (event, eventData) => ({
+  ...eventData,
+  approval_id: eventData?.approval_id || '',
+  agent_name: event?.agent_name || eventData?.agent_name || '智能体',
+});
+
+const getApprovalDialogRef = (approval) => {
+  if (!approval) return null;
+  return approval.approval_type === 'file_read_confirm'
+    ? filePreviewDialogRef.value
+    : approvalDialogRef.value;
+};
+
+const hideApprovalDialogs = () => {
+  approvalDialogRef.value?.hide?.();
+  filePreviewDialogRef.value?.hide?.();
+};
+
+const removeApprovalFromQueue = (approvalId) => {
+  if (!approvalId) return;
+  approvalQueue.value = approvalQueue.value.filter(item => item?.approval_id !== approvalId);
+};
+
+const showQueuedApproval = (approval, sessionId) => {
+  if (!approval?.approval_id || !sessionId) return;
+  const dialogRef = getApprovalDialogRef(approval);
+  if (!dialogRef?.show) return;
+  const makeApprovalResponder = (approved) => async (aid, message) => {
+    if (!aid || approvalSubmittingId.value) return;
+    approvalSubmittingId.value = aid;
+    if (_ws?.readyState === WebSocket.OPEN) {
+      _ws.send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
+      return;
+    }
+    try {
+      const resp = await fetch(
+        `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved, message })
+        }
+      );
+      if (!resp.ok) {
+        const result = await resp.json().catch(() => ({}));
+        throw new Error(result.message || `审批提交失败 (${resp.status})`);
+      }
+      // HTTP 成功：乐观出队，不依赖后端事件广播（WS 断连时收不到 ack）
+      handleApprovalResolved(aid, sessionId);
+    } catch (e) {
+      removeApprovalFromQueue(aid);
+      approvalSubmittingId.value = '';
+      console.warn('审批响应失败:', e);
+      showToast(e.message || '审批提交失败', 'warning');
+      hideApprovalDialogs();
+      showNextApproval(sessionId);
+    }
+  };
+  dialogRef.show(approval, makeApprovalResponder(true), makeApprovalResponder(false));
+};
+
+const showNextApproval = (sessionId = currentSessionId.value) => {
+  if (!sessionId || approvalSubmittingId.value) return;
+  const nextApproval = approvalQueue.value[0] || null;
+  if (!nextApproval) {
+    hideApprovalDialogs();
+    return;
+  }
+  hideApprovalDialogs();
+  showQueuedApproval(nextApproval, sessionId);
+};
+
+const enqueueApproval = (event, eventData, sessionId) => {
+  const approval = normalizeApprovalEventData(event, eventData);
+  if (!approval.approval_id) return;
+  const exists = approvalQueue.value.some(item => item?.approval_id === approval.approval_id);
+  if (!exists) {
+    approvalQueue.value = [...approvalQueue.value, approval];
+  }
+  showNextApproval(sessionId);
+};
+
+const handleApprovalResolved = (approvalId, sessionId) => {
+  if (!approvalId) return;
+  const currentApprovalId = approvalQueue.value[0]?.approval_id || '';
+  removeApprovalFromQueue(approvalId);
+  if (approvalSubmittingId.value === approvalId) {
+    approvalSubmittingId.value = '';
+  }
+  if (currentApprovalId === approvalId) {
+    hideApprovalDialogs();
+  }
+  showNextApproval(sessionId);
+};
+
+const resetApprovalState = () => {
+  approvalQueue.value = [];
+  approvalSubmittingId.value = '';
+  hideApprovalDialogs();
+};
+
 // ── session 级 WebSocket 连接（替代 SSE push + reconnect）──────────────
 let _ws = null;
 let _wsReconnectTimer = null;
@@ -785,6 +888,7 @@ const _clearCommandFallback = () => {
 const connectSessionWS = (sessionId) => {
   disconnectSessionWS();
   if (!sessionId) return;
+  resetApprovalState();
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${protocol}//${location.host}/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`;
   const ws = new WebSocket(url);
@@ -826,6 +930,7 @@ const connectSessionWS = (sessionId) => {
 
 const disconnectSessionWS = () => {
   _clearCommandFallback();
+  resetApprovalState();
   _wsReconnectAttempts = 0;
   if (_wsReconnectTimer) {
     clearTimeout(_wsReconnectTimer);
@@ -921,9 +1026,23 @@ const handleWSMessage = (event, sessionId) => {
 
   // approve.error / user_input.error — WS 审批/输入失败
   if (eventType === 'approve.error') {
+    if (event.approval_id) {
+      removeApprovalFromQueue(event.approval_id);
+      if (approvalSubmittingId.value === event.approval_id) {
+        approvalSubmittingId.value = '';
+      }
+      hideApprovalDialogs();
+      showNextApproval(sessionId);
+    }
     showToast(event.error || '审批提交失败', 'warning');
     return;
   }
+  if (eventType === 'user.approval_granted' || eventType === 'user.approval_denied') {
+    const approvalId = event.data?.approval_id || event.approval_id || '';
+    handleApprovalResolved(approvalId, sessionId);
+    return;
+  }
+
   if (eventType === 'user_input.error') {
     showToast(event.error || '用户输入提交失败', 'warning');
     return;
@@ -2843,37 +2962,7 @@ const handleRunEvent = (event, currentMsg, sessionId) => {
       }
     }
     else if (eventType === 'user.approval_required') {
-      const makeApprovalResponder = (approved) => async (aid, message) => {
-        if (_ws?.readyState === WebSocket.OPEN) {
-          _ws.send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
-        } else {
-          try {
-            const resp = await fetch(
-              `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ approved, message })
-              }
-            );
-            if (!resp.ok) {
-              const result = await resp.json().catch(() => ({}));
-              throw new Error(result.message || `审批提交失败 (${resp.status})`);
-            }
-          } catch (e) {
-            console.warn('审批响应失败:', e);
-            showToast(e.message || '审批提交失败', 'warning');
-          }
-        }
-      };
-      if (eventData.approval_type === 'file_read_confirm') {
-        filePreviewDialogRef.value?.show(eventData, makeApprovalResponder(true), makeApprovalResponder(false));
-      } else {
-        approvalDialogRef.value?.show(
-          { ...eventData, agent_name: event.agent_name || eventData.agent_name || '智能体' },
-          makeApprovalResponder(true), makeApprovalResponder(false)
-        );
-      }
+      enqueueApproval(event, eventData, sessionId);
     }
     else if (eventType === 'user.input_required') {
       userInputDialogRef.value?.show(

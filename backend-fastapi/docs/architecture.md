@@ -100,7 +100,7 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
       └─ 启动内部 SSEAdapter 仅用于后台 drain 与资源清理，不再直接对浏览器返回 SSE
   → /api/agent/sessions/{session_id}/ws
       ├─ 建立 session 级长连接
-      ├─ 订阅全局 EventBus（承接 `command.result` 等非 run 级事件）
+      ├─ 订阅全局 EventBus（承接 `command.result`、审批 granted/denied 等非 run 级事件）
       ├─ 动态绑定当前活跃 run 的 run 级 EventBus
       ├─ 新 run 绑定时自动 replay 历史事件，再接续实时事件
       └─ 前端统一经 WebSocket 接收 output / execution.step / approval / input / command 结果
@@ -120,6 +120,8 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
           ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
           └─ OpenAIProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
   → 事件发布到 run 级 EventBus / 全局 EventBus → WebSocket → 前端
+      ├─ `user.approval_required` 仍由 run 级事件驱动发起审批
+      └─ 前端提交审批后，WS / HTTP 响应路径会额外向 session 级全局总线广播 `user.approval_granted` / `user.approval_denied`，用于前端队列出队与下一项切换
 
 GET /api/agent/sessions/{session_id}/messages
   → api/v1/sessions.py

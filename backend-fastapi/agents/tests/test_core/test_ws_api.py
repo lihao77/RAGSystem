@@ -48,10 +48,17 @@ class _FakeContainer:
 
 
 class _FakeRegistry:
+    def __init__(self):
+        self.resolved_approvals = []
+
     def is_approval_pending(self, session_id, approval_id):
         return True
 
     def is_input_pending(self, session_id, input_id):
+        return True
+
+    def resolve_approval(self, session_id, approval_id, approved, message):
+        self.resolved_approvals.append((session_id, approval_id, approved, message))
         return True
 
 
@@ -64,17 +71,18 @@ def _build_client(monkeypatch, *, statuses):
     execution_service = _FakeExecutionService(statuses)
     runtime_service = _FakeRuntimeService({'run-1': run_bus})
     container = _FakeContainer(execution_service, runtime_service, global_bus)
+    registry = _FakeRegistry()
 
     monkeypatch.setattr(runtime_container_module, 'get_current_runtime_container', lambda: container)
-    monkeypatch.setattr(dependencies, 'get_task_registry', lambda: _FakeRegistry())
+    monkeypatch.setattr(dependencies, 'get_task_registry', lambda: registry)
 
     app = FastAPI()
     app.include_router(ws_router, prefix='/api/agent')
-    return TestClient(app), global_bus, run_bus
+    return TestClient(app), global_bus, run_bus, registry
 
 
 def test_ws_replays_existing_run_history(monkeypatch):
-    client, _, run_bus = _build_client(monkeypatch, statuses=[{
+    client, _, run_bus, _ = _build_client(monkeypatch, statuses=[{
         'status': 'running',
         'run_id': 'run-1',
         'started_at': 10,
@@ -101,7 +109,7 @@ def test_ws_replays_existing_run_history(monkeypatch):
 
 
 def test_ws_receives_live_events_from_run_bus(monkeypatch):
-    client, _, run_bus = _build_client(monkeypatch, statuses=[None, {
+    client, _, run_bus, _ = _build_client(monkeypatch, statuses=[None, {
         'status': 'running',
         'run_id': 'run-1',
         'started_at': 10,
@@ -126,7 +134,7 @@ def test_ws_receives_live_events_from_run_bus(monkeypatch):
 
 
 def test_ws_receives_command_result_from_global_bus(monkeypatch):
-    client, global_bus, _ = _build_client(monkeypatch, statuses=[None])
+    client, global_bus, _, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         global_bus.publish(Event(
@@ -142,7 +150,7 @@ def test_ws_receives_command_result_from_global_bus(monkeypatch):
 
 
 def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
-    client, global_bus, _ = _build_client(monkeypatch, statuses=[None])
+    client, global_bus, _, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         global_bus.publish(Event(
@@ -155,3 +163,41 @@ def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
     assert payload['type'] == 'session.run_started'
     assert payload['data']['run_id'] == 'run-bg-1'
     assert payload['data']['source'] == 'system.bg_notification'
+
+
+def test_ws_approve_publishes_granted_event(monkeypatch):
+    client, _, _, registry = _build_client(monkeypatch, statuses=[None])
+
+    with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
+        ws.send_json({
+            'type': 'approve',
+            'approval_id': 'approval-1',
+            'approved': True,
+            'message': 'ok',
+        })
+        payload = ws.receive_json()
+
+    assert registry.resolved_approvals == [('session-1', 'approval-1', True, 'ok')]
+    assert payload['type'] == 'user.approval_granted'
+    assert payload['data']['approval_id'] == 'approval-1'
+    assert payload['data']['approved'] is True
+    assert payload['data']['message'] == 'ok'
+
+
+def test_ws_approve_publishes_denied_event(monkeypatch):
+    client, _, _, registry = _build_client(monkeypatch, statuses=[None])
+
+    with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
+        ws.send_json({
+            'type': 'approve',
+            'approval_id': 'approval-2',
+            'approved': False,
+            'message': 'deny',
+        })
+        payload = ws.receive_json()
+
+    assert registry.resolved_approvals == [('session-1', 'approval-2', False, 'deny')]
+    assert payload['type'] == 'user.approval_denied'
+    assert payload['data']['approval_id'] == 'approval-2'
+    assert payload['data']['approved'] is False
+    assert payload['data']['message'] == 'deny'

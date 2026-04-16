@@ -341,12 +341,27 @@ async def stream_stop(request: StreamStopRequest, http_request: Request):
 async def respond_approval(session_id: str, approval_id: str, request: ApprovalRequest):
     """响应工具审批请求。"""
     from dependencies import get_task_registry
+    from runtime.container import get_current_runtime_container
+    from agents.events.bus import Event, EventType
+
     registry = get_task_registry()
     ok_result = await asyncio.to_thread(
         registry.resolve_approval, session_id, approval_id, request.approved, request.message
     )
     if not ok_result:
         raise HTTPException(status_code=404, detail='未找到对应的审批请求，可能已超时或不存在')
+
+    container = get_current_runtime_container()
+    if container:
+        container.get_event_bus().publish(Event(
+            type=EventType.USER_APPROVAL_GRANTED if request.approved else EventType.USER_APPROVAL_DENIED,
+            data={
+                'approval_id': approval_id,
+                'approved': bool(request.approved),
+                'message': request.message,
+            },
+            session_id=session_id,
+        ))
     return ok(data={'approved': request.approved}, message='审批响应已提交')
 
 

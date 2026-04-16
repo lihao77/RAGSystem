@@ -144,7 +144,13 @@ async def session_websocket(ws: WebSocket, session_id: str):
         # 全局总线仅承接非 run 级事件（当前主要是 command.result / session.run_started）
         global_bus = container.get_event_bus()
         global_sub_id = global_bus.subscribe(
-            event_types=[EventType.COMMAND_RESULT, EventType.SESSION_RUN_STARTED, EventType.SESSION_UPDATED],
+            event_types=[
+                EventType.COMMAND_RESULT,
+                EventType.SESSION_RUN_STARTED,
+                EventType.SESSION_UPDATED,
+                EventType.USER_APPROVAL_GRANTED,
+                EventType.USER_APPROVAL_DENIED,
+            ],
             handler=_on_event,
             filter_func=lambda e: bool(e.session_id) and e.session_id == session_id,
         )
@@ -283,6 +289,21 @@ async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, send_loc
                 'type': 'approve.error', 'approval_id': msg.get('approval_id', ''),
                 'error': '未找到对应的审批请求，可能已超时或不存在',
             }, send_lock)
+            return
+
+        from runtime.container import get_current_runtime_container
+        container = get_current_runtime_container()
+        if container:
+            event_type = EventType.USER_APPROVAL_GRANTED if msg.get('approved', False) else EventType.USER_APPROVAL_DENIED
+            container.get_event_bus().publish(Event(
+                type=event_type,
+                data={
+                    'approval_id': msg.get('approval_id', ''),
+                    'approved': bool(msg.get('approved', False)),
+                    'message': msg.get('message', ''),
+                },
+                session_id=session_id,
+            ))
     except Exception as exc:
         logger.warning('[WS] approve 失败 session=%s: %s', session_id, exc)
         try:
