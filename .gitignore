@@ -24,7 +24,6 @@ htmlcov/
 venv/
 env/
 ENV/
-.skill_venvs/
 
 # Frontend dependencies and builds
 node_modules/

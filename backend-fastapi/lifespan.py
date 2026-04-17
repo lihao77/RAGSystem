@@ -50,6 +50,17 @@ async def _startup(app: FastAPI) -> None:
     except Exception as e:
         logger.warning('旧数据目录探测失败: %s', e)
 
+    # ── 第零·三步：内置 Skill 复制到全局目录 ───────────────────────────
+    try:
+        from agents.skills.skill_bootstrap import bootstrap_builtin_skills
+        copied = bootstrap_builtin_skills()
+        if copied:
+            logger.info('✓ 内置 Skill 已初始化: %s', ', '.join(copied))
+        else:
+            logger.debug('✓ 内置 Skill 已就绪')
+    except Exception as e:
+        logger.warning('内置 Skill 初始化失败（不影响核心功能）: %s', e)
+
     # ── 第零·五步：迁移配置文件到 CONFIG_ROOT ──────────────────────────
     try:
         _migrate_configs()

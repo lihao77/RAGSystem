@@ -133,23 +133,17 @@ class SkillLoader:
     _MAX_WORKSPACE_CACHE_SIZE = 16
 
     def __init__(self, skills_dir=None):
-        builtin_root = Path(__file__).parent
         self._workspace_cache: OrderedDict[str, List[Skill]] = OrderedDict()
         self.skill_sources: List[SkillSourceSpec] = []
 
         if skills_dir is None:
+            # 默认只扫描全局 skill 目录（内置 skill 在启动时已复制到此处）
             self.skill_sources = [
-                SkillSourceSpec(
-                    root=builtin_root,
-                    source_type="builtin",
-                    source_label=SKILL_SOURCE_LABELS["builtin"],
-                    is_auto_inject_candidate=True,
-                ),
                 SkillSourceSpec(
                     root=get_user_global_skills_root(),
                     source_type="user_global",
                     source_label=SKILL_SOURCE_LABELS["user_global"],
-                    is_auto_inject_candidate=False,
+                    is_auto_inject_candidate=True,
                 ),
             ]
         elif isinstance(skills_dir, (str, Path)):
