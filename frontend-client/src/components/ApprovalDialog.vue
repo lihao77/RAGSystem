@@ -1,17 +1,28 @@
 <template>
   <Teleport to="body">
     <Transition name="dialog-fade">
-      <div v-if="visible" class="approval-overlay" @click="handleOverlayClick">
+      <div v-if="visible && !collapsed" class="approval-overlay" @click="handleOverlayClick">
         <div class="approval-container" @click.stop>
           <div class="approval-header">
-            <div class="approval-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                <line x1="12" y1="9" x2="12" y2="13"></line>
-                <line x1="12" y1="17" x2="12.01" y2="17"></line>
-              </svg>
+            <div class="approval-header-main">
+              <div class="approval-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </div>
+              <div class="approval-title-wrap">
+                <h3 class="approval-title">权限确认</h3>
+                <p class="approval-subtitle">可先折叠窗口，继续查看 AI 实时进展</p>
+              </div>
             </div>
-            <h3 class="approval-title">权限确认</h3>
+            <button class="approval-header-action" type="button" @click="toggleCollapsed" title="折叠审批窗口">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 12H4"></path>
+              </svg>
+              <span>折叠</span>
+            </button>
           </div>
 
           <div class="approval-body">
@@ -135,6 +146,25 @@
         </div>
       </div>
     </Transition>
+
+    <Transition name="approval-dock-fade">
+      <button
+        v-if="visible && collapsed"
+        class="approval-dock"
+        type="button"
+        :title="`待审批 ${queueCount} 条，点击展开`"
+        @click="toggleCollapsed"
+      >
+        <div class="approval-dock-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <span class="approval-dock-count">{{ queueCount }}</span>
+      </button>
+    </Transition>
   </Teleport>
 </template>
 
@@ -145,6 +175,7 @@ import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel 
 const emit = defineEmits(['approve', 'deny']);
 
 const visible = ref(false);
+const collapsed = ref(false);
 const agentName = ref('');
 const actionDescription = ref('');
 const toolName = ref('');
@@ -155,6 +186,7 @@ const approvalReason = ref('');
 const approvalReasonCodes = ref([]);
 const approvalSecondaryReasons = ref([]);
 const approvedExternalPaths = ref([]);
+const queueCount = ref(1);
 const activeMode = ref('approve');
 const approveMessage = ref('');
 const denyMessage = ref('');
@@ -208,9 +240,11 @@ const show = (data, onApprove, onDeny) => {
   approvalReasonCodes.value = Array.isArray(data.approval_reason_codes) ? data.approval_reason_codes : [];
   approvalSecondaryReasons.value = Array.isArray(data.approval_secondary_reasons) ? data.approval_secondary_reasons : [];
   approvedExternalPaths.value = Array.isArray(data.approved_external_paths) ? data.approved_external_paths : [];
+  queueCount.value = Number.isFinite(data.queue_count) && data.queue_count > 0 ? data.queue_count : 1;
   activeMode.value = 'approve';
   approveMessage.value = '';
   denyMessage.value = '';
+  collapsed.value = false;
   _onApprove = onApprove || null;
   _onDeny = onDeny || null;
   visible.value = true;
@@ -218,6 +252,11 @@ const show = (data, onApprove, onDeny) => {
 
 const hide = () => {
   visible.value = false;
+  collapsed.value = false;
+};
+
+const toggleCollapsed = () => {
+  collapsed.value = !collapsed.value;
 };
 
 const handleApprove = () => {
@@ -237,7 +276,7 @@ const handleDeny = () => {
 // 点击遮罩不关闭，强制用户做出选择
 const handleOverlayClick = () => {};
 
-defineExpose({ show, hide });
+defineExpose({ show, hide, toggleCollapsed });
 </script>
 
 <style scoped>
@@ -283,12 +322,20 @@ defineExpose({ show, hide });
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--spacing-md);
   background: linear-gradient(135deg, rgba(var(--color-warning-rgb), 0.1) 0%, transparent 100%);
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.approval-header-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
 }
 
 .approval-icon {
@@ -308,6 +355,42 @@ defineExpose({ show, hide });
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--color-text-primary);
+}
+
+.approval-title-wrap {
+  min-width: 0;
+}
+
+.approval-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.approval-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--color-warning-rgb), 0.28);
+  border-radius: 999px;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.approval-header-action:hover {
+  background: rgba(var(--color-warning-rgb), 0.18);
+  border-color: rgba(var(--color-warning-rgb), 0.4);
+}
+
+.approval-header-action:active {
+  transform: scale(0.98);
 }
 
 .approval-body {
@@ -632,6 +715,60 @@ defineExpose({ show, hide });
   transform: scale(0.98);
 }
 
+.approval-dock {
+  position: fixed;
+  right: 20px;
+  top: 88px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid rgba(var(--color-warning-rgb), 0.3);
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(16px);
+  color: var(--color-text-primary);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  z-index: var(--z-dialog);
+  cursor: pointer;
+}
+
+.approval-dock-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-warning);
+}
+
+.approval-dock-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-warning);
+  color: var(--color-bg-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 6px 16px rgba(var(--color-warning-rgb), 0.35);
+}
+
+.approval-dock-fade-enter-active,
+.approval-dock-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.approval-dock-fade-enter-from,
+.approval-dock-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 /* 动画 */
 .dialog-fade-enter-active,
 .dialog-fade-leave-active {
@@ -651,11 +788,34 @@ defineExpose({ show, hide });
   .approval-body {
     padding: var(--spacing-md);
   }
+  .approval-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .approval-header-main {
+    width: 100%;
+  }
+  .approval-header-action {
+    width: 100%;
+    justify-content: center;
+  }
   .approval-footer {
     padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
   }
   .approval-meta-row {
     flex-direction: column;
+  }
+  .approval-dock {
+    right: 12px;
+    top: 76px;
+    width: 44px;
+    height: 44px;
+  }
+  .approval-dock-count {
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    font-size: 0.6875rem;
   }
 }
 </style>

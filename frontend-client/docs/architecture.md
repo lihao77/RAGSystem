@@ -202,6 +202,7 @@ tool 归属规则：
 - `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；`skip_all_approvals` 才是“跳过所有审批”的总开关，但仍保留工具执行权限 deny。
 - `src/api/permissions.js` 统一调用全局 `/api/permissions/*` 接口，不传 session 参数。
 - `ChatViewV2.vue` 在收到 `user.approval_required` 时会先把事件 data 收敛进本地审批队列，按 `approval_id` 去重，并始终只展示队首审批；收到 `user.approval_granted` / `user.approval_denied` 后再出队并自动切换下一条，避免多个待审批时只能处理第一条。
+- `ApprovalDialog.vue` 支持折叠 / 展开：用户可先将审批窗口折叠为右下角悬浮条，继续观察聊天流和执行树的实时进展，再随时展开完成审批；折叠只改变展示形态，不会丢失当前审批上下文。
 - `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件；当前会额外读取 `approval_reason_codes`、`approval_secondary_reasons` 与 `approved_external_paths`，用于区分“风险审批”“路径越界审批”以及双重原因场景，并展示本次调用被授权的越界路径列表。
 - `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”。
 

@@ -806,7 +806,11 @@ const showQueuedApproval = (approval, sessionId) => {
       showNextApproval(sessionId);
     }
   };
-  dialogRef.show(approval, makeApprovalResponder(true), makeApprovalResponder(false));
+  dialogRef.show(
+    { ...approval, queue_count: approvalQueue.value.length || 1 },
+    makeApprovalResponder(true),
+    makeApprovalResponder(false)
+  );
 };
 
 const showNextApproval = (sessionId = currentSessionId.value) => {
