@@ -30,14 +30,21 @@ class ApprovalOutcome:
 
 def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]:
     import re
+    from pathlib import Path
+
+    from core.path_resolution import is_path_within_managed_roots
 
     tool_name = (context.tool_name or "").strip()
     if context.caller != "direct":
         return []
 
     path_field = None
-    if tool_name in {"read_file", "write_file", "edit_file"}:
+    operation = "read"
+    if tool_name == "read_file":
         path_field = "file_path"
+    elif tool_name in {"write_file", "edit_file"}:
+        path_field = "file_path"
+        operation = "write"
     elif tool_name == "execute_bash":
         path_field = "working_dir"
     else:
@@ -53,15 +60,26 @@ def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]
         return []
 
     windows_absolute = re.match(r'^[a-zA-Z]:[\\/]', raw_path)
-    if windows_absolute:
-        return [raw_path.replace('/', '\\')]
-
-    from pathlib import Path
-
-    candidate = Path(raw_path)
+    candidate = Path(raw_path.replace('/', '\\')) if windows_absolute else Path(raw_path)
     if not candidate.is_absolute():
         return []
-    return [str(candidate.resolve())]
+
+    workspace_root = None
+    if context.agent_config is not None:
+        custom_params = getattr(context.agent_config, "custom_params", None) or {}
+        workspace_root = custom_params.get("workspace_root")
+
+    resolved_candidate = candidate.resolve()
+    if is_path_within_managed_roots(
+        resolved_candidate,
+        session_id=(context.session_id or "").strip() or None,
+        run_id=(context.run_id or "").strip() or None,
+        caller="direct",
+        operation=operation,
+        workspace_root=workspace_root,
+    ):
+        return []
+    return [str(resolved_candidate)]
 
 
 def _build_approval_reason_payload(

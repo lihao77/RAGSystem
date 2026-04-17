@@ -348,6 +348,52 @@ def _allowed_roots_for_access(
     ])
 
 
+
+def get_allowed_roots_for_access(
+    *,
+    session_id: str | None,
+    run_id: str | None,
+    caller: str,
+    operation: str,
+    workspace_root: str | Path | None,
+    approved_external_paths: Iterable[str | Path] | None = None,
+) -> list[Path]:
+    """返回指定调用上下文下允许访问的受管根目录。"""
+    return _allowed_roots_for_access(
+        session_id=session_id,
+        run_id=run_id,
+        caller=caller,
+        operation=operation,
+        workspace_root=workspace_root,
+        approved_external_paths=approved_external_paths,
+    )
+
+
+
+def is_path_within_managed_roots(
+    path: str | Path,
+    *,
+    session_id: str | None,
+    run_id: str | None,
+    caller: str,
+    operation: str,
+    workspace_root: str | Path | None,
+    approved_external_paths: Iterable[str | Path] | None = None,
+) -> bool:
+    """判断路径是否位于指定上下文的受管根目录内。"""
+    resolved = Path(path).resolve()
+    allowed_roots = get_allowed_roots_for_access(
+        session_id=session_id,
+        run_id=run_id,
+        caller=caller,
+        operation=operation,
+        workspace_root=workspace_root,
+        approved_external_paths=approved_external_paths,
+    )
+    return any(_is_under(resolved, root) for root in allowed_roots)
+
+
+
 def _assert_allowed_path(
     path: Path,
     *,

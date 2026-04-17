@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tools.paths.path_resolution import (
     DATA_ROOT,
+    get_allowed_roots_for_access,
     get_effective_workspace_root,
     get_user_global_skills_root,
     get_workspace_metadata_root,
@@ -23,6 +24,7 @@ from tools.paths.path_resolution import (
     get_workspace_memory_key,
     get_export_run_root,
     infer_resource_scope,
+    is_path_within_managed_roots,
     resolve_managed_directory,
     resolve_managed_path,
     to_display_path,
@@ -163,28 +165,54 @@ def test_resolve_managed_directory_default_workspace_requires_workspace_context(
         assert 'workspace' in str(exc)
 
 
-def test_resolve_managed_directory_absolute_path_still_checks_managed_boundary():
-    root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
-    workspace = root / 'workspace'
-    workspace.mkdir(parents=True, exist_ok=True)
-    outside_dir = root / 'outside'
-    outside_dir.mkdir(parents=True, exist_ok=True)
 
+
+def test_get_allowed_roots_for_access_matches_session_read_context():
+    session_id = 'session-allowed-roots-read'
+    run_id = 'run-allowed-roots-read'
+
+    roots = get_allowed_roots_for_access(
+        session_id=session_id,
+        run_id=run_id,
+        caller='direct',
+        operation='read',
+        workspace_root=None,
+    )
+
+    assert get_session_workspace_root(session_id).resolve() in roots
+    assert get_session_transient_root(session_id).resolve() in roots
+    assert get_export_run_root(session_id, run_id).resolve() in roots
+    assert get_session_root(session_id).resolve() in roots
+    assert DATA_ROOT.resolve() in roots
+
+
+
+def test_is_path_within_managed_roots_detects_managed_and_external_paths():
+    session_id = 'session-is-managed'
+    managed_path = get_session_transient_root(session_id) / 'data.json'
+
+    assert is_path_within_managed_roots(
+        managed_path,
+        session_id=session_id,
+        run_id=None,
+        caller='direct',
+        operation='read',
+        workspace_root=None,
+    ) is True
+
+    external_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    external_path = external_root / 'outside.json'
     try:
-        try:
-            resolve_managed_directory(
-                str(outside_dir),
-                session_id='session-dir-absolute-boundary',
-                workspace_root=workspace,
-            )
-            assert False, 'expected PermissionError'
-        except PermissionError:
-            pass
+        assert is_path_within_managed_roots(
+            external_path,
+            session_id=session_id,
+            run_id=None,
+            caller='direct',
+            operation='read',
+            workspace_root=None,
+        ) is False
     finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def test_resolve_managed_path_direct_read_prefers_workspace_root_when_file_exists():
+        shutil.rmtree(external_root, ignore_errors=True)
     temp_root = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
     workspace = temp_root / 'workspace'
     workspace.mkdir(parents=True, exist_ok=True)

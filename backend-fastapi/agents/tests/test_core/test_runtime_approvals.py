@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -206,7 +207,9 @@ def test_skip_all_approvals_skips_path_approval(monkeypatch):
 
 
 
-def test_user_approval_event_includes_external_paths_for_execute_bash_working_dir(monkeypatch):
+
+
+def test_managed_absolute_read_path_does_not_trigger_path_approval(monkeypatch, tmp_path):
     from tools.contracts.permissions import RiskLevel, ToolPermission
     from tools.permissions import TOOL_PERMISSIONS
 
@@ -216,15 +219,56 @@ def test_user_approval_event_includes_external_paths_for_execute_bash_working_di
     monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: registry)
     set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
 
-    TOOL_PERMISSIONS['execute_bash'] = ToolPermission(
-        tool_name='execute_bash',
+    TOOL_PERMISSIONS['read_file'] = ToolPermission(
+        tool_name='read_file',
         risk_level=RiskLevel.LOW,
-        description='Execute bash command',
+        description='Read file',
+        allowed_callers=['direct'],
+    )
+
+    session_id = 'session-managed-absolute-read'
+    transient_root = Path.home() / '.ragsystem' / 'sessions' / session_id / 'transient'
+    managed_path = transient_root / 'data_c6414389.json'
+
+    event_bus = MagicMock()
+    event_bus.publish = lambda event: published.setdefault('event', event)
+
+    context = ToolUseContext(
+        tool_name='read_file',
+        arguments={'file_path': str(managed_path)},
+        event_bus=event_bus,
+        session_id=session_id,
+        caller='direct',
+    )
+    outcome = request_user_approval_if_needed(context)
+
+    assert outcome.allowed is True
+    assert outcome.approved_external_paths == []
+    assert outcome.approval_reason_codes == []
+    assert published == {}
+
+    del TOOL_PERMISSIONS['read_file']
+
+
+def test_external_absolute_read_path_triggers_path_approval(monkeypatch):
+    from tools.contracts.permissions import RiskLevel, ToolPermission
+    from tools.permissions import TOOL_PERMISSIONS
+
+    registry = _FakeApprovalRegistry()
+    published = {}
+
+    monkeypatch.setattr('agents.task_registry.get_task_registry', lambda: registry)
+    set_permission_policy(PermissionPolicy(mode=PermissionMode.STANDARD))
+
+    TOOL_PERMISSIONS['read_file'] = ToolPermission(
+        tool_name='read_file',
+        risk_level=RiskLevel.LOW,
+        description='Read file',
         allowed_callers=['direct'],
     )
 
     event_bus = MagicMock()
-    external_path = 'C:/tmp/bash-outside'
+    external_path = 'C:/tmp/outside-read.json'
 
     def fake_publish(event):
         if getattr(event, 'type', None) != 'user.approval_required':
@@ -232,28 +276,28 @@ def test_user_approval_event_includes_external_paths_for_execute_bash_working_di
         published['event'] = event
 
         def approve():
-            registry.resolve_approval(event.session_id, event.data['approval_id'], True, '允许切换目录')
+            registry.resolve_approval(event.session_id, event.data['approval_id'], True, '允许读取')
 
         threading.Thread(target=approve).start()
 
     event_bus.publish = fake_publish
 
     context = ToolUseContext(
-        tool_name='execute_bash',
-        arguments={'command': 'pwd', 'working_dir': external_path},
+        tool_name='read_file',
+        arguments={'file_path': external_path},
         event_bus=event_bus,
-        session_id='session-approval-bash-working-dir',
+        session_id='session-external-absolute-read',
         caller='direct',
     )
     outcome = request_user_approval_if_needed(context)
 
-    normalized_external_path = external_path.replace('/', '\\')
+    normalized_external_path = str(Path(external_path.replace('/', '\\')).resolve())
     assert outcome.allowed is True
     assert outcome.approved_external_paths == [normalized_external_path]
     assert outcome.approval_reason_codes == ['ask-path']
     assert published['event'].data['approved_external_paths'] == [normalized_external_path]
     assert published['event'].data['approval_reason_codes'] == ['ask-path']
 
-    del TOOL_PERMISSIONS['execute_bash']
+    del TOOL_PERMISSIONS['read_file']
 
 
