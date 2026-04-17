@@ -451,27 +451,31 @@
             <div class="section-body skills-body">
               <label class="form-item checkbox-item checkbox-item--inline">
                 <input v-model="configForm.skills.auto_inject" type="checkbox" />
-                <span>自动注入技能</span>
+                <span>自动注入内置/工作区技能</span>
               </label>
 
-              <div class="toggle-grid">
-                <div
-                  v-for="skill in skills"
-                  :key="skill.name"
-                  class="toggle-card"
-                  :class="{ active: configForm.skills.enabled_skills.includes(skill.name) }"
-                  @click="toggleSkill(skill.name, !configForm.skills.enabled_skills.includes(skill.name))"
-                >
-                  <div class="toggle-card__indicator">
-                    <svg v-if="configForm.skills.enabled_skills.includes(skill.name)"
-                      xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                      viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
+              <div v-for="group in skillGroups" :key="group.key" class="skill-group">
+                <div class="subsection-title">{{ group.title }}</div>
+                <div v-if="group.hint" class="skill-group__hint">{{ group.hint }}</div>
+                <div class="toggle-grid">
+                  <div
+                    v-for="skill in group.items"
+                    :key="`${group.key}-${skill.name}`"
+                    class="toggle-card"
+                    :class="{ active: configForm.skills.enabled_skills.includes(skill.name) }"
+                    @click="toggleSkill(skill.name, !configForm.skills.enabled_skills.includes(skill.name))"
+                  >
+                    <div class="toggle-card__indicator">
+                      <svg v-if="configForm.skills.enabled_skills.includes(skill.name)"
+                        xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                    <div class="toggle-card__name">{{ skill.display_name || skill.name }}</div>
+                    <div class="toggle-card__desc">{{ skill.description || skill.name }}</div>
                   </div>
-                  <div class="toggle-card__name">{{ skill.display_name || skill.name }}</div>
-                  <div class="toggle-card__desc">{{ skill.description || skill.name }}</div>
                 </div>
               </div>
             </div>
@@ -702,7 +706,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import {
   getAllAgentConfigs,
@@ -911,6 +915,26 @@ const activeTeam = ref('');
 const selectedAgent = ref('');
 const tools = ref([]);
 const skills = ref([]);
+const skillGroups = computed(() => ([
+  {
+    key: 'workspace',
+    title: '工作区技能',
+    hint: '入口 Agent 默认可见；其他 Agent 需显式勾选。',
+    items: skills.value.filter(skill => skill.source_type === 'workspace')
+  },
+  {
+    key: 'user_global',
+    title: '全局技能',
+    hint: '仅在当前 Agent 显式勾选后生效。',
+    items: skills.value.filter(skill => skill.source_type === 'user_global')
+  },
+  {
+    key: 'builtin',
+    title: '内置技能',
+    hint: '',
+    items: skills.value.filter(skill => skill.source_type !== 'workspace' && skill.source_type !== 'user_global')
+  }
+]).filter(group => group.items.length > 0));
 const mcpServers = ref([]);
 const providers = ref([]);
 const memoryScopeMeta = ref([]);
@@ -1202,10 +1226,10 @@ function buildPayload() {
   return merged;
 }
 
-async function loadSupplementaryData() {
+async function loadSupplementaryData(workspaceRoot = '') {
   const [toolResult, skillResult, mcpServerResult, providerResult, memoryResult] = await Promise.allSettled([
     getAvailableTools(),
-    getAvailableSkills(),
+    getAvailableSkills(workspaceRoot),
     getAvailableMCPServers(),
     getProviders(),
     getMemoryConfigMetadata()
@@ -1243,18 +1267,18 @@ async function loadInitialData() {
       configForm.value = createEmptyForm();
       rawConfig.value = createEmptyForm();
       loading.value = false;
+      // loadAgentDetail 内部会调用 loadSupplementaryData(workspace_root)
       loadAgentDetail(agentNames[0]);
     } else {
       selectedAgent.value = '';
       configForm.value = createEmptyForm();
       rawConfig.value = createEmptyForm();
       loading.value = false;
+      loadSupplementaryData().catch(err => {
+        console.error('加载 Agent 辅助配置失败:', err);
+        showToast(err.message || '部分辅助配置加载失败');
+      });
     }
-
-    loadSupplementaryData().catch(err => {
-      console.error('加载 Agent 辅助配置失败:', err);
-      showToast(err.message || '部分辅助配置加载失败');
-    });
   } catch (err) {
     error.value = err.message || '加载 Agent 配置失败';
     loading.value = false;
@@ -1269,6 +1293,7 @@ async function loadAgentDetail(agentName) {
   try {
     const config = await getAgentConfig(agentName);
     applyConfigToForm(config);
+    await loadSupplementaryData(config?.custom_params?.workspace_root || '');
   } catch (err) {
     configForm.value = createEmptyForm();
     rawConfig.value = createEmptyForm();
@@ -1536,5 +1561,17 @@ onUnmounted(() => {
   border: 1px solid rgba(var(--color-brand-accent-rgb), 0.28);
   background: rgba(var(--color-brand-accent-rgb), 0.12);
   color: var(--color-brand-accent-light);
+}
+
+.skill-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skill-group__hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: -4px;
 }
 </style>

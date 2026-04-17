@@ -7,6 +7,8 @@
 
 import logging
 from typing import Dict, Optional, Type
+
+from core.path_resolution import get_effective_workspace_root
 from agents.core import BaseAgent
 from agents.implementations import OrchestratorAgent
 from .manager import get_config_manager
@@ -41,7 +43,7 @@ class AgentLoader:
     负责从配置文件动态加载智能体实例
     """
 
-    def __init__(self, model_adapter, system_config, orchestrator=None, config_manager=None, mcp_manager_getter=None):
+    def __init__(self, model_adapter, system_config, orchestrator=None, config_manager=None, mcp_manager_getter=None, workspace_root=None):
         """
         初始化加载器
 
@@ -49,6 +51,7 @@ class AgentLoader:
             model_adapter: Model 适配器
             system_config: 系统配置
             orchestrator: 编排器（Orchestrator Agent 需要）
+            workspace_root: 会话级工作区根路径（用于发现 workspace skills）
         """
         self.model_adapter = model_adapter
         self.system_config = system_config
@@ -56,6 +59,7 @@ class AgentLoader:
         self.config_manager = config_manager or get_config_manager()
         self._mcp_manager_getter = mcp_manager_getter
         self._tool_registry = get_tool_registry()
+        self._workspace_root = workspace_root
 
     def _resolve_configs(self, configs=None):
         return configs if configs is not None else self.config_manager.get_all_configs()
@@ -132,6 +136,13 @@ class AgentLoader:
         """
         agents = {}
         all_configs = self._resolve_configs(configs)
+
+        # 在 agent 加载前注入 workspace_root，确保 skill 解析可见
+        if self._workspace_root:
+            for agent_config in all_configs.values():
+                custom_params = getattr(agent_config, 'custom_params', None)
+                if isinstance(custom_params, dict):
+                    custom_params.setdefault('workspace_root', self._workspace_root)
 
         # 1. 加载配置中的智能体
         for agent_name, agent_config in all_configs.items():
@@ -263,6 +274,58 @@ class AgentLoader:
         logger.warning(f"智能体 '{agent_name}' 未指定 type，默认使用 'orchestrator'")
         return 'orchestrator'
 
+    def _is_entry_agent(self, agent_config) -> bool:
+        """判断 agent_config 是否为入口 Agent（用于 workspace skill 自动可见）。"""
+        if getattr(agent_config, 'default_entry', False):
+            return True
+        custom_params = getattr(agent_config, 'custom_params', None) or {}
+        if custom_params.get('default_entry'):
+            return True
+        # 从 orchestrator 或 loader 自身解析默认入口名称
+        default_entry_name = None
+        try:
+            if self.orchestrator:
+                default_entry_name = getattr(self.orchestrator, 'get_default_entry_agent_name', lambda: None)()
+        except Exception:
+            pass
+        if not default_entry_name:
+            try:
+                default_entry_name = self.resolve_default_entry_agent_name()
+            except Exception:
+                pass
+        return bool(default_entry_name and agent_config.agent_name == default_entry_name)
+
+    @staticmethod
+    def stamp_effective_skills(agent_config, skill_names: frozenset):
+        """
+        将 loader 解析后的有效 Skill 名称集合标记到 agent_config 上。
+
+        exposure.py 的 get_tool_exposure_decision 会读取 _effective_skill_names
+        来判断 skill 系统工具是否可见。该属性不持久化，仅作为 loader → runtime
+        的运行时传递契约。
+        """
+        agent_config._effective_skill_names = skill_names
+
+    def _resolve_available_skills(self, agent_config, exposure):
+        from agents.skills.skill_loader import get_skill_loader
+
+        custom_params = getattr(agent_config, 'custom_params', None) or {}
+        workspace_root = custom_params.get('workspace_root')
+        effective_workspace = get_effective_workspace_root(None, workspace_root) if workspace_root else None
+        all_skills = get_skill_loader().load_all_skills(workspace_root=effective_workspace)
+        enabled_skill_names = set(exposure['enabled_skill_names'])
+        is_entry = self._is_entry_agent(agent_config)
+        filtered_skills = []
+        for skill in all_skills:
+            if skill.source_type == 'workspace':
+                if is_entry or skill.name in enabled_skill_names:
+                    filtered_skills.append(skill)
+                continue
+            if skill.name in enabled_skill_names:
+                filtered_skills.append(skill)
+        inject_skill_tools = bool(filtered_skills and getattr(getattr(agent_config, 'skills', None), 'auto_inject', True))
+        return filtered_skills, inject_skill_tools
+
     def _resolve_tools_and_skills(self, agent_config):
         """
         根据 agent_config 过滤工具列表并注入 Skills/MCP/delegation 工具
@@ -270,8 +333,6 @@ class AgentLoader:
         Returns:
             (available_tools, available_skills) 元组
         """
-        from agents.skills.skill_loader import get_skill_loader
-
         exposure = resolve_effective_tool_exposure(agent_config)
         decisions = exposure['decisions']
         filtered_tools = []
@@ -296,22 +357,19 @@ class AgentLoader:
                     filtered_tools.append(task_tool)
             logger.debug(f"{agent_config.agent_name} 启用 task 工具: {sorted(task_tool_names)}")
 
-        filtered_skills = []
-        skill_loader = get_skill_loader()
-        all_skills = skill_loader.load_all_skills()
-        enabled_skill_names = exposure['enabled_skill_names']
-        if enabled_skill_names:
-            filtered_skills = [
-                skill for skill in all_skills
-                if skill.name in enabled_skill_names
-            ]
-            logger.debug(f"{agent_config.agent_name} 启用 Skills: {enabled_skill_names}")
-
-            if exposure['inject_skill_tools']:
+        filtered_skills, inject_skill_tools = self._resolve_available_skills(agent_config, exposure)
+        self.stamp_effective_skills(agent_config, frozenset(s.name for s in filtered_skills))
+        if filtered_skills:
+            logger.debug(
+                "%s 启用 Skills: %s",
+                agent_config.agent_name,
+                [f"{skill.name}({skill.source_type})" for skill in filtered_skills],
+            )
+            if inject_skill_tools:
                 existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
                 for skill_tool in self._tool_registry.get_skill_tools():
                     tool_name = skill_tool.get('function', {}).get('name')
-                    if tool_name and decisions.get(tool_name) and tool_name not in existing_tool_names:
+                    if tool_name and tool_name not in existing_tool_names:
                         filtered_tools.append(skill_tool)
         else:
             logger.debug(f"{agent_config.agent_name} 未配置 Skills")

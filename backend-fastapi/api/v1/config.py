@@ -300,10 +300,12 @@ async def list_available_mcp_servers():
 
 
 @router.get('/skills')
-async def list_available_skills():
+async def list_available_skills(workspace_root: str | None = None):
     """列出所有可用 Skills。"""
     try:
-        skills = await asyncio.to_thread(_get_service().list_available_skills)
+        from core.path_resolution import validate_workspace_root
+        validated_root = validate_workspace_root(workspace_root)
+        skills = await asyncio.to_thread(_get_service().list_available_skills, validated_root)
         return ok(data=skills, message=f'共有 {len(skills)} 个可用 Skill')
     except Exception as e:
         logger.error('获取 Skills 列表失败: %s', e, exc_info=True)

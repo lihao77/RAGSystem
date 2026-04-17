@@ -218,7 +218,7 @@ def _unwrap_script_response(payload):
         }
     ],
 )
-def activate_skill(skill_name):
+def activate_skill(skill_name, workspace_root=None):
     """
     激活一个 Skill 并加载其主文件内容（SKILL.md）
 
@@ -240,7 +240,7 @@ def activate_skill(skill_name):
 
         # 获取 Skill
         skill_loader = get_skill_loader()
-        all_skills = skill_loader.load_all_skills()
+        all_skills = skill_loader.load_all_skills(workspace_root=workspace_root)
         skill = next((s for s in all_skills if s.name == skill_name), None)
 
         if not skill:
@@ -330,7 +330,7 @@ def activate_skill(skill_name):
         }
     ],
 )
-def load_skill_resource(skill_name, resource_file):
+def load_skill_resource(skill_name, resource_file, workspace_root=None):
     """
     加载 Skill 的引用文件内容（Additional Resources）
 
@@ -348,7 +348,7 @@ def load_skill_resource(skill_name, resource_file):
 
         # 获取 Skill
         skill_loader = get_skill_loader()
-        all_skills = skill_loader.load_all_skills()
+        all_skills = skill_loader.load_all_skills(workspace_root=workspace_root)
         skill = next((s for s in all_skills if s.name == skill_name), None)
 
         if not skill:
@@ -386,12 +386,12 @@ def load_skill_resource(skill_name, resource_file):
         return error_result(f"加载失败: {str(e)}", tool_name="load_skill_resource")
 
 
-def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_id=None):
+def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_id=None, workspace_root=None):
     try:
         from agents.skills.skill_loader import get_skill_loader
 
         skill_loader = get_skill_loader()
-        all_skills = skill_loader.load_all_skills()
+        all_skills = skill_loader.load_all_skills(workspace_root=workspace_root)
         skill = next((s for s in all_skills if s.name == skill_name), None)
 
         if not skill:
@@ -603,7 +603,7 @@ def _execute_skill_script_sync(skill_name, script_name, arguments=None, session_
         },
     ],
 )
-def execute_skill_script(skill_name, script_name, arguments=None, run_in_background=False, session_id=None, event_bus=None):
+def execute_skill_script(skill_name, script_name, arguments=None, run_in_background=False, session_id=None, event_bus=None, workspace_root=None):
     """
     执行 Skill 的实用脚本（Utility Scripts）
 
@@ -640,6 +640,7 @@ def execute_skill_script(skill_name, script_name, arguments=None, run_in_backgro
                 script_name=script_name,
                 arguments=arguments,
                 session_id=session_id,
+                workspace_root=workspace_root,
             ),
             description=f"skill:{skill_name}/{script_name}",
             output_dir=output_dir,
@@ -678,6 +679,7 @@ def execute_skill_script(skill_name, script_name, arguments=None, run_in_backgro
         script_name=script_name,
         arguments=arguments,
         session_id=session_id,
+        workspace_root=workspace_root,
     )
 
 
@@ -725,7 +727,7 @@ def execute_skill_script(skill_name, script_name, arguments=None, run_in_backgro
         }
     ],
 )
-def get_skill_info(skill_name: str):
+def get_skill_info(skill_name: str, workspace_root=None):
     """
     获取 Skill 元信息。
 
@@ -735,13 +737,13 @@ def get_skill_info(skill_name: str):
         from agents.skills.skill_loader import get_skill_loader
 
         skill_loader = get_skill_loader()
-        skill_info = skill_loader.find_skill_metadata(skill_name)
+        skill_info = skill_loader.find_skill_metadata(skill_name, workspace_root=workspace_root)
 
         if not skill_info:
             return error_result(
                 f"Skill '{skill_name}' 不存在",
                 tool_name="get_skill_info",
-                metadata={"available_skills": skill_loader.list_skill_names()},
+                metadata={"available_skills": skill_loader.list_skill_names(workspace_root=workspace_root)},
             )
 
         skill_dir = skill_info["skill_dir"]
@@ -750,9 +752,13 @@ def get_skill_info(skill_name: str):
                 "name": skill_info["name"],
                 "description": skill_info["description"],
                 "has_scripts": (skill_dir / "scripts").is_dir(),
+                "source_type": skill_info["source_type"],
+                "source_label": skill_info["source_label"],
             },
             metadata={
                 "resource_count": skill_loader.count_skill_resources(skill_dir),
+                "source_type": skill_info["source_type"],
+                "source_label": skill_info["source_label"],
             },
             summary=f"获取 Skill '{skill_name}' 信息成功",
             output_type="json",

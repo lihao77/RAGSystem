@@ -131,11 +131,11 @@ class AgentSkillConfig(BaseModel):
     """
     enabled_skills: List[str] = Field(
         default_factory=list,
-        description="启用的 Skill 名称列表，留空表示不启用任何 Skill"
+        description="启用的 Skill 名称列表；workspace Skill 可对入口 Agent 默认生效，user_global Skill 必须显式出现在此列表中"
     )
     auto_inject: bool = Field(
         default=True,
-        description="是否自动检测并注入匹配的 Skill（True）还是只在 system prompt 中列出（False）"
+        description="是否自动注入支持自动注入的 Skill 来源（如内置/工作区）；关闭后只在 system prompt 中列出 Skill 摘要"
     )
 
 

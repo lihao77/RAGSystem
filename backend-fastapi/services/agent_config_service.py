@@ -276,16 +276,19 @@ class AgentConfigService:
 
         return get_mcp_service().list_servers()
 
-    def list_available_skills(self):
+    def list_available_skills(self, workspace_root: str | None = None):
         from agents.skills.skill_loader import get_skill_loader
 
         skill_loader = get_skill_loader()
-        all_skills = skill_loader.load_all_skills()
+        all_skills = skill_loader.load_all_skills(workspace_root=workspace_root)
         return [
             {
                 'name': skill.name,
                 'display_name': skill.name.replace('-', ' ').title(),
                 'description': skill.description,
+                'source_type': skill.source_type,
+                'source_label': skill.source_label,
+                'is_auto_inject_candidate': skill.is_auto_inject_candidate,
             }
             for skill in all_skills
         ]

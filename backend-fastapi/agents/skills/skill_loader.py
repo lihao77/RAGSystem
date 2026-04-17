@@ -6,15 +6,41 @@ Skill 加载器 - 支持 Claude Skills 核心特性
 1. 解析 SKILL.md 的 name 和 description
 2. 支持 Additional resources（按需加载引用文件）
 3. 支持 Utility scripts（零上下文执行）
+4. 支持 builtin / workspace / user_global 多来源 Skill 目录
 """
 
-import os
-import re
+from __future__ import annotations
+
 import logging
+from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from core.path_resolution import get_user_global_skills_root, get_workspace_skills_root
 
 logger = logging.getLogger(__name__)
+
+
+SKILL_SOURCE_PRIORITY = {
+    "workspace": 3,
+    "user_global": 2,
+    "builtin": 1,
+}
+
+SKILL_SOURCE_LABELS = {
+    "workspace": "工作区",
+    "user_global": "全局",
+    "builtin": "内置",
+}
+
+
+@dataclass(frozen=True)
+class SkillSourceSpec:
+    root: Path
+    source_type: str
+    source_label: str
+    is_auto_inject_candidate: bool
 
 
 class Skill:
@@ -26,30 +52,26 @@ class Skill:
         description: str,
         content: str,
         skill_dir: Path,
-        metadata: Dict = None
+        metadata: Dict = None,
+        *,
+        source_type: str = "builtin",
+        source_label: str = "内置",
+        is_auto_inject_candidate: bool = True,
+        origin_root: Path | None = None,
     ):
         self.name = name
         self.description = description
-        self.content = content  # Markdown 内容（不含 YAML 前置部分）
-        self.skill_dir = skill_dir  # Skill 目录路径
+        self.content = content
+        self.skill_dir = skill_dir
         self.metadata = metadata or {}
-        self._environment = None  # 延迟初始化环境管理器
+        self.source_type = source_type
+        self.source_label = source_label
+        self.is_auto_inject_candidate = is_auto_inject_candidate
+        self.origin_root = origin_root or skill_dir.parent
+        self._environment = None
 
     def get_resource_file_content(self, file_name: str) -> Optional[str]:
-        """
-        按需加载资源文件内容
-
-        AI 从主文件中看到引用的文件名，然后调用此方法加载。
-        无需提前解析和列出所有文件。
-
-        Args:
-            file_name: 相对于 Skill 目录的文件名
-
-        Returns:
-            文件内容，如果文件不存在返回 None
-        """
         file_path = self.skill_dir / file_name
-
         if not file_path.exists():
             logger.warning(f"资源文件不存在: {file_path}")
             return None
@@ -64,160 +86,192 @@ class Skill:
             return None
 
     def get_script_path(self, script_name: str) -> Optional[Path]:
-        """
-        获取脚本的完整路径
-
-        AI 从主文件中看到要执行的脚本名，然后调用此方法获取路径。
-        无需提前扫描 scripts/ 目录。
-
-        Args:
-            script_name: 脚本名称（如 "validate.py"）
-
-        Returns:
-            脚本的绝对路径，如果不存在返回 None
-        """
         script_path = self.skill_dir / "scripts" / script_name
-
         if script_path.exists():
             return script_path.absolute()
-
         logger.warning(f"脚本不存在: {script_path}")
         return None
 
     def get_environment(self):
-        """
-        获取环境管理器（延迟初始化）
-
-        Returns:
-            SkillEnvironment 实例
-        """
         if self._environment is None:
             from .skill_environment import get_skill_environment
             self._environment = get_skill_environment(self.skill_dir)
         return self._environment
 
     def execute_script(self, script_name: str, arguments: List[str] = None, timeout: int = 30) -> Dict:
-        """
-        在隔离环境中执行脚本
-
-        Args:
-            script_name: 脚本名称
-            arguments: 命令行参数
-            timeout: 超时时间（秒）
-
-        Returns:
-            执行结果字典 {stdout, stderr, return_code}
-        """
         script_path = self.get_script_path(script_name)
         if not script_path:
             return {
                 "stdout": "",
                 "stderr": f"脚本不存在: {script_name}",
-                "return_code": 1
+                "return_code": 1,
             }
 
         env = self.get_environment()
         return env.execute_script(script_path, arguments, timeout)
 
     def has_scripts(self) -> bool:
-        """检查是否有 scripts 目录"""
         scripts_dir = self.skill_dir / "scripts"
         return scripts_dir.exists() and scripts_dir.is_dir()
 
     def to_dict(self) -> Dict:
-        """转换为字典格式（用于序列化）"""
         return {
             'name': self.name,
             'description': self.description,
             'content_length': len(self.content),
-            'metadata': self.metadata
+            'metadata': self.metadata,
+            'source_type': self.source_type,
+            'source_label': self.source_label,
+            'is_auto_inject_candidate': self.is_auto_inject_candidate,
+            'origin_root': str(self.origin_root),
         }
 
 
 class SkillLoader:
     """Skill 加载器"""
 
+    _MAX_WORKSPACE_CACHE_SIZE = 16
+
     def __init__(self, skills_dir=None):
+        builtin_root = Path(__file__).parent
+        self._workspace_cache: OrderedDict[str, List[Skill]] = OrderedDict()
+        self.skill_sources: List[SkillSourceSpec] = []
+
         if skills_dir is None:
-            self.skills_dirs = [Path(__file__).parent]
+            self.skill_sources = [
+                SkillSourceSpec(
+                    root=builtin_root,
+                    source_type="builtin",
+                    source_label=SKILL_SOURCE_LABELS["builtin"],
+                    is_auto_inject_candidate=True,
+                ),
+                SkillSourceSpec(
+                    root=get_user_global_skills_root(),
+                    source_type="user_global",
+                    source_label=SKILL_SOURCE_LABELS["user_global"],
+                    is_auto_inject_candidate=False,
+                ),
+            ]
         elif isinstance(skills_dir, (str, Path)):
-            self.skills_dirs = [Path(skills_dir)]
+            self.skill_sources = [
+                SkillSourceSpec(
+                    root=Path(skills_dir),
+                    source_type="builtin",
+                    source_label=SKILL_SOURCE_LABELS["builtin"],
+                    is_auto_inject_candidate=True,
+                )
+            ]
         else:
-            self.skills_dirs = [Path(d) for d in skills_dir]
-        self.skills_dir = self.skills_dirs[0]  # 向下兼容
+            self.skill_sources = [
+                SkillSourceSpec(
+                    root=Path(d),
+                    source_type="builtin",
+                    source_label=SKILL_SOURCE_LABELS["builtin"],
+                    is_auto_inject_candidate=True,
+                )
+                for d in skills_dir
+            ]
+
+        self.skills_dirs = [spec.root for spec in self.skill_sources]
+        self.skills_dir = self.skills_dirs[0]
         self._cached_skills: Optional[List[Skill]] = None
-        logger.info(f"SkillLoader 初始化，Skills 目录: {self.skills_dirs}")
+        logger.info("SkillLoader 初始化，Skills 目录: %s", self.skills_dirs)
 
     def invalidate_cache(self) -> None:
-        """清除 Skills 内存缓存，下次 load_all_skills 将重新扫描磁盘。"""
         self._cached_skills = None
+        self._workspace_cache.clear()
         logger.info("Skills 缓存已清除")
 
-    def add_skills_dir(self, skills_dir: str) -> None:
-        """动态追加外部 Skills 目录（供扩展在 startup 时调用）。"""
+    def add_skills_dir(
+        self,
+        skills_dir: str,
+        *,
+        source_type: str = "builtin",
+        source_label: str | None = None,
+        is_auto_inject_candidate: bool | None = None,
+    ) -> None:
         p = Path(skills_dir)
-        if p not in self.skills_dirs:
-            self.skills_dirs.append(p)
-            self._cached_skills = None  # 目录变更，清除缓存
-            logger.info(f"追加 Skills 目录: {p}")
+        label = source_label or SKILL_SOURCE_LABELS.get(source_type, source_type)
+        auto_inject = is_auto_inject_candidate if is_auto_inject_candidate is not None else source_type != "user_global"
+        spec = SkillSourceSpec(
+            root=p,
+            source_type=source_type,
+            source_label=label,
+            is_auto_inject_candidate=auto_inject,
+        )
+        if spec.root not in {item.root for item in self.skill_sources}:
+            self.skill_sources.append(spec)
+            self.skills_dirs.append(spec.root)
+            self.invalidate_cache()
+            logger.info("追加 Skills 目录: %s (%s)", p, source_type)
 
-    def load_all_skills(self) -> List[Skill]:
-        """扫描所有已注册的 Skills 目录，加载全部 Skills（带内存缓存）。"""
-        if self._cached_skills is not None:
+    def load_all_skills(self, workspace_root: str | Path | None = None) -> List[Skill]:
+        workspace_key = str(Path(workspace_root).resolve()) if workspace_root else None
+        if workspace_key is None and self._cached_skills is not None:
             return list(self._cached_skills)
+        if workspace_key is not None and workspace_key in self._workspace_cache:
+            return list(self._workspace_cache[workspace_key])
 
-        skills = []
+        source_specs = list(self.skill_sources)
+        if workspace_root:
+            source_specs.insert(
+                0,
+                SkillSourceSpec(
+                    root=get_workspace_skills_root(workspace_root),
+                    source_type="workspace",
+                    source_label=SKILL_SOURCE_LABELS["workspace"],
+                    is_auto_inject_candidate=True,
+                ),
+            )
 
-        for base_dir in self.skills_dirs:
-            if not base_dir.exists():
-                logger.warning(f"Skills 目录不存在: {base_dir}")
-                continue
-
-            for skill_dir in base_dir.iterdir():
-                if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists():
-                        skill = self._parse_skill_file(skill_file, skill_dir)
-                        if skill:
-                            skills.append(skill)
-                            logger.info(f"✓ 加载 Skill: {skill.name}")
-
-        logger.info(f"共加载 {len(skills)} 个 Skills")
-        self._cached_skills = skills
+        skills = self._load_skills_from_sources(source_specs)
+        if workspace_key is None:
+            self._cached_skills = skills
+        else:
+            if len(self._workspace_cache) >= self._MAX_WORKSPACE_CACHE_SIZE:
+                self._workspace_cache.popitem(last=False)
+            self._workspace_cache[workspace_key] = skills
         return list(skills)
 
-    def find_skill_metadata(self, skill_name: str) -> Optional[Dict]:
-        """
-        轻量查找 Skill 元数据。
+    def find_skill_metadata(self, skill_name: str, workspace_root: str | Path | None = None) -> Optional[Dict]:
+        source_specs = list(self.skill_sources)
+        if workspace_root:
+            source_specs.insert(
+                0,
+                SkillSourceSpec(
+                    root=get_workspace_skills_root(workspace_root),
+                    source_type="workspace",
+                    source_label=SKILL_SOURCE_LABELS["workspace"],
+                    is_auto_inject_candidate=True,
+                ),
+            )
 
-        仅解析 SKILL.md 的 YAML front matter，不加载正文内容。
-        """
-        for skill_dir, skill_file in self._iter_skill_files():
+        best_match = None
+        best_priority = -1
+        for spec, skill_dir, skill_file in self._iter_skill_files(source_specs):
             metadata = self._parse_skill_metadata_file(skill_file)
-            if metadata and metadata.get('name') == skill_name:
-                return {
-                    'name': metadata['name'],
-                    'description': metadata['description'],
-                    'skill_dir': skill_dir,
-                    'metadata': metadata,
-                }
-        return None
+            if not metadata or metadata.get('name') != skill_name:
+                continue
+            priority = SKILL_SOURCE_PRIORITY.get(spec.source_type, 0)
+            if priority <= best_priority:
+                continue
+            best_priority = priority
+            best_match = {
+                'name': metadata['name'],
+                'description': metadata['description'],
+                'skill_dir': skill_dir,
+                'metadata': metadata,
+                'source_type': spec.source_type,
+                'source_label': spec.source_label,
+                'is_auto_inject_candidate': spec.is_auto_inject_candidate,
+                'origin_root': spec.root,
+            }
+        return best_match
 
-    def list_skill_names(self) -> List[str]:
-        """轻量列出所有 Skill 名称。"""
-        names = []
-        for _, skill_file in self._iter_skill_files():
-            metadata = self._parse_skill_metadata_file(skill_file)
-            if metadata and metadata.get('name'):
-                names.append(metadata['name'])
-        return names
+    def list_skill_names(self, workspace_root: str | Path | None = None) -> List[str]:
+        return [skill.name for skill in self.load_all_skills(workspace_root=workspace_root)]
 
     def count_skill_resources(self, skill_dir: Path) -> int:
-        """
-        统计 Additional Resources 文件数量。
-
-        排除 SKILL.md 和 scripts/ 目录下的脚本文件。
-        """
         count = 0
         scripts_dir = skill_dir / "scripts"
         for path in skill_dir.rglob('*'):
@@ -230,30 +284,50 @@ class SkillLoader:
             count += 1
         return count
 
-    def _iter_skill_files(self):
-        """遍历所有已注册 Skills 目录及其 SKILL.md 文件。"""
-        for base_dir in self.skills_dirs:
+    def _load_skills_from_sources(self, source_specs: List[SkillSourceSpec]) -> List[Skill]:
+        deduped: Dict[str, Skill] = {}
+        for spec, skill_dir, skill_file in self._iter_skill_files(source_specs):
+            skill = self._parse_skill_file(skill_file, skill_dir, spec)
+            if not skill:
+                continue
+            existing = deduped.get(skill.name)
+            if existing is not None:
+                existing_priority = SKILL_SOURCE_PRIORITY.get(existing.source_type, 0)
+                current_priority = SKILL_SOURCE_PRIORITY.get(skill.source_type, 0)
+                if current_priority <= existing_priority:
+                    logger.warning(
+                        "Skill 名称冲突，保留 %s 来源并忽略 %s: %s",
+                        existing.source_type,
+                        skill.source_type,
+                        skill.name,
+                    )
+                    continue
+                logger.warning(
+                    "Skill 名称冲突，使用更高优先级来源 %s 替换 %s: %s",
+                    skill.source_type,
+                    existing.source_type,
+                    skill.name,
+                )
+            deduped[skill.name] = skill
+            logger.info("✓ 加载 Skill: %s (%s)", skill.name, skill.source_type)
+
+        skills = sorted(deduped.values(), key=lambda item: item.name)
+        logger.info("共加载 %d 个 Skills", len(skills))
+        return skills
+
+    def _iter_skill_files(self, source_specs: Optional[List[SkillSourceSpec]] = None):
+        for spec in source_specs or self.skill_sources:
+            base_dir = spec.root
             if not base_dir.exists():
-                logger.warning(f"Skills 目录不存在: {base_dir}")
+                logger.debug("Skills 目录不存在，跳过: %s", base_dir)
                 continue
             for skill_dir in base_dir.iterdir():
                 if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists():
-                        yield skill_dir, skill_file
+                        yield spec, skill_dir, skill_file
 
-    def _parse_skill_file(self, file_path: Path, skill_dir: Path) -> Optional[Skill]:
-        """
-        解析 SKILL.md 文件
-
-        格式：
-        ---
-        name: skill-name
-        description: Skill description here
-        ---
-
-        # Markdown content...
-        """
+    def _parse_skill_file(self, file_path: Path, skill_dir: Path, source_spec: SkillSourceSpec) -> Optional[Skill]:
         try:
             metadata, markdown_content = self._read_skill_file_parts(file_path)
             if metadata is None or markdown_content is None:
@@ -264,15 +338,17 @@ class SkillLoader:
                 description=metadata['description'],
                 content=markdown_content,
                 skill_dir=skill_dir,
-                metadata=metadata
+                metadata=metadata,
+                source_type=source_spec.source_type,
+                source_label=source_spec.source_label,
+                is_auto_inject_candidate=source_spec.is_auto_inject_candidate,
+                origin_root=source_spec.root,
             )
-
         except Exception as e:
             logger.error(f"解析 SKILL.md 失败 {file_path}: {e}", exc_info=True)
             return None
 
     def _parse_skill_metadata_file(self, file_path: Path) -> Optional[Dict]:
-        """只解析 SKILL.md 的 YAML front matter。"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 first_line = f.readline()
@@ -301,7 +377,6 @@ class SkillLoader:
             return None
 
     def _read_skill_file_parts(self, file_path: Path) -> Tuple[Optional[Dict], Optional[str]]:
-        """读取完整 Skill 文件，返回 front matter 与 Markdown 正文。"""
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
@@ -324,58 +399,37 @@ class SkillLoader:
         return metadata, parts[2].strip()
 
     def _parse_simple_yaml(self, yaml_str: str) -> Dict:
-        """
-        简单的 YAML 解析器（仅支持键值对）
-
-        支持格式：
-        name: value
-        description: multi-line value
-                     continued here
-        """
         result = {}
         lines = yaml_str.split('\n')
-
         current_key = None
         current_value = []
 
         for line in lines:
-            # 检查是否是新的键值对（格式：key: value）
             if ':' in line and not line.startswith(' '):
-                # 保存上一个键值对
                 if current_key:
                     result[current_key] = '\n'.join(current_value).strip()
-
-                # 解析新的键值对
                 key, value = line.split(':', 1)
                 current_key = key.strip()
                 current_value = [value.strip()]
             else:
-                # 续行（缩进表示值的延续）
                 if current_key and line.strip():
                     current_value.append(line.strip())
 
-        # 保存最后一个键值对
         if current_key:
             result[current_key] = '\n'.join(current_value).strip()
-
         return result
 
 
-# 全局加载器实例（单例模式）
 _skill_loader_instance: Optional[SkillLoader] = None
 
 
 def get_skill_loader(skills_dir: str = None) -> SkillLoader:
-    """获取全局 SkillLoader 实例"""
     global _skill_loader_instance
-
     if _skill_loader_instance is None:
         _skill_loader_instance = SkillLoader(skills_dir)
-
     return _skill_loader_instance
 
 
 def invalidate_skill_cache() -> None:
-    """清除全局 SkillLoader 的 Skills 内存缓存，下次 load_all_skills 将重新扫描磁盘。"""
     if _skill_loader_instance is not None:
         _skill_loader_instance.invalidate_cache()

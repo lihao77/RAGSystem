@@ -6,7 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from agents.skills.skill_loader import SkillLoader
+from agents.skills.skill_loader import SkillLoader, SKILL_SOURCE_LABELS
 from tools.local.skill_tools import execute_skill_script, get_skill_info
 from tools.contracts.result_models import ToolExecutionResult
 from tools.runtime.background_tasks import get_background_task_manager
@@ -58,10 +58,11 @@ def test_get_skill_info_returns_native_result_and_skips_load_all_skills(monkeypa
         (skill_dir / "scripts").mkdir()
 
         class StubLoader:
-            def load_all_skills(self):
+            def load_all_skills(self, workspace_root=None):
                 raise AssertionError("get_skill_info should not call load_all_skills")
 
-            def find_skill_metadata(self, skill_name):
+            def find_skill_metadata(self, skill_name, workspace_root=None):
+                assert workspace_root == "/tmp/workspace"
                 if skill_name != "demo-skill":
                     return None
                 return {
@@ -69,9 +70,12 @@ def test_get_skill_info_returns_native_result_and_skips_load_all_skills(monkeypa
                     "description": "demo description",
                     "skill_dir": Path(skill_dir),
                     "metadata": {"name": "demo-skill", "description": "demo description"},
+                    "source_type": "workspace",
+                    "source_label": SKILL_SOURCE_LABELS["workspace"],
                 }
 
-            def list_skill_names(self):
+            def list_skill_names(self, workspace_root=None):
+                assert workspace_root == "/tmp/workspace"
                 return ["demo-skill"]
 
             def count_skill_resources(self, skill_path):
@@ -80,7 +84,7 @@ def test_get_skill_info_returns_native_result_and_skips_load_all_skills(monkeypa
 
         monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
 
-        result = get_skill_info("demo-skill")
+        result = get_skill_info("demo-skill", workspace_root="/tmp/workspace")
 
         assert isinstance(result, ToolExecutionResult)
         assert result.success is True
@@ -88,10 +92,66 @@ def test_get_skill_info_returns_native_result_and_skips_load_all_skills(monkeypa
             "name": "demo-skill",
             "description": "demo description",
             "has_scripts": True,
+            "source_type": "workspace",
+            "source_label": SKILL_SOURCE_LABELS["workspace"],
         }
         assert result.metadata["resource_count"] == 1
+        assert result.metadata["source_type"] == "workspace"
+        assert result.metadata["source_label"] == SKILL_SOURCE_LABELS["workspace"]
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+def test_skill_loader_dedupes_by_source_priority_and_preserves_source_metadata():
+    temp_dir = Path(_make_temp_dir())
+    try:
+        builtin_root = temp_dir / "builtin"
+        workspace_root = temp_dir / "workspace"
+        user_global_root = temp_dir / "user_global"
+        for root in (builtin_root, workspace_root, user_global_root):
+            root.mkdir(parents=True, exist_ok=True)
+
+        def write_skill(base_dir: Path, skill_name: str, description: str):
+            base_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir = base_dir / skill_name
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                f"name: {skill_name}\n"
+                f"description: {description}\n"
+                "---\n"
+                "\n"
+                "# Demo Skill\n",
+                encoding="utf-8",
+            )
+
+        write_skill(builtin_root, "shared-skill", "builtin copy")
+        write_skill(user_global_root, "shared-skill", "global copy")
+        write_skill(workspace_root / ".ragsystem" / "skills", "shared-skill", "workspace copy")
+        write_skill(user_global_root, "global-only", "global only")
+
+        loader = SkillLoader(skills_dir=builtin_root)
+        loader.add_skills_dir(str(user_global_root), source_type="user_global")
+
+        skills = loader.load_all_skills(workspace_root=workspace_root)
+        skill_map = {skill.name: skill for skill in skills}
+
+        assert skill_map["shared-skill"].description == "workspace copy"
+        assert skill_map["shared-skill"].source_type == "workspace"
+        assert skill_map["shared-skill"].source_label == SKILL_SOURCE_LABELS["workspace"]
+        assert skill_map["shared-skill"].is_auto_inject_candidate is True
+        assert skill_map["global-only"].source_type == "user_global"
+        assert skill_map["global-only"].source_label == SKILL_SOURCE_LABELS["user_global"]
+        assert skill_map["global-only"].is_auto_inject_candidate is False
+
+        metadata = loader.find_skill_metadata("shared-skill", workspace_root=workspace_root)
+        assert metadata is not None
+        assert metadata["description"] == "workspace copy"
+        assert metadata["source_type"] == "workspace"
+        assert metadata["source_label"] == SKILL_SOURCE_LABELS["workspace"]
+        assert Path(metadata["origin_root"]).resolve() == (workspace_root / ".ragsystem" / "skills").resolve()
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def test_execute_skill_script_returns_parsed_json_stdout(monkeypatch):
     class StubSkill:
         name = "demo-skill"
@@ -110,12 +170,12 @@ def test_execute_skill_script_returns_parsed_json_stdout(monkeypatch):
             }
 
     class StubLoader:
-        def load_all_skills(self):
+        def load_all_skills(self, workspace_root=None):
             return [StubSkill()]
 
     monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
 
-    result = execute_skill_script("demo-skill", "fetch_hydrology.py", ["--source", "all"])
+    result = execute_skill_script("demo-skill", "fetch_hydrology.py", ["--source", "all"], workspace_root="/tmp/workspace")
 
     assert isinstance(result, ToolExecutionResult)
     assert result.success is True
@@ -145,7 +205,7 @@ def test_execute_skill_script_unwraps_generate_report_payload(monkeypatch):
             }
 
     class StubLoader:
-        def load_all_skills(self):
+        def load_all_skills(self, workspace_root=None):
             return [StubSkill()]
 
     monkeypatch.setattr("agents.skills.skill_loader.get_skill_loader", lambda: StubLoader())
@@ -184,7 +244,7 @@ def test_execute_skill_script_bridges_artifact_protocol(monkeypatch):
             }
 
     class StubLoader:
-        def load_all_skills(self):
+        def load_all_skills(self, workspace_root=None):
             return [StubSkill()]
 
     class FakeRecord:
@@ -231,7 +291,7 @@ def test_execute_skill_script_bridges_team_protocol(monkeypatch):
             }
 
     class StubLoader:
-        def load_all_skills(self):
+        def load_all_skills(self, workspace_root=None):
             return [StubSkill()]
 
     class FakeConfigManager:
@@ -280,7 +340,7 @@ def test_execute_skill_script_background_returns_task_info_and_structured_output
                 }
 
         class StubLoader:
-            def load_all_skills(self):
+            def load_all_skills(self, workspace_root=None):
                 return [StubSkill()]
 
         bg_manager = get_background_task_manager()

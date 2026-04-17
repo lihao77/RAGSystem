@@ -281,9 +281,10 @@ export async function getAvailableTools() {
  * 获取可用 Skill 列表
  * @returns {Promise<Array>} Skill 列表
  */
-export async function getAvailableSkills() {
+export async function getAvailableSkills(workspaceRoot = '') {
   try {
-    const response = await fetch(`${API_BASE}/skills`, {
+    const query = workspaceRoot ? `?workspace_root=${encodeURIComponent(workspaceRoot)}` : '';
+    const response = await fetch(`${API_BASE}/skills${query}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'

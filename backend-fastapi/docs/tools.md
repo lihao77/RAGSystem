@@ -435,12 +435,27 @@ dispatcher 在返回结果前统一规范化，确保调用方始终拿到 `Tool
 | `create_risk_map` | `emergency-decision-support/scripts/create_risk_map.py` | 批量评估+风险地图（输出 artifact 协议） |
 ### Skill 工具（local/skill_tools.py）
 
+Skill 工具本身仍是固定的 4 个 direct-capable tool，但底层 Skill 发现已扩展为三类来源：
+
+| 来源 | 路径 | `source_type` | 说明 |
+|------|------|---------------|------|
+| 工作区 Skill | `<workspace_root>/.ragsystem/skills/` | `workspace` | 当前仓库局部能力；入口 Agent 默认可见 |
+| 用户全局 Skill | `~/.ragsystem/skills/` | `user_global` | 用户级扩展池；必须显式勾选后才生效 |
+| 内置 Skill | `backend-fastapi/agents/skills/` | `builtin` | 仓库内置能力 |
+
+SkillLoader 会按 `workspace > user_global > builtin` 优先级去重，并把 `source_type`、`source_label`、`is_auto_inject_candidate`、`origin_root` 一并挂到 Skill 元数据上；`get_skill_info()` 和 `/api/agent-config/skills` 都会透传这些字段。
+
+`AgentLoader._resolve_tools_and_skills()` 的注入语义也已更新：
+- 入口 Agent 默认获得工作区 Skill；非入口 Agent 只有显式勾选后才获得工作区 Skill。
+- `user_global` Skill 永不自动生效，必须出现在 `skills.enabled_skills` 中。
+- 只要当前 Agent 最终拥有至少一个可见 Skill，且 `skills.auto_inject=true`，就会注入 4 个 Skill 系统工具；是否注入工具与 Skill 来源分离。
+
 | 函数 | 参数 | 说明 |
 |------|------|------|
-| `activate_skill` | skill_name | 激活 Skill，加载 SKILL.md |
-| `load_skill_resource` | skill_name, resource_file | 加载 Skill 资源文件 |
-| `execute_skill_script` | skill_name, script_name, arguments, run_in_background, session_id | 执行 Skill 脚本（含 artifact / team 协议桥接，支持后台执行） |
-| `get_skill_info` | skill_name | 获取 Skill 元信息 |
+| `activate_skill` | skill_name, workspace_root | 激活 Skill，加载 SKILL.md |
+| `load_skill_resource` | skill_name, resource_file, workspace_root | 加载 Skill 资源文件 |
+| `execute_skill_script` | skill_name, script_name, arguments, run_in_background, session_id, workspace_root | 执行 Skill 脚本（含 artifact / team 协议桥接，支持后台执行） |
+| `get_skill_info` | skill_name, workspace_root | 获取 Skill 元信息与来源字段 |
 
 ### 文档工具（local/document_tools.py）
 

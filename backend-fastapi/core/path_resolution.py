@@ -102,6 +102,36 @@ def get_effective_workspace_root(
     return None
 
 
+def get_workspace_metadata_root(workspace_root: str | Path) -> Path:
+    resolved_workspace = Path(workspace_root).resolve()
+    return resolved_workspace / ".ragsystem"
+
+
+def get_workspace_skills_root(workspace_root: str | Path) -> Path:
+    return get_workspace_metadata_root(workspace_root) / "skills"
+
+
+def validate_workspace_root(workspace_root: str | None) -> str | None:
+    """校验外部传入的 workspace_root，返回规范化后的路径或 None。
+
+    拒绝包含 '..' 的路径穿越尝试以及非绝对路径。
+    """
+    if not workspace_root or not workspace_root.strip():
+        return None
+    raw = workspace_root.strip()
+    p = Path(raw)
+    if '..' in p.parts:
+        raise ValueError(f"workspace_root 包含非法路径穿越: {raw}")
+    resolved = p.resolve()
+    if not resolved.is_absolute():
+        raise ValueError(f"workspace_root 必须为绝对路径: {raw}")
+    return str(resolved)
+
+
+def get_user_global_skills_root() -> Path:
+    return DATA_ROOT / "skills"
+
+
 def get_workspace_memory_key(workspace_root: str | Path | None) -> str | None:
     if workspace_root is None:
         return None

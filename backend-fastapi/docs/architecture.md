@@ -666,9 +666,42 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 
 ## Skills 系统
 
-渐进式加载：`activate_skill()` → `load_skill_resource()` → `execute_skill_script()`
+渐进式加载：`activate_skill()` → `load_skill_resource()` → `execute_skill_script()`。
 
-Skill 系统工具（activate_skill、load_skill_resource、execute_skill_script、get_skill_info）通过 `@tool(source="skill")` 注册。`ToolRegistry.get_skill_tools()` 动态过滤 `source="skill"` 的工具定义。当 Agent 配置了 `skills.auto_inject: true` 时，`AgentLoader._resolve_tools_and_skills()` 自动将这些工具注入到 Agent 的 `available_tools` 中。
+Skill 系统工具（`activate_skill`、`load_skill_resource`、`execute_skill_script`、`get_skill_info`）通过 `@tool(source="skill")` 注册；`ToolRegistry.get_skill_tools()` 动态过滤 `source="skill"` 的工具定义。
+
+### Skill 来源
+
+SkillLoader 当前统一扫描三类来源，并按 `workspace > user_global > builtin` 优先级去重：
+
+| 来源 | 路径 | `source_type` | 自动注入候选 |
+|------|------|---------------|--------------|
+| 工作区 Skill | `<workspace_root>/.ragsystem/skills/` | `workspace` | 是 |
+| 用户全局 Skill | `~/.ragsystem/skills/` | `user_global` | 否 |
+| 内置 Skill | `backend-fastapi/agents/skills/` | `builtin` | 是 |
+
+每个 Skill 在运行时都会携带来源元信息：`source_type`、`source_label`、`is_auto_inject_candidate`、`origin_root`。同名 Skill 只保留优先级最高的一份，避免 prompt 与配置页出现重复项。
+
+### Agent 生效规则
+
+`AgentLoader._resolve_tools_and_skills()` 统一收敛 Skill 可见性与 Skill 工具注入规则：
+
+- `builtin`：只有出现在 `skills.enabled_skills` 中才对当前 Agent 生效。
+- `workspace`：入口 Agent（`default_entry=true` 或 session 级入口 override 命中的 Agent）默认可见；非入口 Agent 必须显式勾选后才生效。
+- `user_global`：永不自动生效；必须在 Agent 配置页显式勾选后才生效。
+- `skills.auto_inject=true` 只表示“当当前 Agent 实际拥有至少一个可见 Skill 时，自动把 Skill 系统工具注入到 `available_tools`”；它不会让 `user_global` Skill 绕过显式授权规则。
+
+### 配置与接口语义
+
+- Agent 持久化字段仍保持最小集合：`skills.enabled_skills` + `skills.auto_inject`。
+- `GET /api/agent-config/skills?workspace_root=...` 会按当前工作区解析 Skill，并返回来源字段：
+  - `name`
+  - `display_name`
+  - `description`
+  - `source_type`
+  - `source_label`
+  - `is_auto_inject_candidate`
+- 前端配置页据此按来源分组展示 Skills，但保存时仍只写回 `enabled_skills` / `auto_inject`，不引入新的配置 schema。
 
 | Skill | 路径 | 关键脚本 |
 |-------|------|---------|

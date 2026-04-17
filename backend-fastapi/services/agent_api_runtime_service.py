@@ -92,7 +92,11 @@ class AgentApiRuntimeService:
         metadata = session.get('metadata') or {}
         workspace_root = metadata.get('workspace_root')
         original = workspace_root.strip() if isinstance(workspace_root, str) and workspace_root.strip() else str(get_session_workspace_root(normalized_session_id))
-
+        logger.debug(
+            'session workspace_root 查询: session_id=%s workspace_root=%s',
+            normalized_session_id,
+            original,
+        )
         return original
 
     def _normalize_session_entry_agent(self, entry_agent: str | None, orchestrator=None) -> Optional[str]:
@@ -467,19 +471,22 @@ class AgentApiRuntimeService:
         return self._build_orchestrator(scope='catalog')
 
     def create_execution_orchestrator(self, *, session_id: Optional[str] = None):
-        """为单次执行获取 orchestrator。按 team 缓存，session 级 override 通过复制实例隔离。"""
+        """为单次执行获取 orchestrator。按 team+workspace 缓存，session 级 override 通过复制实例隔离。"""
         from agents.core.default_entry import DefaultEntryAgentProvider
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
 
         session_team = self._get_session_team(session_id)
-        cache_key = (session_team or '').strip() or '_default_'
+        workspace_root = self.get_session_workspace_root(session_id)
+        cache_key = f"{(session_team or '').strip() or '_default_'}:{workspace_root or ''}"
 
         if cache_key not in self._team_orchestrators:
             session_configs = self._resolve_session_configs(session_id)
-            orchestrator = self._build_orchestrator(scope='execution', configs=session_configs)
+            orchestrator = self._build_orchestrator(
+                scope='execution', configs=session_configs, workspace_root=workspace_root,
+            )
             self._team_orchestrators[cache_key] = orchestrator
-            logger.debug('构建并缓存 execution orchestrator: team=%s', cache_key)
+            logger.debug('构建并缓存 execution orchestrator: team=%s workspace=%s', cache_key, workspace_root)
 
         base_orchestrator = self._team_orchestrators[cache_key]
         registry = AgentRegistry()
@@ -506,7 +513,7 @@ class AgentApiRuntimeService:
             self._metrics_collector = MetricsCollector()
         return self._metrics_collector
 
-    def _build_orchestrator(self, *, scope: str, configs: Optional[Dict[str, object]] = None, force_reload: bool = False):
+    def _build_orchestrator(self, *, scope: str, configs: Optional[Dict[str, object]] = None, force_reload: bool = False, workspace_root: str | None = None):
         from agents.config.loader import AgentLoader
         from agents.core.orchestrator import AgentOrchestrator
         from agents.core.registry import AgentRegistry
@@ -527,6 +534,7 @@ class AgentApiRuntimeService:
                 orchestrator=orchestrator,
                 config_manager=self._config_manager_getter() or get_config_manager(),
                 mcp_manager_getter=get_mcp_manager,
+                workspace_root=workspace_root,
             )
             if force_reload:
                 loader.invalidate_caches()

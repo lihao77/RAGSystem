@@ -9,6 +9,9 @@ from pathlib import Path
 from tools.paths.path_resolution import (
     DATA_ROOT,
     get_effective_workspace_root,
+    get_user_global_skills_root,
+    get_workspace_metadata_root,
+    get_workspace_skills_root,
     get_session_cleanup_root,
     get_session_exports_root,
     get_session_root,
@@ -48,6 +51,13 @@ def test_session_directory_helpers_build_expected_structure():
     assert get_session_cleanup_root(session_id) == DATA_ROOT / 'sessions' / session_id
 
 
+
+
+def test_skill_path_helpers_build_workspace_and_global_roots():
+    workspace = Path('E:/Python/RAGSystem')
+    assert get_workspace_metadata_root(workspace) == workspace.resolve() / '.ragsystem'
+    assert get_workspace_skills_root(workspace) == workspace.resolve() / '.ragsystem' / 'skills'
+    assert get_user_global_skills_root() == DATA_ROOT / 'skills'
 
 
 def test_resolve_managed_directory_defaults_to_effective_workspace_root():

@@ -124,7 +124,8 @@ def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
 
     skills_config = getattr(agent_config, 'skills', None)
     enabled_skills = _safe_list(getattr(skills_config, 'enabled_skills', []) if skills_config else [])
-    inject_skill_tools = bool(enabled_skills and (getattr(skills_config, 'auto_inject', True) if skills_config else True))
+    auto_inject = getattr(skills_config, 'auto_inject', True) if skills_config else True
+    inject_skill_tools = bool(enabled_skills and auto_inject)
     if inject_skill_tools:
         for tool_name in _TOOL_REGISTRY.get_skill_tool_names():
             decisions.setdefault(
@@ -245,12 +246,15 @@ def get_tool_exposure_decision(tool_name: str, agent_config) -> ToolExposureDeci
             reason='builtin tool always available', derived_from=['builtin'],
         )
 
-    # skill system tools：有任意 enabled_skills 时自动注入
+    # skill system tools：有任意 enabled_skills 或 AgentLoader.stamp_effective_skills() 标记的有效 skills 时自动注入
     if tool_name in _TOOL_REGISTRY.get_skill_tool_names():
         skills_config = getattr(agent_config, 'skills', None)
         enabled_skills = _safe_list(getattr(skills_config, 'enabled_skills', []) if skills_config else [])
+        # _effective_skill_names 由 AgentLoader.stamp_effective_skills() 在加载阶段写入
+        effective_skills = getattr(agent_config, '_effective_skill_names', None)
         auto_inject = getattr(skills_config, 'auto_inject', True) if skills_config else True
-        visible = bool(enabled_skills and auto_inject)
+        has_skills = bool(enabled_skills or effective_skills)
+        visible = bool(has_skills and auto_inject)
         return ToolExposureDecision(
             tool_name=tool_name, visible=visible, source='skill',
             reason='skill system tools auto injected' if visible else 'no enabled skills',
