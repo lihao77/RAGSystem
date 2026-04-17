@@ -161,6 +161,10 @@ tool 归属规则：
 - 执行树只消费 `execution.step`
 - 历史消息列表默认不再内联 `execution_steps`；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps sidecar
 - reconnect 回放与历史 run steps 懒加载都复用同一个 projector
+- 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
+- session WebSocket 采用“同 session 复用、跨 session 重连”语义：仅在目标 session 与当前 `_wsSessionId` 一致且 socket 仍处于 `OPEN/CONNECTING` 时复用；切换 session 或回到新聊天页时必须先断开旧连接再进入新路由状态
+- 切回历史会话时，前端会先用 `task-status` 判断后台 run 是否仍在进行；若后台已结束但本地仍残留未完成 assistant 占位或停在用户消息，`checkSessionTaskStatus()` 会主动丢弃该 session 的消息缓存并重新拉取服务端消息，修正“切走再切回后界面卡在运行中”的旧快照
+- 对于“切回时 `task-status` 仍短暂显示 running，但 WS 回放尚未来得及开始、run 已在后台结束”的竞态，前端额外挂一层短延迟 recovery watchdog：若规定时间内既没进入 replay、也没收到任何 run 事件，就重新查询 `task-status` 并按需刷新消息，避免回切瞬间卡死
 
 ### WebSocket 事件类型处理
 

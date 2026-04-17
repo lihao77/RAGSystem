@@ -434,6 +434,7 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, injec
 import { useRoute, useRouter } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
+import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
@@ -671,7 +672,11 @@ const getChatSessionPath = (sessionId) => sessionId
 
 const syncSessionFromRoute = async (sessionId) => {
   if (sessionId && sessionId !== currentSessionId.value) {
+    disconnectSessionWS();
+    invalidateActiveStream();
     clearExecutionState();
+    isLoading.value = false;
+    inputSending.value = false;
     currentSessionId.value = sessionId;
     const matched = history.value.find(item => item.session_id === sessionId);
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
@@ -688,6 +693,8 @@ const syncSessionFromRoute = async (sessionId) => {
     disconnectSessionWS();
     invalidateActiveStream();
     clearExecutionState();
+    isLoading.value = false;
+    inputSending.value = false;
     currentSessionId.value = null;
     sessionFiles.value = [];
     pendingWorkspaceRoot.value = '';
@@ -844,6 +851,7 @@ const resetApprovalState = () => {
 
 // ── session 级 WebSocket 连接（替代 SSE push + reconnect）──────────────
 let _ws = null;
+let _wsSessionId = null;
 let _wsReconnectTimer = null;
 let _wsReconnectAttempts = 0;
 
@@ -858,6 +866,8 @@ const _activeRun = reactive({
 
 // 命令 fallback 超时（防止 WS 未收到 command.result 时 UI 卡死）
 let _commandFallbackTimer = null;
+let _sessionResumeRecoveryTimer = null;
+let _sessionResumeRecoveryAbort = null;
 
 const _scheduleCommandFallback = (sessionId, msgIndex, timeout = 10000) => {
   _clearCommandFallback();
@@ -885,13 +895,62 @@ const _clearCommandFallback = () => {
   }
 };
 
+const _clearSessionResumeRecovery = () => {
+  if (_sessionResumeRecoveryTimer) {
+    clearTimeout(_sessionResumeRecoveryTimer);
+    _sessionResumeRecoveryTimer = null;
+  }
+  if (_sessionResumeRecoveryAbort) {
+    _sessionResumeRecoveryAbort.abort();
+    _sessionResumeRecoveryAbort = null;
+  }
+};
+
+const _scheduleSessionResumeRecovery = (sessionId, timeout = 1500) => {
+  _clearSessionResumeRecovery();
+  _sessionResumeRecoveryTimer = window.setTimeout(async () => {
+    _sessionResumeRecoveryTimer = null;
+    if (currentSessionId.value !== sessionId) return;
+    if (_activeRun.isReplaying || _activeRun.lastSeenSeq > 0) return;
+    const abort = new AbortController();
+    _sessionResumeRecoveryAbort = abort;
+    try {
+      const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal: abort.signal });
+      if (!resp.ok || currentSessionId.value !== sessionId) return;
+      const result = await resp.json();
+      if (result.data?.has_running_task) return;
+      if (shouldRefreshSessionMessagesAfterResume({
+        hasRunningTask: false,
+        activeRun: _activeRun.active,
+        messages: messages.value,
+      })) {
+        invalidateActiveStream();
+        messageCache.value.delete(sessionId);
+        await loadSessionMessages(sessionId, { silent: true });
+        return;
+      }
+      await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
+    } catch (_) {
+      // 兜底探测失败（含 abort）不影响主流程
+    } finally {
+      if (_sessionResumeRecoveryAbort === abort) {
+        _sessionResumeRecoveryAbort = null;
+      }
+    }
+  }, timeout);
+};
+
 const connectSessionWS = (sessionId) => {
-  disconnectSessionWS();
   if (!sessionId) return;
+  if (canReuseSessionSocket(sessionId, _wsSessionId, _ws)) {
+    return;
+  }
+  disconnectSessionWS();
   resetApprovalState();
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${protocol}//${location.host}/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`;
   const ws = new WebSocket(url);
+  _wsSessionId = sessionId;
   ws.onopen = () => {
     console.debug('[WS] 连接建立', sessionId);
     _wsReconnectAttempts = 0;
@@ -910,6 +969,14 @@ const connectSessionWS = (sessionId) => {
   };
   ws.onclose = () => {
     console.debug('[WS] 连接关闭', sessionId);
+    const isCurrentSocket = _ws === ws;
+    if (isCurrentSocket) {
+      _ws = null;
+      _wsSessionId = null;
+    }
+    if (!isCurrentSocket) {
+      return;
+    }
     // 兜底：如果 WS 断连时仍有活跃 run，清理 UI 状态防止卡死
     // （重连后 replay 会重新恢复运行态）
     if (_activeRun.active && currentSessionId.value === sessionId) {
@@ -930,15 +997,18 @@ const connectSessionWS = (sessionId) => {
 
 const disconnectSessionWS = () => {
   _clearCommandFallback();
+  _clearSessionResumeRecovery();
   resetApprovalState();
   _wsReconnectAttempts = 0;
   if (_wsReconnectTimer) {
     clearTimeout(_wsReconnectTimer);
     _wsReconnectTimer = null;
   }
-  if (_ws) {
-    _ws.close();
-    _ws = null;
+  const ws = _ws;
+  _ws = null;
+  _wsSessionId = null;
+  if (ws) {
+    ws.close();
   }
 };
 
@@ -953,6 +1023,7 @@ const handleWSMessage = (event, sessionId) => {
 
   // 回放协议
   if (eventType === 'reconnect_start') {
+    _clearSessionResumeRecovery();
     _activeRun.isReplaying = true;
     // 如果不在 loading 状态，说明是 WS 连接时自动回放
     if (!isLoading.value) {
@@ -1232,9 +1303,12 @@ const handleTouchMove = () => {};
 // 触摸手势处理：touchend
 const handleTouchEnd = () => {};
 
-const startNewChat = () => {
+const startNewChat = async () => {
+  disconnectSessionWS();
   invalidateActiveStream();
   clearExecutionState();
+  isLoading.value = false;
+  inputSending.value = false;
   messages.value = [];
   inputMessage.value = '';
   pendingWorkspaceRoot.value = '';
@@ -1247,9 +1321,8 @@ const startNewChat = () => {
   isUserAtBottom.value = true;
   shouldAutoScroll.value = true;
   _userScrollUpAccum = 0;
-  currentSessionId.value = null;
   sessionFiles.value = [];
-  router.replace('/');
+  await router.replace('/');
   focusInput();
 };
 
@@ -1947,6 +2020,8 @@ const checkSessionTaskStatus = async (sessionId) => {
     const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
     if (!resp.ok) return;
     const result = await resp.json();
+    const hasRunningTask = Boolean(result.data?.has_running_task);
+    const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
     if (result.data?.task_info) {
       sessionTaskInfo.value = result.data.task_info;
     }
@@ -1956,11 +2031,24 @@ const checkSessionTaskStatus = async (sessionId) => {
       mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
     }
     // WS 连接时服务端会自动回放活跃 run 的历史事件，无需手动 reconnect
-    if (!result.data?.has_running_task && !isLoading.value) {
+    if (shouldRunResumeRecoveryWatchdog({ hasRunningTask, hasActiveSystemCommand })) {
+      _scheduleSessionResumeRecovery(sessionId);
+    }
+    if (!hasRunningTask && !isLoading.value) {
+      if (shouldRefreshSessionMessagesAfterResume({
+        hasRunningTask,
+        activeRun: _activeRun.active,
+        messages: messages.value,
+      })) {
+        invalidateActiveStream();
+        messageCache.value.delete(sessionId);
+        await loadSessionMessages(sessionId, { silent: true });
+        return;
+      }
       await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
     }
     // 刷新后恢复系统命令（如 /compact）的 loading 状态
-    if (result.data?.has_active_system_command && !isLoading.value) {
+    if (hasActiveSystemCommand && !isLoading.value) {
       isLoading.value = true;
       const lastMsg = messages.value[messages.value.length - 1];
       if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
@@ -2134,17 +2222,17 @@ const selectSession = async (item) => {
   if (!item?.session_id) return;
   if (currentSessionId.value === item.session_id) {
     messageCache.value.delete(item.session_id);
+    await loadSessionMessages(item.session_id);
+    await loadSessionFiles(item.session_id);
+    connectSessionWS(item.session_id);
+    item.unread_count = 0;
+    closeMobileSidebar();
+    return;
   }
-  currentSessionId.value = item.session_id;
-  pendingWorkspaceRoot.value = item.metadata?.workspace_root || '';
-  pendingEntryAgent.value = item.metadata?.entry_agent || '';
-  currentSessionTeam.value = item.metadata?.team || '';
+  item.unread_count = 0;
   pendingAttachments.value = [];
   await router.push(getChatSessionPath(item.session_id));
-  item.unread_count = 0;
   closeMobileSidebar();
-  await loadSessionMessages(item.session_id);
-  await loadSessionFiles(item.session_id);
 };
 
 const updateRecentSession = (sessionId, content, timestamp) => {
@@ -2737,7 +2825,10 @@ const deleteSession = async (sessionId) => {
 };
 
 const ensureSession = async () => {
-  if (currentSessionId.value) return currentSessionId.value;
+  if (currentSessionId.value) {
+    connectSessionWS(currentSessionId.value);
+    return currentSessionId.value;
+  }
   const userId = (localStorage.getItem('userId') || '').trim();
   const workspaceRoot = pendingWorkspaceRoot.value.trim();
   const entryAgent = pendingEntryAgent.value.trim();
@@ -2764,8 +2855,8 @@ const ensureSession = async () => {
   });
   if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
   const result = await response.json();
-  currentSessionId.value = result.data?.session_id || null;
-  if (currentSessionId.value) {
+  const sessionId = result.data?.session_id || null;
+  if (sessionId) {
     const now = new Date().toISOString();
     const sessionMetadata = {
       ...(team ? { team } : {}),
@@ -2774,7 +2865,7 @@ const ensureSession = async () => {
       ...(result.data?.metadata || {}),
     };
     props.onSessionCreated?.({
-      session_id: currentSessionId.value,
+      session_id: sessionId,
       title: result.data?.title || 'New Conversation',
       first_message: '',
       last_message: '',
@@ -2785,8 +2876,12 @@ const ensureSession = async () => {
     pendingWorkspaceRoot.value = sessionMetadata.workspace_root || '';
     pendingEntryAgent.value = sessionMetadata.entry_agent || '';
     currentSessionTeam.value = sessionMetadata.team || '';
-    await router.push(getChatSessionPath(currentSessionId.value));
-    await loadSessionFiles(currentSessionId.value);
+    await router.push(getChatSessionPath(sessionId));
+    if (currentSessionId.value !== sessionId) {
+      currentSessionId.value = sessionId;
+    }
+    connectSessionWS(sessionId);
+    await loadSessionFiles(sessionId);
   }
   return currentSessionId.value;
 };
