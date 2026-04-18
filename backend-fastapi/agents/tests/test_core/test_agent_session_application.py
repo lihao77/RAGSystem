@@ -331,6 +331,21 @@ def test_create_session_persists_workspace_root_metadata():
     assert store.created_sessions[0]['metadata']['workspace_root'] == workspace_root
 
 
+def test_create_session_persists_workspace_root_metadata_without_wrapped_quotes():
+    store = _FakeConversationStore()
+    app = AgentSessionApplication(conversation_store=store)
+    workspace_root = str(Path.cwd().resolve())
+
+    result = app.create_session(
+        session_id='session-workspace-quoted',
+        user_id='user-1',
+        metadata={'workspace_root': f'  "{workspace_root}"  '},
+    )
+
+    assert result['metadata']['workspace_root'] == workspace_root
+    assert store.created_sessions[0]['metadata']['workspace_root'] == workspace_root
+
+
 def test_create_session_persists_entry_agent_metadata():
     store = _FakeConversationStore()
     app = AgentSessionApplication(conversation_store=store)
@@ -573,6 +588,9 @@ def test_create_session_request_validates_workspace_root_as_absolute_path():
     workspace_root = str(Path.cwd().resolve())
     request = CreateSessionRequest(metadata={'workspace_root': workspace_root})
     assert request.metadata['workspace_root'] == workspace_root
+
+    quoted_request = CreateSessionRequest(metadata={'workspace_root': f"  '{workspace_root}'  "})
+    assert quoted_request.metadata['workspace_root'] == workspace_root
 
     try:
         CreateSessionRequest(metadata={'workspace_root': 'relative/path'})

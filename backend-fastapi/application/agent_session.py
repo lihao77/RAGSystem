@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 from services.conversation_store import ConversationStore
 from runtime.dependencies import get_runtime_dependency
+from schemas.session import normalize_session_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ class AgentSessionApplication:
         user_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        metadata = metadata or {}
+        metadata = normalize_session_metadata(metadata or {})
         self._conversation_store.create_session(session_id=session_id, user_id=user_id, metadata=metadata)
         return {
             'session_id': session_id,

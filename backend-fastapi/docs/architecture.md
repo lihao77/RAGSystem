@@ -332,6 +332,7 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 - `space` 仅影响相对路径 / 相对目录；绝对路径仍只做受管边界校验，不会被 `space` 改写
 - direct 文件工具的相对 `file_path` 默认按 workspace 解析；`execute_bash` 的相对 `working_dir` 默认也按 workspace 解析，不再默认落到 `backend-fastapi/`
 - `workspace` 的默认物理目录是 `~/.ragsystem/sessions/<session_id>/workspace/`；若会话在创建时通过 `POST /api/agent/sessions` 传入 `metadata.workspace_root`，则 direct 文件工具、`execute_code` 与 `execute_bash` 在执行期统一切换到该 external workspace
+- `metadata.workspace_root` 在进入 session schema（`schemas/session.py::normalize_workspace_root()`）以及通用路径校验入口（`core.path_resolution.validate_workspace_root()`）时，都会先去掉首尾包裹引号，再执行绝对路径与路径穿越校验；因此 `"C:/test"` 会被规范为 `C:/test`
 - child agent 若通过 `call_agent` 创建且当前 workspace_root 指向 git 仓库，则会额外派生仓库内隔离目录 `<workspace_root>/.ragsystem/worktrees/<child_agent_id>` 作为 child 专属 workspace_root；`send_message(child_agent_id, ...)` 会复用同一 child worktree，root session workspace_root 本身不变
 - 对话回退 / retry 仍由 `file_history` 主导：系统会先按 snapshot 恢复实际被编辑文件的内容，再删除回退点之后的消息、run steps 与对应 child_agents；若这些 child agents 绑定了 worktree，也会同步回收其 `.ragsystem/worktrees/<child_agent_id>` 目录与分支，因此回退后的 child 会话、文件内容与 worktree 资源状态保持一致
 - 前端在创建新会话时，也可通过同一个 `POST /api/agent/sessions` 请求在 `metadata.entry_agent` 中指定该 session 的默认入口 Agent；该值应优先使用真实 `agent_name`。runtime 会在后续执行期读取该字段并覆盖 execution orchestrator 的默认入口，并对 `default/orchestrator` 这类 UI alias 做归一化兜底

@@ -14,13 +14,20 @@ except ImportError:
     _PYDANTIC_V2 = False
 
 
+def _strip_wrapped_quotes(value: str) -> str:
+    normalized = value.strip()
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {'"', "'"}:
+        return normalized[1:-1].strip()
+    return normalized
+
+
 def normalize_workspace_root(value: Any) -> Optional[str]:
     """规范化并校验 session.metadata.workspace_root。"""
     if value is None:
         return None
     if not isinstance(value, str):
         raise ValueError('metadata.workspace_root 必须是字符串或 null')
-    normalized = value.strip()
+    normalized = _strip_wrapped_quotes(value)
     if not normalized:
         raise ValueError('metadata.workspace_root 不能为空字符串')
     if not os.path.isabs(normalized):

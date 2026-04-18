@@ -29,11 +29,32 @@ from tools.paths.path_resolution import (
     resolve_managed_path,
     to_display_path,
 )
+from core.path_resolution import validate_workspace_root
 
 
 def _cleanup_path(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
+
+
+def test_validate_workspace_root_strips_wrapped_quotes():
+    workspace_root = str(Path.cwd().resolve())
+
+    assert validate_workspace_root(f'  "{workspace_root}"  ') == workspace_root
+    assert validate_workspace_root(f"  '{workspace_root}'  ") == workspace_root
+    assert validate_workspace_root('   ') is None
+
+    try:
+        validate_workspace_root('"relative/path"')
+        assert False, 'expected validation error'
+    except ValueError as error:
+        assert 'workspace_root' in str(error)
+
+    try:
+        validate_workspace_root('"../bad/path"')
+        assert False, 'expected validation error'
+    except ValueError as error:
+        assert 'workspace_root' in str(error)
 
 
 def test_session_directory_helpers_build_expected_structure():
@@ -53,9 +74,6 @@ def test_session_directory_helpers_build_expected_structure():
     assert get_session_cleanup_root(session_id) == DATA_ROOT / 'sessions' / session_id
 
 
-
-
-def test_skill_path_helpers_build_workspace_and_global_roots():
     workspace = Path('E:/Python/RAGSystem')
     assert get_workspace_metadata_root(workspace) == workspace.resolve() / '.ragsystem'
     assert get_workspace_skills_root(workspace) == workspace.resolve() / '.ragsystem' / 'skills'

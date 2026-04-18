@@ -258,6 +258,7 @@
               placeholder="可选，如 E:/Users/.../Desktop"
               autocomplete="off"
               spellcheck="false"
+              @blur="pendingWorkspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot)"
             />
           </div>
           <ChatInput
@@ -572,6 +573,19 @@ const pendingEntryAgent = ref('');
 const currentSessionTeam = ref('');
 const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
+
+const stripWrappedQuotes = (value) => {
+  const trimmed = (value || '').trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+};
+
+const normalizeWorkspaceRootInput = (value) => stripWrappedQuotes(value);
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
 const historyError = ref('');
@@ -788,7 +802,7 @@ const syncSessionFromRoute = async (sessionId) => {
     isLoading.value = false;
     currentSessionId.value = sessionId;
     const matched = history.value.find(item => item.session_id === sessionId);
-    pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
+    pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched?.metadata?.workspace_root || '');
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     currentSessionTeam.value = matched?.metadata?.team || '';
     pendingAttachments.value = [];
@@ -1324,7 +1338,7 @@ const loadRecentSessions = async (reset = false) => {
       if (currentSessionId.value) {
         const matched = items.find(item => item.session_id === currentSessionId.value);
         if (matched) {
-          pendingWorkspaceRoot.value = matched.metadata?.workspace_root || pendingWorkspaceRoot.value;
+          pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
           pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
           currentSessionTeam.value = matched.metadata?.team || currentSessionTeam.value;
         }
@@ -1396,10 +1410,14 @@ const updateRecentSession = (sessionId, content, timestamp) => {
   const time = timestamp || new Date().toISOString();
   const normalizedContent = (content || '').toString();
   const summary = normalizedContent.slice(0, 30);
+  const normalizedWorkspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
+  if (currentSessionId.value === sessionId && pendingWorkspaceRoot.value !== normalizedWorkspaceRoot) {
+    pendingWorkspaceRoot.value = normalizedWorkspaceRoot;
+  }
   const currentMetadata = currentSessionId.value === sessionId
     ? {
         ...(currentSessionTeam.value.trim() ? { team: currentSessionTeam.value.trim() } : {}),
-        ...(pendingWorkspaceRoot.value.trim() ? { workspace_root: pendingWorkspaceRoot.value.trim() } : {}),
+        ...(normalizedWorkspaceRoot ? { workspace_root: normalizedWorkspaceRoot } : {}),
         ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
       }
     : {};
@@ -1737,7 +1755,8 @@ const ensureSession = async () => {
     return currentSessionId.value;
   }
   const userId = (localStorage.getItem('userId') || '').trim();
-  const workspaceRoot = pendingWorkspaceRoot.value.trim();
+  const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
+  pendingWorkspaceRoot.value = workspaceRoot;
   const entryAgent = pendingEntryAgent.value.trim();
   if (!currentSessionTeam.value.trim()) {
     await loadActiveTeam();
@@ -1780,7 +1799,7 @@ const ensureSession = async () => {
       unread_count: 0,
       metadata: sessionMetadata,
     });
-    pendingWorkspaceRoot.value = sessionMetadata.workspace_root || '';
+    pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(sessionMetadata.workspace_root || '');
     pendingEntryAgent.value = sessionMetadata.entry_agent || '';
     currentSessionTeam.value = sessionMetadata.team || '';
     await router.push(getChatSessionPath(sessionId));
