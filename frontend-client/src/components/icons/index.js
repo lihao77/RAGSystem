@@ -9,7 +9,6 @@ export { default as IconLogo } from './IconLogo.vue';
 export { default as IconChevronLeft } from './IconChevronLeft.vue';
 export { default as IconChevronRight } from './IconChevronRight.vue';
 export { default as IconDocument } from './IconDocument.vue';
-export { default as IconPlus } from './IconPlus.vue';
 export { default as IconNewConversation } from './IconNewConversation.vue';
 export { default as IconMenu } from './IconMenu.vue';
 export { default as IconTrash } from './IconTrash.vue';
