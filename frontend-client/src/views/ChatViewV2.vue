@@ -2046,7 +2046,8 @@ const checkSessionTaskStatus = async (sessionId) => {
       })) {
         invalidateActiveStream();
         messageCache.value.delete(sessionId);
-        await loadSessionMessages(sessionId, { silent: true });
+        await loadSessionMessages(sessionId, { silent: true, skipTaskStatusCheck: true });
+        await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
         return;
       }
       await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
@@ -2150,7 +2151,7 @@ const removeSessionFile = async (file) => {
   }
 };
 
-const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
+const loadSessionMessages = async (sessionId, { silent = false, skipTaskStatusCheck = false } = {}) => {
   if (!sessionId) return;
   if (!silent) {
     invalidateActiveStream();
@@ -2169,7 +2170,9 @@ const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
       focusInput();
       await loadContextSnapshot(sessionId);
       // 缓存命中也需检查是否有运行中任务
-      await checkSessionTaskStatus(sessionId);
+      if (!skipTaskStatusCheck) {
+        await checkSessionTaskStatus(sessionId);
+      }
       return;
     }
     const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
@@ -2213,7 +2216,9 @@ const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
     focusInput();
     await loadContextSnapshot(sessionId);
     // ── 检查该会话是否有正在执行的任务 ──
-    await checkSessionTaskStatus(sessionId);
+    if (!skipTaskStatusCheck) {
+      await checkSessionTaskStatus(sessionId);
+    }
   } catch (error) {
     console.error('loadSessionMessages failed:', { sessionId, error });
     showToast('加载会话失败', () => loadSessionMessages(sessionId));
