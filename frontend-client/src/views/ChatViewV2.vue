@@ -434,7 +434,10 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, injec
 import { useRoute, useRouter } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
-import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
+import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
+import { useSessionConnection } from '../composables/useSessionConnection';
+import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
+import { useSessionMessages } from '../composables/useSessionMessages';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
@@ -601,7 +604,6 @@ const pendingEntryAgent = ref('');
 const currentSessionTeam = ref('');
 const entryAgentOptions = ref([]);
 const entryAgentLoading = ref(false);
-const messagesLoading = ref(false);
 const historyLoading = ref(false);
 const historyLoadingMore = ref(false);
 const historyError = ref('');
@@ -623,7 +625,6 @@ const confirmDialog = ref({
   onCancel: () => {}
 });
 const isExportingSession = ref(false);
-const contextUsage = ref({ used: 0, max: 0 });
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
@@ -639,19 +640,86 @@ function openCtxDrawer() {
 
 const execDrawerVisible = ref(false);
 const sessionFilesDrawerVisible = ref(false);
-const execDiagnosticsLoading = ref(false);
-const execDiagnosticsError = ref('');
-const sessionTaskInfo = ref(null);
-const sessionExecutionObservability = ref(null);
-const sessionExecutionDiagnostics = ref(null);
 const llmRetryState = ref(null);
 const retryClockMs = ref(Date.now());
 let llmRetryTimer = null;
-const messageCache = ref(new Map());
-const maxCachedSessions = 10;
 const lastFailedSendContent = ref('');
 const approvalQueue = ref([]);
 const approvalSubmittingId = ref('');
+
+// ── 当前活跃 run 的状态（WS 事件处理用，共享给 composables） ──
+const _activeRun = reactive({
+  active: false,
+  assistantMsgIndex: -1,
+  runId: null,
+  lastSeenSeq: 0,
+  isReplaying: false,
+});
+
+// ── Composables ─────────────────────────────────────────────────────────
+// 注意：deps 中的函数通过闭包引用，在调用时（非初始化时）解析，
+// 因此可以安全引用后续定义的函数（scrollToBottom, showToast 等）。
+
+const {
+  messageCache, messagesLoading, cacheMessages, deleteMessageCache,
+  loadSessionMessages, mergeMessageIdsFromServer,
+} = useSessionMessages({
+  currentSessionId, messages,
+  normalizeAssistantExecutionState,
+  createAssistantMessageFromHistory: (...a) => createAssistantMessageFromHistory(...a),
+  normalizeAttachment: (...a) => normalizeAttachment(...a),
+  scrollToBottom: (...a) => scrollToBottom(...a),
+  waitForScrollLayout: () => waitForScrollLayout(),
+  focusInput: () => focusInput(),
+  loadContextSnapshot: (...a) => loadContextSnapshot(...a),
+  showToast: (...a) => showToast(...a),
+  invalidateActiveStream: () => invalidateActiveStream(),
+});
+
+const {
+  sessionTaskInfo, sessionExecutionObservability, sessionExecutionDiagnostics,
+  execDiagnosticsLoading, execDiagnosticsError, contextUsage,
+  buildObservabilityFromTaskInfo, mergeExecutionObservability,
+  loadContextSnapshot, refreshSessionExecutionDiagnostics, refreshSessionExecutionState,
+  checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase, beginOptimisticExecutionState,
+} = useSessionTaskStatus({
+  currentSessionId, messages, isLoading,
+  shouldRefreshFn: shouldRefreshSessionMessagesAfterResume,
+  shouldRunWatchdogFn: shouldRunResumeRecoveryWatchdog,
+  getActiveRun: () => _activeRun,
+  invalidateActiveStream: () => invalidateActiveStream(),
+  loadSessionMessages,
+  deleteMessageCache,
+  createAssistantMessage,
+  scheduleCommandFallback: (...a) => scheduleCommandFallback(...a),
+  scheduleResumeRecovery: (...a) => scheduleSessionResumeRecovery(...a),
+  clearLlmRetryState: () => clearLlmRetryState(),
+});
+
+const {
+  invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
+  clearSessionResumeRecovery, scheduleSessionResumeRecovery,
+  connectSessionWS, disconnectSessionWS, getWS,
+} = useSessionConnection({
+  currentSessionId, messages, isLoading, isCompressing,
+  activeRun: _activeRun,
+  onMessage: (...a) => handleWSMessage(...a),
+  onRunFinalized: (sid) => _finalizeActiveRun(sid),
+  resetApprovalState: () => resetApprovalState(),
+  loadSessionMessages,
+  deleteMessageCache,
+  refreshSessionExecutionDiagnostics,
+  clearLlmRetryState: () => clearLlmRetryState(),
+  cacheMessages,
+  refreshSessionExecutionState,
+  scrollToBottom: (...a) => scrollToBottom(...a),
+});
+// clearExecutionState 需要额外清理 view 级状态
+const clearExecutionState = () => {
+  _clearExecutionStateBase();
+  execDrawerVisible.value = false;
+};
+// ── end Composables ─────────────────────────────────────────────────────
 
 // ── 态势大屏状态 ──────────────────────────────────────────
 const situationScreenActive = ref(false);
@@ -686,6 +754,8 @@ const syncSessionFromRoute = async (sessionId) => {
     await loadSessionMessages(sessionId);
     await loadSessionFiles(sessionId);
     connectSessionWS(sessionId);
+    // 消息加载完成后独立检查任务状态（不在 loadSessionMessages 内部调用）
+    await checkSessionTaskStatus(sessionId);
     return;
   }
 
@@ -740,14 +810,6 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   toastRef.value?.show(message, action || type, actionLabel);
 };
 
-const invalidateActiveStream = () => {
-  _activeRun.active = false;
-  _activeRun.assistantMsgIndex = -1;
-  _activeRun.runId = null;
-  _activeRun.lastSeenSeq = 0;
-  _activeRun.isReplaying = false;
-};
-
 const normalizeApprovalEventData = (event, eventData) => ({
   ...eventData,
   approval_id: eventData?.approval_id || '',
@@ -778,8 +840,8 @@ const showQueuedApproval = (approval, sessionId) => {
   const makeApprovalResponder = (approved) => async (aid, message) => {
     if (!aid || approvalSubmittingId.value) return;
     approvalSubmittingId.value = aid;
-    if (_ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
+    if (getWS()?.readyState === WebSocket.OPEN) {
+      getWS().send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
       return;
     }
     try {
@@ -853,169 +915,6 @@ const resetApprovalState = () => {
   hideApprovalDialogs();
 };
 
-// ── session 级 WebSocket 连接（替代 SSE push + reconnect）──────────────
-let _ws = null;
-let _wsSessionId = null;
-let _wsReconnectTimer = null;
-let _wsReconnectAttempts = 0;
-
-// 当前活跃 run 的状态（WS 事件处理用）
-const _activeRun = reactive({
-  active: false,
-  assistantMsgIndex: -1,
-  runId: null,
-  lastSeenSeq: 0,
-  isReplaying: false,
-});
-
-// 命令 fallback 超时（防止 WS 未收到 command.result 时 UI 卡死）
-let _commandFallbackTimer = null;
-let _sessionResumeRecoveryTimer = null;
-let _sessionResumeRecoveryAbort = null;
-
-const _scheduleCommandFallback = (sessionId, msgIndex, timeout = 10000) => {
-  _clearCommandFallback();
-  _commandFallbackTimer = setTimeout(() => {
-    _commandFallbackTimer = null;
-    // 如果命令 WS handler 已经处理过（isLoading 已 false），跳过
-    if (!isLoading.value) return;
-    const msg = messages.value[msgIndex];
-    if (msg && !msg.finished) {
-      msg.content = msg.content || '[命令执行超时或结果未送达]';
-      msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
-      msg.finished = true;
-    }
-    _activeRun.active = false;
-    isLoading.value = false;
-    messageCache.value.delete(sessionId);
-    loadSessionMessages(sessionId, { silent: true });
-  }, timeout);
-};
-
-const _clearCommandFallback = () => {
-  if (_commandFallbackTimer) {
-    clearTimeout(_commandFallbackTimer);
-    _commandFallbackTimer = null;
-  }
-};
-
-const _clearSessionResumeRecovery = () => {
-  if (_sessionResumeRecoveryTimer) {
-    clearTimeout(_sessionResumeRecoveryTimer);
-    _sessionResumeRecoveryTimer = null;
-  }
-  if (_sessionResumeRecoveryAbort) {
-    _sessionResumeRecoveryAbort.abort();
-    _sessionResumeRecoveryAbort = null;
-  }
-};
-
-const _scheduleSessionResumeRecovery = (sessionId, timeout = 1500) => {
-  _clearSessionResumeRecovery();
-  _sessionResumeRecoveryTimer = window.setTimeout(async () => {
-    _sessionResumeRecoveryTimer = null;
-    if (currentSessionId.value !== sessionId) return;
-    if (_activeRun.isReplaying || _activeRun.lastSeenSeq > 0) return;
-    const abort = new AbortController();
-    _sessionResumeRecoveryAbort = abort;
-    try {
-      const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal: abort.signal });
-      if (!resp.ok || currentSessionId.value !== sessionId) return;
-      const result = await resp.json();
-      if (result.data?.has_running_task) return;
-      if (shouldRefreshSessionMessagesAfterResume({
-        hasRunningTask: false,
-        activeRun: _activeRun.active,
-        messages: messages.value,
-      })) {
-        invalidateActiveStream();
-        messageCache.value.delete(sessionId);
-        await loadSessionMessages(sessionId, { silent: true });
-        return;
-      }
-      await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
-    } catch (_) {
-      // 兜底探测失败（含 abort）不影响主流程
-    } finally {
-      if (_sessionResumeRecoveryAbort === abort) {
-        _sessionResumeRecoveryAbort = null;
-      }
-    }
-  }, timeout);
-};
-
-const connectSessionWS = (sessionId) => {
-  if (!sessionId) return;
-  if (canReuseSessionSocket(sessionId, _wsSessionId, _ws)) {
-    return;
-  }
-  disconnectSessionWS();
-  resetApprovalState();
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`;
-  const ws = new WebSocket(url);
-  _wsSessionId = sessionId;
-  ws.onopen = () => {
-    console.debug('[WS] 连接建立', sessionId);
-    _wsReconnectAttempts = 0;
-    if (_wsReconnectTimer) {
-      clearTimeout(_wsReconnectTimer);
-      _wsReconnectTimer = null;
-    }
-  };
-  ws.onmessage = (e) => {
-    try {
-      const event = JSON.parse(e.data);
-      handleWSMessage(event, sessionId);
-    } catch (err) {
-      console.debug('[WS] parse error:', err);
-    }
-  };
-  ws.onclose = () => {
-    console.debug('[WS] 连接关闭', sessionId);
-    const isCurrentSocket = _ws === ws;
-    if (isCurrentSocket) {
-      _ws = null;
-      _wsSessionId = null;
-    }
-    if (!isCurrentSocket) {
-      return;
-    }
-    // 兜底：如果 WS 断连时仍有活跃 run，清理 UI 状态防止卡死
-    // （重连后 replay 会重新恢复运行态）
-    if (_activeRun.active && currentSessionId.value === sessionId) {
-      _finalizeActiveRun(sessionId);
-    }
-    _clearCommandFallback();
-    if (currentSessionId.value === sessionId) {
-      const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;
-      _wsReconnectAttempts++;
-      _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), delay);
-    }
-  };
-  ws.onerror = () => {
-    // onclose 会紧随其后，无需额外处理
-  };
-  _ws = ws;
-};
-
-const disconnectSessionWS = () => {
-  _clearCommandFallback();
-  _clearSessionResumeRecovery();
-  resetApprovalState();
-  _wsReconnectAttempts = 0;
-  if (_wsReconnectTimer) {
-    clearTimeout(_wsReconnectTimer);
-    _wsReconnectTimer = null;
-  }
-  const ws = _ws;
-  _ws = null;
-  _wsSessionId = null;
-  if (ws) {
-    ws.close();
-  }
-};
-
 /** WS 消息路由 */
 const handleWSMessage = (event, sessionId) => {
   if (sessionId !== currentSessionId.value) return;
@@ -1027,7 +926,7 @@ const handleWSMessage = (event, sessionId) => {
 
   // 回放协议
   if (eventType === 'reconnect_start') {
-    _clearSessionResumeRecovery();
+    clearSessionResumeRecovery();
     _activeRun.isReplaying = true;
     // 如果不在 loading 状态，说明是 WS 连接时自动回放
     if (!isLoading.value) {
@@ -1058,7 +957,7 @@ const handleWSMessage = (event, sessionId) => {
 
   // send.ack — WS 发送消息的确认响应
   if (eventType === 'send.ack') {
-    _clearCommandFallback();
+    clearCommandFallback();
     const ackData = event;
     if (!ackData.started && ackData.kind !== 'command') {
       // 启动失败
@@ -1074,19 +973,19 @@ const handleWSMessage = (event, sessionId) => {
     }
     if (ackData.kind === 'command' && !ackData.started) {
       // 未知命令等：结果已通过 EventBus 推送
-      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex);
+      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex);
       return;
     }
     _activeRun.runId = ackData.run_id || null;
     if (ackData.kind === 'command') {
-      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 60000);
+      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 60000);
     }
     return;
   }
 
   // send.error — WS 发送消息失败
   if (eventType === 'send.error') {
-    _clearCommandFallback();
+    clearCommandFallback();
     const currentMsg = messages.value[_activeRun.assistantMsgIndex];
     if (currentMsg) {
       currentMsg.content = `\n\n[System Error: ${event.error || 'Request failed'}]`;
@@ -1168,10 +1067,10 @@ const handleWSMessage = (event, sessionId) => {
     const cmdData = event.data || event;
     // command.started：命令已开始执行，延长 fallback 超时
     if (cmdData.type === 'command.started') {
-      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
+      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
       return;
     }
-    _clearCommandFallback();
+    clearCommandFallback();
     // 查找或创建 assistant 占位消息（保持 role=assistant，用 metadata.type 区分渲染）
     let targetIndex = messages.value.length - 1;
     let targetMsg = messages.value[targetIndex];
@@ -1846,228 +1745,6 @@ const exportCurrentSession = async () => {
   }
 };
 
-const cacheMessages = (sessionId, list) => {
-  if (!sessionId) return;
-  if (messageCache.value.has(sessionId)) {
-    messageCache.value.delete(sessionId);
-  }
-  messageCache.value.set(
-    sessionId,
-    list.slice(-500).map(item => normalizeAssistantExecutionState(item))
-  );
-  if (messageCache.value.size > maxCachedSessions) {
-    const oldestKey = messageCache.value.keys().next().value;
-    messageCache.value.delete(oldestKey);
-  }
-};
-
-/** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁）
- *  注意：流结束后 subtasks/execution_steps 已由 SSE 事件填充完毕，
- *  此处仅补全 id/seq，不重写任何 UI 相关字段，避免引起重渲染闪烁。
- */
-const mergeMessageIdsFromServer = async (sessionId) => {
-  if (!sessionId || messages.value.length === 0) return;
-  try {
-    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
-    if (!res.ok) return;
-    const result = await res.json();
-    const items = result.data?.items || [];
-    if (items.length !== messages.value.length) return;
-    for (let i = 0; i < items.length; i++) {
-      const m = messages.value[i];
-      const it = items[i];
-      if (!m || !it) continue;
-      if (m.role !== it.role) continue;
-      // 只补全持久化 ID，不触碰任何 UI 渲染相关字段
-      m.id = it.id;
-      m.seq = it.seq;
-    }
-    cacheMessages(sessionId, messages.value);
-  } catch (_) {}
-};
-
-/** 加载指定会话的上下文用量快照（用于历史会话进入时恢复上下文指示器） */
-const loadContextSnapshot = async (sessionId) => {
-  if (!sessionId) return;
-  try {
-    const res = await fetch(`/api/agent/context-snapshot?session_id=${encodeURIComponent(sessionId)}`);
-    if (!res.ok) return;
-    const json = await res.json();
-    const tokenStats = json.data?.token_stats;
-    console.log('Loaded context snapshot for session', sessionId, tokenStats);
-    if (
-      tokenStats &&
-      typeof tokenStats.total_tokens === 'number' &&
-      typeof tokenStats.budget_tokens === 'number'
-    ) {
-      contextUsage.value = {
-        used: tokenStats.total_tokens,
-        max: tokenStats.budget_tokens
-      };
-    }
-  } catch (_) {
-    // 静默失败，不影响主流程
-  }
-};
-
-const buildObservabilityFromTaskInfo = (taskInfo) => {
-  if (!taskInfo) return null;
-  return {
-    task_id: taskInfo.task_id,
-    session_id: taskInfo.session_id,
-    run_id: taskInfo.run_id,
-    execution_kind: taskInfo.execution_kind,
-    request_id: taskInfo.request_id,
-  };
-};
-
-const mergeExecutionObservability = (payload = {}) => {
-  const current = sessionExecutionObservability.value || {};
-  sessionExecutionObservability.value = {
-    task_id: payload.task_id ?? current.task_id ?? null,
-    session_id: payload.session_id ?? current.session_id ?? currentSessionId.value ?? null,
-    run_id: payload.run_id ?? current.run_id ?? null,
-    execution_kind: payload.execution_kind ?? current.execution_kind ?? null,
-    request_id: payload.request_id ?? current.request_id ?? null,
-  };
-};
-
-const refreshSessionExecutionDiagnostics = async (sessionId, { silent = true } = {}) => {
-  if (!sessionId) return null;
-  if (!silent) {
-    execDiagnosticsLoading.value = true;
-    execDiagnosticsError.value = '';
-  }
-  try {
-    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/execution-diagnostics`);
-    if (!resp.ok) return null;
-    const result = await resp.json();
-    const diagnostics = result.data?.diagnostics || null;
-    // 请求返回时 session 已切换，丢弃过期结果
-    if (currentSessionId.value !== sessionId) return null;
-    sessionExecutionDiagnostics.value = diagnostics;
-    if (diagnostics?.observability) {
-      mergeExecutionObservability(diagnostics.observability);
-    }
-    return diagnostics;
-  } catch (error) {
-    if (!silent) {
-      execDiagnosticsError.value = error.message || '加载执行诊断失败';
-    }
-    return null;
-  } finally {
-    if (!silent) execDiagnosticsLoading.value = false;
-  }
-};
-
-const refreshSessionExecutionState = async (sessionId, { silent = true } = {}) => {
-  if (!sessionId) return;
-  try {
-    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-    if (resp.ok) {
-      const result = await resp.json();
-      // 请求返回时 session 已切换，丢弃过期结果
-      if (currentSessionId.value !== sessionId) return;
-      if (result.data?.task_info) {
-        sessionTaskInfo.value = result.data.task_info;
-      }
-      if (result.data?.observability) {
-        mergeExecutionObservability(result.data.observability);
-      }
-    }
-  } catch (_) {
-    if (!silent) {
-      execDiagnosticsError.value = '同步执行状态失败';
-    }
-  }
-  await refreshSessionExecutionDiagnostics(sessionId, { silent });
-};
-
-const clearExecutionState = () => {
-  clearLlmRetryState();
-  sessionTaskInfo.value = null;
-  sessionExecutionObservability.value = null;
-  sessionExecutionDiagnostics.value = null;
-  execDiagnosticsError.value = '';
-  execDrawerVisible.value = false;
-};
-
-const beginOptimisticExecutionState = (sessionId) => {
-  sessionTaskInfo.value = {
-    ...(sessionTaskInfo.value || {}),
-    task_id: null,
-    session_id: sessionId,
-    run_id: null,
-    execution_kind: 'agent_stream',
-    request_id: null,
-    elapsed_seconds: null,
-    started_at: null,
-    finished_at: null,
-    thread_alive: true,
-    status: 'running',
-  };
-  sessionExecutionDiagnostics.value = null;
-  execDiagnosticsError.value = '';
-  mergeExecutionObservability({
-    task_id: null,
-    session_id: sessionId,
-    run_id: null,
-    execution_kind: 'agent_stream',
-    request_id: null,
-  });
-};
-
-/** 检查会话是否有正在执行的任务，若有则恢复 loading 状态并重连 SSE */
-const checkSessionTaskStatus = async (sessionId) => {
-  if (!sessionId) return;
-  try {
-    const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-    if (!resp.ok) return;
-    const result = await resp.json();
-    const hasRunningTask = Boolean(result.data?.has_running_task);
-    const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
-    if (result.data?.task_info) {
-      sessionTaskInfo.value = result.data.task_info;
-    }
-    if (result.data?.observability) {
-      mergeExecutionObservability(result.data.observability);
-    } else if (result.data?.task_info) {
-      mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
-    }
-    // WS 连接时服务端会自动回放活跃 run 的历史事件，无需手动 reconnect
-    if (shouldRunResumeRecoveryWatchdog({ hasRunningTask, hasActiveSystemCommand })) {
-      _scheduleSessionResumeRecovery(sessionId);
-    }
-    if (!hasRunningTask && !isLoading.value) {
-      if (shouldRefreshSessionMessagesAfterResume({
-        hasRunningTask,
-        activeRun: _activeRun.active,
-        messages: messages.value,
-      })) {
-        invalidateActiveStream();
-        messageCache.value.delete(sessionId);
-        await loadSessionMessages(sessionId, { silent: true, skipTaskStatusCheck: true });
-        await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
-        return;
-      }
-      await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
-    }
-    // 刷新后恢复系统命令（如 /compact）的 loading 状态
-    if (hasActiveSystemCommand && !isLoading.value) {
-      isLoading.value = true;
-      const lastMsg = messages.value[messages.value.length - 1];
-      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-        messages.value.push(createAssistantMessage());
-      }
-      _activeRun.active = true;
-      _activeRun.assistantMsgIndex = messages.value.length - 1;
-      _scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
-    }
-  } catch (e) {
-    // 查询失败不影响主流程
-  }
-};
-
 const loadSessionFiles = async (sessionId) => {
   if (!sessionId) {
     sessionFiles.value = [];
@@ -2151,82 +1828,6 @@ const removeSessionFile = async (file) => {
   }
 };
 
-const loadSessionMessages = async (sessionId, { silent = false, skipTaskStatusCheck = false } = {}) => {
-  if (!sessionId) return;
-  if (!silent) {
-    invalidateActiveStream();
-    messagesLoading.value = true;
-  }
-  historyError.value = '';
-  try {
-    const cached = messageCache.value.get(sessionId);
-    if (cached) {
-      messages.value = cached.map(item => normalizeAssistantExecutionState(item));
-      messagesLoading.value = false;
-      await nextTick();
-      await scrollToBottom(true);
-      await waitForScrollLayout();
-      await scrollToBottom(true);
-      focusInput();
-      await loadContextSnapshot(sessionId);
-      // 缓存命中也需检查是否有运行中任务
-      if (!skipTaskStatusCheck) {
-        await checkSessionTaskStatus(sessionId);
-      }
-      return;
-    }
-    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
-    const items = result.data?.items || [];
-    const mapped = items
-      .filter(item => {
-        const meta = item.metadata || {};
-        // 隐藏 agent 专用消息（展开后的 prompt 等，visible_to_user=false 且非 display_only）
-        if (meta.visible_to_user === false && !meta.display_only) return false;
-        // 隐藏系统 meta 消息（中断标记等）
-        if (meta.hidden) return false;
-        return true;
-      })
-      .map(item => {
-      if (item.role === 'assistant') {
-        return createAssistantMessageFromHistory(item);
-      }
-      if (item.role === 'system') {
-        return {
-          role: 'system',
-          id: item.id,
-          seq: item.seq,
-          content: item.content || '',
-          metadata: item.metadata || {}
-        };
-      }
-      const attachments = Array.isArray(item.metadata?.attachments)
-        ? item.metadata.attachments.map(normalizeAttachment).filter(Boolean)
-        : [];
-      return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
-    });
-    messages.value = mapped;
-    cacheMessages(sessionId, mapped);
-    messagesLoading.value = false;
-    await nextTick();
-    await scrollToBottom(true);
-    await waitForScrollLayout();
-    await scrollToBottom(true);
-    focusInput();
-    await loadContextSnapshot(sessionId);
-    // ── 检查该会话是否有正在执行的任务 ──
-    if (!skipTaskStatusCheck) {
-      await checkSessionTaskStatus(sessionId);
-    }
-  } catch (error) {
-    console.error('loadSessionMessages failed:', { sessionId, error });
-    showToast('加载会话失败', () => loadSessionMessages(sessionId));
-  } finally {
-    messagesLoading.value = false;
-  }
-};
-
 const selectSession = async (item) => {
   if (!item?.session_id) return;
   if (currentSessionId.value === item.session_id) {
@@ -2234,6 +1835,7 @@ const selectSession = async (item) => {
     await loadSessionMessages(item.session_id);
     await loadSessionFiles(item.session_id);
     connectSessionWS(item.session_id);
+    await checkSessionTaskStatus(item.session_id);
     item.unread_count = 0;
     closeMobileSidebar();
     return;
@@ -2898,8 +2500,8 @@ const ensureSession = async () => {
 const handleStop = async () => {
   if (!currentSessionId.value) return;
 
-  if (_ws?.readyState === WebSocket.OPEN) {
-    _ws.send(JSON.stringify({ type: 'stop' }));
+  if (getWS()?.readyState === WebSocket.OPEN) {
+    getWS().send(JSON.stringify({ type: 'stop' }));
   } else {
     try {
       await fetch('/api/agent/stream/stop', {
@@ -3079,8 +2681,8 @@ const handleRunEvent = (event, currentMsg, sessionId) => {
       userInputDialogRef.value?.show(
         eventData,
         async (inputId, value) => {
-          if (_ws?.readyState === WebSocket.OPEN) {
-            _ws.send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
+          if (getWS()?.readyState === WebSocket.OPEN) {
+            getWS().send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
           } else {
             try {
               const resp = await fetch(
@@ -3231,11 +2833,11 @@ const handleSend = async (payload = null) => {
     }
 
     let result;
-    if (_ws?.readyState === WebSocket.OPEN) {
+    if (getWS()?.readyState === WebSocket.OPEN) {
       // 通过 WS 发送，ack 结果由 handleWSMessage 中的 send.ack / send.error 处理
-      _ws.send(JSON.stringify({ type: 'send', ...body }));
+      getWS().send(JSON.stringify({ type: 'send', ...body }));
       // 设置 fallback：如果 WS 未回 ack，超时后 UI 不会卡死
-      _scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
+      scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
       return;
     }
 
@@ -3251,7 +2853,7 @@ const handleSend = async (payload = null) => {
     if (!response.ok || !result.started) {
       const errorMsg = result.error || '启动执行失败';
       if (result.kind === 'command') {
-        _scheduleCommandFallback(sessionId, assistantMsgIndex);
+        scheduleCommandFallback(sessionId, assistantMsgIndex);
         return;
       }
       throw new Error(errorMsg);
@@ -3260,7 +2862,7 @@ const handleSend = async (payload = null) => {
     _activeRun.runId = result.run_id;
 
     if (result.kind === 'command') {
-      _scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
+      scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
       return;
     }
 

@@ -45,7 +45,7 @@ test('存在未完成 assistant 消息且后台已结束时会刷新消息', () 
   }), true);
 });
 
-test('最后停在用户消息且后台已结束时会刷新消息', () => {
+test('最后停在用户消息且后台已结束时不再刷新（后端 task 状态是终态）', () => {
   assert.equal(shouldRefreshSessionMessagesAfterResume({
     hasRunningTask: false,
     activeRun: false,
@@ -53,7 +53,7 @@ test('最后停在用户消息且后台已结束时会刷新消息', () => {
       { role: 'assistant', finished: true },
       { role: 'user', metadata: {}, finished: true },
     ],
-  }), true);
+  }), false);
 });
 
 test('后台已结束但前端仍有活跃 run 时会刷新消息', () => {
