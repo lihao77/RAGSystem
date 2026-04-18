@@ -110,7 +110,7 @@ def my_tool(arguments, **kwargs):
 
 启动时统一通过 `bootstrap_tool_system()` 完成：
 
-1. `discover_decorated_tools()`
+1. `discover_decorated_tools()`（对 `tools.local.*` 先显式全量 import，再补充 `pkgutil.walk_packages()` 扫描）
 2. `_merge_decorated_handlers()`
 3. `_merge_decorated_permissions()`
 4. `ToolRegistry.register_contracts()`

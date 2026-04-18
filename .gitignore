@@ -29,6 +29,10 @@ ENV/
 node_modules/
 frontend-client/dist/
 frontend-client/.env
+desktop-electron/node_modules/
+desktop-electron/release/
+backend-fastapi/build/
+backend-fastapi/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -89,3 +93,7 @@ backend_start.*.log
 /fix_*.py
 /unpacked*/
 /notify.ps1
+
+
+build/
+dist/

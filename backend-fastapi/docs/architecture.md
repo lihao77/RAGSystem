@@ -47,6 +47,7 @@ backend-fastapi/
 ├── core/                      # 核心基础设施（路径解析、统一日志配置）
 ├── lifespan.py                # 启动生命周期
 ├── main.py                    # 应用入口
+├── desktop_entry.py           # 桌面版后端入口（Electron 打包时使用，关闭 reload 并注入前端 dist）
 └── <DATA_ROOT>/              # 运行时数据根目录（默认 ~/.ragsystem，可通过 RAG_DATA_ROOT 覆盖）
     ├── db/                    # 数据库文件（ragsystem.db, checkpoints.db）
     ├── monitoring/
@@ -137,6 +138,8 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 ```
 
 ## Agent 体系
+
+当前桌面封装语义补充：Electron/绿色版启动时会显式设置 `RAG_DATA_ROOT=~/.ragsystem`，并把后端工作目录固定到该目录，确保安装目录或解压目录只承载程序文件，不承载运行时数据；同时桌面打包 spec 会先把 `backend-fastapi` 注入 `sys.path`，再通过 `hiddenimports` + `collect_submodules('tools.local')` 收集本地工具模块，保证 direct 工具注册链在打包后仍可被 bootstrap 导入。
 
 ### BaseAgent（agents/core/base.py）
 
@@ -648,8 +651,9 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 | `CONFIG_ROOT/app/config.yaml` | 系统级（向量库、embedding、hooks.workspace_trust、waiting） | 否 |
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
-- 源码目录中的 app / agent `.example` 文件仅作为启动时初始化来源；MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
+- 源码目录中的 `config.yaml(.example)` 仅作为启动时初始化来源；agent 配置不再从源码侧 `agents/configs/agent_configs.yaml(.example)` 自动 seed，MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
 - legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
+- 首次初始化 default team 一律由 `AgentConfigManager._build_default_team_payload()` 代码生成；只有运行时目录中已存在 legacy `agent_configs.yaml` 时，才迁移为 `team_index.yaml + teams/default.yaml`
 - `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`tasks.workflow/background`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`
 - `call_agent` 不属于 `tools.enabled_tools` 域，而由 `delegation.enabled_agents` 是否非空决定是否注入
 - task 工具也不属于 `tools.enabled_tools` 域，而由 `tasks.workflow/background` 决定是否注入

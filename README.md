@@ -83,6 +83,42 @@ npm run dev
 
 默认开发地址为 `http://localhost:5174`，并通过 Vite 代理 `/api` 到 `http://localhost:5001`。
 
+### 5. 构建 Windows 安装包 / Build a Windows installer
+
+当前仓库已提供基于 Electron 的桌面封装目录 `desktop-electron/`，用于把 Vue 前端、FastAPI 后端与 Python 打包产物组合为 Windows 安装包。
+
+先安装桌面壳依赖：
+
+```bash
+cd desktop-electron
+npm install
+```
+
+再在后端 Python 环境中安装 PyInstaller：
+
+```bash
+cd ../backend-fastapi
+pip install pyinstaller
+```
+
+然后执行安装包构建：
+
+```bash
+cd ../desktop-electron
+npm run build:installer
+```
+
+构建链路会依次：
+- 构建 `frontend-client/dist`
+- 使用 `backend-fastapi/ragsystem_backend.spec` 生成后端 exe 目录版产物（自动排除 skill 子目录中的 `.venv` 等本地虚拟环境）
+- 通过 `electron-builder` 输出 NSIS 安装包到 `desktop-electron/release/`
+
+安装后的桌面端会：
+- 启动本地 FastAPI 后端
+- 使用内置窗口访问 `http://127.0.0.1:5001`
+- 将运行时数据写入用户主目录下的 `~/.ragsystem/`
+- 以后端进程工作目录固定到该 `~/.ragsystem`，避免安装在 `Program Files` 时向只读安装目录写入运行时文件
+
 ## 测试与验证 / Testing
 
 后端：

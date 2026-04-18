@@ -25,6 +25,23 @@ npm run dev
 - `/api` 代理到 / proxies to `http://localhost:5001`
 - 可通过 `frontend-client/.env` 配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`
 
+### 桌面安装包 / Desktop installer
+
+```bash
+cd desktop-electron
+npm install
+cd ../backend-fastapi
+pip install pyinstaller
+cd ../desktop-electron
+npm run build:installer
+```
+
+- 输出目录 / Output directory: `desktop-electron/release`
+- 安装包类型 / Installer type: Windows NSIS `.exe`
+- 后端打包使用 `backend-fastapi/ragsystem_backend.spec`，会自动排除 `agents/skills/**/.venv` 等本地虚拟环境，并通过 `sys.path` 注入 + `hiddenimports` 显式兜底收集 `tools.local.*` 子模块，避免桌面包缺少 direct 工具
+- 桌面端启动时会自动拉起内置后端，并把运行时数据统一写入用户主目录下的 `~/.ragsystem`
+- Electron 会把后端进程工作目录固定到 `~/.ragsystem`，避免安装目录（如 `Program Files`）下的只读写入错误
+
 ## 最小配置链路 / Minimal configuration chain
 
 先复制环境变量示例：

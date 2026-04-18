@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from agents.config.loader import AgentLoader
 from agents.implementations.orchestrator.agent import OrchestratorAgent
 from tools.bootstrap import bootstrap_tool_system
+from tools.runtime.discovery import _LOCAL_TOOL_MODULES
 
 bootstrap_tool_system()
 
@@ -34,6 +35,24 @@ def _make_agent_config(agent_name: str, agent_type: str, enabled: bool = True, d
         delegation=SimpleNamespace(enabled_agents=list(delegation or [])),
         custom_params={'type': agent_type, 'behavior': {}},
     )
+
+
+def test_local_tool_modules_explicit_import_list_covers_runtime_tools():
+    expected_modules = {
+        'tools.local.agent_tools',
+        'tools.local.bash_tool',
+        'tools.local.builtin_tools',
+        'tools.local.code_sandbox',
+        'tools.local.document_tools',
+        'tools.local.glob_tool',
+        'tools.local.grep_tool',
+        'tools.local.memory_tools',
+        'tools.local.skill_tools',
+        'tools.local.task_tools',
+        'tools.local.todo_tools',
+        'tools.local.web_fetch_tool',
+    }
+    assert expected_modules.issubset(set(_LOCAL_TOOL_MODULES))
 
 
 def test_loader_builds_orchestrator_via_unified_factory():

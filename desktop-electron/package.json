@@ -1,0 +1,55 @@
+{
+  "name": "ragsystem-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build:frontend": "npm --prefix ../frontend-client run build",
+    "build:backend": "python -m PyInstaller ../backend-fastapi/ragsystem_backend.spec --noconfirm",
+    "build:installer": "npm run build:frontend && npm run build:backend && electron-builder --win nsis",
+    "pack": "npm run build:frontend && npm run build:backend && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.ragsystem.desktop",
+    "productName": "RAGSystem",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/RAGSystemBackend",
+        "to": "backend/RAGSystemBackend"
+      },
+      {
+        "from": "../frontend-client/dist",
+        "to": "frontend-dist"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
+  }
+}

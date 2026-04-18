@@ -5,6 +5,8 @@ from pathlib import Path
 
 from agents.config.manager import AgentConfigManager, DEFAULT_TEAM_NAME
 from agents.config.models import AgentConfig
+from core.path_resolution import CONFIG_ROOT
+from lifespan import _seed_runtime_configs
 
 
 def _write_legacy_agent_config(config_dir: Path):
@@ -26,6 +28,21 @@ metadata:
 """.strip() + "\n",
         encoding='utf-8',
     )
+
+
+def test_seed_runtime_configs_does_not_create_legacy_agent_config(tmp_path, monkeypatch):
+    fake_config_root = tmp_path / 'config-root'
+    fake_backend_root = tmp_path / 'backend-root'
+    (fake_backend_root / 'config' / 'yaml').mkdir(parents=True, exist_ok=True)
+    (fake_backend_root / 'config' / 'yaml' / 'config.yaml.example').write_text('app: {}\n', encoding='utf-8')
+
+    monkeypatch.setattr('core.path_resolution.CONFIG_ROOT', fake_config_root)
+    monkeypatch.setattr('core.path_resolution.BACKEND_ROOT', fake_backend_root)
+
+    _seed_runtime_configs()
+
+    assert not (fake_config_root / 'agents' / 'agent_configs.yaml').exists()
+    assert (fake_config_root / 'app' / 'config.yaml').exists()
 
 
 def test_manager_initializes_default_team_with_system_agents(tmp_path):

@@ -242,14 +242,6 @@ def _seed_runtime_configs() -> None:
     migrations = [
         (
             [
-                BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml",
-                BACKEND_ROOT / "agents" / "configs" / "agent_configs.yaml.example",
-            ],
-            CONFIG_ROOT / "agents" / "agent_configs.yaml",
-            None,
-        ),
-        (
-            [
                 BACKEND_ROOT / "config" / "yaml" / "config.yaml",
                 BACKEND_ROOT / "config" / "yaml" / "config.yaml.example",
             ],

@@ -235,6 +235,7 @@ class AgentConfigManager:
 
     def _build_default_team_payload(self) -> Dict[str, Any]:
         specialist_agents = [
+            'team_maker',
             'plan_agent',
             'explor_agent',
             'general_agent',

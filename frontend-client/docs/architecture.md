@@ -57,7 +57,7 @@ frontend-client/src/
 ```
 
 
-前端 API 请求默认统一使用相对路径 `/api/*`。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`（默认 `http://localhost:5001`）；Docker/生产环境则由前端容器内的 nginx 负责把 `/api/*` 反向代理到 docker-compose 网络中的 `backend:5001`。因此前端业务代码不应写死 `localhost:5001` 之类绝对地址，而应始终请求 `/api/*`，避免开发与部署环境分叉。
+前端 API 请求默认统一使用相对路径 `/api/*`。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`（默认 `http://localhost:5001`）；Docker/生产环境则由前端容器内的 nginx 负责把 `/api/*` 反向代理到 docker-compose 网络中的 `backend:5001`。桌面安装包模式下则不再经过 Vite dev server，而是由 Electron 启动本地 FastAPI，并直接在桌面窗口中加载 `http://127.0.0.1:5001`；由于前端业务层始终使用相对路径 `/api/*`，因此无需分叉前端请求逻辑。前端业务代码不应写死 `localhost:5001` 之类绝对地址，而应始终请求 `/api/*`，避免开发、桌面打包与部署环境分叉。
 
 ## 路由
 
