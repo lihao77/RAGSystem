@@ -438,6 +438,10 @@ import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdo
 import { useSessionConnection } from '../composables/useSessionConnection';
 import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
+import { useSessionRunStream } from '../composables/useSessionRunStream';
+import { useMessageRevision } from '../composables/useMessageRevision';
+import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
+import { normalizeAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
@@ -454,7 +458,6 @@ import CustomSelect from '../components/CustomSelect.vue';
 import MessageEditBox from '../components/MessageEditBox.vue';
 import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
-import { listSessionFiles, uploadSessionFiles, deleteSessionFile, getSessionFileDownloadUrl } from '../api/sessionFiles';
 
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
@@ -592,12 +595,8 @@ const showScrollToBottomButton = computed(() => {
 const hasSessionMeta = computed(() => Boolean(currentSessionId.value && (currentSessionTeam.value || pendingEntryAgent.value || pendingWorkspaceRoot.value)));
 const hasStatusPopover = computed(() => hasSessionMeta.value || showExecutionPill.value);
 const currentSessionId = ref(null);
-const sessionFiles = ref([]);
-const pendingAttachments = ref([]);
-const sessionFilesLoading = ref(false);
-const uploadingSessionFiles = ref(false);
-const deletingSessionFileId = ref(null);
-const sessionFileInputRef = ref(null);
+const sessionFilesDrawerVisible = ref(false);
+const sessionFilesDrawerTarget = ref('composer');
 const history = ref([]);
 const pendingWorkspaceRoot = ref('');
 const pendingEntryAgent = ref('');
@@ -639,7 +638,6 @@ function openCtxDrawer() {
 }
 
 const execDrawerVisible = ref(false);
-const sessionFilesDrawerVisible = ref(false);
 const llmRetryState = ref(null);
 const retryClockMs = ref(Date.now());
 let llmRetryTimer = null;
@@ -667,7 +665,7 @@ const {
   currentSessionId, messages,
   normalizeAssistantExecutionState,
   createAssistantMessageFromHistory: (...a) => createAssistantMessageFromHistory(...a),
-  normalizeAttachment: (...a) => normalizeAttachment(...a),
+  normalizeAttachment: (...a) => normalizeAttachmentUtil(...a),
   scrollToBottom: (...a) => scrollToBottom(...a),
   waitForScrollLayout: () => waitForScrollLayout(),
   focusInput: () => focusInput(),
@@ -714,6 +712,100 @@ const {
   refreshSessionExecutionState,
   scrollToBottom: (...a) => scrollToBottom(...a),
 });
+const {
+  sessionFiles,
+  pendingAttachments,
+  sessionFilesLoading,
+  uploadingSessionFiles,
+  deletingSessionFileId,
+  normalizeAttachment,
+  isImageAttachment,
+  formatAttachmentMeta,
+  getAttachmentPreviewUrl,
+  currentDrawerPendingFiles,
+  removePendingAttachment,
+  removeEditingAttachment,
+  reuseSessionFileAsAttachment,
+  loadSessionFiles,
+  openSessionFilesDrawer,
+  handleSessionFileSelect,
+  downloadSessionFileItem,
+  removeSessionFile,
+} = useSessionFilesAttachments({
+  currentSessionId,
+  sessionFilesDrawerVisible,
+  sessionFilesDrawerTarget,
+  getEditingAttachmentsDraft: () => editingAttachmentsDraft.value,
+  setEditingAttachmentsDraft: (value) => { editingAttachmentsDraft.value = value; },
+  ensureSession: (...a) => ensureSession(...a),
+  showToast: (...a) => showToast(...a),
+});
+
+const {
+  editingMessage,
+  editingMessageIndex,
+  editingDraft,
+  editingAttachmentsDraft,
+  editingSubmitting,
+  startEditMessage,
+  resetEditingState,
+  cancelEdit,
+  confirmEditAndResend,
+  rollbackAndRetry,
+} = useMessageRevision({
+  messages,
+  currentSessionId,
+  sessionFilesDrawerVisible,
+  sessionFilesDrawerTarget,
+  normalizeAttachment,
+  showToast: (...a) => showToast(...a),
+  cacheMessages,
+  inputMessage,
+  handleSend: (...a) => handleSend(...a),
+});
+
+const {
+  handleWSMessage,
+  finalizeActiveRun: _finalizeActiveRun,
+} = useSessionRunStream({
+  currentSessionId,
+  messages,
+  isLoading,
+  isCompressing,
+  contextUsage,
+  sessionTaskInfo,
+  activeRun: _activeRun,
+  llmRetryState,
+  userInputDialogRef,
+  getWS,
+  createAssistantMessage,
+  clearSessionResumeRecovery,
+  clearCommandFallback,
+  scheduleCommandFallback,
+  deleteMessageCache,
+  loadSessionMessages,
+  refreshSessionExecutionState,
+  mergeExecutionObservability,
+  cacheMessages,
+  clearLlmRetryState: (...a) => clearLlmRetryState(...a),
+  scrollToBottom: (...a) => scrollToBottom(...a),
+  showToast: (...a) => showToast(...a),
+  setLlmRetryState: (...a) => setLlmRetryState(...a),
+  updateRecentSession: (...a) => updateRecentSession(...a),
+  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
+  ensureExecutionProjector: (...a) => ensureExecutionProjector(...a),
+  syncExecutionProjection: (...a) => syncExecutionProjection(...a),
+  findSubtaskByCallId: (...a) => findSubtaskByCallId(...a),
+  findRunningSubtaskByAgentName: (...a) => findRunningSubtaskByAgentName(...a),
+  enqueueApproval: (...a) => enqueueApproval(...a),
+  handleApprovalResolved: (...a) => handleApprovalResolved(...a),
+  buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
+  isRootEvent: (...a) => isRootEvent(...a),
+  isMasterEvent: (...a) => isMasterEvent(...a),
+  applyStep,
+  handleStop: (...a) => handleStop(...a),
+});
+
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = () => {
   _clearExecutionStateBase();
@@ -727,11 +819,6 @@ const situationArtifactId = ref(null);
 const situationMapData = ref(null);
 const situationInfo = ref(null);
 const messageActionsVisible = ref(null);
-const editingMessageIndex = ref(null);
-const editingDraft = ref('');
-const editingAttachmentsDraft = ref([]);
-const editingSubmitting = ref(false);
-const sessionFilesDrawerTarget = ref('composer');
 const sessionMetaExpanded = ref(false);
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const getChatSessionPath = (sessionId) => sessionId
@@ -772,6 +859,8 @@ const syncSessionFromRoute = async (sessionId) => {
     loadActiveTeam();
     pendingAttachments.value = [];
     messages.value = [];
+    sessionFilesDrawerVisible.value = false;
+    sessionFilesDrawerTarget.value = 'composer';
     sessionMetaExpanded.value = false;
   }
 };
@@ -915,238 +1004,6 @@ const resetApprovalState = () => {
   hideApprovalDialogs();
 };
 
-/** WS 消息路由 */
-const handleWSMessage = (event, sessionId) => {
-  if (sessionId !== currentSessionId.value) return;
-
-  const eventType = event.type;
-
-  // 心跳
-  if (eventType === 'heartbeat') return;
-
-  // 回放协议
-  if (eventType === 'reconnect_start') {
-    clearSessionResumeRecovery();
-    _activeRun.isReplaying = true;
-    // 如果不在 loading 状态，说明是 WS 连接时自动回放
-    if (!isLoading.value) {
-      isLoading.value = true;
-      const lastMsg = messages.value[messages.value.length - 1];
-      if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-        messages.value.push(createAssistantMessage());
-      }
-      _activeRun.active = true;
-      _activeRun.assistantMsgIndex = messages.value.length - 1;
-      _activeRun.runId = event.run_id || null;
-      _activeRun.lastSeenSeq = 0;
-    }
-    if (event.run_id) {
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        run_id: event.run_id,
-        session_id: sessionId,
-        status: 'running',
-      };
-    }
-    return;
-  }
-  if (eventType === 'reconnect_end') {
-    _activeRun.isReplaying = false;
-    return;
-  }
-
-  // send.ack — WS 发送消息的确认响应
-  if (eventType === 'send.ack') {
-    clearCommandFallback();
-    const ackData = event;
-    if (!ackData.started && ackData.kind !== 'command') {
-      // 启动失败
-      const currentMsg = messages.value[_activeRun.assistantMsgIndex];
-      if (currentMsg) {
-        currentMsg.content = `\n\n[System Error: ${ackData.error || '启动执行失败'}]`;
-        currentMsg.finished = true;
-      }
-      sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
-      _activeRun.active = false;
-      isLoading.value = false;
-      return;
-    }
-    if (ackData.kind === 'command' && !ackData.started) {
-      // 未知命令等：结果已通过 EventBus 推送
-      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex);
-      return;
-    }
-    _activeRun.runId = ackData.run_id || null;
-    if (ackData.kind === 'command') {
-      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 60000);
-    }
-    return;
-  }
-
-  // send.error — WS 发送消息失败
-  if (eventType === 'send.error') {
-    clearCommandFallback();
-    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
-    if (currentMsg) {
-      currentMsg.content = `\n\n[System Error: ${event.error || 'Request failed'}]`;
-      currentMsg.finished = true;
-    }
-    sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
-    _activeRun.active = false;
-    isLoading.value = false;
-    showToast('消息发送失败', 'warning');
-    return;
-  }
-
-  // approve.error / user_input.error — WS 审批/输入失败
-  if (eventType === 'approve.error') {
-    if (event.approval_id) {
-      removeApprovalFromQueue(event.approval_id);
-      if (approvalSubmittingId.value === event.approval_id) {
-        approvalSubmittingId.value = '';
-      }
-      hideApprovalDialogs();
-      showNextApproval(sessionId);
-    }
-    showToast(event.error || '审批提交失败', 'warning');
-    return;
-  }
-  if (eventType === 'user.approval_granted' || eventType === 'user.approval_denied') {
-    const approvalId = event.data?.approval_id || event.approval_id || '';
-    handleApprovalResolved(approvalId, sessionId);
-    return;
-  }
-
-  if (eventType === 'user_input.error') {
-    showToast(event.error || '用户输入提交失败', 'warning');
-    return;
-  }
-  // 回放阶段跳过心跳和 done
-  if (_activeRun.isReplaying && (eventType === 'heartbeat' || eventType === 'done')) {
-    return;
-  }
-
-  // session.run_started — 后台任务自动拉起时提前进入运行态，避免必须等 replay 才有占位
-  if (eventType === 'session.run_started') {
-    const nextRunId = event.run_id || event.data?.run_id || null;
-    const shouldStartNewMessage = !_activeRun.active || (_activeRun.runId && nextRunId && _activeRun.runId !== nextRunId);
-    if (shouldStartNewMessage) {
-      const currentMsg = messages.value[_activeRun.assistantMsgIndex];
-      if (currentMsg && !currentMsg.finished) {
-        currentMsg.finished = true;
-      }
-
-      const hasNotificationMsg = messages.value.some(
-        msg => msg.role === 'user' && msg.metadata?.source === 'system.bg_notification' && msg._bgRunId === nextRunId
-      );
-      if (!hasNotificationMsg) {
-        messages.value.push(buildTaskNotificationMessage(sessionId, event));
-      }
-
-      messages.value.push(createAssistantMessage({ run_id: nextRunId }));
-      _activeRun.active = true;
-      _activeRun.assistantMsgIndex = messages.value.length - 1;
-      _activeRun.lastSeenSeq = 0;
-      _activeRun.isReplaying = false;
-    }
-    _activeRun.runId = nextRunId;
-    isLoading.value = true;
-    sessionTaskInfo.value = {
-      ...(sessionTaskInfo.value || {}),
-      run_id: nextRunId,
-      session_id: sessionId,
-      status: 'running',
-    };
-    refreshSessionExecutionState(sessionId, { silent: true });
-    nextTick(() => scrollToBottom(true));
-    return;
-  }
-
-  // command.result — 斜杠命令结果
-  if (eventType === 'command.result') {
-    const cmdData = event.data || event;
-    // command.started：命令已开始执行，延长 fallback 超时
-    if (cmdData.type === 'command.started') {
-      scheduleCommandFallback(sessionId, _activeRun.assistantMsgIndex, 120000);
-      return;
-    }
-    clearCommandFallback();
-    // 查找或创建 assistant 占位消息（保持 role=assistant，用 metadata.type 区分渲染）
-    let targetIndex = messages.value.length - 1;
-    let targetMsg = messages.value[targetIndex];
-    if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
-      messages.value.push(createAssistantMessage());
-      targetIndex = messages.value.length - 1;
-      targetMsg = messages.value[targetIndex];
-    }
-    targetMsg.content = cmdData.content || '';
-    targetMsg.metadata = {
-      ...targetMsg.metadata,
-      type: 'command_result',
-      command: cmdData.command || 'unknown',
-      success: cmdData.success !== false,
-      error: cmdData.error || null,
-      data: cmdData.data || null,
-    };
-    targetMsg.finished = true;
-    isLoading.value = false;
-    // 静默刷新消息（命令可能改变了消息列表）
-    deleteMessageCache(sessionId);
-    loadSessionMessages(sessionId, { silent: true });
-    nextTick(() => scrollToBottom(true));
-    return;
-  }
-
-  // session.updated — 兜底静默刷新（内容已由 WS 流式渲染）
-  if (eventType === 'session.updated') {
-    if (!isLoading.value) {
-      messageCache.value.delete(sessionId);
-      loadSessionMessages(sessionId, { silent: true });
-    }
-    return;
-  }
-
-  // run.end / done — run 结束
-  if (eventType === 'run.end' || eventType === 'done') {
-    sessionTaskInfo.value = {
-      ...(sessionTaskInfo.value || {}),
-      thread_alive: false,
-      status: 'completed',
-    };
-    _finalizeActiveRun(sessionId);
-    return;
-  }
-
-  // 内容事件 — 转发到 handleRunEvent
-  if (_activeRun.active) {
-    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
-    if (currentMsg) {
-      mergeExecutionObservability(event);
-      handleRunEvent(event, currentMsg, sessionId);
-    }
-  }
-};
-
-/** 结束当前活跃 run */
-const _finalizeActiveRun = (sessionId) => {
-  if (_activeRun.active) {
-    const currentMsg = messages.value[_activeRun.assistantMsgIndex];
-    if (currentMsg && !currentMsg.finished) {
-      currentMsg.finished = true;
-      if (currentMsg.content) {
-        updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-      }
-      checkSituationScreenTrigger(currentMsg.content);
-    }
-    cacheMessages(sessionId, messages.value);
-    _activeRun.active = false;
-  }
-  clearLlmRetryState();
-  isCompressing.value = false;
-  isLoading.value = false;
-  refreshSessionExecutionState(sessionId, { silent: true });
-  scrollToBottom();
-};
 
 // 移动端状态
 
@@ -1219,6 +1076,8 @@ const startNewChat = async () => {
   loadActiveTeam();
   pendingAttachments.value = [];
   sessionMetaExpanded.value = false;
+  sessionFilesDrawerVisible.value = false;
+  sessionFilesDrawerTarget.value = 'composer';
   typewriterTimers.value.forEach(timer => clearTimeout(timer));
   typewriterTimers.value.clear();
   isUserAtBottom.value = true;
@@ -1569,74 +1428,6 @@ const clearLlmRetryState = () => {
   stopRetryTicker();
 };
 
-const normalizeAttachment = (file) => {
-  if (!file || typeof file !== 'object') return null;
-  return {
-    ...file,
-    file_id: file.file_id || file.id,
-    kind: String(file?.mime || '').startsWith('image/') ? 'image' : 'file',
-  };
-};
-
-const isImageAttachment = (attachment) => String(attachment?.mime || '').startsWith('image/');
-
-const formatAttachmentSize = (size) => {
-  const num = Number(size || 0);
-  if (!num) return '0 B';
-  if (num < 1024) return `${num} B`;
-  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
-  return `${(num / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const formatAttachmentMeta = (attachment) => {
-  const parts = [formatAttachmentSize(attachment?.size)];
-  if (attachment?.mime) parts.push(attachment.mime);
-  return parts.join(' · ');
-};
-
-const getAttachmentPreviewUrl = (attachment) => {
-  if (!currentSessionId.value || !attachment?.file_id) return '';
-  return getSessionFileDownloadUrl(currentSessionId.value, attachment.file_id);
-};
-
-const removeAttachmentFromList = (list, attachment) => {
-  const fileId = attachment?.file_id || attachment?.id;
-  return list.filter(item => (item.file_id || item.id) !== fileId);
-};
-
-const currentDrawerPendingFiles = computed(() => (
-  sessionFilesDrawerTarget.value === 'message-edit'
-    ? editingAttachmentsDraft.value
-    : pendingAttachments.value
-));
-
-
-const removePendingAttachment = (attachment) => {
-  pendingAttachments.value = removeAttachmentFromList(pendingAttachments.value, attachment);
-};
-
-const removeEditingAttachment = (attachment) => {
-  editingAttachmentsDraft.value = removeAttachmentFromList(editingAttachmentsDraft.value, attachment);
-};
-
-const reuseSessionFileAsAttachment = (file) => {
-  const normalized = normalizeAttachment(file);
-  if (!normalized) return;
-  const targetList = sessionFilesDrawerTarget.value === 'message-edit'
-    ? editingAttachmentsDraft.value
-    : pendingAttachments.value;
-  const fileId = normalized.file_id;
-  if (!targetList.some(item => (item.file_id || item.id) === fileId)) {
-    const nextList = [...targetList, normalized];
-    if (sessionFilesDrawerTarget.value === 'message-edit') {
-      editingAttachmentsDraft.value = nextList;
-    } else {
-      pendingAttachments.value = nextList;
-    }
-  }
-  sessionFilesDrawerVisible.value = false;
-  sessionFilesDrawerTarget.value = 'composer';
-};
 
 const focusInput = async () => {
   if (chatInputRef.value?.focus) {
@@ -1747,88 +1538,6 @@ const exportCurrentSession = async () => {
   }
 };
 
-const loadSessionFiles = async (sessionId) => {
-  if (!sessionId) {
-    sessionFiles.value = [];
-    return;
-  }
-  sessionFilesLoading.value = true;
-  try {
-    const res = await listSessionFiles(sessionId);
-    if (currentSessionId.value !== sessionId) return;
-    sessionFiles.value = res.files || [];
-  } catch (error) {
-    showToast(error.message || '加载会话文件失败');
-  } finally {
-    sessionFilesLoading.value = false;
-  }
-};
-
-const openSessionFilesDrawer = (target = 'composer') => {
-  sessionFilesDrawerTarget.value = target;
-  if (currentSessionId.value) {
-    loadSessionFiles(currentSessionId.value);
-  }
-  sessionFilesDrawerVisible.value = true;
-};
-
-const triggerSessionFileInput = () => {
-  sessionFileInputRef.value?.click();
-};
-
-const handleSessionFileSelect = async (filesOrEvent) => {
-  const files = filesOrEvent?.target?.files || filesOrEvent;
-  const normalizedFiles = Array.from(files || []).filter(file => file instanceof File);
-  if (!normalizedFiles.length) return;
-  const sessionId = await ensureSession();
-  if (!sessionId) return;
-  const fd = new FormData();
-  for (const file of normalizedFiles) fd.append('files', file);
-  uploadingSessionFiles.value = true;
-  try {
-    const res = await uploadSessionFiles(sessionId, fd);
-    const createdFiles = (res.files || []).map(normalizeAttachment).filter(Boolean);
-    const isEditingTarget = sessionFilesDrawerTarget.value === 'message-edit';
-    const targetList = isEditingTarget ? editingAttachmentsDraft.value : pendingAttachments.value;
-    const mergedFiles = [
-      ...targetList,
-      ...createdFiles.filter(file => !targetList.some(item => (item.file_id || item.id) === file.file_id))
-    ];
-    if (isEditingTarget) {
-      editingAttachmentsDraft.value = mergedFiles;
-    } else {
-      pendingAttachments.value = mergedFiles;
-    }
-    showToast(`已添加 ${res.files?.length || 0} 个附件`, 'success');
-    await loadSessionFiles(sessionId);
-    sessionFilesDrawerVisible.value = true;
-  } catch (error) {
-    console.error('handleSessionFileSelect failed:', { sessionId, fileCount: normalizedFiles.length, error });
-    showToast(error.message || '上传会话文件失败');
-  } finally {
-    uploadingSessionFiles.value = false;
-    if (sessionFileInputRef.value) sessionFileInputRef.value.value = '';
-  }
-};
-
-const downloadSessionFileItem = (file) => {
-  if (!currentSessionId.value || !file?.id) return;
-  window.open(getSessionFileDownloadUrl(currentSessionId.value, file.id), '_blank');
-};
-
-const removeSessionFile = async (file) => {
-  if (!currentSessionId.value || !file?.id) return;
-  deletingSessionFileId.value = file.id;
-  try {
-    await deleteSessionFile(currentSessionId.value, file.id);
-    sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
-    showToast('会话文件已删除', 'success');
-  } catch (error) {
-    showToast(error.message || '删除会话文件失败');
-  } finally {
-    deletingSessionFileId.value = null;
-  }
-};
 
 const selectSession = async (item) => {
   if (!item?.session_id) return;
@@ -1908,12 +1617,6 @@ const visibleMessages = computed(() => {
     || (m.metadata && m.metadata.compression) !== true && m.seq > cutoff
   );
   return [summaryMsg, ...rest];
-});
-
-const editingMessage = computed(() => {
-  const i = editingMessageIndex.value;
-  if (i == null || i < 0) return null;
-  return messages.value[i] || null;
 });
 
 const contextUsagePct = computed(() => {
@@ -2203,178 +1906,6 @@ const handleMarkdownBlockAction = async (event) => {
   showToast(ok ? '已复制到剪贴板' : '复制失败', ok ? 'success' : 'error');
 };
 
-const startEditMessage = (msg, index) => {
-  if (!msg || msg.role !== 'user') return;
-  const idx = messages.value.findIndex(m => m === msg);
-  editingMessageIndex.value = idx >= 0 ? idx : index;
-  editingDraft.value = msg.content || '';
-  editingAttachmentsDraft.value = Array.isArray(msg.attachments)
-    ? msg.attachments.map(normalizeAttachment).filter(Boolean)
-    : [];
-  editingSubmitting.value = false;
-  sessionFilesDrawerTarget.value = 'composer';
-
-  console.log('[edit-debug] 开始编辑:', {
-    msgId: msg.id,
-    editingMessageIndex: editingMessageIndex.value,
-    editingDraft: editingDraft.value?.substring(0, 50),
-    attachmentsCount: editingAttachmentsDraft.value.length
-  });
-
-  nextTick(() => {
-    const msgEl = document.querySelector(`.message[data-msg-index="${editingMessageIndex.value}"]`);
-    const wrapperEl = msgEl?.querySelector('.message-content-wrapper');
-    const previewWrap = msgEl?.querySelector('.user-bubble-preview-wrap');
-    const editWrap = msgEl?.querySelector('.user-edit-detail-wrap');
-    const editBox = msgEl?.querySelector('.msg-edit-box');
-
-    console.log('[edit-debug] DOM 状态（立即）:', {
-      msgEl: msgEl?.className,
-      wrapperEl: {
-        className: wrapperEl?.className,
-        computedMaxWidth: wrapperEl ? getComputedStyle(wrapperEl).maxWidth : null,
-        computedWidth: wrapperEl ? getComputedStyle(wrapperEl).width : null,
-      },
-      previewWrap: {
-        className: previewWrap?.className,
-        computedGridRows: previewWrap ? getComputedStyle(previewWrap).gridTemplateRows : null,
-        computedOpacity: previewWrap ? getComputedStyle(previewWrap).opacity : null,
-      },
-      editWrap: {
-        className: editWrap?.className,
-        computedGridRows: editWrap ? getComputedStyle(editWrap).gridTemplateRows : null,
-        computedOpacity: editWrap ? getComputedStyle(editWrap).opacity : null,
-      },
-      editBox: {
-        exists: !!editBox,
-        computedWidth: editBox ? getComputedStyle(editBox).width : null,
-      }
-    });
-
-    // 等待动画完成后再检查
-    setTimeout(() => {
-      console.log('[edit-debug] DOM 状态（动画后 500ms）:', {
-        wrapperEl: {
-          computedMaxWidth: wrapperEl ? getComputedStyle(wrapperEl).maxWidth : null,
-          computedWidth: wrapperEl ? getComputedStyle(wrapperEl).width : null,
-        },
-        previewWrap: {
-          computedGridRows: previewWrap ? getComputedStyle(previewWrap).gridTemplateRows : null,
-          computedOpacity: previewWrap ? getComputedStyle(previewWrap).opacity : null,
-        },
-        editWrap: {
-          computedGridRows: editWrap ? getComputedStyle(editWrap).gridTemplateRows : null,
-          computedOpacity: editWrap ? getComputedStyle(editWrap).opacity : null,
-        },
-        editBox: {
-          computedWidth: editBox ? getComputedStyle(editBox).width : null,
-        }
-      });
-    }, 500);
-  });
-};
-
-
-const resetEditingState = ({ closeDrawer = true } = {}) => {
-  editingMessageIndex.value = null;
-  editingDraft.value = '';
-  editingAttachmentsDraft.value = [];
-  editingSubmitting.value = false;
-  if (closeDrawer && sessionFilesDrawerTarget.value === 'message-edit') {
-    sessionFilesDrawerVisible.value = false;
-  }
-  sessionFilesDrawerTarget.value = 'composer';
-};
-
-const cancelEdit = () => {
-  if (editingSubmitting.value) return;
-  resetEditingState();
-};
-
-/** 编辑后确定：先回退到该条之前，再以编辑后的内容流式发送（保持原有流式体验） */
-const confirmEditAndResend = async () => {
-  const idx = editingMessageIndex.value;
-  if (idx == null || editingSubmitting.value) return;
-  const msg = messages.value[idx];
-  if (!msg || msg.role !== 'user') {
-    cancelEdit();
-    return;
-  }
-  const content = (editingDraft.value || '').trim();
-  const attachments = editingAttachmentsDraft.value.slice();
-  if (!content && !attachments.length) {
-    showToast('内容和附件不能同时为空');
-    return;
-  }
-  const sessionId = currentSessionId.value;
-  if (!sessionId) { cancelEdit(); return; }
-  editingSubmitting.value = true;
-  try {
-    let body;
-    if (idx === 0) {
-      body = { after_seq: -1 };
-    } else {
-      const prev = messages.value[idx - 1];
-      body = prev.id ? { after_message_id: prev.id } : (prev.seq != null ? { after_seq: prev.seq } : { after_seq: -1 });
-    }
-    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || '回退失败');
-    }
-    await handleSend({ content, attachments, replaceFromIndex: idx, clearEditing: true });
-  } catch (e) {
-    editingSubmitting.value = false;
-    showToast(e.message || '操作失败');
-  }
-};
-
-/** 重试：仅回退到该条之后，再用原问题流式发送（与正常发送一致，有流式输出） */
-const rollbackAndRetry = async (msg) => {
-  const sessionId = currentSessionId.value;
-  if (!sessionId) {
-    showToast('当前无会话');
-    return;
-  }
-  if (msg.role !== 'user' || msg.seq == null) {
-    showToast('仅支持从用户消息重试，且需已加载序号');
-    return;
-  }
-  const idx = messages.value.findIndex(m => m === msg || (m.role === 'user' && m.seq === msg.seq));
-  if (idx < 0) return;
-  const prevMessages = messages.value.slice();
-  try {
-    let body;
-    if (idx === 0) {
-      body = { after_seq: -1 };
-    } else {
-      const prev = messages.value[idx - 1];
-      body = prev.id ? { after_message_id: prev.id } : (prev.seq != null ? { after_seq: prev.seq } : { after_seq: -1 });
-    }
-    const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || '回退失败');
-    }
-    messages.value = messages.value.slice(0, idx);
-    cacheMessages(sessionId, messages.value);
-    inputMessage.value = (msg.content || '').trim();
-    await nextTick();
-    handleSend();
-  } catch (e) {
-    messages.value = prevMessages;
-    cacheMessages(sessionId, prevMessages);
-    showToast(e.message || '回退失败');
-  }
-};
 
 const copyMessage = async (msg) => {
   const text = (msg.content || '').trim();
@@ -2541,170 +2072,6 @@ const closeExecutionDrawer = () => {
   execDrawerVisible.value = false;
 };
 
-/**
- * 处理单个 run 事件（WebSocket 消息路由的核心事件处理）
- * @param {Object} event - 完整事件对象
- * @param {Object} currentMsg - 当前 assistant 消息
- * @param {string} sessionId - 会话 ID
- */
-const handleRunEvent = (event, currentMsg, sessionId) => {
-    const eventData = event.data || {};
-    const eventType = event.type;
-
-    // LLM 重试状态清除
-    if (
-      llmRetryState.value
-      && eventType !== 'agent.retry_scheduled'
-      && (
-        eventType === 'agent.intent_delta'
-        || eventType === 'agent.intent_complete'
-        || eventType === 'call.tool.start'
-        || eventType === 'output.chunk'
-        || eventType === 'output.final_answer'
-        || eventType === 'agent.end'
-        || eventType === 'agent.error'
-        || eventType === 'done'
-      )
-    ) {
-      clearLlmRetryState();
-    }
-
-    // 事件序号 gap 检测
-    if (event.seq) {
-      if (_activeRun.lastSeenSeq > 0 && event.seq > _activeRun.lastSeenSeq + 1) {
-        console.warn(`[WS] 事件序号 gap: expected=${_activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${event.seq - _activeRun.lastSeenSeq - 1}`);
-      }
-      _activeRun.lastSeenSeq = event.seq;
-    }
-
-    if (eventType === 'agent.retry_scheduled') {
-      const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
-      setLlmRetryState({
-        scope: eventData.scope || 'chat_completion_stream',
-        nextAttempt: eventData.next_attempt || ((eventData.failed_attempt || 0) + 1),
-        maxAttempts: eventData.max_attempts || 1,
-        waitMs,
-        error: eventData.error || '',
-        provider: eventData.provider || '',
-        model: eventData.model || '',
-      });
-      sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'running' };
-    }
-    else if (eventType === 'execution.step') {
-      const projector = ensureExecutionProjector(currentMsg);
-      applyStep(projector, eventData);
-      syncExecutionProjection(currentMsg);
-    }
-    else if (eventType === 'output.chunk') {
-      if (isMasterEvent(event)) {
-        currentMsg.content += eventData.content;
-        scrollToBottom();
-      } else {
-        const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-        if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
-      }
-    }
-    else if (eventType === 'output.final_answer') {
-      if (isMasterEvent(event)) {
-        Object.assign(currentMsg, {
-          ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
-          finished: true,
-        });
-        updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-        cacheMessages(sessionId, messages.value);
-      } else {
-        const subtask = findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-        if (subtask) {
-          if (!subtask.result_summary) subtask.result_summary = eventData.content || '';
-          if (subtask.status === 'running') subtask.status = 'success';
-          subtask.expanded = false;
-        }
-      }
-    }
-    else if (eventType === 'output.message_saved') {
-      const assistantMsgIndex = _activeRun.assistantMsgIndex;
-      const target = eventData.role === 'user'
-        ? messages.value[assistantMsgIndex - 1]
-        : currentMsg;
-      if (target) {
-        if (eventData.id != null) target.id = eventData.id;
-        if (eventData.seq != null) target.seq = eventData.seq;
-      }
-      cacheMessages(sessionId, messages.value);
-    }
-    else if (eventType === 'agent.end' && isMasterEvent(event)) {
-      if (!currentMsg.finished) {
-        currentMsg.finished = true;
-        if (currentMsg.content) {
-          updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-        }
-        checkSituationScreenTrigger(currentMsg.content);
-      }
-    }
-    else if (eventType === 'agent.error') {
-      currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
-    }
-    else if (eventType === 'context.usage') {
-      if (eventData.compressing) isCompressing.value = true;
-      const agentName = event.agent_name;
-      const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
-      if (isRootEvent(event)) {
-        contextUsage.value = ctx;
-      } else {
-        const subtask = findRunningSubtaskByAgentName(currentMsg.subtasks, agentName);
-        if (subtask) subtask.ctx = ctx;
-      }
-    }
-    else if (eventType === 'context.compression_start') {
-      isCompressing.value = true;
-    }
-    else if (eventType === 'context.compression_summary') {
-      isCompressing.value = false;
-      const summaryContent = eventData.content || '';
-      const alreadyExists = messages.value.some(
-        m => m.metadata?.compression && m.content === summaryContent
-      );
-      if (!alreadyExists) {
-        const compressionMsg = {
-          role: 'system',
-          content: summaryContent,
-          metadata: { compression: true },
-        };
-        messages.value.splice(_activeRun.assistantMsgIndex, 0, compressionMsg);
-        _activeRun.assistantMsgIndex++;
-      }
-    }
-    else if (eventType === 'user.approval_required') {
-      enqueueApproval(event, eventData, sessionId);
-    }
-    else if (eventType === 'user.input_required') {
-      userInputDialogRef.value?.show(
-        eventData,
-        async (inputId, value) => {
-          if (getWS()?.readyState === WebSocket.OPEN) {
-            getWS().send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
-          } else {
-            try {
-              const resp = await fetch(
-                `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
-                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
-              );
-              if (!resp.ok) {
-                const result = await resp.json().catch(() => ({}));
-                throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
-              }
-            } catch (e) {
-              console.warn('用户输入提交失败:', e);
-              showToast(e.message || '用户输入提交失败', 'warning');
-            }
-          }
-        },
-        async (_inputId) => { await handleStop(); }
-      );
-    }
-
-    scrollToBottom();
-};
 
 // ── 态势大屏触发逻辑 ─────────────────────────────────────────────
 const checkSituationScreenTrigger = async (content) => {
