@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
+import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume } from '../utils/sessionSocket';
 
 /**
  * 会话 WebSocket 连接管理、重连、定时器、activeRun 状态。

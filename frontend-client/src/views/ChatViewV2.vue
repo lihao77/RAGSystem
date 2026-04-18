@@ -661,8 +661,8 @@ const _activeRun = reactive({
 // 因此可以安全引用后续定义的函数（scrollToBottom, showToast 等）。
 
 const {
-  messageCache, messagesLoading, cacheMessages, deleteMessageCache,
-  loadSessionMessages, mergeMessageIdsFromServer,
+  messagesLoading, cacheMessages, deleteMessageCache,
+  loadSessionMessages,
 } = useSessionMessages({
   currentSessionId, messages,
   normalizeAssistantExecutionState,
@@ -679,7 +679,7 @@ const {
 const {
   sessionTaskInfo, sessionExecutionObservability, sessionExecutionDiagnostics,
   execDiagnosticsLoading, execDiagnosticsError, contextUsage,
-  buildObservabilityFromTaskInfo, mergeExecutionObservability,
+  mergeExecutionObservability,
   loadContextSnapshot, refreshSessionExecutionDiagnostics, refreshSessionExecutionState,
   checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase, beginOptimisticExecutionState,
 } = useSessionTaskStatus({
@@ -1091,7 +1091,7 @@ const handleWSMessage = (event, sessionId) => {
     targetMsg.finished = true;
     isLoading.value = false;
     // 静默刷新消息（命令可能改变了消息列表）
-    messageCache.value.delete(sessionId);
+    deleteMessageCache(sessionId);
     loadSessionMessages(sessionId, { silent: true });
     nextTick(() => scrollToBottom(true));
     return;
@@ -1506,7 +1506,9 @@ const buildLlmRetryStatusText = (state) => {
 };
 
 const syncActiveMessageRetryStatus = () => {
-  const currentMsg = getActiveAssistantMessage();
+  const currentMsg = _activeRun.assistantMsgIndex >= 0
+    ? messages.value[_activeRun.assistantMsgIndex]
+    : null;
   if (!currentMsg) return;
   if (!Array.isArray(currentMsg.status)) currentMsg.status = [];
   const retryIndex = currentMsg.status.findIndex(item => item.kind === 'llm_retry');
@@ -1831,7 +1833,7 @@ const removeSessionFile = async (file) => {
 const selectSession = async (item) => {
   if (!item?.session_id) return;
   if (currentSessionId.value === item.session_id) {
-    messageCache.value.delete(item.session_id);
+    deleteMessageCache(item.session_id);
     await loadSessionMessages(item.session_id);
     await loadSessionFiles(item.session_id);
     connectSessionWS(item.session_id);
@@ -2425,9 +2427,7 @@ const deleteSession = async (sessionId) => {
     }
 
     // 从缓存中移除
-    if (messageCache.value.has(sessionId)) {
-      messageCache.value.delete(sessionId);
-    }
+    deleteMessageCache(sessionId);
 
     showToast('会话已删除', 'success');
   } catch (error) {

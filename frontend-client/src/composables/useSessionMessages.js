@@ -40,6 +40,10 @@ export function useSessionMessages(deps) {
     messageCache.value.delete(sessionId);
   };
 
+  /**
+   * 只负责消息列表与缓存，不负责 task-status。
+   * 进入/切换会话的调用方需在消息加载后显式调用 checkSessionTaskStatus。
+   */
   const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
     if (!sessionId) return;
     if (!silent) {
