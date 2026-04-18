@@ -73,7 +73,7 @@
 
           <!-- Message Stream -->
           <div v-else class="message-stream">
-            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role, { 'just-sent': msg._justSent }]" :data-msg-index="index"
+            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role]" :data-msg-index="index"
               @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
               <!-- 斜杠命令结果 -->
               <div v-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
@@ -237,7 +237,7 @@
               </svg>
             </LiquidGlass>
           </transition>
-          <div class="input-area-wrapper" :class="{ 'is-sending': inputSending }">
+          <div class="input-area-wrapper">
           <div v-if="!currentSessionId" class="workspace-root-input-row">
             <label class="workspace-root-input-label">入口 Agent</label>
             <CustomSelect
@@ -549,7 +549,6 @@ const shellSidebarControl = inject('shellSidebarControl', null);
 const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
-const inputSending = ref(false);
 const messagesRef = ref(null);
 const topControlsBarRef = ref(null);
 const sessionMetaContainerRef = ref(null);
@@ -787,7 +786,6 @@ const syncSessionFromRoute = async (sessionId) => {
     invalidateActiveStream();
     clearExecutionState();
     isLoading.value = false;
-    inputSending.value = false;
     currentSessionId.value = sessionId;
     const matched = history.value.find(item => item.session_id === sessionId);
     pendingWorkspaceRoot.value = matched?.metadata?.workspace_root || '';
@@ -807,7 +805,6 @@ const syncSessionFromRoute = async (sessionId) => {
     invalidateActiveStream();
     clearExecutionState();
     isLoading.value = false;
-    inputSending.value = false;
     currentSessionId.value = null;
     sessionFiles.value = [];
     pendingWorkspaceRoot.value = '';
@@ -1912,9 +1909,7 @@ const handleSend = async (payload = null) => {
     }
   }
 
-  inputSending.value = true;
-  lastFailedSendContent.value = content;
-  messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {}, _justSent: true });
+  messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {} });
   inputMessage.value = '';
   pendingAttachments.value = [];
   isUserAtBottom.value = true;
@@ -1922,12 +1917,6 @@ const handleSend = async (payload = null) => {
   _userScrollUpAccum = 0;
   scrollToBottom(true);
   updateRecentSession(sessionId, content, new Date().toISOString());
-
-  const justSentMessage = messages.value[messages.value.length - 1];
-  window.setTimeout(() => {
-    if (justSentMessage) delete justSentMessage._justSent;
-    inputSending.value = false;
-  }, 220);
 
   const assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
 
