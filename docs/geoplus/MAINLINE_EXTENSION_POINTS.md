@@ -146,7 +146,6 @@
 相关文件：
 
 - `backend-fastapi/tools/catalog/document_tools.py`
-- `frontend-client/src/components/MultimodalContent.vue`
 - `frontend-client/src/components/MapRenderer.vue`
 
 ### 6.2 主线应补内容
@@ -193,7 +192,6 @@ GeoPLUS 之后可以在其上扩展：
 - `frontend-client/src/views/ChatViewV2.vue`
 - `frontend-client/src/views/AgentMonitor.vue`
 - `frontend-client/src/components/ContextSnapshotDrawer.vue`
-- `frontend-client/src/components/ExecutionDiagnosticsDrawer.vue`
 
 ### 7.2 主线应补内容
 

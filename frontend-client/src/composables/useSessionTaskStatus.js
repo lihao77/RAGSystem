@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 
 /**
- * 会话任务状态、执行诊断、可观测性管理。
+ * 会话任务状态、可观测性管理。
  *
  * @param {Object} deps
  * @param {import('vue').Ref} deps.currentSessionId
@@ -20,9 +20,6 @@ import { ref } from 'vue';
 export function useSessionTaskStatus(deps) {
   const sessionTaskInfo = ref(null);
   const sessionExecutionObservability = ref(null);
-  const sessionExecutionDiagnostics = ref(null);
-  const execDiagnosticsLoading = ref(false);
-  const execDiagnosticsError = ref('');
   const contextUsage = ref({ used: 0, max: 0 });
 
   const buildObservabilityFromTaskInfo = (taskInfo) => {
@@ -67,53 +64,22 @@ export function useSessionTaskStatus(deps) {
     } catch (_) {}
   };
 
-  const refreshSessionExecutionDiagnostics = async (sessionId, { silent = true } = {}) => {
-    if (!sessionId) return null;
-    if (!silent) {
-      execDiagnosticsLoading.value = true;
-      execDiagnosticsError.value = '';
-    }
-    try {
-      const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/execution-diagnostics`);
-      if (!resp.ok) return null;
-      const result = await resp.json();
-      const diagnostics = result.data?.diagnostics || null;
-      if (deps.currentSessionId.value !== sessionId) return null;
-      sessionExecutionDiagnostics.value = diagnostics;
-      if (diagnostics?.observability) {
-        mergeExecutionObservability(diagnostics.observability);
-      }
-      return diagnostics;
-    } catch (error) {
-      if (!silent) {
-        execDiagnosticsError.value = error.message || '加载执行诊断失败';
-      }
-      return null;
-    } finally {
-      if (!silent) execDiagnosticsLoading.value = false;
-    }
-  };
-
-  const refreshSessionExecutionState = async (sessionId, { silent = true } = {}) => {
+  const refreshSessionExecutionState = async (sessionId) => {
     if (!sessionId) return;
     try {
       const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-      if (resp.ok) {
-        const result = await resp.json();
-        if (deps.currentSessionId.value !== sessionId) return;
-        if (result.data?.task_info) {
-          sessionTaskInfo.value = result.data.task_info;
-        }
-        if (result.data?.observability) {
-          mergeExecutionObservability(result.data.observability);
-        }
+      if (!resp.ok) return;
+      const result = await resp.json();
+      if (deps.currentSessionId.value !== sessionId) return;
+      if (result.data?.task_info) {
+        sessionTaskInfo.value = result.data.task_info;
+      }
+      if (result.data?.observability) {
+        mergeExecutionObservability(result.data.observability);
       }
     } catch (_) {
-      if (!silent) {
-        execDiagnosticsError.value = '同步执行状态失败';
-      }
+      // 状态同步失败不影响主流程
     }
-    await refreshSessionExecutionDiagnostics(sessionId, { silent });
   };
 
   /** 检查会话是否有正在执行的任务，若有则恢复 loading 状态 */
@@ -147,12 +113,11 @@ export function useSessionTaskStatus(deps) {
           deps.deleteMessageCache(sessionId);
           await deps.loadSessionMessages(sessionId, { silent: true });
         }
-        await refreshSessionExecutionDiagnostics(sessionId, { silent: true });
       }
       if (hasActiveSystemCommand && !deps.isLoading.value) {
         deps.isLoading.value = true;
         const lastMsg = deps.messages.value[deps.messages.value.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.finished) {
           deps.messages.value.push(deps.createAssistantMessage());
         }
         activeRun.active = true;
@@ -168,8 +133,6 @@ export function useSessionTaskStatus(deps) {
     deps.clearLlmRetryState();
     sessionTaskInfo.value = null;
     sessionExecutionObservability.value = null;
-    sessionExecutionDiagnostics.value = null;
-    execDiagnosticsError.value = '';
     contextUsage.value = { used: 0, max: 0 };
   };
 
@@ -187,8 +150,6 @@ export function useSessionTaskStatus(deps) {
       thread_alive: true,
       status: 'running',
     };
-    sessionExecutionDiagnostics.value = null;
-    execDiagnosticsError.value = '';
     mergeExecutionObservability({
       task_id: null,
       session_id: sessionId,
@@ -201,14 +162,10 @@ export function useSessionTaskStatus(deps) {
   return {
     sessionTaskInfo,
     sessionExecutionObservability,
-    sessionExecutionDiagnostics,
-    execDiagnosticsLoading,
-    execDiagnosticsError,
     contextUsage,
     buildObservabilityFromTaskInfo,
     mergeExecutionObservability,
     loadContextSnapshot,
-    refreshSessionExecutionDiagnostics,
     refreshSessionExecutionState,
     checkSessionTaskStatus,
     clearExecutionState,

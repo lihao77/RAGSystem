@@ -364,19 +364,6 @@
       @close="ctxDrawerVisible = false"
     />
 
-    <!-- 执行诊断抽屉 -->
-    <ExecutionDiagnosticsDrawer
-      :visible="execDrawerVisible"
-      :loading="execDiagnosticsLoading"
-      :error-msg="execDiagnosticsError"
-      :task-info="sessionTaskInfo"
-      :observability="sessionExecutionObservability"
-      :diagnostics="sessionExecutionDiagnostics"
-      :session-id="currentSessionId"
-      :is-executing="isLoading"
-      @close="closeExecutionDrawer"
-    />
-
     <SessionFilesDrawer
       :visible="sessionFilesDrawerVisible"
       :mode="sessionFilesDrawerTarget"
@@ -438,7 +425,6 @@ import ChatInput from '../components/ChatInput.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
-import ExecutionDiagnosticsDrawer from '../components/ExecutionDiagnosticsDrawer.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import LLMSelector from '../components/LLMSelector.vue';
@@ -612,7 +598,6 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-const execDrawerVisible = ref(false);
 const llmRetryState = ref(null);
 const retryClockMs = ref(Date.now());
 let llmRetryTimer = null;
@@ -650,10 +635,9 @@ const {
 });
 
 const {
-  sessionTaskInfo, sessionExecutionObservability, sessionExecutionDiagnostics,
-  execDiagnosticsLoading, execDiagnosticsError, contextUsage,
+  sessionTaskInfo, sessionExecutionObservability, contextUsage,
   mergeExecutionObservability,
-  loadContextSnapshot, refreshSessionExecutionDiagnostics, refreshSessionExecutionState,
+  loadContextSnapshot, refreshSessionExecutionState,
   checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase, beginOptimisticExecutionState,
 } = useSessionTaskStatus({
   currentSessionId, messages, isLoading,
@@ -681,7 +665,6 @@ const {
   resetApprovalState: () => resetApprovalState(),
   loadSessionMessages,
   deleteMessageCache,
-  refreshSessionExecutionDiagnostics,
   clearLlmRetryState: () => clearLlmRetryState(),
   cacheMessages,
   refreshSessionExecutionState,
@@ -783,7 +766,6 @@ const {
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = () => {
   _clearExecutionStateBase();
-  execDrawerVisible.value = false;
 };
 // ── end Composables ─────────────────────────────────────────────────────
 
@@ -1846,9 +1828,6 @@ const handleStop = async () => {
   isLoading.value = false;
 };
 
-const closeExecutionDrawer = () => {
-  execDrawerVisible.value = false;
-};
 
 
 // ── 态势大屏触发逻辑 ─────────────────────────────────────────────

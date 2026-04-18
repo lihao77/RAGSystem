@@ -15,7 +15,6 @@ import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume } from '
  * @param {Function} deps.resetApprovalState
  * @param {Function} deps.loadSessionMessages
  * @param {Function} deps.deleteMessageCache - (sessionId) => void
- * @param {Function} deps.refreshSessionExecutionDiagnostics
  * @param {Function} deps.clearLlmRetryState
  * @param {Function} deps.cacheMessages
  * @param {Function} deps.refreshSessionExecutionState
@@ -98,7 +97,7 @@ export function useSessionConnection(deps) {
           await deps.loadSessionMessages(sessionId, { silent: true });
           return;
         }
-        await deps.refreshSessionExecutionDiagnostics(sessionId, { silent: true });
+        await deps.refreshSessionExecutionState(sessionId, { silent: true });
       } catch (_) {
         // 兜底探测失败（含 abort）不影响主流程
       } finally {

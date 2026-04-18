@@ -41,7 +41,6 @@ frontend-client/src/
 │   ├── PermissionModeSelector.vue # 权限模式与 auto-accept 规则切换
 │   ├── SessionFilesDrawer.vue # 输入区/编辑态附件抽屉
 │   ├── ContextSnapshotDrawer.vue # 上下文快照抽屉
-│   ├── ExecutionDiagnosticsDrawer.vue # 执行诊断抽屉
 │   └── ...
 ├── api/                       # API 调用模块
 │   ├── monitoring.js          # 监控、审批、执行状态 API
@@ -141,8 +140,8 @@ tool 归属规则：
 
 当前前端已改为“两层结构”：
 - `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
-- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏
-- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内
+- `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏，并仅维护会话级执行状态摘要（execution pill / task_id / run_id / execution_kind），不再展示执行诊断详情抽屉
+- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内；其中任务级 execution diagnostics 统一归属 `AgentMonitor.vue`
 - 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
 - `DaemonManager.vue` 采用与其他管理页一致的 `PageLayout + glass card + badge/act-btn/form-control/modal-shell` 体系，并通过 `/api/daemon/config` 读写 daemon YAML：页面内含基础配置（enabled/default_session_ttl/agent_name/heartbeat_interval）、平台凭证编辑（微信/钉钉/飞书）、适配器状态、Cron 管理与主动推送；其中飞书平台额外支持 `receive_mode` 选择，可在“长连接（推荐，无需公网）”与“Webhook（需要公网 HTTPS）”之间切换。Cron 列表与 CRUD 操作统一落到后端 `daemon.yaml` 的 `agents[].cron_tasks[]`，并遵守“同一平台只能被一个 enabled team 占用”的后端约束
 - `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现
@@ -420,7 +419,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 |------|------|
 | 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 构建 subtasks/steps |
 | 重连 | checkSessionTaskStatus() → 有运行中任务 → reconnectToRunningTask() |
-| 流结束状态同步 | handleSend()/reconnect 收尾时单次 refreshSessionExecutionState() → 读取 `/task-status` + `/execution-diagnostics` |
+| 流结束状态同步 | handleSend()/reconnect 收尾时单次 refreshSessionExecutionState() → 读取 `/task-status` |
 | 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → confirmEditAndResend() 调用 POST rollback → 通过 `/api/agent/stream` 以编辑后的内容和 `attachments[]` 重新流式发送 |
 | 重试 | rollbackAndRetry() → POST rollback → 以原问题重新发送 |
 
