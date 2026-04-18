@@ -131,7 +131,6 @@ export function useMessageRevision(deps) {
 
   return {
     editingMessage,
-    editingMessageIndex,
     editingDraft,
     editingAttachmentsDraft,
     editingSubmitting,

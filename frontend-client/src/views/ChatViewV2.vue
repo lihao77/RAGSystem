@@ -1,6 +1,6 @@
 <template>
   <div class="chat-page-shell">
-    <main ref="chatMainRef" class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
+    <main class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
     <!-- 顶部控制栏 -->
       <div class="top-controls-bar glass-card" ref="topControlsBarRef">
         <!-- 左侧：汉堡菜单 + LLM 选择器 -->
@@ -395,17 +395,6 @@
       @removePending="sessionFilesDrawerTarget === 'message-edit' ? removeEditingAttachment($event) : removePendingAttachment($event)"
     />
 
-    <!-- 确认对话框 -->
-    <ConfirmDialog
-      ref="confirmDialogRef"
-      :title="confirmDialog.title"
-      :message="confirmDialog.message"
-      :confirm-text="confirmDialog.confirmText"
-      :cancel-text="confirmDialog.cancelText"
-      @confirm="confirmDialog.onConfirm"
-      @cancel="confirmDialog.onCancel"
-    />
-
     <!-- 工具审批对话框 -->
     <ApprovalDialog ref="approvalDialogRef" />
 
@@ -446,7 +435,6 @@ import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
 import ChatInput from '../components/ChatInput.vue';
-import MultimodalContent from '../components/MultimodalContent.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
@@ -537,14 +525,12 @@ const normalizeAssistantExecutionState = (msg) => {
 };
 
 import LiquidGlass from '../components/LiquidGlass.vue';
-import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ApprovalDialog from '../components/ApprovalDialog.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
-import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconPlus, IconNewConversation, IconMenu, IconTrash } from '../components/icons';
-import { Icon } from 'leaflet';
-import { getTaskExecutionDiagnostics, getTaskStatus, getMessageRunSteps } from '../api/monitoring';
+import { IconLogo, IconMenu } from '../components/icons';
+import { getMessageRunSteps } from '../api/monitoring';
 import CommandResultMessage from '../components/CommandResultMessage.vue';
 
 // Props
@@ -573,14 +559,12 @@ const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
 const router = useRouter();
 const route = useRoute();
 const shellSidebarControl = inject('shellSidebarControl', null);
-const typewriterTimers = ref(new Map());
 
 const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const inputSending = ref(false);
 const messagesRef = ref(null);
-const chatMainRef = ref(null);
 const topControlsBarRef = ref(null);
 const sessionMetaContainerRef = ref(null);
 const isUserAtBottom = ref(true);
@@ -610,19 +594,10 @@ const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const chatInputRef = ref(null);
 const llmSelectorRef = ref(null);
-const confirmDialogRef = ref(null);
 const approvalDialogRef = ref(null);
 const filePreviewDialogRef = ref(null);
 const userInputDialogRef = ref(null);
 const toastRef = ref(null);
-const confirmDialog = ref({
-  title: '确认操作',
-  message: '',
-  confirmText: '确定',
-  cancelText: '取消',
-  onConfirm: () => {},
-  onCancel: () => {}
-});
 const isExportingSession = ref(false);
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
@@ -743,7 +718,6 @@ const {
 
 const {
   editingMessage,
-  editingMessageIndex,
   editingDraft,
   editingAttachmentsDraft,
   editingSubmitting,
@@ -863,29 +837,6 @@ const syncSessionFromRoute = async (sessionId) => {
     sessionFilesDrawerTarget.value = 'composer';
     sessionMetaExpanded.value = false;
   }
-};
-
-const formatTitle = (item) => {
-  const content = (item.first_message || item.last_message || '').trim();
-  return content ? content.slice(0, 30) : '';
-};
-
-const formatTimeLabel = (timeStr) => {
-  if (!timeStr) return '';
-  const time = new Date(timeStr);
-  if (Number.isNaN(time.getTime())) return '';
-  const now = new Date();
-  const diffMs = now - time;
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return '刚刚';
-  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
-  const isYesterday = now.toDateString() !== time.toDateString()
-    && new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() === time.toDateString();
-  if (isYesterday) return '昨天';
-  const yyyy = time.getFullYear();
-  const mm = String(time.getMonth() + 1).padStart(2, '0');
-  const dd = String(time.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
 };
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
@@ -1047,75 +998,6 @@ const handleGlobalPointerDown = (event) => {
   if (container && !container.contains(event.target)) {
     sessionMetaExpanded.value = false;
   }
-};
-
-// 关闭移动端侧边栏
-const closeMobileSidebar = () => {
-  shellSidebarControl?.closeMobileSidebar?.();
-};
-
-// 触摸手势处理：touchstart
-const handleTouchStart = () => {};
-
-// 触摸手势处理：touchmove
-const handleTouchMove = () => {};
-
-// 触摸手势处理：touchend
-const handleTouchEnd = () => {};
-
-const startNewChat = async () => {
-  disconnectSessionWS();
-  invalidateActiveStream();
-  clearExecutionState();
-  isLoading.value = false;
-  inputSending.value = false;
-  messages.value = [];
-  inputMessage.value = '';
-  pendingWorkspaceRoot.value = '';
-  pendingEntryAgent.value = '';
-  loadActiveTeam();
-  pendingAttachments.value = [];
-  sessionMetaExpanded.value = false;
-  sessionFilesDrawerVisible.value = false;
-  sessionFilesDrawerTarget.value = 'composer';
-  typewriterTimers.value.forEach(timer => clearTimeout(timer));
-  typewriterTimers.value.clear();
-  isUserAtBottom.value = true;
-  shouldAutoScroll.value = true;
-  _userScrollUpAccum = 0;
-  sessionFiles.value = [];
-  await router.replace('/');
-  focusInput();
-};
-
-const typewriter = (target, key, text, speed = 30, timerId = null) => {
-  if (timerId && typewriterTimers.value.has(timerId)) {
-    clearTimeout(typewriterTimers.value.get(timerId));
-    typewriterTimers.value.delete(timerId);
-  }
-
-  let currentIndex = 0;
-  const originalText = target[key] || '';
-
-  if (speed === 0) {
-    target[key] = originalText + text;
-    scrollToBottom();
-    return;
-  }
-
-  const type = () => {
-    if (currentIndex < text.length) {
-      const displayText = originalText + text.substring(0, currentIndex + 1);
-      target[key] = displayText;
-      currentIndex++;
-      const timer = setTimeout(type, speed);
-      if (timerId) typewriterTimers.value.set(timerId, timer);
-      scrollToBottom();
-    } else {
-      if (timerId) typewriterTimers.value.delete(timerId);
-    }
-  };
-  type();
 };
 
 const checkIfAtBottom = () => {
@@ -1435,14 +1317,6 @@ const focusInput = async () => {
   }
 };
 
-const handleHistoryScroll = () => {
-  if (!historyListRef.value || historyLoadingMore.value || !historyHasMore.value) return;
-  const el = historyListRef.value;
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-    loadRecentSessions(false);
-  }
-};
-
 const loadRecentSessions = async (reset = false) => {
   if (historyLoading.value || historyLoadingMore.value) return;
   if (!historyHasMore.value && !reset) return;
@@ -1538,25 +1412,6 @@ const exportCurrentSession = async () => {
   }
 };
 
-
-const selectSession = async (item) => {
-  if (!item?.session_id) return;
-  if (currentSessionId.value === item.session_id) {
-    deleteMessageCache(item.session_id);
-    await loadSessionMessages(item.session_id);
-    await loadSessionFiles(item.session_id);
-    connectSessionWS(item.session_id);
-    await checkSessionTaskStatus(item.session_id);
-    item.unread_count = 0;
-    closeMobileSidebar();
-    return;
-  }
-  item.unread_count = 0;
-  pendingAttachments.value = [];
-  await router.push(getChatSessionPath(item.session_id));
-  closeMobileSidebar();
-};
-
 const updateRecentSession = (sessionId, content, timestamp) => {
   if (!sessionId) return;
   const time = timestamp || new Date().toISOString();
@@ -1644,17 +1499,6 @@ const executionStatusText = computed(() => {
   return '空闲';
 });
 
-const executionStatusClass = computed(() => {
-  if (llmRetryState.value && isLoading.value) return 'is-warning';
-  const status = sessionTaskInfo.value?.status;
-  if (status === 'cancel_requested') return 'is-warning';
-  if (isLoading.value || status === 'running') return 'is-running';
-  if (status === 'failed') return 'is-error';
-  if (status === 'interrupted') return 'is-warning';
-  if (status === 'completed') return 'is-success';
-  return 'is-running';
-});
-
 const showExecutionPill = computed(() => {
   if (!currentSessionId.value) return false;
   if (isLoading.value) return true;
@@ -1662,19 +1506,6 @@ const showExecutionPill = computed(() => {
   const status = sessionTaskInfo.value?.status;
   return status === 'running' || status === 'cancel_requested'
     || status === 'interrupted' || status === 'failed' || status === 'completed';
-});
-
-const executionStatusTooltip = computed(() => {
-  const obs = sessionExecutionObservability.value || {};
-  return [
-    `状态: ${executionStatusText.value}`,
-    llmRetryState.value ? `重试: 第 ${llmRetryState.value.nextAttempt}/${llmRetryState.value.maxAttempts} 次` : null,
-    llmRetryState.value ? `等待: ${formatRetryCountdown(llmRetryState.value)}` : null,
-    llmRetryState.value?.error ? `原因: ${llmRetryState.value.error}` : null,
-    obs.execution_kind ? `类型: ${obs.execution_kind}` : null,
-    obs.task_id ? `task_id: ${obs.task_id}` : null,
-    obs.run_id ? `run_id: ${obs.run_id}` : null,
-  ].filter(Boolean).join('\n');
 });
 
 /**
@@ -1757,7 +1588,7 @@ function parseMessageParts(msg) {
     // 有旧格式 multimodal 但无占位符，追加到末尾
     return [
       { type: 'text', content },
-      ...contents.map((c, i) => ({ type: 'chart', index: i }))
+      ...contents.map((_, i) => ({ type: 'chart', index: i }))
     ];
   }
 
@@ -1921,51 +1752,6 @@ const copyMessage = async (msg) => {
   }
 };
 
-const confirmDeleteSession = async (item) => {
-  confirmDialog.value = {
-    title: '删除会话',
-    message: `确定要删除会话"${item.title || formatTitle(item) || 'New Conversation'}"吗？此操作不可恢复。`,
-    confirmText: '删除',
-    cancelText: '取消',
-    onConfirm: () => {
-      deleteSession(item.session_id);
-    },
-    onCancel: () => {}
-  };
-  confirmDialogRef.value?.show();
-};
-
-const deleteSession = async (sessionId) => {
-  try {
-    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE'
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || '删除失败');
-    }
-
-    // 从历史列表中移除
-    const index = history.value.findIndex(h => h.session_id === sessionId);
-    if (index >= 0) {
-      history.value.splice(index, 1);
-    }
-
-    // 如果删除的是当前会话，清空消息并跳转到首页
-    if (currentSessionId.value === sessionId) {
-      startNewChat();
-    }
-
-    // 从缓存中移除
-    deleteMessageCache(sessionId);
-
-    showToast('会话已删除', 'success');
-  } catch (error) {
-    showToast(error.message || '删除会话失败');
-  }
-};
-
 const ensureSession = async () => {
   if (currentSessionId.value) {
     connectSessionWS(currentSessionId.value);
@@ -2060,14 +1846,6 @@ const handleStop = async () => {
   isLoading.value = false;
 };
 
-const openExecutionDrawer = async () => {
-  execDrawerVisible.value = true;
-  execDiagnosticsError.value = '';
-  if (currentSessionId.value) {
-    await refreshSessionExecutionDiagnostics(currentSessionId.value, { silent: false });
-  }
-};
-
 const closeExecutionDrawer = () => {
   execDrawerVisible.value = false;
 };
@@ -2115,7 +1893,7 @@ const handleSituationSendMessage = (text) => {
   nextTick(() => handleSend());
 };
 
-const handleEnterSituation = ({ artifactId, mapData, vizData }) => {
+const handleEnterSituation = ({ artifactId, mapData }) => {
   // 手动触发态势大屏（从 MapRenderer 的按钮点击）
   situationArtifactId.value = artifactId;
   situationMapData.value = mapData;

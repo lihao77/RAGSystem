@@ -34,9 +34,9 @@
                   <div class="ctx-file-main">
                     <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                     <div class="ctx-file-meta">
-                      <span>{{ formatSize(file.size) }}</span>
+                      <span>{{ formatAttachmentSize(file.size) }}</span>
                       <span v-if="file.mime">{{ file.mime }}</span>
-                      <span>{{ isImage(file) ? '图片' : '文件' }}</span>
+                      <span>{{ isImageAttachment(file) ? '图片' : '文件' }}</span>
                     </div>
                   </div>
                   <div class="ctx-file-actions ctx-file-actions--visible">
@@ -54,7 +54,7 @@
                   <div class="ctx-file-main">
                     <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                     <div class="ctx-file-meta">
-                      <span>{{ formatSize(file.size) }}</span>
+                      <span>{{ formatAttachmentSize(file.size) }}</span>
                       <span v-if="file.mime">{{ file.mime }}</span>
                     </div>
                   </div>
@@ -85,6 +85,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
 
 const props = defineProps({
   visible: Boolean,
@@ -126,16 +127,6 @@ const onFileChange = (event) => {
   if (files?.length) emit('upload', files);
   if (fileInputRef.value) fileInputRef.value.value = '';
 };
-
-const formatSize = (size) => {
-  const num = Number(size || 0);
-  if (!num) return '0 B';
-  if (num < 1024) return `${num} B`;
-  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
-  return `${(num / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const isImage = (file) => String(file?.mime || '').startsWith('image/');
 </script>
 
 <style scoped>
