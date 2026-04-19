@@ -24,6 +24,9 @@
                   <span>刷新会话文件</span>
                 </button>
               </div>
+              <div class="ctx-dropzone-hint">
+                文件拖入当前窗口任意位置后，可直接松手加入待发送附件
+              </div>
             </section>
 
             <div v-if="uploading" class="ctx-loading">正在准备发送附件...</div>
@@ -169,7 +172,11 @@ const onFileChange = (event) => {
 }
 .ctx-close-btn:hover { background: var(--color-bg-secondary); color: var(--color-text-primary); }
 
-.ctx-drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+.ctx-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
 .ctx-section { margin-bottom: 18px; }
 .ctx-section-title {
   margin: 0 8px 10px;
@@ -180,6 +187,16 @@ const onFileChange = (event) => {
   letter-spacing: 0.04em;
 }
 .ctx-actions-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 8px; }
+.ctx-dropzone-hint {
+  margin: 10px 8px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
+  transition: all 0.2s ease;
+}
 .ctx-action-btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 14px;

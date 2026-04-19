@@ -1,6 +1,12 @@
 <template>
+  <Teleport to="body">
+    <div v-if="isDragOver" class="window-drop-overlay">
+      <div class="window-drop-overlay__title">松手即可加入待发送附件</div>
+      <div class="window-drop-overlay__desc">仅支持文件，不接收文件夹</div>
+    </div>
+  </Teleport>
   <div class="chat-input-area">
-    <div class="input-container">
+    <div class="input-container" :class="{ 'is-drag-over': isDragOver }">
       <div v-if="attachments.length" class="attachment-preview-list">
         <div v-for="attachment in attachments" :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
           <span class="attachment-preview-name">{{ attachment.original_name || attachment.stored_name }}</span>
@@ -76,7 +82,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, watch, nextTick, computed } from 'vue';
+import { ref, defineProps, defineEmits, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   modelValue: {
@@ -97,6 +103,7 @@ const emit = defineEmits(['update:modelValue', 'send', 'stop', 'openAttachments'
 
 const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
+const isDragOver = ref(false);
 
 const sendDisabled = computed(() => props.isLoading || (!inputText.value.trim() && !props.attachments.length));
 
@@ -125,11 +132,63 @@ const extractClipboardFiles = (clipboardData) => {
     .filter(file => file instanceof File);
 };
 
+const extractDroppedFiles = (dataTransfer) => Array.from(dataTransfer?.files || []).filter(file => file instanceof File);
+
+const getDataTransferItems = (dataTransfer) => Array.from(dataTransfer?.items || []);
+
+const hasDirectoryEntry = (item) => {
+  const entry = item?.webkitGetAsEntry?.();
+  return Boolean(entry?.isDirectory);
+};
+
+const canAcceptDraggedFiles = (dataTransfer) => {
+  const items = getDataTransferItems(dataTransfer);
+  if (items.length) {
+    const hasFileItem = items.some(item => item?.kind === 'file');
+    if (!hasFileItem) return false;
+    return !items.some(hasDirectoryEntry);
+  }
+  return extractDroppedFiles(dataTransfer).length > 0;
+};
+
 const handlePaste = (event) => {
   const files = extractClipboardFiles(event?.clipboardData);
   if (!files.length) return;
   event.preventDefault();
   emit('pasteFiles', files);
+};
+
+const handleWindowDragEnter = (event) => {
+  if (!canAcceptDraggedFiles(event?.dataTransfer)) return;
+  isDragOver.value = true;
+};
+
+const handleWindowDragOver = (event) => {
+  if (!canAcceptDraggedFiles(event?.dataTransfer)) {
+    if (isDragOver.value) isDragOver.value = false;
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  isDragOver.value = true;
+};
+
+const handleWindowDragLeave = (event) => {
+  if (event.relatedTarget || event.clientX > 0 || event.clientY > 0) return;
+  isDragOver.value = false;
+};
+
+const handleWindowDrop = (event) => {
+  if (!canAcceptDraggedFiles(event?.dataTransfer)) {
+    isDragOver.value = false;
+    return;
+  }
+  event.preventDefault();
+  isDragOver.value = false;
+  const files = extractDroppedFiles(event?.dataTransfer);
+  if (files.length) {
+    emit('pasteFiles', files);
+  }
 };
 
 const handleEnter = (event) => {
@@ -164,7 +223,21 @@ const focus = async () => {
   }
 };
 
-defineExpose({ focus, extractClipboardFiles });
+onMounted(() => {
+  window.addEventListener('dragenter', handleWindowDragEnter);
+  window.addEventListener('dragover', handleWindowDragOver);
+  window.addEventListener('dragleave', handleWindowDragLeave);
+  window.addEventListener('drop', handleWindowDrop);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('dragenter', handleWindowDragEnter);
+  window.removeEventListener('dragover', handleWindowDragOver);
+  window.removeEventListener('dragleave', handleWindowDragLeave);
+  window.removeEventListener('drop', handleWindowDrop);
+});
+
+defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDraggedFiles });
 </script>
 
 <style scoped>
@@ -173,6 +246,37 @@ defineExpose({ focus, extractClipboardFiles });
   max-width: 800px;
   margin: 0 auto;
   position: relative;
+}
+
+.window-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast, 5000) - 1);
+  background:
+    radial-gradient(circle at center, rgba(var(--color-brand-accent-rgb), 0.12) 0%, transparent 42%),
+    rgba(var(--color-bg-overlay-rgb, 15, 23, 42), 0.28);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+  text-align: center;
+  padding: 24px;
+}
+
+.window-drop-overlay__title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--color-text-primary);
+}
+
+.window-drop-overlay__desc {
+  font-size: 13px;
+  color: var(--color-text-secondary, var(--color-text-muted));
 }
 
 .input-container {
@@ -184,6 +288,11 @@ defineExpose({ focus, extractClipboardFiles });
   transition: all 0.3s;
   transform: translateY(0);
   box-shadow: var(--shadow-md);
+}
+
+.input-container.is-drag-over {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.55);
+  box-shadow: 0 10px 28px rgba(var(--color-brand-accent-rgb), 0.18), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .input-container:focus-within {

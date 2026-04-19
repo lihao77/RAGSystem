@@ -1,10 +1,12 @@
 <template>
-  <Transition name="toast">
-    <div v-if="visible" class="app-toast" :class="type">
-      <span>{{ message }}</span>
-      <button v-if="action" class="app-toast__action" @click="action">{{ actionLabel }}</button>
-    </div>
-  </Transition>
+  <Teleport to="body">
+    <Transition name="toast">
+      <div v-if="visible" class="app-toast" :class="type">
+        <span>{{ message }}</span>
+        <button v-if="action" class="app-toast__action" @click="action">{{ actionLabel }}</button>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
@@ -37,7 +39,7 @@ defineExpose({ show });
   top: var(--spacing-lg);
   left: 50%;
   transform: translateX(-50%);
-  z-index: var(--z-toast);
+  z-index: 2147483647;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
