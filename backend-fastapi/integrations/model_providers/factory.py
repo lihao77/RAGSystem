@@ -23,6 +23,7 @@ _OPENAI_COMPAT_PROVIDER_TYPES = {
     'deepseek',
     'openrouter',
     'openai_compatible_chat',
+    'openai_proxy',
 }
 
 
@@ -30,9 +31,13 @@ def canonicalize_provider_type(provider_type: str, api_mode: str | None = None) 
     raw_provider_type = str(provider_type or '').strip().lower()
     normalized_api_mode = str(api_mode or '').strip().lower()
     if raw_provider_type == 'openai':
-        return 'openai_responses' if normalized_api_mode == 'responses' else 'openai_chat_completions'
-    if raw_provider_type == 'openai_compatible_chat':
-        return 'openai_compatible_chat'
+        return 'openai_resp' if normalized_api_mode == 'responses' else 'openai_chat'
+    if raw_provider_type in {'openai_responses', 'openai_resp'}:
+        return 'openai_resp'
+    if raw_provider_type in {'openai_chat_completions', 'openai_chat'}:
+        return 'openai_chat'
+    if raw_provider_type in {'openai_compatible_chat', 'openai_proxy'}:
+        return 'openai_proxy'
     return raw_provider_type
 
 
@@ -46,9 +51,9 @@ def canonicalize_provider_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 _DEFAULT_ENDPOINTS = {
     'openai': 'https://api.openai.com/v1',
-    'openai_responses': 'https://api.openai.com/v1',
-    'openai_chat_completions': 'https://api.openai.com/v1',
-    'openai_compatible_chat': 'https://api.openai.com/v1',
+    'openai_resp': 'https://api.openai.com/v1',
+    'openai_chat': 'https://api.openai.com/v1',
+    'openai_proxy': 'https://api.openai.com/v1',
     'anthropic': 'https://api.anthropic.com',
     'deepseek': 'https://api.deepseek.com/v1',
     'openrouter': 'https://openrouter.ai/api/v1',
@@ -81,9 +86,9 @@ _PROVIDER_CONFIG_FIELDS = {
 }
 
 _PROVIDER_CLASSES = {
-    'openai_responses': OpenAIResponsesProvider,
-    'openai_chat_completions': OpenAIChatCompletionsProvider,
-    'openai_compatible_chat': OpenAICompatibleProvider,
+    'openai_resp': OpenAIResponsesProvider,
+    'openai_chat': OpenAIChatCompletionsProvider,
+    'openai_proxy': OpenAICompatibleProvider,
     'anthropic': AnthropicProvider,
     'deepseek': DeepSeekProvider,
     'openrouter': OpenRouterProvider,

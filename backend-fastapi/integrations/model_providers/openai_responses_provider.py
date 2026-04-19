@@ -16,7 +16,29 @@ class OpenAIResponsesProvider(OpenAIChatCompletionsProvider):
     """使用 OpenAI 官方 Python SDK Responses API 的 Provider 实现。"""
 
     def _get_provider_type(self) -> AIProviderType:
-        return AIProviderType.OPENAI_RESPONSES
+        return AIProviderType.OPENAI_RESP
+
+    @staticmethod
+    def _to_responses_content_parts(content: Any) -> List[Dict[str, Any]]:
+        if isinstance(content, list):
+            parts: List[Dict[str, Any]] = []
+            for item in content:
+                item_type = item.get('type') if isinstance(item, dict) else None
+                if item_type == 'text':
+                    parts.append({
+                        'type': 'input_text',
+                        'text': item.get('text', ''),
+                    })
+                    continue
+                if item_type == 'image_url':
+                    image_url = item.get('image_url') or {}
+                    parts.append({
+                        'type': 'input_image',
+                        'image_url': image_url.get('url', ''),
+                    })
+                    continue
+            return parts or [{'type': 'input_text', 'text': ''}]
+        return [{'type': 'input_text', 'text': content or ''}]
 
     def _build_responses_request(
         self,
@@ -49,10 +71,10 @@ class OpenAIResponsesProvider(OpenAIChatCompletionsProvider):
         for message in self._normalize_messages(messages):
             role = message.get('role')
             content = message.get('content')
-            if isinstance(content, list):
-                input_messages.append({'role': role, 'content': content})
-            else:
-                input_messages.append({'role': role, 'content': content or ''})
+            input_messages.append({
+                'role': role,
+                'content': self._to_responses_content_parts(content),
+            })
 
         payload: Dict[str, Any] = {
             'model': model,

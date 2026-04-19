@@ -40,7 +40,7 @@ LEGACY_CONFIG_FILE_NAME = 'agent_configs.yaml'
 
 _DEFAULT_LLM_TIER = {
     'provider': '',
-    'provider_type': 'openai',
+    'provider_type': 'openai_chat',
     'model_name': '',
     'temperature': 0.2,
     'max_completion_tokens': 4096,

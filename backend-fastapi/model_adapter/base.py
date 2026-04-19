@@ -13,9 +13,9 @@ from pydantic import BaseModel, Field
 class AIProviderType(str, Enum):
     """AI Provider 类型枚举"""
     OPENAI = "openai"
-    OPENAI_RESPONSES = "openai_responses"
-    OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
-    OPENAI_COMPATIBLE_CHAT = "openai_compatible_chat"
+    OPENAI_RESP = "openai_resp"
+    OPENAI_CHAT = "openai_chat"
+    OPENAI_PROXY = "openai_proxy"
     ANTHROPIC = "anthropic"
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"

@@ -11,7 +11,7 @@ from copy import deepcopy
 
 DEFAULT_LLM = {
     "provider": "dmx",
-    "provider_type": "openai",
+    "provider_type": "openai_chat",
     "model_name": "gpt-5.4",
     "temperature": 0.2,
     "max_completion_tokens": 4096,

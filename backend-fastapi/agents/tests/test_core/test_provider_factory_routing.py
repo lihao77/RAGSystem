@@ -89,12 +89,12 @@ factory_module = _load_factory_module()
 
 
 def test_canonicalize_openai_provider_type_defaults_to_chat_completions():
-    assert factory_module.canonicalize_provider_type('openai') == 'openai_chat_completions'
+    assert factory_module.canonicalize_provider_type('openai') == 'openai_chat'
 
 
 
 def test_canonicalize_openai_provider_type_supports_responses_mode():
-    assert factory_module.canonicalize_provider_type('openai', 'responses') == 'openai_responses'
+    assert factory_module.canonicalize_provider_type('openai', 'responses') == 'openai_resp'
 
 
 
@@ -122,10 +122,17 @@ def test_create_provider_from_config_uses_responses_provider_when_requested():
 
 
 
-def test_create_provider_from_config_uses_openai_compatible_chat_provider():
+def test_canonicalize_legacy_long_provider_names_to_short_names():
+    assert factory_module.canonicalize_provider_type('openai_chat_completions') == 'openai_chat'
+    assert factory_module.canonicalize_provider_type('openai_responses') == 'openai_resp'
+    assert factory_module.canonicalize_provider_type('openai_compatible_chat') == 'openai_proxy'
+
+
+
+def test_create_provider_from_config_uses_openai_proxy_provider():
     provider = factory_module.create_provider_from_config({
         'name': 'proxy',
-        'provider_type': 'openai_compatible_chat',
+        'provider_type': 'openai_proxy',
         'api_key': 'key',
         'model': 'gpt-5.4',
     })

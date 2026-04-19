@@ -86,7 +86,7 @@ team 配置位于运行时数据根下的 `config/agents/`：
         "llm_tiers": {
           "default": {
             "provider": "dmx",
-            "provider_type": "openai",
+            "provider_type": "openai_chat",
             "model_name": "gpt-5.4"
           }
         }

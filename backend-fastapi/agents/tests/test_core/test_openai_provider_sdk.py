@@ -56,8 +56,8 @@ def _load_provider_modules():
 
     class AIProviderType(str, Enum):
         OPENAI = 'openai'
-        OPENAI_RESPONSES = 'openai_responses'
-        OPENAI_CHAT_COMPLETIONS = 'openai_chat_completions'
+        OPENAI_RESP = 'openai_resp'
+        OPENAI_CHAT = 'openai_chat'
 
     class _BaseResponse:
         def __init__(self, **kwargs):
@@ -278,6 +278,40 @@ class _FakeChatCompletions:
         )
 
 
+class _FakeEmptyStreamChatCompletions:
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get('stream'):
+            return _FakeChunkStream([
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content=''),
+                            finish_reason='stop',
+                        )
+                    ]
+                ),
+            ])
+        return SimpleNamespace(
+            model=kwargs['model'],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='<final_answer>fallback</final_answer>', tool_calls=[]),
+                    finish_reason='stop',
+                )
+            ],
+            usage=SimpleNamespace(
+                prompt_tokens=3,
+                completion_tokens=2,
+                total_tokens=5,
+                prompt_tokens_details=SimpleNamespace(cached_tokens=0),
+            ),
+        )
+
+
 class _FakeEmbeddings:
     def __init__(self):
         self.calls = []
@@ -334,7 +368,7 @@ def test_openai_chat_completions_provider_uses_sdk_for_chat_and_preserves_extra_
     assert response.content == 'ok'
     assert response.usage['cached_tokens'] == 5
     assert response.tool_calls[0]['function']['name'] == 'demo_tool'
-    assert provider.provider_type.value == 'openai_chat_completions'
+    assert provider.provider_type.value == 'openai_chat'
 
     call = fake_client.chat.completions.calls[0]
     assert call['model'] == 'gpt-5.4'
@@ -358,7 +392,7 @@ def test_openai_provider_alias_uses_chat_completions_provider(monkeypatch):
     response = provider.chat_completion(messages=[{'role': 'user', 'content': 'hello'}])
 
     assert response.content == 'ok'
-    assert provider.provider_type.value == 'openai_chat_completions'
+    assert provider.provider_type.value == 'openai_chat'
 
 
 
@@ -392,7 +426,30 @@ def test_openai_chat_completions_provider_uses_sdk_for_stream_and_embeddings(mon
 
 
 
-def test_openai_responses_provider_uses_sdk_responses_api(monkeypatch):
+def test_openai_chat_completions_provider_falls_back_when_stream_is_empty(monkeypatch):
+    fake_client = _FakeClient()
+    fake_client.chat = SimpleNamespace(completions=_FakeEmptyStreamChatCompletions())
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    provider = chat_provider_module.OpenAIChatCompletionsProvider(
+        api_key='demo',
+        name='OpenAI',
+        model='gpt-5.4',
+        api_endpoint='https://api.openai.com/v1',
+    )
+
+    chunks = list(provider.chat_completion_stream(
+        messages=[{'role': 'user', 'content': 'hello'}],
+        stop=['</tools>'],
+    ))
+
+    assert chunks[0]['content'] == '<final_answer>fallback</final_answer>'
+    assert chunks[-1]['finish_reason'] == 'stop'
+    assert len(fake_client.chat.completions.calls) == 2
+    assert fake_client.chat.completions.calls[0]['stream'] is True
+    assert 'stream' not in fake_client.chat.completions.calls[1]
+
+
     fake_client = _FakeClient()
     monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
 
@@ -417,7 +474,7 @@ def test_openai_responses_provider_uses_sdk_responses_api(monkeypatch):
     assert response.error is None
     assert response.content == '<final_answer>ok</final_answer>'
     assert response.usage['cached_tokens'] == 2
-    assert provider.provider_type.value == 'openai_responses'
+    assert provider.provider_type.value == 'openai_resp'
     assert fake_client.responses.calls[0]['model'] == 'gpt-5.4'
     assert 'stop' not in fake_client.responses.calls[0]
     assert fake_client.responses.calls[0]['reasoning']['effort'] == 'high'
@@ -426,7 +483,49 @@ def test_openai_responses_provider_uses_sdk_responses_api(monkeypatch):
 
 
 
-def test_openai_chat_completions_provider_only_inlines_image_attachments(monkeypatch):
+def test_openai_responses_provider_maps_content_parts_to_responses_input_types(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    temp_dir = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
+    try:
+        image_path = temp_dir / 'demo.png'
+        image_path.write_bytes(b'png-bytes')
+
+        provider = responses_provider_module.OpenAIResponsesProvider(
+            api_key='demo',
+            name='OpenAI',
+            model='gpt-5.4',
+            api_endpoint='https://api.openai.com/v1',
+        )
+
+        provider.chat_completion(
+            messages=[
+                {
+                    'role': 'user',
+                    'content': 'check attachments',
+                    'metadata': {
+                        'attachments': [
+                            {
+                                'file_id': 'img-1',
+                                'mime': 'image/png',
+                                'stored_path': str(image_path),
+                                'kind': 'image',
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        payload = fake_client.responses.calls[-1]
+        assert payload['input'][0]['content'][0] == {'type': 'input_text', 'text': 'check attachments'}
+        assert payload['input'][0]['content'][1]['type'] == 'input_image'
+        assert 'image_url' in payload['input'][0]['content'][1]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
     fake_client = _FakeClient()
     monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
 

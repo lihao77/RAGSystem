@@ -44,7 +44,7 @@ class OpenAIChatCompletionsProvider(OpenAICompatibleProvider):
         self._client = None
 
     def _get_provider_type(self) -> AIProviderType:
-        return AIProviderType.OPENAI_CHAT_COMPLETIONS
+        return AIProviderType.OPENAI_CHAT
 
     def _prefers_max_completion_tokens(self) -> bool:
         return True
@@ -406,9 +406,14 @@ class OpenAIChatCompletionsProvider(OpenAICompatibleProvider):
                         raw_tool_calls,
                     )
 
-                if content or finish_reason:
+                if content or raw_tool_calls:
                     yield {
                         'content': content,
+                        'finish_reason': finish_reason,
+                    }
+                elif finish_reason and stream_has_content:
+                    yield {
+                        'content': '',
                         'finish_reason': finish_reason,
                     }
             if not stream_has_content:
@@ -420,6 +425,38 @@ class OpenAIChatCompletionsProvider(OpenAICompatibleProvider):
                     request_kwargs.get('max_completion_tokens', request_kwargs.get('max_tokens')),
                     request_kwargs.get('stop'),
                 )
+                fallback_kwargs = dict(kwargs)
+                fallback_response = self._do_chat_completion(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    tools=None,
+                    tool_choice=None,
+                    cancel_event=cancel_event,
+                    **fallback_kwargs,
+                )
+                if fallback_response.error == 'interrupted':
+                    yield {'content': '', 'finish_reason': 'interrupted'}
+                    return
+                if fallback_response.error:
+                    yield {'content': '', 'error': fallback_response.error, 'finish_reason': 'error'}
+                    return
+                if fallback_response.content:
+                    logger.info(
+                        '[%s] OpenAI SDK stream empty-content fallback succeeded: model=%s finish_reason=%s',
+                        self.name,
+                        request_kwargs['model'],
+                        fallback_response.finish_reason,
+                    )
+                    yield {
+                        'content': fallback_response.content,
+                        'finish_reason': None,
+                    }
+                yield {
+                    'content': '',
+                    'finish_reason': fallback_response.finish_reason or stream_finish_reason or 'stop',
+                }
         except InterruptedError:
             yield {'content': '', 'finish_reason': 'interrupted'}
         except Exception as error:
