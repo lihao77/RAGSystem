@@ -407,6 +407,8 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 - `sessionFilesDrawerTarget`：附件抽屉当前服务对象（底部输入框 composer 或消息原地编辑）
 
 当前多模态输入约定：
+- `ChatViewV2.vue` 在新建会话态会渲染 `workspace-root-input-row`，其中入口 Agent 选择器复用 `CustomSelect.vue`。
+- `CustomSelect.vue` 通过 Teleport 到 `body` 渲染下拉层，现支持 `dropdownMaxHeight` 控制下拉最大高度，以及 `dropdownPlacement`（`up` / `down` / `auto`）控制展开方向；`auto` 会基于触发器上下可用视口空间自动决策。
 - 顶部“会话文件”主入口已收敛，附件入口下沉到 `ChatInput.vue` 左侧按钮
 - `ChatInput.vue` 现为双层输入结构：上层仅承载文本输入区，下层承载附件按钮、发送按钮、上下文预算与 execution pill 等状态操作区
 - `ChatViewV2.vue` 通过 `ChatInput` 的 `footerMeta` slot 将上下文预算与执行状态注入输入框底部，而不是在输入框外单独渲染状态条

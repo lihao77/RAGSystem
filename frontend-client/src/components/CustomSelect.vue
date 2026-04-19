@@ -27,14 +27,15 @@
     </div>
 
     <Teleport to="body">
-      <transition name="dropdown">
+      <transition :name="dropdownTransitionName">
         <div
           v-if="isOpen"
           ref="dropdownRef"
           class="dropdown-menu dropdown-menu--teleported"
+          :class="`dropdown-menu--${resolvedPlacement}`"
           :style="dropdownStyle"
         >
-          <div class="options-list">
+          <div class="options-list" :style="optionsListStyle">
             <div
               v-for="opt in options"
               :key="opt.value"
@@ -70,11 +71,21 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
+const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
+const DROPDOWN_OFFSET = 8;
+const VIEWPORT_PADDING = 12;
+
 const props = defineProps({
   modelValue: { type: String, default: '' },
   options: { type: Array, default: () => [] },
   placeholder: { type: String, default: '请选择' },
   disabled: { type: Boolean, default: false },
+  dropdownMaxHeight: { type: [Number, String], default: DEFAULT_DROPDOWN_MAX_HEIGHT },
+  dropdownPlacement: {
+    type: String,
+    default: 'auto',
+    validator: value => ['auto', 'up', 'down'].includes(value),
+  },
 });
 
 const emit = defineEmits(['update:modelValue', 'change']);
@@ -83,7 +94,15 @@ const rootRef = ref(null);
 const triggerRef = ref(null);
 const dropdownRef = ref(null);
 const isOpen = ref(false);
+const resolvedPlacement = ref('down');
 const dropdownPosition = ref({ top: 0, left: 0, width: 0 });
+
+const normalizedDropdownMaxHeight = computed(() => {
+  const numericValue = Number(props.dropdownMaxHeight);
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : DEFAULT_DROPDOWN_MAX_HEIGHT;
+});
 
 const hasValue = computed(() => props.modelValue !== '' && props.modelValue != null);
 
@@ -99,11 +118,36 @@ const dropdownStyle = computed(() => ({
   width: `${dropdownPosition.value.width}px`,
 }));
 
+const optionsListStyle = computed(() => ({
+  maxHeight: `${normalizedDropdownMaxHeight.value}px`,
+}));
+
+const dropdownTransitionName = computed(() => (
+  resolvedPlacement.value === 'up' ? 'dropdown-up' : 'dropdown-down'
+));
+
 const updateDropdownPosition = () => {
   if (!triggerRef.value) return;
+
   const rect = triggerRef.value.getBoundingClientRect();
+  const dropdownHeight = dropdownRef.value?.offsetHeight ?? normalizedDropdownMaxHeight.value;
+  const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_PADDING;
+  const spaceAbove = rect.top - VIEWPORT_PADDING;
+
+  let placement = props.dropdownPlacement;
+  if (placement === 'auto') {
+    placement = spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove ? 'down' : 'up';
+  }
+
+  resolvedPlacement.value = placement;
+
+  const unclampedTop = placement === 'up'
+    ? rect.top - dropdownHeight - DROPDOWN_OFFSET
+    : rect.bottom + DROPDOWN_OFFSET;
+  const maxTop = Math.max(VIEWPORT_PADDING, window.innerHeight - dropdownHeight - VIEWPORT_PADDING);
+
   dropdownPosition.value = {
-    top: rect.bottom + 8,
+    top: Math.min(Math.max(unclampedTop, VIEWPORT_PADDING), maxTop),
     left: rect.left,
     width: rect.width,
   };
@@ -153,6 +197,12 @@ watch(() => props.options, () => {
     nextTick(updateDropdownPosition);
   }
 }, { deep: true });
+
+watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
+  if (isOpen.value) {
+    nextTick(updateDropdownPosition);
+  }
+});
 
 onMounted(() => {
   document.addEventListener('click', onClickOutside, true);
@@ -244,8 +294,15 @@ onUnmounted(() => {
   z-index: 9999;
 }
 
+.dropdown-menu--up {
+  transform-origin: bottom center;
+}
+
+.dropdown-menu--down {
+  transform-origin: top center;
+}
+
 .options-list {
-  max-height: 260px;
   overflow-y: auto;
   padding: 6px;
 }
@@ -300,19 +357,34 @@ onUnmounted(() => {
 }
 .options-list::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
-.dropdown-enter-active {
-  animation: dropdownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+.dropdown-down-enter-active {
+  animation: dropdownDownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.dropdown-leave-active {
-  animation: dropdownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
+.dropdown-down-leave-active {
+  animation: dropdownDownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
+}
+.dropdown-up-enter-active {
+  animation: dropdownUpIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-up-leave-active {
+  animation: dropdownUpOut 0.15s cubic-bezier(0.4, 0, 1, 1);
 }
 
-@keyframes dropdownIn {
+@keyframes dropdownDownIn {
   from { opacity: 0; transform: translateY(-8px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes dropdownOut {
+@keyframes dropdownDownOut {
   from { opacity: 1; transform: translateY(0) scale(1); }
   to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+@keyframes dropdownUpIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dropdownUpOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
 </style>

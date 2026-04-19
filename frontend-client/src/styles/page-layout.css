@@ -82,6 +82,7 @@
 /* 仅图标按钮 */
 .pl-btn--icon {
   width: 44px;
+  min-width: 44px;
   padding: 0;
 }
 

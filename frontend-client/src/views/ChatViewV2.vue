@@ -244,6 +244,8 @@
               v-model="pendingEntryAgent"
               :options="entryAgentOptions"
               :disabled="entryAgentLoading"
+              :dropdown-max-height="320"
+              dropdown-placement="auto"
               placeholder="使用配置默认入口 Agent"
               style="flex: 1"
             />
@@ -2214,13 +2216,16 @@ onUnmounted(() => {
 
 .workspace-root-input {
   flex: 1;
+  height: 42px;
   padding: 8px 14px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  /* font-family: var(--font-sans); */
   transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
