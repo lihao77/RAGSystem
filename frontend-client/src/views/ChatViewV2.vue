@@ -421,7 +421,7 @@ import { useSessionMessages } from '../composables/useSessionMessages';
 import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
-import { normalizeAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
+import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
@@ -703,6 +703,9 @@ const {
   loadSessionFiles,
   openSessionFilesDrawer,
   handleSessionFileSelect,
+  materializeAttachmentsForSend,
+  clearComposerAttachments,
+  clearEditingAttachments,
   downloadSessionFileItem,
   removeSessionFile,
 } = useSessionFilesAttachments({
@@ -808,7 +811,7 @@ const syncSessionFromRoute = async (sessionId) => {
     pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched?.metadata?.workspace_root || '');
     pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
     currentSessionTeam.value = matched?.metadata?.team || '';
-    pendingAttachments.value = [];
+    clearComposerAttachments();
     await loadSessionMessages(sessionId);
     await loadSessionFiles(sessionId);
     connectSessionWS(sessionId);
@@ -827,7 +830,7 @@ const syncSessionFromRoute = async (sessionId) => {
     pendingWorkspaceRoot.value = '';
     pendingEntryAgent.value = '';
     loadActiveTeam();
-    pendingAttachments.value = [];
+    clearComposerAttachments();
     messages.value = [];
     sessionFilesDrawerVisible.value = false;
     sessionFilesDrawerTarget.value = 'composer';
@@ -1901,10 +1904,10 @@ const handleEnterSituation = ({ artifactId, mapData }) => {
 
 const handleSend = async (payload = null) => {
   let content = (payload?.content ?? inputMessage.value).trim();
-  const attachments = Array.isArray(payload?.attachments) ? payload.attachments.slice() : pendingAttachments.value.slice();
+  const draftAttachments = Array.isArray(payload?.attachments) ? payload.attachments.slice() : pendingAttachments.value.slice();
   const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
   const clearEditing = payload?.clearEditing === true;
-  if ((!content && !attachments.length) || isLoading.value) return;
+  if ((!content && !draftAttachments.length) || isLoading.value) return;
 
   const sessionId = await ensureSession();
 
@@ -1923,17 +1926,20 @@ const handleSend = async (payload = null) => {
     }
   } catch (_) { /* 查询失败不阻塞发送 */ }
 
+  const attachments = await materializeAttachmentsForSend(draftAttachments, sessionId);
+
   if (replaceFromIndex != null) {
     messages.value = messages.value.slice(0, replaceFromIndex);
     cacheMessages(sessionId, messages.value);
     if (clearEditing) {
       resetEditingState({ closeDrawer: false });
+      clearEditingAttachments();
     }
   }
 
   messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {} });
   inputMessage.value = '';
-  pendingAttachments.value = [];
+  clearComposerAttachments();
   isUserAtBottom.value = true;
   shouldAutoScroll.value = true;
   _userScrollUpAccum = 0;

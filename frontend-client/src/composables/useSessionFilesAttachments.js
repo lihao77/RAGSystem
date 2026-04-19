@@ -1,6 +1,15 @@
 import { computed, ref } from 'vue';
-import { deleteSessionFile, getSessionFileDownloadUrl, listSessionFiles, uploadSessionFiles } from '../api/sessionFiles';
-import { formatAttachmentMeta, formatAttachmentSize, isImageAttachment, normalizeAttachment } from '../utils/sessionAttachments';
+import { deleteSessionFile, getSessionFileDownloadUrl, listSessionFiles, uploadSessionFiles } from '../api/sessionFiles.js';
+import {
+  createLocalAttachment,
+  formatAttachmentMeta,
+  formatAttachmentSize,
+  getAttachmentKey,
+  isImageAttachment,
+  isLocalAttachment,
+  normalizeSessionAttachment,
+  revokeAttachmentPreviewUrl,
+} from '../utils/sessionAttachments.js';
 
 /**
  * 会话文件与消息附件状态管理。
@@ -16,13 +25,45 @@ export function useSessionFilesAttachments(deps) {
   const sessionFilesDrawerTarget = deps.sessionFilesDrawerTarget || ref('composer');
 
   const getAttachmentPreviewUrl = (attachment) => {
+    if (isLocalAttachment(attachment)) return attachment.preview_url || '';
     if (!deps.currentSessionId.value || !attachment?.file_id) return '';
     return getSessionFileDownloadUrl(deps.currentSessionId.value, attachment.file_id);
   };
 
+  const dedupeAttachments = (list) => {
+    const seen = new Set();
+    return list.filter((attachment) => {
+      const key = getAttachmentKey(attachment);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const releaseAttachmentResources = (attachments) => {
+    for (const attachment of attachments || []) {
+      revokeAttachmentPreviewUrl(attachment);
+    }
+  };
+
+  const replaceComposerAttachments = (nextList) => {
+    releaseAttachmentResources(
+      pendingAttachments.value.filter(item => !nextList.some(next => getAttachmentKey(next) === getAttachmentKey(item)))
+    );
+    pendingAttachments.value = nextList;
+  };
+
+  const replaceEditingAttachments = (nextList) => {
+    const prevList = deps.getEditingAttachmentsDraft?.() || [];
+    releaseAttachmentResources(
+      prevList.filter(item => !nextList.some(next => getAttachmentKey(next) === getAttachmentKey(item)))
+    );
+    deps.setEditingAttachmentsDraft(nextList);
+  };
+
   const removeAttachmentFromList = (list, attachment) => {
-    const fileId = attachment?.file_id || attachment?.id;
-    return list.filter(item => (item.file_id || item.id) !== fileId);
+    const targetKey = getAttachmentKey(attachment);
+    return list.filter(item => getAttachmentKey(item) !== targetKey);
   };
 
   const currentDrawerPendingFiles = computed(() => {
@@ -33,28 +74,25 @@ export function useSessionFilesAttachments(deps) {
   });
 
   const removePendingAttachment = (attachment) => {
-    pendingAttachments.value = removeAttachmentFromList(pendingAttachments.value, attachment);
+    replaceComposerAttachments(removeAttachmentFromList(pendingAttachments.value, attachment));
   };
 
   const removeEditingAttachment = (attachment) => {
     const editingAttachments = deps.getEditingAttachmentsDraft?.() || [];
-    deps.setEditingAttachmentsDraft(removeAttachmentFromList(editingAttachments, attachment));
+    replaceEditingAttachments(removeAttachmentFromList(editingAttachments, attachment));
   };
 
   const reuseSessionFileAsAttachment = (file) => {
-    const normalized = normalizeAttachment(file);
+    const normalized = normalizeSessionAttachment(file);
     if (!normalized) return;
     const targetList = sessionFilesDrawerTarget.value === 'message-edit'
       ? (deps.getEditingAttachmentsDraft?.() || [])
       : pendingAttachments.value;
-    const fileId = normalized.file_id;
-    if (!targetList.some(item => (item.file_id || item.id) === fileId)) {
-      const nextList = [...targetList, normalized];
-      if (sessionFilesDrawerTarget.value === 'message-edit') {
-        deps.setEditingAttachmentsDraft(nextList);
-      } else {
-        pendingAttachments.value = nextList;
-      }
+    const nextList = dedupeAttachments([...targetList, normalized]);
+    if (sessionFilesDrawerTarget.value === 'message-edit') {
+      replaceEditingAttachments(nextList);
+    } else {
+      replaceComposerAttachments(nextList);
     }
     sessionFilesDrawerVisible.value = false;
     sessionFilesDrawerTarget.value = 'composer';
@@ -87,39 +125,69 @@ export function useSessionFilesAttachments(deps) {
 
   const handleSessionFileSelect = async (filesOrEvent) => {
     const files = filesOrEvent?.target?.files || filesOrEvent;
-    const normalizedFiles = Array.from(files || []).filter(file => file instanceof File);
-    if (!normalizedFiles.length) return;
-    const sessionId = await deps.ensureSession();
-    if (!sessionId) return;
+    const nextAttachments = Array.from(files || [])
+      .filter(file => file instanceof File)
+      .map(createLocalAttachment)
+      .filter(Boolean);
+    if (!nextAttachments.length) return;
+    const isEditingTarget = sessionFilesDrawerTarget.value === 'message-edit';
+    const targetList = isEditingTarget
+      ? (deps.getEditingAttachmentsDraft?.() || [])
+      : pendingAttachments.value;
+    const mergedFiles = dedupeAttachments([...targetList, ...nextAttachments]);
+    if (isEditingTarget) {
+      replaceEditingAttachments(mergedFiles);
+    } else {
+      replaceComposerAttachments(mergedFiles);
+    }
+    deps.showToast(`已添加 ${nextAttachments.length} 个待发送附件`, 'success');
+    sessionFilesDrawerVisible.value = true;
+  };
 
+  const materializeAttachmentsForSend = async (attachments, sessionId) => {
+    const localAttachments = attachments.filter(isLocalAttachment);
+    if (!localAttachments.length) {
+      return attachments.map(normalizeSessionAttachment).filter(Boolean);
+    }
     const fd = new FormData();
-    for (const file of normalizedFiles) fd.append('files', file);
-
+    for (const attachment of localAttachments) {
+      fd.append('files', attachment.file);
+    }
     uploadingSessionFiles.value = true;
     try {
       const res = await uploadSessionFiles(sessionId, fd);
-      const createdFiles = (res.files || []).map(normalizeAttachment).filter(Boolean);
-      const isEditingTarget = sessionFilesDrawerTarget.value === 'message-edit';
-      const editingAttachments = deps.getEditingAttachmentsDraft?.() || [];
-      const targetList = isEditingTarget ? editingAttachments : pendingAttachments.value;
-      const mergedFiles = [
-        ...targetList,
-        ...createdFiles.filter(file => !targetList.some(item => (item.file_id || item.id) === file.file_id)),
-      ];
-      if (isEditingTarget) {
-        deps.setEditingAttachmentsDraft(mergedFiles);
-      } else {
-        pendingAttachments.value = mergedFiles;
+      const createdFiles = (res.files || []).map(normalizeSessionAttachment).filter(Boolean);
+      if (createdFiles.length !== localAttachments.length) {
+        throw new Error('附件上传结果数量不匹配');
       }
-      deps.showToast(`已添加 ${res.files?.length || 0} 个附件`, 'success');
+      const mapped = [];
+      let localIndex = 0;
+      for (const attachment of attachments) {
+        if (isLocalAttachment(attachment)) {
+          mapped.push(createdFiles[localIndex]);
+          revokeAttachmentPreviewUrl(attachment);
+          localIndex += 1;
+        } else {
+          const normalized = normalizeSessionAttachment(attachment);
+          if (normalized) mapped.push(normalized);
+        }
+      }
       await loadSessionFiles(sessionId);
-      sessionFilesDrawerVisible.value = true;
+      return mapped;
     } catch (error) {
-      console.error('handleSessionFileSelect failed:', { sessionId, fileCount: normalizedFiles.length, error });
-      deps.showToast(error.message || '上传会话文件失败');
+      console.error('materializeAttachmentsForSend failed:', { sessionId, attachmentCount: localAttachments.length, error });
+      throw error;
     } finally {
       uploadingSessionFiles.value = false;
     }
+  };
+
+  const clearComposerAttachments = () => {
+    replaceComposerAttachments([]);
+  };
+
+  const clearEditingAttachments = () => {
+    replaceEditingAttachments([]);
   };
 
   const downloadSessionFileItem = (file) => {
@@ -149,7 +217,7 @@ export function useSessionFilesAttachments(deps) {
     deletingSessionFileId,
     sessionFilesDrawerVisible,
     sessionFilesDrawerTarget,
-    normalizeAttachment,
+    normalizeAttachment: normalizeSessionAttachment,
     isImageAttachment,
     formatAttachmentSize,
     formatAttachmentMeta,
@@ -161,6 +229,9 @@ export function useSessionFilesAttachments(deps) {
     loadSessionFiles,
     openSessionFilesDrawer,
     handleSessionFileSelect,
+    materializeAttachmentsForSend,
+    clearComposerAttachments,
+    clearEditingAttachments,
     downloadSessionFileItem,
     removeSessionFile,
   };

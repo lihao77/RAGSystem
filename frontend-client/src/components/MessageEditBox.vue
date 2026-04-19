@@ -18,7 +18,7 @@
     <div v-if="attachments.length" class="msg-edit-attachments">
       <div
         v-for="att in attachments"
-        :key="att.file_id || att.id"
+        :key="att.local_id || att.file_id || att.id"
         class="msg-edit-att-card"
       >
         <img
@@ -84,6 +84,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue';
 import { getSessionFileDownloadUrl } from '../api/sessionFiles';
+import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -97,11 +98,13 @@ const emit = defineEmits(['update:modelValue', 'confirm', 'cancel', 'openAttachm
 const textareaRef = ref(null);
 const isFocused = ref(false);
 
-const isImage = (att) => String(att?.mime || '').startsWith('image/');
-const previewUrl = (att) =>
-  props.sessionId && att?.file_id
+const isImage = (att) => isImageAttachment(att);
+const previewUrl = (att) => {
+  if (isLocalAttachment(att)) return att.preview_url || '';
+  return props.sessionId && att?.file_id
     ? getSessionFileDownloadUrl(props.sessionId, att.file_id)
     : '';
+};
 
 const autoResize = () => {
   const el = textareaRef.value;

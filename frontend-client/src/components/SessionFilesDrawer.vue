@@ -17,7 +17,7 @@
                 <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
                 <button class="ctx-action-btn ctx-action-btn--primary" :disabled="uploading" @click="fileInputRef?.click()">
                   <span class="ctx-action-btn__icon">+</span>
-                  <span>{{ uploading ? '上传中...' : '选择图片或文件' }}</span>
+                  <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
                 </button>
                 <button v-if="sessionId" class="ctx-action-btn ctx-action-btn--ghost" :disabled="loading" @click="$emit('refresh')">
                   <span class="ctx-action-btn__icon">↻</span>
@@ -26,11 +26,11 @@
               </div>
             </section>
 
-            <div v-if="uploading" class="ctx-loading">正在上传附件...</div>
+            <div v-if="uploading" class="ctx-loading">正在准备发送附件...</div>
             <section v-if="pendingFiles.length" class="ctx-section">
               <div class="ctx-section-title">{{ pendingTitle }}</div>
               <div class="ctx-file-list">
-                <div v-for="file in pendingFiles" :key="file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
+                <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
                   <div class="ctx-file-main">
                     <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                     <div class="ctx-file-meta">
@@ -102,14 +102,14 @@ const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'r
 const fileInputRef = ref(null);
 
 const subtitleText = computed(() => {
-  if (!props.sessionId) return '上传附件将自动创建会话';
+  if (!props.sessionId) return '附件会先保存在前端，发送时再自动创建会话并上传';
   return props.mode === 'message-edit'
-    ? '上传或复用会话文件到当前编辑中的消息'
-    : '上传后将附加到本轮消息';
+    ? '选择附件先加入当前编辑草稿，确认重发时再上传'
+    : '选择后先加入待发送附件，点击发送时再上传';
 });
 
 const pendingTitle = computed(() => (
-  props.mode === 'message-edit' ? '当前编辑消息附件' : '本轮待发送'
+  props.mode === 'message-edit' ? '当前编辑草稿附件' : '本轮待发送附件'
 ));
 
 const reuseButtonText = computed(() => (
@@ -118,8 +118,8 @@ const reuseButtonText = computed(() => (
 
 const emptyDesc = computed(() => (
   props.mode === 'message-edit'
-    ? '上传图片或文件后，它会附加到当前正在编辑的这条消息。'
-    : '上传图片或文件后，它会附加到你接下来发送的这条消息。'
+    ? '选择图片或文件后，它会先加入当前编辑草稿，并在确认重发时上传。'
+    : '选择图片或文件后，它会先加入待发送附件，并在你点击发送时上传。'
 ));
 
 const onFileChange = (event) => {

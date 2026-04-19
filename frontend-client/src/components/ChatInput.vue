@@ -2,7 +2,7 @@
   <div class="chat-input-area">
     <div class="input-container">
       <div v-if="attachments.length" class="attachment-preview-list">
-        <div v-for="attachment in attachments" :key="attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
+        <div v-for="attachment in attachments" :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name" class="attachment-preview-chip">
           <span class="attachment-preview-name">{{ attachment.original_name || attachment.stored_name }}</span>
           <button
             type="button"
