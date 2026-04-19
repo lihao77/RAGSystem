@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 class AIProviderType(str, Enum):
     """AI Provider 类型枚举"""
     OPENAI = "openai"
+    OPENAI_RESPONSES = "openai_responses"
+    OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
+    OPENAI_COMPATIBLE_CHAT = "openai_compatible_chat"
     ANTHROPIC = "anthropic"
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"
@@ -72,6 +75,7 @@ class AIProvider(ABC):
         
         # 模型配置
         self.model = kwargs.get("model", "")
+        self.models = kwargs.get("models", []) or []
         self.model_map = kwargs.get("model_map", {}) or {}
 
         # 兼容性处理：如果只提供了 model，默认作为 chat 模型

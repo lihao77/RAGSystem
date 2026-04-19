@@ -13,9 +13,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def _load_provider_module():
-    module_name = 'integrations.model_providers.openai_provider_test'
-    module_path = Path(__file__).resolve().parents[3] / 'integrations' / 'model_providers' / 'openai_provider.py'
+
+def _load_provider_modules():
+    chat_module_name = 'integrations.model_providers.openai_chat_completions_provider_test'
+    chat_module_path = Path(__file__).resolve().parents[3] / 'integrations' / 'model_providers' / 'openai_chat_completions_provider.py'
+    responses_module_name = 'integrations.model_providers.openai_responses_provider_test'
+    responses_module_path = Path(__file__).resolve().parents[3] / 'integrations' / 'model_providers' / 'openai_responses_provider.py'
     missing = object()
     patched_module_names = [
         'integrations',
@@ -24,15 +27,16 @@ def _load_provider_module():
         'model_adapter',
         'model_adapter.base',
         'integrations.model_providers.openai_compatible_provider',
+        'integrations.model_providers.openai_chat_completions_provider',
     ]
     originals = {name: sys.modules.get(name, missing) for name in patched_module_names}
 
     integrations_pkg = types.ModuleType('integrations')
-    integrations_pkg.__path__ = [str(module_path.parents[1])]
+    integrations_pkg.__path__ = [str(chat_module_path.parents[1])]
     sys.modules['integrations'] = integrations_pkg
 
     providers_pkg = types.ModuleType('integrations.model_providers')
-    providers_pkg.__path__ = [str(module_path.parent)]
+    providers_pkg.__path__ = [str(chat_module_path.parent)]
     sys.modules['integrations.model_providers'] = providers_pkg
 
     common_module = types.ModuleType('integrations.model_providers.common')
@@ -41,6 +45,7 @@ def _load_provider_module():
         pass
 
     common_module.InterruptedError = InterruptedError
+    common_module._preview_model_content = lambda content, limit=200: str(content)[:limit]
     sys.modules['integrations.model_providers.common'] = common_module
 
     model_adapter_pkg = types.ModuleType('model_adapter')
@@ -51,6 +56,8 @@ def _load_provider_module():
 
     class AIProviderType(str, Enum):
         OPENAI = 'openai'
+        OPENAI_RESPONSES = 'openai_responses'
+        OPENAI_CHAT_COMPLETIONS = 'openai_chat_completions'
 
     class _BaseResponse:
         def __init__(self, **kwargs):
@@ -87,6 +94,9 @@ def _load_provider_module():
             self.reasoning_effort = kwargs.get('reasoning_effort')
             self.timeout = kwargs.get('timeout', 30)
             self.supports_function_calling = kwargs.get('supports_function_calling', False)
+            self.supports_prompt_caching = kwargs.get('supports_prompt_caching', False)
+            self.prompt_cache_style = kwargs.get('prompt_cache_style')
+            self.prompt_cache_min_tokens = kwargs.get('prompt_cache_min_tokens')
 
         def chat_completion(self, messages, model=None, temperature=None, max_tokens=None, tools=None, tool_choice=None, **kwargs):
             return self._do_chat_completion(
@@ -127,16 +137,27 @@ def _load_provider_module():
         def _supports_dimensions(self):
             return True
 
+        @property
+        def provider_type(self):
+            return self._get_provider_type()
+
     compat_module.OpenAICompatibleProvider = OpenAICompatibleProvider
     sys.modules['integrations.model_providers.openai_compatible_provider'] = compat_module
 
     try:
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-        return module
+        chat_spec = importlib.util.spec_from_file_location(chat_module_name, chat_module_path)
+        chat_module = importlib.util.module_from_spec(chat_spec)
+        sys.modules[chat_module_name] = chat_module
+        sys.modules['integrations.model_providers.openai_chat_completions_provider'] = chat_module
+        assert chat_spec.loader is not None
+        chat_spec.loader.exec_module(chat_module)
+
+        responses_spec = importlib.util.spec_from_file_location(responses_module_name, responses_module_path)
+        responses_module = importlib.util.module_from_spec(responses_spec)
+        sys.modules[responses_module_name] = responses_module
+        assert responses_spec.loader is not None
+        responses_spec.loader.exec_module(responses_module)
+        return chat_module, responses_module
     finally:
         for name, original in originals.items():
             if original is missing:
@@ -145,7 +166,7 @@ def _load_provider_module():
                 sys.modules[name] = original
 
 
-provider_module = _load_provider_module()
+chat_provider_module, responses_provider_module = _load_provider_modules()
 
 
 class _FakeToolCall:
@@ -171,6 +192,44 @@ class _FakeChunkStream:
 
     def close(self):
         self.closed = True
+
+
+class _FakeResponsesStream:
+    def __init__(self, events):
+        self._events = list(events)
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeResponses:
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get('stream'):
+            return _FakeResponsesStream([
+                SimpleNamespace(type='response.output_text.delta', delta='<final_answer>ok</final_answer>'),
+                SimpleNamespace(type='response.completed'),
+            ])
+
+        return SimpleNamespace(
+            model=kwargs['model'],
+            output_text='<final_answer>ok</final_answer>',
+            output=[],
+            status='completed',
+            usage=SimpleNamespace(
+                input_tokens=9,
+                output_tokens=4,
+                total_tokens=13,
+                input_tokens_details=SimpleNamespace(cached_tokens=2),
+            ),
+        )
 
 
 class _FakeChatCompletions:
@@ -247,15 +306,17 @@ class _FakeModels:
 class _FakeClient:
     def __init__(self):
         self.chat = SimpleNamespace(completions=_FakeChatCompletions())
+        self.responses = _FakeResponses()
         self.embeddings = _FakeEmbeddings()
         self.models = _FakeModels()
 
 
-def test_openai_provider_uses_sdk_for_chat_and_preserves_extra_body(monkeypatch):
-    fake_client = _FakeClient()
-    monkeypatch.setattr(provider_module, 'OpenAI', lambda **kwargs: fake_client)
 
-    provider = provider_module.OpenAIProvider(
+def test_openai_chat_completions_provider_uses_sdk_for_chat_and_preserves_extra_body(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    provider = chat_provider_module.OpenAIChatCompletionsProvider(
         api_key='demo',
         name='OpenAI',
         model='gpt-5.4',
@@ -273,6 +334,7 @@ def test_openai_provider_uses_sdk_for_chat_and_preserves_extra_body(monkeypatch)
     assert response.content == 'ok'
     assert response.usage['cached_tokens'] == 5
     assert response.tool_calls[0]['function']['name'] == 'demo_tool'
+    assert provider.provider_type.value == 'openai_chat_completions'
 
     call = fake_client.chat.completions.calls[0]
     assert call['model'] == 'gpt-5.4'
@@ -281,11 +343,30 @@ def test_openai_provider_uses_sdk_for_chat_and_preserves_extra_body(monkeypatch)
     assert call['extra_body']['thinking_budget_tokens'] == 2048
 
 
-def test_openai_provider_uses_sdk_for_stream_and_embeddings(monkeypatch):
-    fake_client = _FakeClient()
-    monkeypatch.setattr(provider_module, 'OpenAI', lambda **kwargs: fake_client)
 
-    provider = provider_module.OpenAIProvider(
+def test_openai_provider_alias_uses_chat_completions_provider(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    provider = chat_provider_module.OpenAIChatCompletionsProvider(
+        api_key='demo',
+        name='OpenAI',
+        model='gpt-5.4',
+        api_endpoint='https://api.openai.com/v1',
+    )
+
+    response = provider.chat_completion(messages=[{'role': 'user', 'content': 'hello'}])
+
+    assert response.content == 'ok'
+    assert provider.provider_type.value == 'openai_chat_completions'
+
+
+
+def test_openai_chat_completions_provider_uses_sdk_for_stream_and_embeddings(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    provider = chat_provider_module.OpenAIChatCompletionsProvider(
         api_key='demo',
         name='OpenAI',
         model='gpt-5.4',
@@ -310,9 +391,44 @@ def test_openai_provider_uses_sdk_for_stream_and_embeddings(monkeypatch):
     assert provider.is_available() is True
 
 
-def test_openai_provider_only_inlines_image_attachments(monkeypatch):
+
+def test_openai_responses_provider_uses_sdk_responses_api(monkeypatch):
     fake_client = _FakeClient()
-    monkeypatch.setattr(provider_module, 'OpenAI', lambda **kwargs: fake_client)
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
+
+    provider = responses_provider_module.OpenAIResponsesProvider(
+        api_key='demo',
+        name='OpenAI',
+        model='gpt-5.4',
+        api_endpoint='https://api.openai.com/v1',
+    )
+
+    response = provider.chat_completion(
+        messages=[{'role': 'user', 'content': 'hello'}],
+        stop=['</tools>'],
+        reasoning_effort='high',
+    )
+    chunks = list(provider.chat_completion_stream(
+        messages=[{'role': 'user', 'content': 'hello'}],
+        stop=['</tools>'],
+        reasoning_effort='medium',
+    ))
+
+    assert response.error is None
+    assert response.content == '<final_answer>ok</final_answer>'
+    assert response.usage['cached_tokens'] == 2
+    assert provider.provider_type.value == 'openai_responses'
+    assert fake_client.responses.calls[0]['model'] == 'gpt-5.4'
+    assert 'stop' not in fake_client.responses.calls[0]
+    assert fake_client.responses.calls[0]['reasoning']['effort'] == 'high'
+    assert chunks[0]['content'] == '<final_answer>ok</final_answer>'
+    assert chunks[-1]['finish_reason'] == 'completed'
+
+
+
+def test_openai_chat_completions_provider_only_inlines_image_attachments(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(chat_provider_module, 'OpenAI', lambda **kwargs: fake_client)
 
     temp_dir = Path(tempfile.mkdtemp(dir=Path(__file__).resolve().parent))
     try:
@@ -321,7 +437,7 @@ def test_openai_provider_only_inlines_image_attachments(monkeypatch):
         text_path = temp_dir / 'notes.txt'
         text_path.write_text('hello file', encoding='utf-8')
 
-        provider = provider_module.OpenAIProvider(
+        provider = chat_provider_module.OpenAIChatCompletionsProvider(
             api_key='demo',
             name='OpenAI',
             model='gpt-5.4',

@@ -16,6 +16,14 @@ from model_adapter.base import AIProvider, ModelResponse, EmbeddingResponse, AIP
 logger = logging.getLogger(__name__)
 
 
+def _preview_model_content(content: Any, limit: int = 200) -> str:
+    text = '' if content is None else str(content)
+    text = text.replace('\n', '\\n')
+    if len(text) <= limit:
+        return text
+    return text[:limit] + '...<truncated>'
+
+
 class InterruptedError(RequestCancelledError):
     """请求被用户中断"""
     pass
@@ -117,6 +125,10 @@ def _openai_compatible_stream(
         )
         response.raise_for_status()
 
+        stream_has_content = False
+        stream_chunk_count = 0
+        stream_finish_reason = None
+
         for line in response.iter_lines(decode_unicode=False):
             # 检查取消信号
             if cancel_event and cancel_event.is_set():
@@ -152,13 +164,39 @@ def _openai_compatible_stream(
 
             delta = choices[0].get("delta", {})
             finish_reason = choices[0].get("finish_reason")
+            if finish_reason:
+                stream_finish_reason = finish_reason
 
             content = delta.get("content", "")
+            if content:
+                stream_has_content = True
+                stream_chunk_count += 1
+                logger.debug(
+                    "OpenAI-compatible stream content chunk: finish_reason=%s has_xml=%s preview=%r",
+                    finish_reason,
+                    ('<final_answer>' in content) or ('<tools>' in content) or ('<intent>' in content),
+                    _preview_model_content(content),
+                )
+            elif finish_reason:
+                logger.debug(
+                    "OpenAI-compatible stream finish chunk without content: finish_reason=%s chunks=%s",
+                    finish_reason,
+                    stream_chunk_count,
+                )
             if content or finish_reason:
                 yield {
                     "content": content or "",
                     "finish_reason": finish_reason,
                 }
+
+        if not stream_has_content:
+            logger.warning(
+                "OpenAI-compatible stream completed without content: finish_reason=%s model=%s max_tokens=%s stop=%s",
+                stream_finish_reason,
+                payload.get('model'),
+                payload.get('max_completion_tokens', payload.get('max_tokens')),
+                payload.get('stop'),
+            )
 
     except InterruptedError:
         yield {"content": "", "finish_reason": "interrupted"}

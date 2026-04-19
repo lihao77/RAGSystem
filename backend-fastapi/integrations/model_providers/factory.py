@@ -13,12 +13,42 @@ from .providers_impl import (
     AnthropicProvider,
     DeepSeekProvider,
     ModelScopeProvider,
-    OpenAIProvider,
+    OpenAIChatCompletionsProvider,
+    OpenAICompatibleProvider,
+    OpenAIResponsesProvider,
     OpenRouterProvider,
 )
 
+_OPENAI_COMPAT_PROVIDER_TYPES = {
+    'deepseek',
+    'openrouter',
+    'openai_compatible_chat',
+}
+
+
+def canonicalize_provider_type(provider_type: str, api_mode: str | None = None) -> str:
+    raw_provider_type = str(provider_type or '').strip().lower()
+    normalized_api_mode = str(api_mode or '').strip().lower()
+    if raw_provider_type == 'openai':
+        return 'openai_responses' if normalized_api_mode == 'responses' else 'openai_chat_completions'
+    if raw_provider_type == 'openai_compatible_chat':
+        return 'openai_compatible_chat'
+    return raw_provider_type
+
+
+def canonicalize_provider_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(config)
+    normalized['provider_type'] = canonicalize_provider_type(
+        normalized.get('provider_type'),
+        normalized.get('api_mode'),
+    )
+    return normalized
+
 _DEFAULT_ENDPOINTS = {
     'openai': 'https://api.openai.com/v1',
+    'openai_responses': 'https://api.openai.com/v1',
+    'openai_chat_completions': 'https://api.openai.com/v1',
+    'openai_compatible_chat': 'https://api.openai.com/v1',
     'anthropic': 'https://api.anthropic.com',
     'deepseek': 'https://api.deepseek.com/v1',
     'openrouter': 'https://openrouter.ai/api/v1',
@@ -51,7 +81,9 @@ _PROVIDER_CONFIG_FIELDS = {
 }
 
 _PROVIDER_CLASSES = {
-    'openai': OpenAIProvider,
+    'openai_responses': OpenAIResponsesProvider,
+    'openai_chat_completions': OpenAIChatCompletionsProvider,
+    'openai_compatible_chat': OpenAICompatibleProvider,
     'anthropic': AnthropicProvider,
     'deepseek': DeepSeekProvider,
     'openrouter': OpenRouterProvider,
@@ -60,11 +92,12 @@ _PROVIDER_CLASSES = {
 
 
 def create_provider_from_config(config: Dict[str, Any]):
-    provider_type = config.get('provider_type')
-    name = config.get('name')
-    api_key = config.get('api_key')
-    api_endpoint = config.get('api_endpoint')
-    model = config.get('model', 'gpt-3.5-turbo')
+    normalized = canonicalize_provider_config(config)
+    provider_type = normalized.get('provider_type')
+    name = normalized.get('name')
+    api_key = normalized.get('api_key')
+    api_endpoint = normalized.get('api_endpoint')
+    model = normalized.get('model', 'gpt-3.5-turbo')
 
     if not all([name, provider_type, api_key]):
         raise ValueError('Provider 配置必须包含 name, provider_type, api_key')
@@ -75,7 +108,7 @@ def create_provider_from_config(config: Dict[str, Any]):
 
     provider_kwargs = {
         key: value
-        for key, value in config.items()
+        for key, value in normalized.items()
         if key not in ['provider_type', 'name', 'api_key', 'api_endpoint', 'models', 'model']
     }
 

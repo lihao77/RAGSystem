@@ -12,6 +12,7 @@ from .common import (
     InterruptedError,
     _load_json_response,
     _openai_compatible_stream,
+    _preview_model_content,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,11 +75,24 @@ class OpenAICompatibleProvider(AIProvider):
 
             choice = response_data['choices'][0]
             raw_content = choice['message'].get('content')
+            finish_reason = choice.get('finish_reason')
+            has_tool_calls = bool(choice['message'].get('tool_calls'))
             if not raw_content:
                 logger.warning(
-                    '%s 模型返回空 content: finish_reason=%s, has_tool_calls=%s',
-                    self.name, choice.get('finish_reason'),
-                    bool(choice['message'].get('tool_calls')),
+                    '%s 模型返回空 content: finish_reason=%s, has_tool_calls=%s, model=%s',
+                    self.name,
+                    finish_reason,
+                    has_tool_calls,
+                    model,
+                )
+            else:
+                logger.debug(
+                    '%s 模型返回 content: finish_reason=%s, has_tool_calls=%s, has_xml=%s, preview=%r',
+                    self.name,
+                    finish_reason,
+                    has_tool_calls,
+                    ('<final_answer>' in raw_content) or ('<tools>' in raw_content) or ('<intent>' in raw_content),
+                    _preview_model_content(raw_content),
                 )
             usage_data = response_data.get('usage', {})
             usage = {

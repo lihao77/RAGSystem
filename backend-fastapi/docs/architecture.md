@@ -119,7 +119,8 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
   → ModelAdapter.chat_completion_stream()
       └─ provider-specific request build
           ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
-          └─ OpenAIProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
+          ├─ OpenAIChatCompletionsProvider._normalize_messages()：仅图片附件转 `image_url(data:...)` content part；普通文件不再自动注入 prompt
+          └─ OpenAIResponsesProvider._build_responses_request()：复用同一消息归一化结果，再映射到 Responses API `input`
   → 事件发布到 run 级 EventBus / 全局 EventBus → WebSocket → 前端
       ├─ `user.approval_required` 仍由 run 级事件驱动发起审批
       └─ 前端提交审批后，WS / HTTP 响应路径会额外向 session 级全局总线广播 `user.approval_granted` / `user.approval_denied`，用于前端队列出队与下一项切换
@@ -660,8 +661,14 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 - task 工具也不属于 `tools.enabled_tools` 域，而由 `tasks.workflow/background` 决定是否注入
 
 - `model_adapter/base.py` 中的 `AIProvider` 暴露统一能力声明：`supports_prompt_caching`、`prompt_cache_style`、`prompt_cache_min_tokens`
+- OpenAI 相关 provider_type 已按协议显式拆分：
+  - `openai_chat_completions`：官方 OpenAI SDK `chat.completions`
+  - `openai_responses`：官方 OpenAI SDK `responses`
+  - `openai_compatible_chat`：兼容 `/chat/completions` 的 HTTP provider
+  - 旧 `openai` 仅作为过渡别名，在 provider 工厂中归一化到 `openai_chat_completions`；若 `api_mode=responses` 则归一化到 `openai_responses`
 - 当前已接入原生缓存语义的 provider：
-  - `openai`：保持 chat.completions 调用模式，依赖 OpenAI 服务端自动缓存，并从 `usage.prompt_tokens_details.cached_tokens` 提取 `cached_tokens`
+  - `openai_chat_completions`：依赖 OpenAI 服务端自动缓存，并从 `usage.prompt_tokens_details.cached_tokens` 提取 `cached_tokens`
+  - `openai_responses`：依赖 Responses usage 的 `input_tokens_details.cached_tokens` 提取 `cached_tokens`
   - `anthropic`：新增原生 `AnthropicProvider`，在 provider 边界把通用消息转换为 content blocks，并在稳定前缀断点追加 `cache_control`
 - `deepseek` / `openrouter` / `modelscope` 当前保持 capability-aware 直通，不强行注入缓存协议
 - `AgentLLMConfig.prompt_cache_enabled` 可显式开关缓存；默认 `None` 表示跟随 provider 默认能力

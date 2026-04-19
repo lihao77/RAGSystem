@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 from runtime.dependencies import get_runtime_dependency
 from .base import AIProvider, ModelResponse, EmbeddingResponse, AIProviderType
 from .providers import create_provider_from_config
+from integrations.model_providers.factory import canonicalize_provider_config
 from .config_store import ModelAdapterConfigStore
 
 logger = logging.getLogger(__name__)
@@ -94,44 +95,45 @@ class ModelAdapter:
     def register_provider_from_config(self, config: Dict[str, Any], save_config: bool = True) -> str:
         """
         从配置注册 AI Provider
-        
+
         Args:
             config: Provider 配置字典
             save_config: 是否保存配置到文件
-            
+
         Returns:
             str: provider_key（复合键）
         """
-        name = config.get("name", "")
-        provider_type = config.get("provider_type", "").lower()
-        api_key = config.get("api_key", "")
-        api_endpoint = config.get("api_endpoint", "")
-        
+        normalized_config = canonicalize_provider_config(config)
+        name = normalized_config.get("name", "")
+        provider_type = normalized_config.get("provider_type", "").lower()
+        api_key = normalized_config.get("api_key", "")
+        api_endpoint = normalized_config.get("api_endpoint", "")
+
         # 获取默认模型
-        model = config.get("model", "gpt-3.5-turbo")
+        model = normalized_config.get("model", "gpt-3.5-turbo")
 
         if not all([name, provider_type, api_key]):
             raise ValueError("Provider 配置必须包含 name, provider_type, api_key")
-        
+
         # 生成复合键
         provider_key = self._make_provider_key(name, provider_type)
-            
+
         # 检查是否已存在（仅在保存时检查）
         if provider_key in self.providers and save_config:
             logger.warning(f"[ModelAdapter] Provider {provider_key} 已存在，将被覆盖")
-        
-        provider_kwargs = {k: v for k, v in config.items() 
+
+        provider_kwargs = {k: v for k, v in normalized_config.items()
                           if k not in ["provider_type", "name", "api_key", "api_endpoint", "models", "model"]}
 
-        provider = create_provider_from_config(config)
+        provider = create_provider_from_config(normalized_config)
 
         self.register_provider(provider)
-        
+
         # 保存配置到文件
         if save_config:
-            self.config_store.save_provider(provider_key, config)
+            self.config_store.save_provider(provider_key, normalized_config)
             logger.info(f"[ModelAdapter] 配置已持久化: {provider_key}")
-            
+
         return provider_key
     
     def add_provider(self, config: Dict[str, Any]) -> str:
