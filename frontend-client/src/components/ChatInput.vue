@@ -21,6 +21,7 @@
           <textarea
             v-model="inputText"
             @keydown.enter.prevent="handleEnter"
+            @paste="handlePaste"
             placeholder="Ask anything..."
             rows="1"
             ref="textareaRef"
@@ -92,7 +93,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'send', 'stop', 'openAttachments', 'removeAttachment']);
+const emit = defineEmits(['update:modelValue', 'send', 'stop', 'openAttachments', 'removeAttachment', 'pasteFiles']);
 
 const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
@@ -114,6 +115,21 @@ const adjustTextareaHeight = async () => {
     textareaRef.value.style.height = 'auto';
     textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px';
   }
+};
+
+const extractClipboardFiles = (clipboardData) => {
+  const items = Array.from(clipboardData?.items || []);
+  return items
+    .filter(item => item?.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter(file => file instanceof File);
+};
+
+const handlePaste = (event) => {
+  const files = extractClipboardFiles(event?.clipboardData);
+  if (!files.length) return;
+  event.preventDefault();
+  emit('pasteFiles', files);
 };
 
 const handleEnter = (event) => {
@@ -148,7 +164,7 @@ const focus = async () => {
   }
 };
 
-defineExpose({ focus });
+defineExpose({ focus, extractClipboardFiles });
 </script>
 
 <style scoped>

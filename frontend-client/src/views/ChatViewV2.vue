@@ -272,6 +272,7 @@
             @stop="handleStop"
             @openAttachments="() => openSessionFilesDrawer('composer')"
             @removeAttachment="removePendingAttachment"
+            @pasteFiles="handleSessionFileSelect"
           >
             <template #footerMeta>
               <div class="composer-status-row">
