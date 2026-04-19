@@ -268,7 +268,7 @@ async def _handle_ws_stop(session_id: str):
     try:
         from dependencies import get_execution_service
         svc = get_execution_service()
-        await asyncio.to_thread(svc.cancel_session, session_id, 'user_stop')
+        await asyncio.to_thread(svc.cancel_session, session_id, reason='user_stop')
     except Exception as exc:
         logger.warning('[WS] stop 失败 session=%s: %s', session_id, exc)
 

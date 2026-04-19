@@ -16,11 +16,20 @@ from api.v1.ws import router as ws_router
 class _FakeExecutionService:
     def __init__(self, statuses):
         self._statuses = list(statuses)
+        self.cancel_calls = []
 
     def get_status_by_session(self, session_id):
         if self._statuses:
             return self._statuses.pop(0)
         return None
+
+    def cancel_session(self, session_id, *, publish_interrupt=True, reason='user_stop'):
+        self.cancel_calls.append({
+            'session_id': session_id,
+            'publish_interrupt': publish_interrupt,
+            'reason': reason,
+        })
+        return True
 
 
 class _FakeRuntimeService:
@@ -78,11 +87,11 @@ def _build_client(monkeypatch, *, statuses):
 
     app = FastAPI()
     app.include_router(ws_router, prefix='/api/agent')
-    return TestClient(app), global_bus, run_bus, registry
+    return TestClient(app), global_bus, run_bus, registry, execution_service
 
 
 def test_ws_replays_existing_run_history(monkeypatch):
-    client, _, run_bus, _ = _build_client(monkeypatch, statuses=[{
+    client, _, run_bus, _, _ = _build_client(monkeypatch, statuses=[{
         'status': 'running',
         'run_id': 'run-1',
         'started_at': 10,
@@ -109,7 +118,7 @@ def test_ws_replays_existing_run_history(monkeypatch):
 
 
 def test_ws_receives_live_events_from_run_bus(monkeypatch):
-    client, _, run_bus, _ = _build_client(monkeypatch, statuses=[None, {
+    client, _, run_bus, _, _ = _build_client(monkeypatch, statuses=[None, {
         'status': 'running',
         'run_id': 'run-1',
         'started_at': 10,
@@ -134,7 +143,7 @@ def test_ws_receives_live_events_from_run_bus(monkeypatch):
 
 
 def test_ws_receives_command_result_from_global_bus(monkeypatch):
-    client, global_bus, _, _ = _build_client(monkeypatch, statuses=[None])
+    client, global_bus, _, _, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         global_bus.publish(Event(
@@ -150,7 +159,7 @@ def test_ws_receives_command_result_from_global_bus(monkeypatch):
 
 
 def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
-    client, global_bus, _, _ = _build_client(monkeypatch, statuses=[None])
+    client, global_bus, _, _, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         global_bus.publish(Event(
@@ -165,8 +174,21 @@ def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
     assert payload['data']['source'] == 'system.bg_notification'
 
 
+def test_ws_stop_cancels_session_with_keyword_reason(monkeypatch):
+    client, _, _, _, execution_service = _build_client(monkeypatch, statuses=[None])
+
+    with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
+        ws.send_json({'type': 'stop'})
+
+    assert execution_service.cancel_calls == [{
+        'session_id': 'session-1',
+        'publish_interrupt': True,
+        'reason': 'user_stop',
+    }]
+
+
 def test_ws_approve_publishes_granted_event(monkeypatch):
-    client, _, _, registry = _build_client(monkeypatch, statuses=[None])
+    client, _, _, registry, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         ws.send_json({
@@ -185,7 +207,7 @@ def test_ws_approve_publishes_granted_event(monkeypatch):
 
 
 def test_ws_approve_publishes_denied_event(monkeypatch):
-    client, _, _, registry = _build_client(monkeypatch, statuses=[None])
+    client, _, _, registry, _ = _build_client(monkeypatch, statuses=[None])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         ws.send_json({
