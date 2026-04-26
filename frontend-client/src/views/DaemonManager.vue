@@ -335,8 +335,8 @@
 
     <!-- 平台配置弹窗 -->
     <teleport to="body">
-      <div v-if="showConfigModal" class="modal-bg" @click.self="showConfigModal = false">
-        <div class="modal-box">
+      <div v-if="showConfigModal" class="modal-bg">
+        <div ref="configModalRef" class="modal-box">
           <div class="modal-hdr">
             <h3>{{ isNewPlatform ? '添加平台' : '编辑配置' }} — {{ platformLabel(platformForm.key) }}</h3>
             <button class="modal-close" @click="showConfigModal = false">×</button>
@@ -394,8 +394,8 @@
 
     <!-- 新增 Cron 任务弹窗 -->
     <teleport to="body">
-      <div v-if="showAddTask" class="modal-bg" @click.self="showAddTask = false">
-        <div class="modal-box">
+      <div v-if="showAddTask" class="modal-bg">
+        <div ref="addTaskModalRef" class="modal-box">
           <div class="modal-hdr">
             <h3>新增定时任务</h3>
             <button class="modal-close" @click="showAddTask = false">×</button>
@@ -447,8 +447,8 @@
 
     <!-- 测试消息弹窗 -->
     <teleport to="body">
-      <div v-if="showTestDialog" class="modal-bg" @click.self="showTestDialog = false">
-        <div class="modal-box modal-box--sm">
+      <div v-if="showTestDialog" class="modal-bg">
+        <div ref="testDialogRef" class="modal-box modal-box--sm">
           <div class="modal-hdr">
             <h3>测试 — {{ platformLabel(testTarget.platform) }}</h3>
             <button class="modal-close" @click="showTestDialog = false">×</button>
@@ -478,6 +478,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PageLayout from '../components/PageLayout.vue'
 import CustomSelect from '../components/CustomSelect.vue'
+import { usePointerDownOutside } from '../composables/usePointerDownOutside'
 import * as api from '../api/daemon'
 import { getTeams, getAllAgentConfigs } from '../api/agentConfig'
 import {
@@ -521,6 +522,27 @@ const daemonConfig = ref(null)
 const showAddTask = ref(false)
 const showTestDialog = ref(false)
 const showConfigModal = ref(false)
+const configModalRef = ref(null)
+const addTaskModalRef = ref(null)
+const testDialogRef = ref(null)
+
+usePointerDownOutside({
+  inside: [configModalRef],
+  enabled: () => showConfigModal.value,
+  onOutside: () => { showConfigModal.value = false },
+})
+
+usePointerDownOutside({
+  inside: [addTaskModalRef],
+  enabled: () => showAddTask.value,
+  onOutside: () => { showAddTask.value = false },
+})
+
+usePointerDownOutside({
+  inside: [testDialogRef],
+  enabled: () => showTestDialog.value,
+  onOutside: () => { showTestDialog.value = false },
+})
 const configSaving = ref(false)
 const baseSaving = ref(false)
 const permSaving = ref(false)

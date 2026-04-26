@@ -70,6 +70,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
 
 const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
 const DROPDOWN_OFFSET = 8;
@@ -178,13 +179,13 @@ const select = (opt) => {
   closeDropdown();
 };
 
-const onClickOutside = (e) => {
-  const clickedInsideRoot = rootRef.value?.contains(e.target);
-  const clickedInsideDropdown = dropdownRef.value?.contains(e.target);
-  if (!clickedInsideRoot && !clickedInsideDropdown) {
-    closeDropdown();
-  }
-};
+usePointerDownOutside({
+  inside: [rootRef, dropdownRef],
+  enabled: () => isOpen.value,
+  onOutside: closeDropdown,
+});
+
+usePointerInsideRegistry([dropdownRef], () => isOpen.value);
 
 const onWindowChange = () => {
   if (isOpen.value) {
@@ -205,13 +206,11 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 });
 
 onMounted(() => {
-  document.addEventListener('click', onClickOutside, true);
   window.addEventListener('resize', onWindowChange);
   window.addEventListener('scroll', onWindowChange, true);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', onClickOutside, true);
   window.removeEventListener('resize', onWindowChange);
   window.removeEventListener('scroll', onWindowChange, true);
 });

@@ -123,6 +123,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { getAvailableModels } from '../api/modelAdapter';
 
 const props = defineProps({
@@ -228,13 +229,14 @@ const selectModel = (value) => {
   searchQuery.value = '';
 };
 
-// 点击外部关闭下拉菜单
-const handleClickOutside = (event) => {
-  if (selectorRef.value && !selectorRef.value.contains(event.target)) {
+usePointerDownOutside({
+  inside: [selectorRef],
+  enabled: () => dropdownOpen.value,
+  onOutside: () => {
     dropdownOpen.value = false;
     searchQuery.value = '';
-  }
-};
+  },
+});
 
 // 键盘导航支持
 const handleKeydown = (event) => {
@@ -255,12 +257,10 @@ watch(() => props.modelValue, (newValue) => {
 
 onMounted(() => {
   loadModels();
-  document.addEventListener('click', handleClickOutside);
   document.addEventListener('keydown', handleKeydown);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
   document.removeEventListener('keydown', handleKeydown);
 });
 

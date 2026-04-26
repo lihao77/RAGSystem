@@ -75,8 +75,8 @@
         </button>
         <div v-else class="page-mobile-nav__spacer" />
 
-        <div v-if="hasMobileMenu && mobileMenuOpen" class="page-mobile-menu" @click="mobileMenuOpen = false">
-          <div class="page-mobile-menu__list" @click.stop>
+        <div v-if="hasMobileMenu && mobileMenuOpen" class="page-mobile-menu">
+          <div ref="mobileMenuRef" class="page-mobile-menu__list">
             <slot name="mobile-menu" :close="() => { mobileMenuOpen = false }" />
           </div>
         </div>
@@ -92,7 +92,8 @@
 </template>
 
 <script setup>
-import { computed, inject, onBeforeUnmount, onMounted, ref, useSlots } from 'vue';
+import { computed, inject, ref, useSlots } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -112,6 +113,7 @@ const hasHeaderMenu = computed(() => !!slots['header-menu']);
 const mobileMenuOpen = ref(false);
 const desktopMenuOpen = ref(false);
 const desktopMenuRef = ref(null);
+const mobileMenuRef = ref(null);
 
 const shellStyle = computed(() => ({
   '--page-shell-max-width': props.maxWidth,
@@ -123,18 +125,20 @@ const openMobileSidebar = () => {
   shellSidebarControl?.openMobileSidebar?.();
 };
 
-const handlePointerDown = (event) => {
-  if (desktopMenuRef.value && !desktopMenuRef.value.contains(event.target)) {
+usePointerDownOutside({
+  inside: [desktopMenuRef],
+  enabled: () => desktopMenuOpen.value,
+  onOutside: () => {
     desktopMenuOpen.value = false;
-  }
-};
-
-onMounted(() => {
-  document.addEventListener('pointerdown', handlePointerDown, true);
+  },
 });
 
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', handlePointerDown, true);
+usePointerDownOutside({
+  inside: [mobileMenuRef],
+  enabled: () => mobileMenuOpen.value,
+  onOutside: () => {
+    mobileMenuOpen.value = false;
+  },
 });
 </script>
 

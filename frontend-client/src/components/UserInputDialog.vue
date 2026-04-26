@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
     <Transition name="overlay-fade">
-      <div v-if="visible" class="input-overlay" @click="handleOverlayClick">
+      <div v-if="visible && !collapsed" class="input-overlay">
         <Transition name="dialog-pop" appear>
-          <div v-if="visible" class="input-container" @click.stop>
+          <div v-if="visible && !collapsed" class="input-container">
 
             <!-- 顶部装饰光带 -->
             <div class="container-glow" />
@@ -17,6 +17,12 @@
                   <span class="header-badge">{{ inputTypeLabel }}</span>
                 </div>
               </div>
+              <button class="input-header-action" type="button" @click="toggleCollapsed" title="折叠输入窗口">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 12H4"/>
+                </svg>
+                <span>折叠</span>
+              </button>
             </div>
 
             <!-- Body -->
@@ -83,6 +89,25 @@
         </Transition>
       </div>
     </Transition>
+
+    <Transition name="input-dock-fade">
+      <button
+        v-if="visible && collapsed"
+        class="input-dock"
+        type="button"
+        title="等待用户输入，点击展开"
+        @click="toggleCollapsed"
+      >
+        <div class="input-dock-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4"/>
+            <path d="M12 8h.01"/>
+          </svg>
+        </div>
+        <span class="input-dock-badge">1</span>
+      </button>
+    </Transition>
   </Teleport>
 </template>
 
@@ -105,6 +130,7 @@ const TYPE_LABELS = {
 const emit = defineEmits(['submit', 'cancel']);
 
 const visible    = ref(false);
+const collapsed  = ref(false);
 const prompt     = ref('');
 const inputType  = ref('text');
 const options    = ref([]);
@@ -129,6 +155,7 @@ const show = (data, onSubmit, onCancel) => {
   inputValue.value = '';
   _onSubmit = onSubmit || null;
   _onCancel = onCancel || null;
+  collapsed.value = false;
   visible.value = true;
 
   if (inputType.value === 'text') {
@@ -138,7 +165,12 @@ const show = (data, onSubmit, onCancel) => {
 
 const hide = () => {
   visible.value = false;
+  collapsed.value = false;
   inputValue.value = '';
+};
+
+const toggleCollapsed = () => {
+  collapsed.value = !collapsed.value;
 };
 
 const handleSubmit = () => {
@@ -155,9 +187,7 @@ const handleCancel = () => {
   emit('cancel', { inputId: _inputId });
 };
 
-const handleOverlayClick = () => {};
-
-defineExpose({ show, hide });
+defineExpose({ show, hide, toggleCollapsed });
 </script>
 
 <style scoped>
@@ -253,6 +283,31 @@ defineExpose({ show, hide });
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: -0.01em;
+}
+
+.input-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--color-active-rgb), 0.28);
+  border-radius: 999px;
+  background: rgba(var(--color-active-rgb), 0.12);
+  color: var(--color-active);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.input-header-action:hover {
+  background: rgba(var(--color-active-rgb), 0.18);
+  border-color: rgba(var(--color-active-rgb), 0.4);
+}
+
+.input-header-action:active {
+  transform: scale(0.98);
 }
 
 .header-badge {
@@ -423,6 +478,60 @@ defineExpose({ show, hide });
   transform: scale(0.97);
 }
 
+/* ── 折叠浮标 ── */
+.input-dock {
+  position: fixed;
+  right: 20px;
+  top: 88px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid rgba(var(--color-active-rgb), 0.3);
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(16px);
+  color: var(--color-text-primary);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  z-index: var(--z-dialog);
+  cursor: pointer;
+}
+
+.input-dock-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-active);
+}
+
+.input-dock-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-active);
+  color: var(--color-on-color);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 6px 16px rgba(var(--color-active-rgb), 0.35);
+}
+
+.input-dock-fade-enter-active,
+.input-dock-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.input-dock-fade-enter-from,
+.input-dock-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 /* ── 遮罩动画 ── */
 .overlay-fade-enter-active,
 .overlay-fade-leave-active {
@@ -453,7 +562,11 @@ defineExpose({ show, hide });
 @media (max-width: 540px) {
   .input-container { border-radius: 14px; max-width: 100%; }
   .input-header, .input-body { padding-inline: 16px; }
+  .input-header { align-items: stretch; flex-direction: column; }
+  .input-header-action { width: 100%; justify-content: center; }
   .input-footer { padding: 0 16px 16px; flex-direction: column-reverse; }
   .btn-stop { flex: 1; }
+  .input-dock { right: 12px; top: 76px; width: 44px; height: 44px; }
+  .input-dock-badge { min-width: 18px; height: 18px; line-height: 18px; font-size: 0.6875rem; }
 }
 </style>

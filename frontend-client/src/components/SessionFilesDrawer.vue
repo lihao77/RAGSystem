@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
     <Transition name="drawer-fade">
-      <div v-if="visible" class="ctx-drawer-overlay" @click="$emit('close')">
-        <div class="ctx-drawer ctx-drawer--dialog glass-card" @click.stop>
+      <div v-if="visible" class="ctx-drawer-overlay">
+        <div ref="drawerRef" class="ctx-drawer ctx-drawer--dialog glass-card">
           <div class="ctx-drawer-header">
             <div>
               <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
@@ -88,6 +88,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
 
 const props = defineProps({
@@ -103,6 +104,13 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'reuse', 'removePending']);
 const fileInputRef = ref(null);
+const drawerRef = ref(null);
+
+usePointerDownOutside({
+  inside: [drawerRef],
+  enabled: () => props.visible,
+  onOutside: () => emit('close'),
+});
 
 const subtitleText = computed(() => {
   if (!props.sessionId) return '附件会先保存在前端，发送时再自动创建会话并上传';

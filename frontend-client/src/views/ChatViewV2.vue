@@ -421,6 +421,7 @@ import { useSessionMessages } from '../composables/useSessionMessages';
 import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
@@ -991,13 +992,14 @@ const loadActiveTeam = async () => {
   }
 };
 
-const handleGlobalPointerDown = (event) => {
-  if (!sessionMetaExpanded.value) return;
-  const container = sessionMetaContainerRef.value;
-  if (container && !container.contains(event.target)) {
+usePointerDownOutside({
+  inside: [sessionMetaContainerRef],
+  enabled: () => sessionMetaExpanded.value,
+  target: () => window,
+  onOutside: () => {
     sessionMetaExpanded.value = false;
-  }
-};
+  },
+});
 
 const checkIfAtBottom = () => {
   if (!messagesRef.value) return true;
@@ -2046,7 +2048,6 @@ onMounted(() => {
   loadEntryAgentOptions();
   loadActiveTeam();
   loadRecentSessions(true);
-  window.addEventListener('pointerdown', handleGlobalPointerDown);
 });
 
 onUnmounted(() => {
@@ -2056,7 +2057,6 @@ onUnmounted(() => {
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
   invalidateActiveStream();
-  window.removeEventListener('pointerdown', handleGlobalPointerDown);
 });
 </script>
 

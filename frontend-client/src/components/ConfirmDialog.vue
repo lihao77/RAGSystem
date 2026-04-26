@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
     <Transition name="dialog-fade">
-      <div v-if="visible" class="dialog-overlay" @click="handleOverlayClick">
-        <div class="dialog-container" @click.stop>
+      <div v-if="visible" class="dialog-overlay">
+        <div ref="dialogRef" class="dialog-container">
           <div class="dialog-header">
             <h3 class="dialog-title">{{ title }}</h3>
           </div>
@@ -25,6 +25,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
 const props = defineProps({
   title: {
@@ -48,6 +49,7 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel', 'close']);
 
 const visible = ref(false);
+const dialogRef = ref(null);
 
 const show = () => {
   visible.value = true;
@@ -67,9 +69,11 @@ const handleCancel = () => {
   hide();
 };
 
-const handleOverlayClick = () => {
-  handleCancel();
-};
+usePointerDownOutside({
+  inside: [dialogRef],
+  enabled: () => visible.value,
+  onOutside: handleCancel,
+});
 
 defineExpose({
   show,

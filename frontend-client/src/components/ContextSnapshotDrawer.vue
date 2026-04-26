@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
     <Transition name="drawer-fade">
-      <div v-if="visible" class="ctx-drawer-overlay" @click="$emit('close')">
-        <div class="ctx-drawer" @click.stop>
+      <div v-if="visible" class="ctx-drawer-overlay">
+        <div ref="drawerRef" class="ctx-drawer">
           <div class="ctx-drawer-header">
             <h3>上下文快照</h3>
             <button class="ctx-close-btn" @click="$emit('close')">&times;</button>
@@ -143,6 +143,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
 const props = defineProps({
   visible: Boolean,
@@ -152,11 +153,12 @@ const props = defineProps({
     default: '',
   },
 });
-defineEmits(['close']);
+const emit = defineEmits(['close']);
 
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
+const drawerRef = ref(null);
 const spExpanded = ref(false)
 const memExpanded = ref(false);
 const expandedMessages = ref({});
@@ -167,6 +169,12 @@ const messageErrors = ref({});
 const tokenPct = computed(() => {
   if (!data.value?.token_stats?.budget_tokens) return 0;
   return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.budget_tokens * 100));
+});
+
+usePointerDownOutside({
+  inside: [drawerRef],
+  enabled: () => props.visible,
+  onOutside: () => emit('close'),
 });
 
 function msgLabel(msg) {

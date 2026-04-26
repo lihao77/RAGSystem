@@ -581,8 +581,8 @@
 
         <!-- 索引新文档对话框 -->
         <Teleport to="body">
-            <div v-if="showIndexDialog" class="modal-overlay" @click.self="showIndexDialog = false">
-                <div class="modal-shell">
+            <div v-if="showIndexDialog" class="modal-overlay">
+                <div ref="indexDialogRef" class="modal-shell">
                     <div class="modal-header">
                         <h3>索引新文档</h3>
                         <button class="modal-close" @click="showIndexDialog = false">&times;</button>
@@ -697,8 +697,8 @@
 
         <!-- 新增向量化器对话框 -->
         <Teleport to="body">
-            <div v-if="showAddVectorizerDialog" class="modal-overlay" @click.self="showAddVectorizerDialog = false">
-                <div class="modal-shell modal-shell--narrow">
+            <div v-if="showAddVectorizerDialog" class="modal-overlay">
+                <div ref="addVectorizerDialogRef" class="modal-shell modal-shell--narrow">
                     <div class="modal-header">
                         <h3>新增向量化器</h3>
                         <button class="modal-close" @click="showAddVectorizerDialog = false">&times;</button>
@@ -739,8 +739,8 @@
 
         <!-- 迁移对话框 -->
         <Teleport to="body">
-            <div v-if="showMigrateDialog" class="modal-overlay" @click.self="showMigrateDialog = false">
-                <div class="modal-shell modal-shell--narrow">
+            <div v-if="showMigrateDialog" class="modal-overlay">
+                <div ref="migrateDialogRef" class="modal-shell modal-shell--narrow">
                     <div class="modal-header">
                         <h3>迁移向量数据</h3>
                         <button class="modal-close" @click="showMigrateDialog = false">&times;</button>
@@ -790,6 +790,7 @@ import {
     uploadFiles,
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/CustomSelect.vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
 const props = defineProps({
     embedded: { type: Boolean, default: false },
@@ -797,6 +798,28 @@ const props = defineProps({
 });
 
 const toastRef = ref(null);
+const indexDialogRef = ref(null);
+const addVectorizerDialogRef = ref(null);
+const migrateDialogRef = ref(null);
+
+usePointerDownOutside({
+    inside: [indexDialogRef],
+    enabled: () => showIndexDialog.value,
+    onOutside: () => { showIndexDialog.value = false; },
+});
+
+usePointerDownOutside({
+    inside: [addVectorizerDialogRef],
+    enabled: () => showAddVectorizerDialog.value,
+    onOutside: () => { showAddVectorizerDialog.value = false; },
+});
+
+usePointerDownOutside({
+    inside: [migrateDialogRef],
+    enabled: () => showMigrateDialog.value,
+    onOutside: () => { showMigrateDialog.value = false; },
+});
+
 function showToast(msg, type = 'error') { toastRef.value?.show(msg, type); }
 
 // ── Tab ───────────────────────────────────────────────────

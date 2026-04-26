@@ -634,8 +634,8 @@
 
     <!-- 新建 Agent 对话框 -->
     <Teleport to="body">
-      <div v-if="createDialog.visible" class="modal-overlay" @click.self="closeCreateDialog">
-        <div class="modal-panel">
+      <div v-if="createDialog.visible" class="modal-overlay">
+        <div ref="createDialogPanelRef" class="modal-panel">
           <div class="modal-head">
             <h3>新建 Agent</h3>
             <button class="modal-close" @click="closeCreateDialog">
@@ -678,8 +678,8 @@
 
     <!-- 删除 Agent 确认对话框 -->
     <Teleport to="body">
-      <div v-if="deleteDialog.visible" class="modal-overlay" @click.self="closeDeleteDialog">
-        <div class="modal-panel modal-panel--sm">
+      <div v-if="deleteDialog.visible" class="modal-overlay">
+        <div ref="deleteDialogPanelRef" class="modal-panel modal-panel--sm">
           <div class="modal-head">
             <h3>删除 Agent</h3>
             <button class="modal-close" @click="closeDeleteDialog">
@@ -724,6 +724,7 @@ import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 const props = defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
@@ -1420,6 +1421,13 @@ function toggleDelegation(name, checked) {
 
 // 新建 Agent 对话框
 const createDialog = ref({ visible: false, loading: false, agentName: '', displayName: '', description: '' });
+const createDialogPanelRef = ref(null);
+
+usePointerDownOutside({
+  inside: [createDialogPanelRef],
+  enabled: () => createDialog.value.visible,
+  onOutside: closeCreateDialog,
+});
 
 function openCreateDialog() {
   createDialog.value = { visible: true, loading: false, agentName: '', displayName: '', description: '' };
@@ -1460,6 +1468,13 @@ async function handleCreateAgent() {
 
 // 删除 Agent 对话框
 const deleteDialog = ref({ visible: false, loading: false, agentName: '' });
+const deleteDialogPanelRef = ref(null);
+
+usePointerDownOutside({
+  inside: [deleteDialogPanelRef],
+  enabled: () => deleteDialog.value.visible,
+  onOutside: closeDeleteDialog,
+});
 
 function openDeleteDialog() {
   deleteDialog.value = { visible: true, loading: false, agentName: selectedAgent.value };

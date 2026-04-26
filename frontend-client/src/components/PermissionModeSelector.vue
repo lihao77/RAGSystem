@@ -147,7 +147,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import {
   getPermissionPolicy,
   updatePermissionMode,
@@ -193,11 +194,13 @@ function toggleDropdown() {
   dropdownOpen.value = !dropdownOpen.value;
 }
 
-function handleClickOutside(e) {
-  if (selectorRef.value && !selectorRef.value.contains(e.target)) {
+usePointerDownOutside({
+  inside: [selectorRef],
+  enabled: () => dropdownOpen.value,
+  onOutside: () => {
     dropdownOpen.value = false;
-  }
-}
+  },
+});
 
 async function loadPolicy() {
   try {
@@ -248,12 +251,7 @@ async function removeRule(p) {
 }
 
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
   loadPolicy();
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
 });
 </script>
 

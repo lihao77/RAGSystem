@@ -235,8 +235,8 @@
       </section>
 
     <!-- ── 新增/编辑 Dialog ──────────────────────────────── -->
-    <div v-if="dialog.visible" class="dialog-backdrop" @click.self="closeDialog">
-      <div class="dialog-panel glass-card">
+    <div v-if="dialog.visible" class="dialog-backdrop">
+      <div ref="dialogPanelRef" class="dialog-panel glass-card">
         <div class="dialog-header">
           <h2>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</h2>
           <button class="dialog-close" @click="closeDialog">
@@ -389,8 +389,8 @@
     </div>
 
     <!-- ── 删除确认 Dialog ───────────────────────────────── -->
-    <div v-if="deleteTarget" class="dialog-backdrop" @click.self="deleteTarget = null">
-      <div class="dialog-panel dialog-panel--sm glass-card">
+    <div v-if="deleteTarget" class="dialog-backdrop">
+      <div ref="deleteDialogPanelRef" class="dialog-panel dialog-panel--sm glass-card">
         <div class="dialog-header">
           <h2>确认删除</h2>
           <button class="dialog-close" @click="deleteTarget = null">
@@ -420,6 +420,7 @@ import { ref, computed, onMounted } from 'vue'
 import AppToast from '../components/AppToast.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import PageLayout from '../components/PageLayout.vue'
+import { usePointerDownOutside } from '../composables/usePointerDownOutside'
 import {
   getProviderTypes,
   getProviders,
@@ -503,7 +504,14 @@ const toastRef = ref(null)
 const testingKey = ref('')
 const testResults = ref({})
 const deleteTarget = ref(null)
+const deleteDialogPanelRef = ref(null)
 const deleting = ref(false)
+
+usePointerDownOutside({
+  inside: [deleteDialogPanelRef],
+  enabled: () => Boolean(deleteTarget.value),
+  onOutside: () => { deleteTarget.value = null },
+})
 
 function showToast(message, type = 'error') {
   toastRef.value?.show(message, type)
@@ -562,9 +570,16 @@ async function quickTest(provider) {
 
 // ── Dialog 表单 ──
 const dialog = ref({ visible: false, mode: 'create', error: '', saving: false })
+const dialogPanelRef = ref(null)
 const editingKey = ref('')
 const form = ref({})
 const modelMapEntries = ref([])
+
+usePointerDownOutside({
+  inside: [dialogPanelRef],
+  enabled: () => dialog.value.visible,
+  onOutside: closeDialog,
+})
 
 const apiEndpointPlaceholder = computed(() => {
   const providerType = form.value.provider_type

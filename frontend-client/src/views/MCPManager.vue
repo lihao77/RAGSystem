@@ -538,8 +538,8 @@
          模态：Registry 配置安装
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
-      <div v-if="registryInstallDialogVisible" class="modal-backdrop" @click.self="closeRegistryInstallDialog">
-        <div class="modal-shell glass-card">
+      <div v-if="registryInstallDialogVisible" class="modal-backdrop">
+        <div ref="registryInstallDialogRef" class="modal-shell glass-card">
           <div class="modal-header">
             <div class="modal-title-block">
               <h3>配置安装</h3>
@@ -654,8 +654,8 @@
          模态：编辑 MCP 服务
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
-      <div v-if="editDialogVisible && editForm" class="modal-backdrop" @click.self="closeEditDialog">
-        <div class="modal-shell glass-card">
+      <div v-if="editDialogVisible && editForm" class="modal-backdrop">
+        <div ref="editDialogRef" class="modal-shell glass-card">
           <div class="modal-header">
             <div class="modal-title-block">
               <h3>编辑 MCP 服务</h3>
@@ -764,8 +764,8 @@
          模态：工具列表
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
-      <div v-if="toolsDialogVisible" class="modal-backdrop" @click.self="closeToolsDialog">
-        <div class="modal-shell modal-shell--narrow glass-card">
+      <div v-if="toolsDialogVisible" class="modal-backdrop">
+        <div ref="toolsDialogRef" class="modal-shell modal-shell--narrow glass-card">
           <div class="modal-header">
             <div class="modal-title-block">
               <h3>工具列表</h3>
@@ -807,6 +807,7 @@ import AppToast from '../components/AppToast.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import PageLayout from '../components/PageLayout.vue';
+import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import {
   connectMCPServer,
   deleteMCPServer,
@@ -877,7 +878,28 @@ const selectedRegistryServer = ref(null);
 const registryInstallDialogVisible = ref(false);
 const editDialogVisible = ref(false);
 const toolsDialogVisible = ref(false);
+const registryInstallDialogRef = ref(null);
+const editDialogRef = ref(null);
+const toolsDialogRef = ref(null);
 const editForm = ref(null);
+
+usePointerDownOutside({
+  inside: [registryInstallDialogRef],
+  enabled: () => registryInstallDialogVisible.value,
+  onOutside: closeRegistryInstallDialog,
+});
+
+usePointerDownOutside({
+  inside: [editDialogRef],
+  enabled: () => editDialogVisible.value,
+  onOutside: closeEditDialog,
+});
+
+usePointerDownOutside({
+  inside: [toolsDialogRef],
+  enabled: () => toolsDialogVisible.value,
+  onOutside: closeToolsDialog,
+});
 
 // ── 静态选项 ──────────────────────────────────────────────
 const riskOptions = [
