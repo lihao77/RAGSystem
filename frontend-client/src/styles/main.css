@@ -465,6 +465,95 @@ body {
     position: relative;
 }
 
+/* 应用交互默认按桌面软件处理：界面外壳不显示文本光标，也不可被误选中 */
+:where(img, svg) {
+    -webkit-user-drag: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+:where(button, a, [role="button"], label, summary) {
+    cursor: pointer;
+    caret-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+:where(
+    input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+    textarea,
+    [contenteditable='true']
+) {
+    cursor: text;
+    caret-color: auto;
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+}
+
+:where(
+    input[type='button'],
+    input[type='submit'],
+    input[type='reset'],
+    input[type='checkbox'],
+    input[type='radio'],
+    input[type='range'],
+    input[type='color'],
+    input[type='file'],
+    select
+) {
+    cursor: pointer;
+    caret-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+:where(button:disabled, input:disabled, textarea:disabled, select:disabled, [aria-disabled='true']) {
+    cursor: not-allowed;
+}
+
+:where(
+    .markdown-body,
+    .markdown-body *,
+    .user-text,
+    .command-result,
+    .command-result *,
+    .detail-code,
+    .result-code,
+    .thought-content,
+    .description-full,
+    .result-body,
+    .user-input-prompt,
+    .user-input-answer,
+    [data-selectable='true']
+) {
+    cursor: text;
+    caret-color: auto;
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+}
+
+:where(
+    .markdown-body button,
+    .markdown-body button *,
+    .markdown-body a,
+    .markdown-body a *,
+    .markdown-body [role="button"],
+    .markdown-body [role="button"] *,
+    .markdown-body .md-block-copy-btn,
+    .markdown-body .md-block-copy-btn *,
+    .msg-action-btn,
+    .msg-action-btn *,
+    .btn-editor,
+    .btn-editor *
+) {
+    cursor: pointer;
+    caret-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 /* 1. 去掉移动端点击高亮 */
 button,
 a,
@@ -482,6 +571,11 @@ a:focus:not(:focus-visible) {
 }
 
 #app {
+    cursor: default;
+    caret-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     width: 100%;
     height: 100%;
     position: relative;

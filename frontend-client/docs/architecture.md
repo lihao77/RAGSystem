@@ -150,7 +150,7 @@ tool 归属规则：
 - 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动
 - 管理页的内容留白下沉到各页面自身：通用页面走 `components/PageLayout.vue` 的 embedded 模式，自定义页面自行定义边距，因此不同页面可以使用不同留白策略
 
-这样侧边栏、聊天页、管理页都处于同一套卡片层级体系中，同时页面内边距由页面自己控制，避免公共壳层把所有管理页锁死为同一套留白。
+- 全局交互样式在 `src/styles/main.css` 中按桌面软件语义收敛：`#app` 默认 `cursor: default`、禁用误选中并隐藏非输入区 caret；只有真实文本输入控件、Markdown 消息正文、用户消息、命令结果与执行详情代码/结果等内容区恢复文本选择和文本光标。新增可复制文本区域时应复用现有内容类或显式加 `data-selectable="true"`，不要在导航、按钮、卡片标题等 UI 外壳上开启文本选择。`ChatViewV2.vue` 的 scoped 样式如果对内容区设置了更高优先级光标规则，需要同步恢复 `cursor: text` 与 `user-select: text`。
 
 `ChatViewV2.vue` 在消息区底部使用单一 `chat-messages-wrapper` 作为滚动容器，并在其底部放置一个 `bottom-dock` sticky 容器，内部同时承载输入区和“滚动到底部”按钮。按钮只用 JS 判断是否显示；位置完全由 CSS 控制，始终相对输入区使用 `bottom: calc(100% + 12px)` 悬浮，因此 textarea 自增高、附件预览展开、移动端输入区高度变化时都会自动跟随上移，不再依赖 `getBoundingClientRect()` 或 viewport/safe-area 的手工 bottom 计算。点击按钮时仍对消息容器执行平滑滚动，并在真正回到底部前保持按钮可见，避免闪烁。
 

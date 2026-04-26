@@ -436,7 +436,11 @@
   white-space: pre-wrap;
   word-break: break-word;
   outline: none;
-  cursor: default;
+  cursor: text;
+  caret-color: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
   min-height: 0;
   max-height: none;
   overflow: visible;
