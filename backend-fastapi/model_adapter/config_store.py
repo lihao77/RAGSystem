@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Optional
 from pathlib import Path
 
+from integrations.model_providers.factory import canonicalize_provider_config
 from utils.yaml_store import load_yaml_file, save_yaml_file
 
 logger = logging.getLogger(__name__)
@@ -34,24 +35,53 @@ class ModelAdapterConfigStore:
     def load_all(self) -> Dict[str, Dict]:
         """
         加载所有 Provider 配置
-        
+
         Returns:
             Dict[str, Dict]: {provider_key: config_dict}
         """
         if not self.config_file.exists():
             logger.warning(f"配置文件不存在: {self.config_file}")
             return {}
-        
+
         try:
             configs = load_yaml_file(self.config_file, default_factory=dict)
-            
-            logger.debug(f"加载了 {len(configs)} 个 Provider 配置")
-            return configs
-            
+            normalized_configs = self._normalize_configs(configs)
+            if normalized_configs != configs:
+                self.save_all(normalized_configs)
+
+            logger.debug(f"加载了 {len(normalized_configs)} 个 Provider 配置")
+            return normalized_configs
+
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
             return {}
-    
+
+    def _normalize_configs(self, configs: Dict[str, Dict]) -> Dict[str, Dict]:
+        normalized_configs: Dict[str, Dict] = {}
+        for provider_key, config in (configs or {}).items():
+            if not isinstance(config, dict):
+                logger.warning(f"跳过无效 Provider 配置: {provider_key}")
+                continue
+
+            normalized_config = canonicalize_provider_config(config)
+            normalized_key = self._make_provider_key(
+                normalized_config.get("name", ""),
+                normalized_config.get("provider_type", ""),
+            )
+            if not normalized_key:
+                logger.warning(f"跳过缺少 name/provider_type 的 Provider 配置: {provider_key}")
+                continue
+            normalized_configs[normalized_key] = normalized_config
+        return normalized_configs
+
+    @staticmethod
+    def _make_provider_key(name: str, provider_type: str) -> str:
+        clean_name = str(name or "").lower().replace(" ", "_")
+        clean_type = str(provider_type or "").lower()
+        if not clean_name or not clean_type:
+            return ""
+        return f"{clean_name}_{clean_type}"
+
     def save_all(self, configs: Dict[str, Dict]) -> None:
         """
         保存所有 Provider 配置

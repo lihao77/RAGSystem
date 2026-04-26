@@ -654,6 +654,7 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
 - 源码目录中的 `config.yaml(.example)` 仅作为启动时初始化来源；agent 配置不再从源码侧 `agents/configs/agent_configs.yaml(.example)` 自动 seed，MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
+- `CONFIG_ROOT/model_adapter/providers.yaml` 读取时由 `ModelAdapterConfigStore` 统一规范化 provider 配置：旧 `provider_type` 别名会收敛为当前短名称，复合键会按 `{name}_{provider_type}` 重建；如文件内容发生变化会立即写回，避免重启后旧键/旧类型再次生效
 - legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
 - 首次初始化 default team 一律由 `AgentConfigManager._build_default_team_payload()` 代码生成；只有运行时目录中已存在 legacy `agent_configs.yaml` 时，才迁移为 `team_index.yaml + teams/default.yaml`
 - `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`tasks.workflow/background`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`

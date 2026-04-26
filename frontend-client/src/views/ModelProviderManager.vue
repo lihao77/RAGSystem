@@ -411,12 +411,13 @@
         </div>
       </div>
     </div>
-
+    <AppToast ref="toastRef" />
   </PageLayout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import AppToast from '../components/AppToast.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import PageLayout from '../components/PageLayout.vue'
 import {
@@ -498,10 +499,15 @@ async function loadProviderTypes() {
 const providers = ref([])
 const loading = ref(false)
 const error = ref('')
+const toastRef = ref(null)
 const testingKey = ref('')
 const testResults = ref({})
 const deleteTarget = ref(null)
 const deleting = ref(false)
+
+function showToast(message, type = 'error') {
+  toastRef.value?.show(message, type)
+}
 
 // ── 统计 ──
 const totalModels = computed(() =>
@@ -536,15 +542,19 @@ async function quickTest(provider) {
     const chatModel = provider.model_map?.chat || provider.models?.[0] || ''
     const result = await testProvider(provider.name, chatModel, 'Hi', provider.provider_type || '')
     if (result.error) throw new Error(result.error)
+    const message = `响应: ${(result.response?.content || result.content || '').slice(0, 60)}`
     testResults.value = {
       ...testResults.value,
-      [key]: { ok: true, msg: `响应: ${(result.response?.content || result.content || '').slice(0, 60)}` }
+      [key]: { ok: true, msg: message }
     }
+    showToast('Provider 连通性测试成功', 'success')
   } catch (e) {
+    const message = e.message || '测试失败'
     testResults.value = {
       ...testResults.value,
-      [key]: { ok: false, msg: e.message || '测试失败' }
+      [key]: { ok: false, msg: message }
     }
+    showToast(message, 'error')
   } finally {
     testingKey.value = ''
   }
@@ -672,7 +682,8 @@ async function handleSubmit() {
   dialog.value.saving = true
   try {
     const mm = buildModelMap()
-    if (dialog.value.mode === 'create') {
+    const isCreate = dialog.value.mode === 'create'
+    if (isCreate) {
       const payload = normalizeProviderPayload({ ...form.value, model_map: mm })
       await createProvider(payload)
     } else {
@@ -682,8 +693,11 @@ async function handleSubmit() {
     }
     closeDialog()
     await loadProviders()
+    showToast(isCreate ? 'Provider 创建成功' : 'Provider 更新成功', 'success')
   } catch (e) {
-    dialog.value.error = e.message || '操作失败'
+    const message = e.message || '操作失败'
+    dialog.value.error = message
+    showToast(message, 'error')
   } finally {
     dialog.value.saving = false
   }
@@ -702,8 +716,9 @@ async function doDelete() {
     await deleteProvider(key)
     deleteTarget.value = null
     await loadProviders()
+    showToast('Provider 删除成功', 'success')
   } catch (e) {
-    alert(e.message || '删除失败')
+    showToast(e.message || '删除失败', 'error')
   } finally {
     deleting.value = false
   }
