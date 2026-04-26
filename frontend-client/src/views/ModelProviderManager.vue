@@ -359,7 +359,7 @@
             </template>
 
             <div class="form-section-title">模型映射 (model_map)</div>
-            <p class="form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding / reasoning</p>
+            <p class="form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding</p>
             <div class="model-map-editor">
               <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
                 <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
