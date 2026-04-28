@@ -1251,25 +1251,75 @@ class BaseAgent(ABC):
         max_keepalive = config.max_hidden_keepalive_rounds
         allow_provider_keepalive = config.allow_provider_keepalive
 
+        wait_started_at = time.time()
         bg_wait_state = BackgroundWaitState(
             wait_id=wait_id,
             task_ids=list(waiting_request.background_task_ids),
-            deadline_at=time.time() + idle_timeout,
+            deadline_at=wait_started_at + idle_timeout,
             poll_interval_seconds=poll_interval,
             keepalive_interval_seconds=keepalive_interval,
             pending_task_ids=list(waiting_request.background_task_ids),
         )
 
+        def publish_waiting_start():
+            if not publisher:
+                return
+            publisher.execution_waiting_start(
+                wait_id=wait_id,
+                run_id=waiting_request.run_id,
+                round=rounds,
+                background_task_ids=list(bg_wait_state.task_ids),
+                pending_task_ids=list(bg_wait_state.pending_task_ids),
+                timeout_ms=int(idle_timeout * 1000),
+                deadline_at=bg_wait_state.deadline_at,
+                poll_interval_seconds=poll_interval,
+                keepalive_enabled=allow_provider_keepalive and max_keepalive > 0,
+                agent_display_name=self.display_name or self.name,
+            )
+
+        def publish_waiting_end(status: str = 'completed', wake_reason: Optional[str] = None):
+            if not publisher:
+                return
+            publisher.execution_waiting_end(
+                wait_id=wait_id,
+                run_id=waiting_request.run_id,
+                round=rounds,
+                background_task_ids=list(bg_wait_state.task_ids),
+                completed_task_ids=list(bg_wait_state.completed_task_ids),
+                pending_task_ids=list(bg_wait_state.pending_task_ids),
+                wake_reason=wake_reason or bg_wait_state.wake_reason,
+                elapsed_ms=int((time.time() - wait_started_at) * 1000),
+                status=status,
+                agent_display_name=self.display_name or self.name,
+            )
+
+        def publish_waiting_timeout():
+            if not publisher:
+                return
+            publisher.execution_waiting_timeout(
+                wait_id=wait_id,
+                run_id=waiting_request.run_id,
+                round=rounds,
+                background_task_ids=list(bg_wait_state.task_ids),
+                completed_task_ids=list(bg_wait_state.completed_task_ids),
+                pending_task_ids=list(bg_wait_state.pending_task_ids),
+                elapsed_ms=int((time.time() - wait_started_at) * 1000),
+                timeout_ms=int(idle_timeout * 1000),
+                agent_display_name=self.display_name or self.name,
+            )
+
         evt = registry.add_task_pending_wait(task_id, wait_id, bg_wait_state)
         if evt is None:
             self.logger.warning("%s 无法注册后台等待（task_id=%s 不存在）", log_prefix, task_id)
             return
+        publish_waiting_start()
 
         # 先立即 poll 一次，防止订阅建立前任务已完成
         completed_early = self._poll_background_tasks(
             bg_manager, bg_wait_state, wait_id, task_id, registry,
         )
         if completed_early:
+            publish_waiting_end(wake_reason='completed_early')
             self._append_waiting_observation(
                 wait_id,
                 task_id,
@@ -1301,6 +1351,7 @@ class BaseAgent(ABC):
                 # 检查中断
                 cancel_event = context.metadata.get('cancel_event')
                 if cancel_event and cancel_event.is_set():
+                    publish_waiting_end(status='cancelled', wake_reason='cancelled')
                     registry.clear_task_waiting(task_id, wait_id)
                     self.logger.debug("%s waiting loop 被取消", log_prefix)
                     raise InterruptedError("等待后台任务期间被用户取消")
@@ -1309,6 +1360,7 @@ class BaseAgent(ABC):
                     # 事件唤醒：检查结果
                     result = registry.get_task_wait_result(task_id, wait_id)
                     if result.get('status') == 'cancelled':
+                        publish_waiting_end(status='cancelled', wake_reason='cancelled')
                         self.logger.debug("%s waiting loop 被系统取消", log_prefix)
                         raise InterruptedError("等待后台任务期间被系统取消")
                     completed_payloads = result.get('completed_payloads') or []
@@ -1327,6 +1379,7 @@ class BaseAgent(ABC):
                         if session_id:
                             for payload in completed_payloads:
                                 registry.add_session_notification(session_id, payload)
+                    publish_waiting_end(wake_reason=bg_wait_state.wake_reason or 'event')
                     self._append_waiting_observation(
                         wait_id,
                         task_id,
@@ -1346,6 +1399,7 @@ class BaseAgent(ABC):
                     bg_manager, bg_wait_state, wait_id, task_id, registry,
                 )
                 if completed:
+                    publish_waiting_end(wake_reason=bg_wait_state.wake_reason or 'poll')
                     self._append_waiting_observation(
                         wait_id,
                         task_id,
@@ -1362,6 +1416,7 @@ class BaseAgent(ABC):
                 if bg_wait_state.deadline_at and now >= bg_wait_state.deadline_at:
                     self.logger.warning("%s waiting loop 超时（%.0fs）", log_prefix, idle_timeout)
                     bg_wait_state.wake_reason = 'timeout'
+                    publish_waiting_timeout()
                     timeout_observation = self._append_waiting_observation(
                         wait_id,
                         task_id,
@@ -1603,16 +1658,21 @@ class BaseAgent(ABC):
         context: AgentContext,
         state: Dict[str, Any],
         start_time: float,
+        first_token_time: Optional[float] = None,
     ) -> AgentResponse:
         """处理最终答案。"""
         del context
 
         publisher = state.get('publisher')
+        execution_time = time.time() - start_time
+        metadata = {'execution_time': execution_time}
+        if first_token_time is not None:
+            metadata['first_token_time'] = first_token_time
         if publisher:
-            publisher.final_answer(final_answer)
+            publisher.final_answer(final_answer, metadata=metadata)
             publisher.agent_end(
                 result=final_answer,
-                execution_time=time.time() - start_time,
+                execution_time=execution_time,
             )
 
         state['_run_status'] = 'success'
@@ -1621,9 +1681,10 @@ class BaseAgent(ABC):
             success=True,
             content=final_answer,
             agent_name=self.name,
-            execution_time=time.time() - start_time,
+            execution_time=execution_time,
             tool_calls=state.get('tool_calls_history', []),
             metadata={
+                **metadata,
                 'rounds': state.get('rounds', 0),
                 'reasoning_steps': [
                     msg for msg in state.get('current_session', [])
@@ -1643,11 +1704,16 @@ class BaseAgent(ABC):
         self.logger.warning(f"{self._log_prefix(None, self._get_runtime_log_label())} 达到最大轮数 {self.max_rounds}")
         final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
         publisher = state.get('publisher')
+        execution_time = time.time() - start_time
+        metadata = {'execution_time': execution_time}
+        first_token_time = state.get('_first_token_time')
+        if first_token_time is not None:
+            metadata['first_token_time'] = first_token_time
         if publisher:
-            publisher.final_answer(final_content)
+            publisher.final_answer(final_content, metadata=metadata)
             publisher.agent_end(
                 result=final_content,
-                execution_time=time.time() - start_time,
+                execution_time=execution_time,
             )
         state['_run_status'] = 'max_rounds'
         state['_run_summary'] = f"达到最大轮数 {self.max_rounds}"
@@ -1655,9 +1721,10 @@ class BaseAgent(ABC):
             success=True,
             content=final_content,
             agent_name=self.name,
-            execution_time=time.time() - start_time,
+            execution_time=execution_time,
             tool_calls=state.get('tool_calls_history', []),
             metadata={
+                **metadata,
                 'rounds': state.get('rounds', 0),
                 'max_rounds_reached': True,
             },
@@ -1731,14 +1798,24 @@ class BaseAgent(ABC):
         if publisher and run_id and not parent_call_id:
             run_status = state.get('_run_status', 'error')
             run_summary = state.get('_run_summary', '')
+            metadata = {
+                "agent_name": getattr(self, 'name', ''),
+                "agent_display_name": getattr(self, 'display_name', None) or getattr(self, 'name', ''),
+            }
+            start_time = state.get('start_time')
+            if start_time is not None:
+                try:
+                    metadata["execution_time"] = max(0.0, time.time() - float(start_time))
+                except (TypeError, ValueError):
+                    pass
+            first_token_time = state.get('_first_token_time')
+            if first_token_time is not None:
+                metadata["first_token_time"] = first_token_time
             publisher.run_end(
                 run_id=run_id,
                 status=run_status,
                 summary=run_summary,
-                metadata={
-                    "agent_name": getattr(self, 'name', ''),
-                    "agent_display_name": getattr(self, 'display_name', None) or getattr(self, 'name', ''),
-                },
+                metadata=metadata,
             )
 
     def _execute_react_task(self, task: str, context: AgentContext) -> AgentResponse:
@@ -1803,12 +1880,15 @@ class BaseAgent(ABC):
                     publisher=publisher,
                     agent_logger=self.logger,
                 )
+                llm_stream_start_time = time.time()
                 result = stream_executor.execute_llm_stream(
                     messages=managed_messages,
                     llm_config=llm_config,
                     round_num=rounds,
                     cancel_event=context.metadata.get('cancel_event'),
                 )
+                if result.first_token_time is not None and state.get('_first_token_time') is None:
+                    state['_first_token_time'] = llm_stream_start_time - start_time + result.first_token_time
 
                 self._check_interrupt(context)
 
@@ -1866,7 +1946,13 @@ class BaseAgent(ABC):
                     continue
 
                 if final_answer:
-                    return self._handle_final_answer(final_answer, context, state, start_time)
+                    return self._handle_final_answer(
+                        final_answer,
+                        context,
+                        state,
+                        start_time,
+                        state.get('_first_token_time'),
+                    )
 
                 self._handle_no_action(result, context, state, rounds, log_prefix)
         except InterruptedError as error:

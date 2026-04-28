@@ -37,11 +37,29 @@ class _DummyPublisher:
     def tool_call_start(self, **kwargs):
         self.calls.append(("tool_call_start", kwargs))
 
-    def tool_call_end(self, **kwargs):
-        self.calls.append(("tool_call_end", kwargs))
+    def final_answer(self, *args, **kwargs):
+        self.calls.append(("final_answer", {"args": args, "kwargs": kwargs}))
+
+    def agent_end(self, **kwargs):
+        self.calls.append(("agent_end", kwargs))
+
+    def agent_call_end(self, **kwargs):
+        self.calls.append(("agent_call_end", kwargs))
+
+    def session_end(self, **kwargs):
+        self.calls.append(("session_end", kwargs))
 
     def react_intermediate(self, **kwargs):
         self.calls.append(("react_intermediate", kwargs))
+
+    def execution_waiting_start(self, **kwargs):
+        self.calls.append(("execution_waiting_start", kwargs))
+
+    def execution_waiting_end(self, **kwargs):
+        self.calls.append(("execution_waiting_end", kwargs))
+
+    def execution_waiting_timeout(self, **kwargs):
+        self.calls.append(("execution_waiting_timeout", kwargs))
 
 
 def _make_uninitialized_orchestrator() -> OrchestratorAgent:
@@ -189,7 +207,75 @@ def test_base_execute_react_task_falls_back_when_error_handler_raises():
     assert response.error == "prepare failed"
 
 
-def test_base_format_tool_observation_prefers_policy_materializer_chain():
+def test_handle_final_answer_publishes_execution_time_metadata(monkeypatch):
+    agent = _make_uninitialized_orchestrator()
+    publisher = _DummyPublisher()
+    state = {
+        "publisher": publisher,
+        "rounds": 2,
+        "tool_calls_history": [],
+        "current_session": [],
+    }
+
+    monkeypatch.setattr("agents.core.base.time.time", lambda: 13.5)
+    response = agent._handle_final_answer(
+        "final answer",
+        AgentContext(session_id="session-1"),
+        state,
+        10.0,
+        0.7,
+    )
+
+    final_answer_call = next(item for item in publisher.calls if item[0] == "final_answer")
+    assert final_answer_call[1]["kwargs"]["metadata"]["execution_time"] == 3.5
+    assert final_answer_call[1]["kwargs"]["metadata"]["first_token_time"] == 0.7
+    assert response.execution_time == 3.5
+    assert response.metadata["execution_time"] == 3.5
+    assert response.metadata["first_token_time"] == 0.7
+
+
+def test_handle_max_rounds_publishes_execution_time_metadata(monkeypatch):
+    agent = _make_uninitialized_orchestrator()
+    publisher = _DummyPublisher()
+    state = {
+        "publisher": publisher,
+        "rounds": 15,
+        "tool_calls_history": [],
+    }
+
+    monkeypatch.setattr("agents.core.base.time.time", lambda: 18.0)
+    response = agent._handle_max_rounds(
+        AgentContext(session_id="session-1"),
+        state,
+        10.0,
+    )
+
+    final_answer_call = next(item for item in publisher.calls if item[0] == "final_answer")
+    assert final_answer_call[1]["kwargs"]["metadata"]["execution_time"] == 8.0
+    assert response.execution_time == 8.0
+    assert response.metadata["execution_time"] == 8.0
+
+
+def test_cleanup_execution_publishes_run_end_timing_metadata(monkeypatch):
+    agent = _make_uninitialized_orchestrator()
+    publisher = _DummyPublisher()
+    state = {
+        "publisher": publisher,
+        "run_id": "run-1",
+        "start_time": 10.0,
+        "_first_token_time": 0.8,
+        "_run_status": "success",
+        "_run_summary": "done",
+    }
+
+    monkeypatch.setattr("agents.core.base.time.time", lambda: 13.25)
+    agent._cleanup_execution(AgentContext(session_id="session-1"), state)
+
+    run_end_call = next(item for item in publisher.calls if item[0] == "run_end")
+    assert run_end_call[1]["metadata"]["execution_time"] == 3.25
+    assert run_end_call[1]["metadata"]["first_token_time"] == 0.8
+    assert run_end_call[1]["metadata"]["agent_name"] == "orchestrator_agent"
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="react_runtime_", dir=Path(__file__).parent))
     agent = SimpleNamespace(
         result_normalizer=ToolResultNormalizer(),
@@ -462,6 +548,90 @@ def test_handle_actions_keeps_completed_task_output_observation(monkeypatch):
             "content": "[task_output]\n{'task_id': 'bg-3', 'status': 'completed', 'completed': True, 'output': {'result': 42}}",
         }
     ]
+
+
+
+def test_run_waiting_loop_emits_start_and_end_for_completed_task(monkeypatch):
+    import threading
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _DoneTask:
+        status = 'completed'
+        return_code = 0
+        result_type = 'text'
+        output_path = None
+        completed_at = 123.0
+
+        def is_done(self):
+            return True
+
+    class _Registry:
+        def __init__(self):
+            self.resolved = []
+            self.cleared = []
+
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id, bg_wait_state
+            return threading.Event()
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            self.resolved.append((task_id, wait_id, payload))
+
+        def clear_task_waiting(self, task_id, wait_id):
+            self.cleared.append((task_id, wait_id))
+
+    class _BackgroundManager:
+        def get_task(self, task_id):
+            assert task_id == 'bg-1'
+            return _DoneTask()
+
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-1'
+            return {
+                'status': 'completed',
+                'return_code': 0,
+                'result_type': 'text',
+                'output_path': None,
+                'completed_at': 123.0,
+            }
+
+    registry = _Registry()
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: registry)
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', lambda: _BackgroundManager())
+    monkeypatch.setattr('agents.core.base.time.time', lambda: 10.0)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(config=ContextConfig())
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-1'], run_id='run-1'),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    start_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_start')
+    end_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_end')
+    assert start_call[1]['run_id'] == 'run-1'
+    assert start_call[1]['background_task_ids'] == ['bg-1']
+    assert start_call[1]['pending_task_ids'] == ['bg-1']
+    assert end_call[1]['run_id'] == 'run-1'
+    assert end_call[1]['completed_task_ids'] == ['bg-1']
+    assert end_call[1]['pending_task_ids'] == []
+    assert end_call[1]['wake_reason'] == 'completed_early'
+    assert end_call[1]['status'] == 'completed'
+    assert state['current_session']
+    assert registry.cleared
 
 
 def test_append_waiting_observation_returns_notification_with_output_path():

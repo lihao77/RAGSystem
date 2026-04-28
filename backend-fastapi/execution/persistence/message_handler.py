@@ -222,11 +222,14 @@ class MessagePersistenceHandler:
             if content is None:
                 return
             try:
+                event_data = event.data or {}
+                event_metadata = event_data.get('metadata') if isinstance(event_data.get('metadata'), dict) else {}
                 message = self.store.add_message(
                     session_id=self.session_id,
                     role='assistant',
                     content=content if isinstance(content, str) else str(content),
                     metadata={
+                        **event_metadata,
                         'agent': event.agent_name,
                         'run_id': self.run_id,
                         'thread_key': self.thread_key,

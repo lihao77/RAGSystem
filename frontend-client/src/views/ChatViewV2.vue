@@ -110,9 +110,12 @@
                   <div
                     v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0) && !msg.finished"
                     class="loading-indicator">
-                    <div class="dot"></div>
-                    <div class="dot"></div>
-                    <div class="dot"></div>
+                    <div class="loading-dots" aria-hidden="true">
+                      <div class="dot"></div>
+                      <div class="dot"></div>
+                      <div class="dot"></div>
+                    </div>
+                    <span class="loading-text">{{ getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
                   </div>
 
 
@@ -220,6 +223,13 @@
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
                   </button>
+                  <span
+                    v-if="getMessageExecutionTimeText(msg)"
+                    class="message-execution-time"
+                    :title="getMessageExecutionTimeTitle(msg)"
+                  >
+                    {{ getMessageExecutionTimeText(msg) }}
+                  </span>
                 </template>
               </div>
             </div>
@@ -491,6 +501,7 @@ const createAssistantMessage = (overrides = {}) => ({
   executionStepsLoading: false,
   executionStepsLoadError: '',
   run_id: null,
+  metadata: {},
   ...overrides,
 });
 
@@ -629,6 +640,14 @@ const _activeRun = reactive({
   runId: null,
   lastSeenSeq: 0,
   isReplaying: false,
+  phase: 'idle',
+  runStartedAt: null,
+  firstTokenAt: null,
+  firstTokenLatencyMs: null,
+  latestLlmFirstTokenAt: null,
+  lastChunkAt: null,
+  waiting: null,
+  outputCharCount: 0,
 });
 
 // ── Composables ─────────────────────────────────────────────────────────
@@ -1233,6 +1252,49 @@ const findRunningSubtaskByAgentName = (subtasks, agentName) => {
   return null;
 };
 
+const getMessageExecutionTime = (msg) => {
+  const value = msg?.metadata?.execution_time;
+  if (value == null || value === '') return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+};
+
+const getMessageFirstTokenTime = (msg) => {
+  const value = msg?.metadata?.first_token_time;
+  if (value == null || value === '') return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+};
+
+const formatExecutionTime = (seconds) => {
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${String(restSeconds).padStart(2, '0')}s`;
+};
+
+const formatPreciseExecutionTime = (seconds) => {
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  return `${seconds.toFixed(3)}s`;
+};
+
+const getMessageExecutionTimeText = (msg) => {
+  const seconds = getMessageExecutionTime(msg);
+  return seconds == null ? '' : `响应时间 ${formatExecutionTime(seconds)}`;
+};
+
+const getMessageExecutionTimeTitle = (msg) => {
+  const executionTime = getMessageExecutionTime(msg);
+  if (executionTime == null) return '';
+  const lines = [`Run 执行时间：${formatPreciseExecutionTime(executionTime)}`];
+  const firstTokenTime = getMessageFirstTokenTime(msg);
+  if (firstTokenTime != null) {
+    lines.push(`首 token：${formatPreciseExecutionTime(firstTokenTime)}`);
+  }
+  return lines.join('\n');
+};
+
 const formatRetryCountdown = (state) => {
   if (!state?.nextRetryAt) return '';
   const remainingMs = Math.max(0, state.nextRetryAt - retryClockMs.value);
@@ -1491,13 +1553,57 @@ const contextUsageClass = computed(() => {
   return '';
 });
 
+const formatDurationMs = (ms) => {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value < 1000) return `${Math.round(value)}ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${String(restSeconds).padStart(2, '0')}s`;
+};
+
+const getAssistantRuntimeStatusText = (msg) => {
+  if (!msg || msg.role !== 'assistant' || msg.finished) return '';
+  if (!_activeRun.active || messages.value[_activeRun.assistantMsgIndex] !== msg) return '';
+  if (llmRetryState.value) return '模型调用重试中';
+  if (_activeRun.phase === 'background_waiting') {
+    const count = _activeRun.waiting?.pendingTaskCount
+      || _activeRun.waiting?.pendingTaskIds?.length
+      || _activeRun.waiting?.backgroundTaskIds?.length
+      || 0;
+    return count > 0 ? `等待后台任务完成 · ${count} 个任务` : '等待后台任务完成';
+  }
+  if (_activeRun.phase === 'approval_waiting') return '等待权限审批';
+  if (_activeRun.phase === 'tool_running') return '工具执行中';
+  if (_activeRun.phase === 'llm_streaming') return '模型输出中';
+  if (_activeRun.phase === 'llm_waiting_first_token') return '等待模型响应';
+  return isLoading.value ? '正在运行' : '';
+};
+
 const executionStatusText = computed(() => {
   if (llmRetryState.value && isLoading.value) {
     return `重试中 · ${formatRetryCountdown(llmRetryState.value)}`;
   }
   const status = sessionTaskInfo.value?.status;
   if (status === 'cancel_requested') return '停止中';
-  if (status === 'running' || isLoading.value) return '运行中';
+  if (isLoading.value) {
+    if (_activeRun.phase === 'background_waiting') {
+      const count = _activeRun.waiting?.pendingTaskCount
+        || _activeRun.waiting?.pendingTaskIds?.length
+        || _activeRun.waiting?.backgroundTaskIds?.length
+        || 0;
+      return count > 0 ? `等待后台任务 · ${count} 个任务` : '等待后台任务';
+    }
+    if (_activeRun.phase === 'approval_waiting') return '等待权限审批';
+    if (_activeRun.phase === 'llm_streaming') return '模型输出中';
+    if (_activeRun.phase === 'llm_waiting_first_token') return '等待模型响应';
+    if (_activeRun.phase === 'tool_running') return '工具执行中';
+    if (_activeRun.phase === 'retrying') return '重试中';
+    return '运行中';
+  }
+  if (status === 'running') return '运行中';
   if (status === 'interrupted') return '已中断';
   if (status === 'failed') return '失败';
   if (status === 'completed') return '已完成';
@@ -1956,6 +2062,14 @@ const handleSend = async (payload = null) => {
   _activeRun.runId = null;
   _activeRun.lastSeenSeq = 0;
   _activeRun.isReplaying = false;
+  _activeRun.phase = 'llm_waiting_first_token';
+  _activeRun.runStartedAt = Date.now() / 1000;
+  _activeRun.firstTokenAt = null;
+  _activeRun.firstTokenLatencyMs = null;
+  _activeRun.latestLlmFirstTokenAt = null;
+  _activeRun.lastChunkAt = null;
+  _activeRun.waiting = null;
+  _activeRun.outputCharCount = 0;
 
   beginOptimisticExecutionState(sessionId);
   isLoading.value = true;
@@ -2018,6 +2132,14 @@ const handleSend = async (payload = null) => {
     }
     sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
     _activeRun.active = false;
+    _activeRun.phase = 'idle';
+    _activeRun.waiting = null;
+    _activeRun.runStartedAt = null;
+    _activeRun.firstTokenAt = null;
+    _activeRun.firstTokenLatencyMs = null;
+    _activeRun.latestLlmFirstTokenAt = null;
+    _activeRun.lastChunkAt = null;
+    _activeRun.outputCharCount = 0;
     isLoading.value = false;
     showToast('消息发送失败', async () => {
       if (lastFailedSendContent.value) {

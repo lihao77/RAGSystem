@@ -164,6 +164,51 @@ def test_message_handler_final_answer_uses_entry_call_boundary():
     assert store.updated[0] == ('session-1', 'run-1', 'msg-1')
 
 
+
+def test_message_handler_merges_final_answer_metadata_without_overriding_system_fields():
+    bus = _FakeEventBus()
+    store = _FakeStore()
+    handler = MessagePersistenceHandler(
+        event_bus=bus,
+        store=store,
+        session_id='session-1',
+        run_id='run-1',
+        cancel_event=ThreadingEvent(),
+        entry_agent_name='orchestrator_agent',
+        thread_key='root',
+        conversation_scope='root',
+        visible_to_user=True,
+        child_agent_id=None,
+    )
+    handler.subscribe_all()
+
+    bus.publish(_event(EventType.AGENT_START, call_id='call-root', parent_call_id=None))
+    bus.publish(_event(
+        EventType.FINAL_ANSWER,
+        call_id='call-root',
+        agent_name='orchestrator_agent',
+        data={
+            'content': 'root final',
+            'metadata': {
+                'execution_time': 1.23,
+                'first_token_time': 0.45,
+                'custom_field': 'kept',
+                'run_id': 'other-run',
+                'thread_key': 'other-thread',
+            },
+        },
+    ))
+
+    metadata = store.messages[0]['metadata']
+    assert metadata['execution_time'] == 1.23
+    assert metadata['first_token_time'] == 0.45
+    assert metadata['custom_field'] == 'kept'
+    assert metadata['run_id'] == 'run-1'
+    assert metadata['thread_key'] == 'root'
+    assert metadata['conversation_scope'] == 'root'
+    assert metadata['visible_to_user'] is True
+
+
 def test_message_handler_persists_session_memory_after_root_final_answer(monkeypatch):
     bus = _FakeEventBus()
     store = _FakeStore()

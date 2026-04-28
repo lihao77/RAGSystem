@@ -90,7 +90,8 @@ handleSend({ content, attachments })
       └─ 后端按附件类型分流：图片继续自动进入多模态模型；普通文件只作为引用保留，由 agent 按需读取
   → handleWSMessage()                  # 统一处理 WebSocket 事件
       ├─ reconnect_start / reconnect_end：run 回放边界
-      ├─ 消息流：output.chunk / output.final_answer / output.message_saved
+      ├─ 消息流：llm.first_token / output.chunk / output.final_answer / output.message_saved
+      ├─ 运行态：execution.waiting_start / execution.waiting_end / execution.waiting_timeout
       ├─ 执行树流：execution.step → executionProjector.applyStep()
       ├─ 审批/输入：user.approval_required / user.input_required
       ├─ 命令结果：command.result
@@ -172,11 +173,14 @@ tool 归属规则：
 | 事件类型 | 处理逻辑 |
 |---------|--------|
 | `execution.step` | 交给 executionProjector 增量更新执行树 |
-| `output.chunk` | 流式追加根最终答案 |
-| `output.final_answer` | 标记根 assistant 消息完成 |
+| `llm.first_token` | 记录后端 provider stream 首个非空 content 的到达时间，切换 activeRun 为“模型输出中”；不在输出过程中展示首 token 耗时，避免运行态提示过载 |
+| `execution.waiting_start` | 切换 activeRun 为“等待后台任务”，保存 wait_id / background_task_ids / pending_task_count |
+| `execution.waiting_end` / `execution.waiting_timeout` | 清理后台等待状态，若 run 未结束则回到“等待模型响应” |
+| `output.chunk` | 流式追加根最终答案；仅作为缺失 `llm.first_token` 时的前端兜底 timing，不作为主口径 |
+| `output.final_answer` | 标记根 assistant 消息完成，并合并 `data.metadata` 到当前 assistant message metadata；其中 `metadata.execution_time` 用于消息级响应时间展示，`metadata.first_token_time` 表示 provider stream 首个非空 content 到达的时间 |
 | `output.message_saved` | 补全消息 id/seq |
-| `user.approval_required` | 进入本地审批队列，按 `approval_id` 去重后由队首驱动弹出审批对话框 |
-| `user.approval_granted` / `user.approval_denied` | 作为审批 ack 事件：移除当前审批、清空提交锁，并自动切换到下一条待审批 |
+| `user.approval_required` | 进入本地审批队列，按 `approval_id` 去重后由队首驱动弹出审批对话框，并切换 activeRun 为“等待权限审批” |
+| `user.approval_granted` / `user.approval_denied` | 作为审批 ack 事件：移除当前审批、清空提交锁，并自动切换到下一条待审批；若当前处于审批等待态，同意后进入“工具执行中”，拒绝后回到“等待模型响应” |
 | `user.input_required` | 弹出用户输入对话框 |
 | `context.usage` | 更新上下文用量 |
 | `context.compression_start` / `context.compression_summary` | 更新压缩状态与摘要占位 |
@@ -186,10 +190,11 @@ tool 归属规则：
 | `agent.retry_scheduled` / `agent.end` | 更新 agent 生命周期提示 |
 | `agent.error` | 添加错误状态 |
 | `command.result` | 斜杠命令执行结果：原地修改占位 assistant 消息为 `role=system`，由 `CommandResultMessage.vue` 渲染 |
-| `run.end` / `done` | 标记 run 结束并收尾当前 assistant 消息 |
+| `run.end` / `done` | 标记 run 结束并收尾当前 assistant 消息；`run.end.data.metadata.execution_time` / `first_token_time` 可作为当前消息响应时间的实时兜底来源 |
 
-说明：
-- 不再使用 raw event 状态机构建执行树。
+- `_activeRun` 维护运行态状态机：`llm_waiting_first_token`（等待模型响应）、`llm_streaming`（模型输出中）、`tool_running`（工具执行中）、`approval_waiting`（等待权限审批）、`background_waiting`（等待后台任务）、`retrying`（模型重试中）与 `idle`。这些字段只服务实时 UI，不写入 message metadata，也不进入后端持久化。
+- `llm.first_token.data.elapsed_ms` 表示后端从本轮 provider stream 调用开始到首个非空 content 到达的耗时；前端仅记录该指标用于最终消息 hover，不在输出过程中展示。`output.chunk` 仍是最终答案语义 chunk，不能代表 provider 首 token。
+- 前端不使用 `heartbeat` 判断 LLM 是否仍在输出；输出/等待状态完全由 `llm.first_token`、`output.chunk`、tool 事件与 `execution.waiting_*` 边界事件驱动。
 - 不再处理 `react.intermediate`。
 - 不再依赖 `toolCallRegistry`、`executionStepsToExecutionState()`、`isSubtaskStartEvent()`、`isSubtaskEndEvent()` 这类兼容逻辑。
 - 会话 URL 与页面切换统一由 Vue Router 驱动：聊天态使用 `/` 与 `/chat/:id?`，其中 `id` 为 `session_id`；管理页继续使用 `/agent-config`、`/mcp` 等独立路径，但这些路径共享同一个 `MainLayout` 壳层。
@@ -239,7 +244,10 @@ tool 归属规则：
   status: [],                    // 错误状态
   finished: boolean,
   stopped: boolean,              // 已停止/中断
-  metadata: {},                  // 原始 metadata，含 interrupted 等标记
+  metadata: {
+    execution_time?: number,              // 本次 run 执行时间（秒），ChatViewV2 在 message-actions 后显示为“响应时间”
+    first_token_time?: number,            // provider stream 首个非空 content 到达时间（秒），用于 hover 精确信息
+  },
   _executionProjector: object    // 仅运行时内存态，不持久化
 }
 ```

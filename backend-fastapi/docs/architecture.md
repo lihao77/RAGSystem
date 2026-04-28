@@ -469,8 +469,9 @@ memory 当前采用纯 scope 授权模型：
 | 类别 | 事件 |
 |------|------|
 | Agent 生命周期 | AGENT_START, AGENT_END, AGENT_ERROR |
-| 意图流 | INTENT_DELTA, INTENT_COMPLETE, REACT_INTERMEDIATE |
+| 意图流 | LLM_FIRST_TOKEN, INTENT_DELTA, INTENT_COMPLETE, REACT_INTERMEDIATE |
 | 调用生命周期 | CALL_AGENT_START/END, CALL_TOOL_START/END |
+| 执行状态 | EXECUTION_STEP, EXECUTION_WAITING_START/END/TIMEOUT |
 | 流式输出 | CHUNK, FINAL_ANSWER, MESSAGE_SAVED |
 | 用户交互 | USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED, USER_INTERRUPT |
 | 上下文 | COMPRESSION_SUMMARY, CONTEXT_USAGE |
@@ -484,7 +485,9 @@ memory 当前采用纯 scope 授权模型：
 
 说明：
 - `INTENT` / `INTENT_STRUCTURED` 已删除，不再使用。
-- `REACT_INTERMEDIATE` 仍保留，用于 messages 持久化与上下文重建，不再承担前端执行树去重职责。
+- `LLM_FIRST_TOKEN` 在 `agents/streaming/stream_executor.py` 中由 provider stream 首个非空 `content` 触发，表示后端首次收到 LLM 返回内容；它不携带 raw token，只包含 round/provider/model/elapsed_ms/content_length 等运行态指标。`CHUNK` 仍只表示 `<final_answer>` 的语义输出片段，不能作为 provider 首 token 口径。
+- `EXECUTION_WAITING_START/END/TIMEOUT` 由 `_run_waiting_loop()` 发布，用于前端区分“等待后台任务”与“模型正在输出/等待模型响应”；这些事件不进入 messages 持久化。
+- 根 Agent 的 `FINAL_ANSWER` 可携带 `metadata.execution_time` 与 `metadata.first_token_time`：前者表示本次 run 从 ReAct 主循环开始到最终答案生成的执行时间，后者表示从 run 开始到 provider stream 首个非空 content 到达的时间，单位均为秒；这些字段随 assistant message metadata 持久化，用于前端消息级响应时间展示与 hover 精确信息。
 - `CHART_GENERATED` / `MAP_GENERATED` 为兼容旧 DB 记录保留。
 
 ### 统一 execution step sidecar
@@ -545,6 +548,8 @@ canonical step 当前覆盖的语义：
 
 不纳入 execution step 的内容：
 
+- `llm.first_token`（运行态性能边界事件）
+- `execution.waiting_start/end/timeout`（运行态等待边界事件）
 - 根智能体 `output.chunk`
 - 根智能体 `output.final_answer`
 - `output.message_saved`
@@ -570,7 +575,7 @@ canonical step 当前覆盖的语义：
 - `execution/runstep_normalizer.py` 已删除，不再存在 raw run_steps → normalized steps 的兼容层
 - 守护消息路由 `daemon/gateway/router.py` 现在将审批、用户输入、工具开始/结束、重试、intent 完成等事件合并为单个 daemon 订阅，在 handler 内按 `event.type` 分发，减少 run event bus 上的订阅/取消订阅数量
 - `services/conversation_store.py:get_tool_call_raw_result()` 从 canonical `execution.step(kind=tool, phase=end)` 中读取工具原始结果
-- `execution/persistence/message_handler.py` 现支持 root / child 两类消息持久化边界，通过 `child_agent_id + thread_key + visible_to_user` 控制恢复与展示语义
+- `execution/persistence/message_handler.py` 现支持 root / child 两类消息持久化边界，通过 `child_agent_id + thread_key + visible_to_user` 控制恢复与展示语义；持久化 root assistant final answer 时会合并 `event.data.metadata`，并用系统字段覆盖 `run_id/thread_key/conversation_scope/visible_to_user/child_agent_id` 等保护字段。
 - 贴近 Claude Code 语义：主会话回退默认不自动回退已创建的 child agent；若后续需要级联回退，必须显式实现 child 会话失效逻辑
 
 ### 事件流转
@@ -587,7 +592,7 @@ api/v1/stream.py                             ← HTTP SSE 端点
 
 Event 携带全局递增 `sequence_number`（`seq` 字段），前端可检测事件 gap。EventBus 内部按 `subscription_id` 精确取消订阅，并保留最近窗口的有序 history 供 reconnect 回放。
 
-关键事件类型（`CRITICAL_EVENT_TYPES`）在队列满时不会被丢弃：RUN_START/END, AGENT_START/END/ERROR, SESSION_END, USER_INTERRUPT, FINAL_ANSWER, MESSAGE_SAVED, USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED。
+关键事件类型（`CRITICAL_EVENT_TYPES`）在队列满时不会被丢弃：RUN_START/END, AGENT_START/END/ERROR, CALL_AGENT_START/END, CALL_TOOL_START/END, EXECUTION_STEP, LLM_FIRST_TOKEN, EXECUTION_WAITING_START/END/TIMEOUT, SESSION_END, USER_INTERRUPT, FINAL_ANSWER, MESSAGE_SAVED, USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED。
 
 SSEAdapter 背压策略：有界队列（默认 100），非关键事件队满时丢弃，关键事件队满时驱逐非关键事件腾出空间。心跳携带 `last_seq` 和 `dropped_count`。EventBus 对大批量订阅类型的日志会改为摘要输出（示例：`[run.start, run.end, agent.start, ...] (total=43)`），避免全量事件名刷屏。
 
@@ -616,7 +621,7 @@ Prompt cache 策略：`ContextPipeline.prepare_messages()` 在不改变 BaseAgen
 
 `run_in_background=true` 现在只表示后台启动，不会自动让模型直接看到完整输出。后台工具（如 `execute_bash(run_in_background=true)`、`execute_skill_script(run_in_background=true)`）会返回 `background_task_id` 与 `background_output_path`；后台任务完成后，runtime 会向当前 run 自动注入完成通知，通知中包含 `output_path`，模型随后通过 `read_file(file_path=output_path)` 读取结果。
 
-waiting loop 仍由等待信号触发：当某些后台控制入口返回 `suggest_wait=true` 时，ReAct 主循环会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop；后台任务完成后仍会通过统一通知进入后续轮次。若 waiting loop 在等待窗口内等到任务完成，则当前轮直接回灌完成通知，而不会先暴露“已进入等待”的中间 observation。
+waiting loop 仍由等待信号触发：当某些后台控制入口返回 `suggest_wait=true` 时，ReAct 主循环会在 `_handle_actions()` 完成后进入 run 内 **waiting loop**。若 `waiting.enabled=false`，则不会进入 waiting loop；后台任务完成后仍会通过统一通知进入后续轮次。waiting loop 会发布 `execution.waiting_start`、`execution.waiting_end` 或 `execution.waiting_timeout`，供前端明确展示“等待后台任务”状态；后台完成通知 observation 仍只在任务完成/超时后回灌给模型，不用 heartbeat、tool end 或 background completion 事件间接推断完整等待生命周期。
 
 等待机制基于四层保障：
 

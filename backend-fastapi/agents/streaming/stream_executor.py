@@ -6,7 +6,8 @@ StreamExecutor - 统一的通用 Agent 流式 LLM 执行逻辑。
 """
 
 import logging
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from agents.streaming.xml_parser import StreamingXMLParser, TagType
@@ -23,6 +24,7 @@ class StreamResult:
     answer: Optional[str] = None
     full_response: str = ""
     error: Optional[str] = None
+    first_token_time: Optional[float] = None
 
 
 class StreamExecutor:
@@ -69,6 +71,9 @@ class StreamExecutor:
         stop_after_tools = False
         answer_streaming_committed = False
         protocol_violation = False
+        stream_start_time = time.time()
+        first_token_time = None
+        first_llm_token_emitted = False
 
         kwargs = dict(extra_kwargs or {})
         kwargs['cancel_event'] = cancel_event
@@ -116,11 +121,26 @@ class StreamExecutor:
                         answer=answer or None,
                         full_response=self.parser.get_full_response(),
                         error='interrupted',
+                        first_token_time=first_token_time,
                     )
 
                 content = chunk_data.get('content', '')
                 if not content:
                     continue
+
+                if not first_llm_token_emitted:
+                    first_llm_token_emitted = True
+                    first_token_time = time.time() - stream_start_time
+                    if self.publisher:
+                        self.publisher.llm_first_token(
+                            round=round_num,
+                            provider=llm_config.get('provider'),
+                            provider_type=llm_config.get('provider_type'),
+                            model=llm_config.get('model_name'),
+                            elapsed_ms=int(first_token_time * 1000),
+                            content_length=len(content),
+                            agent_display_name=getattr(self.publisher, 'agent_display_name', None),
+                        )
 
                 events = self.parser.feed(content)
 
@@ -185,6 +205,7 @@ class StreamExecutor:
                 intent=intent,
                 full_response=self.parser.get_full_response(),
                 error=str(e),
+                first_token_time=first_token_time,
             )
 
         # 若流式阶段尚未在 </tools> 处提前解析，则在这里兜底解析。
@@ -221,4 +242,5 @@ class StreamExecutor:
             answer=answer or None,
             full_response=full_response,
             error=parse_err if (parse_err and not actions and not protocol_violation) else None,
+            first_token_time=first_token_time,
         )

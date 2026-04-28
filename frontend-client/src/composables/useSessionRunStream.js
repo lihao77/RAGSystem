@@ -7,6 +7,110 @@ import { nextTick } from 'vue';
  * 不负责 socket 连接建立本身，也不改动视图模板结构。
  */
 export function useSessionRunStream(deps) {
+  const mergeMessageMetadata = (msg, metadata) => {
+    if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
+    msg.metadata = {
+      ...(msg.metadata || {}),
+      ...metadata,
+    };
+  };
+
+  const eventTimestampSeconds = (event) => {
+    const ts = Number(event?.timestamp);
+    return Number.isFinite(ts) && ts > 0 ? ts : Date.now() / 1000;
+  };
+
+  const computeLatencyMs = (startSeconds, endSeconds) => {
+    if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds)) return null;
+    return Math.max(0, Math.round((endSeconds - startSeconds) * 1000));
+  };
+
+  const resetActiveRunRuntime = () => {
+    Object.assign(deps.activeRun, {
+      phase: 'idle',
+      runStartedAt: null,
+      firstTokenAt: null,
+      firstTokenLatencyMs: null,
+      latestLlmFirstTokenAt: null,
+      lastChunkAt: null,
+      waiting: null,
+      outputCharCount: 0,
+    });
+  };
+
+  const startActiveRunRuntime = (event) => {
+    Object.assign(deps.activeRun, {
+      phase: 'llm_waiting_first_token',
+      runStartedAt: eventTimestampSeconds(event),
+      firstTokenAt: null,
+      firstTokenLatencyMs: null,
+      latestLlmFirstTokenAt: null,
+      lastChunkAt: null,
+      waiting: null,
+      outputCharCount: 0,
+    });
+  };
+
+  const markLlmFirstToken = (event, eventData) => {
+    const ts = eventTimestampSeconds(event);
+    if (!deps.activeRun.firstTokenAt) {
+      const elapsedMs = Number(eventData.elapsed_ms);
+      deps.activeRun.firstTokenAt = ts;
+      deps.activeRun.firstTokenLatencyMs = Number.isFinite(elapsedMs)
+        ? Math.max(0, Math.round(elapsedMs))
+        : computeLatencyMs(deps.activeRun.runStartedAt, ts);
+    }
+    deps.activeRun.latestLlmFirstTokenAt = ts;
+    deps.activeRun.phase = 'llm_streaming';
+    deps.activeRun.waiting = null;
+  };
+
+  const markOutputChunk = (event, content) => {
+    const ts = eventTimestampSeconds(event);
+    deps.activeRun.phase = 'llm_streaming';
+    deps.activeRun.lastChunkAt = ts;
+    deps.activeRun.outputCharCount = (deps.activeRun.outputCharCount || 0) + (content?.length || 0);
+    if (!deps.activeRun.firstTokenAt) {
+      deps.activeRun.firstTokenAt = ts;
+      deps.activeRun.firstTokenLatencyMs = computeLatencyMs(deps.activeRun.runStartedAt, ts);
+    }
+  };
+
+  const markWaitingStart = (event, eventData) => {
+    deps.activeRun.phase = 'background_waiting';
+    deps.activeRun.waiting = {
+      waitId: eventData.wait_id || '',
+      backgroundTaskIds: Array.isArray(eventData.background_task_ids) ? eventData.background_task_ids : [],
+      pendingTaskIds: Array.isArray(eventData.pending_task_ids) ? eventData.pending_task_ids : [],
+      pendingTaskCount: Number.isFinite(eventData.pending_task_count) ? eventData.pending_task_count : 0,
+      timeoutMs: Number.isFinite(eventData.timeout_ms) ? eventData.timeout_ms : null,
+      startedAt: eventTimestampSeconds(event),
+    };
+  };
+
+  const markWaitingFinished = (eventData) => {
+    const currentWaitId = deps.activeRun.waiting?.waitId;
+    const finishedWaitId = eventData?.wait_id || '';
+    if (currentWaitId && finishedWaitId && currentWaitId !== finishedWaitId) return;
+    deps.activeRun.waiting = null;
+    if (deps.activeRun.active) deps.activeRun.phase = 'llm_waiting_first_token';
+  };
+
+  const mergeRunEndMetadata = (event) => {
+    const metadata = event.data?.metadata;
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
+    const normalized = {};
+    for (const key of ['execution_time', 'first_token_time']) {
+      const value = metadata[key];
+      if (value == null) continue;
+      const numericValue = Number(value);
+      if (Number.isFinite(numericValue)) normalized[key] = numericValue;
+    }
+    if (Object.keys(normalized).length === 0) return;
+    const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+    mergeMessageMetadata(currentMsg, normalized);
+  };
+
   const finalizeActiveRun = (sessionId) => {
     if (deps.activeRun.active) {
       const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
@@ -19,6 +123,7 @@ export function useSessionRunStream(deps) {
       }
       deps.cacheMessages(sessionId, deps.messages.value);
       deps.activeRun.active = false;
+      resetActiveRunRuntime();
     }
     deps.clearLlmRetryState();
     deps.isCompressing.value = false;
@@ -35,7 +140,8 @@ export function useSessionRunStream(deps) {
       deps.llmRetryState.value
       && eventType !== 'agent.retry_scheduled'
       && (
-        eventType === 'agent.intent_delta'
+        eventType === 'llm.first_token'
+        || eventType === 'agent.intent_delta'
         || eventType === 'agent.intent_complete'
         || eventType === 'call.tool.start'
         || eventType === 'output.chunk'
@@ -66,7 +172,20 @@ export function useSessionRunStream(deps) {
         provider: eventData.provider || '',
         model: eventData.model || '',
       });
+      deps.activeRun.phase = 'retrying';
       deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'running' };
+    } else if (eventType === 'llm.first_token') {
+      if (deps.isMasterEvent(event)) markLlmFirstToken(event, eventData);
+    } else if (eventType === 'execution.waiting_start') {
+      if (deps.isMasterEvent(event)) markWaitingStart(event, eventData);
+    } else if (eventType === 'execution.waiting_end' || eventType === 'execution.waiting_timeout') {
+      if (deps.isMasterEvent(event)) markWaitingFinished(eventData);
+    } else if (eventType === 'call.tool.start') {
+      if (deps.isMasterEvent(event)) deps.activeRun.phase = 'tool_running';
+    } else if (eventType === 'call.tool.end') {
+      if (deps.isMasterEvent(event) && deps.activeRun.phase !== 'background_waiting') {
+        deps.activeRun.phase = 'llm_waiting_first_token';
+      }
     } else if (eventType === 'execution.step') {
       const projector = deps.ensureExecutionProjector(currentMsg);
       deps.applyStep(projector, eventData);
@@ -74,6 +193,7 @@ export function useSessionRunStream(deps) {
     } else if (eventType === 'output.chunk') {
       if (deps.isMasterEvent(event)) {
         currentMsg.content += eventData.content;
+        markOutputChunk(event, eventData.content || '');
         deps.scrollToBottom();
       } else {
         const subtask = deps.findSubtaskByCallId(currentMsg.subtasks, event.call_id);
@@ -82,7 +202,7 @@ export function useSessionRunStream(deps) {
     } else if (eventType === 'output.final_answer') {
       if (deps.isMasterEvent(event)) {
         Object.assign(currentMsg, {
-          ...(eventData.metadata ? { metadata: eventData.metadata } : {}),
+          ...(eventData.metadata ? { metadata: { ...(currentMsg.metadata || {}), ...eventData.metadata } } : {}),
           finished: true,
         });
         deps.updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
@@ -143,6 +263,7 @@ export function useSessionRunStream(deps) {
         deps.activeRun.assistantMsgIndex++;
       }
     } else if (eventType === 'user.approval_required') {
+      deps.activeRun.phase = 'approval_waiting';
       deps.enqueueApproval(event, eventData, sessionId);
     } else if (eventType === 'user.input_required') {
       deps.userInputDialogRef.value?.show(
@@ -193,6 +314,10 @@ export function useSessionRunStream(deps) {
         deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
         deps.activeRun.runId = event.run_id || null;
         deps.activeRun.lastSeenSeq = 0;
+        if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
+          deps.activeRun.phase = 'llm_waiting_first_token';
+          deps.activeRun.runStartedAt = eventTimestampSeconds(event);
+        }
       }
       if (event.run_id) {
         deps.sessionTaskInfo.value = {
@@ -220,6 +345,7 @@ export function useSessionRunStream(deps) {
         }
         deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
         deps.activeRun.active = false;
+        resetActiveRunRuntime();
         deps.isLoading.value = false;
         return;
       }
@@ -256,6 +382,9 @@ export function useSessionRunStream(deps) {
       return;
     }
     if (eventType === 'user.approval_granted' || eventType === 'user.approval_denied') {
+      if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
+        deps.activeRun.phase = eventType === 'user.approval_granted' ? 'tool_running' : 'llm_waiting_first_token';
+      }
       const approvalId = event.data?.approval_id || event.approval_id || '';
       deps.handleApprovalResolved(approvalId, sessionId);
       return;
@@ -290,8 +419,12 @@ export function useSessionRunStream(deps) {
         deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
         deps.activeRun.lastSeenSeq = 0;
         deps.activeRun.isReplaying = false;
+        startActiveRunRuntime(event);
       }
       deps.activeRun.runId = nextRunId;
+      if (deps.activeRun.phase === 'idle' || !deps.activeRun.runStartedAt) {
+        startActiveRunRuntime(event);
+      }
       deps.isLoading.value = true;
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),
@@ -344,6 +477,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'run.end' || eventType === 'done') {
+      if (eventType === 'run.end') mergeRunEndMetadata(event);
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),
         thread_alive: false,

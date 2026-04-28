@@ -393,6 +393,10 @@ class AgentExecutionAdapter:
                 )
                 response = invocation.response
                 if response and getattr(response, 'content', None) and not final_answer_saved.is_set():
+                    response_metadata = dict(getattr(response, 'metadata', None) or {})
+                    response_metadata['execution_time'] = getattr(response, 'execution_time', 0.0)
+                    if response_metadata.get('first_token_time') is None:
+                        response_metadata.pop('first_token_time', None)
                     event_bus.publish(Event(
                         type=EventType.FINAL_ANSWER,
                         data=attach_execution_metadata(
@@ -400,6 +404,7 @@ class AgentExecutionAdapter:
                                 'content': response.content,
                                 'task_id': task_id,
                                 'request_id': context.metadata.get('request_id'),
+                                'metadata': response_metadata,
                             },
                             task_id=task_id,
                             session_id=session_id,

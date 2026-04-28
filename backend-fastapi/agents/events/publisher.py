@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from contextvars import ContextVar
 
 from execution.observability import attach_execution_metadata, get_current_execution_observability
@@ -216,6 +216,135 @@ class EventPublisher:
         if agent_display_name is not None:
             data["agent_display_name"] = agent_display_name
         self._publish(EventType.INTENT_COMPLETE, data)
+
+    def llm_first_token(
+        self,
+        *,
+        round: Optional[int] = None,
+        provider: Optional[str] = None,
+        provider_type: Optional[str] = None,
+        model: Optional[str] = None,
+        elapsed_ms: Optional[int] = None,
+        content_length: int = 0,
+        agent_display_name: Optional[str] = None,
+    ):
+        """LLM provider 首个非空内容到达。"""
+        data: Dict[str, Any] = {
+            "content_length": content_length,
+            "agent_display_name": agent_display_name or self.agent_display_name,
+        }
+        if round is not None:
+            data["round"] = round
+        if provider is not None:
+            data["provider"] = provider
+        if provider_type is not None:
+            data["provider_type"] = provider_type
+        if model is not None:
+            data["model"] = model
+        if elapsed_ms is not None:
+            data["elapsed_ms"] = elapsed_ms
+        self._publish(EventType.LLM_FIRST_TOKEN, data, priority=EventPriority.HIGH)
+
+    def execution_waiting_start(
+        self,
+        *,
+        wait_id: str,
+        run_id: Optional[str] = None,
+        round: Optional[int] = None,
+        background_task_ids: Optional[List[str]] = None,
+        pending_task_ids: Optional[List[str]] = None,
+        timeout_ms: Optional[int] = None,
+        deadline_at: Optional[float] = None,
+        poll_interval_seconds: Optional[float] = None,
+        keepalive_enabled: Optional[bool] = None,
+        agent_display_name: Optional[str] = None,
+    ):
+        """后台等待开始。"""
+        data: Dict[str, Any] = {
+            "wait_id": wait_id,
+            "background_task_ids": background_task_ids or [],
+            "pending_task_ids": pending_task_ids or background_task_ids or [],
+            "pending_task_count": len(pending_task_ids or background_task_ids or []),
+            "status": "waiting",
+            "agent_display_name": agent_display_name or self.agent_display_name,
+        }
+        if run_id is not None:
+            data["run_id"] = run_id
+        if round is not None:
+            data["round"] = round
+        if timeout_ms is not None:
+            data["timeout_ms"] = timeout_ms
+        if deadline_at is not None:
+            data["deadline_at"] = deadline_at
+        if poll_interval_seconds is not None:
+            data["poll_interval_seconds"] = poll_interval_seconds
+        if keepalive_enabled is not None:
+            data["keepalive_enabled"] = keepalive_enabled
+        self._publish(EventType.EXECUTION_WAITING_START, data, priority=EventPriority.HIGH)
+
+    def execution_waiting_end(
+        self,
+        *,
+        wait_id: str,
+        run_id: Optional[str] = None,
+        round: Optional[int] = None,
+        background_task_ids: Optional[List[str]] = None,
+        completed_task_ids: Optional[List[str]] = None,
+        pending_task_ids: Optional[List[str]] = None,
+        wake_reason: Optional[str] = None,
+        elapsed_ms: Optional[int] = None,
+        status: str = "completed",
+        agent_display_name: Optional[str] = None,
+    ):
+        """后台等待结束。"""
+        data: Dict[str, Any] = {
+            "wait_id": wait_id,
+            "background_task_ids": background_task_ids or [],
+            "completed_task_ids": completed_task_ids or [],
+            "pending_task_ids": pending_task_ids or [],
+            "wake_reason": wake_reason,
+            "status": status,
+            "agent_display_name": agent_display_name or self.agent_display_name,
+        }
+        if run_id is not None:
+            data["run_id"] = run_id
+        if round is not None:
+            data["round"] = round
+        if elapsed_ms is not None:
+            data["elapsed_ms"] = elapsed_ms
+        self._publish(EventType.EXECUTION_WAITING_END, data, priority=EventPriority.HIGH)
+
+    def execution_waiting_timeout(
+        self,
+        *,
+        wait_id: str,
+        run_id: Optional[str] = None,
+        round: Optional[int] = None,
+        background_task_ids: Optional[List[str]] = None,
+        completed_task_ids: Optional[List[str]] = None,
+        pending_task_ids: Optional[List[str]] = None,
+        elapsed_ms: Optional[int] = None,
+        timeout_ms: Optional[int] = None,
+        agent_display_name: Optional[str] = None,
+    ):
+        """后台等待超时。"""
+        data: Dict[str, Any] = {
+            "wait_id": wait_id,
+            "background_task_ids": background_task_ids or [],
+            "completed_task_ids": completed_task_ids or [],
+            "pending_task_ids": pending_task_ids or [],
+            "status": "timeout",
+            "agent_display_name": agent_display_name or self.agent_display_name,
+        }
+        if run_id is not None:
+            data["run_id"] = run_id
+        if round is not None:
+            data["round"] = round
+        if elapsed_ms is not None:
+            data["elapsed_ms"] = elapsed_ms
+        if timeout_ms is not None:
+            data["timeout_ms"] = timeout_ms
+        self._publish(EventType.EXECUTION_WAITING_TIMEOUT, data, priority=EventPriority.HIGH)
 
     # ==================== 运行生命周期事件 ====================
 

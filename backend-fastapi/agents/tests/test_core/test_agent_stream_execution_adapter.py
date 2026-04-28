@@ -267,6 +267,7 @@ def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_
         content='final content',
         agent_name='orchestrator_agent',
         execution_time=0.1,
+        metadata={'first_token_time': 0.03},
     )
     service = _FakeAgentExecutionService(response)
     execution_handle = SimpleNamespace(
@@ -311,7 +312,10 @@ def test_stream_adapter_fallback_publishes_final_answer_event_instead_of_direct_
     assert result.content == 'final content'
     assert len(assistant_messages) == 1
     assert assistant_messages[0]['content'] == 'final content'
-    assert len(final_events) == 1
+    assert assistant_messages[0]['metadata']['execution_time'] == 0.1
+    assert assistant_messages[0]['metadata']['first_token_time'] == 0.03
+    assert final_events[0].data['metadata']['execution_time'] == 0.1
+    assert final_events[0].data['metadata']['first_token_time'] == 0.03
     assert len(message_saved_events) >= 2
     assert store.updated == [('session-1', 'run-1', 'msg-2')]
     assert registry.finished == []

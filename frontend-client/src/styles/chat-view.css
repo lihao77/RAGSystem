@@ -478,6 +478,11 @@
   white-space: nowrap;
 }
 
+.message-actions {
+  display: flex;
+  align-items: center;
+}
+
 .msg-action-btn {
   display: inline-flex;
   align-items: center;
@@ -531,6 +536,18 @@
   opacity: 0.3;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.message-execution-time {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  margin-left: 8px;
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  color: var(--color-text-muted);
+  user-select: text;
+  white-space: nowrap;
 }
 
 /* 移动端（触摸设备）消息操作按钮始终显示 */
@@ -997,9 +1014,21 @@
 
 /* ===== Loading Indicator ===== */
 .loading-indicator {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: var(--spacing-sm);
+  color: var(--color-text-secondary);
+}
+
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.loading-text {
+  font-size: 0.875rem;
 }
 
 .dot {
@@ -1570,7 +1599,6 @@
   font-size: 0.875rem;
 }
 
-/* ===== Input Area ===== */
 .bottom-dock {
   position: sticky;
   bottom: 0;

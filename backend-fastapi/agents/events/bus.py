@@ -69,8 +69,12 @@ class EventType(str, Enum):
 
     # 规范化执行步骤
     EXECUTION_STEP = "execution.step"
+    EXECUTION_WAITING_START = "execution.waiting_start"
+    EXECUTION_WAITING_END = "execution.waiting_end"
+    EXECUTION_WAITING_TIMEOUT = "execution.waiting_timeout"
 
     # 流式输出事件
+    LLM_FIRST_TOKEN = "llm.first_token"
     CHUNK = "output.chunk"
     FINAL_ANSWER = "output.final_answer"
     MESSAGE_SAVED = "output.message_saved"  # 消息持久化完成，携带 id/seq 供前端补全
@@ -147,6 +151,10 @@ CRITICAL_EVENT_TYPES = frozenset({
     EventType.CALL_AGENT_START, EventType.CALL_AGENT_END,
     EventType.CALL_TOOL_START, EventType.CALL_TOOL_END,
     EventType.EXECUTION_STEP,
+    EventType.EXECUTION_WAITING_START,
+    EventType.EXECUTION_WAITING_END,
+    EventType.EXECUTION_WAITING_TIMEOUT,
+    EventType.LLM_FIRST_TOKEN,
     EventType.INTENT_COMPLETE,
     EventType.SESSION_END, EventType.USER_INTERRUPT,
     EventType.FINAL_ANSWER, EventType.MESSAGE_SAVED,

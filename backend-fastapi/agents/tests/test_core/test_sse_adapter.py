@@ -11,6 +11,10 @@ def test_is_critical_event_type_accepts_enum_and_string():
     assert is_critical_event_type(EventType.CALL_TOOL_START) is True
     assert is_critical_event_type(EventType.CALL_TOOL_START.value) is True
     assert is_critical_event_type(EventType.CHUNK) is False
+    assert is_critical_event_type(EventType.LLM_FIRST_TOKEN) is True
+    assert is_critical_event_type(EventType.EXECUTION_WAITING_START) is True
+    assert is_critical_event_type(EventType.EXECUTION_WAITING_END) is True
+    assert is_critical_event_type(EventType.EXECUTION_WAITING_TIMEOUT) is True
 
 
 def test_sse_adapter_preserves_critical_tool_events_under_backpressure():
