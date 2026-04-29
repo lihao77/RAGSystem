@@ -162,8 +162,8 @@
               </div>
               <div class="meta-chip">
                 <span class="meta-chip-label">Embedding</span>
-                <span class="meta-chip-value" :class="provider.model_map?.embedding ? 'text-success' : 'text-muted'">
-                  {{ provider.model_map?.embedding ? '支持' : '未配置' }}
+                <span class="meta-chip-value" :class="hasModelMapValue(provider.model_map?.embedding) ? 'text-success' : 'text-muted'">
+                  {{ hasModelMapValue(provider.model_map?.embedding) ? '支持' : '未配置' }}
                 </span>
               </div>
               <div class="meta-chip">
@@ -181,7 +181,7 @@
                 <span class="info-label">模型映射</span>
                 <div class="model-map-chips">
                   <span v-for="(model, task) in provider.model_map" :key="task" class="chip">
-                    {{ task }}: {{ model }}
+                    {{ task }}: {{ formatModelMapValue(model) }}
                   </span>
                 </div>
               </div>
@@ -525,8 +525,28 @@ const uniqueTypes = computed(() =>
   new Set(providers.value.map(p => p.provider_type).filter(Boolean)).size
 )
 const embeddingCount = computed(() =>
-  providers.value.filter(p => p.model_map?.embedding).length
+  providers.value.filter(p => hasModelMapValue(p.model_map?.embedding)).length
 )
+
+function normalizeModelList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || '').trim()).filter(Boolean)
+  }
+  const model = String(value || '').trim()
+  return model ? [model] : []
+}
+
+function hasModelMapValue(value) {
+  return normalizeModelList(value).length > 0
+}
+
+function formatModelMapValue(value) {
+  return normalizeModelList(value).join(', ')
+}
+
+function getDefaultModel(value) {
+  return normalizeModelList(value)[0] || ''
+}
 
 // ── 加载 ──
 async function loadProviders() {
@@ -541,16 +561,26 @@ async function loadProviders() {
   }
 }
 
+function getPreferredTestTarget(provider) {
+  const chatModel = getDefaultModel(provider.model_map?.chat)
+  if (chatModel) return { task: 'chat', model: chatModel, prompt: 'Hi' }
+  const embeddingModel = getDefaultModel(provider.model_map?.embedding)
+  if (embeddingModel) return { task: 'embedding', model: embeddingModel, prompt: '测试向量化' }
+  return { task: 'chat', model: normalizeModelList(provider.models)[0] || '', prompt: 'Hi' }
+}
+
 // ── 测试 ──
 async function quickTest(provider) {
   const key = provider.key || provider.name
   testingKey.value = key
   testResults.value = { ...testResults.value, [key]: null }
   try {
-    const chatModel = provider.model_map?.chat || provider.models?.[0] || ''
-    const result = await testProvider(provider.name, chatModel, 'Hi', provider.provider_type || '')
+    const target = getPreferredTestTarget(provider)
+    const result = await testProvider(provider.name, target.model, target.prompt, provider.provider_type || '', target.task)
     if (result.error) throw new Error(result.error)
-    const message = `响应: ${(result.response?.content || result.content || '').slice(0, 60)}`
+    const message = target.task === 'embedding'
+      ? `Embedding 维度: ${result.embeddings?.[0]?.length || result.response?.embeddings?.[0]?.length || 0}`
+      : `响应: ${(result.response?.content || result.content || '').slice(0, 60)}`
     testResults.value = {
       ...testResults.value,
       [key]: { ok: true, msg: message }
@@ -607,7 +637,12 @@ function openCreateDialog() {
 
 function openEditDialog(provider) {
   const mm = provider.model_map || {}
-  modelMapEntries.value = Object.entries(mm).map(([task, model]) => ({ task, model: String(model) }))
+  modelMapEntries.value = Object.entries(mm).flatMap(([task, value]) => {
+    const models = normalizeModelList(value)
+    return models.length
+      ? models.map(model => ({ task, model }))
+      : [{ task, model: '' }]
+  })
   if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }]
   const nextForm = {
     provider_type: provider.provider_type || '',
@@ -666,11 +701,21 @@ function removeModelMapEntry(idx) {
 }
 
 function buildModelMap() {
-  const mm = {}
-  for (const e of modelMapEntries.value) {
-    if (e.task && e.model) mm[e.task.trim()] = e.model.trim()
+  const grouped = {}
+  for (const entry of modelMapEntries.value) {
+    const task = String(entry.task || '').trim()
+    const model = String(entry.model || '').trim()
+    if (!task || !model) continue
+    if (!grouped[task]) grouped[task] = []
+    if (!grouped[task].includes(model)) grouped[task].push(model)
   }
-  return mm
+
+  return Object.fromEntries(
+    Object.entries(grouped).map(([task, models]) => [
+      task,
+      models.length === 1 ? models[0] : models
+    ])
+  )
 }
 
 function getProviderConfigFields(providerType) {

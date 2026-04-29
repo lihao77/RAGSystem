@@ -91,6 +91,7 @@ class ProvidersConfig(BaseModel):
 class VectorizerConfig(BaseModel):
     """单个向量化器配置（与 vectorizers.yaml 一致，无 dimension 字段）"""
     provider_key: str
+    provider_type: Optional[str] = None
     model_name: str
     distance_metric: str = "cosine"
     created_at: Optional[str] = None

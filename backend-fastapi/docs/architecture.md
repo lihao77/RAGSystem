@@ -659,7 +659,10 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
 - 源码目录中的 `config.yaml(.example)` 仅作为启动时初始化来源；agent 配置不再从源码侧 `agents/configs/agent_configs.yaml(.example)` 自动 seed，MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
-- `CONFIG_ROOT/model_adapter/providers.yaml` 读取时由 `ModelAdapterConfigStore` 统一规范化 provider 配置：旧 `provider_type` 别名会收敛为当前短名称，复合键会按 `{name}_{provider_type}` 重建；如文件内容发生变化会立即写回，避免重启后旧键/旧类型再次生效
+- `CONFIG_ROOT/model_adapter/providers.yaml` 读取和单 Provider 保存都由 `ModelAdapterConfigStore` 统一规范化 provider 配置：旧 `provider_type` 别名会收敛为当前短名称，复合键会按 `{name}_{provider_type}` 重建；`model_map` 支持 `task: model` 与 `task: [model...]` 两种形式，`models` 会由 `model_map` 去重重建；旧配置只有 `model` 或 `models`、没有 `model_map` 时会自动补为 `chat` 映射；单 Provider 保存以文件锁包裹读-改-写，避免并发保存把其他 Provider 覆盖丢失。
+- 新建 Provider 是 create 语义，若 `{name}_{provider_type}` 已存在会返回 409；只有更新接口允许覆盖既有 Provider。Provider 测试接口支持 `chat` 与 `embedding`，前端会按 Provider 的 `model_map` 选择合适任务和默认模型。
+- 向量化器配置中的 `provider_key` 统一存 Provider 复合键，`provider_type` 作为显式字段一并保存和返回，避免同名 Provider 在 embedding 初始化时产生歧义。
+- Agent 配置页和全局 LLM 选择器消费 Provider 模型时会合并 `model_map` 全部任务值、`models` 与 `model` 并去重；Provider 管理页编辑数组型 `model_map` 时按多行保留，不再压平成字符串。
 - legacy `CONFIG_ROOT/agents/agent_configs.yaml` 仅作为迁移输入；当前正式 Agent 配置模型以 `team_index.yaml + teams/*.yaml` 为准
 - 首次初始化 default team 一律由 `AgentConfigManager._build_default_team_payload()` 代码生成；只有运行时目录中已存在 legacy `agent_configs.yaml` 时，才迁移为 `team_index.yaml + teams/default.yaml`
 - `CONFIG_ROOT/agents/teams/*.yaml` 中的 Agent 配置包含显式能力域：`tools.enabled_tools`、`tasks.workflow/background`、`skills.enabled_skills`、`mcp.enabled_servers`、`delegation.enabled_agents`、`memory.*`

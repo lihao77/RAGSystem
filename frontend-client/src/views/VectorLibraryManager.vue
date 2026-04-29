@@ -1186,7 +1186,7 @@ async function handleDeleteVectorizer(key) {
 // ── 新增向量化器（Provider 选择模式）────────────────────────
 const showAddVectorizerDialog = ref(false);
 const addingVectorizer = ref(false);
-const addVectorizerForm = reactive({ provider_key: '', model_name: '' });
+const addVectorizerForm = reactive({ provider_key: '', provider_type: '', model_name: '' });
 const availableProviders = ref([]);
 const addFormRecommendedModel = ref('');
 const addFormModelList = ref([]);
@@ -1204,23 +1204,35 @@ async function loadProviders() {
         const providers = await getProviders();
         availableProviders.value = providers.filter(p => {
             const emb = p.model_map?.embedding;
-            return (emb != null && (Array.isArray(emb) ? emb.length > 0 : String(emb).trim())) || p.models?.length > 0;
+            const embeddingModels = normalizeModelList(emb);
+            return embeddingModels.length > 0 || p.models?.length > 0;
         });
     } catch (e) {
         showToast('加载 Provider 列表失败');
     }
 }
 
+function normalizeModelList(value) {
+    if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
+    const model = String(value || '').trim();
+    return model ? [model] : [];
+}
+
 function onAddFormProviderChange(key) {
     const p = availableProviders.value.find(x => x.key === key);
-    if (!p) { addFormRecommendedModel.value = ''; addFormModelList.value = []; return; }
+    if (!p) {
+        addVectorizerForm.provider_type = '';
+        addFormRecommendedModel.value = '';
+        addFormModelList.value = [];
+        return;
+    }
+    addVectorizerForm.provider_type = p.provider_type || '';
     const emb = p.model_map?.embedding;
-    addFormRecommendedModel.value = Array.isArray(emb) ? (emb[0] || '') : (emb || '');
-    const all = new Set(p.models || []);
+    addFormRecommendedModel.value = normalizeModelList(emb)[0] || '';
+    const all = new Set((p.models || []).map(item => String(item || '').trim()).filter(Boolean));
     if (p.model_map) {
         Object.values(p.model_map).forEach(m => {
-            if (Array.isArray(m)) m.forEach(x => { if (x) all.add(String(x).trim()); });
-            else if (m) all.add(String(m).trim());
+            normalizeModelList(m).forEach(model => all.add(model));
         });
     }
     addFormModelList.value = [...all];
@@ -1238,12 +1250,14 @@ async function handleAddVectorizer() {
     try {
         const res = await addVectorizer({
             provider_key: addVectorizerForm.provider_key,
+            provider_type: addVectorizerForm.provider_type || null,
             model_name: addVectorizerForm.model_name.trim(),
         });
         if (res.success) {
             showToast('已添加向量化器', 'success');
             showAddVectorizerDialog.value = false;
             addVectorizerForm.provider_key = '';
+            addVectorizerForm.provider_type = '';
             addVectorizerForm.model_name = '';
             addFormRecommendedModel.value = '';
             addFormModelList.value = [];

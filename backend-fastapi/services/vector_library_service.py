@@ -244,6 +244,7 @@ class VectorLibraryService:
                 {
                     'vectorizer_key': key,
                     'provider_key': row.get('provider_key', ''),
+                    'provider_type': row.get('provider_type'),
                     'model_name': row.get('model_name', ''),
                     'distance_metric': row.get('distance_metric', 'cosine'),
                     'created_at': row.get('created_at'),

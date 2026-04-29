@@ -36,50 +36,65 @@ export async function getProviders() {
   }
 }
 
-function getChatModels(provider) {
-  const fromMap = provider.model_map?.chat
-  if (fromMap != null) {
-    if (Array.isArray(fromMap)) return fromMap.filter(Boolean)
-    return [String(fromMap)]
-  }
-  if (provider.models && provider.models.length > 0) return provider.models
-  if (provider.model) return [provider.model]
-  return []
+function normalizeModelList(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean)
+  const model = String(value || '').trim()
+  return model ? [model] : []
 }
 
-export async function getAvailableModels() {
+function collectProviderModels(provider, task = null) {
+  const result = []
+  const seen = new Set()
+  const add = (modelName, taskName = '') => {
+    const model = String(modelName || '').trim()
+    if (!model) return
+    const key = `${taskName}|${model}`
+    if (seen.has(key)) return
+    result.push({ task: taskName, model })
+    seen.add(key)
+  }
+
+  if (provider.model_map && typeof provider.model_map === 'object') {
+    Object.entries(provider.model_map).forEach(([taskName, value]) => {
+      if (task && taskName !== task) return
+      normalizeModelList(value).forEach(model => add(model, taskName))
+    })
+  }
+
+  if (!task) {
+    normalizeModelList(provider.models).forEach(model => add(model, ''))
+    normalizeModelList(provider.model).forEach(model => add(model, ''))
+  }
+
+  return result
+}
+
+export async function getAvailableModels(options = {}) {
   try {
     const providers = await getProviders()
     const models = []
+    const seen = new Set()
 
     providers.forEach(provider => {
       const name = provider.name || provider.key || ''
       const ptype = provider.provider_type || ''
       const displayName = name + (ptype ? ` (${ptype})` : '')
-      const chatModels = getChatModels(provider)
+      const providerModels = collectProviderModels(provider, options.task || null)
 
-      chatModels.forEach(modelName => {
-        const value = `${name}|${ptype}|${modelName}`
+      providerModels.forEach(({ task, model }) => {
+        const value = `${name}|${ptype}|${model}`
+        const key = `${value}|${task}`
+        if (seen.has(key)) return
+        seen.add(key)
         models.push({
-          label: `${displayName} / ${modelName}`,
+          label: `${displayName} / ${task ? `${task}: ` : ''}${model}`,
           value,
           provider: name,
           provider_type: ptype,
-          model: modelName
+          task,
+          model
         })
       })
-
-      if (chatModels.length === 0 && (provider.models?.length || provider.model)) {
-        const fallback = provider.models?.[0] || provider.model
-        const value = `${name}|${ptype}|${fallback}`
-        models.push({
-          label: `${displayName} / ${fallback}`,
-          value,
-          provider: name,
-          provider_type: ptype,
-          model: fallback
-        })
-      }
     })
 
     return models
@@ -131,7 +146,7 @@ export async function checkProviderAvailability(providerKey) {
   return json
 }
 
-export async function testProvider(provider, model, prompt = 'Hello', providerType = '') {
+export async function testProvider(provider, model, prompt = 'Hello', providerType = '', task = 'chat') {
   try {
     const response = await fetch(`${API_BASE}/test`, {
       method: 'POST',
@@ -141,9 +156,9 @@ export async function testProvider(provider, model, prompt = 'Hello', providerTy
       body: JSON.stringify({
         provider,
         provider_type: providerType,
-        model,
+        model: normalizeModelList(model)[0] || '',
         prompt,
-        task: 'chat'
+        task
       })
     })
 

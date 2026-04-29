@@ -5,10 +5,11 @@ Model Adapter 配置存储管理（单一文件架构）
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from pathlib import Path
 
 from integrations.model_providers.factory import canonicalize_provider_config
+from utils.file_lock import FileLock
 from utils.yaml_store import load_yaml_file, save_yaml_file
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class ModelAdapterConfigStore:
                 logger.warning(f"跳过无效 Provider 配置: {provider_key}")
                 continue
 
-            normalized_config = canonicalize_provider_config(config)
+            normalized_config = self._normalize_provider_config(config)
             normalized_key = self._make_provider_key(
                 normalized_config.get("name", ""),
                 normalized_config.get("provider_type", ""),
@@ -82,56 +83,125 @@ class ModelAdapterConfigStore:
             return ""
         return f"{clean_name}_{clean_type}"
 
+    @staticmethod
+    def _normalize_model_value(value: Any) -> str | list[str]:
+        if isinstance(value, list):
+            models = []
+            seen = set()
+            for item in value:
+                model = str(item or "").strip()
+                if model and model not in seen:
+                    models.append(model)
+                    seen.add(model)
+            return models
+        return str(value or "").strip()
+
+    @classmethod
+    def _normalize_model_map(cls, model_map: Any) -> Dict[str, str | list[str]]:
+        if not isinstance(model_map, dict):
+            return {}
+
+        normalized: Dict[str, str | list[str]] = {}
+        for task, value in model_map.items():
+            task_name = str(task or "").strip()
+            if not task_name:
+                continue
+            model_value = cls._normalize_model_value(value)
+            if model_value:
+                normalized[task_name] = model_value
+        return normalized
+
+    @classmethod
+    def _rebuild_models_from_model_map(cls, config: Dict[str, Any]) -> None:
+        model_map = cls._normalize_model_map(config.get("model_map"))
+        fallback_model = str(config.get("model") or "").strip()
+        fallback_models = cls._normalize_model_value(config.get("models"))
+
+        if "chat" not in model_map and fallback_model:
+            model_map["chat"] = fallback_model
+        elif not model_map and fallback_models:
+            model_map["chat"] = fallback_models
+
+        config["model_map"] = model_map
+
+        models = []
+        seen = set()
+        for value in model_map.values():
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                model = str(item or "").strip()
+                if model and model not in seen:
+                    models.append(model)
+                    seen.add(model)
+        config["models"] = models
+
+    def _normalize_provider_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        normalized_config = canonicalize_provider_config(config)
+        self._rebuild_models_from_model_map(normalized_config)
+        return normalized_config
+
+    def _load_all_unlocked(self) -> Dict[str, Dict]:
+        if not self.config_file.exists():
+            return {}
+        configs = load_yaml_file(self.config_file, default_factory=dict)
+        return self._normalize_configs(configs)
+
+    def _save_all_unlocked(self, configs: Dict[str, Dict]) -> None:
+        save_yaml_file(self.config_file, configs, indent=2, sort_keys=False)
+
     def save_all(self, configs: Dict[str, Dict]) -> None:
         """
         保存所有 Provider 配置
-        
+
         Args:
             configs: {provider_key: config_dict}
         """
         try:
-            save_yaml_file(self.config_file, configs, indent=2, sort_keys=False)
-            
-            logger.info(f"已保存 {len(configs)} 个 Provider 配置")
-            
+            with FileLock(self.config_file):
+                normalized_configs = self._normalize_configs(configs)
+                self._save_all_unlocked(normalized_configs)
+            logger.info(f"已保存 {len(normalized_configs)} 个 Provider 配置")
+
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
             raise
-    
+
     def save_provider(self, provider_key: str, config: Dict) -> None:
         """
         保存单个 Provider 配置
-        
+
         Args:
             provider_key: 复合键（如 test_deepseek）
             config: Provider 配置字典
         """
-        configs = self.load_all()
-        configs[provider_key] = config
-        self.save_all(configs)
-        
+        with FileLock(self.config_file):
+            configs = self._load_all_unlocked()
+            configs[provider_key] = self._normalize_provider_config(config)
+            self._save_all_unlocked(configs)
+
         logger.info(f"已保存 Provider: {provider_key}")
     
     def delete_provider(self, provider_key: str) -> bool:
         """
         删除单个 Provider 配置
-        
+
         Args:
             provider_key: 复合键（如 test_deepseek）
-            
+
         Returns:
             bool: 是否删除成功
         """
-        configs = self.load_all()
-        
-        if provider_key in configs:
-            del configs[provider_key]
-            self.save_all(configs)
-            logger.info(f"已删除 Provider: {provider_key}")
-            return True
-        else:
-            logger.warning(f"Provider 不存在: {provider_key}")
-            return False
+        with FileLock(self.config_file):
+            configs = self._load_all_unlocked()
+
+            if provider_key in configs:
+                del configs[provider_key]
+                self._save_all_unlocked(configs)
+                logger.info(f"已删除 Provider: {provider_key}")
+                return True
+
+        logger.warning(f"Provider 不存在: {provider_key}")
+        return False
     
     def get_provider(self, provider_key: str) -> Optional[Dict]:
         """

@@ -5,11 +5,13 @@ Model Adapter 服务层。
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
 import logging
+from typing import Any, Dict, List, Optional
 
-from runtime.dependencies import get_runtime_dependency
+from integrations.model_providers.factory import canonicalize_provider_config
 from model_adapter import get_default_adapter
+from model_adapter.config_store import ModelAdapterConfigStore
+from runtime.dependencies import get_runtime_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +34,32 @@ class ModelAdapterService:
     def list_providers(self) -> List[Dict[str, Any]]:
         return [dict(config) for config in self._adapter.get_provider_configs()]
 
+    def _make_provider_key(self, data: Dict[str, Any]) -> str:
+        normalized = canonicalize_provider_config(data)
+        name = str(normalized.get('name') or '').lower().replace(' ', '_')
+        provider_type = str(normalized.get('provider_type') or '').lower()
+        return f'{name}_{provider_type}' if name and provider_type else ''
+
+    def _ensure_provider_request_shape(self, data: Dict[str, Any]) -> None:
+        if 'model_map' in data and data['model_map'] is not None and not isinstance(data['model_map'], dict):
+            raise ModelAdapterServiceError('model_map 必须是对象', status_code=400)
+        if 'model' in data and isinstance(data.get('model'), list):
+            raise ModelAdapterServiceError('model 必须是字符串', status_code=400)
+        for task, value in (data.get('model_map') or {}).items():
+            if not str(task or '').strip():
+                raise ModelAdapterServiceError('model_map 不能包含空任务名', status_code=400)
+            if isinstance(value, list):
+                if not any(str(item or '').strip() for item in value):
+                    raise ModelAdapterServiceError(f'model_map.{task} 至少需要一个模型', status_code=400)
+                continue
+            if not str(value or '').strip():
+                raise ModelAdapterServiceError(f'model_map.{task} 不能为空', status_code=400)
+
     def create_provider(self, data: Optional[Dict[str, Any]]) -> str:
         config = self._build_create_config(data)
+        provider_key = self._make_provider_key(config)
+        if self._adapter.config_store.exists(provider_key) or provider_key in self._adapter.providers:
+            raise ModelAdapterServiceError(f'Provider 已存在: {provider_key}', status_code=409)
         return self._adapter.register_provider_from_config(config)
 
     def update_provider(self, provider_key: str, data: Optional[Dict[str, Any]]) -> str:
@@ -43,6 +69,8 @@ class ModelAdapterService:
         existing_config = self._adapter.config_store.get_provider(provider_key)
         if not existing_config:
             raise ModelAdapterServiceError(f'Provider 不存在: {provider_key}', status_code=404)
+
+        self._ensure_provider_request_shape(data)
 
         config = existing_config.copy()
         allowed_fields = [
@@ -68,7 +96,7 @@ class ModelAdapterService:
                     continue
                 config[field] = data[field]
 
-        self._rebuild_models_from_model_map(config)
+        ModelAdapterConfigStore._rebuild_models_from_model_map(config)
 
         if provider_key in self._adapter.providers:
             self._adapter.remove_provider(provider_key, delete_config=False)
@@ -96,6 +124,10 @@ class ModelAdapterService:
         provider_type = data.get('provider_type')
         prompt = data.get('prompt')
         model = data.get('model')
+        if isinstance(model, list):
+            model = next((str(item).strip() for item in model if str(item or '').strip()), '')
+        elif model is not None:
+            model = str(model).strip()
         task = data.get('task', 'chat')
 
         if not provider:
@@ -151,32 +183,9 @@ class ModelAdapterService:
                 raise ModelAdapterServiceError(f'缺少必需字段: {field}', status_code=400)
 
         config = data.copy()
-        self._rebuild_models_from_model_map(config)
+        self._ensure_provider_request_shape(config)
+        ModelAdapterConfigStore._rebuild_models_from_model_map(config)
         return config
-
-    @staticmethod
-    def _rebuild_models_from_model_map(config: Dict[str, Any]) -> None:
-        model_map = config.get('model_map')
-        if not model_map:
-            config['models'] = []
-            return
-
-        current_models = []
-        seen = set()
-        for model in model_map.values():
-            if isinstance(model, list):
-                for item in model:
-                    normalized = str(item).strip() if item else ''
-                    if normalized and normalized not in seen:
-                        current_models.append(normalized)
-                        seen.add(normalized)
-            else:
-                normalized = str(model).strip() if model else ''
-                if normalized and normalized not in seen:
-                    current_models.append(normalized)
-                    seen.add(normalized)
-
-        config['models'] = current_models
 
 
 def get_model_adapter_service() -> ModelAdapterService:

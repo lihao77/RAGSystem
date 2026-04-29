@@ -943,21 +943,35 @@ const memoryScopeMeta = ref([]);
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
 
+function normalizeModelList(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
+  const model = String(value || '').trim();
+  return model ? [model] : [];
+}
+
 function getProviderModels(provider) {
   if (!provider) return [];
 
-  const fromMap = provider.model_map?.chat;
-  if (fromMap != null) {
-    if (Array.isArray(fromMap)) return fromMap.filter(Boolean);
-    return [String(fromMap)];
-  }
+  const models = [];
+  const seen = new Set();
+  const addModels = value => {
+    for (const model of normalizeModelList(value)) {
+      if (!seen.has(model)) {
+        models.push(model);
+        seen.add(model);
+      }
+    }
+  };
 
-  if (Array.isArray(provider.models) && provider.models.length > 0) {
-    return provider.models.filter(Boolean);
+  if (provider.model_map && typeof provider.model_map === 'object') {
+    addModels(provider.model_map.chat);
+    Object.entries(provider.model_map).forEach(([task, value]) => {
+      if (task !== 'chat') addModels(value);
+    });
   }
-
-  if (provider.model) return [provider.model];
-  return [];
+  addModels(provider.models);
+  addModels(provider.model);
+  return models;
 }
 
 const memoryScopeFallbackMeta = [

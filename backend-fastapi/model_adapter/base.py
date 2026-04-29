@@ -54,6 +54,42 @@ class AIProvider(ABC):
     所有 Provider 都必须实现此类中定义的抽象方法。
     """
 
+    @staticmethod
+    def _normalize_model_list(value: Any) -> List[str]:
+        if isinstance(value, list):
+            return [str(item or "").strip() for item in value if str(item or "").strip()]
+        model = str(value or "").strip()
+        return [model] if model else []
+
+    @classmethod
+    def _normalize_model_map(cls, model_map: Any) -> Dict[str, str | List[str]]:
+        if not isinstance(model_map, dict):
+            return {}
+
+        normalized: Dict[str, str | List[str]] = {}
+        for task, value in model_map.items():
+            task_name = str(task or "").strip()
+            models = cls._normalize_model_list(value)
+            if not task_name or not models:
+                continue
+            normalized[task_name] = models[0] if len(models) == 1 else models
+        return normalized
+
+    @classmethod
+    def _flatten_models(cls, model_map: Dict[str, str | List[str]], fallback_models: Any) -> List[str]:
+        models = []
+        seen = set()
+        for value in model_map.values():
+            for model in cls._normalize_model_list(value):
+                if model not in seen:
+                    models.append(model)
+                    seen.add(model)
+        for model in cls._normalize_model_list(fallback_models):
+            if model not in seen:
+                models.append(model)
+                seen.add(model)
+        return models
+
     def __init__(self, name: str, api_key: str, api_endpoint: str, **kwargs):
         """
         初始化 AI Provider
@@ -74,13 +110,13 @@ class AIProvider(ABC):
         self.api_endpoint = api_endpoint.rstrip("/")
         
         # 模型配置
-        self.model = kwargs.get("model", "")
-        self.models = kwargs.get("models", []) or []
-        self.model_map = kwargs.get("model_map", {}) or {}
+        self.model = str(kwargs.get("model", "") or "").strip()
+        self.model_map = self._normalize_model_map(kwargs.get("model_map"))
 
         # 兼容性处理：如果只提供了 model，默认作为 chat 模型
         if self.model and 'chat' not in self.model_map:
             self.model_map['chat'] = self.model
+        self.models = self._flatten_models(self.model_map, kwargs.get("models"))
 
         self.temperature = kwargs.get("temperature", 0.7)
 
@@ -202,7 +238,8 @@ class AIProvider(ABC):
         if not val:
             return self.model
         if isinstance(val, list):
-            return val[0].strip() if val else self.model
+            models = self._normalize_model_list(val)
+            return models[0] if models else self.model
         return str(val).strip() if str(val).strip() else self.model
 
     @abstractmethod

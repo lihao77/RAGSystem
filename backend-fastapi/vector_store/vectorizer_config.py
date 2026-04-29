@@ -53,12 +53,13 @@ class VectorizerConfigStore:
 
         payload = dict(data)
         changed = False
-        if 'active_vectorizer_key' not in payload:
-            payload['active_vectorizer_key'] = None
-            changed = True
         if not isinstance(payload.get('vectorizers'), dict):
             payload['vectorizers'] = {}
             changed = True
+        for cfg in payload['vectorizers'].values():
+            if isinstance(cfg, dict) and 'provider_type' not in cfg:
+                cfg['provider_type'] = None
+                changed = True
         return payload, changed
 
     def _load_raw(self) -> Dict[str, Any]:
@@ -104,6 +105,7 @@ class VectorizerConfigStore:
             result.append({
                 "vectorizer_key": key,
                 "provider_key": cfg.get("provider_key", ""),
+                "provider_type": cfg.get("provider_type"),
                 "model_name": cfg.get("model_name", ""),
                 "distance_metric": cfg.get("distance_metric", "cosine"),
                 "created_at": cfg.get("created_at"),
@@ -139,12 +141,11 @@ class VectorizerConfigStore:
             raise ValueError(f"向量化器键已存在: {key}")
         entry = {
             "provider_key": provider_key,
+            "provider_type": provider_type,
             "model_name": model_name,
             "distance_metric": distance_metric,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
-        if provider_type:
-            entry["provider_type"] = provider_type
         data["vectorizers"][key] = entry
         # 若当前无激活，则激活本条
         if not data["active_vectorizer_key"]:

@@ -122,9 +122,6 @@ class ModelAdapter:
         if provider_key in self.providers and save_config:
             logger.warning(f"[ModelAdapter] Provider {provider_key} 已存在，将被覆盖")
 
-        provider_kwargs = {k: v for k, v in normalized_config.items()
-                          if k not in ["provider_type", "name", "api_key", "api_endpoint", "models", "model"]}
-
         provider = create_provider_from_config(normalized_config)
 
         self.register_provider(provider)
@@ -437,7 +434,7 @@ class ModelAdapter:
             "name": provider.name,
             "provider_type": provider.provider_type.value,
             "model": provider.model,
-            "models": [],
+            "models": provider.models,
             "model_map": provider.model_map,
             "temperature": provider.temperature,
             "max_tokens": provider.max_tokens,
