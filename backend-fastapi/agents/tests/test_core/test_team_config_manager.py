@@ -1,7 +1,16 @@
 # -*- coding: utf-8 -*-
 
-import pytest
+import importlib.util
+import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+if importlib.util.find_spec('fastapi') is None:
+    fastapi_stub = ModuleType('fastapi')
+    fastapi_stub.FastAPI = object
+    sys.modules.setdefault('fastapi', fastapi_stub)
 
 from agents.config.manager import AgentConfigManager, DEFAULT_TEAM_NAME
 from agents.config.models import AgentConfig

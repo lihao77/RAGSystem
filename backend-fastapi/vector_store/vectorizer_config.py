@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 
+from core.path_resolution import CONFIG_ROOT
 from utils.versioned_yaml_store import load_versioned_yaml_file, save_versioned_yaml_file
 
 logger = logging.getLogger(__name__)
 
-# 默认配置文件路径（相对于 backend/）
-DEFAULT_CONFIG_DIR = Path(__file__).parent / "config"
+# 默认配置文件路径（运行时配置根目录）
+DEFAULT_CONFIG_DIR = CONFIG_ROOT / "vector_store"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "vectorizers.yaml"
 
 

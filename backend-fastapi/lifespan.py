@@ -269,10 +269,12 @@ def _seed_runtime_configs() -> None:
 def _migrate_configs() -> None:
     """
     将源码目录中的部分运行时配置初始化到 CONFIG_ROOT。
-    仅初始化 app / agent 配置；MCP 与 model provider 配置不再自动 seed。
-    仅当目标不存在时执行拷贝，已存在则跳过（不覆盖用户修改）。
+    初始化 app 配置并确认 vectorizer 配置位于 CONFIG_ROOT；MCP 与 model provider 配置不再自动 seed。
+    仅当目标不存在时执行初始化，已存在则跳过（不覆盖用户修改）。
     """
     _seed_runtime_configs()
+    from vector_store.vectorizer_config import get_vectorizer_config_store
+    get_vectorizer_config_store()
 
 
 def _warn_legacy_repo_data_dir() -> None:

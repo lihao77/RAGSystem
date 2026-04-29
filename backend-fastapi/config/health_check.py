@@ -30,7 +30,7 @@ class ConfigHealthCheck:
         self.app_config_example_path = _BACKEND_ROOT / "config" / "yaml" / "config.yaml.example"
         self.agent_configs_path = CONFIG_ROOT / "agents" / "agent_configs.yaml"
         self.mcp_servers_path = CONFIG_ROOT / "mcp" / "mcp_servers.yaml"
-        self.vectorizers_path = _BACKEND_ROOT / "vector_store" / "config" / "vectorizers.yaml"
+        self.vectorizers_path = CONFIG_ROOT / "vector_store" / "vectorizers.yaml"
 
     def check_gitignore(self) -> None:
         """检查敏感文件是否在 .gitignore 中（.gitignore 在仓库根）"""

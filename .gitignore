@@ -65,6 +65,9 @@ backend-fastapi/config/yaml/config.yaml
 backend-fastapi/mcp/configs/mcp_servers.yaml
 backend-fastapi/mcp/configs/*.yaml.bak
 backend-fastapi/mcp/configs/*.backup.yaml
+backend-fastapi/vector_store/config/vectorizers.yaml
+backend-fastapi/vector_store/config/*.yaml.bak
+backend-fastapi/vector_store/config/*.backup.yaml
 
 # Keep current tracked backend tests, ignore local unpublished test files
 tests/

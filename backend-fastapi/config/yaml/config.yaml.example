@@ -1,10 +1,10 @@
-# 系统配置示例（与 config/models.py 一致）
-# 可选：不存在时使用 models.py 默认值。复制为 config.yaml 后按需修改。
+# 系统配置（与 config/models.py 一致）
+# 可省略未修改项，缺省值由 models.py 补全。
 
 vector_store:
   backend: sqlite_vec
   sqlite_vec:
-    database_path: data/vector_store.db
+    database_path: ""
     vector_dimension: 0
     distance_metric: cosine
 

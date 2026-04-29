@@ -25,6 +25,14 @@ def test_health_check_uses_config_root_for_app_config_path(monkeypatch, tmp_path
     assert checker.app_config_path == fake_config_root / 'app' / 'config.yaml'
 
 
+def test_health_check_uses_config_root_for_vectorizers_path(monkeypatch, tmp_path):
+    fake_config_root = tmp_path / 'config-root'
+    monkeypatch.setattr('config.health_check.CONFIG_ROOT', fake_config_root)
+    checker = ConfigHealthCheck()
+
+    assert checker.vectorizers_path == fake_config_root / 'vector_store' / 'vectorizers.yaml'
+
+
 def test_health_check_rejects_invalid_hooks_workspace_trust(monkeypatch, tmp_path):
     fake_config_root = tmp_path / 'config-root'
     app_config_path = fake_config_root / 'app' / 'config.yaml'
