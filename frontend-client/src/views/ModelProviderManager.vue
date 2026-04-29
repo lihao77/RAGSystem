@@ -108,7 +108,9 @@
             <p class="section-desc">查看 Provider 配置、模型映射与连通性测试结果，统一管理模型接入实例。</p>
           </div>
           <div class="inline-actions">
-            <button class="pl-btn" :disabled="loading" @click="loadProviders">
+            <span v-if="reordering" class="reorder-status">正在保存排序...</span>
+            <span v-else-if="reorderError" class="reorder-status reorder-status--error">{{ reorderError }}</span>
+            <button class="pl-btn" :disabled="loading || reordering" @click="loadProviders">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spin: loading }">
                 <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
@@ -133,105 +135,81 @@
           </svg>
           <p>暂无 Provider，点击右上角“添加 Provider”开始配置</p>
         </div>
-        <div v-else class="provider-grid">
+        <TransitionGroup v-else name="provider-row-list" tag="div" class="provider-list">
           <article
-            v-for="provider in providers"
-            :key="provider.key || provider.name"
-            class="provider-card"
+            v-for="(provider, index) in providers"
+            :key="getProviderKey(provider)"
+            class="provider-row"
+            :class="{
+              'provider-row--dragging': draggingKey === getProviderKey(provider)
+            }"
+            :data-provider-key="getProviderKey(provider)"
           >
-            <div class="provider-card-header">
-              <div class="provider-card-heading">
-                <div class="provider-info">
-                  <span class="provider-type-badge" :class="`badge--${provider.provider_type}`">
-                    {{ provider.provider_type || 'custom' }}
-                  </span>
-                  <h3 class="provider-name">{{ provider.name || provider.key }}</h3>
+            <div class="provider-row-main">
+              <button
+                type="button"
+                class="drag-handle"
+                title="拖拽调整顺序"
+                :disabled="reordering"
+                @pointerdown="startProviderDrag($event, provider)"
+              >
+                <span class="order-index">{{ index + 1 }}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+                  <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+                </svg>
+              </button>
+
+              <div class="provider-identity" :title="getProviderKey(provider)">
+                <div class="provider-title-line">
+                  <strong class="provider-name">{{ provider.name || provider.key }}</strong>
+                  <span class="provider-title-divider" aria-hidden="true"></span>
+                  <span class="provider-type-text">{{ provider.provider_type || 'custom' }}</span>
                 </div>
-                <div class="provider-subtitle mono">{{ provider.key || `${provider.name}_${provider.provider_type}` }}</div>
-              </div>
-            </div>
-
-            <div class="provider-meta-row">
-              <div class="meta-chip">
-                <span class="meta-chip-label">类型</span>
-                <span class="meta-chip-value meta-chip-value--mono">{{ provider.provider_type || 'custom' }}</span>
-              </div>
-              <div class="meta-chip">
-                <span class="meta-chip-label">模型</span>
-                <span class="meta-chip-value">{{ provider.models?.length || 0 }}</span>
-              </div>
-              <div class="meta-chip">
-                <span class="meta-chip-label">Embedding</span>
-                <span class="meta-chip-value" :class="hasModelMapValue(provider.model_map?.embedding) ? 'text-success' : 'text-muted'">
-                  {{ hasModelMapValue(provider.model_map?.embedding) ? '支持' : '未配置' }}
-                </span>
-              </div>
-              <div class="meta-chip">
-                <span class="meta-chip-label">温度</span>
-                <span class="meta-chip-value">{{ provider.temperature ?? '—' }}</span>
-              </div>
-            </div>
-
-            <div class="provider-card-body">
-              <div v-if="provider.api_endpoint" class="info-block">
-                <span class="info-label">Endpoint</span>
-                <code class="info-code">{{ provider.api_endpoint }}</code>
-              </div>
-              <div v-if="provider.model_map" class="info-block">
-                <span class="info-label">模型映射</span>
-                <div class="model-map-chips">
-                  <span v-for="(model, task) in provider.model_map" :key="task" class="chip">
-                    {{ task }}: {{ formatModelMapValue(model) }}
-                  </span>
+                <div class="provider-endpoint mono">
+                  {{ provider.api_endpoint || '未配置 Endpoint' }}
                 </div>
               </div>
-              <div v-if="provider.models && provider.models.length" class="info-block">
-                <span class="info-label">所有模型</span>
-                <div class="model-map-chips">
-                  <span v-for="m in provider.models.slice(0, 4)" :key="m" class="chip chip--model">{{ m }}</span>
-                  <span v-if="provider.models.length > 4" class="chip chip--more">+{{ provider.models.length - 4 }}</span>
-                </div>
+
+              <div class="provider-row-actions">
+                <button class="act-btn act-btn--test"
+                  :disabled="testingKey === getProviderKey(provider)"
+                  @click="quickTest(provider)">
+                  <div v-if="testingKey === getProviderKey(provider)" class="spinner spinner--sm"></div>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  {{ testingKey === getProviderKey(provider) ? '测试中' : '测试' }}
+                </button>
+                <button class="act-btn" @click="openEditDialog(provider)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  编辑
+                </button>
+                <button class="act-btn act-btn--danger" @click="confirmDelete(provider)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/><path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                  删除
+                </button>
               </div>
             </div>
 
-            <div v-if="testResults[provider.key || provider.name]" class="provider-test-result"
-              :class="testResults[provider.key || provider.name].ok ? 'result--ok' : 'result--err'">
-              <span class="result-icon">{{ testResults[provider.key || provider.name].ok ? '✓' : '✗' }}</span>
-              <span class="result-msg">{{ testResults[provider.key || provider.name].msg }}</span>
-            </div>
-
-            <div class="provider-actions-bar inline-actions inline-actions--wrap">
-              <button class="act-btn act-btn--test"
-                :disabled="testingKey === (provider.key || provider.name)"
-                @click="quickTest(provider)">
-                <div v-if="testingKey === (provider.key || provider.name)" class="spinner spinner--sm"></div>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                {{ testingKey === (provider.key || provider.name) ? '测试中...' : '测试' }}
-              </button>
-              <button class="act-btn" @click="openEditDialog(provider)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-                编辑
-              </button>
-              <button class="act-btn act-btn--danger" @click="confirmDelete(provider)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6"/><path d="M14 11v6"/>
-                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                </svg>
-                删除
-              </button>
+            <div v-if="testResults[getProviderKey(provider)]" class="provider-test-result"
+              :class="testResults[getProviderKey(provider)].ok ? 'result--ok' : 'result--err'">
+              <span class="result-icon">{{ testResults[getProviderKey(provider)].ok ? '✓' : '✗' }}</span>
+              <span class="result-msg">{{ testResults[getProviderKey(provider)].msg }}</span>
             </div>
           </article>
-        </div>
+        </TransitionGroup>
       </section>
 
     <!-- ── 新增/编辑 Dialog ──────────────────────────────── -->
@@ -401,7 +379,7 @@
           </button>
         </div>
         <p class="delete-confirm-msg">
-          确定要删除 Provider <strong>{{ deleteTarget.key || deleteTarget.name }}</strong> 吗？此操作不可撤销。
+          确定要删除 Provider <strong>{{ getProviderKey(deleteTarget) }}</strong> 吗？此操作不可撤销。
         </p>
         <div class="dialog-footer">
           <button class="btn-secondary" @click="deleteTarget = null">取消</button>
@@ -427,6 +405,7 @@ import {
   createProvider,
   updateProvider,
   deleteProvider,
+  reorderProviders,
   testProvider
 } from '../api/modelAdapter.js'
 
@@ -506,6 +485,15 @@ const testResults = ref({})
 const deleteTarget = ref(null)
 const deleteDialogPanelRef = ref(null)
 const deleting = ref(false)
+const draggingKey = ref('')
+const dragOriginalProviders = ref(null)
+const dragOrderChanged = ref(false)
+let dragImageEl = null
+let dragOffsetX = 0
+let dragOffsetY = 0
+let dragPointerId = null
+const reordering = ref(false)
+const reorderError = ref('')
 
 usePointerDownOutside({
   inside: [deleteDialogPanelRef],
@@ -528,6 +516,10 @@ const embeddingCount = computed(() =>
   providers.value.filter(p => hasModelMapValue(p.model_map?.embedding)).length
 )
 
+function getProviderKey(provider) {
+  return provider.key || `${provider.name}_${provider.provider_type}`
+}
+
 function normalizeModelList(value) {
   if (Array.isArray(value)) {
     return value.map(item => String(item || '').trim()).filter(Boolean)
@@ -540,12 +532,192 @@ function hasModelMapValue(value) {
   return normalizeModelList(value).length > 0
 }
 
-function formatModelMapValue(value) {
-  return normalizeModelList(value).join(', ')
+function isSameProviderOrder(leftProviders, rightProviders) {
+  if (leftProviders.length !== rightProviders.length) return false
+  return leftProviders.every((provider, index) => getProviderKey(provider) === getProviderKey(rightProviders[index]))
 }
 
 function getDefaultModel(value) {
   return normalizeModelList(value)[0] || ''
+}
+
+async function persistProviderOrder(nextProviders, previousProviders, options = {}) {
+  if (reordering.value) return
+  providers.value = nextProviders
+  reordering.value = true
+  reorderError.value = ''
+  try {
+    await reorderProviders(nextProviders.map(getProviderKey))
+    if (!options.silent) showToast('Provider 顺序已保存', 'success')
+  } catch (e) {
+    providers.value = previousProviders
+    const message = e.message || '排序保存失败'
+    reorderError.value = message
+    showToast(message, 'error')
+  } finally {
+    reordering.value = false
+    if (!options.skipCleanup) cleanupProviderDrag()
+  }
+}
+
+function startProviderDrag(event, provider) {
+  if (reordering.value || event.button !== 0) return
+  const row = event.currentTarget.closest('.provider-row')
+  if (!row) return
+  event.preventDefault()
+  row.setPointerCapture?.(event.pointerId)
+  dragPointerId = event.pointerId
+
+  const rect = row.getBoundingClientRect()
+  draggingKey.value = getProviderKey(provider)
+  dragOriginalProviders.value = [...providers.value]
+  dragOrderChanged.value = false
+  dragOffsetX = event.clientX - rect.left
+  dragOffsetY = event.clientY - rect.top
+
+  dragImageEl = row.cloneNode(true)
+  dragImageEl.removeAttribute('data-provider-key')
+  dragImageEl.classList.add('provider-row-drag-image')
+  dragImageEl.style.width = `${rect.width}px`
+  dragImageEl.style.position = 'fixed'
+  dragImageEl.style.left = `${event.clientX - dragOffsetX}px`
+  dragImageEl.style.top = `${event.clientY - dragOffsetY}px`
+  dragImageEl.style.zIndex = '2000'
+  dragImageEl.style.pointerEvents = 'none'
+  dragImageEl.style.transition = 'none'
+  document.body.appendChild(dragImageEl)
+
+  window.addEventListener('pointermove', handleProviderDragMove)
+  window.addEventListener('pointerup', finishProviderDrag, { once: true })
+  window.addEventListener('pointercancel', cancelProviderDrag, { once: true })
+}
+
+function handleProviderDragMove(event) {
+  if (!draggingKey.value || !dragImageEl) return
+  dragImageEl.style.left = `${event.clientX - dragOffsetX}px`
+  dragImageEl.style.top = `${event.clientY - dragOffsetY}px`
+
+  const targetRow = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.provider-row')
+  if (!targetRow) return
+  const toKey = targetRow.dataset.providerKey
+  const fromKey = draggingKey.value
+  if (!toKey || toKey === fromKey || reordering.value) return
+
+  const fromIndex = providers.value.findIndex(item => getProviderKey(item) === fromKey)
+  const toIndex = providers.value.findIndex(item => getProviderKey(item) === toKey)
+  if (fromIndex < 0 || toIndex < 0) return
+
+  const rect = targetRow.getBoundingClientRect()
+  const insertAfter = event.clientY > rect.top + rect.height / 2
+  let targetIndex = insertAfter ? toIndex + 1 : toIndex
+  if (fromIndex < targetIndex) targetIndex -= 1
+  if (targetIndex === fromIndex) return
+
+  const nextProviders = [...providers.value]
+  const [moved] = nextProviders.splice(fromIndex, 1)
+  nextProviders.splice(targetIndex, 0, moved)
+  providers.value = nextProviders
+  dragOrderChanged.value = true
+}
+
+async function finishProviderDrag() {
+  if (!draggingKey.value || reordering.value) {
+    cleanupProviderDrag()
+    return
+  }
+  const previousProviders = dragOriginalProviders.value ? [...dragOriginalProviders.value] : [...providers.value]
+  const nextProviders = [...providers.value]
+  if (!dragOrderChanged.value || isSameProviderOrder(previousProviders, nextProviders)) {
+    providers.value = previousProviders
+    cleanupProviderDrag()
+    return
+  }
+  await animateDragImageToPlaceholder()
+  hideDragImage()
+  cleanupProviderDrag({ keepImage: true })
+  await persistProviderOrder(nextProviders, previousProviders, { skipCleanup: true, silent: true })
+}
+
+async function animateDragImageToPlaceholder() {
+  if (!dragImageEl || !draggingKey.value) return
+  const placeholder = Array.from(document.querySelectorAll('.provider-row'))
+    .find(row => row !== dragImageEl && row.dataset.providerKey === draggingKey.value)
+  if (!placeholder) return
+
+  const startRect = dragImageEl.getBoundingClientRect()
+  const targetRect = placeholder.getBoundingClientRect()
+  const deltaX = targetRect.left - startRect.left
+  const deltaY = targetRect.top - startRect.top
+  if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) return
+
+  dragImageEl.style.left = `${startRect.left}px`
+  dragImageEl.style.top = `${startRect.top}px`
+  dragImageEl.style.width = `${targetRect.width}px`
+
+  const animation = dragImageEl.animate(
+    [
+      { transform: 'translate3d(0, 0, 0)' },
+      { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
+    ],
+    {
+      duration: 220,
+      easing: 'cubic-bezier(.2,.8,.2,1)',
+      fill: 'forwards',
+    }
+  )
+
+  try {
+    await animation.finished
+  } catch {
+    // ignore cancelled animation
+  }
+
+  dragImageEl.style.left = `${targetRect.left}px`
+  dragImageEl.style.top = `${targetRect.top}px`
+  dragImageEl.style.transform = 'none'
+}
+
+function cancelProviderDrag() {
+  if (dragOriginalProviders.value) {
+    providers.value = dragOriginalProviders.value
+  }
+  cleanupProviderDrag()
+}
+
+function hideDragImage() {
+  if (dragImageEl) {
+    dragImageEl.style.visibility = 'hidden'
+  }
+}
+
+function cleanupProviderDrag(options = {}) {
+  const imageToRemove = dragImageEl
+  draggingKey.value = ''
+  dragOriginalProviders.value = null
+  dragOrderChanged.value = false
+  dragPointerId = null
+  if (imageToRemove && !options.keepImage) {
+    imageToRemove.remove()
+  } else if (imageToRemove) {
+    requestAnimationFrame(() => imageToRemove.remove())
+  }
+  dragImageEl = null
+  window.removeEventListener('pointermove', handleProviderDragMove)
+  window.removeEventListener('pointerup', finishProviderDrag)
+  window.removeEventListener('pointercancel', cancelProviderDrag)
+}
+
+async function moveProvider(provider, direction) {
+  if (reordering.value) return
+  const previousProviders = [...providers.value]
+  const nextProviders = [...providers.value]
+  const index = nextProviders.findIndex(item => getProviderKey(item) === getProviderKey(provider))
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= nextProviders.length) return
+  draggingKey.value = getProviderKey(provider)
+  const [moved] = nextProviders.splice(index, 1)
+  nextProviders.splice(targetIndex, 0, moved)
+  await persistProviderOrder(nextProviders, previousProviders)
 }
 
 // ── 加载 ──
@@ -571,7 +743,7 @@ function getPreferredTestTarget(provider) {
 
 // ── 测试 ──
 async function quickTest(provider) {
-  const key = provider.key || provider.name
+  const key = getProviderKey(provider)
   testingKey.value = key
   testResults.value = { ...testResults.value, [key]: null }
   try {
@@ -657,7 +829,7 @@ function openEditDialog(provider) {
     nextForm[field.key] = provider[field.key] ?? field.default ?? ''
   }
   form.value = nextForm
-  editingKey.value = provider.key || `${provider.name}_${provider.provider_type}`
+  editingKey.value = getProviderKey(provider)
   dialog.value = { visible: true, mode: 'edit', error: '', saving: false }
 }
 
@@ -772,7 +944,7 @@ async function doDelete() {
   if (!deleteTarget.value) return
   deleting.value = true
   try {
-    const key = deleteTarget.value.key || `${deleteTarget.value.name}_${deleteTarget.value.provider_type}`
+    const key = getProviderKey(deleteTarget.value)
     await deleteProvider(key)
     deleteTarget.value = null
     await loadProviders()
@@ -876,184 +1048,184 @@ onMounted(() => {
   min-height: 200px;
 }
 
-.provider-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
+.reorder-status {
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 
-/* ── Provider Card ─────────────────────────────────── */
-.provider-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid var(--color-border);
-  background: var(--color-hover-overlay);
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+.reorder-status--error {
+  color: var(--color-error);
 }
 
-.provider-card:hover {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.28);
-  box-shadow: inset 0 1px 0 var(--color-soft-inset);
-}
-
-.provider-card-header {
+/* ── Provider 行式列表 ─────────────────────────────── */
+.provider-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.provider-card-heading {
+.provider-row {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding: 0 12px 0 0;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.56);
+  background: rgba(var(--color-bg-elevated-rgb), 0.46);
+  box-shadow: inset 0 1px 0 var(--color-soft-inset);
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1);
 }
 
-.provider-info {
+.provider-row--dragging {
+  opacity: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.provider-row--dragging > * {
+  visibility: hidden;
+}
+
+.provider-row-drag-image {
+  opacity: 1;
+}
+
+.provider-row-drag-image > * {
+  visibility: visible;
+}
+
+.provider-row-list-move,
+.provider-row-list-enter-active,
+.provider-row-list-leave-active {
+  transition: transform 0.28s cubic-bezier(.2,.8,.2,1);
+  will-change: transform;
+}
+
+.provider-row-list-enter-from,
+.provider-row-list-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.provider-row-main {
+  display: grid;
+  grid-template-columns: 72px minmax(280px, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 62px;
+}
+
+.drag-handle {
+  height: 100%;
+  min-height: 62px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 72px;
+  border: none;
+  border-radius: 0;
+  background: rgba(var(--color-bg-elevated-rgb), 0.24);
+  color: var(--color-text-muted);
+  cursor: grab;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.drag-handle:hover:not(:disabled) {
+  color: var(--color-text-secondary);
+  background: rgba(var(--color-bg-elevated-rgb), 0.38);
+}
+
+.drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.drag-handle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.order-index {
+  min-width: 18px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: inherit;
+  text-align: right;
+}
+
+.provider-identity {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.provider-title-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
 }
 
 .provider-name {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  min-width: 0;
   color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.provider-subtitle {
+.provider-title-divider {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
+  background: rgba(var(--color-border-rgb, 148,163,184), 0.62);
+}
+
+.provider-type-text {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
   font-size: 12px;
-  color: var(--color-text-secondary);
-  font-family: inherit;
-  word-break: break-all;
-}
-
-.provider-type-badge {
-  font-size: 0.7rem;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  background: rgba(var(--color-text-muted-rgb, 107,114,128), .15);
+  letter-spacing: 0.02em;
+}
+
+.provider-endpoint {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   color: var(--color-text-secondary);
-}
-
-.badge--openai      { background: rgba(16,185,129,.18); color: #34d399; }
-.badge--deepseek    { background: rgba(var(--color-brand-accent-rgb),.18); color: var(--color-brand-accent-light); }
-.badge--openrouter  { background: rgba(245,158,11,.18); color: #fbbf24; }
-.badge--modelscope  { background: rgba(236,72,153,.18); color: #f472b6; }
-.badge--custom      { background: rgba(var(--color-border-rgb, 148,163,184), 0.18); color: var(--color-text-muted); }
-
-.provider-meta-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.meta-chip {
-  min-height: 56px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb), 0.32);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.meta-chip-label {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-}
-
-.meta-chip-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.meta-chip-value--mono {
-  font-family: inherit;
-}
-
-.text-success {
-  color: var(--color-success);
-}
-
-.text-muted {
-  color: var(--color-text-muted);
-}
-
-.provider-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.info-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.info-label {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.info-code {
-  display: block;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.55);
-  background: rgba(var(--color-bg-elevated-rgb), 0.18);
-  color: var(--color-text-primary);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: break-all;
+.provider-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: nowrap;
 }
 
 .mono { font-family: inherit; }
-
-.model-map-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chip {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(var(--color-brand-accent-rgb), 0.08);
-  color: var(--color-text-secondary);
-  font-family: inherit;
-}
-
-.chip--model {
-  background: rgba(var(--color-success-rgb), 0.08);
-  color: var(--color-text-primary);
-}
-
-.chip--more  {
-  background: rgba(var(--color-border-rgb, 148,163,184), 0.12);
-  color: var(--color-text-secondary);
-}
-
 .provider-test-result {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  margin-left: 80px;
+  padding: 9px 11px;
+  border-radius: 13px;
   border: 1px solid transparent;
   font-size: 12px;
   line-height: 1.5;
@@ -1081,17 +1253,12 @@ onMounted(() => {
   min-width: 0;
 }
 
-.provider-actions-bar {
-  margin-top: auto;
-  padding-top: 4px;
-}
-
 .act-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 0 12px;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
   border-radius: 12px;
   border: 1px solid var(--color-border);
   background: transparent;
@@ -1099,6 +1266,7 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
@@ -1482,8 +1650,30 @@ input[type='number'].form-control { padding-right: 8px; }
   -webkit-backdrop-filter: blur(10px);
 }
 
+@media (max-width: 1100px) {
+  .provider-row-main {
+    grid-template-columns: 72px minmax(260px, 1fr) auto;
+  }
+}
+
 @media (max-width: 900px) {
-  .provider-meta-row,
+  .provider-row-main {
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .provider-row-actions,
+  .provider-test-result {
+    grid-column: 2;
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  .provider-row-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .dialog-form-grid {
     grid-template-columns: 1fr;
   }
@@ -1495,12 +1685,33 @@ input[type='number'].form-control { padding-right: 8px; }
     padding: 16px;
   }
 
-  .provider-card {
-    padding: 16px;
+  .provider-row {
+    padding: 0 12px 12px 0;
   }
 
-  .provider-grid {
+  .provider-row-main {
     grid-template-columns: 1fr;
+  }
+
+  .drag-handle,
+  .provider-identity,
+  .provider-row-actions,
+  .provider-test-result {
+    grid-column: 1;
+  }
+
+  .drag-handle {
+    width: calc(100% + 12px);
+    min-height: 36px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.38);
+  }
+
+  .provider-row-actions {
+    flex-wrap: wrap;
   }
 
   .dialog-footer {

@@ -659,7 +659,7 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 
 - 以上 `CONFIG_ROOT` 默认位于 `~/.ragsystem/config`；若显式设置 `RAG_DATA_ROOT`，则位于 `{RAG_DATA_ROOT}/config`
 - 源码目录中的 `config.yaml(.example)` 仅作为启动时初始化来源；agent 配置不再从源码侧 `agents/configs/agent_configs.yaml(.example)` 自动 seed，MCP 与 model provider 配置需直接在运行时目录维护，不是正式运行时配置位置
-- `CONFIG_ROOT/model_adapter/providers.yaml` 读取和单 Provider 保存都由 `ModelAdapterConfigStore` 统一规范化 provider 配置：旧 `provider_type` 别名会收敛为当前短名称，复合键会按 `{name}_{provider_type}` 重建；`model_map` 支持 `task: model` 与 `task: [model...]` 两种形式，`models` 会由 `model_map` 去重重建；旧配置只有 `model` 或 `models`、没有 `model_map` 时会自动补为 `chat` 映射；单 Provider 保存以文件锁包裹读-改-写，避免并发保存把其他 Provider 覆盖丢失。
+- `CONFIG_ROOT/model_adapter/providers.yaml` 读取和单 Provider 保存都由 `ModelAdapterConfigStore` 统一规范化 provider 配置：旧 `provider_type` 别名会收敛为当前短名称，复合键会按 `{name}_{provider_type}` 重建；`model_map` 支持 `task: model` 与 `task: [model...]` 两种形式，`models` 会由 `model_map` 去重重建；旧配置只有 `model` 或 `models`、没有 `model_map` 时会自动补为 `chat` 映射；单 Provider 保存以文件锁包裹读-改-写，避免并发保存把其他 Provider 覆盖丢失。`providers.yaml` 顶层 key 顺序即 Provider 展示顺序，新建 Provider 默认追加到末尾，更新既有 Provider 不改变位置，`PUT /api/model-adapter/providers/order` 接收完整 `provider_keys` 列表并在文件锁内校验、重排和持久化。
 - 新建 Provider 是 create 语义，若 `{name}_{provider_type}` 已存在会返回 409；只有更新接口允许覆盖既有 Provider。Provider 测试接口支持 `chat` 与 `embedding`，前端会按 Provider 的 `model_map` 选择合适任务和默认模型。
 - 向量化器配置中的 `provider_key` 统一存 Provider 复合键，`provider_type` 作为显式字段一并保存和返回，避免同名 Provider 在 embedding 初始化时产生歧义。
 - Agent 配置页和全局 LLM 选择器消费 Provider 模型时会合并 `model_map` 全部任务值、`models` 与 `model` 并去重；Provider 管理页编辑数组型 `model_map` 时按多行保留，不再压平成字符串。

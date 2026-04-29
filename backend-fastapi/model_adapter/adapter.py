@@ -237,6 +237,20 @@ class ModelAdapter:
             f"名称 '{provider}' 匹配多个 Provider ({', '.join(types)})，请指定 provider_type"
         )
 
+    def reorder_providers(self, provider_keys: List[str]) -> List[str]:
+        """按配置顺序重排 Provider，并同步当前进程内存顺序。"""
+        reordered_configs = self.config_store.reorder_providers(provider_keys)
+        reordered_providers = {
+            key: self.providers[key]
+            for key in reordered_configs
+            if key in self.providers
+        }
+        if len(reordered_providers) != len(self.providers):
+            self.reload()
+        else:
+            self.providers = reordered_providers
+        return list(reordered_configs.keys())
+
     def reload(self) -> bool:
         """
         热重载所有配置（原子性，失败自动回滚）

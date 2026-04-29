@@ -123,3 +123,109 @@ def test_load_all_keeps_legacy_models_when_model_map_missing(tmp_path):
     assert configs['legacy_deepseek']['models'] == ['deepseek-chat', 'deepseek-reasoner']
     assert configs['single_deepseek']['model_map'] == {'chat': 'deepseek-chat'}
     assert configs['single_deepseek']['models'] == ['deepseek-chat']
+
+
+def test_save_provider_appends_new_key_and_update_keeps_position(tmp_path):
+    config_file = tmp_path / 'providers.yaml'
+    config_file.write_text(
+        yaml.safe_dump(
+            {
+                'first_deepseek': {
+                    'name': 'first',
+                    'provider_type': 'deepseek',
+                    'api_key': 'key',
+                    'model_map': {'chat': 'deepseek-chat'},
+                },
+                'second_openrouter': {
+                    'name': 'second',
+                    'provider_type': 'openrouter',
+                    'api_key': 'key',
+                    'model_map': {'chat': 'openai/gpt-4o'},
+                },
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding='utf-8',
+    )
+
+    store = ModelAdapterConfigStore(config_file)
+    store.save_provider(
+        'third_modelscope',
+        {
+            'name': 'third',
+            'provider_type': 'modelscope',
+            'api_key': 'key',
+            'model_map': {'chat': 'qwen-plus'},
+        },
+    )
+    store.save_provider(
+        'second_openrouter',
+        {
+            'name': 'second',
+            'provider_type': 'openrouter',
+            'api_key': 'key',
+            'model_map': {'chat': 'openai/gpt-4.1'},
+        },
+    )
+
+    persisted = yaml.safe_load(config_file.read_text(encoding='utf-8'))
+
+    assert list(persisted) == ['first_deepseek', 'second_openrouter', 'third_modelscope']
+    assert persisted['second_openrouter']['models'] == ['openai/gpt-4.1']
+
+
+def test_reorder_providers_persists_order_and_rejects_invalid_keys(tmp_path):
+    config_file = tmp_path / 'providers.yaml'
+    config_file.write_text(
+        yaml.safe_dump(
+            {
+                'first_deepseek': {
+                    'name': 'first',
+                    'provider_type': 'deepseek',
+                    'api_key': 'key',
+                    'model_map': {'chat': 'deepseek-chat'},
+                },
+                'second_openrouter': {
+                    'name': 'second',
+                    'provider_type': 'openrouter',
+                    'api_key': 'key',
+                    'model_map': {'chat': 'openai/gpt-4o'},
+                },
+                'third_modelscope': {
+                    'name': 'third',
+                    'provider_type': 'modelscope',
+                    'api_key': 'key',
+                    'model_map': {'chat': 'qwen-plus'},
+                },
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding='utf-8',
+    )
+
+    store = ModelAdapterConfigStore(config_file)
+    reordered = store.reorder_providers([
+        'third_modelscope',
+        'first_deepseek',
+        'second_openrouter',
+    ])
+    persisted = yaml.safe_load(config_file.read_text(encoding='utf-8'))
+
+    assert list(reordered) == ['third_modelscope', 'first_deepseek', 'second_openrouter']
+    assert list(persisted) == ['third_modelscope', 'first_deepseek', 'second_openrouter']
+
+    invalid_orders = [
+        ['third_modelscope', 'third_modelscope', 'second_openrouter'],
+        ['third_modelscope', 'first_deepseek'],
+        ['third_modelscope', 'first_deepseek', 'unknown_openai'],
+    ]
+    for provider_keys in invalid_orders:
+        try:
+            store.reorder_providers(provider_keys)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('invalid provider order should be rejected')
+

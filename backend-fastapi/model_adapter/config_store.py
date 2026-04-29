@@ -203,6 +203,32 @@ class ModelAdapterConfigStore:
         logger.warning(f"Provider 不存在: {provider_key}")
         return False
     
+    def reorder_providers(self, provider_keys: list[str]) -> Dict[str, Dict]:
+        """按传入 provider_key 列表重排 providers.yaml 顶层顺序。"""
+        if len(provider_keys) != len(set(provider_keys)):
+            raise ValueError("Provider 顺序列表包含重复 key")
+
+        with FileLock(self.config_file):
+            configs = self._load_all_unlocked()
+            current_keys = list(configs.keys())
+            requested_keys = [str(key).strip() for key in provider_keys]
+
+            missing = [key for key in current_keys if key not in requested_keys]
+            unknown = [key for key in requested_keys if key not in configs]
+            if missing or unknown:
+                details = []
+                if missing:
+                    details.append(f"缺少 Provider: {', '.join(missing)}")
+                if unknown:
+                    details.append(f"未知 Provider: {', '.join(unknown)}")
+                raise ValueError("; ".join(details))
+
+            reordered = {key: configs[key] for key in requested_keys}
+            self._save_all_unlocked(reordered)
+
+        logger.info("已更新 Provider 顺序: %s", ", ".join(provider_keys))
+        return reordered
+
     def get_provider(self, provider_key: str) -> Optional[Dict]:
         """
         获取单个 Provider 配置

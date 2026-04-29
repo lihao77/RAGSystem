@@ -42,28 +42,29 @@ function normalizeModelList(value) {
   return model ? [model] : []
 }
 
-function collectProviderModels(provider, task = null) {
+function collectProviderModels(provider, task = 'chat') {
   const result = []
   const seen = new Set()
   const add = (modelName, taskName = '') => {
     const model = String(modelName || '').trim()
-    if (!model) return
-    const key = `${taskName}|${model}`
-    if (seen.has(key)) return
+    if (!model || seen.has(model)) return
     result.push({ task: taskName, model })
-    seen.add(key)
+    seen.add(model)
   }
 
-  if (provider.model_map && typeof provider.model_map === 'object') {
-    Object.entries(provider.model_map).forEach(([taskName, value]) => {
-      if (task && taskName !== task) return
+  const modelMap = provider.model_map && typeof provider.model_map === 'object' ? provider.model_map : null
+  const hasModelMap = modelMap && Object.keys(modelMap).length > 0
+  if (modelMap) {
+    Object.entries(modelMap).forEach(([taskName, value]) => {
+      if (task !== null && taskName !== task) return
       normalizeModelList(value).forEach(model => add(model, taskName))
     })
   }
 
-  if (!task) {
-    normalizeModelList(provider.models).forEach(model => add(model, ''))
-    normalizeModelList(provider.model).forEach(model => add(model, ''))
+  if (task === null || (result.length === 0 && !hasModelMap)) {
+    const fallbackTask = task === null ? '' : task
+    normalizeModelList(provider.models).forEach(model => add(model, fallbackTask))
+    normalizeModelList(provider.model).forEach(model => add(model, fallbackTask))
   }
 
   return result
@@ -74,20 +75,23 @@ export async function getAvailableModels(options = {}) {
     const providers = await getProviders()
     const models = []
     const seen = new Set()
+    const effectiveTask = options.allTasks
+      ? null
+      : (Object.prototype.hasOwnProperty.call(options, 'task') ? options.task : 'chat')
+    const includeTaskLabel = effectiveTask === null
 
     providers.forEach(provider => {
       const name = provider.name || provider.key || ''
       const ptype = provider.provider_type || ''
       const displayName = name + (ptype ? ` (${ptype})` : '')
-      const providerModels = collectProviderModels(provider, options.task || null)
+      const providerModels = collectProviderModels(provider, effectiveTask)
 
       providerModels.forEach(({ task, model }) => {
         const value = `${name}|${ptype}|${model}`
-        const key = `${value}|${task}`
-        if (seen.has(key)) return
-        seen.add(key)
+        if (seen.has(value)) return
+        seen.add(value)
         models.push({
-          label: `${displayName} / ${task ? `${task}: ` : ''}${model}`,
+          label: `${displayName} / ${includeTaskLabel && task ? `${task}: ` : ''}${model}`,
           value,
           provider: name,
           provider_type: ptype,
@@ -123,6 +127,17 @@ export async function updateProvider(providerKey, data) {
   })
   const json = await response.json()
   if (!response.ok) throw new Error(json.detail || json.message || '更新失败')
+  return json
+}
+
+export async function reorderProviders(providerKeys) {
+  const response = await fetch(`${API_BASE}/providers/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider_keys: providerKeys })
+  })
+  const json = await response.json()
+  if (!response.ok) throw new Error(json.detail || json.message || '排序保存失败')
   return json
 }
 

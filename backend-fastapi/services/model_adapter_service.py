@@ -103,6 +103,22 @@ class ModelAdapterService:
 
         return self._adapter.register_provider_from_config(config, save_config=True)
 
+    def reorder_providers(self, data: Optional[Dict[str, Any]]) -> List[str]:
+        if not data:
+            raise ModelAdapterServiceError('请求数据不能为空', status_code=400)
+
+        provider_keys = data.get('provider_keys')
+        if not isinstance(provider_keys, list):
+            raise ModelAdapterServiceError('provider_keys 必须是列表', status_code=400)
+        normalized_keys = [str(key).strip() for key in provider_keys]
+        if not all(normalized_keys):
+            raise ModelAdapterServiceError('provider_keys 包含非法 Provider key', status_code=400)
+
+        try:
+            return self._adapter.reorder_providers(normalized_keys)
+        except ValueError as error:
+            raise ModelAdapterServiceError(str(error), status_code=400) from error
+
     def delete_provider(self, provider_key: str) -> None:
         self._adapter.remove_provider(provider_key, delete_config=True)
 

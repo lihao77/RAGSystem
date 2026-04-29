@@ -144,8 +144,9 @@ tool 归属规则：
 - `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏，并仅维护会话级执行状态摘要（execution pill / task_id / run_id / execution_kind），不再展示执行诊断详情抽屉
 - `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内；其中任务级 execution diagnostics 统一归属 `AgentMonitor.vue`
 - 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
+- `ModelProviderManager.vue` 使用 `PageLayout + glass-card + builder-panel` 管理模型 Provider：通过 `src/api/modelAdapter.js` 读取 provider 类型、Provider 列表并执行创建/更新/删除/连通性测试；模型映射编辑支持同一任务多模型，多行编辑后提交为 `model_map` 的字符串或数组值。Provider 列表顺序直接消费后端 `providers.yaml` 顶层 key 顺序，新建 Provider 刷新后自然出现在末尾；页面采用一行一条的紧凑列表展示，左侧原生 HTML5 拖拽把手用于排序，拖拽过程中本地实时重排并由 `TransitionGroup` 提供移动动画，释放后调用 `PUT /api/model-adapter/providers/order` 持久化，失败时回滚并 toast 提示。列表行内只保留 Provider 类型、名称、Endpoint URL 和测试/编辑/删除操作，Provider key 仅作为悬停 title 保留，避免主列表信息过载。
+- `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现。
 - `DaemonManager.vue` 采用与其他管理页一致的 `PageLayout + glass card + badge/act-btn/form-control/modal-shell` 体系，并通过 `/api/daemon/config` 读写 daemon YAML：页面内含基础配置（enabled/default_session_ttl/agent_name/heartbeat_interval）、平台凭证编辑（微信/钉钉/飞书）、适配器状态、Cron 管理与主动推送；其中飞书平台额外支持 `receive_mode` 选择，可在“长连接（推荐，无需公网）”与“Webhook（需要公网 HTTPS）”之间切换。Cron 列表与 CRUD 操作统一落到后端 `daemon.yaml` 的 `agents[].cron_tasks[]`，并遵守“同一平台只能被一个 enabled team 占用”的后端约束
-- `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现
 - `MainLayout.vue` 的左侧 sidebar 采用“按页面主视图唯一激活”规则：聊天入口与历史会话只在 `mainView=chat` 时参与高亮；模型管理 / Agent 配置 / MCP / 知识库 / 监控按钮按各自 `route.meta.mainView` 独立激活，避免管理页打开后历史会话残留 active。
 - `AgentConfig.vue` 的 section-nav（右侧/底部浮动分节导航）点击跳转、高亮观察与“滚动到底部”统一绑定 `PageLayout.vue` 的 `.page-content-scroll` 作为真实滚动容器；不要再绑定到内部 `.page-content`，否则分节导航会出现失效或高亮不同步。
 - 管理页的纵向滚动由 `MainLayout.vue` 的 `layout-main-host--page` 统一承载，内部 `route-card--page` 保持 `min-height: 100%` 且不裁剪 overflow，避免公共壳层把非 Chat 页面内容截断导致无法滚动

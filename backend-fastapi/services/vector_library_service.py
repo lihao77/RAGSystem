@@ -262,6 +262,10 @@ class VectorLibraryService:
         model_name = (body.get('model_name') or '').strip()
         distance_metric = body.get('distance_metric') or 'cosine'
         provider_type = body.get('provider_type')
+        if provider_type is not None:
+            provider_type = str(provider_type).strip() or None
+            if provider_type and provider_key.endswith(f'_{provider_type}'):
+                provider_type = None
 
         if not provider_key or not model_name:
             raise VectorLibraryServiceError('缺少 provider_key 或 model_name', status_code=400)
@@ -279,8 +283,13 @@ class VectorLibraryService:
 
         embedder = self._embedder_factory(key)
         if not embedder:
+            store.delete_vectorizer(key)
             raise VectorLibraryServiceError('无法创建该向量化器的 Embedder（请检查 Model Adapter 配置）', status_code=400)
-        dimension = embedder.embedding_dim
+        try:
+            dimension = embedder.embedding_dim
+        except Exception as error:
+            store.delete_vectorizer(key)
+            raise VectorLibraryServiceError(f'无法获取该向量化器维度: {error}', status_code=400) from error
 
         model_manager = self._get_model_manager()
         model_id = model_manager.register_model(

@@ -67,6 +67,23 @@ async def create_provider(request: Request):
         raise HTTPException(status_code=500, detail=f'创建 Provider 失败: {e}')
 
 
+@router.put('/providers/order')
+async def reorder_providers(request: Request):
+    """更新 Provider 展示顺序。"""
+    try:
+        body = await request.json()
+        provider_keys = await asyncio.to_thread(_get_service().reorder_providers, body)
+        return {
+            **ok(data={'provider_keys': provider_keys}, message='Provider 顺序更新成功'),
+            'provider_keys': provider_keys,
+        }
+    except Exception as e:
+        if hasattr(e, 'status_code'):
+            raise HTTPException(status_code=e.status_code, detail=e.message)
+        logger.error('更新 Provider 顺序失败: %s', e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f'更新 Provider 顺序失败: {e}')
+
+
 @router.put('/providers/{provider_key}')
 async def update_provider(provider_key: str, request: Request):
     """更新 Provider。"""

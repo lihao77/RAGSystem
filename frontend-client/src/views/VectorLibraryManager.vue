@@ -1186,7 +1186,7 @@ async function handleDeleteVectorizer(key) {
 // ── 新增向量化器（Provider 选择模式）────────────────────────
 const showAddVectorizerDialog = ref(false);
 const addingVectorizer = ref(false);
-const addVectorizerForm = reactive({ provider_key: '', provider_type: '', model_name: '' });
+const addVectorizerForm = reactive({ provider_key: '', model_name: '' });
 const availableProviders = ref([]);
 const addFormRecommendedModel = ref('');
 const addFormModelList = ref([]);
@@ -1221,12 +1221,10 @@ function normalizeModelList(value) {
 function onAddFormProviderChange(key) {
     const p = availableProviders.value.find(x => x.key === key);
     if (!p) {
-        addVectorizerForm.provider_type = '';
         addFormRecommendedModel.value = '';
         addFormModelList.value = [];
         return;
     }
-    addVectorizerForm.provider_type = p.provider_type || '';
     const emb = p.model_map?.embedding;
     addFormRecommendedModel.value = normalizeModelList(emb)[0] || '';
     const all = new Set((p.models || []).map(item => String(item || '').trim()).filter(Boolean));
@@ -1250,14 +1248,12 @@ async function handleAddVectorizer() {
     try {
         const res = await addVectorizer({
             provider_key: addVectorizerForm.provider_key,
-            provider_type: addVectorizerForm.provider_type || null,
             model_name: addVectorizerForm.model_name.trim(),
         });
         if (res.success) {
             showToast('已添加向量化器', 'success');
             showAddVectorizerDialog.value = false;
             addVectorizerForm.provider_key = '';
-            addVectorizerForm.provider_type = '';
             addVectorizerForm.model_name = '';
             addFormRecommendedModel.value = '';
             addFormModelList.value = [];
