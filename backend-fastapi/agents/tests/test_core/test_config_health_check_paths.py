@@ -33,6 +33,26 @@ def test_health_check_uses_config_root_for_vectorizers_path(monkeypatch, tmp_pat
     assert checker.vectorizers_path == fake_config_root / 'vector_store' / 'vectorizers.yaml'
 
 
+def test_health_check_uses_config_root_for_agent_team_paths(monkeypatch, tmp_path):
+    fake_config_root = tmp_path / 'config-root'
+    monkeypatch.setattr('config.health_check.CONFIG_ROOT', fake_config_root)
+    checker = ConfigHealthCheck()
+
+    assert checker.agent_team_index_path == fake_config_root / 'agents' / 'team_index.yaml'
+    assert checker.agent_teams_dir == fake_config_root / 'agents' / 'teams'
+
+
+def test_health_check_warns_when_agent_team_configs_missing(monkeypatch, tmp_path):
+    fake_config_root = tmp_path / 'config-root'
+    monkeypatch.setattr('config.health_check.CONFIG_ROOT', fake_config_root)
+    checker = ConfigHealthCheck()
+
+    checker.check_required_configs()
+
+    assert any('team_index.yaml' in warning for warning in checker.warnings)
+    assert any('teams' in warning and '*.yaml' in warning for warning in checker.warnings)
+
+
 def test_health_check_rejects_invalid_hooks_workspace_trust(monkeypatch, tmp_path):
     fake_config_root = tmp_path / 'config-root'
     app_config_path = fake_config_root / 'app' / 'config.yaml'

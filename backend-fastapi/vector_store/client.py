@@ -8,9 +8,9 @@
 """
 
 import logging
-from pathlib import Path
 from typing import Optional
 
+from core.path_resolution import resolve_ragsystem_db_path
 from .base import VectorStoreBase
 from .sqlite_store import SQLiteVectorStore
 
@@ -83,15 +83,7 @@ class VectorStoreClient:
 
     def _init_sqlite_store(self, config):
         """初始化 SQLite 向量存储"""
-        raw = (config.database_path or "").strip()
-        if not raw:
-            from core.path_resolution import RAGSYSTEM_DB
-            db_path = RAGSYSTEM_DB
-        else:
-            db_path = Path(raw)
-            if not db_path.is_absolute():
-                from core.path_resolution import BACKEND_ROOT
-                db_path = BACKEND_ROOT / db_path
+        db_path = resolve_ragsystem_db_path(config.database_path)
 
         logger.info(f"初始化 SQLite 向量存储: {db_path}")
 

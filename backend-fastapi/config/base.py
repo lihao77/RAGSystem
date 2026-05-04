@@ -23,10 +23,9 @@ class ConfigManager:
         self._backend_root = Path(__file__).resolve().parent.parent
         self._config_dir = Path(__file__).parent / "yaml"
         self._default_config_path = self._config_dir / "config.default.yaml"
-        # 用户配置优先从 CONFIG_ROOT/app/config.yaml 读取，回退到源码目录
+        # 用户配置固定从 CONFIG_ROOT/app/config.yaml 读取
         from core.path_resolution import CONFIG_ROOT
-        _config_root_path = CONFIG_ROOT / "app" / "config.yaml"
-        self._user_config_path = _config_root_path if _config_root_path.exists() else self._config_dir / "config.yaml"
+        self._user_config_path = CONFIG_ROOT / "app" / "config.yaml"
         load_dotenv(self._backend_root / ".env", override=False)
         self.load()
 

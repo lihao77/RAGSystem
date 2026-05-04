@@ -19,27 +19,27 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vector_store.model_manager import EmbeddingModelManager
 from config import get_config
+from core.path_resolution import resolve_ragsystem_db_path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def migrate():
     config = get_config()
-    # Correct path access for sqlite_vec config
-    db_path = config.vector_store.sqlite_vec.database_path
-    
-    if not os.path.exists(db_path):
+    db_path = resolve_ragsystem_db_path(config.vector_store.sqlite_vec.database_path)
+
+    if not db_path.exists():
         logger.error(f"Database not found at {db_path}")
         return
 
     logger.info(f"Opening database: {db_path}")
-    
+
     # Initialize Model Manager (creates new tables)
-    model_manager = EmbeddingModelManager(db_path)
-    
+    model_manager = EmbeddingModelManager(str(db_path))
+
     # 1. Get current configuration
     # We try to infer current model details from config or database
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(str(db_path))
     
     # Load sqlite-vec extension
     try:

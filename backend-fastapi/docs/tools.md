@@ -62,12 +62,13 @@ tools/
 | `uploads` | 默认 `~/.ragsystem/uploads/` | 全局上传文件 | `api/v1/files.py` | 全局文件池，服务知识库/向量库管理页 |
 | `session_uploads` | 默认 `~/.ragsystem/sessions/<session_id>/uploads/` | 会话私有上传文件 | `api/v1/session_files.py` | session 文件输入区，随 session 生命周期清理 |
 | `monitoring/session_traces` | 默认 `~/.ragsystem/monitoring/session_traces/<session_id>/runs/<run_id>/` | 调试消息、运行步骤 JSONL | `execution/persistence/session_trace_writer.py` | 运行跟踪/调试数据，不属于业务文件 |
-| `db` | 默认 `~/.ragsystem/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶 |
+| `db` | 默认 `~/.ragsystem/db/` | SQLite 数据库等系统持久化文件 | `ConversationStore`、checkpoint 等 | 系统级持久化，不按 session 分桶；`vector_store.sqlite_vec.database_path` 为空时使用 `db/ragsystem.db`，相对路径解析到此桶内 |
 | `anonymous fallback` | 逻辑 display path 仍为 `./data/sessions/anonymous/...`，物理默认位于 `~/.ragsystem/sessions/anonymous/...` | 无 session 时的兜底文件 | 多处 fallback | 这是当前保留的系统策略 |
 
 ### 统一原则（v3）
 
 - 默认物理数据根已调整为用户主目录下的 `~/.ragsystem`；若显式设置 `RAG_DATA_ROOT`，则以该环境变量为准
+- 数据库配置路径由 `core.path_resolution.resolve_ragsystem_db_path()` 统一解析：空值使用 `DATA_ROOT/db/ragsystem.db`，绝对路径原样使用，相对路径解析到 `DATA_ROOT/db/` 下
 - 对外展示路径与链式调用中的 display path 仍统一使用 `./data/...` 逻辑别名，不直接暴露真实物理目录
 - **除 MCP 外，所有可执行能力统一走 `@tool()`**
 - 当前真实结构以 `contracts / runtime / local / refs / artifacts / paths / catalog` 为主分层

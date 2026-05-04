@@ -184,8 +184,7 @@ class AgentLoader:
         """
         加载系统级 Orchestrator Agent
 
-        优先从 agent_configs.yaml 读取 orchestrator_agent 配置；
-        如果用户未配置，则使用硬编码默认值兜底。
+        如果当前 team 未配置 orchestrator_agent，则使用硬编码默认值兜底。
 
         Returns:
             Orchestrator Agent 实例
@@ -215,7 +214,7 @@ class AgentLoader:
         """构建 orchestrator_agent 的默认配置。"""
         from .models import AgentConfig, AgentLLMConfig, AgentTaskConfig
 
-        logger.debug("Orchestrator Agent：未在 agent_configs.yaml 中找到配置，使用硬编码默认值")
+        logger.debug("Orchestrator Agent：当前 team 未配置，使用硬编码默认值")
         return AgentConfig(
             agent_name='orchestrator_agent',
             display_name='Orchestrator Agent',

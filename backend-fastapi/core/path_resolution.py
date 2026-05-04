@@ -40,6 +40,19 @@ SESSION_TRACES_ROOT: Path = MONITORING_ROOT / "session_traces"
 RAGSYSTEM_DB: Path = DB_ROOT / "ragsystem.db"
 CHECKPOINTS_DB: Path = DB_ROOT / "checkpoints.db"
 
+
+def resolve_ragsystem_db_path(database_path: str | Path | None = None) -> Path:
+    """解析 RAGSystem 主 SQLite 数据库路径。"""
+    raw = str(database_path).strip() if database_path is not None else ""
+    if not raw:
+        return RAGSYSTEM_DB
+
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return DB_ROOT / path
+
+
 # ── 匿名 session 兜底 ─────────────────────────────────────────────
 _DISPLAY_PATH_PREFIX = "./data/"
 _ANONYMOUS_SESSION_ID = "anonymous"

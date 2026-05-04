@@ -9,10 +9,10 @@ from runtime.dependencies import get_runtime_dependency
 import json
 import sqlite3
 import struct
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from config import get_config
+from core.path_resolution import resolve_ragsystem_db_path
 from vector_store.embedder import get_embedder_for_vectorizer, reset_embedder
 from vector_store.model_manager import EmbeddingModelManager
 from vector_store.vectorizer_config import get_vectorizer_config_store
@@ -427,15 +427,7 @@ class VectorLibraryService:
 
     def _get_db_path(self) -> str:
         config = self._config_getter()
-        raw = (config.vector_store.sqlite_vec.database_path or "").strip()
-        if not raw:
-            from core.path_resolution import RAGSYSTEM_DB
-            return str(RAGSYSTEM_DB)
-        path = Path(raw)
-        if not path.is_absolute():
-            from core.path_resolution import BACKEND_ROOT
-            path = BACKEND_ROOT / path
-        return str(path)
+        return str(resolve_ragsystem_db_path(config.vector_store.sqlite_vec.database_path))
 
     def _get_vectorizer_store(self):
         return self._vectorizer_store or get_vectorizer_config_store()

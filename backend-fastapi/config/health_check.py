@@ -28,7 +28,8 @@ class ConfigHealthCheck:
         self.providers_example_path = _BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml.example"
         self.app_config_path = CONFIG_ROOT / "app" / "config.yaml"
         self.app_config_example_path = _BACKEND_ROOT / "config" / "yaml" / "config.yaml.example"
-        self.agent_configs_path = CONFIG_ROOT / "agents" / "agent_configs.yaml"
+        self.agent_team_index_path = CONFIG_ROOT / "agents" / "team_index.yaml"
+        self.agent_teams_dir = CONFIG_ROOT / "agents" / "teams"
         self.mcp_servers_path = CONFIG_ROOT / "mcp" / "mcp_servers.yaml"
         self.vectorizers_path = CONFIG_ROOT / "vector_store" / "vectorizers.yaml"
 
@@ -63,9 +64,14 @@ class ConfigHealthCheck:
                 f"  可从示例初始化：cp {self.app_config_example_path} {self.app_config_path}"
             )
 
-        if not self.agent_configs_path.exists():
+        if not self.agent_team_index_path.exists():
             self.warnings.append(
-                f"未找到 Agent 配置文件：{self.agent_configs_path}；启动时可能回退为默认空 team 配置。"
+                f"未找到 Agent team 索引文件：{self.agent_team_index_path}；启动时将由 AgentConfigManager 初始化默认 team。"
+            )
+
+        if not self.agent_teams_dir.exists() or not any(self.agent_teams_dir.glob("*.yaml")):
+            self.warnings.append(
+                f"未找到 Agent team 配置文件：{self.agent_teams_dir}/*.yaml；启动时将由 AgentConfigManager 初始化默认 team。"
             )
 
         if not self.mcp_servers_path.exists():

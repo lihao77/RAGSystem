@@ -18,13 +18,13 @@ import json
 import logging
 import argparse
 import sqlite3
-from pathlib import Path
 from typing import List, Dict, Any
 from tqdm import tqdm
 
 from vector_store import get_vector_client, get_embedder
 from vector_store.base import Document
 from config import get_config
+from core.path_resolution import resolve_ragsystem_db_path
 
 # 配置日志
 logging.basicConfig(
@@ -89,10 +89,7 @@ class VectorDimensionMigrator:
             batch_size: 批处理大小
         """
         # 1. 获取数据库路径
-        db_path = Path(self.config.vector_store.sqlite_vec.database_path)
-        if not db_path.is_absolute():
-            from core.path_resolution import BACKEND_ROOT
-            db_path = BACKEND_ROOT / db_path
+        db_path = resolve_ragsystem_db_path(self.config.vector_store.sqlite_vec.database_path)
 
         if not db_path.exists():
             logger.error(f"❌ 数据库文件不存在: {db_path}")

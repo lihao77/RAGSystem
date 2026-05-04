@@ -16,6 +16,7 @@ from core.path_resolution import (
     BACKEND_ROOT, DATA_ROOT,
     DB_ROOT, MEMORY_ROOT, MONITORING_ROOT, SESSIONS_ROOT, UPLOADS_ROOT, CONFIG_ROOT,
     SESSION_TRACES_ROOT, RAGSYSTEM_DB, CHECKPOINTS_DB,
+    resolve_ragsystem_db_path,
     get_session_root, get_session_sandbox_root, get_session_workspace_root,
     get_effective_workspace_root, get_workspace_memory_key,
     get_session_transient_root,

@@ -103,7 +103,7 @@ hooks/
 
 ### 系统配置格式
 
-Hook 不再使用独立 `hooks.yaml`；系统级 Hook 配置收敛到 `CONFIG_ROOT/app/config.yaml` 的 `hooks` 字段。
+Hook 不再使用独立 `hooks.yaml`；系统级 Hook 配置收敛到 `CONFIG_ROOT/app/config.yaml` 的 `hooks` 字段，该文件是唯一运行时入口，不再从源码侧 `config/yaml/config.yaml` 回退读取。
 
 ```yaml
 hooks:

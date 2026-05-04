@@ -19,6 +19,8 @@ from datetime import datetime
 from contextlib import contextmanager
 import logging
 
+from core.path_resolution import resolve_ragsystem_db_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,24 +42,14 @@ class FileIndexSQLite:
                     这样可以与向量数据库共享连接，便于跨表查询
         """
         if db_path is None:
-            from config import get_config
-            from core.path_resolution import RAGSYSTEM_DB
             try:
+                from config import get_config
                 config = get_config()
-                raw = (config.vector_store.sqlite_vec.database_path or "").strip()
-                if raw:
-                    p = Path(raw)
-                    if p.is_absolute():
-                        db_path = p
-                    else:
-                        from core.path_resolution import BACKEND_ROOT
-                        db_path = BACKEND_ROOT / p
-                else:
-                    db_path = RAGSYSTEM_DB
+                db_path = config.vector_store.sqlite_vec.database_path
             except Exception:
-                db_path = RAGSYSTEM_DB
+                db_path = None
 
-        self.db_path = Path(db_path)
+        self.db_path = resolve_ragsystem_db_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 初始化数据库

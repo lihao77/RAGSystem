@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agents.artifacts import ArtifactStore
 from config import get_config
+from core.path_resolution import resolve_ragsystem_db_path
 from execution.persistence.session_trace_writer import SessionTraceWriter
 from utils.backup_database import backup_database as _backup_database
 from utils.backup_database import restore_database as _restore_database
@@ -28,16 +29,7 @@ class ConversationStore:
             config = get_config()
             db_path = config.vector_store.sqlite_vec.database_path
 
-        if not db_path:
-            from core.path_resolution import RAGSYSTEM_DB
-            db_path = str(RAGSYSTEM_DB)
-
-        db_path = Path(db_path)
-        if not db_path.is_absolute():
-            from core.path_resolution import BACKEND_ROOT
-            db_path = BACKEND_ROOT / db_path
-
-        self.db_path = db_path
+        self.db_path = resolve_ragsystem_db_path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.cleanup_interval_seconds = cleanup_interval_seconds
