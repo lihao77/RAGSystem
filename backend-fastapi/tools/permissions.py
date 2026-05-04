@@ -225,14 +225,15 @@ def evaluate_tool_permission(
                 resolved_from=[exposure.source, "permission_registry"],
             )
 
-    if permission.allowed_roles and user_role and user_role not in permission.allowed_roles:
-        return PermissionDecision(
-            tool_name=tool_name,
-            execution_allowed=False,
-            deny_reason=f"Role {user_role} cannot use tool {tool_name}",
-            risk_level=permission.risk_level.value,
-            resolved_from=["permission_registry"],
-        )
+    if permission.allowed_roles:
+        if not user_role or user_role not in permission.allowed_roles:
+            return PermissionDecision(
+                tool_name=tool_name,
+                execution_allowed=False,
+                deny_reason=f"Role {user_role!r} cannot use tool {tool_name}" if user_role else f"No role provided for restricted tool {tool_name}",
+                risk_level=permission.risk_level.value,
+                resolved_from=["permission_registry"],
+            )
 
     return PermissionDecision(
         tool_name=tool_name,

@@ -162,7 +162,11 @@ class DaemonService:
             for platform, conn in agent_cfg.platforms.items():
                 if not conn.enabled:
                     continue
-                adapter = self._create_adapter(platform, conn)
+                try:
+                    adapter = self._create_adapter(platform, conn)
+                except NotImplementedError as e:
+                    logger.warning('跳过未实现的平台 [%s]: %s', platform.value, e)
+                    continue
                 if adapter:
                     # 当前配置约束为每个平台仅允许一个 enabled team 占用
                     self._adapters[platform] = adapter
@@ -172,7 +176,13 @@ class DaemonService:
                     except Exception as e:
                         logger.error('平台适配器连接失败 [%s]: %s', platform.value, e)
 
-        self._running = True
+        has_connected = any(
+            a.status == AdapterStatus.CONNECTED
+            for a in self._adapters.values()
+        )
+        if not self._adapters or not has_connected:
+            logger.warning('所有平台适配器连接失败或无适配器，守护服务标记为未运行')
+        self._running = bool(self._adapters and has_connected)
 
         # 3. 启动 Cron 调度器
         await self._reload_scheduler()

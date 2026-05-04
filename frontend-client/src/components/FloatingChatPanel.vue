@@ -48,6 +48,7 @@
 
 <script setup>
 import { ref, watch, nextTick } from 'vue';
+import { escapeHtml } from '../utils/escapeHtml';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -70,8 +71,9 @@ const toggleCollapse = (val) => {
 
 const renderContent = (content) => {
   if (!content) return '';
+  let rendered = escapeHtml(content);
   const vizRe = /\[viz:(viz_\w+)\]/g;
-  let rendered = content.replace(vizRe, '<span class="viz-link">[ 地图可视化 ]</span>');
+  rendered = rendered.replace(vizRe, '<span class="viz-link">[ 地图可视化 ]</span>');
   rendered = rendered.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$2</code></pre>');
   rendered = rendered.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
   rendered = rendered.replace(/^### (.+)$/gm, '<div class="chat-h3">$1</div>');

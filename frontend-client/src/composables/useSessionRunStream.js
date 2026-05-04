@@ -156,7 +156,14 @@ export function useSessionRunStream(deps) {
 
     if (event.seq) {
       if (deps.activeRun.lastSeenSeq > 0 && event.seq > deps.activeRun.lastSeenSeq + 1) {
-        console.warn(`[WS] 事件序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${event.seq - deps.activeRun.lastSeenSeq - 1}`);
+        const missed = event.seq - deps.activeRun.lastSeenSeq - 1;
+        console.warn(`[WS] 事件序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${missed}`);
+        // seq gap 超过阈值时触发消息刷新以恢复丢失内容
+        const SEQ_GAP_REFRESH_THRESHOLD = 3;
+        if (missed >= SEQ_GAP_REFRESH_THRESHOLD) {
+          deps.deleteMessageCache(sessionId);
+          deps.loadSessionMessages(sessionId, { silent: true });
+        }
       }
       deps.activeRun.lastSeenSeq = event.seq;
     }

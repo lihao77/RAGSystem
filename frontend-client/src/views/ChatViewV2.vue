@@ -448,6 +448,9 @@ import MessageEditBox from '../components/MessageEditBox.vue';
 import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 
+// 审批 ack 超时计时器（模块级 Map，替代 window 全局）
+const _approvalAckTimers = new Map();
+
 // ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
 // 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
 const VISUALIZATION_REGISTRY = {
@@ -901,6 +904,27 @@ const showQueuedApproval = (approval, sessionId) => {
     approvalSubmittingId.value = aid;
     if (getWS()?.readyState === WebSocket.OPEN) {
       getWS().send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
+      // 设置 ack 超时：5秒内未收到后端确认则降级为 HTTP 重试
+      const ackTimer = setTimeout(async () => {
+        if (approvalSubmittingId.value !== aid) return; // 已被 ack 处理
+        console.warn(`[Approval] WS ack 超时 (${aid})，降级 HTTP 重试`);
+        try {
+          const resp = await fetch(
+            `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, message }) }
+          );
+          if (!resp.ok) throw new Error(`HTTP fallback 失败 (${resp.status})`);
+          handleApprovalResolved(aid, sessionId);
+        } catch (e) {
+          removeApprovalFromQueue(aid);
+          approvalSubmittingId.value = '';
+          showToast(e.message || '审批提交超时', 'warning');
+          hideApprovalDialogs();
+          showNextApproval(sessionId);
+        }
+      }, 5000);
+      // 存储 timer 以便 ack 到达时清除
+      _approvalAckTimers.set(aid, ackTimer);
       return;
     }
     try {
@@ -957,6 +981,11 @@ const enqueueApproval = (event, eventData, sessionId) => {
 
 const handleApprovalResolved = (approvalId, sessionId) => {
   if (!approvalId) return;
+  // 清除 ack 超时计时器
+  if (_approvalAckTimers.has(approvalId)) {
+    clearTimeout(_approvalAckTimers.get(approvalId));
+    _approvalAckTimers.delete(approvalId);
+  }
   const currentApprovalId = approvalQueue.value[0]?.approval_id || '';
   removeApprovalFromQueue(approvalId);
   if (approvalSubmittingId.value === approvalId) {
@@ -2179,6 +2208,12 @@ onUnmounted(() => {
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
   invalidateActiveStream();
+
+  // 清理所有审批 ack 超时计时器
+  for (const timer of _approvalAckTimers.values()) {
+    clearTimeout(timer);
+  }
+  _approvalAckTimers.clear();
 });
 </script>
 

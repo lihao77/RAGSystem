@@ -77,7 +77,8 @@ const imageError = ref(false);
 const imageUrl = computed(() => {
   if (!vizData.value) return '';
   if (vizData.value.viz_type === 'image') {
-    const path = vizData.value.image_url || '';
+    const raw = vizData.value.image_url;
+    const path = typeof raw === 'string' ? raw : '';
     // 如果是相对路径，转为 API 可访问的路径
     if (path.startsWith('./static/')) {
       return '/' + path.replace('./', '');
@@ -98,7 +99,17 @@ async function fetchConfig() {
       if (resp.status >= 500) throw new Error('服务器暂时不可用，请稍后重试');
       throw new Error(`请求失败 (${resp.status})`);
     }
-    vizData.value = await resp.json();
+    const data = await resp.json();
+    if (!data || typeof data !== 'object' || !data.viz_type) {
+      throw new Error('可视化数据结构异常：缺少 viz_type 字段');
+    }
+    if (!['chart', 'map', 'image'].includes(data.viz_type)) {
+      throw new Error(`不支持的可视化类型: ${data.viz_type}`);
+    }
+    if ((data.viz_type === 'chart' || data.viz_type === 'map') && !data.config) {
+      throw new Error(`可视化数据结构异常：${data.viz_type} 类型缺少 config 字段`);
+    }
+    vizData.value = data;
   } catch (e) {
     error.value = e.message.startsWith('可视化') || e.message.startsWith('服务器') || e.message.startsWith('请求失败')
       ? e.message

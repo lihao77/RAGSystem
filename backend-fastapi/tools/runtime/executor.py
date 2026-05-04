@@ -40,7 +40,8 @@ def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
         set_current_timer(timer)
         return fn()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
         future = pool.submit(_wrapped)
         start = time.monotonic()
         paused_at_start = timer.paused_duration
@@ -53,6 +54,8 @@ def _run_with_timeout(fn, timeout: int, tool_name: str) -> ToolExecutionResult:
             if elapsed >= timeout:
                 logger.error("工具 %s 执行超时 (%ss)%s", tool_name, timeout, format_observability_suffix())
                 return error_result(f"工具 {tool_name} 执行超时（{timeout}秒）", tool_name=tool_name)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _normalize_tool_result(result, tool_name: str) -> ToolExecutionResult:
@@ -237,6 +240,7 @@ def execute_tool(
         round_index=round_index,
     )
 
+    approval_outcome = None
     try:
         hook_result = _filter_hook_result_for_phase(
             _run_hooks_sync("tool.before_permission", context),
@@ -317,9 +321,10 @@ def execute_tool(
 
         logger.error("执行工具 %s 失败: %s%s", tool_name, error, format_observability_suffix(), exc_info=True)
         result = error_result(str(error), tool_name=tool_name)
-        _merge_approval_metadata(result, approval_outcome.approval_metadata, approval_outcome.approval_message)
-        if approval_outcome.approval_message:
-            result.metadata.setdefault("approval_message", approval_outcome.approval_message)
+        if approval_outcome is not None:
+            _merge_approval_metadata(result, approval_outcome.approval_metadata, approval_outcome.approval_message)
+            if approval_outcome.approval_message:
+                result.metadata.setdefault("approval_message", approval_outcome.approval_message)
         _merge_hook_data(result, hook_result, phase="on_error")
         return result
 

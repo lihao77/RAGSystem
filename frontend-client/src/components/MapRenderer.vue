@@ -218,12 +218,7 @@ const DEFAULT_MARKER_STYLE = {
   size: 'md'
 };
 
-const escapeHtml = (value = '') => String(value)
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
+import { escapeHtml } from '../utils/escapeHtml';
 
 const normalizeMarkerStyle = (style = {}) => {
   const normalized = { ...DEFAULT_MARKER_STYLE };
@@ -376,8 +371,8 @@ const createStyledMarkerIcon = (style = {}) => {
 
 const buildMarkerPopup = (marker, valueField = '') => `
   <div class="marker-popup">
-    <strong>${marker.name}</strong><br/>
-    <span>${valueField || ''}: ${formatNumber(marker.value)}</span>
+    <strong>${escapeHtml(marker.name)}</strong><br/>
+    <span>${escapeHtml(valueField || '')}: ${formatNumber(marker.value)}</span>
   </div>
 `;
 
@@ -486,8 +481,8 @@ const renderSingleLayer = (layerData, map) => {
         .addTo(map)
         .bindPopup(`
           <div class="marker-popup">
-            <strong>${marker.name}</strong><br/>
-            <span>${layerData.value_field || ''}: ${formatNumber(marker.value)}</span>
+            <strong>${escapeHtml(marker.name)}</strong><br/>
+            <span>${escapeHtml(layerData.value_field || '')}: ${formatNumber(marker.value)}</span>
           </div>
         `);
       currentLayers.value.push(circle);
@@ -512,10 +507,10 @@ const renderSingleLayer = (layerData, map) => {
       },
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
-        const lines = [`<strong>${p.name || '未命名'}</strong>`];
-        if (p.value !== undefined) lines.push(`${layerData.value_field || '值'}: ${formatNumber(p.value)}`);
+        const lines = [`<strong>${escapeHtml(p.name || '未命名')}</strong>`];
+        if (p.value !== undefined) lines.push(`${escapeHtml(layerData.value_field || '值')}: ${formatNumber(p.value)}`);
         Object.keys(p).forEach(k => {
-          if (!['name', 'value'].includes(k)) lines.push(`${k}: ${p[k]}`);
+          if (!['name', 'value'].includes(k)) lines.push(`${escapeHtml(k)}: ${escapeHtml(String(p[k]))}`);
         });
         layer.bindPopup(`<div class="marker-popup">${lines.join('<br/>')}</div>`);
       },
@@ -548,8 +543,8 @@ const renderSingleLayer = (layerData, map) => {
       },
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
-        const lines = [`<strong>${p.name || '未命名'}</strong>`];
-        if (p.value !== undefined) lines.push(`${layerData.value_field || '值'}: ${formatNumber(p.value)}`);
+        const lines = [`<strong>${escapeHtml(p.name || '未命名')}</strong>`];
+        if (p.value !== undefined) lines.push(`${escapeHtml(layerData.value_field || '值')}: ${formatNumber(p.value)}`);
         layer.bindPopup(`<div class="marker-popup">${lines.join('<br/>')}</div>`);
       },
     }).addTo(map);
@@ -627,7 +622,7 @@ const renderSingleLayerToGroup = (layerData, group) => {
       if (map_type === 'circle') {
         group.addLayer(L.circle([marker.lat, marker.lng], {
           radius: marker.radius || 1000, color: '#ff7800', fillColor: '#ff7800', fillOpacity: 0.5, weight: 2
-        }).bindPopup(`<div class="marker-popup"><strong>${marker.name}</strong><br/>${value_field || ''}: ${formatNumber(marker.value)}</div>`));
+        }).bindPopup(`<div class="marker-popup"><strong>${escapeHtml(marker.name)}</strong><br/>${escapeHtml(value_field || '')}: ${formatNumber(marker.value)}</div>`));
       } else {
         group.addLayer(createStyledMarker(marker, layerData));
       }
@@ -644,7 +639,7 @@ const renderSingleLayerToGroup = (layerData, group) => {
       pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 8 }),
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
-        layer.bindPopup(`<div class="marker-popup"><strong>${p.name || '未命名'}</strong><br/>${value_field || '值'}: ${formatNumber(p.value)}</div>`);
+        layer.bindPopup(`<div class="marker-popup"><strong>${escapeHtml(p.name || '未命名')}</strong><br/>${escapeHtml(value_field || '值')}: ${formatNumber(p.value)}</div>`);
       },
     }));
 
@@ -773,13 +768,15 @@ const downloadMap = async () => {
 
 const formatNumber = (num) => {
   if (num === null || num === undefined) return '-';
-  if (num >= 10000) {
-    return (num / 10000).toFixed(2) + '万';
+  const n = Number(num);
+  if (!Number.isFinite(n)) return '-';
+  if (n >= 10000) {
+    return (n / 10000).toFixed(2) + '万';
   }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(2) + '千';
+  if (n >= 1000) {
+    return (n / 1000).toFixed(2) + '千';
   }
-  return num.toFixed(2);
+  return n.toFixed(2);
 };
 
 // Lifecycle

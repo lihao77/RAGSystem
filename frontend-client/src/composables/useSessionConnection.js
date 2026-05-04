@@ -145,9 +145,7 @@ export function useSessionConnection(deps) {
         _wsSessionId = null;
       }
       if (!isCurrentSocket) return;
-      if (deps.activeRun.active && deps.currentSessionId.value === sessionId) {
-        finalizeActiveRun(sessionId);
-      }
+      // 断连时不立即 finalize——先尝试重连，由恢复兜底逻辑决定是否 finalize
       clearCommandFallback();
       if (deps.currentSessionId.value === sessionId) {
         const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;

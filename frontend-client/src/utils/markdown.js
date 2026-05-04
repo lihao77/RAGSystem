@@ -48,8 +48,8 @@ function renderCodeBlock(str, lang) {
 
 // 初始化 markdown-it
 const md = new MarkdownIt({
-  // 启用 HTML 标签
-  html: true,
+  // 禁用原始 HTML（防 XSS）
+  html: false,
 
   // 自动将 URL 转换为链接
   linkify: true,

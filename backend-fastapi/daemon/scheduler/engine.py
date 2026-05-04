@@ -153,6 +153,7 @@ class CronScheduler:
         self._running = False
         self._task_handle: Optional[asyncio.Task] = None
         self._pending_tasks: set[asyncio.Task] = set()
+        self._running_task_ids: set[str] = set()
         self._history: Dict[str, List[Dict[str, Any]]] = {}
 
     async def start(self) -> None:
@@ -201,18 +202,29 @@ class CronScheduler:
             await asyncio.sleep(sleep_secs)
 
     async def _check_and_execute(self, now: datetime) -> None:
-        """检查并执行到期任务。"""
+        """检查并执行到期任务。按 task_id 防重入：上一次执行未完成则跳过。"""
         for task_id, task in list(self._tasks.items()):
             if not task.enabled:
                 continue
             try:
                 if matches_cron(task.cron, now):
+                    if task_id in self._running_task_ids:
+                        logger.warning('Cron 任务 [%s] 仍在执行，跳过本次触发', task_id)
+                        continue
                     logger.info('触发 Cron 任务 [%s]: %s', task_id, task.name)
-                    t = asyncio.create_task(self._execute_task(task))
+                    self._running_task_ids.add(task_id)
+                    t = asyncio.create_task(self._execute_task_guarded(task_id, task))
                     self._pending_tasks.add(t)
                     t.add_done_callback(self._pending_tasks.discard)
             except Exception as e:
                 logger.error('Cron 检查失败 [%s]: %s', task_id, e)
+
+    async def _execute_task_guarded(self, task_id: str, task: CronTask) -> None:
+        """防重入 wrapper：执行完毕后从 _running_task_ids 移除。"""
+        try:
+            await self._execute_task(task)
+        finally:
+            self._running_task_ids.discard(task_id)
 
     async def _execute_task(self, task: CronTask) -> None:
         """执行单个 Cron 任务（最长 5 分钟超时）。"""
