@@ -151,7 +151,7 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 | `execute(task, context) → AgentResponse` | 抽象方法，子类必须实现 |
 | `can_handle(task, context) → bool` | 判断能否处理任务 |
 | `get_llm_config(context=None, task_type=None)` | 统一解析最终 LLM 配置：按 `task_type/requested_llm_tier` 选择 `llm_tiers`，再叠加请求级 `selected_llm` 的模型身份覆盖；agent 侧仅管理模型选择与直接影响交互的参数，provider-specific 字段通过 `extra_params` 透传 |
-| `_execute_react_task()` | ReAct 主循环（思考→工具→观察），主推理默认走 `default` tier |
+| `_execute_react_task()` | ReAct 主循环（思考→工具→观察→反思），主推理默认走 `default` tier |
 | `_handle_actions()` | 执行工具调用，处理占位符替换 |
 | `_resolve_tool_references()` | 解析 `{result_N.path}` 占位符 |
 | `_build_system_prompt()` | BaseAgent 的 system prompt 唯一入口，内部委托 `agents/core/prompting.py` 组装共享 skeleton |
@@ -469,7 +469,7 @@ memory 当前采用纯 scope 授权模型：
 | 类别 | 事件 |
 |------|------|
 | Agent 生命周期 | AGENT_START, AGENT_END, AGENT_ERROR |
-| 意图流 | LLM_FIRST_TOKEN, INTENT_DELTA, INTENT_COMPLETE, REACT_INTERMEDIATE |
+| 意图流 | LLM_FIRST_TOKEN, INTENT_DELTA, INTENT_COMPLETE, REACT_INTERMEDIATE, REFLECTION_TRIGGERED |
 | 调用生命周期 | CALL_AGENT_START/END, CALL_TOOL_START/END |
 | 执行状态 | EXECUTION_STEP, EXECUTION_WAITING_START/END/TIMEOUT |
 | 流式输出 | CHUNK, FINAL_ANSWER, MESSAGE_SAVED |
@@ -486,7 +486,8 @@ memory 当前采用纯 scope 授权模型：
 说明：
 - `INTENT` / `INTENT_STRUCTURED` 已删除，不再使用。
 - `LLM_FIRST_TOKEN` 在 `agents/streaming/stream_executor.py` 中由 provider stream 首个非空 `content` 触发，表示后端首次收到 LLM 返回内容；它不携带 raw token，只包含 round/provider/model/elapsed_ms/content_length 等运行态指标。`CHUNK` 仍只表示 `<final_answer>` 的语义输出片段，不能作为 provider 首 token 口径。
-- `EXECUTION_WAITING_START/END/TIMEOUT` 由 `_run_waiting_loop()` 发布，用于前端区分“等待后台任务”与“模型正在输出/等待模型响应”；这些事件不进入 messages 持久化。
+- `EXECUTION_WAITING_START/END/TIMEOUT` 由 `_run_waiting_loop()` 发布，用于前端区分”等待后台任务”与”模型正在输出/等待模型响应”；这些事件不进入 messages 持久化。
+- `REFLECTION_TRIGGERED`（`agent.reflection`）由反思机制在检测到异常模式（工具连续失败、重复调用、推理停滞、空结果累积）时发布，携带 `reflection_type` 和 `round`；前端据此将 `activeRun.phase` 切换为 `reflecting`。反思配置通过 `agent_config.custom_params.behavior.reflection` 注入，详见 `agents/core/reflection.py`。
 - 根 Agent 的 `FINAL_ANSWER` 可携带 `metadata.execution_time` 与 `metadata.first_token_time`：前者表示本次 run 从 ReAct 主循环开始到最终答案生成的执行时间，后者表示从 run 开始到 provider stream 首个非空 content 到达的时间，单位均为秒；这些字段随 assistant message metadata 持久化，用于前端消息级响应时间展示与 hover 精确信息。
 - `CHART_GENERATED` / `MAP_GENERATED` 为兼容旧 DB 记录保留。
 

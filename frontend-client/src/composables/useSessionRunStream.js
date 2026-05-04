@@ -258,6 +258,8 @@ export function useSessionRunStream(deps) {
       }
     } else if (eventType === 'agent.error') {
       currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
+    } else if (eventType === 'agent.reflection') {
+      if (deps.isMasterEvent(event)) deps.activeRun.phase = 'reflecting';
     } else if (eventType === 'context.usage') {
       if (eventData.compressing) deps.isCompressing.value = true;
       const agentName = event.agent_name;

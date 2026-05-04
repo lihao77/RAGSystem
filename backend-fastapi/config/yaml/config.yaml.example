@@ -39,3 +39,11 @@ waiting:
   max_keepalive_rounds: 20
   allow_provider_keepalive: true
   hidden_keepalive_token_budget: 8
+
+reflection:
+  enabled: true
+  consecutive_tool_failures: 2      # 连续工具失败 N 次触发反思
+  repeated_tool_calls: 3            # 同一工具连续调用 N 次触发
+  rounds_without_answer: 6          # N 轮无答案时触发
+  empty_result_count: 2             # 空结果累积 N 次触发
+  max_reflections_per_run: 3        # 单次 run 最大反思次数

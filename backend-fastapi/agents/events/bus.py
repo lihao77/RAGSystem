@@ -94,6 +94,9 @@ class EventType(str, Enum):
     # ReAct 中间过程事件
     REACT_INTERMEDIATE = "react.intermediate"
 
+    # 反思事件
+    REFLECTION_TRIGGERED = "agent.reflection"
+
     # 上下文压缩事件
     COMPRESSION_START = "context.compression_start"
     COMPRESSION_SUMMARY = "context.compression_summary"

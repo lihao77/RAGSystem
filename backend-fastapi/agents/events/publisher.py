@@ -541,6 +541,13 @@ class EventPublisher:
             {"role": role, "content": content, "round": round, "msg_type": msg_type}
         )
 
+    def reflection_triggered(self, reflection_type: str, round: int):
+        """反思触发事件"""
+        self._publish(
+            EventType.REFLECTION_TRIGGERED,
+            {"reflection_type": reflection_type, "round": round}
+        )
+
     # ==================== 流式输出事件 ====================
 
     def chunk(self, content: str):

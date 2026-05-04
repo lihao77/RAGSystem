@@ -116,6 +116,18 @@ class WaitingConfig(BaseModel):
     hidden_keepalive_token_budget: int = 8
 
 
+class ReflectionConfig(BaseModel):
+    """反思机制配置（系统级默认，agent 级可覆盖）"""
+    model_config = ConfigDict(extra='allow')
+
+    enabled: bool = True
+    consecutive_tool_failures: int = 2
+    repeated_tool_calls: int = 3
+    rounds_without_answer: int = 6
+    empty_result_count: int = 2
+    max_reflections_per_run: int = 3
+
+
 class AppConfig(BaseModel):
     """主配置模型"""
     model_config = ConfigDict(
@@ -130,3 +142,4 @@ class AppConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     waiting: WaitingConfig = Field(default_factory=WaitingConfig)
+    reflection: ReflectionConfig = Field(default_factory=ReflectionConfig)

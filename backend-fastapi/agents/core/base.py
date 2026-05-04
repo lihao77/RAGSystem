@@ -683,6 +683,11 @@ class BaseAgent(ABC):
         if file_references:
             user_message['metadata']['file_references'] = file_references
 
+        # 反思机制初始化
+        from .reflection import load_reflection_config, make_reflection_state, ReflectionEvaluator
+        reflection_config = load_reflection_config(self.agent_config, self.system_config)
+        reflection_evaluator = ReflectionEvaluator(reflection_config) if reflection_config.enabled else None
+
         return {
             'start_time': start_time,
             'event_bus': event_bus,
@@ -693,6 +698,8 @@ class BaseAgent(ABC):
             'current_session': [user_message],
             'tool_calls_history': [],
             'rounds': 0,
+            'reflection_state': make_reflection_state(),
+            'reflection_evaluator': reflection_evaluator,
         }
 
     def _publish_context_usage(self, token_stats: Dict[str, int], rounds: int, publisher) -> None:
@@ -1851,6 +1858,29 @@ class BaseAgent(ABC):
                 self._drain_pending_notifications(context, state, rounds)
 
                 self._check_interrupt(context)
+
+                # === 反思注入点：若上一轮评估触发了反思，注入反思提示 ===
+                ref_eval = state.get('reflection_evaluator')
+                ref_state = state.get('reflection_state')
+                if ref_eval and ref_state and ref_state.pending_reflection:
+                    from .reflection import format_reflection_prompt
+                    prompt = format_reflection_prompt(ref_state.pending_reflection, ref_state, rounds)
+                    current_session.append({
+                        'role': 'user',
+                        'content': prompt,
+                    })
+                    if publisher:
+                        publisher.reflection_triggered(ref_state.pending_reflection, rounds)
+                        publisher.react_intermediate(
+                            role='user', content=prompt, round=rounds, msg_type='reflection',
+                        )
+                    ref_state.reflection_history.append({
+                        'type': ref_state.pending_reflection,
+                        'round': rounds,
+                    })
+                    ref_state.reflection_count += 1
+                    ref_state.pending_reflection = None
+
                 llm_config = self.get_llm_config(context, task_type='default')
                 log_prefix = self._log_prefix(llm_config, self._get_runtime_log_label())
                 self.logger.debug(f"{log_prefix} 第 {rounds} 轮推理")
@@ -1943,6 +1973,25 @@ class BaseAgent(ABC):
                             f"{log_prefix} 进入 waiting loop，等待后台任务: {waiting_request.background_task_ids}"
                         )
                         self._run_waiting_loop(waiting_request, context, state, rounds, log_prefix)
+
+                    # === 反思评估点：工具执行后评估是否触发反思 ===
+                    ref_eval = state.get('reflection_evaluator')
+                    ref_state = state.get('reflection_state')
+                    if ref_eval and ref_state:
+                        from .reflection import update_reflection_state
+                        # 取本轮的 tool_calls_history 条目
+                        history = state.get('tool_calls_history', [])
+                        round_entries = [e for e in history if e.get('round') == rounds]
+                        update_reflection_state(ref_state, round_entries)
+                        trigger = ref_eval.evaluate(ref_state, rounds)
+                        if trigger:
+                            ref_state.pending_reflection = trigger
+                            self.logger.debug(
+                                "%s 反思触发: type=%s (failures=%d, empties=%d, round=%d)",
+                                log_prefix, trigger,
+                                ref_state.consecutive_failures,
+                                ref_state.empty_results, rounds,
+                            )
                     continue
 
                 if final_answer:

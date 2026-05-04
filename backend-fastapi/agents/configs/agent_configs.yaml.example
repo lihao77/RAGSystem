@@ -65,6 +65,10 @@ agents:
         # compression_trigger_ratio: 0.85     # 可选：触发压缩的 token 比例（默认 0.85）
         # summarize_max_tokens: 300           # 可选：LLM 摘要的最大 token 数（默认 300）
         # preserve_recent_turns: 3            # 可选：保留最近 N 轮对话不压缩（默认 3）
+        # 反思机制配置（可选覆盖，系统级默认已开启，见 config.yaml 的 reflection 段）
+        # reflection:
+        #   enabled: false                      # 关闭此 agent 的反思
+        #   rounds_without_answer: 4            # 覆盖系统默认阈值
 
   # 系统级智能体，始终加载（与其他 Agent 不同，enabled 字段无效）
   orchestrator_agent:
@@ -106,3 +110,6 @@ agents:
         preserve_recent_turns: 3
         data_save_dir: ./static/temp_data
         # max_context_tokens: 100000          # 可选：显式指定上下文预算（覆盖自动计算）
+        # 反思机制配置（可选覆盖，系统级默认已开启）
+        # reflection:
+        #   rounds_without_answer: 8          # orchestrator 可适当放宽轮次阈值
