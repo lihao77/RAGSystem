@@ -183,6 +183,7 @@ class CronScheduler:
         if self._pending_tasks:
             await asyncio.gather(*self._pending_tasks, return_exceptions=True)
             self._pending_tasks.clear()
+        self._running_task_ids.clear()
 
     async def _run_loop(self) -> None:
         """主调度循环：每分钟检查一次到期任务。"""

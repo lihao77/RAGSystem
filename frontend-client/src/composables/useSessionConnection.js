@@ -24,6 +24,7 @@ export function useSessionConnection(deps) {
   let _ws = null;
   let _wsSessionId = null;
   let _wsReconnectTimer = null;
+  const MAX_RECONNECT_ATTEMPTS = 10;
   let _wsReconnectAttempts = 0;
   let _commandFallbackTimer = null;
   let _sessionResumeRecoveryTimer = null;
@@ -148,6 +149,13 @@ export function useSessionConnection(deps) {
       // 断连时不立即 finalize——先尝试重连，由恢复兜底逻辑决定是否 finalize
       clearCommandFallback();
       if (deps.currentSessionId.value === sessionId) {
+        if (_wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          console.warn(`[WS] 达到最大重连次数 (${MAX_RECONNECT_ATTEMPTS})，放弃重连`);
+          if (deps.activeRun.active) {
+            finalizeActiveRun(sessionId);
+          }
+          return;
+        }
         const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;
         _wsReconnectAttempts++;
         _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), delay);
