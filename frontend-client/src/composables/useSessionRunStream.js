@@ -7,6 +7,9 @@ import { nextTick } from 'vue';
  * 不负责 socket 连接建立本身，也不改动视图模板结构。
  */
 export function useSessionRunStream(deps) {
+  // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次全量刷新
+  let _pendingReconciliation = false;
+
   const mergeMessageMetadata = (msg, metadata) => {
     if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
     msg.metadata = {
@@ -125,6 +128,12 @@ export function useSessionRunStream(deps) {
       deps.activeRun.active = false;
       resetActiveRunRuntime();
     }
+    // run 期间发生过 seq gap，做一次全量刷新确保内容完整
+    if (_pendingReconciliation) {
+      _pendingReconciliation = false;
+      deps.deleteMessageCache(sessionId);
+      deps.loadSessionMessages(sessionId, { silent: true });
+    }
     deps.clearLlmRetryState();
     deps.isCompressing.value = false;
     deps.isLoading.value = false;
@@ -158,7 +167,8 @@ export function useSessionRunStream(deps) {
       if (deps.activeRun.lastSeenSeq > 0 && event.seq > deps.activeRun.lastSeenSeq + 1) {
         const missed = event.seq - deps.activeRun.lastSeenSeq - 1;
         console.warn(`[WS] 事件序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${missed}`);
-        // seq gap 超过阈值时触发消息刷新以恢复丢失内容
+        _pendingReconciliation = true;
+        // seq gap 超过阈值时立即刷新，run 结束后还会再做一次最终对账
         const SEQ_GAP_REFRESH_THRESHOLD = 3;
         if (missed >= SEQ_GAP_REFRESH_THRESHOLD) {
           deps.deleteMessageCache(sessionId);
@@ -208,12 +218,18 @@ export function useSessionRunStream(deps) {
       }
     } else if (eventType === 'output.final_answer') {
       if (deps.isMasterEvent(event)) {
+        // content 补偿：若 chunk 累积不完整，用 final_answer 的完整内容覆盖
+        const serverContent = eventData.content || '';
+        if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
+          currentMsg.content = serverContent;
+        }
         Object.assign(currentMsg, {
           ...(eventData.metadata ? { metadata: { ...(currentMsg.metadata || {}), ...eventData.metadata } } : {}),
           finished: true,
         });
         deps.updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
         deps.cacheMessages(sessionId, deps.messages.value);
+        deps.checkSituationScreenTrigger(currentMsg.content);
       } else {
         const subtask = deps.findSubtaskByCallId(currentMsg.subtasks, event.call_id);
         if (subtask) {
@@ -406,6 +422,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'session.run_started') {
+      _pendingReconciliation = false; // 新 run 重置 gap 标记
       const nextRunId = event.run_id || event.data?.run_id || null;
       const shouldStartNewMessage = !deps.activeRun.active || (deps.activeRun.runId && nextRunId && deps.activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {

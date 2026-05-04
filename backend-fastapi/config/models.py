@@ -29,10 +29,6 @@ class LLMConfig(BaseModel):
     retry_attempts: int = 10
     retry_backoff_factor: float = 2.5
 
-    # 旧版配置（向后兼容）
-    api_endpoint: str = "https://api.deepseek.com/v1"
-    api_key: str = ""
-
 
 class SystemConfig(BaseModel):
     """系统配置"""

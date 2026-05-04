@@ -82,18 +82,8 @@ class ConfigManager:
         """从环境变量获取配置覆盖"""
         overrides: Dict[str, Any] = {}
 
-        # LLM 相关环境变量
-        llm_api_endpoint = os.getenv('LLM_API_ENDPOINT')
-        llm_api_key = os.getenv('LLM_API_KEY')
         llm_model_name = os.getenv('LLM_MODEL_NAME')
-
-        if llm_api_endpoint or llm_api_key or llm_model_name:
-            overrides['llm'] = {}
-            if llm_api_endpoint:
-                overrides['llm']['api_endpoint'] = llm_api_endpoint
-            if llm_api_key:
-                overrides['llm']['api_key'] = llm_api_key
-            if llm_model_name:
-                overrides['llm']['model_name'] = llm_model_name
+        if llm_model_name:
+            overrides['llm'] = {'model_name': llm_model_name}
 
         return overrides
