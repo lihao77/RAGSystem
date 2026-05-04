@@ -61,6 +61,25 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 60
 _MAX_TIMEOUT = 300
+
+
+def _get_code_tools_config():
+    """从系统配置读取工具限制参数。"""
+    try:
+        from config import get_config
+        return get_config().tools
+    except Exception:
+        return None
+
+
+def _code_default_timeout():
+    cfg = _get_code_tools_config()
+    return cfg.code_default_timeout if cfg else _DEFAULT_TIMEOUT
+
+
+def _code_max_timeout():
+    cfg = _get_code_tools_config()
+    return cfg.code_max_timeout if cfg else _MAX_TIMEOUT
 _WRITE_MODES = {"w", "a", "x", "wb", "ab", "xb", "w+", "a+", "r+", "w+b", "a+b", "r+b"}
 
 ALLOWED_MODULES = {
@@ -674,7 +693,7 @@ result = {'value': value}
 def execute_code_sandbox(
     code: str,
     description: str = "",
-    timeout: int = _DEFAULT_TIMEOUT,
+    timeout: int = None,
     agent_config=None,
     event_bus=None,
     user_role=None,
@@ -682,7 +701,7 @@ def execute_code_sandbox(
     cancel_event=None,
     run_id: Optional[str] = None,
 ):
-    timeout = max(1, min(int(timeout or _DEFAULT_TIMEOUT), _MAX_TIMEOUT))
+    timeout = max(1, min(int(timeout or _code_default_timeout()), _code_max_timeout()))
     logger.info("执行代码沙箱: %s", description or "无描述")
     start_time = _time.time()
 

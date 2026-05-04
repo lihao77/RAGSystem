@@ -111,9 +111,21 @@ class MemoryStore:
         agent_name: Optional[str] = None,
         workspace_key: Optional[str] = None,
         team_name: Optional[str] = None,
-        max_lines: int = 200,
-        max_chars: int = 25 * 1024,
+        max_lines: Optional[int] = None,
+        max_chars: Optional[int] = None,
     ) -> str:
+        # 从系统配置读取默认值
+        if max_lines is None or max_chars is None:
+            try:
+                from config import get_config
+                mem_cfg = get_config().memory
+                if max_lines is None:
+                    max_lines = mem_cfg.index_max_lines
+                if max_chars is None:
+                    max_chars = mem_cfg.index_max_chars
+            except Exception:
+                max_lines = max_lines or 200
+                max_chars = max_chars or 25600
         scope_root = self.ensure_scope(
             scope=scope,
             session_id=session_id,

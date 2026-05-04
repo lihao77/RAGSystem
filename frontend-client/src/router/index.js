@@ -8,6 +8,7 @@ import MCPManager from '../views/MCPManager.vue';
 import VectorLibraryManager from '../views/VectorLibraryManager.vue';
 import ModelProviderManager from '../views/ModelProviderManager.vue';
 import DaemonManager from '../views/DaemonManager.vue';
+import SystemConfig from '../views/SystemConfig.vue';
 
 const shellMeta = {
   depth: 0,
@@ -37,6 +38,7 @@ const routes = [
       { path: 'vector-library', component: VectorLibraryManager, meta: pageMeta('vector-library', 4, 4) },
       { path: 'model-providers', component: ModelProviderManager, meta: pageMeta('model-providers', 5, 1) },
       { path: 'daemon', component: DaemonManager, meta: pageMeta('daemon', 6, 6) },
+      { path: 'system-config', component: SystemConfig, meta: pageMeta('system-config', 7, 7) },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

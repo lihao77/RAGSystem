@@ -47,9 +47,25 @@ from tools.runtime.response_builder import error_result, success_result
 
 logger = logging.getLogger(__name__)
 
-_MAX_TIMEOUT = 600
-_DEFAULT_TIMEOUT = 120
-_MAX_OUTPUT = 50000
+def _get_tools_config():
+    """从系统配置读取工具限制参数。"""
+    try:
+        from config import get_config
+        return get_config().tools
+    except Exception:
+        return None
+
+def _bash_default_timeout():
+    cfg = _get_tools_config()
+    return cfg.bash_default_timeout if cfg else 120
+
+def _bash_max_timeout():
+    cfg = _get_tools_config()
+    return cfg.bash_max_timeout if cfg else 600
+
+def _bash_max_output():
+    cfg = _get_tools_config()
+    return cfg.bash_max_output if cfg else 50000
 
 
 def _find_bash_executable() -> Optional[str]:
@@ -372,7 +388,7 @@ def execute_bash(
     command: str,
     working_dir: str = None,
     working_dir_space: str = None,
-    timeout: int = _DEFAULT_TIMEOUT,
+    timeout: int = None,
     run_in_background: bool = False,
     description: str = "",
     session_id: str = None,
@@ -385,7 +401,7 @@ def execute_bash(
 ):
     del kwargs
 
-    timeout = max(1, min(int(timeout or _DEFAULT_TIMEOUT), _MAX_TIMEOUT))
+    timeout = max(1, min(int(timeout or _bash_default_timeout()), _bash_max_timeout()))
 
     workspace_root = None
     if agent_config and hasattr(agent_config, "custom_params"):
@@ -531,8 +547,9 @@ def execute_bash(
         return error_result(f"命令执行失败: {exc}", tool_name="execute_bash")
 
     truncated = False
-    if len(stdout) > _MAX_OUTPUT:
-        stdout = stdout[:_MAX_OUTPUT]
+    max_output = _bash_max_output()
+    if len(stdout) > max_output:
+        stdout = stdout[:max_output]
         truncated = True
     if len(stderr) > 2000:
         stderr = stderr[:2000]

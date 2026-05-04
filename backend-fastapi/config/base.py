@@ -58,6 +58,44 @@ class ConfigManager:
         """获取当前配置"""
         return self._config
 
+    def get_config_dict(self) -> dict:
+        """返回当前配置的可序列化 dict。"""
+        return self._config.model_dump()
+
+    def update_config(self, partial: dict) -> AppConfig:
+        """部分更新配置：深度合并 → 验证 → 持久化。"""
+        current = self._config.model_dump()
+        merged = self._deep_merge(current, partial)
+        try:
+            self._config = AppConfig(**merged)
+        except ValidationError:
+            # 验证失败时不改变当前配置
+            raise
+        self._persist()
+        return self._config
+
+    def _persist(self):
+        """将当前配置写入用户 config.yaml（仅保存与默认值不同的字段）。"""
+        from utils.yaml_store import save_yaml_file
+        current = self._config.model_dump()
+        defaults = AppConfig().model_dump()
+        diff = self._compute_diff(current, defaults)
+        self._user_config_path.parent.mkdir(parents=True, exist_ok=True)
+        save_yaml_file(self._user_config_path, diff)
+
+    def _compute_diff(self, current: dict, defaults: dict) -> dict:
+        """计算 current 与 defaults 的差异，仅返回不同的键值对。"""
+        diff = {}
+        for key, value in current.items():
+            default_value = defaults.get(key)
+            if isinstance(value, dict) and isinstance(default_value, dict):
+                sub_diff = self._compute_diff(value, default_value)
+                if sub_diff:
+                    diff[key] = sub_diff
+            elif value != default_value:
+                diff[key] = value
+        return diff
+
     def _load_yaml(self, path: Path) -> Optional[dict]:
         """加载 YAML 文件"""
         if not path.exists():

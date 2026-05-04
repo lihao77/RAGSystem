@@ -8,11 +8,50 @@ ContextBudget - 统一上下文预算管理
 from dataclasses import dataclass
 from typing import Optional
 
-# ── 具名常量 ──────────────────────────────────────────────────────────────────
-SYSTEM_PROMPT_RESERVE = 2000          # system prompt 预留 token 数
+# ── 具名常量（硬编码 fallback，运行时从 AppConfig.context 读取） ───────────────
+_FALLBACK_SYSTEM_PROMPT_RESERVE = 2000
+_FALLBACK_MIN_CONTEXT_BUDGET = 4000
 CONTEXT_WINDOW_SAFETY_FACTOR = 0.9   # 安全系数（预留 10% 防估算误差）
 DEFAULT_CONTEXT_FALLBACK_MULTIPLIER = 3  # 未知上下文窗口时的统一兜底倍数
-MIN_CONTEXT_BUDGET = 4000            # 最小预算保证
+
+
+def _get_context_config():
+    """从系统配置读取上下文预算参数。"""
+    try:
+        from config import get_config
+        return get_config().context
+    except Exception:
+        return None
+
+
+def _system_prompt_reserve() -> int:
+    cfg = _get_context_config()
+    return cfg.system_prompt_reserve if cfg else _FALLBACK_SYSTEM_PROMPT_RESERVE
+
+
+def _min_context_budget() -> int:
+    cfg = _get_context_config()
+    return cfg.min_context_budget if cfg else _FALLBACK_MIN_CONTEXT_BUDGET
+
+
+def _default_compression_trigger_ratio() -> float:
+    cfg = _get_context_config()
+    return cfg.compression_trigger_ratio if cfg else 0.85
+
+
+def _default_summarize_max_tokens() -> int:
+    cfg = _get_context_config()
+    return cfg.summarize_max_tokens if cfg else 300
+
+
+def _default_preserve_recent_turns() -> int:
+    cfg = _get_context_config()
+    return cfg.preserve_recent_turns if cfg else 3
+
+
+# 向后兼容：外部模块可能直接引用这两个名字
+SYSTEM_PROMPT_RESERVE = _FALLBACK_SYSTEM_PROMPT_RESERVE
+MIN_CONTEXT_BUDGET = _FALLBACK_MIN_CONTEXT_BUDGET
 DEFAULT_MAX_COMPLETION_TOKENS = 4096 # 默认输出 token 上限
 WORKER_CONTEXT_PROFILE_NAME = "worker"
 ORCHESTRATOR_CONTEXT_PROFILE_NAME = "orchestrator"
@@ -29,30 +68,23 @@ class ContextBudgetProfile:
     preserve_recent_turns: int = 3
 
 
-CONTEXT_BUDGET_PROFILES = {
-    WORKER_CONTEXT_PROFILE_NAME: ContextBudgetProfile(
-        name=WORKER_CONTEXT_PROFILE_NAME,
+def _build_profile(name: str) -> ContextBudgetProfile:
+    """动态构建预算档位，从 AppConfig.context 读取默认值。"""
+    return ContextBudgetProfile(
+        name=name,
         fallback_multiplier=DEFAULT_CONTEXT_FALLBACK_MULTIPLIER,
-        compression_trigger_ratio=0.85,
-        summarize_max_tokens=300,
-        preserve_recent_turns=3,
-    ),
-    ORCHESTRATOR_CONTEXT_PROFILE_NAME: ContextBudgetProfile(
-        name=ORCHESTRATOR_CONTEXT_PROFILE_NAME,
-        fallback_multiplier=DEFAULT_CONTEXT_FALLBACK_MULTIPLIER,
-        compression_trigger_ratio=0.85,
-        summarize_max_tokens=300,
-        preserve_recent_turns=3,
-    ),
-}
+        compression_trigger_ratio=_default_compression_trigger_ratio(),
+        summarize_max_tokens=_default_summarize_max_tokens(),
+        preserve_recent_turns=_default_preserve_recent_turns(),
+    )
 
 
 def get_context_budget_profile(profile_name: Optional[str] = None) -> ContextBudgetProfile:
     """返回显式预算档位，不存在时回退到 worker。"""
-    return CONTEXT_BUDGET_PROFILES.get(
-        profile_name or WORKER_CONTEXT_PROFILE_NAME,
-        CONTEXT_BUDGET_PROFILES[WORKER_CONTEXT_PROFILE_NAME],
-    )
+    name = profile_name or WORKER_CONTEXT_PROFILE_NAME
+    if name not in (WORKER_CONTEXT_PROFILE_NAME, ORCHESTRATOR_CONTEXT_PROFILE_NAME):
+        name = WORKER_CONTEXT_PROFILE_NAME
+    return _build_profile(name)
 
 
 def compute_context_budget(
@@ -82,15 +114,18 @@ def compute_context_budget(
     Returns:
         上下文预算 token 数（>= MIN_CONTEXT_BUDGET）
     """
+    min_budget = _min_context_budget()
+    sys_reserve = _system_prompt_reserve()
+
     # 优先级 1：用户显式指定
     if explicit_budget is not None:
-        return max(explicit_budget, MIN_CONTEXT_BUDGET)
+        return max(explicit_budget, min_budget)
 
     # 优先级 2：基于上下文窗口精确计算
     if model_context_window:
-        budget = int(model_context_window * CONTEXT_WINDOW_SAFETY_FACTOR) - SYSTEM_PROMPT_RESERVE - max_completion_tokens
-        return max(budget, MIN_CONTEXT_BUDGET)
+        budget = int(model_context_window * CONTEXT_WINDOW_SAFETY_FACTOR) - sys_reserve - max_completion_tokens
+        return max(budget, min_budget)
 
     # 优先级 3：兜底估算
     budget = int(max_completion_tokens * fallback_multiplier)
-    return max(budget, MIN_CONTEXT_BUDGET)
+    return max(budget, min_budget)
