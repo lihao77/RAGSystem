@@ -68,6 +68,8 @@ def generate_config_schema(
             continue
 
         resolved = _resolve_ref(prop_schema, defs)
+        if _is_ui_excluded(resolved):
+            continue
 
         if _is_object_type(resolved):
             # 嵌套模型 → 生成 group（可能递归展开子嵌套）
@@ -98,28 +100,35 @@ def _resolve_ref(prop: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
     """解析 $ref 和 allOf 引用。"""
     if '$ref' in prop:
         ref_name = prop['$ref'].rsplit('/', 1)[-1]
-        return defs.get(ref_name, prop)
+        resolved = dict(defs.get(ref_name, prop))
+        for key, value in prop.items():
+            if key != '$ref':
+                resolved[key] = value
+        return resolved
 
     if 'allOf' in prop:
         merged: Dict[str, Any] = {}
         for item in prop['allOf']:
             resolved = _resolve_ref(item, defs)
             merged.update(resolved)
-        # 保留外层的 title/description/default
-        for key in ('title', 'description', 'default'):
-            if key in prop:
+        # 保留外层元数据与 UI hints
+        for key in prop:
+            if key != 'allOf':
                 merged[key] = prop[key]
         return merged
 
     if 'anyOf' in prop:
         # Optional[T] 在 Pydantic v2 中生成 anyOf: [{type: T}, {type: null}]
+        nullable = any(_resolve_ref(variant, defs).get('type') == 'null' for variant in prop['anyOf'])
         for variant in prop['anyOf']:
             resolved = _resolve_ref(variant, defs)
             if resolved.get('type') != 'null':
                 result = dict(resolved)
-                for key in ('title', 'description', 'default'):
-                    if key in prop:
+                for key in prop:
+                    if key != 'anyOf':
                         result[key] = prop[key]
+                if nullable:
+                    result['nullable'] = True
                 return result
         return prop
 
@@ -129,6 +138,11 @@ def _resolve_ref(prop: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
 def _is_object_type(schema: Dict[str, Any]) -> bool:
     """判断 schema 是否描述一个嵌套对象。"""
     return schema.get('type') == 'object' and 'properties' in schema
+
+
+def _is_ui_excluded(schema: Dict[str, Any]) -> bool:
+    """判断字段是否应从前端配置表单隐藏。"""
+    return bool(schema.get('ui_exclude'))
 
 
 def _is_simple_type(schema: Dict[str, Any]) -> bool:
@@ -156,6 +170,8 @@ def _build_group(
             continue
 
         resolved = _resolve_ref(prop_schema, defs)
+        if _is_ui_excluded(resolved):
+            continue
 
         if _is_object_type(resolved):
             # 二级嵌套 → 递归生成子 group，使用 dotted key
@@ -195,6 +211,8 @@ def _build_field(
         'default': schema.get('default'),
         'help': schema.get('description', ''),
     }
+    if schema.get('nullable'):
+        result['nullable'] = True
 
     # 约束提取
     if field_type == 'number':
@@ -212,7 +230,7 @@ def _build_field(
         enum_values = schema.get('enum', [])
         result['options'] = [{'value': v, 'label': str(v)} for v in enum_values]
         # Optional 字段追加空选项（允许清除）
-        if schema.get('default') is None:
+        if schema.get('nullable') or schema.get('default') is None:
             result['options'].insert(0, {'value': '', 'label': '未设置'})
 
     return result

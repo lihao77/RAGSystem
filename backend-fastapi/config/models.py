@@ -3,7 +3,7 @@
 配置数据模型 - 使用 Pydantic 提供类型安全和验证
 """
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Dict, Optional, Literal
 
 
@@ -26,6 +26,13 @@ class LLMConfig(BaseModel):
     timeout: int = Field(default=30, ge=1, description="单次请求超时时间（秒）")
     retry_attempts: int = Field(default=10, ge=0, description="失败重试次数")
     retry_backoff_factor: float = Field(default=2.5, ge=1.0, description="重试退避因子")
+
+    @field_validator('reasoning_effort', mode='before')
+    @classmethod
+    def _blank_reasoning_effort_to_none(cls, value):
+        if value == "":
+            return None
+        return value
 
 
 class SystemConfig(BaseModel):
@@ -69,9 +76,17 @@ class VectorStoreConfig(BaseModel):
     """向量存储配置"""
     model_config = ConfigDict(extra='allow')
 
-    backend: Literal['sqlite_vec', 'postgresql'] = Field(default="sqlite_vec", description="向量存储后端类型")
+    backend: Literal['sqlite_vec'] = Field(
+        default="sqlite_vec",
+        description="向量存储后端类型",
+        json_schema_extra={"ui_exclude": True},
+    )
     sqlite_vec: SQLiteVectorConfig = Field(default_factory=SQLiteVectorConfig, description="SQLite 向量存储配置")
-    postgresql: PostgreSQLVectorConfig = Field(default_factory=PostgreSQLVectorConfig, description="PostgreSQL 向量存储配置")
+    postgresql: PostgreSQLVectorConfig = Field(
+        default_factory=PostgreSQLVectorConfig,
+        description="PostgreSQL 向量存储配置",
+        json_schema_extra={"ui_exclude": True},
+    )
 
 
 class HooksWorkspaceTrustRuleConfig(BaseModel):

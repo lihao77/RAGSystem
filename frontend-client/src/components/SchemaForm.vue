@@ -41,7 +41,7 @@
               :model-value="String(getFieldValue(group.key, field.key) ?? '')"
               :options="field.options || []"
               :disabled="disabled"
-              @update:model-value="setFieldValue(group.key, field.key, $event)"
+              @update:model-value="setFieldValue(group.key, field.key, $event, field)"
             />
             <small v-if="field.help" class="field-hint">{{ field.help }}</small>
           </label>
@@ -131,7 +131,12 @@ function getFieldValue(groupKey, fieldKey) {
 /**
  * 设置嵌套对象中的值，触发 update:modelValue。
  */
-function setFieldValue(groupKey, fieldKey, value) {
+function normalizeFieldValue(field, value) {
+  if (field?.type === 'select' && field?.nullable && value === '') return null
+  return value
+}
+
+function setFieldValue(groupKey, fieldKey, value, field = null) {
   const updated = JSON.parse(JSON.stringify(props.modelValue))
   const parts = groupKey && groupKey !== '_root' ? groupKey.split('.') : []
   let obj = updated
@@ -139,7 +144,7 @@ function setFieldValue(groupKey, fieldKey, value) {
     if (!obj[part] || typeof obj[part] !== 'object') obj[part] = {}
     obj = obj[part]
   }
-  obj[fieldKey] = value
+  obj[fieldKey] = normalizeFieldValue(field, value)
   emit('update:modelValue', updated)
 }
 </script>
