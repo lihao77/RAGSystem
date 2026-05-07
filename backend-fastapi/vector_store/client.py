@@ -4,7 +4,6 @@
 
 根据配置自动创建合适的向量存储后端:
 - SQLiteVectorStore: SQLite + sqlite-vec (默认推荐)
-- PostgreSQLVectorStore: PostgreSQL + pgvector (未来扩展)
 """
 
 import logging
@@ -68,12 +67,10 @@ class VectorStoreClient:
 
         if backend == "sqlite_vec":
             self._init_sqlite_store(config.vector_store.sqlite_vec)
-        elif backend == "postgresql":
-            self._init_postgresql_store(config.vector_store.postgresql)
         else:
             raise ValueError(
                 f"不支持的向量存储后端: {backend}\n"
-                f"支持的后端: sqlite_vec, postgresql"
+                f"支持的后端: sqlite_vec"
             )
 
         # 初始化数据库表结构
@@ -143,13 +140,6 @@ class VectorStoreClient:
             return 768
         logger.info(f"使用配置的向量维度: {config_dimension}")
         return config_dimension
-
-    def _init_postgresql_store(self, config):
-        """初始化 PostgreSQL 向量存储（未来实现）"""
-        raise NotImplementedError(
-            "PostgreSQL + pgvector 后端尚未实现\n"
-            "请使用 sqlite_vec 后端，或等待未来版本更新"
-        )
 
     def ensure_initialized(self):
         """确保已初始化"""

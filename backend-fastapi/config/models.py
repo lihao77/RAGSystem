@@ -60,21 +60,9 @@ class SQLiteVectorConfig(BaseModel):
     distance_metric: Literal['cosine', 'l2', 'ip'] = Field(default="cosine", description="距离度量")
 
 
-class PostgreSQLVectorConfig(BaseModel):
-    """PostgreSQL + pgvector 向量存储配置（未来扩展）"""
-    model_config = ConfigDict(extra='allow')
-
-    host: str = Field(default="localhost", description="数据库主机地址")
-    port: int = Field(default=5432, ge=1, le=65535, description="数据库端口")
-    database: str = Field(default="ragsystem", description="数据库名称")
-    user: str = Field(default="postgres", description="数据库用户名")
-    password: str = Field(default="", description="数据库密码", json_schema_extra={"format": "password"})
-    vector_dimension: int = Field(default=0, ge=0, description="向量维度（0=自动匹配 Embedding 模型）")
-
-
 class VectorStoreConfig(BaseModel):
     """向量存储配置"""
-    model_config = ConfigDict(extra='allow')
+    model_config = ConfigDict(extra='ignore')
 
     backend: Literal['sqlite_vec'] = Field(
         default="sqlite_vec",
@@ -82,11 +70,6 @@ class VectorStoreConfig(BaseModel):
         json_schema_extra={"ui_exclude": True},
     )
     sqlite_vec: SQLiteVectorConfig = Field(default_factory=SQLiteVectorConfig, description="SQLite 向量存储配置")
-    postgresql: PostgreSQLVectorConfig = Field(
-        default_factory=PostgreSQLVectorConfig,
-        description="PostgreSQL 向量存储配置",
-        json_schema_extra={"ui_exclude": True},
-    )
 
 
 class HooksWorkspaceTrustRuleConfig(BaseModel):

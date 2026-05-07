@@ -5,7 +5,6 @@
 基于 SQLite + sqlite-vec 的向量存储系统
 - 零依赖部署（单文件数据库）
 - SQL 原生支持（强大的元数据过滤）
-- 易于迁移到 PostgreSQL + pgvector
 """
 
 from .base import VectorStoreBase, Document, SearchResult

@@ -4,7 +4,6 @@
 
 提供统一的向量存储接口，支持多种后端实现：
 - SQLiteVectorStore: SQLite + sqlite-vec (推荐)
-- PostgreSQLVectorStore: PostgreSQL + pgvector (未来扩展)
 """
 
 from abc import ABC, abstractmethod

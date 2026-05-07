@@ -8,7 +8,6 @@ SQLite + sqlite-vec 向量存储实现
 - 零依赖部署（单文件数据库）
 - SQL 原生支持（强大的元数据过滤）
 - 支持 HNSW 索引（与 ChromaDB 相同算法）
-- 易于迁移到 PostgreSQL + pgvector
 
 依赖:
 - pip install sqlite-vec

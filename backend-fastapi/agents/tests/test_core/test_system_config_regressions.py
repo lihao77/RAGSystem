@@ -3,14 +3,13 @@
 from utils.yaml_store import load_yaml_file
 
 
-def test_system_config_schema_hides_unimplemented_postgresql_and_marks_nullable():
+def test_system_config_schema_hides_vector_backend_and_marks_nullable():
     from config.models import AppConfig
     from config.schema import generate_config_schema
 
     schema = generate_config_schema(AppConfig)
     group_keys = {group['key'] for group in schema['groups']}
 
-    assert 'vector_store.postgresql' not in group_keys
     assert 'vector_store' not in group_keys
 
     llm_fields = {

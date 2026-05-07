@@ -23,7 +23,6 @@ _APPCONFIG_LABEL_OVERRIDES: Dict[str, str] = {
     'embedding': 'Embedding 配置',
     'vector_store': '向量存储',
     'vector_store.sqlite_vec': 'SQLite 向量存储',
-    'vector_store.postgresql': 'PostgreSQL 向量存储',
     'hooks': 'Hook 系统',
     'hooks.workspace_trust': '工作区信任',
     'waiting': '后台等待与保活',
