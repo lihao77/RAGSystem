@@ -96,14 +96,20 @@ class ObservationFormatterRegistry:
         """
         # 错误结果特殊处理
         if not result.success:
-            return f"❌ 错误: {result.content or '未知错误'}"
+            return f"[ERROR] {result.content or '未知错误'}"
 
         formatter = self.get_formatter(result, context)
 
         if formatter is None:
             raise RuntimeError(f"没有可用的格式化策略 for tool {context.tool_name}")
 
-        return formatter.format(result, context)
+        observation = formatter.format(result, context)
+
+        # 统一追加 llm_hint（如果存在）
+        if result.llm_hint:
+            observation = f"{observation}\n{result.llm_hint}" if observation else result.llm_hint
+
+        return observation
 
     def list_formatters(self) -> List[str]:
         """
@@ -129,24 +135,32 @@ def get_default_registry() -> ObservationFormatterRegistry:
     if _formatter_registry is not None:
         return _formatter_registry
 
+    from .bash import BashObservationFormatter
     from .chart import ChartObservationFormatter
     from .fallback import FallbackFormatter
+    from .glob_fmt import GlobObservationFormatter
+    from .grep import GrepObservationFormatter
     from .json_data import JsonDataFormatter
     from .large_payload import LargePayloadFormatter
     from .map import MapObservationFormatter
     from .skills import SkillsObservationFormatter
     from .text import TextDataFormatter
+    from .web_fetch import WebFetchObservationFormatter
 
     registry = ObservationFormatterRegistry()
 
     # 按优先级注册内置策略（数字越小越先匹配）
-    registry.register(SkillsObservationFormatter())
-    registry.register(ChartObservationFormatter())
-    registry.register(MapObservationFormatter())
-    registry.register(LargePayloadFormatter())
-    registry.register(TextDataFormatter())
-    registry.register(JsonDataFormatter())
-    registry.register(FallbackFormatter())
+    registry.register(SkillsObservationFormatter())      # 10
+    registry.register(ChartObservationFormatter())        # 20
+    registry.register(MapObservationFormatter())          # 21
+    registry.register(LargePayloadFormatter())            # 30
+    registry.register(BashObservationFormatter())         # 35
+    registry.register(GrepObservationFormatter())         # 36
+    registry.register(GlobObservationFormatter())         # 37
+    registry.register(WebFetchObservationFormatter())     # 38
+    registry.register(TextDataFormatter())                # 40
+    registry.register(JsonDataFormatter())                # 41
+    registry.register(FallbackFormatter())                # 999
 
     _formatter_registry = registry
     return registry

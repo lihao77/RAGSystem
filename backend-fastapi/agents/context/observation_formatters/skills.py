@@ -46,7 +46,7 @@ class SkillsObservationFormatter(BaseObservationFormatter):
         if isinstance(pure_data, dict):
             skill_content = pure_data.get("main_content") or pure_data.get("content")
             if skill_content:
-                return f"✅ {summary}\n\n{skill_content}" if summary else skill_content
+                return f"{summary}\n\n{skill_content}" if summary else skill_content
 
         # 默认返回完整 JSON
         data: Dict[str, Any] = {"results": pure_data}

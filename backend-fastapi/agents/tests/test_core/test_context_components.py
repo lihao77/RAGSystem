@@ -388,7 +388,7 @@ def test_pipeline_refreshes_stable_memory_prefix_after_apply_compression():
         session_id="s1",
     )
 
-    assert observation == "✅ kgqa_agent 并发调用成功"
+    assert observation == "kgqa_agent 并发调用成功"
 
 
 def test_prompt_materializer_json_observation_exposes_child_agent_id():

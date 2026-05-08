@@ -46,7 +46,7 @@ class ChartObservationFormatter(BaseObservationFormatter):
             title = content.get("title", "未命名图表")
             preview = content.get("preview", {})
 
-            parts = [f"✅ {summary}"]
+            parts = [summary]
             parts.append(f"artifact_id: {artifact_id}")
             parts.append(f"类型: {viz_type}")
             parts.append(f"标题: {title}")
@@ -65,7 +65,7 @@ class ChartObservationFormatter(BaseObservationFormatter):
             title = preview.get("title") or content.get("title") or "未命名图表"
             chart_type = presentation.get("chart_type") or content.get("chart_type") or preview.get("chart_type") or ""
 
-            parts = [f"✅ {summary}"]
+            parts = [summary]
             if candidate_id:
                 parts.append(f"候选ID: {candidate_id}")
             if chart_type:
@@ -77,6 +77,6 @@ class ChartObservationFormatter(BaseObservationFormatter):
             return "\n".join(parts)
 
         if isinstance(content, str) and (content.endswith(".html") or content.endswith(".png")):
-            return f"✅ {summary}\n\n📊 图表文件: {content}"
+            return f"{summary}\n图表文件: {content}"
 
-        return f"✅ {summary}\n\n📊 图表数据已生成"
+        return f"{summary}\n图表数据已生成"

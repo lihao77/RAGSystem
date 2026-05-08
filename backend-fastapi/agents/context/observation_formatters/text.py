@@ -44,11 +44,11 @@ class TextDataFormatter(BaseObservationFormatter):
         self._record_materialization(result, context, estimated_size, used_artifact=False)
 
         # 构建前缀
-        prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+        prefix = f"{summary}\n\n" if summary else ""
         if child_agent_id:
-            prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
+            prefix += f"child_agent_id: {child_agent_id}\n\n"
         if approval_message:
-            prefix += f"👤 用户批注: {approval_message}\n\n"
+            prefix += f"用户批注: {approval_message}\n\n"
 
         # 如果 content 不是字符串，转为字符串
         if not isinstance(content, str):

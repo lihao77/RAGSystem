@@ -46,7 +46,6 @@ class PromptMaterializer:
         if decision.mode == "drop":
             return ""
 
-        hook_additional_context = self._extract_hook_additional_context(result)
         context = FormatContext(
             tool_name=tool_name or result.tool_name,
             session_id=session_id,
@@ -56,11 +55,9 @@ class PromptMaterializer:
             observation_window=self.observation_window,
             large_data_threshold=self.large_data_threshold,
             artifact_ttl_seconds=decision.artifact_ttl_seconds,
-            hook_additional_context=hook_additional_context,
         )
 
-        observation = self._registry.format(result, context)
-        return self._prepend_hook_context(observation, hook_additional_context)
+        return self._registry.format(result, context)
 
     def register_formatter(self, formatter: BaseObservationFormatter) -> None:
         """Register a custom formatter used by the materializer."""
@@ -69,21 +66,3 @@ class PromptMaterializer:
     def list_formatters(self) -> list[str]:
         """List registered formatter names."""
         return self._registry.list_formatters()
-
-    @staticmethod
-    def _extract_hook_additional_context(result: ToolExecutionResult) -> list[str]:
-        hook_context = result.metadata.get("hook_additional_context", {}) if result.metadata else {}
-        before_execute_context = hook_context.get("before_execute", [])
-        if not before_execute_context:
-            return []
-        return [str(item) for item in before_execute_context if item]
-
-    @staticmethod
-    def _prepend_hook_context(observation: str, hook_additional_context: list[str]) -> str:
-        if not hook_additional_context:
-            return observation
-
-        prefix = "[Hook Context]\n" + "\n".join(f"- {item}" for item in hook_additional_context)
-        if not observation:
-            return prefix
-        return f"{prefix}\n\n{observation}"

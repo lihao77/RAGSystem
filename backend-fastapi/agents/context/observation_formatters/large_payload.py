@@ -109,19 +109,19 @@ class LargePayloadFormatter(BaseObservationFormatter):
         # 构建输出
         parts = []
         if answer:
-            parts.append(f"✅ {answer}\n")
+            parts.append(f"{answer}\n")
         if approval_message:
-            parts.append(f"👤 用户批注: {approval_message}\n")
+            parts.append(f"用户批注: {approval_message}\n")
 
-        parts.append(f"📁 数据已存储: {artifact.path}")
-        parts.append(f"📊 {meta_info}")
-        parts.append("💡 后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件")
+        parts.append(f"数据已存储: {artifact.path}")
+        parts.append(meta_info)
+        parts.append("后续工具可直接使用此文件路径作为 data 参数；需要处理数据时用 execute_code 读取此文件")
 
         # 添加样本
         if metadata.get("sample"):
             sample = metadata["sample"]
             sample_str = json.dumps(sample, ensure_ascii=False)
-            parts.append(f"📝 样本: {sample_str}")
+            parts.append(f"样本: {sample_str}")
 
         # GeoJSON 专用预览（不含 coordinates）
         if isinstance(pure_data, dict) and self._is_geojson(pure_data):
@@ -131,7 +131,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
                 preview_str = json.dumps(preview, ensure_ascii=False, indent=2)
                 if len(preview_str) > 1500:
                     preview_str = preview_str[:1500] + "\n  ..."
-                parts.append(f"🔍 GeoJSON 预览:\n```json\n{preview_str}\n```")
+                parts.append(f"GeoJSON 预览:\n```json\n{preview_str}\n```")
             except Exception:
                 pass
         elif isinstance(pure_data, (dict, list)):
@@ -146,7 +146,7 @@ class LargePayloadFormatter(BaseObservationFormatter):
                 structure_str = json.dumps(structure, ensure_ascii=False, indent=2)
                 if len(structure_str) > 1500:
                     structure_str = structure_str[:1500] + "\n  ..."
-                parts.append(f"🔍 数据结构:\n```json\n{structure_str}\n```")
+                parts.append(f"数据结构:\n```json\n{structure_str}\n```")
             except Exception:
                 pass  # 预览失败不影响主流程
 
@@ -172,22 +172,22 @@ class LargePayloadFormatter(BaseObservationFormatter):
 
         parts = []
         if answer:
-            parts.append(f"✅ {answer}\n")
+            parts.append(f"{answer}\n")
         elif summary:
-            parts.append(f"✅ {summary}\n")
+            parts.append(f"{summary}\n")
         if approval_message:
-            parts.append(f"👤 用户批注: {approval_message}\n")
+            parts.append(f"用户批注: {approval_message}\n")
 
-        parts.append(f"📄 原始文件: {file_path}")
+        parts.append(f"原始文件: {file_path}")
 
         if result.tool_name == "read_file":
             start_line = metadata.get("start_line")
             end_line = metadata.get("end_line")
             if start_line is not None and end_line is not None:
-                parts.append(f"📍 当前片段: 行 {start_line}-{end_line}")
+                parts.append(f"当前片段: 行 {start_line}-{end_line}")
             if metadata.get("has_more"):
                 next_offset = metadata.get("next_offset")
-                parts.append(f"💡 如需后续内容，请继续调用 read_file(file_path='{file_path}', offset={next_offset})")
+                parts.append(f"如需后续内容，请继续调用 read_file(file_path='{file_path}', offset={next_offset})")
         else:
             file_type = metadata.get("file_type")
             char_count = metadata.get("char_count")
@@ -199,10 +199,10 @@ class LargePayloadFormatter(BaseObservationFormatter):
             if estimated_size:
                 meta_parts.append(f"估算大小: {estimated_size}")
             if meta_parts:
-                parts.append(f"📊 {' | '.join(meta_parts)}")
-            parts.append("💡 后续步骤优先直接使用原始 file_path，避免把读取结果再次落盘")
+                parts.append(" | ".join(meta_parts))
+            parts.append("后续步骤优先直接使用原始 file_path，避免把读取结果再次落盘")
 
         if preview:
-            parts.append(f"📝 预览: {preview}")
+            parts.append(f"预览: {preview}")
 
         return "\n".join(parts)

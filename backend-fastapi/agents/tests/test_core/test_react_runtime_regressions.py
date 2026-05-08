@@ -298,7 +298,7 @@ def test_cleanup_execution_publishes_run_end_timing_metadata(monkeypatch):
             tool_name="read_file",
             session_id="session-1",
         )
-        assert observation == "✅ 读取成功\n\nhello"
+        assert observation == "读取成功\n\nhello"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

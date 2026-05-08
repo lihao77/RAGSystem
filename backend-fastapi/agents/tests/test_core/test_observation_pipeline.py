@@ -40,7 +40,7 @@ def test_observation_pipeline_inline_text_output():
             tool_name="read_file",
         )
 
-        assert observation == "✅ 读取成功\n\nhello"
+        assert observation == "读取成功\n\nhello"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -77,7 +77,7 @@ def test_observation_pipeline_uses_artifact_for_large_payload():
             session_id="session-1",
         )
 
-        assert "📁 数据已存储:" in observation
+        assert "数据已存储:" in observation
         assert normalized.artifacts[0].metadata["session_id"] == "session-1"
         assert "expires_at" in normalized.artifacts[0].metadata
     finally:

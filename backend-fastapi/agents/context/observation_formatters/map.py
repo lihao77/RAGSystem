@@ -45,7 +45,7 @@ class MapObservationFormatter(BaseObservationFormatter):
             title = content.get("title", "未命名地图")
             preview = content.get("preview", {})
 
-            parts = [f"✅ {summary}"]
+            parts = [summary]
             parts.append(f"artifact_id: {artifact_id}")
             parts.append(f"类型: {viz_type}")
             parts.append(f"标题: {title}")
@@ -56,6 +56,6 @@ class MapObservationFormatter(BaseObservationFormatter):
 
         # 地图通常是 HTML 文件
         if isinstance(content, str) and content.endswith(".html"):
-            return f"✅ {summary}\n\n🗺️ 地图文件: {content}"
+            return f"{summary}\n地图文件: {content}"
 
-        return f"✅ {summary}\n\n🗺️ 地图数据已生成"
+        return f"{summary}\n地图数据已生成"

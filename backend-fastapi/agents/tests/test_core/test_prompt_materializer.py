@@ -28,7 +28,7 @@ def test_inline_text_output():
             tool_name="read_file",
         )
 
-        assert observation == "✅ 读取成功\n\nhello"
+        assert observation == "读取成功\n\nhello"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -51,7 +51,7 @@ def test_summarize_output_keeps_full_content():
             tool_name="preview_data_structure",
         )
 
-        assert observation.startswith("✅ 已找到统计结果")
+        assert observation.startswith("已找到统计结果")
         assert "```json" in observation
         assert json.dumps(result.content, ensure_ascii=False, indent=2) in observation
     finally:
@@ -78,7 +78,7 @@ def test_artifact_reference_output_persists_session_and_ttl():
             session_id="session-1",
         )
 
-        assert "📁 数据已存储:" in observation
+        assert "数据已存储:" in observation
         assert len(result.artifacts) == 1
         assert result.artifacts[0].path in observation
         assert result.artifacts[0].path.endswith(".json")
@@ -110,7 +110,7 @@ def test_artifact_reference_output_keeps_full_sample_preview():
         )
 
         assert json.dumps(sample, ensure_ascii=False) in observation
-        assert "..." not in observation.split("📝 样本: ", 1)[1]
+        assert "..." not in observation.split("样本: ", 1)[1]
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -141,10 +141,10 @@ def test_large_read_file_uses_original_source_reference_instead_of_new_artifact(
             session_id="session-1",
         )
 
-        assert "📄 原始文件: E:/data/source.json" in observation
-        assert "💡 如需后续内容，请继续调用 read_file" in observation
+        assert "原始文件: E:/data/source.json" in observation
+        assert "如需后续内容，请继续调用 read_file" in observation
         assert "offset=" in observation
-        assert "📁 数据已存储:" not in observation
+        assert "数据已存储:" not in observation
         assert len(result.artifacts) == 0
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -168,8 +168,8 @@ def test_answer_and_data_detail_output():
             tool_name="preview_data_structure",
         )
 
-        assert observation.startswith("✅ 已找到统计结果")
-        assert "📊 数据详情:" in observation
+        assert observation.startswith("已找到统计结果")
+        assert "数据详情:" in observation
         expected_snippet = json.dumps(result.content, ensure_ascii=False, indent=2)
         assert expected_snippet in observation
     finally:

@@ -54,18 +54,18 @@ class JsonDataFormatter(BaseObservationFormatter):
 
         # 如果有 answer，使用特殊格式
         if answer:
-            prefix = f"✅ {answer}\n\n"
+            prefix = f"{answer}\n\n"
             if child_agent_id:
-                prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
+                prefix += f"child_agent_id: {child_agent_id}\n\n"
             if approval_message:
-                prefix += f"👤 用户批注: {approval_message}\n\n"
-            return f"{prefix}📊 数据详情:\n```json\n{content_str}\n```"
+                prefix += f"用户批注: {approval_message}\n\n"
+            return f"{prefix}数据详情:\n```json\n{content_str}\n```"
 
         # 默认格式
-        prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+        prefix = f"{summary}\n\n" if summary else ""
         if child_agent_id:
-            prefix += f"🆔 child_agent_id: {child_agent_id}\n\n"
+            prefix += f"child_agent_id: {child_agent_id}\n\n"
         if approval_message:
-            prefix += f"👤 用户批注: {approval_message}\n\n"
+            prefix += f"用户批注: {approval_message}\n\n"
 
         return f"{prefix}```json\n{content_str}\n```"

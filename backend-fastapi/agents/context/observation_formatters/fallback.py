@@ -39,6 +39,6 @@ class FallbackFormatter(BaseObservationFormatter):
         estimated_size = self._estimate_size_fast(content)
         self._record_materialization(result, context, estimated_size, used_artifact=False)
 
-        prefix = f"✅ {summary}\n\n" if summary else "✅ 执行成功\n\n"
+        prefix = f"{summary}\n\n" if summary else ""
 
         return f"{prefix}{str(content)}"

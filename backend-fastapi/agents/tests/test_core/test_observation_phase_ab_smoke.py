@@ -59,10 +59,10 @@ def test_phase_ab_smoke_small_json_is_inlined():
             ),
         )
 
-        assert observation.startswith("✅ 查询成功")
+        assert observation.startswith("查询成功")
         assert "```json" in observation
         assert '"city": "Shanghai"' in observation
-        assert "📁 数据已存储:" not in observation
+        assert "数据已存储:" not in observation
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -89,7 +89,7 @@ def test_phase_ab_smoke_skills_result_stays_markdown_like():
             is_skills_tool=True,
         )
 
-        assert observation.startswith("✅ Skill 已激活")
+        assert observation.startswith("Skill 已激活")
         assert "# Demo Skill" in observation
         assert "Do the thing." in observation
     finally:
@@ -124,10 +124,10 @@ def test_phase_ab_smoke_large_payload_writes_artifact_reference():
             ),
         )
 
-        assert "📁 数据已存储:" in observation
+        assert "数据已存储:" in observation
         assert "execute_code 读取此文件" in observation
 
-        prefix = "📁 数据已存储: "
+        prefix = "数据已存储: "
         artifact_line = next(line for line in observation.splitlines() if line.startswith(prefix))
         artifact_path = artifact_line[len(prefix):]
 
@@ -169,8 +169,8 @@ def test_phase_ab_smoke_large_text_payload_read_file_stays_inline():
             ),
         )
 
-        assert observation.startswith("✅ 文件内容过大")
-        assert "📁 数据已存储:" not in observation
+        assert observation.startswith("文件内容过大")
+        assert "数据已存储:" not in observation
         assert observation.endswith("A" * 9001)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

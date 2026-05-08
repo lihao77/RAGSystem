@@ -7,13 +7,17 @@ Observation Formatter 策略化模块
 
 from .base import BaseObservationFormatter, FormatContext
 from .registry import ObservationFormatterRegistry, get_default_registry
-from .fallback import FallbackFormatter
-from .skills import SkillsObservationFormatter
+from .bash import BashObservationFormatter
 from .chart import ChartObservationFormatter
-from .map import MapObservationFormatter
+from .fallback import FallbackFormatter
+from .glob_fmt import GlobObservationFormatter
+from .grep import GrepObservationFormatter
 from .json_data import JsonDataFormatter
-from .text import TextDataFormatter
 from .large_payload import LargePayloadFormatter
+from .map import MapObservationFormatter
+from .skills import SkillsObservationFormatter
+from .text import TextDataFormatter
+from .web_fetch import WebFetchObservationFormatter
 
 __all__ = [
     # 基类
@@ -23,11 +27,15 @@ __all__ = [
     'ObservationFormatterRegistry',
     'get_default_registry',
     # 具体策略
-    'FallbackFormatter',
-    'SkillsObservationFormatter',
+    'BashObservationFormatter',
     'ChartObservationFormatter',
-    'MapObservationFormatter',
+    'FallbackFormatter',
+    'GlobObservationFormatter',
+    'GrepObservationFormatter',
     'JsonDataFormatter',
-    'TextDataFormatter',
     'LargePayloadFormatter',
+    'MapObservationFormatter',
+    'SkillsObservationFormatter',
+    'TextDataFormatter',
+    'WebFetchObservationFormatter',
 ]
