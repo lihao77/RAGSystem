@@ -1471,6 +1471,7 @@ class BaseAgent(ABC):
         for bg_tid in bg_wait_state.task_ids:
             bg_task = bg_manager.get_task(bg_tid)
             if bg_task is None:
+                all_done = False
                 continue
             if bg_task.is_done():
                 if bg_tid not in bg_wait_state.completed_task_ids:

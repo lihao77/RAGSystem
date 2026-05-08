@@ -410,7 +410,7 @@ async def _handle_ws_user_input(ws: WebSocket, session_id: str, msg: dict, send_
 async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
     """处理前端通过 WS 发送的消息/命令。"""
     try:
-        from api.v1.stream import execute_task, _build_attachment_records
+        from api.v1.stream import execute_task
         result = await execute_task(
             task=msg.get('task', ''),
             session_id=session_id,
@@ -447,6 +447,8 @@ async def _watch_active_run(
 ):
     """等待 run 变更事件或 30s 兜底轮询，动态切换到正确的 run 事件总线。"""
     while True:
+        # 先 clear 再 sync，防止 sync 期间触发的事件被清掉
+        run_changed.clear()
         try:
             await _sync_active_run_subscription(ws, session_id, container, queue, send_lock, run_binding, on_event, send_gate)
         except asyncio.CancelledError:
@@ -454,7 +456,6 @@ async def _watch_active_run(
         except Exception as exc:
             logger.debug('[WS] 检查活跃 run 失败 session=%s: %s', session_id, exc)
         # 等待事件驱动唤醒或 30s 兜底
-        run_changed.clear()
         try:
             await asyncio.wait_for(run_changed.wait(), timeout=30.0)
         except asyncio.TimeoutError:
