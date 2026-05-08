@@ -99,7 +99,7 @@ def _branch_name(child_agent_id: str) -> str:
 # ── 检测辅助 ────────────────────────────────────────────────────────────────
 
 def is_git_repo(path: str) -> bool:
-    """检测目录是否在 git 仓库内。"""
+    """检测目录是否在 git 仓库或 worktree 内。"""
     p = Path(path)
     if not p.is_dir():
         return False

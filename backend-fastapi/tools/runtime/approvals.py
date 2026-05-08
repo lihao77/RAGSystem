@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from execution.observability import format_observability_suffix
@@ -29,9 +32,6 @@ class ApprovalOutcome:
 
 
 def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]:
-    import re
-    from pathlib import Path
-
     from core.path_resolution import is_path_within_managed_roots
 
     tool_name = (context.tool_name or "").strip()
@@ -59,15 +59,22 @@ def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]
     if raw_path.startswith("./data/"):
         return []
 
-    windows_absolute = re.match(r'^[a-zA-Z]:[\\/]', raw_path)
-    candidate = Path(raw_path.replace('/', '\\')) if windows_absolute else Path(raw_path)
-    if not candidate.is_absolute():
+    windows_absolute = re.match(r'^[a-zA-Z]:[\\/]', raw_path) is not None
+    normalized_windows_path = raw_path.replace('/', '\\') if windows_absolute else raw_path
+    candidate = Path(normalized_windows_path)
+    if not windows_absolute and not candidate.is_absolute():
         return []
 
     workspace_root = None
     if context.agent_config is not None:
         custom_params = getattr(context.agent_config, "custom_params", None) or {}
         workspace_root = custom_params.get("workspace_root")
+
+    if windows_absolute and os.name != "nt":
+        # pathlib treats "C:\..." as relative on POSIX, but for approval
+        # purposes it is still an absolute external path from the caller.
+        # 不能用 resolve()，POSIX 上会拼出错误的路径。
+        return [normalized_windows_path]
 
     resolved_candidate = candidate.resolve()
     if is_path_within_managed_roots(

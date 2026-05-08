@@ -46,6 +46,11 @@ class TestIsGitRepo:
     def test_detects_git_repo(self, git_repo):
         assert is_git_repo(str(git_repo)) is True
 
+    def test_detects_git_repo_subdirectory(self, git_repo):
+        subdir = git_repo / "src"
+        subdir.mkdir()
+        assert is_git_repo(str(subdir)) is True
+
     def test_rejects_non_git_dir(self, non_git_dir):
         assert is_git_repo(str(non_git_dir)) is False
 

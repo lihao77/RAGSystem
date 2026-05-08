@@ -23,6 +23,7 @@ from agents.events.sse_adapter import event_to_client_dict, is_critical_event_ty
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+_PAUSE_SEND_LOOP = object()
 
 
 # ── 连接管理器 ──────────────────────────────────────────────
@@ -89,6 +90,41 @@ def _enqueue_event(queue: asyncio.Queue, event: Event, session_id: str):
             logger.debug('[WS] 非关键事件丢弃 session=%s type=%s', session_id, event_type)
 
 
+def _enqueue_pause_sentinel(queue: asyncio.Queue):
+    """唤醒可能已阻塞在 queue.get() 的 send_loop，让它重新检查 send_gate。"""
+    try:
+        queue.put_nowait(_PAUSE_SEND_LOOP)
+    except asyncio.QueueFull:
+        _evict_non_critical(queue)
+        try:
+            queue.put_nowait(_PAUSE_SEND_LOOP)
+        except asyncio.QueueFull:
+            pass
+
+
+def _requeue_paused_event(queue: asyncio.Queue, event: Event, session_id: str):
+    try:
+        queue.put_nowait(event)
+    except asyncio.QueueFull:
+        if is_critical_event_type(event.type):
+            _evict_non_critical(queue)
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning('[WS] replay 暂停期间关键事件回队失败 session=%s type=%s', session_id, _event_type_name(event.type))
+        else:
+            logger.debug('[WS] replay 暂停期间非关键事件丢弃 session=%s type=%s', session_id, _event_type_name(event.type))
+
+
+async def _pause_realtime_send_loop(queue: asyncio.Queue, send_lock: asyncio.Lock, send_gate: asyncio.Event):
+    """原子暂停实时发送，并唤醒 send_loop 避免它继续卡在 queue.get()。"""
+    async with send_lock:
+        was_open = send_gate.is_set()
+        send_gate.clear()
+        if was_open:
+            _enqueue_pause_sentinel(queue)
+
+
 def _clear_run_subscription(run_binding: dict):
     bus = run_binding.get('bus')
     subscription_id = run_binding.get('subscription_id')
@@ -120,6 +156,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
     global_sub_id: Optional[str] = None
     closed = threading.Event()
     run_binding = {'run_id': None, 'bus': None, 'subscription_id': None}
+    child_tasks: set[asyncio.Task] = set()
 
     try:
         from runtime.container import get_current_runtime_container
@@ -163,9 +200,10 @@ async def session_websocket(ws: WebSocket, session_id: str):
         watch_task = asyncio.create_task(
             _watch_active_run(ws, session_id, container, queue, send_lock, run_binding, _on_event, send_gate, run_changed)
         )
+        child_tasks = {send_task, recv_task, watch_task}
 
         done, pending = await asyncio.wait(
-            {send_task, recv_task, watch_task},
+            child_tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
@@ -174,15 +212,25 @@ async def session_websocket(ws: WebSocket, session_id: str):
         for task in done:
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 pass
+        child_tasks.clear()
 
     except WebSocketDisconnect:
         logger.info('[WS] 客户端断开 session=%s', session_id)
+    except asyncio.CancelledError:
+        logger.info('[WS] 连接取消 session=%s', session_id)
     except Exception as exc:
         logger.warning('[WS] 异常断开 session=%s: %s', session_id, exc)
     finally:
         closed.set()
+        for task in child_tasks:
+            if not task.done():
+                task.cancel()
+        if child_tasks:
+            await asyncio.gather(*child_tasks, return_exceptions=True)
         if global_bus is not None and global_sub_id:
             try:
                 global_bus.unsubscribe(global_sub_id)
@@ -210,18 +258,31 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
             now = time.time()
             if now - last_heartbeat >= heartbeat_interval:
                 try:
-                    await _send_json(ws, {'type': 'heartbeat', 'timestamp': now}, send_lock)
+                    async with send_lock:
+                        if not send_gate.is_set():
+                            continue
+                        await ws.send_json({'type': 'heartbeat', 'timestamp': now})
                 except Exception:
                     return
                 last_heartbeat = now
             continue
 
+        if event is _PAUSE_SEND_LOOP:
+            continue
         if event is None:  # 哨兵
             return
 
+        if not send_gate.is_set():
+            _requeue_paused_event(queue, event, session_id)
+            continue
+
         try:
             payload = _event_to_ws_payload(event)
-            await _send_json(ws, payload, send_lock)
+            async with send_lock:
+                if not send_gate.is_set():
+                    _requeue_paused_event(queue, event, session_id)
+                    continue
+                await ws.send_json(payload)
             last_heartbeat = time.time()
         except Exception:
             return  # WS 已断开
@@ -444,27 +505,34 @@ async def _sync_active_run_subscription(
         return
 
     _clear_run_subscription(run_binding)
+    await _pause_realtime_send_loop(queue, send_lock, send_gate)
+    try:
+        runtime_svc = container.get_agent_api_runtime_service()
+        run_bus = runtime_svc.get_run_event_bus(run_id, session_id=session_id)
+        run_sub_id = run_bus.subscribe_all(
+            handler=on_event,
+            filter_func=lambda e: bool(e.session_id) and e.session_id == session_id,
+        )
+        run_binding['run_id'] = run_id
+        run_binding['bus'] = run_bus
+        run_binding['subscription_id'] = run_sub_id
 
-    runtime_svc = container.get_agent_api_runtime_service()
-    run_bus = runtime_svc.get_run_event_bus(run_id, session_id=session_id)
-    run_sub_id = run_bus.subscribe_all(
-        handler=on_event,
-        filter_func=lambda e: bool(e.session_id) and e.session_id == session_id,
-    )
-    run_binding['run_id'] = run_id
-    run_binding['bus'] = run_bus
-    run_binding['subscription_id'] = run_sub_id
-
-    await _replay_run(
-        ws,
-        session_id,
-        run_id,
-        status.get('started_at') or 0,
-        container,
-        queue,
-        send_lock,
-        send_gate,
-    )
+        await _replay_run(
+            ws,
+            session_id,
+            run_id,
+            status.get('started_at') or 0,
+            container,
+            queue,
+            send_lock,
+            send_gate,
+        )
+    except asyncio.CancelledError:
+        send_gate.set()
+        raise
+    except Exception:
+        send_gate.set()
+        raise
 
 
 async def _replay_run(
@@ -480,8 +548,8 @@ async def _replay_run(
     """对指定 run 做一次回放，并与实时队列去重。replay 期间 send_gate 暂停 send_loop。"""
     logger.info('[WS] 绑定活跃 run session=%s run_id=%s，开始回放', session_id, run_id)
 
-    # 暂停 send_loop，防止回放期间实时事件穿插导致乱序
-    send_gate.clear()
+    # 注：调用方 _sync_active_run_subscription 已执行 _pause_realtime_send_loop，
+    # 此处 send_gate 已处于 clear 状态，无需再次暂停。
 
     try:
         runtime_svc = container.get_agent_api_runtime_service()
@@ -537,7 +605,7 @@ def _drain_stale_events(queue: asyncio.Queue, max_seq: int):
         except asyncio.QueueEmpty:
             break
 
-        if event is None:
+        if event is None or event is _PAUSE_SEND_LOOP:
             kept.append(event)
             continue
 
@@ -566,7 +634,10 @@ def _evict_non_critical(queue: asyncio.Queue):
             item = queue.get_nowait()
         except asyncio.QueueEmpty:
             break
-        if not evicted and item is not None and not is_critical_event_type(item.type):
+        if item is None or item is _PAUSE_SEND_LOOP:
+            scanned.append(item)
+            continue
+        if not evicted and not is_critical_event_type(item.type):
             evicted = True
             continue
         scanned.append(item)
