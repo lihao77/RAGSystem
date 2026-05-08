@@ -139,7 +139,7 @@ class ContextPipeline:
          a. segment = history_resolved 中除最近 preserve_recent_turns 轮之外的所有消息
          b. summary = _try_llm_summary(segment, existing_summary)
          c. 成功：_apply_compression(summary, ...) → 更新 history_resolved
-         d. 失败：抛出 ContextCompressionError，终止当前轮执行
+         d. 失败：写入降级截断标记并保留最近消息，避免当前轮执行中断
     5. 返回：[system] + history_resolved + current_session
     """
 
@@ -507,6 +507,7 @@ class ContextPipeline:
             compress_result = self._compress(
                 history_raw, history_resolved, context, publisher,
                 system_prompt=system_prompt,
+                fallback_on_error=True,
             )
             history_resolved = compress_result.messages
 
@@ -660,6 +661,7 @@ class ContextPipeline:
         publisher=None,
         system_prompt: str = "",
         cancel_event=None,
+        fallback_on_error: bool = False,
     ) -> CompressionResult:
         # 确定被摘要段：压缩「除最近 preserve_recent_turns 轮之外」的所有历史
         # 这样无论消息长短，每次都能尽量多地压缩，token 效率最优。
@@ -697,8 +699,20 @@ class ContextPipeline:
                 )
                 self._publish_pre_compression_usage(publisher, history_resolved, system_prompt)
             summary = self._try_llm_summary(segment, existing_summary, publisher=publisher, cancel_event=cancel_event)
-        except ContextCompressionError:
-            raise
+        except ContextCompressionError as error:
+            if not fallback_on_error:
+                raise
+            if str(error) == "压缩已被用户中断":
+                raise
+            self.logger.warning("LLM 摘要失败，降级截断历史上下文: %s", error)
+            self._record_compression(status="failed", replaced_messages=0)
+            return self._fallback_truncate(
+                segment=segment,
+                history_raw=history_raw,
+                context=context,
+                publisher=publisher,
+                error=error,
+            )
         self._record_compression(status="success", replaced_messages=len(segment))
         resolved, summary_content, replaces_up_to_seq = self._apply_compression(
             summary, segment, history_raw, context, publisher
@@ -709,6 +723,38 @@ class ContextPipeline:
             summary_content=summary_content,
             replaces_up_to_seq=replaces_up_to_seq,
             reason='success',
+        )
+
+    def _fallback_truncate(
+        self,
+        *,
+        segment: List[Dict[str, Any]],
+        history_raw: List[Dict[str, Any]],
+        context,
+        publisher=None,
+        error: ContextCompressionError,
+    ) -> CompressionResult:
+        """When LLM summarization is unavailable, replace old history with an explicit marker."""
+        trimmed_messages = len(segment)
+        summary = (
+            f"{_COMPACT_SUMMARY_PREFIX}"
+            f"LLM 摘要不可用，已降级截断 {trimmed_messages} 条较早历史消息以保持上下文预算。\n\n"
+            f"降级原因: {error}"
+        )
+        resolved, summary_content, replaces_up_to_seq = self._apply_compression(
+            summary,
+            segment,
+            history_raw,
+            context,
+            publisher,
+        )
+        self._record_trim(trimmed_messages=trimmed_messages)
+        return CompressionResult(
+            did_compress=True,
+            messages=resolved,
+            summary_content=summary_content,
+            replaces_up_to_seq=replaces_up_to_seq,
+            reason='fallback_truncate',
         )
 
     def _try_llm_summary(
@@ -762,29 +808,12 @@ class ContextPipeline:
             model_name = llm_config.get('model_name', 'unknown')
             try:
                 self.logger.debug(f"尝试 {tier_label} 层级模型进行压缩: provider={provider}, model={model_name}")
-                # 优先流式收集（部分反代非流式 content 为空）
-                raw_parts = []
-                stream_error = None
-                try:
-                    for chunk in self.model_adapter.chat_completion_stream(
-                        messages=req,
-                        provider=provider,
-                        provider_type=provider_type,
-                        temperature=0.2,
-                        max_tokens=self.config.summarize_max_tokens,
-                        reasoning_effort="none",
-                        cancel_event=cancel_event,
-                    ):
-                        if chunk.get('error'):
-                            stream_error = chunk['error']
-                            break
-                        raw_parts.append(chunk.get('content') or '')
-                except Exception as e:
-                    stream_error = str(e)
-
-                raw = ''.join(raw_parts).strip()
-                if stream_error and not raw:
-                    raise ContextCompressionError(f"流式摘要失败: {stream_error}")
+                raw = self._call_summary_model(
+                    messages=req,
+                    provider=provider,
+                    provider_type=provider_type,
+                    cancel_event=cancel_event,
+                )
                 if not raw:
                     raise ContextCompressionError("摘要模型返回空内容")
                 content = self._format_compact_response(raw)
@@ -805,6 +834,66 @@ class ContextPipeline:
                 continue
 
         raise last_error or ContextCompressionError("上下文压缩失败：所有层级模型均不可用")
+
+    def _call_summary_model(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        provider: str,
+        provider_type: Optional[str],
+        cancel_event=None,
+    ) -> str:
+        """Collect summary text from streaming first, then non-streaming when needed."""
+        stream_error = None
+        stream_method = getattr(self.model_adapter, 'chat_completion_stream', None)
+        if callable(stream_method):
+            raw_parts = []
+            try:
+                for chunk in stream_method(
+                    messages=messages,
+                    provider=provider,
+                    provider_type=provider_type,
+                    temperature=0.2,
+                    max_tokens=self.config.summarize_max_tokens,
+                    reasoning_effort="none",
+                    cancel_event=cancel_event,
+                ):
+                    if chunk.get('error'):
+                        stream_error = chunk['error']
+                        break
+                    raw_parts.append(chunk.get('content') or '')
+            except Exception as error:
+                stream_error = str(error)
+
+            raw = ''.join(raw_parts).strip()
+            if raw:
+                return raw
+
+        completion_method = getattr(self.model_adapter, 'chat_completion', None)
+        if callable(completion_method):
+            response = completion_method(
+                messages=messages,
+                provider=provider,
+                provider_type=provider_type,
+                temperature=0.2,
+                max_tokens=self.config.summarize_max_tokens,
+                reasoning_effort="none",
+                cancel_event=cancel_event,
+            )
+            if isinstance(response, dict):
+                error = response.get('error')
+                content = response.get('content')
+            else:
+                error = getattr(response, 'error', None)
+                content = getattr(response, 'content', None)
+            if error:
+                raise ContextCompressionError(f"非流式摘要失败: {error}")
+            if content:
+                return str(content).strip()
+
+        if stream_error:
+            raise ContextCompressionError(f"流式摘要失败: {stream_error}")
+        raise ContextCompressionError("摘要适配器不支持 chat_completion_stream 或 chat_completion")
 
     @staticmethod
     def _build_compact_prompt(segment: "List[Dict[str, Any]]", existing_summary: str = "") -> str:
@@ -967,3 +1056,8 @@ class ContextPipeline:
             status=status,
             replaced_messages=replaced_messages,
         )
+
+    def _record_trim(self, *, trimmed_messages: int) -> None:
+        if self.observation_window is None:
+            return
+        self.observation_window.record_trim(trimmed_messages=trimmed_messages)

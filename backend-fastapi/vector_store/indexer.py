@@ -4,7 +4,6 @@
 
 import logging
 import hashlib
-import jieba
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
@@ -13,6 +12,11 @@ from .embedder import get_embedder
 from .base import Document
 
 logger = logging.getLogger(__name__)
+
+try:
+    import jieba
+except ImportError:  # pragma: no cover - optional dependency fallback
+    jieba = None
 
 
 class DocumentIndexer:
@@ -58,7 +62,7 @@ class DocumentIndexer:
         text = text.strip()
         chunks = []
 
-        if use_jieba:
+        if use_jieba and jieba is not None:
             # 使用jieba分句，避免在词中间切分
             sentences = list(jieba.cut(text, cut_all=False))
 

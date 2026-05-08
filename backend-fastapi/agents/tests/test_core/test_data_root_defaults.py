@@ -106,6 +106,18 @@ def test_vectorizer_config_default_path_uses_config_root(monkeypatch, tmp_path):
         importlib.reload(vectorizer_config)
 
 
+def test_document_indexer_chunk_text_falls_back_without_jieba(monkeypatch):
+    import vector_store.indexer as indexer
+
+    monkeypatch.setattr(indexer, 'jieba', None)
+
+    assert indexer.DocumentIndexer.chunk_text('abcdef', chunk_size=3, overlap=1, use_jieba=True) == [
+        'abc',
+        'cde',
+        'ef',
+    ]
+
+
 def test_app_config_seed_uses_managed_database_default():
     seed_path = Path(__file__).resolve().parents[3] / 'config' / 'yaml' / 'config.yaml.example'
     seed = load_yaml_file(seed_path, default_factory=dict)

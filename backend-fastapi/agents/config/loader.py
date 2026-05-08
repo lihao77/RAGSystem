@@ -347,6 +347,16 @@ class AgentLoader:
         else:
             logger.debug(f"{agent_config.agent_name} 未配置 direct 工具")
 
+        memory_tool_names = set(exposure.get('memory_tool_names', []))
+        if memory_tool_names:
+            existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+            for memory_tool in direct_tools:
+                tool_name = memory_tool.get('function', {}).get('name')
+                if tool_name and tool_name in memory_tool_names and tool_name not in existing_tool_names:
+                    filtered_tools.append(memory_tool)
+                    existing_tool_names.add(tool_name)
+            logger.debug(f"{agent_config.agent_name} 启用 memory 工具: {sorted(memory_tool_names)}")
+
         task_tool_names = set(exposure.get('task_tool_names', []))
         if task_tool_names:
             existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
@@ -404,11 +414,10 @@ class AgentLoader:
                     filtered_tools.append(agent_tool)
             logger.debug(f"{agent_config.agent_name} 启用 delegation: {enabled_agents}")
 
-        if decisions.get('request_user_input'):
-            builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
-            request_user_input_tool = self._tool_registry.get_tool_by_name('request_user_input')
-            if request_user_input_tool and 'request_user_input' not in builtin_tool_names:
-                filtered_tools.append(request_user_input_tool)
+        builtin_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+        request_user_input_tool = self._tool_registry.get_tool_by_name('request_user_input')
+        if request_user_input_tool and 'request_user_input' not in builtin_tool_names:
+            filtered_tools.append(request_user_input_tool)
 
         return filtered_tools, filtered_skills
 

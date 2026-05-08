@@ -28,7 +28,6 @@ from daemon.models import (
     PlatformType,
 )
 from tools.contracts.permission_modes import PermissionMode, PermissionPolicy
-from core.path_resolution import CONFIG_ROOT
 from daemon.gateway.base import PlatformAdapter
 from daemon.gateway.router import MessageRouter
 from daemon.scheduler.engine import CronScheduler
@@ -55,7 +54,14 @@ class DaemonService:
 
     # ── 配置加载 ──────────────────────────────────────
 
-    _DAEMON_CONFIG_PATH: Path = CONFIG_ROOT / 'daemon' / 'daemon.yaml'
+    _DAEMON_CONFIG_PATH: Optional[Path] = None
+
+    def _resolve_config_path(self) -> Path:
+        """Resolve daemon config at call time so tests and RAG_DATA_ROOT overrides can redirect it."""
+        if self._DAEMON_CONFIG_PATH is not None:
+            return Path(self._DAEMON_CONFIG_PATH)
+        from core.path_resolution import CONFIG_ROOT
+        return CONFIG_ROOT / 'daemon' / 'daemon.yaml'
 
     def _validate_config(self, config: DaemonSystemConfig) -> DaemonSystemConfig:
         """重新校验配置，确保约束在运行时修改后仍生效。"""
@@ -63,7 +69,7 @@ class DaemonService:
 
     def load_config(self) -> DaemonSystemConfig:
         """从 CONFIG_ROOT/daemon/daemon.yaml 加载配置。"""
-        config_path = self._DAEMON_CONFIG_PATH
+        config_path = self._resolve_config_path()
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
                 raw = yaml.safe_load(f) or {}
@@ -80,7 +86,7 @@ class DaemonService:
     def save_config(self, new_config: DaemonSystemConfig) -> None:
         """保存配置到 YAML 文件并热更新内存。运行时字段（last_run/next_run/last_result）不会被持久化。"""
         validated_config = self._validate_config(new_config)
-        config_path = self._DAEMON_CONFIG_PATH
+        config_path = self._resolve_config_path()
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         raw = json_safe(model_dump(validated_config))

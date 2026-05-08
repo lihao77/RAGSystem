@@ -8,10 +8,22 @@
 """
 
 from .base import VectorStoreBase, Document, SearchResult
-from .client import get_vector_client, VectorStoreClient
-from .embedder import get_embedder, TextEmbedder
-from .indexer import DocumentIndexer
-from .retriever import VectorRetriever
+
+
+def __getattr__(name):
+    if name in {"get_vector_client", "VectorStoreClient"}:
+        from .client import get_vector_client, VectorStoreClient
+        return {"get_vector_client": get_vector_client, "VectorStoreClient": VectorStoreClient}[name]
+    if name in {"get_embedder", "TextEmbedder"}:
+        from .embedder import get_embedder, TextEmbedder
+        return {"get_embedder": get_embedder, "TextEmbedder": TextEmbedder}[name]
+    if name == "DocumentIndexer":
+        from .indexer import DocumentIndexer
+        return DocumentIndexer
+    if name == "VectorRetriever":
+        from .retriever import VectorRetriever
+        return VectorRetriever
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # 基础类
