@@ -318,7 +318,7 @@ def _fix_bare_placeholders(s: str) -> str:
     例如 {"layers": {result_1.content.layers}} 中的 {result_1.content.layers}
     会被替换为 "{result_1.content.layers}"，使 JSON 可以正常解析。
     """
-    return _BARE_PLACEHOLDER.sub(r'\1"{{\2}}"', s)
+    return _BARE_PLACEHOLDER.sub(r'\1"{\2}"', s)
 
 
 def _fix_backslash_paths(s: str) -> str:

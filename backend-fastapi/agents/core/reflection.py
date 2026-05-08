@@ -193,13 +193,16 @@ def update_reflection_state(
     else:
         ref.empty_results = 0
 
-    # 更新工具连续调用计数
+    # 更新工具连续调用计数（按实际出现次数累加，切换工具时仅重置切换前工具的连续计数）
     if last_tool:
+        last_tool_count = sum(1 for e in round_history if e.get('tool_name') == last_tool)
         if last_tool == ref.last_tool_name:
-            ref.tool_call_counter[last_tool] = ref.tool_call_counter.get(last_tool, 0) + len(round_history)
+            ref.tool_call_counter[last_tool] = ref.tool_call_counter.get(last_tool, 0) + last_tool_count
         else:
-            # 工具切换，重置计数
-            ref.tool_call_counter = {last_tool: len([e for e in round_history if e.get('tool_name') == last_tool])}
+            # 工具切换：重置前一个工具的连续计数，开始计数新工具
+            if ref.last_tool_name and ref.last_tool_name in ref.tool_call_counter:
+                ref.tool_call_counter[ref.last_tool_name] = 0
+            ref.tool_call_counter[last_tool] = last_tool_count
         ref.last_tool_name = last_tool
 
 

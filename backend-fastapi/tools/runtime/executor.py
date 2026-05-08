@@ -329,6 +329,14 @@ def execute_tool(
         return result
 
 
+def _safe_build_input_snapshot(context: ToolUseContext) -> dict:
+    """Build input snapshot for hooks, returning raw arguments when handler is None (e.g. MCP tools)."""
+    handler = get_tool_handler(context.tool_name)
+    if handler is None:
+        return dict(getattr(context, 'arguments', {}) or {})
+    return build_handler_call_arguments(handler, context)
+
+
 def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> Any:
     """Run hooks synchronously in the tool execution flow."""
     try:
@@ -367,7 +375,7 @@ def _run_hooks_sync(event_name: str, context: ToolUseContext, **kwargs) -> Any:
             source="runtime",
             tool_context=context,
             permission_decision=kwargs.get("permission_decision"),
-            input_snapshot=build_handler_call_arguments(get_tool_handler(context.tool_name), context),
+            input_snapshot=_safe_build_input_snapshot(context),
             result_snapshot=_build_result_snapshot(kwargs.get("result")),
             error_snapshot=_build_error_snapshot(kwargs.get("error")),
             metadata={

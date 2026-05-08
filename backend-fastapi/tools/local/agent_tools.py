@@ -214,7 +214,7 @@ def call_agent(
         publisher.agent_call_end(
             call_id=agent_call_id,
             agent_name=agent_name,
-            result=agent_result.content if agent_result.success else agent_result.content,
+            result=agent_result.content if agent_result.success else (agent_result.summary or str(agent_result.content)),
             success=agent_result.success,
             parent_call_id=parent_call_id,
             order=order,
@@ -471,7 +471,7 @@ def send_message(
         publisher.agent_call_end(
             call_id=child_call_id,
             agent_name=agent_name,
-            result=agent_result.content if agent_result.success else agent_result.content,
+            result=agent_result.content if agent_result.success else (agent_result.summary or str(agent_result.content)),
             success=agent_result.success,
             parent_call_id=parent_call_id,
             order=order,

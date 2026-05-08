@@ -717,11 +717,17 @@ class TaskRegistry:
             self._tasks.pop(info.session_id, None)
         if info.concurrency_key and self._active_concurrency.get(info.concurrency_key) == task_id:
             self._active_concurrency.pop(info.concurrency_key, None)
-        for approval_id in info.pending_approvals:
+        for approval_id, evt in info.pending_approvals.items():
+            info.approval_results[approval_id] = {'approved': False, 'message': ''}
+            evt.set()
             self._approval_to_task.pop(approval_id, None)
-        for input_id in info.pending_inputs:
+        for input_id, evt in info.pending_inputs.items():
+            info.input_results[input_id] = ''
+            evt.set()
             self._input_to_task.pop(input_id, None)
-        for wait_id in info.pending_waits:
+        for wait_id, evt in info.pending_waits.items():
+            info.wait_results[wait_id] = {'status': 'cancelled'}
+            evt.set()
             self._wait_to_task.pop(wait_id, None)
 
 

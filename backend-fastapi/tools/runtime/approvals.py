@@ -203,7 +203,7 @@ def request_user_approval_if_needed(
 
     permission = get_tool_permission(context.tool_name)
     if not permission:
-        return ApprovalOutcome(allowed=True)
+        return ApprovalOutcome(allowed=True, approved_external_paths=approved_external_paths)
 
     requires, risk_reason = should_require_approval(context.tool_name, permission, context.arguments, session_id=context.session_id)
     reason, secondary_reasons, reason_codes = _build_approval_reason_payload(
