@@ -685,7 +685,10 @@ class BaseAgent(ABC):
 
         # 反思机制初始化
         from .reflection import load_reflection_config, make_reflection_state, ReflectionEvaluator
-        reflection_config = load_reflection_config(self.agent_config, self.system_config)
+        reflection_config = load_reflection_config(
+            getattr(self, 'agent_config', None),
+            getattr(self, 'system_config', None),
+        )
         reflection_evaluator = ReflectionEvaluator(reflection_config) if reflection_config.enabled else None
 
         return {

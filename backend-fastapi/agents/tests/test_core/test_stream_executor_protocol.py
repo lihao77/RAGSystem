@@ -102,7 +102,7 @@ def test_stream_executor_ignores_empty_chunks_for_llm_first_token():
 
 def test_stream_executor_records_first_token_time(monkeypatch):
     timestamps = iter([10.0, 10.05])
-    monkeypatch.setattr("agents.streaming.stream_executor.time.time", lambda: next(timestamps))
+    monkeypatch.setattr("agents.streaming.stream_executor.time.time", lambda: next(timestamps, 10.05))
     executor = StreamExecutor(
         model_adapter=_FakeModelAdapter(["<intent>先想</intent><final_answer>首个 token</final_answer>"]),
         publisher=_FakePublisher(),

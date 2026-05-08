@@ -189,20 +189,25 @@ class _StubSkillLoader:
     def __init__(self, skill_dir: Path):
         self._skill = _StubSkill(skill_dir)
 
-    def load_all_skills(self):
+    def load_all_skills(self, workspace_root=None):
+        del workspace_root
         return [self._skill]
 
-    def find_skill_metadata(self, skill_name: str):
+    def find_skill_metadata(self, skill_name: str, workspace_root=None):
+        del workspace_root
         if skill_name != self._skill.name:
             return None
         return {
             "name": self._skill.name,
             "description": self._skill.description,
             "skill_dir": self._skill.skill_dir,
+            "source_type": "test",
+            "source_label": "audit stub",
             "metadata": {"name": self._skill.name, "description": self._skill.description},
         }
 
-    def list_skill_names(self):
+    def list_skill_names(self, workspace_root=None):
+        del workspace_root
         return [self._skill.name]
 
     def count_skill_resources(self, skill_dir: Path) -> int:
