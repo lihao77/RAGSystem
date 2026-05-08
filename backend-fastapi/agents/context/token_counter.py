@@ -95,9 +95,10 @@ class TokenCounter:
                 logger.warning(f"TokenCounter: tiktoken 计数失败，降级: {e}")
                 self._use_tiktoken = False
 
-        # 降级：启发式估算
-        total = 0
+        # 降级：启发式估算（与 tiktoken 路径保持一致的开销模型）
+        total = 2  # reply priming
         for msg in messages:
+            total += 4  # per-message overhead
             total += self._heuristic(self._extract_text(msg.get('content', '')))
         return total
 
@@ -152,13 +153,19 @@ class TokenCounter:
     @staticmethod
     def _heuristic(text: str) -> int:
         """
-        启发式 token 估算（保留原有逻辑）：
+        启发式 token 估算：
         - JSON 内容：字符数 / 3
-        - 普通文本：字符数 × 1.2
+        - 含中文文本：中文字符 × 2.0 + 非中文字符 × 0.3
+        - 纯英文文本：字符数 / 4（约 4 chars/token）
         """
         if not text:
             return 0
         stripped = text.strip()
         if stripped.startswith('{') or stripped.startswith('['):
             return len(text) // 3
-        return int(len(text) * 1.2)
+        # 检测中文字符占比，区分中英文估算
+        cjk_count = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f')
+        if cjk_count > 0:
+            non_cjk_count = len(text) - cjk_count
+            return int(cjk_count * 2.0 + non_cjk_count * 0.3)
+        return max(1, len(text) // 4)

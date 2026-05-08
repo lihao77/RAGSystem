@@ -103,6 +103,48 @@ def test_resolve_compression_view_ignores_invalid_metadata_json():
     assert resolved == messages
 
 
+def test_resolve_compression_view_keeps_seq_none_messages_after_summary():
+    """Bug fix：压缩摘要后出现的 seq=None 消息不应被静默丢弃。"""
+    messages = [
+        {
+            "seq": 5,
+            "role": "assistant",
+            "content": "[历史摘要]\nsummary",
+            "metadata": {"compression": True, "replaces_up_to_seq": 4},
+        },
+        {"seq": 6, "role": "user", "content": "persisted-msg", "metadata": {}},
+        {"seq": None, "role": "user", "content": "in-memory-msg", "metadata": {}},
+        {"seq": 7, "role": "assistant", "content": "reply", "metadata": {}},
+    ]
+    resolved = resolve_compression_view(messages)
+
+    contents = [item["content"] for item in resolved]
+    assert "[历史摘要]\nsummary" in contents
+    assert "persisted-msg" in contents
+    assert "in-memory-msg" in contents  # 核心断言：seq=None 消息被保留
+    assert "reply" in contents
+
+
+def test_resolve_compression_view_drops_seq_none_before_summary():
+    """压缩摘要之前的 seq=None 消息应被正确排除（它们已被摘要覆盖）。"""
+    messages = [
+        {"seq": None, "role": "user", "content": "old-in-memory", "metadata": {}},
+        {
+            "seq": 5,
+            "role": "assistant",
+            "content": "[历史摘要]\nsummary",
+            "metadata": {"compression": True, "replaces_up_to_seq": 4},
+        },
+        {"seq": 6, "role": "user", "content": "after", "metadata": {}},
+    ]
+    resolved = resolve_compression_view(messages)
+
+    contents = [item["content"] for item in resolved]
+    assert "old-in-memory" not in contents
+    assert "[历史摘要]\nsummary" in contents
+    assert "after" in contents
+
+
 def test_conversation_store_compression_message_round_trip_uses_replaces_up_to_seq():
     temp_dir = _make_temp_dir()
     try:

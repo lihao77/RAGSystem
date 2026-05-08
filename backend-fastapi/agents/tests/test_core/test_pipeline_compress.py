@@ -136,6 +136,53 @@ class TestForceCompressSkipBehavior:
         assert result['summary_content'] is None   # 核心断言：不能返回旧摘要
 
 
+class TestPreserveRecentTurnsZero:
+    """Bug fix：preserve_recent_turns=0 时 candidates[:-0] 切片为空的问题。"""
+
+    def test_preserve_zero_compresses_all_candidates(self):
+        """preserve_recent_turns=0 → 压缩全部 candidates，不保留任何近期消息。"""
+        pipeline = _make_pipeline(preserve_recent_turns=0)
+        msgs = [
+            {'seq': i, 'role': 'user' if i % 2 == 1 else 'assistant', 'content': f'msg{i}', 'metadata': {}}
+            for i in range(1, 8)
+        ]
+        ctx = _make_context_with_messages(msgs)
+
+        with patch.object(pipeline, '_try_llm_summary', return_value='[历史摘要]\n全部压缩') as mock_summary:
+            result = pipeline.force_compress(ctx, system_prompt='')
+
+        assert result['status'] == 'success'
+        # segment 应包含全部 7 条消息
+        call_args = mock_summary.call_args
+        segment = call_args[0][0]  # 第一个位置参数
+        assert len(segment) == 7
+
+    def test_preserve_zero_with_existing_summary(self):
+        """已有摘要 + preserve_recent_turns=0 → 压缩摘要后所有消息。"""
+        pipeline = _make_pipeline(preserve_recent_turns=0)
+        msgs = [
+            {'seq': 3, 'role': 'assistant', 'content': '[历史摘要]\n旧摘要',
+             'metadata': {'compression': True, 'replaces_up_to_seq': 2}},
+            {'seq': 4, 'role': 'user', 'content': 'q1', 'metadata': {}},
+            {'seq': 5, 'role': 'assistant', 'content': 'a1', 'metadata': {}},
+        ]
+        ctx = _make_context_with_messages(msgs)
+
+        with patch.object(pipeline, '_try_llm_summary', return_value='[历史摘要]\n新摘要') as mock_summary:
+            result = pipeline.force_compress(ctx, system_prompt='')
+
+        assert result['status'] == 'success'
+        segment = mock_summary.call_args[0][0]
+        assert len(segment) == 2  # q1 + a1（跳过旧摘要）
+
+    def test_preserve_zero_empty_history_skips(self):
+        """空历史 + preserve_recent_turns=0 不崩溃，返回 skipped。"""
+        pipeline = _make_pipeline(preserve_recent_turns=0)
+        ctx = FakeContext()
+        result = pipeline.force_compress(ctx, system_prompt='')
+        assert result['status'] == 'skipped'
+
+
 class TestForceCompressSuccess:
     """正常压缩路径：LLM 返回摘要，status='success'，summary_content 非 None。"""
 
@@ -791,3 +838,42 @@ class TestSessionCacheFlush:
         call_args = mock_store.update_session_metadata.call_args
         saved = call_args[0][1]['_pipeline_caches']['root']
         assert saved == {'fp': 'only_fp'}
+
+
+# ─── TokenCounter 启发式修复测试 ────────────────────────────────────────────
+
+class TestTokenCounterHeuristic:
+    """Bug fix：启发式路径需包含 per-message overhead 和 reply priming。"""
+
+    def test_heuristic_includes_message_overhead(self):
+        """启发式路径应与 tiktoken 路径一致，包含 +4/msg 和 +2 priming。"""
+        from agents.context.token_counter import TokenCounter
+        counter = TokenCounter(model_name=None)
+        # 强制使用启发式
+        counter._use_tiktoken = False
+
+        messages = [
+            {'role': 'user', 'content': 'hello'},
+            {'role': 'assistant', 'content': 'world'},
+        ]
+        result = counter.count_messages(messages)
+
+        # 至少应包含 2 (priming) + 2*4 (overhead) = 10 的基础开销
+        assert result >= 10
+
+    def test_chinese_text_heuristic_higher_than_english(self):
+        """中文文本的启发式估算应高于同长度英文。"""
+        from agents.context.token_counter import TokenCounter
+        counter = TokenCounter(model_name=None)
+        counter._use_tiktoken = False
+
+        cn_result = counter._heuristic('你好世界测试')  # 6 中文字符
+        en_result = counter._heuristic('abcdef')          # 6 英文字符
+
+        assert cn_result > en_result
+
+    def test_empty_text_returns_zero(self):
+        from agents.context.token_counter import TokenCounter
+        counter = TokenCounter(model_name=None)
+        counter._use_tiktoken = False
+        assert counter._heuristic('') == 0

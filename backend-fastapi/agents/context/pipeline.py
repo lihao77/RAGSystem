@@ -674,7 +674,7 @@ class ContextPipeline:
         preserve_count = self.config.preserve_recent_turns * 2
         candidates = history_resolved[start_idx:]
 
-        if len(candidates) <= preserve_count:
+        if preserve_count > 0 and len(candidates) <= preserve_count:
             # 可压缩消息不足，不触发
             self._record_compression(status="skipped", replaced_messages=0)
             return CompressionResult(
@@ -683,7 +683,15 @@ class ContextPipeline:
                 reason='insufficient_candidates',
             )
 
-        segment = candidates[:-preserve_count]
+        if not candidates:
+            self._record_compression(status="skipped", replaced_messages=0)
+            return CompressionResult(
+                did_compress=False,
+                messages=history_resolved,
+                reason='insufficient_candidates',
+            )
+
+        segment = candidates[:-preserve_count] if preserve_count > 0 else list(candidates)
 
         # 提取已有摘要
         existing_summary = ""
@@ -998,7 +1006,10 @@ class ContextPipeline:
                     )
                 if match:
                     found_idx = idx
-                    break
+                    # seq 精确匹配时直接 break（seq 应唯一）；
+                    # content 降级匹配时继续搜索，取最后一次命中
+                    if last_seq is not None:
+                        break
             if found_idx >= 0:
                 replaces_up_to_seq = history_raw[found_idx].get("seq")
                 remaining = history_raw[found_idx + 1:]

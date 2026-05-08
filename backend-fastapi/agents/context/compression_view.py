@@ -68,15 +68,28 @@ def resolve_compression_view(messages: List[Dict[str, Any]]) -> List[Dict[str, A
 
     if summary_seq is not None:
         cutoff = replaces_up_to_seq if replaces_up_to_seq is not None else summary_seq
-        for message, metadata in zip(messages, parsed_metadata):
+        # 收集压缩摘要之后出现的无 seq 消息（in-memory 临时消息），按位置保留
+        past_summary = False
+        for idx_iter, (message, metadata) in enumerate(zip(messages, parsed_metadata)):
             if metadata.get("compression"):
+                if idx_iter == compression_idx:
+                    past_summary = True
                 continue
-            if message.get("seq") is not None and message["seq"] > cutoff:
+            msg_seq = message.get("seq")
+            if msg_seq is not None and msg_seq > cutoff:
                 output.append({
                     "role": message.get("role", "user"),
                     "content": message.get("content", ""),
                     "metadata": metadata,
-                    "seq": message.get("seq"),
+                    "seq": msg_seq,
+                })
+            elif msg_seq is None and past_summary:
+                # 无 seq 的非压缩消息出现在摘要之后，保留（避免静默丢失）
+                output.append({
+                    "role": message.get("role", "user"),
+                    "content": message.get("content", ""),
+                    "metadata": metadata,
+                    "seq": None,
                 })
     else:
         for idx in range(compression_idx + 1, len(messages)):
