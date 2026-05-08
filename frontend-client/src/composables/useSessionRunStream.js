@@ -18,6 +18,14 @@ export function useSessionRunStream(deps) {
     };
   };
 
+  const isVisibleRootCompressionSummary = (eventData) => {
+    if (eventData.visible_to_user === false) return false;
+    if (eventData.conversation_scope === 'child') return false;
+    const threadKey = eventData.thread_key;
+    if (threadKey != null && threadKey !== '' && threadKey !== 'root') return false;
+    return true;
+  };
+
   const eventTimestampSeconds = (event) => {
     const ts = Number(event?.timestamp);
     return Number.isFinite(ts) && ts > 0 ? ts : Date.now() / 1000;
@@ -274,6 +282,7 @@ export function useSessionRunStream(deps) {
       deps.isCompressing.value = true;
     } else if (eventType === 'context.compression_summary') {
       deps.isCompressing.value = false;
+      if (!isVisibleRootCompressionSummary(eventData)) return;
       const summaryContent = eventData.content || '';
       const alreadyExists = deps.messages.value.some(
         m => m.metadata?.compression && m.content === summaryContent
@@ -282,7 +291,14 @@ export function useSessionRunStream(deps) {
         const compressionMsg = {
           role: 'system',
           content: summaryContent,
-          metadata: { compression: true },
+          metadata: {
+            compression: true,
+            ...(eventData.thread_key != null ? { thread_key: eventData.thread_key } : {}),
+            ...(eventData.conversation_scope != null ? { conversation_scope: eventData.conversation_scope } : {}),
+            ...(eventData.visible_to_user != null ? { visible_to_user: eventData.visible_to_user } : {}),
+            ...(eventData.child_agent_id != null ? { child_agent_id: eventData.child_agent_id } : {}),
+            ...(eventData.run_id != null ? { run_id: eventData.run_id } : {}),
+          },
         };
         deps.messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
         deps.activeRun.assistantMsgIndex++;

@@ -271,6 +271,61 @@ test('output.chunk 追加内容并在缺少 first token 事件时兜底 timing',
   assert.equal(deps.activeRun.firstTokenLatencyMs, 500);
 });
 
+test('root context.compression_summary 会插入主消息流并保留元数据', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'answer' })];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.isCompressing.value = true;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'context.compression_summary',
+    data: {
+      content: '[历史摘要]\nroot summary',
+      thread_key: 'root',
+      conversation_scope: 'root',
+      visible_to_user: true,
+      run_id: 'run-root',
+    },
+  }, 'session-1');
+
+  assert.equal(deps.isCompressing.value, false);
+  assert.equal(deps.messages.value.length, 2);
+  assert.equal(deps.messages.value[0].role, 'system');
+  assert.equal(deps.messages.value[0].content, '[历史摘要]\nroot summary');
+  assert.equal(deps.messages.value[0].metadata.compression, true);
+  assert.equal(deps.messages.value[0].metadata.thread_key, 'root');
+  assert.equal(deps.messages.value[0].metadata.run_id, 'run-root');
+  assert.equal(deps.activeRun.assistantMsgIndex, 1);
+});
+
+test('child context.compression_summary 不进入主消息流', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'answer' })];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.isCompressing.value = true;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'context.compression_summary',
+    data: {
+      content: '[历史摘要]\nchild summary',
+      thread_key: 'child:child-1',
+      child_agent_id: 'child-1',
+      conversation_scope: 'child',
+      visible_to_user: false,
+      run_id: 'run-child',
+    },
+  }, 'session-1');
+
+  assert.equal(deps.isCompressing.value, false);
+  assert.equal(deps.messages.value.length, 1);
+  assert.equal(deps.messages.value[0].content, 'answer');
+  assert.equal(deps.activeRun.assistantMsgIndex, 0);
+});
+
 test('waiting 事件切换后台等待状态并在结束后回到等待模型响应', () => {
   const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage()];

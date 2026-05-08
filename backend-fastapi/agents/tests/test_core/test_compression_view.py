@@ -135,3 +135,41 @@ def test_conversation_store_compression_message_round_trip_uses_replaces_up_to_s
         assert [item["seq"] for item in resolved] == [4, 3, 5]
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_conversation_store_compression_message_uses_thread_key():
+    temp_dir = _make_temp_dir()
+    try:
+        store = ConversationStore(
+            db_path=str(Path(temp_dir) / "conversation.db"),
+            start_cleanup_thread=False,
+            artifact_store=ArtifactStore(base_dir=str(Path(temp_dir) / "artifacts")),
+        )
+        session_id = "compression-thread-key"
+
+        summary = store.insert_compression_message(
+            session_id=session_id,
+            summary_content="[历史摘要]\nchild",
+            replaces_up_to_seq=2,
+            thread_key="child:child-1",
+            child_agent_id="child-1",
+            metadata={
+                "conversation_scope": "child",
+                "visible_to_user": False,
+            },
+        )
+
+        root_messages = store.get_recent_messages(session_id, limit=20, thread_key="root")
+        child_messages = store.get_recent_messages(session_id, limit=20, thread_key="child:child-1")
+
+        assert summary["thread_key"] == "child:child-1"
+        assert summary["child_agent_id"] == "child-1"
+        assert summary["metadata"]["compression"] is True
+        assert summary["metadata"]["thread_key"] == "child:child-1"
+        assert summary["metadata"]["child_agent_id"] == "child-1"
+        assert summary["metadata"]["conversation_scope"] == "child"
+        assert summary["metadata"]["visible_to_user"] is False
+        assert root_messages == []
+        assert [item["content"] for item in child_messages] == ["[历史摘要]\nchild"]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

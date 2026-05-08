@@ -653,15 +653,35 @@ class EventPublisher:
             }
         )
 
-    def compression_summary(self, content: str, replaces_up_to_seq: int | None = None):
+    def compression_summary(
+        self,
+        content: str,
+        replaces_up_to_seq: int | None = None,
+        thread_key: str | None = None,
+        child_agent_id: str | None = None,
+        conversation_scope: str | None = None,
+        visible_to_user: bool | None = None,
+        run_id: str | None = None,
+    ):
         """上下文压缩摘要"""
+        data = {
+            "content": content,
+            "session_id": self.session_id,
+            "replaces_up_to_seq": replaces_up_to_seq,
+        }
+        if thread_key is not None:
+            data["thread_key"] = thread_key
+        if child_agent_id is not None:
+            data["child_agent_id"] = child_agent_id
+        if conversation_scope is not None:
+            data["conversation_scope"] = conversation_scope
+        if visible_to_user is not None:
+            data["visible_to_user"] = visible_to_user
+        if run_id is not None:
+            data["run_id"] = run_id
         self._publish(
             EventType.COMPRESSION_SUMMARY,
-            {
-                "content": content,
-                "session_id": self.session_id,
-                "replaces_up_to_seq": replaces_up_to_seq,
-            }
+            data
         )
 
     # ==================== 代码执行事件（PTC） ====================

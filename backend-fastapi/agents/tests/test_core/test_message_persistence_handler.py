@@ -39,6 +39,7 @@ class _FakeEventBus:
 class _FakeStore:
     def __init__(self):
         self.messages = []
+        self.compression_messages = []
         self.updated = []
         self.recent_messages = []
 
@@ -54,6 +55,7 @@ class _FakeStore:
         return list(self.recent_messages)
 
     def insert_compression_message(self, **kwargs):
+        self.compression_messages.append(kwargs)
         return kwargs
 
 
@@ -164,6 +166,51 @@ def test_message_handler_final_answer_uses_entry_call_boundary():
     assert store.updated[0] == ('session-1', 'run-1', 'msg-1')
 
 
+def test_message_handler_persists_compression_summary_to_event_thread():
+    bus = _FakeEventBus()
+    store = _FakeStore()
+    handler = MessagePersistenceHandler(
+        event_bus=bus,
+        store=store,
+        session_id='session-1',
+        run_id='run-root',
+        cancel_event=ThreadingEvent(),
+        entry_agent_name='child_agent',
+        thread_key='root',
+        conversation_scope='root',
+        visible_to_user=True,
+        child_agent_id=None,
+    )
+    handler.subscribe_all()
+
+    bus.publish(_event(
+        EventType.COMPRESSION_SUMMARY,
+        agent_name='child_agent',
+        call_id='call-child',
+        data={
+            'content': '[历史摘要]\nchild summary',
+            'session_id': 'session-1',
+            'replaces_up_to_seq': 12,
+            'thread_key': 'child:child-1',
+            'child_agent_id': 'child-1',
+            'conversation_scope': 'child',
+            'visible_to_user': False,
+            'run_id': 'run-child',
+        },
+    ))
+
+    assert len(store.compression_messages) == 1
+    saved = store.compression_messages[0]
+    assert saved['thread_key'] == 'child:child-1'
+    assert saved['child_agent_id'] == 'child-1'
+    assert saved['replaces_up_to_seq'] == 12
+    assert saved['metadata']['thread_key'] == 'child:child-1'
+    assert saved['metadata']['conversation_scope'] == 'child'
+    assert saved['metadata']['visible_to_user'] is False
+    assert saved['metadata']['child_agent_id'] == 'child-1'
+    assert saved['metadata']['run_id'] == 'run-child'
+
+
 
 def test_message_handler_merges_final_answer_metadata_without_overriding_system_fields():
     bus = _FakeEventBus()
@@ -241,4 +288,3 @@ def test_message_handler_persists_session_memory_after_root_final_answer(monkeyp
     bus.publish(_event(EventType.FINAL_ANSWER, call_id='call-root', agent_name='orchestrator_agent', data={'content': '好的，后续我会用中文并优先最少代码。'}))
 
     assert any(call['scope'] == 'session' for call in saved_calls)
-

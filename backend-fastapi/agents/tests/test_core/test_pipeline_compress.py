@@ -204,6 +204,45 @@ class TestApplyCompressionSeqMatching:
         # 压缩后保留：摘要 + seq3 + seq4 → resolved 有 3 条
         assert len(resolved) == 3
 
+    def test_apply_compression_publishes_thread_metadata(self):
+        """压缩摘要事件应携带当前 thread 信息，避免 child 摘要落到 root。"""
+        pipeline = _make_pipeline(preserve_recent_turns=1)
+        history_raw = [
+            {'seq': 1, 'role': 'user', 'content': 'q', 'metadata': {}},
+            {'seq': 2, 'role': 'assistant', 'content': 'a', 'metadata': {}},
+            {'seq': 3, 'role': 'user', 'content': 'tail', 'metadata': {}},
+        ]
+        ctx = _make_context_with_messages(history_raw)
+        ctx.metadata = {
+            'thread_key': 'child:child-1',
+            'child_agent_id': 'child-1',
+            'conversation_scope': 'child',
+            'run_id': 'run-child',
+        }
+
+        class Publisher:
+            def __init__(self):
+                self.calls = []
+
+            def compression_summary(self, content, **kwargs):
+                self.calls.append({'content': content, **kwargs})
+
+        publisher = Publisher()
+
+        pipeline._apply_compression(
+            summary_content='[历史摘要]\n测试摘要',
+            segment=history_raw[:2],
+            history_raw=history_raw,
+            context=ctx,
+            publisher=publisher,
+        )
+
+        assert publisher.calls[0]['thread_key'] == 'child:child-1'
+        assert publisher.calls[0]['child_agent_id'] == 'child-1'
+        assert publisher.calls[0]['conversation_scope'] == 'child'
+        assert publisher.calls[0]['visible_to_user'] is False
+        assert publisher.calls[0]['run_id'] == 'run-child'
+
     def test_fallback_to_content_match_when_no_seq(self):
         """segment 消息没有 seq 时，降级到 role+content 匹配，不崩溃。"""
         pipeline = _make_pipeline(preserve_recent_turns=1)
@@ -430,6 +469,10 @@ class TestSummaryModelSelection:
             self.calls.append(kwargs)
             model = kwargs.get('model')
             response = self.responses.get(model, '<summary>ok</summary>')
+            if isinstance(response, list):
+                for chunk in response:
+                    yield chunk
+                return
             if isinstance(response, Exception):
                 yield {'content': '', 'error': str(response)}
                 return
@@ -476,6 +519,28 @@ class TestSummaryModelSelection:
         result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
 
         assert 'default ok' in result
+        assert [call['model'] for call in adapter.calls] == ['fast-model', 'default-model']
+
+    def test_partial_stream_error_does_not_accept_truncated_summary(self):
+        adapter = self._RecordingAdapter({
+            'fast-model': [
+                {'content': '<summary>partial'},
+                {'content': '', 'error': 'stream lost'},
+            ],
+            'default-model': '<summary>default ok</summary>',
+        })
+        pipeline = self._make_pipeline_with_configs(
+            {
+                'fast': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'fast-model'},
+                'default': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'default-model'},
+            },
+            adapter,
+        )
+
+        result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert 'default ok' in result
+        assert 'partial' not in result
         assert [call['model'] for call in adapter.calls] == ['fast-model', 'default-model']
 
     def test_falls_back_to_system_default_when_fast_and_default_missing(self):

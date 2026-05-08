@@ -869,7 +869,7 @@ class ContextPipeline:
                 stream_error = str(error)
 
             raw = ''.join(raw_parts).strip()
-            if raw:
+            if raw and stream_error is None:
                 return raw
 
         completion_method = getattr(self.model_adapter, 'chat_completion', None)
@@ -1012,7 +1012,20 @@ class ContextPipeline:
         self._ensure_memory_prefix_snapshot(context, reason='apply_compression')
 
         if publisher:
-            publisher.compression_summary(summary_content, replaces_up_to_seq=replaces_up_to_seq)
+            metadata = getattr(context, 'metadata', {}) or {}
+            thread_key = metadata.get('thread_key') or 'root'
+            visible_to_user = metadata.get('visible_to_user')
+            if visible_to_user is None:
+                visible_to_user = thread_key == 'root'
+            publisher.compression_summary(
+                summary_content,
+                replaces_up_to_seq=replaces_up_to_seq,
+                thread_key=thread_key,
+                child_agent_id=metadata.get('child_agent_id'),
+                conversation_scope=metadata.get('conversation_scope') or ('root' if thread_key == 'root' else 'child'),
+                visible_to_user=visible_to_user,
+                run_id=metadata.get('run_id'),
+            )
 
         resolved = resolve_compression_view(updated_raw)
         self.logger.debug(

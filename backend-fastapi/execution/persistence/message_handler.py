@@ -159,14 +159,31 @@ class MessagePersistenceHandler:
             event_session_id = data.get('session_id') or event.session_id
             replaces_up_to_seq = data.get('replaces_up_to_seq')
             if content and event_session_id:
+                thread_key = (data.get('thread_key') or self.thread_key or 'root').strip() or 'root'
+                child_agent_id = data.get('child_agent_id') or self.child_agent_id
+                conversation_scope = data.get('conversation_scope') or self.conversation_scope
+                visible_to_user = data.get('visible_to_user') if 'visible_to_user' in data else self.visible_to_user
+                event_execution = data.get('_execution') if isinstance(data.get('_execution'), dict) else {}
+                event_run_id = data.get('run_id') or event_execution.get('run_id')
+                saved_run_id = event_run_id or self.run_id
                 self.store.insert_compression_message(
                     session_id=event_session_id,
                     summary_content=content,
                     replaces_up_to_seq=replaces_up_to_seq,
+                    thread_key=thread_key,
+                    child_agent_id=child_agent_id,
+                    metadata={
+                        'agent': event.agent_name or self.entry_agent_name,
+                        'run_id': saved_run_id,
+                        'thread_key': thread_key,
+                        'conversation_scope': conversation_scope,
+                        'visible_to_user': visible_to_user,
+                        'child_agent_id': child_agent_id,
+                    },
                 )
                 logger.info(
-                    '已保存压缩摘要到 DB: session_id=%s, replaces_up_to_seq=%s',
-                    event_session_id, replaces_up_to_seq,
+                    '已保存压缩摘要到 DB: session_id=%s, run_id=%s, thread_key=%s, replaces_up_to_seq=%s',
+                    event_session_id, saved_run_id, thread_key, replaces_up_to_seq,
                 )
         except Exception as error:
             logger.warning('保存压缩摘要失败: %s', error, exc_info=True)
@@ -299,4 +316,3 @@ class MessagePersistenceHandler:
                 )
             except Exception as error:
                 logger.warning('写入 session memory 失败: %s', error, exc_info=True)
-

@@ -502,6 +502,9 @@ class ConversationStore:
         session_id: str,
         summary_content: str,
         replaces_up_to_seq: Optional[int] = None,
+        thread_key: str = 'root',
+        child_agent_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         插入一条持久化摘要消息（智能压缩）。
@@ -510,7 +513,8 @@ class ConversationStore:
         resolve_compression_view 凭此字段判断"摘要之后的消息"，
         从而正确保留 segment 之后、摘要之前的 remaining 消息。
         """
-        meta: Dict[str, Any] = {"compression": True}
+        meta: Dict[str, Any] = dict(metadata or {})
+        meta["compression"] = True
         if replaces_up_to_seq is not None:
             meta["replaces_up_to_seq"] = replaces_up_to_seq
         return self.add_message(
@@ -518,6 +522,8 @@ class ConversationStore:
             role="assistant",
             content=summary_content,
             metadata=meta,
+            thread_key=thread_key,
+            child_agent_id=child_agent_id,
         )
 
     def add_run_step(
