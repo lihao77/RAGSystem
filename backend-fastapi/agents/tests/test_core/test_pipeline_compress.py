@@ -418,6 +418,94 @@ class TestFormatCompactResponse:
         assert result.startswith('本次会话从之前的对话继续')
 
 
+class TestSummaryModelSelection:
+    """压缩摘要模型选择：fast → default → 系统默认。"""
+
+    class _RecordingAdapter:
+        def __init__(self, responses=None):
+            self.calls = []
+            self.responses = responses or {}
+
+        def chat_completion_stream(self, **kwargs):
+            self.calls.append(kwargs)
+            model = kwargs.get('model')
+            response = self.responses.get(model, '<summary>ok</summary>')
+            if isinstance(response, Exception):
+                yield {'content': '', 'error': str(response)}
+                return
+            yield {'content': response}
+
+    def _make_pipeline_with_configs(self, configs, adapter):
+        return ContextPipeline(
+            config=ContextConfig(),
+            model_adapter=adapter,
+            get_llm_config_fn=lambda task_type=None: dict(configs.get(task_type) or {}),
+            agent_name='test_agent',
+        )
+
+    def test_uses_fast_model_first_and_passes_model_name(self):
+        adapter = self._RecordingAdapter()
+        pipeline = self._make_pipeline_with_configs(
+            {
+                'fast': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'fast-model'},
+                'default': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'default-model'},
+            },
+            adapter,
+        )
+
+        result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert 'ok' in result
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0]['provider'] == 'p'
+        assert adapter.calls[0]['model'] == 'fast-model'
+
+    def test_falls_back_to_default_when_fast_fails_even_same_provider(self):
+        adapter = self._RecordingAdapter({
+            'fast-model': ContextCompressionError('fast failed'),
+            'default-model': '<summary>default ok</summary>',
+        })
+        pipeline = self._make_pipeline_with_configs(
+            {
+                'fast': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'fast-model'},
+                'default': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'default-model'},
+            },
+            adapter,
+        )
+
+        result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert 'default ok' in result
+        assert [call['model'] for call in adapter.calls] == ['fast-model', 'default-model']
+
+    def test_falls_back_to_system_default_when_fast_and_default_missing(self):
+        adapter = self._RecordingAdapter()
+        pipeline = self._make_pipeline_with_configs({}, adapter)
+
+        with patch.object(
+            pipeline,
+            '_get_system_llm_config',
+            return_value={'provider': 'system-p', 'provider_type': 'openai', 'model_name': 'system-model'},
+        ):
+            result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert 'ok' in result
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0]['provider'] == 'system-p'
+        assert adapter.calls[0]['model'] == 'system-model'
+
+    def test_raises_when_no_fast_default_or_system_config(self):
+        adapter = self._RecordingAdapter()
+        pipeline = self._make_pipeline_with_configs({}, adapter)
+
+        with patch.object(pipeline, '_get_system_llm_config', return_value=None):
+            with pytest.raises(ContextCompressionError) as exc:
+                pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert '无可用摘要模型' in str(exc.value)
+        assert adapter.calls == []
+
+
 # ─── 稳定前缀 + KV 缓存保护 测试 ──────────────────────────────────────────
 
 class TestStablePrefixFingerprint:

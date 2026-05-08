@@ -769,9 +769,9 @@ class ContextPipeline:
         # 构建候选配置列表（按优先级去重），同时记录 label
         candidates = []  # List of (label, cfg)
         seen = set()
-        for tier in ('default', 'fast'):
+        for tier in ('fast', 'default'):
             cfg = self.get_llm_config_fn(task_type=tier)
-            key = (cfg.get('provider'), cfg.get('provider_type'))
+            key = (cfg.get('provider'), cfg.get('provider_type'), cfg.get('model_name'))
             if cfg.get("provider") and key not in seen:
                 seen.add(key)
                 candidates.append((tier, cfg))
@@ -779,7 +779,7 @@ class ContextPipeline:
         # 最终 fallback：系统配置的保底 LLM
         system_llm = self._get_system_llm_config()
         if system_llm:
-            key = (system_llm.get('provider'), system_llm.get('provider_type'))
+            key = (system_llm.get('provider'), system_llm.get('provider_type'), system_llm.get('model_name'))
             if system_llm.get('provider') and key not in seen:
                 candidates.append(('系统配置', system_llm))
 
@@ -812,6 +812,7 @@ class ContextPipeline:
                     messages=req,
                     provider=provider,
                     provider_type=provider_type,
+                    model=model_name,
                     cancel_event=cancel_event,
                 )
                 if not raw:
@@ -841,6 +842,7 @@ class ContextPipeline:
         messages: List[Dict[str, Any]],
         provider: str,
         provider_type: Optional[str],
+        model: Optional[str] = None,
         cancel_event=None,
     ) -> str:
         """Collect summary text from streaming first, then non-streaming when needed."""
@@ -852,6 +854,7 @@ class ContextPipeline:
                 for chunk in stream_method(
                     messages=messages,
                     provider=provider,
+                    model=model,
                     provider_type=provider_type,
                     temperature=0.2,
                     max_tokens=self.config.summarize_max_tokens,
@@ -874,6 +877,7 @@ class ContextPipeline:
             response = completion_method(
                 messages=messages,
                 provider=provider,
+                model=model,
                 provider_type=provider_type,
                 temperature=0.2,
                 max_tokens=self.config.summarize_max_tokens,
