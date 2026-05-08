@@ -112,9 +112,12 @@ def test_ws_replays_existing_run_history(monkeypatch):
 
     assert reconnect_start['type'] == 'reconnect_start'
     assert reconnect_start['run_id'] == 'run-1'
+    assert reconnect_start['stream_seq'] == 1
     assert replay_event['type'] == 'output.chunk'
     assert replay_event['data']['content'] == 'hello'
+    assert replay_event['stream_seq'] == 2
     assert reconnect_end['type'] == 'reconnect_end'
+    assert reconnect_end['stream_seq'] == 3
 
 
 def test_ws_receives_live_events_from_run_bus(monkeypatch):
@@ -137,9 +140,12 @@ def test_ws_receives_live_events_from_run_bus(monkeypatch):
         reconnect_end = ws.receive_json()
 
     assert reconnect_start['type'] == 'reconnect_start'
+    assert reconnect_start['stream_seq'] == 1
     assert replay_event['type'] == 'output.chunk'
     assert replay_event['data']['content'] == 'live'
+    assert replay_event['stream_seq'] == 2
     assert reconnect_end['type'] == 'reconnect_end'
+    assert reconnect_end['stream_seq'] == 3
 
 
 def test_ws_receives_command_result_from_global_bus(monkeypatch):
@@ -156,6 +162,7 @@ def test_ws_receives_command_result_from_global_bus(monkeypatch):
     assert payload['type'] == 'command.result'
     assert payload['data']['command'] == 'help'
     assert payload['data']['content'] == 'ok'
+    assert payload['stream_seq'] == 1
 
 
 def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
@@ -172,6 +179,7 @@ def test_ws_receives_session_run_started_from_global_bus(monkeypatch):
     assert payload['type'] == 'session.run_started'
     assert payload['data']['run_id'] == 'run-bg-1'
     assert payload['data']['source'] == 'system.bg_notification'
+    assert payload['stream_seq'] == 1
 
 
 def test_ws_stop_cancels_session_with_keyword_reason(monkeypatch):
@@ -204,6 +212,7 @@ def test_ws_approve_publishes_granted_event(monkeypatch):
     assert payload['data']['approval_id'] == 'approval-1'
     assert payload['data']['approved'] is True
     assert payload['data']['message'] == 'ok'
+    assert payload['stream_seq'] == 1
 
 
 def test_ws_approve_publishes_denied_event(monkeypatch):
@@ -223,3 +232,4 @@ def test_ws_approve_publishes_denied_event(monkeypatch):
     assert payload['data']['approval_id'] == 'approval-2'
     assert payload['data']['approved'] is False
     assert payload['data']['message'] == 'deny'
+    assert payload['stream_seq'] == 1

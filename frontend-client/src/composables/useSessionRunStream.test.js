@@ -139,6 +139,18 @@ test('session.updated 在非执行态会触发消息刷新', () => {
   assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
 });
 
+test('session.updated 在 active run 期间不重拉消息', () => {
+  const { deps, calls } = createDeps();
+  deps.activeRun.active = true;
+  deps.isLoading.value = false;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({ type: 'session.updated' }, 'session-1');
+
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
 test('output.final_answer 会合并 metadata 并保留已有字段', () => {
   const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage({
@@ -390,6 +402,61 @@ test('权限审批期间切换为等待权限审批并在确认后进入工具�
 
   assert.equal(deps.activeRun.phase, 'tool_running');
   assert.equal(calls.handleApprovalResolved.length, 1);
+});
+
+test('全局 seq 跳号不会再误判为 gap', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.lastSeenSeq = 1;
+  deps.activeRun.phase = 'llm_streaming';
+  deps.sessionTaskInfo.value = { status: 'running' };
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.approval_required',
+    seq: 8,
+    stream_seq: 2,
+    data: { approval_id: 'approval-gap' },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+
+  stream.handleWSMessage({ type: 'done' }, 'session-1');
+
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
+test('真正的投递序号 gap 仍会在 run 结束后对账', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.lastSeenSeq = 1;
+  deps.activeRun.phase = 'llm_streaming';
+  deps.sessionTaskInfo.value = { status: 'running' };
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.approval_required',
+    stream_seq: 8,
+    data: { approval_id: 'approval-gap' },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+
+  stream.handleWSMessage({ type: 'done' }, 'session-1');
+
+  assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
+  assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
 });
 
 

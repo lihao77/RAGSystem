@@ -171,19 +171,16 @@ export function useSessionRunStream(deps) {
       deps.clearLlmRetryState();
     }
 
-    if (event.seq) {
-      if (deps.activeRun.lastSeenSeq > 0 && event.seq > deps.activeRun.lastSeenSeq + 1) {
-        const missed = event.seq - deps.activeRun.lastSeenSeq - 1;
-        console.warn(`[WS] 事件序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${event.seq}, missed=${missed}`);
+    const deliverySeq = Number(event.stream_seq ?? 0);
+    if (Number.isFinite(deliverySeq) && deliverySeq > 0) {
+      if (deps.activeRun.lastSeenSeq > 0 && deliverySeq > deps.activeRun.lastSeenSeq + 1) {
+        const missed = deliverySeq - deps.activeRun.lastSeenSeq - 1;
+        console.warn(`[WS] 事件投递序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${deliverySeq}, missed=${missed}`);
         _pendingReconciliation = true;
-        // seq gap 超过阈值时立即刷新，run 结束后还会再做一次最终对账
-        const SEQ_GAP_REFRESH_THRESHOLD = 3;
-        if (missed >= SEQ_GAP_REFRESH_THRESHOLD) {
-          deps.deleteMessageCache(sessionId);
-          deps.loadSessionMessages(sessionId, { silent: true });
-        }
+        // 运行中不能重拉 messages：历史接口不内联 execution tree，
+        // 且当前 assistant 占位可能还未持久化。先标记，等 run 结束后再对账。
       }
-      deps.activeRun.lastSeenSeq = event.seq;
+      deps.activeRun.lastSeenSeq = deliverySeq;
     }
 
     if (eventType === 'agent.retry_scheduled') {
@@ -511,7 +508,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'session.updated') {
-      if (!deps.isLoading.value) {
+      if (!deps.isLoading.value && !deps.activeRun.active) {
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
       }

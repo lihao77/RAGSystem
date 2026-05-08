@@ -68,9 +68,33 @@ def _event_type_name(event_type) -> str:
     return event_type.value if hasattr(event_type, 'value') else str(event_type)
 
 
-async def _send_json(ws: WebSocket, payload: dict, send_lock: asyncio.Lock):
-    async with send_lock:
-        await ws.send_json(payload)
+class WsConnectionState:
+    """Per-WebSocket connection state: send serialization, replay gating, delivery sequencing."""
+
+    __slots__ = ('send_lock', 'send_gate', '_seq')
+
+    def __init__(self):
+        self.send_lock = asyncio.Lock()
+        self.send_gate = asyncio.Event()  # replay 期间 clear() 暂停 send_loop
+        self.send_gate.set()
+        self._seq: int = 0
+
+    @property
+    def last_stream_seq(self) -> int:
+        return self._seq
+
+    def stamp(self, payload: dict) -> dict:
+        """Attach a per-connection delivery sequence number.
+
+        Event.seq is process-global and may legitimately jump within one session.
+        stream_seq is only for client-side delivery continuity on this socket.
+        """
+        self._seq += 1
+        return {**payload, 'stream_seq': self._seq}
+
+    async def send_json(self, ws: WebSocket, payload: dict):
+        async with self.send_lock:
+            await ws.send_json(self.stamp(payload))
 
 
 def _enqueue_event(queue: asyncio.Queue, event: Event, session_id: str):
@@ -116,11 +140,11 @@ def _requeue_paused_event(queue: asyncio.Queue, event: Event, session_id: str):
             logger.debug('[WS] replay 暂停期间非关键事件丢弃 session=%s type=%s', session_id, _event_type_name(event.type))
 
 
-async def _pause_realtime_send_loop(queue: asyncio.Queue, send_lock: asyncio.Lock, send_gate: asyncio.Event):
+async def _pause_realtime_send_loop(queue: asyncio.Queue, conn: WsConnectionState):
     """原子暂停实时发送，并唤醒 send_loop 避免它继续卡在 queue.get()。"""
-    async with send_lock:
-        was_open = send_gate.is_set()
-        send_gate.clear()
+    async with conn.send_lock:
+        was_open = conn.send_gate.is_set()
+        conn.send_gate.clear()
         if was_open:
             _enqueue_pause_sentinel(queue)
 
@@ -148,9 +172,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    send_lock = asyncio.Lock()
-    send_gate = asyncio.Event()  # replay 期间 clear() 暂停 send_loop
-    send_gate.set()
+    conn = WsConnectionState()
     run_changed = asyncio.Event()  # SESSION_RUN_STARTED 时 set，唤醒 watcher
     global_bus = None
     global_sub_id: Optional[str] = None
@@ -162,7 +184,7 @@ async def session_websocket(ws: WebSocket, session_id: str):
         from runtime.container import get_current_runtime_container
         container = get_current_runtime_container()
         if not container:
-            await _send_json(ws, {'type': 'error', 'content': 'Runtime not ready'}, send_lock)
+            await conn.send_json(ws, {'type': 'error', 'content': 'Runtime not ready'})
             await ws.close(code=1011)
             return
 
@@ -193,12 +215,12 @@ async def session_websocket(ws: WebSocket, session_id: str):
         )
 
         # 连接建立后立即绑定当前活跃 run；后续由 watcher 动态切换
-        await _sync_active_run_subscription(ws, session_id, container, queue, send_lock, run_binding, _on_event, send_gate)
+        await _sync_active_run_subscription(ws, session_id, container, queue, conn, run_binding, _on_event)
 
-        send_task = asyncio.create_task(_ws_send_loop(ws, queue, session_id, send_lock, send_gate))
-        recv_task = asyncio.create_task(_ws_recv_loop(ws, session_id, send_lock))
+        send_task = asyncio.create_task(_ws_send_loop(ws, queue, session_id, conn))
+        recv_task = asyncio.create_task(_ws_recv_loop(ws, session_id, conn))
         watch_task = asyncio.create_task(
-            _watch_active_run(ws, session_id, container, queue, send_lock, run_binding, _on_event, send_gate, run_changed)
+            _watch_active_run(ws, session_id, container, queue, conn, run_binding, _on_event, run_changed)
         )
         child_tasks = {send_task, recv_task, watch_task}
 
@@ -243,14 +265,14 @@ async def session_websocket(ws: WebSocket, session_id: str):
 
 # ── 发送循环 ──────────────────────────────────────────────
 
-async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, send_lock: asyncio.Lock, send_gate: asyncio.Event):
+async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, conn: WsConnectionState):
     """从 queue 取事件并发送到 WebSocket。replay 期间 send_gate 会暂停发送。"""
     last_heartbeat = time.time()
     heartbeat_interval = 20.0
 
     while True:
         # replay 期间等待 gate 放行
-        await send_gate.wait()
+        await conn.send_gate.wait()
 
         try:
             event = await asyncio.wait_for(queue.get(), timeout=1.0)
@@ -258,10 +280,12 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
             now = time.time()
             if now - last_heartbeat >= heartbeat_interval:
                 try:
-                    async with send_lock:
-                        if not send_gate.is_set():
+                    # heartbeat 不递增 stream_seq —— 它不是业务事件，
+                    # 只携带 last_stream_seq 供客户端参考当前投递进度。
+                    async with conn.send_lock:
+                        if not conn.send_gate.is_set():
                             continue
-                        await ws.send_json({'type': 'heartbeat', 'timestamp': now})
+                        await ws.send_json({'type': 'heartbeat', 'timestamp': now, 'last_stream_seq': conn.last_stream_seq})
                 except Exception:
                     return
                 last_heartbeat = now
@@ -272,17 +296,17 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
         if event is None:  # 哨兵
             return
 
-        if not send_gate.is_set():
+        if not conn.send_gate.is_set():
             _requeue_paused_event(queue, event, session_id)
             continue
 
         try:
             payload = _event_to_ws_payload(event)
-            async with send_lock:
-                if not send_gate.is_set():
+            async with conn.send_lock:
+                if not conn.send_gate.is_set():
                     _requeue_paused_event(queue, event, session_id)
                     continue
-                await ws.send_json(payload)
+                await ws.send_json(conn.stamp(payload))
             last_heartbeat = time.time()
         except Exception:
             return  # WS 已断开
@@ -290,7 +314,7 @@ async def _ws_send_loop(ws: WebSocket, queue: asyncio.Queue, session_id: str, se
 
 # ── 接收循环 ──────────────────────────────────────────────
 
-async def _ws_recv_loop(ws: WebSocket, session_id: str, send_lock: asyncio.Lock):
+async def _ws_recv_loop(ws: WebSocket, session_id: str, conn: WsConnectionState):
     """接收客户端消息（send / stop / approve / user_input）。"""
     while True:
         try:
@@ -307,13 +331,13 @@ async def _ws_recv_loop(ws: WebSocket, session_id: str, send_lock: asyncio.Lock)
 
         msg_type = msg.get('type')
         if msg_type == 'send':
-            await _handle_ws_send(ws, session_id, msg, send_lock)
+            await _handle_ws_send(ws, session_id, msg, conn)
         elif msg_type == 'stop':
             await _handle_ws_stop(session_id)
         elif msg_type == 'approve':
-            await _handle_ws_approve(ws, session_id, msg, send_lock)
+            await _handle_ws_approve(ws, session_id, msg, conn)
         elif msg_type == 'user_input':
-            await _handle_ws_user_input(ws, session_id, msg, send_lock)
+            await _handle_ws_user_input(ws, session_id, msg, conn)
 
 
 # ── 客户端消息处理 ────────────────────────────────────────
@@ -339,7 +363,7 @@ async def _handle_ws_stop(session_id: str):
         logger.warning('[WS] stop 失败 session=%s: %s', session_id, exc)
 
 
-async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
+async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, conn: WsConnectionState):
     try:
         from dependencies import get_task_registry
         registry = get_task_registry()
@@ -351,10 +375,10 @@ async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, send_loc
             msg.get('message', ''),
         )
         if not ok_result:
-            await _send_json(ws, {
+            await conn.send_json(ws, {
                 'type': 'approve.error', 'approval_id': msg.get('approval_id', ''),
                 'error': '未找到对应的审批请求，可能已超时或不存在',
-            }, send_lock)
+            })
             return
 
         from runtime.container import get_current_runtime_container
@@ -373,15 +397,15 @@ async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, send_loc
     except Exception as exc:
         logger.warning('[WS] approve 失败 session=%s: %s', session_id, exc)
         try:
-            await _send_json(ws, {
+            await conn.send_json(ws, {
                 'type': 'approve.error', 'approval_id': msg.get('approval_id', ''),
                 'error': str(exc),
-            }, send_lock)
+            })
         except Exception:
             pass
 
 
-async def _handle_ws_user_input(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
+async def _handle_ws_user_input(ws: WebSocket, session_id: str, msg: dict, conn: WsConnectionState):
     try:
         from dependencies import get_task_registry
         registry = get_task_registry()
@@ -392,22 +416,22 @@ async def _handle_ws_user_input(ws: WebSocket, session_id: str, msg: dict, send_
             msg.get('value', ''),
         )
         if not ok_result:
-            await _send_json(ws, {
+            await conn.send_json(ws, {
                 'type': 'user_input.error', 'input_id': msg.get('input_id', ''),
                 'error': '未找到对应的输入请求，可能已被取消或不存在',
-            }, send_lock)
+            })
     except Exception as exc:
         logger.warning('[WS] user_input 失败 session=%s: %s', session_id, exc)
         try:
-            await _send_json(ws, {
+            await conn.send_json(ws, {
                 'type': 'user_input.error', 'input_id': msg.get('input_id', ''),
                 'error': str(exc),
-            }, send_lock)
+            })
         except Exception:
             pass
 
 
-async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, send_lock: asyncio.Lock):
+async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, conn: WsConnectionState):
     """处理前端通过 WS 发送的消息/命令。"""
     try:
         from api.v1.stream import execute_task
@@ -420,14 +444,14 @@ async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, send_lock: 
             attachments=msg.get('attachments') or [],
             request_id=msg.get('request_id'),
         )
-        await _send_json(ws, {'type': 'send.ack', **result}, send_lock)
+        await conn.send_json(ws, {'type': 'send.ack', **result})
     except Exception as exc:
         logger.warning('[WS] send 失败 session=%s: %s', session_id, exc)
         try:
-            await _send_json(ws, {
+            await conn.send_json(ws, {
                 'type': 'send.error', 'session_id': session_id,
                 'error': str(exc),
-            }, send_lock)
+            })
         except Exception:
             pass
 
@@ -439,10 +463,9 @@ async def _watch_active_run(
     session_id: str,
     container,
     queue: asyncio.Queue,
-    send_lock: asyncio.Lock,
+    conn: WsConnectionState,
     run_binding: dict,
     on_event,
-    send_gate: asyncio.Event,
     run_changed: asyncio.Event,
 ):
     """等待 run 变更事件或 30s 兜底轮询，动态切换到正确的 run 事件总线。"""
@@ -450,7 +473,7 @@ async def _watch_active_run(
         # 先 clear 再 sync，防止 sync 期间触发的事件被清掉
         run_changed.clear()
         try:
-            await _sync_active_run_subscription(ws, session_id, container, queue, send_lock, run_binding, on_event, send_gate)
+            await _sync_active_run_subscription(ws, session_id, container, queue, conn, run_binding, on_event)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -478,10 +501,9 @@ async def _sync_active_run_subscription(
     session_id: str,
     container,
     queue: asyncio.Queue,
-    send_lock: asyncio.Lock,
+    conn: WsConnectionState,
     run_binding: dict,
     on_event,
-    send_gate: asyncio.Event,
 ):
     """确保当前 WS 已订阅 session 的活跃 run 总线，并在 run 切换时自动回放。"""
     status = await _get_running_status(container, session_id)
@@ -491,12 +513,12 @@ async def _sync_active_run_subscription(
             finished_run_id = run_binding['run_id']
             _clear_run_subscription(run_binding)
             try:
-                await _send_json(ws, {
+                await conn.send_json(ws, {
                     'type': 'run.end',
                     'session_id': session_id,
                     'run_id': finished_run_id,
                     'synthetic': True,
-                }, send_lock)
+                })
             except Exception:
                 pass
         return
@@ -506,7 +528,7 @@ async def _sync_active_run_subscription(
         return
 
     _clear_run_subscription(run_binding)
-    await _pause_realtime_send_loop(queue, send_lock, send_gate)
+    await _pause_realtime_send_loop(queue, conn)
     try:
         runtime_svc = container.get_agent_api_runtime_service()
         run_bus = runtime_svc.get_run_event_bus(run_id, session_id=session_id)
@@ -518,21 +540,12 @@ async def _sync_active_run_subscription(
         run_binding['bus'] = run_bus
         run_binding['subscription_id'] = run_sub_id
 
-        await _replay_run(
-            ws,
-            session_id,
-            run_id,
-            status.get('started_at') or 0,
-            container,
-            queue,
-            send_lock,
-            send_gate,
-        )
+        await _replay_run(ws, session_id, run_id, status.get('started_at') or 0, container, queue, conn)
     except asyncio.CancelledError:
-        send_gate.set()
+        conn.send_gate.set()
         raise
     except Exception:
-        send_gate.set()
+        conn.send_gate.set()
         raise
 
 
@@ -543,8 +556,7 @@ async def _replay_run(
     run_started_at: float,
     container,
     queue: asyncio.Queue,
-    send_lock: asyncio.Lock,
-    send_gate: asyncio.Event,
+    conn: WsConnectionState,
 ):
     """对指定 run 做一次回放，并与实时队列去重。replay 期间 send_gate 暂停 send_loop。"""
     logger.info('[WS] 绑定活跃 run session=%s run_id=%s，开始回放', session_id, run_id)
@@ -563,12 +575,12 @@ async def _replay_run(
         from dependencies import get_task_registry
         registry = get_task_registry()
 
-        await _send_json(ws, {
+        await conn.send_json(ws, {
             'type': 'reconnect_start',
             'session_id': session_id,
             'run_id': run_id,
             'replay_count': len(history),
-        }, send_lock)
+        })
 
         replay_max_seq = 0
         for event in history:
@@ -582,19 +594,19 @@ async def _replay_run(
                     continue
 
             payload = _event_to_ws_payload(event)
-            await _send_json(ws, payload, send_lock)
+            await conn.send_json(ws, payload)
             seq = getattr(event, 'sequence_number', 0)
             if seq > replay_max_seq:
                 replay_max_seq = seq
 
-        await _send_json(ws, {'type': 'reconnect_end', 'session_id': session_id}, send_lock)
+        await conn.send_json(ws, {'type': 'reconnect_end', 'session_id': session_id})
         _drain_stale_events(queue, replay_max_seq)
 
     except Exception as exc:
         logger.warning('[WS] 回放失败 session=%s run_id=%s: %s', session_id, run_id, exc)
     finally:
         # 恢复 send_loop
-        send_gate.set()
+        conn.send_gate.set()
 
 
 def _drain_stale_events(queue: asyncio.Queue, max_seq: int):
