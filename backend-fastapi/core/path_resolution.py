@@ -40,6 +40,15 @@ SESSION_TRACES_ROOT: Path = MONITORING_ROOT / "session_traces"
 RAGSYSTEM_DB: Path = DB_ROOT / "ragsystem.db"
 CHECKPOINTS_DB: Path = DB_ROOT / "checkpoints.db"
 
+# ── config 子目录常量 ──────────────────────────────────────────
+CONFIG_APP_DIR: Path = CONFIG_ROOT / "app"
+CONFIG_MODEL_ADAPTER_DIR: Path = CONFIG_ROOT / "model_adapter"
+CONFIG_VECTOR_STORE_DIR: Path = CONFIG_ROOT / "vector_store"
+CONFIG_MCP_DIR: Path = CONFIG_ROOT / "mcp"
+CONFIG_DAEMON_DIR: Path = CONFIG_ROOT / "daemon"
+CONFIG_AGENTS_DIR: Path = CONFIG_ROOT / "agents"
+CONFIG_AGENTS_TEAMS_DIR: Path = CONFIG_AGENTS_DIR / "teams"
+
 
 def resolve_ragsystem_db_path(database_path: str | Path | None = None) -> Path:
     """解析 RAGSystem 主 SQLite 数据库路径。"""
@@ -831,7 +840,15 @@ _ALL_DIRS = [
     MONITORING_ROOT,
     SESSION_TRACES_ROOT,
     SESSIONS_ROOT,
+    UPLOADS_ROOT,
     CONFIG_ROOT,
+    CONFIG_APP_DIR,
+    CONFIG_MODEL_ADAPTER_DIR,
+    CONFIG_VECTOR_STORE_DIR,
+    CONFIG_MCP_DIR,
+    CONFIG_DAEMON_DIR,
+    CONFIG_AGENTS_DIR,
+    CONFIG_AGENTS_TEAMS_DIR,
 ]
 
 

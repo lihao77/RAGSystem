@@ -29,7 +29,6 @@ class MCPConfigStore:
 
     def __init__(self, config_path: Optional[Path] = None):
         self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _build_empty_payload(self) -> Dict[str, Any]:
         return {"servers": {}}

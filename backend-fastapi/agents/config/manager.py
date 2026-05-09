@@ -112,9 +112,6 @@ class AgentConfigManager:
         self.legacy_config_file = self.config_dir / LEGACY_CONFIG_FILE_NAME
         self.team_config_dir = self.config_dir / TEAM_CONFIG_DIR_NAME
 
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.team_config_dir.mkdir(parents=True, exist_ok=True)
-
         self._configs: Dict[str, AgentConfig] = {}
         self._team_files: Dict[str, str] = {}
         self._active_team: str = DEFAULT_TEAM_NAME

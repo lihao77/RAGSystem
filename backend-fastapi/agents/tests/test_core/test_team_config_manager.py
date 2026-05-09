@@ -14,8 +14,8 @@ if importlib.util.find_spec('fastapi') is None:
 
 from agents.config.manager import AgentConfigManager, DEFAULT_TEAM_NAME
 from agents.config.models import AgentConfig
+from config.runtime_files import build_runtime_config_init_specs, seed_runtime_config_files
 from core.path_resolution import CONFIG_ROOT
-from lifespan import _seed_runtime_configs
 
 
 def _write_legacy_agent_config(config_dir: Path):
@@ -39,33 +39,31 @@ metadata:
     )
 
 
-def test_seed_runtime_configs_does_not_create_legacy_agent_config(tmp_path, monkeypatch):
+def test_seed_runtime_configs_does_not_create_legacy_agent_config(tmp_path):
     fake_config_root = tmp_path / 'config-root'
     fake_backend_root = tmp_path / 'backend-root'
+    (fake_config_root / 'app').mkdir(parents=True, exist_ok=True)
     (fake_backend_root / 'config' / 'yaml').mkdir(parents=True, exist_ok=True)
     (fake_backend_root / 'config' / 'yaml' / 'config.yaml.example').write_text('app: {}\n', encoding='utf-8')
 
-    monkeypatch.setattr('core.path_resolution.CONFIG_ROOT', fake_config_root)
-    monkeypatch.setattr('core.path_resolution.BACKEND_ROOT', fake_backend_root)
-
-    _seed_runtime_configs()
+    specs = build_runtime_config_init_specs(config_root=fake_config_root, backend_root=fake_backend_root)
+    seed_runtime_config_files(specs)
 
     assert not (fake_config_root / 'agents' / 'agent_configs.yaml').exists()
     assert (fake_config_root / 'app' / 'config.yaml').exists()
 
 
-def test_seed_runtime_configs_uses_example_not_source_config(tmp_path, monkeypatch):
+def test_seed_runtime_configs_uses_example_not_source_config(tmp_path):
     fake_config_root = tmp_path / 'config-root'
     fake_backend_root = tmp_path / 'backend-root'
+    (fake_config_root / 'app').mkdir(parents=True, exist_ok=True)
     source_config_dir = fake_backend_root / 'config' / 'yaml'
     source_config_dir.mkdir(parents=True, exist_ok=True)
     (source_config_dir / 'config.yaml').write_text('app: source\n', encoding='utf-8')
     (source_config_dir / 'config.yaml.example').write_text('app: example\n', encoding='utf-8')
 
-    monkeypatch.setattr('core.path_resolution.CONFIG_ROOT', fake_config_root)
-    monkeypatch.setattr('core.path_resolution.BACKEND_ROOT', fake_backend_root)
-
-    _seed_runtime_configs()
+    specs = build_runtime_config_init_specs(config_root=fake_config_root, backend_root=fake_backend_root)
+    seed_runtime_config_files(specs)
 
     assert (fake_config_root / 'app' / 'config.yaml').read_text(encoding='utf-8') == 'app: example\n'
 

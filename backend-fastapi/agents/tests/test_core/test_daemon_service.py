@@ -456,6 +456,16 @@ def test_save_config_serializes_platform_keys_as_plain_yaml(daemon_service):
     assert 'feishu:' in raw
 
 
+def test_save_config_creates_parent_directory(tmp_path, monkeypatch):
+    service = DaemonService()
+    config_path = tmp_path / 'nested' / 'daemon' / 'daemon.yaml'
+    monkeypatch.setattr(service, '_resolve_config_path', lambda: config_path)
+
+    service.save_config(DaemonSystemConfig())
+
+    assert config_path.exists()
+
+
 def test_daemon_config_rejects_duplicate_enabled_platforms():
     with pytest.raises(ValueError, match='平台 feishu 只能被一个已启用 team 占用'):
         DaemonSystemConfig(

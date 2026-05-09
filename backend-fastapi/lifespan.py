@@ -1,17 +1,52 @@
 # -*- coding: utf-8 -*-
 """
 FastAPI 应用生命周期管理。
+
+启动分三个阶段：
+  Phase 1 — 文件系统准备（目录、配置 seed、Skill 复制）
+  Phase 2 — 核心运行时（RuntimeContainer，失败终止启动）
+  Phase 3 — 子系统（健康检查、向量库、工具/Hook/扩展/MCP/守护，各自独立）
 """
 
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable, TypeVar
 
 from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
 _runtime_initialized = False
+
+T = TypeVar('T')
+
+
+# ── 辅助 ──────────────────────────────────────────────────────────
+
+
+def _safe(fn: Callable[[], T], label: str) -> T | None:
+    """执行 *fn*，失败仅警告不终止启动。"""
+    try:
+        result = fn()
+        logger.debug('✓ %s', label)
+        return result
+    except Exception as e:
+        logger.warning('%s 失败: %s', label, e)
+        return None
+
+
+async def _safe_async(fn, label: str):
+    """异步版 _safe。"""
+    try:
+        result = await fn()
+        logger.debug('✓ %s', label)
+        return result
+    except Exception as e:
+        logger.warning('%s 失败: %s', label, e)
+        return None
+
+
+# ── 生命周期入口 ──────────────────────────────────────────────────
 
 
 @asynccontextmanager
@@ -29,181 +64,157 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _shutdown(app)
 
 
+# ── 启动 ──────────────────────────────────────────────────────────
+
+
 async def _startup(app: FastAPI) -> None:
-    """启动阶段：初始化运行时服务。"""
+    """启动阶段：按 Phase 1→2→3 初始化运行时服务。"""
     global _runtime_initialized
 
     if _runtime_initialized:
         return
 
-    # ── 第零步：初始化数据目录结构 ──────────────────────────────────────
-    try:
-        from core.path_resolution import ensure_directories
-        ensure_directories()
-        logger.debug('✓ 数据目录结构已初始化')
-    except Exception as e:
-        logger.warning('数据目录初始化失败: %s', e)
+    # ── Phase 1: 文件系统准备（无外部依赖） ──
+    _bootstrap_filesystem()
 
-    # ── 第零·二步：探测旧版仓库内 data 目录 ─────────────────────────────
-    try:
-        _warn_legacy_repo_data_dir()
-    except Exception as e:
-        logger.warning('旧数据目录探测失败: %s', e)
+    # ── Phase 2: 核心运行时（失败终止启动） ──
+    container = _bootstrap_core_runtime(app)
 
-    # ── 第零·三步：内置 Skill 复制到全局目录 ───────────────────────────
-    try:
+    # ── Phase 3: 子系统（各自独立，失败仅警告） ──
+    await _bootstrap_subsystems(app, container)
+
+    _runtime_initialized = True
+
+
+def _bootstrap_filesystem() -> None:
+    """Phase 1: 创建目录、检测旧目录、seed 配置文件、复制内置 Skill。
+
+    ensure_directories 是硬依赖，失败直接终止；其余步骤失败仅警告。
+    """
+    from core.path_resolution import ensure_directories
+    ensure_directories()
+
+    _safe(_warn_legacy_repo_data_dir, '旧数据目录探测')
+
+    def _seed_configs():
+        from core.path_resolution import BACKEND_ROOT, CONFIG_ROOT
+        from config.runtime_files import build_runtime_config_init_specs, seed_runtime_config_files
+
+        specs = build_runtime_config_init_specs(config_root=CONFIG_ROOT, backend_root=BACKEND_ROOT)
+        for src, dst in seed_runtime_config_files(specs):
+            logger.debug('配置文件已迁移: %s → %s', src.name, dst)
+
+    _safe(_seed_configs, '配置文件 seed')
+
+    def _init_skills():
         from agents.skills.skill_bootstrap import bootstrap_builtin_skills
         copied = bootstrap_builtin_skills()
         if copied:
             logger.info('✓ 内置 Skill 已初始化: %s', ', '.join(copied))
-        else:
-            logger.debug('✓ 内置 Skill 已就绪')
-    except Exception as e:
-        logger.warning('内置 Skill 初始化失败（不影响核心功能）: %s', e)
 
-    # ── 第零·五步：迁移配置文件到 CONFIG_ROOT ──────────────────────────
-    try:
-        _migrate_configs()
-        logger.debug('✓ 配置文件位置已确认')
-    except Exception as e:
-        logger.warning('配置文件迁移失败: %s', e)
+    _safe(_init_skills, '内置 Skill')
 
-    # ── 第一步：初始化 RuntimeContainer（所有其他服务的前置依赖）──────────
+
+def _bootstrap_core_runtime(app: FastAPI):
+    """Phase 2: 初始化 RuntimeContainer，失败终止启动。"""
+    from runtime.container import create_runtime_container
+
     try:
-        from runtime.container import create_runtime_container
         container = create_runtime_container()
-        # 把 container 存到 app.state，方便后续访问
-        app.state.runtime_container = container
-        logger.debug('✓ RuntimeContainer 已初始化')
     except Exception as e:
         logger.error('✗ RuntimeContainer 初始化失败: %s', e, exc_info=True)
-        raise  # 这是核心依赖，失败则终止启动
+        raise
 
-    # ── 第二步：运行健康检查 ────────────────────────────────────────────────
-    try:
+    app.state.runtime_container = container
+    logger.debug('✓ RuntimeContainer 已初始化')
+    return container
+
+
+async def _bootstrap_subsystems(app: FastAPI, container) -> None:
+    """Phase 3: 启动各子系统，每个子系统失败仅警告不终止。"""
+
+    def _health_check():
         from config.health_check import run_health_check
         if not run_health_check():
             logger.warning('健康检查未完全通过，但继续启动...')
-        else:
-            logger.debug('✓ 健康检查通过')
-    except Exception as e:
-        logger.warning('健康检查失败（不影响启动）: %s', e)
 
-    # ── 第三步：初始化向量数据库 ────────────────────────────────────────────
-    try:
+    def _vector_store():
         from vector_store.init_store import init_vector_store, is_vector_db_configured
         if is_vector_db_configured():
-            success = init_vector_store()
-            logger.debug('✓ 向量数据库初始化: %s', '成功' if success else '失败')
+            init_vector_store()
         else:
             logger.debug('向量数据库未配置，跳过初始化')
-    except Exception as e:
-        logger.warning('向量数据库初始化失败（不影响其他功能）: %s', e)
 
-    # ── 第四步：初始化 Agent API 运行时 ────────────────────────────────────
-    try:
+    def _agent_runtime():
         from services.agent_api_runtime_service import get_agent_api_runtime_service
-        runtime = get_agent_api_runtime_service()
-        logger.debug('✓ Agent API 运行时已初始化')
-    except Exception as e:
-        logger.warning('Agent API 运行时初始化失败: %s', e)
-
-    # ── 第 4.1 步：绑定 SessionCache 到 ConversationStore ──────────────────
-    try:
         from agents.context.session_cache import bind_store
+        runtime = get_agent_api_runtime_service()
         bind_store(runtime.get_conversation_store())
-        logger.debug('✓ SessionCache 已绑定 ConversationStore')
-    except Exception as e:
-        logger.warning('SessionCache 绑定失败（不影响核心功能）: %s', e)
 
-    # ── 第 4.5 步：统一 bootstrap 工具系统 ──────────────────────────────────
-    try:
+    def _tools():
         from tools.runtime.bootstrap import bootstrap_tool_system
-
-        bootstrap_result = bootstrap_tool_system()
-        warnings = bootstrap_result.get('warnings', [])
+        result = bootstrap_tool_system()
+        warnings = result.get('warnings', [])
         if warnings:
             logger.warning('工具一致性校验发现 %d 个问题', len(warnings))
-        else:
-            logger.debug('✓ 工具系统 bootstrap 完成')
-    except Exception as e:
-        logger.warning('工具系统 bootstrap 失败（不影响核心功能）: %s', e)
 
-    # ── 第 4.6 步：bootstrap Hook 系统 ──────────────────────────────────────
-    try:
+    def _hooks():
         from hooks.bootstrap import bootstrap_hook_system
-
         bootstrap_hook_system()
-        logger.debug('✓ Hook 系统 bootstrap 完成')
-    except Exception as e:
-        logger.warning('Hook 系统 bootstrap 失败（不影响核心功能）: %s', e)
 
-    # ── 第 4.7 步：注册内建斜杠命令 ─────────────────────────────────────────
-    try:
-        import commands.builtin  # noqa: F401 — 触发内建命令注册
-        logger.debug('✓ 内建斜杠命令已注册')
-    except Exception as e:
-        logger.warning('斜杠命令注册失败（不影响核心功能）: %s', e)
+    def _commands():
+        import commands.builtin  # noqa: F401
 
-    # ── 第五步（新增）：加载外部扩展 ──────────────────────────────────────
-    loaded_extensions = []
-    try:
+    def _extensions():
         from extensions.loader import discover_extensions
-        loaded_extensions = discover_extensions()
-        if loaded_extensions:
-            # 5a. 注册扩展工具
-            from tools.tool_registry import get_tool_registry
-            for ext in loaded_extensions:
-                get_tool_registry().register_contracts(ext.get_tool_contracts())
+        loaded = discover_extensions()
+        if not loaded:
+            return loaded
 
-            # 5b. 注册扩展格式化器
-            from agents.context.observation_formatters.registry import get_default_registry
-            fmt_registry = get_default_registry()
-            for ext in loaded_extensions:
-                for fmt in ext.get_observation_formatters():
-                    fmt_registry.register(fmt)
+        from tools.tool_registry import get_tool_registry
+        from agents.context.observation_formatters.registry import get_default_registry
+        from agents.skills.skill_loader import get_skill_loader
+        from api.v1 import router as v1_router
 
-            # 5c. 注册扩展 Skills 目录
-            from agents.skills.skill_loader import get_skill_loader
-            for ext in loaded_extensions:
-                for d in ext.get_skills_dirs():
-                    get_skill_loader().add_skills_dir(d)
+        for ext in loaded:
+            get_tool_registry().register_contracts(ext.get_tool_contracts())
+            for fmt in ext.get_observation_formatters():
+                get_default_registry().register(fmt)
+            for d in ext.get_skills_dirs():
+                get_skill_loader().add_skills_dir(d)
+            for (router, prefix, tag) in ext.get_api_routers():
+                v1_router.include_router(router, prefix=prefix, tags=[tag])
 
-            # 5d. 挂载扩展 API 路由
-            from api.v1 import router as v1_router
-            for ext in loaded_extensions:
-                for (router, prefix, tag) in ext.get_api_routers():
-                    v1_router.include_router(router, prefix=prefix, tags=[tag])
+        return loaded
 
-            # 5e. 调用扩展 startup 钩子
-            for ext in loaded_extensions:
-                await ext.on_startup(container)
-
-            logger.debug('✓ 加载 %d 个外部扩展', len(loaded_extensions))
-    except Exception as e:
-        logger.warning('扩展加载失败（不影响核心功能）: %s', e)
-
-    app.state.loaded_extensions = loaded_extensions
-
-    # ── 第六步：启动 MCP Client Manager ────────────────────────────────────
-    try:
+    def _mcp():
         container.startup_mcp()
-        logger.debug('✓ MCP Client Manager 已启动')
-    except Exception as e:
-        logger.warning('MCP Client Manager 启动失败（不影响其他功能）: %s', e)
 
-    # ── 第七步：启动守护 Agent 系统 ──────────────────────────────────────
-    try:
+    async def _daemon():
         daemon_svc = container.get_daemon_service()
         await daemon_svc.start()
         if daemon_svc.config.enabled:
             logger.debug('✓ 守护 Agent 系统已启动')
         else:
             logger.debug('守护 Agent 系统未启用')
-    except Exception as e:
-        logger.warning('守护 Agent 系统启动失败（不影响核心功能）: %s', e)
 
-    _runtime_initialized = True
+    _safe(_health_check, '健康检查')
+    _safe(_vector_store, '向量数据库')
+    _safe(_agent_runtime, 'Agent API 运行时')
+    _safe(_tools, '工具系统')
+    _safe(_hooks, 'Hook 系统')
+    _safe(_commands, '斜杠命令')
+
+    loaded_extensions = _safe(_extensions, '扩展加载') or []
+    for ext in loaded_extensions:
+        await _safe_async(lambda e=ext: e.on_startup(container), f'扩展 {ext.name}.on_startup')
+    app.state.loaded_extensions = loaded_extensions
+
+    _safe(_mcp, 'MCP')
+    await _safe_async(_daemon, '守护系统')
+
+
+# ── 关闭 ──────────────────────────────────────────────────────────
 
 
 async def _shutdown(app: FastAPI) -> None:
@@ -234,46 +245,7 @@ async def _shutdown(app: FastAPI) -> None:
             logger.warning('扩展 %s.on_shutdown 失败: %s', ext.name, e)
 
 
-def _seed_runtime_configs() -> None:
-    """将源码目录中的部分运行时配置初始化到 CONFIG_ROOT。"""
-    import shutil
-    from core.path_resolution import CONFIG_ROOT, BACKEND_ROOT
-
-    migrations = [
-        (
-            [
-                BACKEND_ROOT / "config" / "yaml" / "config.yaml.example",
-            ],
-            CONFIG_ROOT / "app" / "config.yaml",
-            None,
-        ),
-    ]
-
-    for sources, dst, inline_default in migrations:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.exists():
-            continue
-        copied = False
-        for src in sources:
-            if src.exists():
-                shutil.copy2(src, dst)
-                logger.debug('配置文件已迁移: %s → %s', src.name, dst)
-                copied = True
-                break
-        if not copied and inline_default is not None:
-            dst.write_text(inline_default, encoding='utf-8')
-            logger.debug('配置文件已初始化: %s', dst)
-
-
-def _migrate_configs() -> None:
-    """
-    将源码目录中的部分运行时配置初始化到 CONFIG_ROOT。
-    仅初始化 CONFIG_ROOT/app/config.yaml；MCP、model provider、Agent team 配置不自动 seed。
-    仅当目标不存在时执行初始化，已存在则跳过（不覆盖用户修改）。
-    """
-    _seed_runtime_configs()
-    from vector_store.vectorizer_config import get_vectorizer_config_store
-    get_vectorizer_config_store()
+# ── 辅助：旧目录检测 ─────────────────────────────────────────────
 
 
 def _warn_legacy_repo_data_dir() -> None:

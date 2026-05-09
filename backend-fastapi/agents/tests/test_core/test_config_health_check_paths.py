@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from config.health_check import ConfigHealthCheck
+from config.runtime_files import build_runtime_config_init_specs
 from config.schemas import ConfigValidator, ProviderConfig, ProvidersConfig, VectorizersConfig
 
 
@@ -42,6 +43,22 @@ def test_health_check_uses_config_root_for_agent_team_paths(monkeypatch, tmp_pat
 
     assert checker.agent_team_index_path == fake_config_root / 'agents' / 'team_index.yaml'
     assert checker.agent_teams_dir == fake_config_root / 'agents' / 'teams'
+
+
+def test_runtime_config_init_specs_follow_runtime_roots(tmp_path):
+    config_root = tmp_path / 'config-root'
+    backend_root = tmp_path / 'backend-root'
+
+    specs = build_runtime_config_init_specs(config_root=config_root, backend_root=backend_root)
+    spec_map = {spec.key: spec for spec in specs}
+
+    assert spec_map['app_config'].path == config_root / 'app' / 'config.yaml'
+    assert spec_map['providers'].path == config_root / 'model_adapter' / 'providers.yaml'
+    assert spec_map['vectorizers'].path == config_root / 'vector_store' / 'vectorizers.yaml'
+    assert spec_map['mcp_servers'].path == config_root / 'mcp' / 'mcp_servers.yaml'
+    assert spec_map['daemon'].path == config_root / 'daemon' / 'daemon.yaml'
+    assert spec_map['agent_team_index'].path == config_root / 'agents' / 'team_index.yaml'
+    assert spec_map['agent_teams_dir'].path == config_root / 'agents' / 'teams'
 
 
 def test_health_check_warns_when_agent_team_configs_missing(monkeypatch, tmp_path):

@@ -117,7 +117,6 @@ class ConfigManager:
         current = (self._base_config or self._config).model_dump()
         defaults = AppConfig().model_dump()
         diff = self._compute_diff(current, defaults)
-        self._user_config_path.parent.mkdir(parents=True, exist_ok=True)
         save_yaml_file(self._user_config_path, diff)
 
     def _compute_diff(self, current: dict, defaults: dict) -> dict:

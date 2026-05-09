@@ -30,7 +30,6 @@ class ModelAdapterConfigStore:
         else:
             from core.path_resolution import CONFIG_ROOT
             self.config_file = CONFIG_ROOT / "model_adapter" / "providers.yaml"
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Model Adapter 配置文件: {self.config_file}")
     
     def load_all(self) -> Dict[str, Dict]:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List
 
 from core.path_resolution import CONFIG_ROOT
+from config.runtime_files import build_runtime_config_init_specs
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +25,19 @@ class ConfigHealthCheck:
     def __init__(self) -> None:
         self.errors: List[str] = []
         self.warnings: List[str] = []
-        self.providers_path = CONFIG_ROOT / "model_adapter" / "providers.yaml"
-        self.providers_example_path = _BACKEND_ROOT / "model_adapter" / "configs" / "providers.yaml.example"
-        self.app_config_path = CONFIG_ROOT / "app" / "config.yaml"
-        self.app_config_example_path = _BACKEND_ROOT / "config" / "yaml" / "config.yaml.example"
-        self.agent_team_index_path = CONFIG_ROOT / "agents" / "team_index.yaml"
-        self.agent_teams_dir = CONFIG_ROOT / "agents" / "teams"
-        self.mcp_servers_path = CONFIG_ROOT / "mcp" / "mcp_servers.yaml"
-        self.vectorizers_path = CONFIG_ROOT / "vector_store" / "vectorizers.yaml"
-        self.daemon_config_path = CONFIG_ROOT / "daemon" / "daemon.yaml"
+        self.runtime_specs = {
+            spec.key: spec
+            for spec in build_runtime_config_init_specs(CONFIG_ROOT, _BACKEND_ROOT)
+        }
+        self.providers_path = self.runtime_specs["providers"].path
+        self.providers_example_path = self.runtime_specs["providers"].example_path
+        self.app_config_path = self.runtime_specs["app_config"].path
+        self.app_config_example_path = self.runtime_specs["app_config"].example_path
+        self.agent_team_index_path = self.runtime_specs["agent_team_index"].path
+        self.agent_teams_dir = self.runtime_specs["agent_teams_dir"].path
+        self.mcp_servers_path = self.runtime_specs["mcp_servers"].path
+        self.vectorizers_path = self.runtime_specs["vectorizers"].path
+        self.daemon_config_path = self.runtime_specs["daemon"].path
 
     def check_gitignore(self) -> None:
         """检查敏感文件是否在 .gitignore 中（.gitignore 在仓库根）"""
@@ -71,35 +76,18 @@ class ConfigHealthCheck:
         return False
 
     def check_required_configs(self) -> None:
-        """检查关键运行时配置文件是否存在；providers.yaml 缺失时仅警告。"""
-        if not self.providers_path.exists():
-            self.warnings.append(
-                f"未找到 {self.providers_path.name}，对话/向量等能力将不可用。\n"
-                f"  运行时配置位置：{self.providers_path}\n"
-                f"  方式一：复制示例后编辑 — cp {self.providers_example_path} {self.providers_path}\n"
-                f"  方式二：启动后在前端「模型适配器」中添加 Provider，将自动创建该文件"
-            )
+        """检查关键运行时配置文件是否存在。"""
+        required_specs = ("providers", "app_config", "agent_team_index", "mcp_servers")
+        for key in required_specs:
+            spec = self.runtime_specs[key]
+            if not spec.path.exists():
+                self.warnings.append(spec.missing_message())
 
-        if not self.app_config_path.exists():
+        agent_teams_spec = self.runtime_specs["agent_teams_dir"]
+        if not agent_teams_spec.path.exists() or not any(agent_teams_spec.path.glob("*.yaml")):
             self.warnings.append(
-                f"未找到系统配置文件 config.yaml。\n"
-                f"  运行时配置位置：{self.app_config_path}\n"
-                f"  可从示例初始化：cp {self.app_config_example_path} {self.app_config_path}"
-            )
-
-        if not self.agent_team_index_path.exists():
-            self.warnings.append(
-                f"未找到 Agent team 索引文件：{self.agent_team_index_path}；启动时将由 AgentConfigManager 初始化默认 team。"
-            )
-
-        if not self.agent_teams_dir.exists() or not any(self.agent_teams_dir.glob("*.yaml")):
-            self.warnings.append(
-                f"未找到 Agent team 配置文件：{self.agent_teams_dir}/*.yaml；启动时将由 AgentConfigManager 初始化默认 team。"
-            )
-
-        if not self.mcp_servers_path.exists():
-            self.warnings.append(
-                f"未找到 MCP 配置文件：{self.mcp_servers_path}；MCP Server 列表将为空。"
+                f"未找到 Agent team 配置文件：{agent_teams_spec.path}/*.yaml；"
+                f"{agent_teams_spec.hint}"
             )
 
     def check_config_validity(self) -> None:
