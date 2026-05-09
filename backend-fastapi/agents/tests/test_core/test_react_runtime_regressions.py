@@ -854,6 +854,93 @@ def test_run_waiting_loop_clips_sleep_to_timeout_override(monkeypatch):
     assert timeout_call[1]['timeout_ms'] == 1000
 
 
+def test_run_waiting_loop_timeout_publishes_keepalive_count(monkeypatch):
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _Clock:
+        now = 0.0
+
+    class _Event:
+        def wait(self, timeout=None):
+            _Clock.now += float(timeout or 0.0)
+            return False
+
+    class _Registry:
+        def __init__(self):
+            self.event = _Event()
+
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id, bg_wait_state
+            return self.event
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            del task_id, wait_id, payload
+
+        def clear_task_waiting(self, task_id, wait_id):
+            del task_id, wait_id
+
+    class _RunningTask:
+        status = 'running'
+        return_code = None
+        result_type = 'text'
+        output_path = None
+        completed_at = None
+
+        def is_done(self):
+            return False
+
+    class _BackgroundManager:
+        def get_task(self, task_id):
+            assert task_id == 'bg-1'
+            return _RunningTask()
+
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-1'
+            return {'status': 'running'}
+
+    registry = _Registry()
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: registry)
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', lambda: _BackgroundManager())
+    monkeypatch.setattr('agents.core.base.time.time', lambda: _Clock.now)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(
+        config=ContextConfig(
+            waiting_poll_interval_seconds=3.0,
+            waiting_max_poll_interval_seconds=15.0,
+            keepalive_interval_seconds=1.0,
+            keepalive_grace_seconds=0.0,
+            max_hidden_keepalive_rounds=2,
+            allow_provider_keepalive=True,
+        )
+    )
+    keepalive_calls = []
+    agent._run_hidden_keepalive = lambda *args, **kwargs: keepalive_calls.append((args, kwargs))
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    observed = agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-1'], run_id='run-1', timeout_ms=2500),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    assert observed == []
+    assert len(keepalive_calls) == 2
+    timeout_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_timeout')
+    assert timeout_call[1]['timeout_ms'] == 2500
+    assert timeout_call[1]['keepalive_count'] == 2
+
+
 def test_task_registry_keeps_multi_target_wait_until_all_targets_complete():
     from agents.task_registry import BackgroundWaitState, TaskRegistry
 

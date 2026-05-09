@@ -1400,6 +1400,7 @@ class BaseAgent(ABC):
                 pending_task_ids=list(bg_wait_state.pending_task_ids),
                 elapsed_ms=int((time.time() - wait_started_at) * 1000),
                 timeout_ms=int(idle_timeout * 1000),
+                keepalive_count=keepalive_count,
                 agent_display_name=self.display_name or self.name,
             )
 

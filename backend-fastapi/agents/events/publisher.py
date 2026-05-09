@@ -328,6 +328,7 @@ class EventPublisher:
         pending_task_ids: Optional[List[str]] = None,
         elapsed_ms: Optional[int] = None,
         timeout_ms: Optional[int] = None,
+        keepalive_count: Optional[int] = None,
         agent_display_name: Optional[str] = None,
     ):
         """后台等待超时。"""
@@ -347,6 +348,8 @@ class EventPublisher:
             data["elapsed_ms"] = elapsed_ms
         if timeout_ms is not None:
             data["timeout_ms"] = timeout_ms
+        if keepalive_count is not None:
+            data["keepalive_count"] = keepalive_count
         self._publish(EventType.EXECUTION_WAITING_TIMEOUT, data, priority=EventPriority.HIGH)
 
     # ==================== 运行生命周期事件 ====================
