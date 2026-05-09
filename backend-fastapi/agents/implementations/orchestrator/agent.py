@@ -228,48 +228,6 @@ class OrchestratorAgent(BaseAgent):
             },
         )
 
-    def _handle_max_rounds(
-        self,
-        context: AgentContext,
-        state: Dict[str, Any],
-        start_time: float,
-    ) -> AgentResponse:
-        del context
-        self.logger.warning(f"{self._log_prefix(None, 'Orchestrator')} 达到最大轮数 {self.max_rounds}")
-        final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
-        publisher = state.get('publisher')
-        call_id = state.get('call_id')
-        execution_time = time.time() - start_time
-        metadata = {'execution_time': execution_time}
-        first_token_time = state.get('_first_token_time')
-        if first_token_time is not None:
-            metadata['first_token_time'] = first_token_time
-        if publisher:
-            publisher.final_answer(final_content, metadata=metadata)
-            if call_id and not state.get('skip_call_events'):
-                publisher.agent_call_end(
-                    call_id=call_id,
-                    agent_name=self.name,
-                    result=final_content,
-                    success=False,
-                    agent_display_name=self.display_name or self.name,
-                )
-            publisher.session_end(summary=f"达到最大轮数 {self.max_rounds}")
-        state['_run_status'] = 'max_rounds'
-        state['_run_summary'] = f"达到最大轮数 {self.max_rounds}"
-        return AgentResponse(
-            success=True,
-            content=final_content,
-            agent_name=self.name,
-            execution_time=execution_time,
-            metadata={
-                **metadata,
-                'rounds': state.get('rounds', 0),
-                'max_rounds_reached': True,
-                'agent_calls': len(state.get('agent_calls_history', [])),
-            },
-        )
-
     def _handle_interrupted(
         self,
         error,

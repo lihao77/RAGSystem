@@ -124,7 +124,6 @@ class _FakeRuntime:
         run_id=None,
         request_id=None,
         llm_override=None,
-        llm_tier=None,
         thread_key='root',
         parent_run_id=None,
         parent_call_id=None,
@@ -137,14 +136,12 @@ class _FakeRuntime:
                 'run_id': run_id,
                 'request_id': request_id,
                 'llm_override': llm_override,
-                'requested_llm_tier': llm_tier,
                 'thread_key': thread_key,
                 'parent_call_id': parent_call_id,
                 'call_id': call_id,
             },
             user_id=user_id,
             llm_override=llm_override,
-            requested_llm_tier=llm_tier,
         )
 
 
@@ -280,18 +277,17 @@ def test_persist_user_message_creates_file_history_snapshot(tmp_path, monkeypatc
 
 
 
-def test_prepare_execution_propagates_llm_tier_to_context():
+def test_prepare_execution_has_no_request_llm_tier_context():
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
 
     handle = service.prepare_execution(
         agent_name='demo_agent',
         session_id='session-1',
-        llm_tier='powerful',
     )
 
-    assert handle.context.requested_llm_tier == 'powerful'
-    assert handle.context.metadata['requested_llm_tier'] == 'powerful'
+    assert not hasattr(handle.context, 'requested_llm_tier')
+    assert 'requested_llm_tier' not in handle.context.metadata
 
 
 def test_prepare_execution_preserves_llm_override_identity_only_contract():
@@ -315,20 +311,21 @@ def test_prepare_execution_preserves_llm_override_identity_only_contract():
     assert handle.context.llm_override['thinking_budget_tokens'] == 4096
 
 
-def test_invoke_routed_agent_propagates_llm_tier_to_route_context():
+def test_invoke_routed_agent_uses_route_context_without_request_llm_tier():
     runtime = _FakeRuntime()
     service = AgentExecutionService(runtime_service=runtime)
 
     service.invoke_routed_agent(
         task='hello',
         session_id='session-1',
-        llm_tier='fast',
         persist_user_message=True,
         persist_final_answer=True,
         visible_to_user=True,
     )
 
-    assert runtime.orchestrator.route_calls[0]['context'].requested_llm_tier == 'fast'
+    route_context = runtime.orchestrator.route_calls[0]['context']
+    assert not hasattr(route_context, 'requested_llm_tier')
+    assert 'requested_llm_tier' not in route_context.metadata
 
 
 def test_persist_user_message_uses_mode_scoped_metadata():

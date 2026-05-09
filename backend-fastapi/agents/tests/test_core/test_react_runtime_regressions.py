@@ -37,6 +37,9 @@ class _DummyPublisher:
     def tool_call_start(self, **kwargs):
         self.calls.append(("tool_call_start", kwargs))
 
+    def tool_call_end(self, **kwargs):
+        self.calls.append(("tool_call_end", kwargs))
+
     def final_answer(self, *args, **kwargs):
         self.calls.append(("final_answer", {"args": args, "kwargs": kwargs}))
 
@@ -67,7 +70,6 @@ def _make_uninitialized_orchestrator() -> OrchestratorAgent:
     agent.name = "orchestrator_agent"
     agent.display_name = "Orchestrator Agent"
     agent.logger = logging.getLogger("tests.orchestrator")
-    agent.max_rounds = 15
     agent._publisher = None
     return agent
 
@@ -232,28 +234,6 @@ def test_handle_final_answer_publishes_execution_time_metadata(monkeypatch):
     assert response.execution_time == 3.5
     assert response.metadata["execution_time"] == 3.5
     assert response.metadata["first_token_time"] == 0.7
-
-
-def test_handle_max_rounds_publishes_execution_time_metadata(monkeypatch):
-    agent = _make_uninitialized_orchestrator()
-    publisher = _DummyPublisher()
-    state = {
-        "publisher": publisher,
-        "rounds": 15,
-        "tool_calls_history": [],
-    }
-
-    monkeypatch.setattr("agents.core.base.time.time", lambda: 18.0)
-    response = agent._handle_max_rounds(
-        AgentContext(session_id="session-1"),
-        state,
-        10.0,
-    )
-
-    final_answer_call = next(item for item in publisher.calls if item[0] == "final_answer")
-    assert final_answer_call[1]["kwargs"]["metadata"]["execution_time"] == 8.0
-    assert response.execution_time == 8.0
-    assert response.metadata["execution_time"] == 8.0
 
 
 def test_cleanup_execution_publishes_run_end_timing_metadata(monkeypatch):
@@ -931,6 +911,77 @@ def test_append_waiting_observation_returns_notification_with_output_path():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_append_waiting_observation_closes_pending_tool_call(monkeypatch):
+    class _Registry:
+        def clear_task_waiting(self, *args, **kwargs):
+            pass
+
+    class _BackgroundManager:
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-closed'
+            return {
+                'status': 'completed',
+                'return_code': 0,
+                'result_type': 'text',
+                'output_path': None,
+                'completed_at': 123.0,
+            }
+
+    monkeypatch.setattr('agents.core.base.time.time', lambda: 12.0)
+
+    agent = _PlaceholderAwareAgent()
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+    }
+    pending_result = success_result(
+        content={
+            'background_task_id': 'bg-closed',
+            'suggest_wait': True,
+        },
+        summary='后台任务已启动',
+        output_type='json',
+        tool_name='execute_bash',
+    )
+    bg_wait_state = SimpleNamespace(
+        completed_task_ids=['bg-closed'],
+        pending_task_ids=[],
+        task_ids=['bg-closed'],
+        wake_reason='completed',
+    )
+
+    agent._append_waiting_observation(
+        'wait-1',
+        'task-1',
+        _Registry(),
+        _BackgroundManager(),
+        state,
+        bg_wait_state,
+        [
+            {
+                'tool_name': 'execute_bash',
+                'tool_call_id': 'tool-1',
+                'parent_call_id': 'call-1',
+                'result': pending_result,
+                'current_session_id': 'session-1',
+                'tool_started_at': 10.0,
+                'agent_display_name': 'Test Agent',
+            }
+        ],
+        3,
+    )
+
+    end_call = next(item for item in publisher.calls if item[0] == 'tool_call_end')
+    assert end_call[1]['call_id'] == 'tool-1'
+    assert end_call[1]['tool_name'] == 'execute_bash'
+    assert end_call[1]['success'] is True
+    assert end_call[1]['round'] == 3
+    assert end_call[1]['execution_time'] == 2.0
+    assert '<task-id>bg-closed</task-id>' in end_call[1]['result_preview']
+
+
+def test_run_hidden_keepalive_skips_when_provider_keepalive_disabled():
     agent = _PlaceholderAwareAgent()
     chat_calls = []
     agent.model_adapter = SimpleNamespace(

@@ -100,7 +100,6 @@ class _FakePreparedExecutionService(_FakeAgentExecutionService):
             context=SimpleNamespace(
                 user_id='user-1',
                 llm_override=kwargs.get('llm_override'),
-                requested_llm_tier=kwargs.get('llm_tier'),
                 metadata={
                     'request_id': kwargs.get('request_id'),
                     'thread_key': 'root',
@@ -108,7 +107,6 @@ class _FakePreparedExecutionService(_FakeAgentExecutionService):
                     'call_id': 'call-root',
                     'parent_call_id': None,
                     'cancel_event': kwargs.get('cancel_event'),
-                    'requested_llm_tier': kwargs.get('llm_tier'),
                 },
             ),
             agent=_FakeAgent(),
@@ -123,7 +121,7 @@ class _FakeAgent:
         self.name = name
 
 
-def test_stream_adapter_passes_llm_tier_into_prepare_execution():
+def test_stream_adapter_does_not_pass_request_llm_tier_into_prepare_execution():
     response = AgentResponse(
         success=True,
         content='final content',
@@ -143,7 +141,6 @@ def test_stream_adapter_passes_llm_tier_into_prepare_execution():
         session_id='session-1',
         user_id='user-1',
         llm_override={'provider': 'demo', 'provider_type': 'openai', 'model_name': 'gpt-5.4'},
-        llm_tier='powerful',
         request_id='req-1',
         conversation_store=conversation_store,
         orchestrator=orchestrator,
@@ -151,7 +148,7 @@ def test_stream_adapter_passes_llm_tier_into_prepare_execution():
     )
 
     assert result.started is True
-    assert service.prepare_calls[0]['llm_tier'] == 'powerful'
+    assert 'llm_tier' not in service.prepare_calls[0]
 
 
 def test_stream_adapter_preserves_llm_override_passthrough():
@@ -174,7 +171,6 @@ def test_stream_adapter_preserves_llm_override_passthrough():
         session_id='session-1',
         user_id='user-1',
         llm_override={'provider': 'demo', 'provider_type': 'openai', 'model_name': 'gpt-5.4', 'thinking_budget_tokens': 4096},
-        llm_tier='powerful',
         request_id='req-1',
         conversation_store=conversation_store,
         orchestrator=orchestrator,
@@ -214,7 +210,6 @@ def test_stream_adapter_eagerly_starts_sse_subscription_before_submit():
         session_id='session-1',
         user_id='user-1',
         llm_override=None,
-        llm_tier=None,
         request_id='req-1',
         conversation_store=conversation_store,
         orchestrator=orchestrator,

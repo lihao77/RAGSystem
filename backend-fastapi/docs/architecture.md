@@ -84,7 +84,7 @@ backend-fastapi/
 ## 请求数据流
 
 ```
-POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
+POST /api/agent/stream {task, attachments[], session_id, selected_llm}
   → api/v1/stream.py
       ├─ 斜杠命令预处理（task 以 `/` 开头时）
       │   ├─ `system` 模式命令（`/help`、`/compact`）：直接异步执行，结果通过 `command.result` WebSocket 事件返回，不进入 agent 流程
@@ -115,7 +115,7 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm, llm_tier}
       ├─ 保留 user message.metadata.attachments 供前端历史回显
       ├─ 注入 team/session MEMORY.md 索引头部，并在 agent scope 时按当前 session team 隔离 agent memory（Claude Code 风格 eager-load）
       ├─ 根据当前 task 选出相关 memory 文件路径供 Agent 后续按需 read_file
-      └─ 注入请求级 LLM 选择：selected_llm（模型身份三元组）/ requested_llm_tier（fast/default/powerful）
+      └─ 注入请求级 LLM 选择：selected_llm（模型身份三元组，仅覆盖模型身份）
   → ModelAdapter.chat_completion_stream()
       └─ provider-specific request build
           ├─ AnthropicProvider._to_content_blocks()：仅图片附件转 `image/base64` block；普通文件不再自动注入 prompt
@@ -150,7 +150,7 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 |------|------|
 | `execute(task, context) → AgentResponse` | 抽象方法，子类必须实现 |
 | `can_handle(task, context) → bool` | 判断能否处理任务 |
-| `get_llm_config(context=None, task_type=None)` | 统一解析最终 LLM 配置：按 `task_type/requested_llm_tier` 选择 `llm_tiers`，再叠加请求级 `selected_llm` 的模型身份覆盖；agent 侧仅管理模型选择与直接影响交互的参数，provider-specific 字段通过 `extra_params` 透传 |
+| `get_llm_config(context=None, task_type=None)` | 统一解析最终 LLM 配置：按系统内部传入的 `task_type` 选择 `llm_tiers`，再叠加请求级 `selected_llm` 的模型身份覆盖；agent 侧仅管理模型选择与直接影响交互的参数，provider-specific 字段通过 `extra_params` 透传 |
 | `_execute_react_task()` | ReAct 主循环（思考→工具→观察→反思），主推理默认走 `default` tier |
 | `_handle_actions()` | 执行工具调用，处理占位符替换 |
 | `_resolve_tool_references()` | 解析 `{result_N.path}` 占位符 |
@@ -160,7 +160,7 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 
 共享 skeleton 当前固定承载：工作目标、执行决策顺序、工具与执行路径选择、输出格式、停止条件、失败恢复规则，以及按工具能力条件注入的 `execute_code` 提示段；agent 专属策略则通过扩展 section 追加。
 
-关键属性：`name`, `description`, `available_tools`, `available_skills`, `max_rounds`, `model_adapter`, `agent_config`, `_publisher`
+关键属性：`name`, `description`, `available_tools`, `available_skills`, `model_adapter`, `agent_config`, `_publisher`
 
 日志治理补充：
 - `main.py` 在应用导入早期统一调用 `core.logging_config.setup_logging()`，不再散落 `logging.basicConfig(...)`
@@ -170,15 +170,14 @@ GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
 - 历史悬空的 `agents/logging/structured_logger.py` 已移除；脚本类入口也统一接入 `core.logging_config.setup_logging()`
 
 LLM 分层配置约定：
-- `agent_config.llm`：Agent 主默认模型配置，也是 tier fallback
-- `agent_config.llm_tiers`：只承认 `fast/default/powerful` 三档
-- agent 级 `llm` 配置只负责模型身份选择与直接影响交互的通用参数：`provider/provider_type/model_name/temperature/max_completion_tokens/max_context_tokens`，
-  其他采样或 provider-specific 字段统一通过 `llm.extra_params` / `llm_tiers.*.extra_params` 透传（如 `top_p`、`thinking_budget_tokens`、`reasoning_effort` 等）
-- provider-specific 字段统一经 `llm.extra_params` / `llm_tiers.*.extra_params` 透传；`thinking_budget_tokens`、`reasoning_effort` 等能力不再作为 agent 级固定字段
+- `agent_config.llm_tiers`：只承认 `fast/default/powerful` 三档；内部指定 tier 缺失或调用失败时按 `指定 tier → default → 系统默认 LLM` 回退
+- agent 级 LLM 配置只负责模型身份选择与直接影响交互的通用参数：`provider/provider_type/model_name/temperature/max_completion_tokens/max_context_tokens`，
+  其他采样或 provider-specific 字段统一通过 `llm_tiers.*.extra_params` 透传（如 `top_p`、`thinking_budget_tokens`、`reasoning_effort` 等）
+- provider-specific 字段统一经 `llm_tiers.*.extra_params` 透传；`thinking_budget_tokens`、`reasoning_effort` 等能力不再作为 agent 级固定字段
 - provider 运行策略（如 timeout、retry_attempts、retry_backoff_factor、prompt cache 策略）不再属于 agent 配置职责，由 provider/runtime 统一管理
 - 请求级 `selected_llm`：仅覆盖 `provider/provider_type/model_name`，不覆盖温度、上下文窗口、输出长度或 `extra_params`
-- 请求级 `llm_tier`：写入 `AgentContext.requested_llm_tier`，在未显式传 `task_type` 时参与 tier 选择
-- 当前已落地两条执行语义：主 ReAct 推理默认走 `default`，上下文压缩摘要走 `fast`
+- `llm_tier` 不再是请求参数；tier 只由系统内部按任务语义固定选择
+- 当前已落地两条执行语义：主 ReAct 推理默认走 `default`，上下文压缩摘要优先走 `fast`，失败后回退 `default`，再回退系统默认 LLM
 
 提示词职责分层：
 - `BaseAgent`：只保留 system prompt 入口与最小扩展点（如 `_build_agent_specific_prompt_sections()`），运行时通过 `_build_system_prompt()` 调用共享 prompt 组装；默认 section、工具能力判断、code execution prompt 注入与 prompt hook 分发逻辑均不再放在 BaseAgent 中维护；当前 system prompt 已采用两层进程级缓存：静态段按 agent class 缓存，动态完整 prompt 按“base_prompt + tool/skill prompt 元数据 + 子类 extra”生成内容哈希缓存，并在命中时刷新访问顺序，按 LRU 淘汰
@@ -273,10 +272,9 @@ Agent 配置存储已从“单一 `agent_configs.yaml`”收敛为“team 索引
 默认入口解析规则：
 - 配置层通过 `AgentLoader.resolve_default_entry_agent_name()` 扫描 `default_entry=true`
 - runtime 在 `AgentApiRuntimeService._build_orchestrator()` 中把解析结果写入 orchestrator
-- `POST /api/agent/execute` 显式传 `agent` 时直接执行该 Agent；未显式传入时走 `invoke_routed_agent()`，由 orchestrator 的默认入口解析决定。同步/流式执行请求都支持请求级 LLM 选择：
+- `POST /api/agent/execute` 显式传 `agent` 时直接执行该 Agent；未显式传入时走 `invoke_routed_agent()`，由 orchestrator 的默认入口解析决定。同步/流式执行请求都支持请求级 selected LLM 选择：
 - `selected_llm`：API 边缘层解析为结构化模型身份三元组，并透传到 `AgentContext.llm_override`
-- `llm_tier`：透传为 `AgentContext.requested_llm_tier`，供运行时在未显式指定 `task_type` 时选择 `fast/default/powerful`
-- agent 配置中的 `llm` / `llm_tiers` 仅管理模型身份与直接影响交互的通用参数；provider-specific payload 字段通过 `extra_params` 下传
+- agent 配置中的 `llm_tiers` 仅管理模型身份与直接影响交互的通用参数；provider-specific payload 字段通过 `extra_params` 下传
 - session 级 override 预留在 `session.metadata.entry_agent` 与 `session.metadata.team`：
   - `entry_agent` 会在 execution orchestrator 上覆盖默认入口，但不会污染全局 YAML 或 catalog orchestrator
   - `team` 会让本次 execution / context 临时读取该 team 的 agent 配置快照，用于 agent 集合、默认入口解析与 memory 配置；不会切换或写回全局 `active_team`

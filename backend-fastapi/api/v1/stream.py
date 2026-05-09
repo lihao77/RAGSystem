@@ -50,11 +50,6 @@ def _parse_selected_llm(selected_llm: str):
     return None
 
 
-def _parse_llm_tier(llm_tier: str):
-    normalized = (llm_tier or '').strip().lower()
-    return normalized or None
-
-
 def _build_attachment_records(attachments) -> list[dict]:
     return [
         {
@@ -178,7 +173,6 @@ async def execute_task(
     session_id: str,
     user_id: str = '',
     selected_llm: str = '',
-    llm_tier: str = '',
     attachments: list = None,
     request_id: str = None,
 ) -> dict:
@@ -188,7 +182,6 @@ async def execute_task(
         session_id = str(uuid.uuid4())
     request_id = _ensure_request_id(request_id)
     llm_override = _parse_selected_llm(selected_llm)
-    tier = _parse_llm_tier(llm_tier)
 
     # ── 斜杠命令预处理 ──
     display_task = None
@@ -252,7 +245,6 @@ async def execute_task(
             session_id=session_id,
             user_id=user_id,
             llm_override=llm_override,
-            llm_tier=tier,
             request_id=request_id,
             conversation_store=runtime.get_conversation_store(),
             orchestrator=runtime.create_execution_orchestrator(session_id=session_id),
@@ -302,7 +294,6 @@ async def stream_execute(request: StreamExecuteRequest, http_request: Request):
         session_id=request.session_id or '',
         user_id=request.user_id or '',
         selected_llm=request.selected_llm or '',
-        llm_tier=request.llm_tier or '',
         attachments=_build_attachment_records(request.attachments),
         request_id=http_request.headers.get('X-Request-ID'),
     )

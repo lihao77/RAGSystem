@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from schemas.common import ok
-from .stream import _parse_selected_llm, _parse_llm_tier
+from .stream import _parse_selected_llm
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,7 +74,6 @@ async def reset_metrics(agent_name: Optional[str] = None):
 async def get_context_snapshot(
     session_id: Optional[str] = Query(None),
     selected_llm: Optional[str] = Query(None, description='前端选择的 LLM，格式: provider|provider_type|model_name'),
-    llm_tier: Optional[str] = Query(None, description='LLM 层级: fast/default/powerful'),
 ):
     """获取当前默认入口智能体的上下文快照，用于调试和可视化。"""
     try:
@@ -84,11 +83,9 @@ async def get_context_snapshot(
 
         # 解析请求级 LLM 选择
         llm_override = _parse_selected_llm(selected_llm) if selected_llm else None
-        normalized_llm_tier = _parse_llm_tier(llm_tier)
         snapshot_ctx = AgentContext(
             session_id=session_id or '',
             llm_override=llm_override,
-            requested_llm_tier=normalized_llm_tier,
         )
 
         orchestrator = (
@@ -210,10 +207,6 @@ async def get_context_snapshot(
             }
             if llm_override:
                 config_info['llm_override'] = llm_override
-            if normalized_llm_tier:
-                config_info['llm_tier'] = normalized_llm_tier
-            if entry_agent.max_rounds is not None:
-                config_info['max_rounds'] = entry_agent.max_rounds
 
             result = {
                 'system_prompt': system_prompt,

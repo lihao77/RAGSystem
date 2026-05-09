@@ -130,7 +130,6 @@ class BaseAgent(ABC):
         self.result_normalizer = None
         self.observation_policy = None
         self.prompt_materializer = None
-        self.max_rounds: Optional[int] = None
         self.base_prompt = ""
         self.display_name = name
 
@@ -257,19 +256,25 @@ class BaseAgent(ABC):
             return f"[{name} {extra}]"
         return f"[{name}]"
 
-    def get_llm_config(self, context: Optional[AgentContext] = None, task_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_llm_config(
+        self,
+        context: Optional[AgentContext] = None,
+        task_type: Optional[str] = None,
+        *,
+        exact_tier: bool = False,
+    ) -> Dict[str, Any]:
         """
-        获取 LLM 配置（优先智能体配置，支持请求级覆盖，支持从 ModelAdapter 继承）
+        获取 LLM 配置（优先智能体配置，支持请求级 selected_llm 覆盖，支持从 ModelAdapter 继承）
 
         Args:
             context: 智能体上下文（可选）
             task_type: 任务类型（可选），支持 'fast'/'default'/'powerful'，用于多层级模型路由
+            exact_tier: 是否只取当前 tier，不回退到 default tier
 
         Returns:
             LLM 配置字典
         """
-        requested_tier = getattr(context, 'requested_llm_tier', None) if context else None
-        effective_tier = (task_type or requested_tier or 'default' or '').strip().lower() or 'default'
+        effective_tier = (task_type or 'default' or '').strip().lower() or 'default'
         def _merge_agent_llm(llm_config_obj):
             if not llm_config_obj:
                 return {}
@@ -286,12 +291,15 @@ class BaseAgent(ABC):
                 config = _merge_agent_llm(tier_config)
                 if self.logger:
                     self.logger.debug("[%s] 使用 %s 层级模型: %s", self.name, effective_tier, config.get('model_name', 'default'))
-            elif effective_tier != 'default':
+            elif not exact_tier and effective_tier != 'default':
                 default_tier_config = llm_tiers.get('default')
                 if default_tier_config:
                     config = _merge_agent_llm(default_tier_config)
                     if self.logger:
                         self.logger.debug("[%s] %s 层级未配置，回退到 default 层级", self.name, effective_tier)
+
+        if exact_tier and not config:
+            return {}
 
         if not config and self.system_config:
             llm_config = getattr(self.system_config, 'llm', None)
@@ -307,6 +315,7 @@ class BaseAgent(ABC):
                 for key, value in (getattr(llm_config, 'extra_params', None) or {}).items():
                     if key not in config:
                         config[key] = value
+
         if not config:
             self.logger.warning(f"[{self.name}] 未配置 LLM，使用默认配置")
             config = {
@@ -365,7 +374,6 @@ class BaseAgent(ABC):
         self.available_skills = list(available_skills or [])
 
         behavior_config = self.agent_config.custom_params.get('behavior', {}) if self.agent_config else {}
-        self.max_rounds = behavior_config.get('rounds')
         self.base_prompt = behavior_config.get('system_prompt', '')
         budget_profile = get_context_budget_profile(
             behavior_config.get('budget_profile') or budget_profile_name
@@ -389,12 +397,22 @@ class BaseAgent(ABC):
         )
 
         # waiting/keepalive: 从系统配置读取默认值，允许 agent behavior 覆盖
-        from config.models import WaitingConfig as _WaitingConfigModel
         try:
             from config.base import ConfigManager
             _sys_waiting = ConfigManager().get_config().waiting
         except Exception:
-            _sys_waiting = _WaitingConfigModel()
+            from types import SimpleNamespace
+            _sys_waiting = SimpleNamespace(
+                enabled=True,
+                local_cache_ttl_seconds=600,
+                default_poll_interval_seconds=3.0,
+                idle_wait_timeout_seconds=300.0,
+                allow_provider_keepalive=True,
+                keepalive_interval_seconds=240.0,
+                keepalive_grace_seconds=30.0,
+                max_keepalive_rounds=20,
+                hidden_keepalive_token_budget=8,
+            )
 
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
@@ -453,7 +471,10 @@ class BaseAgent(ABC):
         self.context_pipeline = ContextPipeline(
             config=context_config,
             model_adapter=self.model_adapter,
-            get_llm_config_fn=lambda task_type=None: self.get_llm_config(task_type=task_type),
+            get_llm_config_fn=lambda task_type=None, exact_tier=False: self.get_llm_config(
+                task_type=task_type,
+                exact_tier=exact_tier,
+            ),
             logger=self.logger,
             observation_window=observation_window,
             agent_name=self.name,
@@ -663,10 +684,7 @@ class BaseAgent(ABC):
             parent_call_id=parent_call_id,
         )
         if publisher:
-            metadata = {}
-            if self.max_rounds is not None:
-                metadata['max_rounds'] = self.max_rounds
-            publisher.agent_start(task, metadata=metadata)
+            publisher.agent_start(task, metadata={})
 
         user_message: Dict[str, Any] = {"role": "user", "content": task}
         current_attachments = []
@@ -1563,7 +1581,6 @@ class BaseAgent(ABC):
         rounds: Optional[int] = None,
     ) -> str:
         """后台任务完成或超时后，将统一 notification observation 回灌到当前 session。"""
-        del pending_tool_calls
         payloads: List[dict] = []
         seen_ids: set = set()
         timeout = bg_wait_state.wake_reason == 'timeout'
@@ -1612,8 +1629,76 @@ class BaseAgent(ABC):
             state=state,
             rounds=rounds,
         )
+        self._close_waiting_tool_calls(
+            pending_tool_calls or [],
+            payloads=payloads,
+            state=state,
+            rounds=rounds,
+            timeout=timeout,
+        )
         registry.clear_task_waiting(task_id, wait_id)
         return observation
+
+    def _close_waiting_tool_calls(
+        self,
+        pending_tool_calls: List[Dict[str, Any]],
+        *,
+        payloads: List[dict],
+        state: Dict[str, Any],
+        rounds: Optional[int],
+        timeout: bool,
+    ) -> None:
+        """waiting loop 结束时补齐后台等待型工具的 tool_call_end 事件。"""
+        publisher = state.get('publisher')
+        if not publisher or not pending_tool_calls:
+            return
+
+        payloads_by_bg_id = {
+            str(payload.get('background_task_id') or payload.get('task_id')): payload
+            for payload in payloads
+            if payload.get('background_task_id') or payload.get('task_id')
+        }
+        for item in pending_tool_calls:
+            if item.get('_waiting_tool_call_closed'):
+                continue
+            wait_signal = self._extract_wait_signal(item.get('result'))
+            bg_task_id = str(wait_signal.get('background_task_id')) if wait_signal else ''
+            matched_payload = payloads_by_bg_id.get(bg_task_id)
+            matched_payloads = [matched_payload] if matched_payload else list(payloads)
+            preview = "\n\n".join(
+                self._build_background_notification_observation(payload, timeout=timeout)
+                for payload in matched_payloads
+                if payload
+            )
+            started_at = item.get('tool_started_at')
+            elapsed_time = item.get('elapsed_time')
+            if started_at is not None:
+                try:
+                    elapsed_time = max(0.0, time.time() - float(started_at))
+                except (TypeError, ValueError):
+                    pass
+            success = bool(matched_payloads) and all(
+                bool(payload.get('success')) for payload in matched_payloads
+            )
+            publisher.tool_call_end(
+                call_id=item.get('tool_call_id'),
+                tool_name=item.get('tool_name'),
+                result=preview,
+                result_preview=preview,
+                raw_result={'background_notifications': matched_payloads},
+                raw_result_ref={
+                    'session_id': item.get('current_session_id'),
+                    'call_id': item.get('tool_call_id'),
+                    'tool_name': item.get('tool_name'),
+                },
+                execution_time=elapsed_time,
+                parent_call_id=item.get('parent_call_id'),
+                success=success,
+                round=rounds,
+                agent_display_name=item.get('agent_display_name') or self.display_name or self.name,
+                approval_message=item.get('approval_message', ''),
+            )
+            item['_waiting_tool_call_closed'] = True
 
     def _run_hidden_keepalive(
         self,
@@ -1760,43 +1845,6 @@ class BaseAgent(ABC):
             },
         )
 
-    def _handle_max_rounds(
-        self,
-        context: AgentContext,
-        state: Dict[str, Any],
-        start_time: float,
-    ) -> AgentResponse:
-        """处理达到最大轮数的情况。"""
-        del context
-        self.logger.warning(f"{self._log_prefix(None, self._get_runtime_log_label())} 达到最大轮数 {self.max_rounds}")
-        final_content = "抱歉，经过多轮分析后仍无法给出完整答案。建议重新描述问题或提供更多信息。"
-        publisher = state.get('publisher')
-        execution_time = time.time() - start_time
-        metadata = {'execution_time': execution_time}
-        first_token_time = state.get('_first_token_time')
-        if first_token_time is not None:
-            metadata['first_token_time'] = first_token_time
-        if publisher:
-            publisher.final_answer(final_content, metadata=metadata)
-            publisher.agent_end(
-                result=final_content,
-                execution_time=execution_time,
-            )
-        state['_run_status'] = 'max_rounds'
-        state['_run_summary'] = f"达到最大轮数 {self.max_rounds}"
-        return AgentResponse(
-            success=True,
-            content=final_content,
-            agent_name=self.name,
-            execution_time=execution_time,
-            tool_calls=state.get('tool_calls_history', []),
-            metadata={
-                **metadata,
-                'rounds': state.get('rounds', 0),
-                'max_rounds_reached': True,
-            },
-        )
-
     def _handle_interrupted(
         self,
         error: InterruptedError,
@@ -1911,8 +1959,6 @@ class BaseAgent(ABC):
             self._drain_pending_notifications(context, state, 1)
 
             while True:
-                if self.max_rounds is not None and state['rounds'] >= self.max_rounds:
-                    return self._handle_max_rounds(context, state, start_time)
                 state['rounds'] += 1
                 rounds = state['rounds']
                 self._drain_pending_notifications(context, state, rounds)

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # 智能体类型注册表
 AGENT_TYPES: Dict[str, Type[BaseAgent]] = {
     'orchestrator': OrchestratorAgent,
+    'react': OrchestratorAgent,
 }
 
 

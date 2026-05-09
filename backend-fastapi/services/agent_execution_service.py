@@ -128,7 +128,6 @@ class AgentExecutionService:
         session_id: str,
         user_id: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
@@ -187,7 +186,6 @@ class AgentExecutionService:
             run_id=resolved_run_id,
             request_id=request_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             thread_key=resolved_thread_key,
             parent_run_id=parent_run_id,
             parent_call_id=parent_call_id,
@@ -263,7 +261,6 @@ class AgentExecutionService:
         preferred_agent: Optional[str] = None,
         user_id: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> Tuple[str, object]:
         orchestrator = self._runtime.create_execution_orchestrator(session_id=session_id)
@@ -274,7 +271,6 @@ class AgentExecutionService:
             run_id=None,
             request_id=request_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             thread_key='root',
             parent_run_id=None,
             parent_call_id=None,
@@ -294,7 +290,6 @@ class AgentExecutionService:
         preferred_agent: Optional[str] = None,
         user_id: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
     ):
         _, routed_agent = self._route_root_agent(
@@ -303,7 +298,6 @@ class AgentExecutionService:
             preferred_agent=preferred_agent,
             user_id=user_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             request_id=request_id,
         )
         return routed_agent
@@ -317,7 +311,6 @@ class AgentExecutionService:
         user_id: Optional[str] = None,
         context_hint: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
@@ -338,7 +331,6 @@ class AgentExecutionService:
             preferred_agent=preferred_agent,
             user_id=user_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             request_id=request_id,
         )
         return self.invoke_agent(
@@ -349,7 +341,6 @@ class AgentExecutionService:
             user_id=user_id,
             context_hint=context_hint,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             request_id=request_id,
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -432,7 +423,6 @@ class AgentExecutionService:
         user_id: Optional[str] = None,
         context_hint: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
@@ -466,7 +456,6 @@ class AgentExecutionService:
             session_id=session_id,
             user_id=user_id,
             llm_override=llm_override,
-            llm_tier=llm_tier,
             request_id=request_id,
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -537,7 +526,6 @@ class AgentExecutionService:
         user_id: Optional[str] = None,
         context_hint: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         request_id: Optional[str] = None,
         run_id: Optional[str] = None,
         parent_run_id: Optional[str] = None,
@@ -560,7 +548,6 @@ class AgentExecutionService:
                 user_id=user_id,
                 context_hint=context_hint,
                 llm_override=llm_override,
-                llm_tier=llm_tier,
                 request_id=request_id,
                 run_id=run_id,
                 parent_run_id=parent_run_id,

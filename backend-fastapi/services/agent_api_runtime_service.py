@@ -391,7 +391,6 @@ class AgentApiRuntimeService:
         run_id: Optional[str] = None,
         request_id: Optional[str] = None,
         llm_override: Optional[dict] = None,
-        llm_tier: Optional[str] = None,
         thread_key: str = 'root',
         parent_run_id: Optional[str] = None,
         parent_call_id: Optional[str] = None,
@@ -401,12 +400,10 @@ class AgentApiRuntimeService:
         current_attachments: Optional[List[dict]] = None,
     ) -> AgentContext:
         resolved_thread_key = (thread_key or 'root').strip() or 'root'
-        normalized_llm_tier = (llm_tier or '').strip().lower() or None
         context = AgentContext(
             session_id=session_id,
             user_id=user_id,
             llm_override=llm_override,
-            requested_llm_tier=normalized_llm_tier,
         )
         context.metadata['thread_key'] = resolved_thread_key
         context.metadata['conversation_scope'] = 'root' if resolved_thread_key == 'root' else 'child'
@@ -424,8 +421,6 @@ class AgentApiRuntimeService:
             context.metadata['event_bus'] = self.get_run_event_bus(run_id, session_id=session_id)
         if request_id:
             context.metadata['request_id'] = request_id
-        if normalized_llm_tier:
-            context.metadata['requested_llm_tier'] = normalized_llm_tier
         if parent_run_id:
             context.metadata['parent_run_id'] = parent_run_id
         if parent_call_id:

@@ -55,7 +55,6 @@ class AgentExecutionAdapter:
         session_id: str,
         user_id: Optional[str],
         llm_override: Optional[Dict[str, Optional[str]]],
-        llm_tier: Optional[str],
         request_id: Optional[str],
         conversation_store,
         orchestrator,
@@ -115,7 +114,6 @@ class AgentExecutionAdapter:
                 session_id=session_id,
                 user_id=user_id,
                 llm_override=llm_override,
-                llm_tier=llm_tier,
                 request_id=request_id,
                 run_id=run_id,
                 parent_run_id=None,
@@ -236,7 +234,7 @@ class AgentExecutionAdapter:
                 target=target,
                 cancel_event=cancel_event,
                 event_bus=event_bus,
-                metadata={'user_id': user_id, 'llm_override': llm_override, 'llm_tier': llm_tier},
+                metadata={'user_id': user_id, 'llm_override': llm_override},
                 thread_name=f'agent-stream-{session_id[:8]}',
             )
             registry.mark_running(task_id, thread=handle.thread)

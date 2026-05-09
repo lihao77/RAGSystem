@@ -440,7 +440,6 @@ async def _handle_ws_send(ws: WebSocket, session_id: str, msg: dict, conn: WsCon
             session_id=session_id,
             user_id=msg.get('user_id', ''),
             selected_llm=msg.get('selected_llm', ''),
-            llm_tier=msg.get('llm_tier', ''),
             attachments=msg.get('attachments') or [],
             request_id=msg.get('request_id'),
         )

@@ -54,7 +54,7 @@ def _make_pipeline(preserve_recent_turns: int = 2) -> ContextPipeline:
     pipeline = ContextPipeline(
         config=config,
         model_adapter=model_adapter,
-        get_llm_config_fn=lambda task_type=None: {'provider': 'test', 'provider_type': 'test'},
+        get_llm_config_fn=lambda task_type=None, exact_tier=False: {'provider': 'test', 'provider_type': 'test'},
         agent_name='test_agent',
     )
     return pipeline
@@ -380,7 +380,7 @@ class TestForceCompressError:
         ctx = _make_context_with_messages(msgs)
 
         with patch.object(pipeline, '_try_llm_summary',
-                          side_effect=ContextCompressionError('所有层级均不可用')):
+                          side_effect=ContextCompressionError('fast 摘要模型不可用')):
             with pytest.raises(ContextCompressionError):
                 pipeline._compress(msgs, msgs, ctx, None)
 
@@ -529,7 +529,7 @@ class TestSummaryModelSelection:
         return ContextPipeline(
             config=ContextConfig(),
             model_adapter=adapter,
-            get_llm_config_fn=lambda task_type=None: dict(configs.get(task_type) or {}),
+            get_llm_config_fn=lambda task_type=None, exact_tier=False: dict(configs.get(task_type) or {}),
             agent_name='test_agent',
         )
 
@@ -589,6 +589,18 @@ class TestSummaryModelSelection:
         assert 'default ok' in result
         assert 'partial' not in result
         assert [call['model'] for call in adapter.calls] == ['fast-model', 'default-model']
+
+    def test_uses_default_when_fast_missing(self):
+        adapter = self._RecordingAdapter()
+        pipeline = self._make_pipeline_with_configs(
+            {'default': {'provider': 'p', 'provider_type': 'openai', 'model_name': 'default-model'}},
+            adapter,
+        )
+
+        result = pipeline._try_llm_summary([{'role': 'user', 'content': 'hello'}])
+
+        assert 'ok' in result
+        assert [call['model'] for call in adapter.calls] == ['default-model']
 
     def test_falls_back_to_system_default_when_fast_and_default_missing(self):
         adapter = self._RecordingAdapter()

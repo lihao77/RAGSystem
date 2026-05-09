@@ -72,7 +72,7 @@ def _make_pipeline() -> ContextPipeline:
     return ContextPipeline(
         config=ContextConfig(max_tokens=1000),
         model_adapter=object(),
-        get_llm_config_fn=lambda task_type=None: {},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {},
     )
 
 
@@ -476,7 +476,7 @@ def test_pipeline_records_compression_without_post_compression_trim():
             preserve_recent_turns=1,
         ),
         model_adapter=_SummaryAdapter(),
-        get_llm_config_fn=lambda task_type=None: {"provider": "demo", "provider_type": "demo"},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {"provider": "demo", "provider_type": "demo"},
         observation_window=collector,
     )
 
@@ -520,7 +520,7 @@ def test_pipeline_does_not_trim_current_session_when_no_compression_happens():
             preserve_recent_turns=1,
         ),
         model_adapter=object(),
-        get_llm_config_fn=lambda task_type=None: {},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {},
         observation_window=collector,
     )
 
@@ -561,7 +561,7 @@ def test_pipeline_falls_back_to_truncate_when_compression_summary_fails():
             preserve_recent_turns=1,
         ),
         model_adapter=object(),
-        get_llm_config_fn=lambda task_type=None: {},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {},
     )
     context = AgentContext(session_id="s1")
     context.conversation_history.extend([
@@ -613,7 +613,7 @@ def test_pipeline_applies_anthropic_cache_policy_only_to_stable_prefix():
     pipeline = ContextPipeline(
         config=ContextConfig(max_tokens=1000),
         model_adapter=_Adapter(),
-        get_llm_config_fn=lambda task_type=None: {},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {},
     )
     context = AgentContext(session_id='s1')
     context.conversation_history.extend([

@@ -145,7 +145,6 @@ class MessageRouter:
                 session_id=session_id,
                 user_id=message.user_id,
                 llm_override=None,
-                llm_tier=None,
                 request_id=None,
                 conversation_store=runtime_svc.get_conversation_store(),
                 orchestrator=runtime_svc.create_execution_orchestrator(session_id=session_id),

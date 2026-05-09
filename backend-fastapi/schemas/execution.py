@@ -28,11 +28,6 @@ class ExecuteRequest(BaseModel):
         description='前端选择的 LLM，格式: provider|provider_type|model_name',
         alias='selectedLLM',
     )
-    llm_tier: Optional[str] = Field(
-        None,
-        description='请求级 LLM 分层：fast/default/powerful',
-        alias='llmTier',
-    )
     attachments: List[AttachmentRef] = Field(default_factory=list, description='本轮消息附件')
 
     model_config = {'populate_by_name': True}
@@ -47,11 +42,6 @@ class StreamExecuteRequest(BaseModel):
         None,
         description='前端选择的 LLM，格式: provider|provider_type|model_name',
         alias='selectedLLM',
-    )
-    llm_tier: Optional[str] = Field(
-        None,
-        description='请求级 LLM 分层：fast/default/powerful',
-        alias='llmTier',
     )
     attachments: List[AttachmentRef] = Field(default_factory=list, description='本轮消息附件')
 

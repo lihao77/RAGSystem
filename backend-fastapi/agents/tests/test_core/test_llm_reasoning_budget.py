@@ -81,7 +81,7 @@ def test_agent_config_rejects_invalid_llm_tier_keys():
         )
 
 
-def test_base_agent_prefers_requested_tier_then_falls_back_to_default_tier():
+def test_base_agent_uses_internal_task_type_then_falls_back_to_default_tier():
     agent = _DummyAgent(
         name='demo',
         description='demo',
@@ -96,11 +96,58 @@ def test_base_agent_prefers_requested_tier_then_falls_back_to_default_tier():
         ),
         system_config=None,
     )
-    context = AgentContext(session_id='s1', requested_llm_tier='powerful')
+    context = AgentContext(session_id='s1')
 
-    config = agent.get_llm_config(context)
+    config = agent.get_llm_config(context, task_type='powerful')
 
     assert config['model_name'] == 'default-model'
+
+
+def test_base_agent_falls_back_to_system_llm_when_tiers_missing():
+    agent = _DummyAgent(
+        name='demo',
+        description='demo',
+        model_adapter=None,
+        agent_config=AgentConfig(agent_name='demo', llm_tiers={}),
+        system_config=SimpleNamespace(
+            llm=SimpleNamespace(
+                provider='system',
+                provider_type='custom',
+                model_name='system-model',
+            )
+        ),
+    )
+
+    config = agent.get_llm_config(task_type='fast')
+
+    assert config['provider'] == 'system'
+    assert config['model_name'] == 'system-model'
+
+
+def test_base_agent_tier_config_merges_missing_identity_from_system_llm():
+    agent = _DummyAgent(
+        name='demo',
+        description='demo',
+        model_adapter=None,
+        agent_config=AgentConfig(
+            agent_name='demo',
+            llm_tiers={
+                'fast': AgentLLMConfig(model_name='fast-model'),
+            },
+        ),
+        system_config=SimpleNamespace(
+            llm=SimpleNamespace(
+                provider='system',
+                provider_type='custom',
+                model_name='system-model',
+            )
+        ),
+    )
+
+    config = agent.get_llm_config(task_type='fast')
+
+    assert config['model_name'] == 'fast-model'
+    assert config['provider'] == 'system'
 
 
 def test_base_agent_selected_llm_overrides_model_identity_only():

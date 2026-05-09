@@ -43,7 +43,6 @@ class _FakeContextPipeline:
 class _FakeAgent:
     name = 'orchestrator_agent'
     display_name = 'Orchestrator Agent'
-    max_rounds = 8
     context_pipeline = _FakeContextPipeline()
     available_tools = []
     available_skills = []

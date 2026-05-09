@@ -147,7 +147,7 @@ class ContextPipeline:
         self,
         config: ContextConfig,
         model_adapter,
-        get_llm_config_fn: Callable[[Optional[str]], Dict[str, Any]],  # 支持 task_type 参数
+        get_llm_config_fn: Callable[..., Dict[str, Any]],  # 支持 task_type / exact_tier 参数
         logger: Optional[logging.Logger] = None,
         observation_window=None,
         agent_name: str = "",
@@ -774,17 +774,15 @@ class ContextPipeline:
     ) -> str:
         """尝试用 LLM 生成摘要。按 fast → default → 系统配置 逐级 fallback。"""
 
-        # 构建候选配置列表（按优先级去重），同时记录 label
-        candidates = []  # List of (label, cfg)
+        candidates = []
         seen = set()
         for tier in ('fast', 'default'):
-            cfg = self.get_llm_config_fn(task_type=tier)
+            cfg = self.get_llm_config_fn(task_type=tier, exact_tier=True)
             key = (cfg.get('provider'), cfg.get('provider_type'), cfg.get('model_name'))
             if cfg.get("provider") and key not in seen:
                 seen.add(key)
                 candidates.append((tier, cfg))
 
-        # 最终 fallback：系统配置的保底 LLM
         system_llm = self._get_system_llm_config()
         if system_llm:
             key = (system_llm.get('provider'), system_llm.get('provider_type'), system_llm.get('model_name'))
@@ -808,7 +806,6 @@ class ContextPipeline:
         ]
         last_error = None
         for tier_label, llm_config in candidates:
-            # 每次 fallback 重试前检查中断信号
             if cancel_event and cancel_event.is_set():
                 raise ContextCompressionError("压缩已被用户中断")
             provider = llm_config['provider']
@@ -828,7 +825,6 @@ class ContextPipeline:
                 content = self._format_compact_response(raw)
                 self.logger.debug(f"LLM 摘要生成成功（{tier_label}）: {len(content)} 字符")
                 return content
-
             except ContextCompressionError as e:
                 last_error = e
                 self.logger.warning(f"{tier_label} 层级摘要失败: {e}，尝试下一层级")

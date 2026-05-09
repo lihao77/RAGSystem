@@ -68,7 +68,7 @@ def test_setup_react_runtime_uses_profile_defaults():
         runtime_label="DummyAgent",
     )
 
-    assert agent.max_rounds is None
+    assert not hasattr(agent, "max_rounds")
     assert agent.context_pipeline.config.budget_profile == ORCHESTRATOR_CONTEXT_PROFILE_NAME
     assert agent.context_pipeline.config.compression_trigger_ratio == 0.85
     assert agent.context_pipeline.config.summarize_max_tokens == 300
@@ -119,7 +119,7 @@ def test_setup_react_runtime_allows_behavior_overrides_profile_defaults():
         runtime_label="DummyAgent",
     )
 
-    assert agent.max_rounds == 7
+    assert not hasattr(agent, "max_rounds")
     assert agent.context_pipeline.config.budget_profile == ORCHESTRATOR_CONTEXT_PROFILE_NAME
     assert agent.context_pipeline.config.compression_trigger_ratio == 0.9
     assert agent.context_pipeline.config.summarize_max_tokens == 512
@@ -154,10 +154,11 @@ def test_setup_react_runtime_allows_observation_policy_overrides():
     assert agent.observation_policy.artifact_ttl_seconds == 222
 
 
-def test_setup_react_runtime_ignores_legacy_max_rounds_without_rounds():
+def test_setup_react_runtime_ignores_legacy_round_limits():
     agent = _make_agent(
         behavior={
             "max_rounds": 9,
+            "rounds": 7,
         }
     )
 
@@ -167,4 +168,4 @@ def test_setup_react_runtime_ignores_legacy_max_rounds_without_rounds():
         runtime_label="DummyAgent",
     )
 
-    assert agent.max_rounds is None
+    assert not hasattr(agent, "max_rounds")
