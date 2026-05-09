@@ -401,18 +401,8 @@ class BaseAgent(ABC):
             from config.base import ConfigManager
             _sys_waiting = ConfigManager().get_config().waiting
         except Exception:
-            from types import SimpleNamespace
-            _sys_waiting = SimpleNamespace(
-                enabled=True,
-                local_cache_ttl_seconds=600,
-                default_poll_interval_seconds=3.0,
-                idle_wait_timeout_seconds=300.0,
-                allow_provider_keepalive=True,
-                keepalive_interval_seconds=240.0,
-                keepalive_grace_seconds=30.0,
-                max_keepalive_rounds=20,
-                hidden_keepalive_token_budget=8,
-            )
+            from config.models import WaitingConfig as _WaitingConfigModel
+            _sys_waiting = _WaitingConfigModel()
 
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
@@ -1664,7 +1654,15 @@ class BaseAgent(ABC):
             wait_signal = self._extract_wait_signal(item.get('result'))
             bg_task_id = str(wait_signal.get('background_task_id')) if wait_signal else ''
             matched_payload = payloads_by_bg_id.get(bg_task_id)
-            matched_payloads = [matched_payload] if matched_payload else list(payloads)
+            if matched_payload:
+                matched_payloads = [matched_payload]
+            else:
+                matched_payloads = []
+                if bg_task_id:
+                    self.logger.warning(
+                        "waiting tool call %s 的 bg_task_id=%s 无法匹配到任何通知 payload",
+                        item.get('tool_call_id'), bg_task_id,
+                    )
             preview = "\n\n".join(
                 self._build_background_notification_observation(payload, timeout=timeout)
                 for payload in matched_payloads

@@ -54,7 +54,7 @@ def _make_pipeline(preserve_recent_turns: int = 2) -> ContextPipeline:
     pipeline = ContextPipeline(
         config=config,
         model_adapter=model_adapter,
-        get_llm_config_fn=lambda task_type=None, exact_tier=False: {'provider': 'test', 'provider_type': 'test'},
+        get_llm_config_fn=lambda task_type=None, **kwargs: {'provider': 'test', 'provider_type': 'test'},
         agent_name='test_agent',
     )
     return pipeline
@@ -529,7 +529,7 @@ class TestSummaryModelSelection:
         return ContextPipeline(
             config=ContextConfig(),
             model_adapter=adapter,
-            get_llm_config_fn=lambda task_type=None, exact_tier=False: dict(configs.get(task_type) or {}),
+            get_llm_config_fn=lambda task_type=None, **kwargs: dict(configs.get(task_type) or {}),
             agent_name='test_agent',
         )
 
