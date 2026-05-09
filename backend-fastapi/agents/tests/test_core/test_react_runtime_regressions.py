@@ -1510,3 +1510,117 @@ def test_notification_trigger_build_xml():
     assert "<output-file>/tmp/bg_abc.log</output-file>" in xml
     assert "<status>completed</status>" in xml
     assert "<return-code>0</return-code>" in xml
+
+
+# ---------- Waiting Metrics 可观测性测试 ----------
+
+def test_metrics_collector_tracks_waiting_complete_cycle():
+    """MetricsCollector 正确聚合 waiting 完成周期的指标"""
+    from agents.events.bus import EventBus, Event, EventType
+    from agents.monitoring.metrics_collector import MetricsCollector
+
+    bus = EventBus()
+    collector = MetricsCollector(event_bus=bus, storage_path=Path(tempfile.mktemp(suffix='.json')))
+
+    wait_id = 'wait-m1'
+    bus.publish(Event(
+        type=EventType.EXECUTION_WAITING_START,
+        data={'wait_id': wait_id, 'agent_name': 'test_agent', 'background_task_ids': ['bg-1']},
+        agent_name='test_agent',
+    ))
+    bus.publish(Event(
+        type=EventType.EXECUTION_WAITING_END,
+        data={
+            'wait_id': wait_id,
+            'agent_name': 'test_agent',
+            'wake_reason': 'event',
+            'elapsed_ms': 5200,
+            'keepalive_count': 2,
+            'status': 'completed',
+            'completed_task_ids': ['bg-1'],
+            'pending_task_ids': [],
+        },
+        agent_name='test_agent',
+    ))
+
+    wm = collector.metrics['test_agent'].waiting_metrics
+    assert wm.total_waits == 1
+    assert wm.total_completed == 1
+    assert wm.total_timeouts == 0
+    assert wm.total_elapsed_ms == 5200
+    assert wm.avg_elapsed_ms == 5200.0
+    assert wm.min_elapsed_ms == 5200
+    assert wm.max_elapsed_ms == 5200
+    assert wm.wake_reason_distribution == {'event': 1}
+    assert wm.total_keepalive_rounds == 2
+
+
+def test_metrics_collector_tracks_waiting_timeout():
+    """MetricsCollector 正确统计 timeout 场景"""
+    from agents.events.bus import EventBus, Event, EventType
+    from agents.monitoring.metrics_collector import MetricsCollector
+
+    bus = EventBus()
+    collector = MetricsCollector(event_bus=bus, storage_path=Path(tempfile.mktemp(suffix='.json')))
+
+    wait_id = 'wait-m2'
+    bus.publish(Event(
+        type=EventType.EXECUTION_WAITING_START,
+        data={'wait_id': wait_id, 'agent_name': 'test_agent'},
+        agent_name='test_agent',
+    ))
+    bus.publish(Event(
+        type=EventType.EXECUTION_WAITING_TIMEOUT,
+        data={
+            'wait_id': wait_id,
+            'agent_name': 'test_agent',
+            'elapsed_ms': 300000,
+            'keepalive_count': 5,
+        },
+        agent_name='test_agent',
+    ))
+
+    wm = collector.metrics['test_agent'].waiting_metrics
+    assert wm.total_waits == 1
+    assert wm.total_timeouts == 1
+    assert wm.total_completed == 0
+    assert wm.wake_reason_distribution == {'timeout': 1}
+    assert wm.total_keepalive_rounds == 5
+
+
+def test_metrics_collector_aggregates_wake_reason_distribution():
+    """wake_reason 分布在多次等待后正确累加"""
+    from agents.events.bus import EventBus, Event, EventType
+    from agents.monitoring.metrics_collector import MetricsCollector
+
+    bus = EventBus()
+    collector = MetricsCollector(event_bus=bus, storage_path=Path(tempfile.mktemp(suffix='.json')))
+
+    for i, reason in enumerate(['event', 'poll', 'event', 'completed_early']):
+        wid = f'wait-{i}'
+        bus.publish(Event(
+            type=EventType.EXECUTION_WAITING_START,
+            data={'wait_id': wid, 'agent_name': 'ag'},
+            agent_name='ag',
+        ))
+        bus.publish(Event(
+            type=EventType.EXECUTION_WAITING_END,
+            data={
+                'wait_id': wid,
+                'agent_name': 'ag',
+                'wake_reason': reason,
+                'elapsed_ms': 1000 * (i + 1),
+                'keepalive_count': i,
+                'status': 'completed',
+            },
+            agent_name='ag',
+        ))
+
+    wm = collector.metrics['ag'].waiting_metrics
+    assert wm.total_waits == 4
+    assert wm.total_completed == 4
+    assert wm.wake_reason_distribution == {'event': 2, 'poll': 1, 'completed_early': 1}
+    assert wm.total_keepalive_rounds == 0 + 1 + 2 + 3  # 6
+    assert wm.min_elapsed_ms == 1000
+    assert wm.max_elapsed_ms == 4000
+    assert wm.avg_elapsed_ms == 2500.0

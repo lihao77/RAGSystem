@@ -1345,6 +1345,7 @@ class BaseAgent(ABC):
         allow_provider_keepalive = config.allow_provider_keepalive
 
         wait_started_at = time.time()
+        keepalive_count = 0
         bg_wait_state = BackgroundWaitState(
             wait_id=wait_id,
             task_ids=list(waiting_request.background_task_ids),
@@ -1382,6 +1383,7 @@ class BaseAgent(ABC):
                 pending_task_ids=list(bg_wait_state.pending_task_ids),
                 wake_reason=wake_reason or bg_wait_state.wake_reason,
                 elapsed_ms=int((time.time() - wait_started_at) * 1000),
+                keepalive_count=keepalive_count,
                 status=status,
                 agent_display_name=self.display_name or self.name,
             )
@@ -1429,7 +1431,6 @@ class BaseAgent(ABC):
             return list(bg_wait_state.completed_task_ids)
 
         last_keepalive_at = time.time()
-        keepalive_count = 0
 
         pause_current()
         try:

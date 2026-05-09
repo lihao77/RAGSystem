@@ -9,6 +9,21 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+class WaitingMetrics(BaseModel):
+    """等待循环指标"""
+    total_waits: int = 0
+    total_completed: int = 0
+    total_timeouts: int = 0
+    total_cancelled: int = 0
+    total_elapsed_ms: int = 0
+    avg_elapsed_ms: float = 0.0
+    min_elapsed_ms: int = 0
+    max_elapsed_ms: int = 0
+    wake_reason_distribution: Dict[str, int] = Field(default_factory=dict)
+    total_keepalive_rounds: int = 0
+    last_wait_at: Optional[datetime] = None
+
+
 class ToolMetrics(BaseModel):
     """工具调用指标"""
     tool_name: str
@@ -56,6 +71,9 @@ class AgentMetrics(BaseModel):
     error_distribution: Dict[str, int] = Field(default_factory=dict)
     error_metrics: List[ErrorMetrics] = Field(default_factory=list)
 
+    # 等待循环指标
+    waiting_metrics: WaitingMetrics = Field(default_factory=WaitingMetrics)
+
     # 时间戳
     first_call: Optional[datetime] = None
     last_call: Optional[datetime] = None
@@ -79,6 +97,7 @@ class AgentMetrics(BaseModel):
             "avg_tokens": round(self.avg_tokens, 2),
             "tool_usage": self.tool_usage,
             "error_distribution": self.error_distribution,
+            "waiting": self.waiting_metrics.model_dump(mode="json"),
             "first_call": self.first_call.isoformat() if self.first_call else None,
             "last_call": self.last_call.isoformat() if self.last_call else None,
         }
@@ -102,6 +121,12 @@ class SystemMetrics(BaseModel):
             "total_calls": self.total_calls,
             "avg_duration_ms": round(self.avg_duration_ms, 2),
             "overall_success_rate": round(self.overall_success_rate, 4),
+            "waiting": {
+                "total_waits": sum(m.waiting_metrics.total_waits for m in self.agents.values()),
+                "total_completed": sum(m.waiting_metrics.total_completed for m in self.agents.values()),
+                "total_timeouts": sum(m.waiting_metrics.total_timeouts for m in self.agents.values()),
+                "total_keepalive_rounds": sum(m.waiting_metrics.total_keepalive_rounds for m in self.agents.values()),
+            },
             "agents": {
                 name: metrics.to_dict()
                 for name, metrics in self.agents.items()

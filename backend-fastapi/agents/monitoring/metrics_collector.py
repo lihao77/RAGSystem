@@ -17,7 +17,7 @@ from datetime import datetime
 from collections import defaultdict
 
 from ..events.bus import EventBus, EventType
-from .models import AgentMetrics, ToolMetrics, ErrorMetrics, SystemMetrics
+from .models import AgentMetrics, ToolMetrics, ErrorMetrics, SystemMetrics, WaitingMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class MetricsCollector:
         self.metrics: Dict[str, AgentMetrics] = {}
         self._active_runs: Dict[str, dict] = {}
         self._active_tools: Dict[str, dict] = {}
+        self._active_waits: Dict[str, dict] = {}
         self._storage_path = Path(storage_path) if storage_path else _DEFAULT_STORAGE_PATH
         self._persist_interval = persist_interval_seconds
         self._last_persist_time = 0.0
@@ -116,6 +117,9 @@ class MetricsCollector:
                 EventType.CALL_TOOL_START,
                 EventType.CALL_TOOL_END,
                 EventType.AGENT_ERROR,
+                EventType.EXECUTION_WAITING_START,
+                EventType.EXECUTION_WAITING_END,
+                EventType.EXECUTION_WAITING_TIMEOUT,
             ],
             handler=self._dispatch_event,
         )
@@ -128,6 +132,9 @@ class MetricsCollector:
             EventType.CALL_TOOL_START: self._on_tool_start,
             EventType.CALL_TOOL_END: self._on_tool_end,
             EventType.AGENT_ERROR: self._on_error,
+            EventType.EXECUTION_WAITING_START: self._on_waiting_start,
+            EventType.EXECUTION_WAITING_END: self._on_waiting_end,
+            EventType.EXECUTION_WAITING_TIMEOUT: self._on_waiting_timeout,
         }
         handler = handlers.get(event.type)
         if handler:
@@ -241,6 +248,119 @@ class MetricsCollector:
                 error_type=error_type,
                 error_message=error_message
             )
+
+    def _on_waiting_start(self, event):
+        """处理 EXECUTION_WAITING_START 事件"""
+        event_data = event.data if hasattr(event, 'data') else event
+        wait_id = event_data.get("wait_id")
+        if wait_id:
+            with self._lock:
+                self._active_waits[wait_id] = {
+                    "start_time": time.time(),
+                    "agent_name": getattr(event, 'agent_name', None) or event_data.get("agent_name"),
+                }
+
+    def _on_waiting_end(self, event):
+        """处理 EXECUTION_WAITING_END 事件"""
+        event_data = event.data if hasattr(event, 'data') else event
+        wait_id = event_data.get("wait_id")
+        wake_reason = event_data.get("wake_reason", "unknown")
+        keepalive_count = event_data.get("keepalive_count", 0)
+
+        agent_name = None
+        elapsed_ms = event_data.get("elapsed_ms")
+
+        with self._lock:
+            if wait_id and wait_id in self._active_waits:
+                wait_info = self._active_waits.pop(wait_id)
+                agent_name = wait_info.get("agent_name")
+                if elapsed_ms is None:
+                    elapsed_ms = int((time.time() - wait_info["start_time"]) * 1000)
+
+        if agent_name is None:
+            agent_name = getattr(event, 'agent_name', None) or event_data.get("agent_name")
+        if not agent_name:
+            return
+
+        status = event_data.get("status", "completed")
+        self._update_waiting_metrics(
+            agent_name=agent_name,
+            elapsed_ms=elapsed_ms or 0,
+            wake_reason=wake_reason,
+            keepalive_count=keepalive_count,
+            is_timeout=False,
+            is_cancelled=(status == "cancelled"),
+        )
+
+    def _on_waiting_timeout(self, event):
+        """处理 EXECUTION_WAITING_TIMEOUT 事件"""
+        event_data = event.data if hasattr(event, 'data') else event
+        wait_id = event_data.get("wait_id")
+        keepalive_count = event_data.get("keepalive_count", 0)
+
+        agent_name = None
+        elapsed_ms = event_data.get("elapsed_ms")
+
+        with self._lock:
+            if wait_id and wait_id in self._active_waits:
+                wait_info = self._active_waits.pop(wait_id)
+                agent_name = wait_info.get("agent_name")
+                if elapsed_ms is None:
+                    elapsed_ms = int((time.time() - wait_info["start_time"]) * 1000)
+
+        if agent_name is None:
+            agent_name = getattr(event, 'agent_name', None) or event_data.get("agent_name")
+        if not agent_name:
+            return
+
+        self._update_waiting_metrics(
+            agent_name=agent_name,
+            elapsed_ms=elapsed_ms or 0,
+            wake_reason="timeout",
+            keepalive_count=keepalive_count,
+            is_timeout=True,
+            is_cancelled=False,
+        )
+
+    def _update_waiting_metrics(
+        self,
+        agent_name: str,
+        elapsed_ms: int,
+        wake_reason: str,
+        keepalive_count: int,
+        is_timeout: bool,
+        is_cancelled: bool,
+    ):
+        """更新等待循环指标"""
+        with self._lock:
+            if agent_name not in self.metrics:
+                self.metrics[agent_name] = AgentMetrics(agent_name=agent_name)
+
+            wm = self.metrics[agent_name].waiting_metrics
+            wm.total_waits += 1
+            if is_timeout:
+                wm.total_timeouts += 1
+            elif is_cancelled:
+                wm.total_cancelled += 1
+            else:
+                wm.total_completed += 1
+
+            wm.total_elapsed_ms += elapsed_ms
+            wm.avg_elapsed_ms = wm.total_elapsed_ms / wm.total_waits
+
+            if wm.min_elapsed_ms == 0 or elapsed_ms < wm.min_elapsed_ms:
+                wm.min_elapsed_ms = elapsed_ms
+            if elapsed_ms > wm.max_elapsed_ms:
+                wm.max_elapsed_ms = elapsed_ms
+
+            if wake_reason not in wm.wake_reason_distribution:
+                wm.wake_reason_distribution[wake_reason] = 0
+            wm.wake_reason_distribution[wake_reason] += 1
+
+            wm.total_keepalive_rounds += keepalive_count
+            wm.last_wait_at = datetime.now()
+
+            self._persist()
 
     def _update_agent_metrics(
         self,
@@ -399,5 +519,6 @@ class MetricsCollector:
             self.metrics.clear()
             self._active_runs.clear()
             self._active_tools.clear()
+            self._active_waits.clear()
 
         self._persist(force=True)

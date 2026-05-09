@@ -293,6 +293,7 @@ class EventPublisher:
         pending_task_ids: Optional[List[str]] = None,
         wake_reason: Optional[str] = None,
         elapsed_ms: Optional[int] = None,
+        keepalive_count: Optional[int] = None,
         status: str = "completed",
         agent_display_name: Optional[str] = None,
     ):
@@ -312,6 +313,8 @@ class EventPublisher:
             data["round"] = round
         if elapsed_ms is not None:
             data["elapsed_ms"] = elapsed_ms
+        if keepalive_count is not None:
+            data["keepalive_count"] = keepalive_count
         self._publish(EventType.EXECUTION_WAITING_END, data, priority=EventPriority.HIGH)
 
     def execution_waiting_timeout(
