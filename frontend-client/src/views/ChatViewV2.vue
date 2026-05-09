@@ -571,13 +571,12 @@ const isLoading = ref(false);
 const messagesRef = ref(null);
 const topControlsBarRef = ref(null);
 const sessionMetaContainerRef = ref(null);
-const isUserAtBottom = ref(true);
-const shouldAutoScroll = ref(true);
-const keepScrollButtonVisible = ref(false);
+// 跟随状态：true 时自动滚动到底部，用户上滚超过阈值脱离，滚回底部恢复
+const isFollowing = ref(true);
 const scrollBottomGap = ref(0);
 const showScrollToBottomButton = computed(() => {
   if (!messages.value.length) return false;
-  return !isUserAtBottom.value || scrollBottomGap.value > 80 || keepScrollButtonVisible.value;
+  return !isFollowing.value;
 });
 
 const hasSessionMeta = computed(() => Boolean(currentSessionId.value && (currentSessionTeam.value || pendingEntryAgent.value || pendingWorkspaceRoot.value)));
@@ -1072,7 +1071,7 @@ const waitForScrollLayout = async () => {
 const scrollToBottom = async (force = false, behavior = 'auto') => {
   await waitForScrollLayout();
   if (!messagesRef.value) return;
-  if (force || shouldAutoScroll.value) {
+  if (force || isFollowing.value) {
     const container = messagesRef.value;
     _isProgrammaticScroll = true;
     if (behavior === 'smooth') {
@@ -1090,10 +1089,12 @@ const scrollToBottom = async (force = false, behavior = 'auto') => {
 
 let _isProgrammaticScroll = false;
 let _lastScrollTop = 0;
-// 用户主动向上滚动的累计距离，超过阈值才判定为"明显离开底部"
+// 用户主动向上滚动的累计距离，超过阈值才脱离跟随
 let _userScrollUpAccum = 0;
-// 用户需要向上滚动超过此距离才更新底部状态（移动端触摸惯性友好）
-const SCROLL_DETACH_THRESHOLD = 200;
+// 脱离跟随的上滚距离阈值
+const SCROLL_DETACH_THRESHOLD = 120;
+// 恢复跟随的底部距离阈值
+const SCROLL_REATTACH_THRESHOLD = 80;
 
 const handleScroll = () => {
   const container = messagesRef.value;
@@ -1101,45 +1102,33 @@ const handleScroll = () => {
 
   updateScrollBottomGap();
 
+  const currentTop = container.scrollTop;
+  const delta = currentTop - _lastScrollTop;
+  const atBottom = checkIfAtBottom();
+
   if (_isProgrammaticScroll) {
-    const atBottom = checkIfAtBottom();
-    _lastScrollTop = container.scrollTop;
+    // 程序滚动完成后，到达底部则结束程序滚动标记
+    _lastScrollTop = currentTop;
     _userScrollUpAccum = 0;
-    isUserAtBottom.value = atBottom;
-    shouldAutoScroll.value = atBottom;
-    keepScrollButtonVisible.value = !atBottom;
     if (atBottom) {
       _isProgrammaticScroll = false;
     }
-  } else if (isLoading.value) {
-    // 流式输出中
-    const delta = container.scrollTop - _lastScrollTop;
-    _lastScrollTop = container.scrollTop;
-
+  } else {
+    // 用户手动滚动
     if (delta < 0) {
-      // 用户主动向上滚动
-      shouldAutoScroll.value = false;
+      // 向上滚动 → 累积距离，超过阈值脱离跟随
       _userScrollUpAccum += Math.abs(delta);
       if (_userScrollUpAccum >= SCROLL_DETACH_THRESHOLD) {
-        isUserAtBottom.value = false;
+        isFollowing.value = false;
       }
-    } else if (delta > 0) {
-      // 用户向下滚动或 DOM 增长推动
-      if (checkIfAtBottom()) {
-        // 回到底部，重置累计
+    } else if (delta > 0 && !isFollowing.value) {
+      // 向下滚动且已脱离 → 接近底部时恢复跟随
+      if (atBottom) {
         _userScrollUpAccum = 0;
-        isUserAtBottom.value = true;
-        shouldAutoScroll.value = true;
+        isFollowing.value = true;
       }
     }
-    // delta === 0: DOM 增长导致的被动事件，不改变意图
-  } else {
-    // 非流式：直接用位置判断
-    _lastScrollTop = container.scrollTop;
-    _userScrollUpAccum = 0;
-    isUserAtBottom.value = checkIfAtBottom();
-    shouldAutoScroll.value = isUserAtBottom.value;
-    keepScrollButtonVisible.value = !isUserAtBottom.value;
+    _lastScrollTop = currentTop;
   }
 
   // 控制 top-controls-bar 的边框显示
@@ -1153,8 +1142,8 @@ const handleScroll = () => {
 };
 
 const onScrollToBottomClick = () => {
-  keepScrollButtonVisible.value = true;
   _userScrollUpAccum = 0;
+  isFollowing.value = true;
   scrollToBottom(true, 'smooth');
 };
 
@@ -2077,8 +2066,7 @@ const handleSend = async (payload = null) => {
   messages.value.push({ role: 'user', content: content, attachments: attachments, metadata: attachments.length ? { attachments } : {} });
   inputMessage.value = '';
   clearComposerAttachments();
-  isUserAtBottom.value = true;
-  shouldAutoScroll.value = true;
+  isFollowing.value = true;
   _userScrollUpAccum = 0;
   scrollToBottom(true);
   updateRecentSession(sessionId, content, new Date().toISOString());
@@ -2190,8 +2178,7 @@ watch(
 );
 
 onMounted(() => {
-  isUserAtBottom.value = true;
-  shouldAutoScroll.value = true;
+  isFollowing.value = true;
   _userScrollUpAccum = 0;
 
   updateScrollBottomGap();
