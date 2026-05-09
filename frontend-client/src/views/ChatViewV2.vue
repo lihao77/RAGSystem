@@ -658,7 +658,7 @@ const _activeRun = reactive({
 
 const {
   messagesLoading, cacheMessages, deleteMessageCache,
-  loadSessionMessages,
+  loadSessionMessages, mergeMessageIdsFromServer,
 } = useSessionMessages({
   currentSessionId, messages,
   normalizeAssistantExecutionState,
@@ -782,6 +782,7 @@ const {
   scheduleCommandFallback,
   deleteMessageCache,
   loadSessionMessages,
+  mergeMessageIdsFromServer,
   refreshSessionExecutionState,
   mergeExecutionObservability,
   cacheMessages,
@@ -1526,6 +1527,10 @@ const updateRecentSession = (sessionId, content, timestamp) => {
       first_message: item.first_message || summary,
       metadata: { ...(item.metadata || {}), ...currentMetadata },
     });
+    if (idx === 0) {
+      props.onSessionUpdated?.(item);
+      return;
+    }
     history.value.splice(idx, 1);
     history.value.unshift(item);
     props.onSessionUpdated?.(item);

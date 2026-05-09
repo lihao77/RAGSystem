@@ -7,8 +7,17 @@ import { nextTick } from 'vue';
  * 不负责 socket 连接建立本身，也不改动视图模板结构。
  */
 export function useSessionRunStream(deps) {
-  // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次全量刷新
+  // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
   let _pendingReconciliation = false;
+  const FINALIZED_RUN_WINDOW_MS = 10_000;
+  let _lastFinalizedRun = {
+    sessionId: null,
+    runId: null,
+    at: 0,
+  };
+  // 去重标记：避免 markRecentSessionUpdated 对同一内容重复调用 updateRecentSession
+  // 用 WeakMap 避免污染消息对象（不会被 cacheMessages 序列化）
+  const _recentSessionUpdatedFor = new WeakMap();
 
   const mergeMessageMetadata = (msg, metadata) => {
     if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
@@ -122,25 +131,79 @@ export function useSessionRunStream(deps) {
     mergeMessageMetadata(currentMsg, normalized);
   };
 
+  const observeDeliverySeq = (event) => {
+    const deliverySeq = Number(event?.stream_seq ?? 0);
+    if (!Number.isFinite(deliverySeq) || deliverySeq <= 0) return;
+    if (deps.activeRun.lastSeenSeq > 0 && deliverySeq > deps.activeRun.lastSeenSeq + 1) {
+      _pendingReconciliation = true;
+    }
+    deps.activeRun.lastSeenSeq = deliverySeq;
+  };
+
+  const reconcileAfterGap = (sessionId, currentMsg) => {
+    _pendingReconciliation = false;
+    const hasRenderableFinalMessage = Boolean(
+      currentMsg
+      && currentMsg.role === 'assistant'
+      && currentMsg.finished
+      && (currentMsg.content || '').trim()
+    );
+    if (hasRenderableFinalMessage && typeof deps.mergeMessageIdsFromServer === 'function') {
+      // fire-and-forget：此时 run 已结束，无后续代码依赖合并结果
+      deps.mergeMessageIdsFromServer(sessionId);
+      return;
+    }
+    deps.deleteMessageCache(sessionId);
+    deps.loadSessionMessages(sessionId, { silent: true });
+  };
+
+  const markRecentSessionUpdated = (sessionId, msg) => {
+    if (!msg?.content) return;
+    if (_recentSessionUpdatedFor.get(msg) === msg.content) return;
+    deps.updateRecentSession(sessionId, msg.content, new Date().toISOString());
+    _recentSessionUpdatedFor.set(msg, msg.content);
+  };
+
+  const extractRunId = (source) => {
+    if (!source || typeof source !== 'object') return null;
+    return source.run_id || source.data?.run_id || source.metadata?.run_id || null;
+  };
+
+  const rememberFinalizedRun = (sessionId, currentMsg) => {
+    _lastFinalizedRun = {
+      sessionId,
+      runId: deps.activeRun.runId || extractRunId(currentMsg) || null,
+      at: Date.now(),
+    };
+  };
+
+  const isRecentlyFinalizedUpdate = (event, sessionId) => {
+    const updateRunId = extractRunId(event);
+    if (!updateRunId || !_lastFinalizedRun.runId) return false;
+    return (
+      _lastFinalizedRun.sessionId === sessionId
+      && _lastFinalizedRun.runId === updateRunId
+      && Date.now() - _lastFinalizedRun.at < FINALIZED_RUN_WINDOW_MS
+    );
+  };
+
   const finalizeActiveRun = (sessionId) => {
+    let finalizedMsg = null;
     if (deps.activeRun.active) {
       const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      finalizedMsg = currentMsg || null;
       if (currentMsg && !currentMsg.finished) {
         currentMsg.finished = true;
-        if (currentMsg.content) {
-          deps.updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-        }
+        markRecentSessionUpdated(sessionId, currentMsg);
         deps.checkSituationScreenTrigger(currentMsg.content);
       }
       deps.cacheMessages(sessionId, deps.messages.value);
+      rememberFinalizedRun(sessionId, currentMsg);
       deps.activeRun.active = false;
       resetActiveRunRuntime();
     }
-    // run 期间发生过 seq gap，做一次全量刷新确保内容完整
     if (_pendingReconciliation) {
-      _pendingReconciliation = false;
-      deps.deleteMessageCache(sessionId);
-      deps.loadSessionMessages(sessionId, { silent: true });
+      reconcileAfterGap(sessionId, finalizedMsg);
     }
     deps.clearLlmRetryState();
     deps.isCompressing.value = false;
@@ -169,18 +232,6 @@ export function useSessionRunStream(deps) {
       )
     ) {
       deps.clearLlmRetryState();
-    }
-
-    const deliverySeq = Number(event.stream_seq ?? 0);
-    if (Number.isFinite(deliverySeq) && deliverySeq > 0) {
-      if (deps.activeRun.lastSeenSeq > 0 && deliverySeq > deps.activeRun.lastSeenSeq + 1) {
-        const missed = deliverySeq - deps.activeRun.lastSeenSeq - 1;
-        console.warn(`[WS] 事件投递序号 gap: expected=${deps.activeRun.lastSeenSeq + 1}, got=${deliverySeq}, missed=${missed}`);
-        _pendingReconciliation = true;
-        // 运行中不能重拉 messages：历史接口不内联 execution tree，
-        // 且当前 assistant 占位可能还未持久化。先标记，等 run 结束后再对账。
-      }
-      deps.activeRun.lastSeenSeq = deliverySeq;
     }
 
     if (eventType === 'agent.retry_scheduled') {
@@ -232,7 +283,7 @@ export function useSessionRunStream(deps) {
           ...(eventData.metadata ? { metadata: { ...(currentMsg.metadata || {}), ...eventData.metadata } } : {}),
           finished: true,
         });
-        deps.updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
+        markRecentSessionUpdated(sessionId, currentMsg);
         deps.cacheMessages(sessionId, deps.messages.value);
         deps.checkSituationScreenTrigger(currentMsg.content);
       } else {
@@ -256,9 +307,7 @@ export function useSessionRunStream(deps) {
     } else if (eventType === 'agent.end' && deps.isMasterEvent(event)) {
       if (!currentMsg.finished) {
         currentMsg.finished = true;
-        if (currentMsg.content) {
-          deps.updateRecentSession(sessionId, currentMsg.content, new Date().toISOString());
-        }
+        markRecentSessionUpdated(sessionId, currentMsg);
         deps.checkSituationScreenTrigger(currentMsg.content);
       }
     } else if (eventType === 'agent.error') {
@@ -338,6 +387,12 @@ export function useSessionRunStream(deps) {
     const eventType = event.type;
 
     if (eventType === 'heartbeat') return;
+    if (deps.activeRun.isReplaying && eventType === 'done') return;
+
+    // 统一推进投递序号（内部对无效 seq 自动跳过）
+    if (deps.activeRun.active || deps.isLoading.value) {
+      observeDeliverySeq(event);
+    }
 
     if (eventType === 'reconnect_start') {
       deps.clearSessionResumeRecovery();
@@ -432,10 +487,6 @@ export function useSessionRunStream(deps) {
       deps.showToast(event.error || '用户输入提交失败', 'warning');
       return;
     }
-    if (deps.activeRun.isReplaying && (eventType === 'heartbeat' || eventType === 'done')) {
-      return;
-    }
-
     if (eventType === 'session.run_started') {
       _pendingReconciliation = false; // 新 run 重置 gap 标记
       const nextRunId = event.run_id || event.data?.run_id || null;
@@ -508,6 +559,13 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'session.updated') {
+      if (isRecentlyFinalizedUpdate(event, sessionId)) {
+        if (typeof deps.mergeMessageIdsFromServer === 'function') {
+          deps.mergeMessageIdsFromServer(sessionId);
+        }
+        deps.refreshSessionExecutionState(sessionId, { silent: true });
+        return;
+      }
       if (!deps.isLoading.value && !deps.activeRun.active) {
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });

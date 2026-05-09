@@ -310,9 +310,19 @@ const upsertHistoryItem = (item) => {
   };
   const existingIndex = history.value.findIndex(entry => entry.session_id === normalizedItem.session_id);
   if (existingIndex >= 0) {
+    const existingItem = history.value[existingIndex];
+    Object.assign(existingItem, normalizedItem, {
+      metadata: { ...(existingItem.metadata || {}), ...(normalizedItem.metadata || {}) },
+    });
+    if (existingIndex === 0) {
+      historyOffset.value = history.value.length;
+      return;
+    }
     history.value.splice(existingIndex, 1);
+    history.value.unshift(existingItem);
+  } else {
+    history.value.unshift(normalizedItem);
   }
-  history.value.unshift(normalizedItem);
   historyOffset.value = history.value.length;
 };
 

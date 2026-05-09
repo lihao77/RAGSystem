@@ -21,6 +21,7 @@ function createDeps(overrides = {}) {
     clearCommandFallback: 0,
     deleteMessageCache: [],
     loadSessionMessages: [],
+    mergeMessageIdsFromServer: [],
     refreshSessionExecutionState: [],
     cacheMessages: [],
     updateRecentSession: [],
@@ -61,6 +62,7 @@ function createDeps(overrides = {}) {
     scheduleCommandFallback: () => {},
     deleteMessageCache: (...args) => { calls.deleteMessageCache.push(args); },
     loadSessionMessages: (...args) => { calls.loadSessionMessages.push(args); },
+    mergeMessageIdsFromServer: (...args) => { calls.mergeMessageIdsFromServer.push(args); },
     refreshSessionExecutionState: (...args) => { calls.refreshSessionExecutionState.push(args); },
     mergeExecutionObservability: () => {},
     cacheMessages: (...args) => { calls.cacheMessages.push(args); },
@@ -149,6 +151,46 @@ test('session.updated 在 active run 期间不重拉消息', () => {
 
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
+});
+
+test('已送达但由顶层处理的事件会推进 stream_seq，避免后续输出误判 gap', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage()];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.lastSeenSeq = 1;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({ type: 'send.ack', started: true, run_id: 'run-1', stream_seq: 2 }, 'session-1');
+  stream.handleWSMessage({ type: 'output.chunk', data: { content: 'hello' }, stream_seq: 3 }, 'session-1');
+  stream.handleWSMessage({ type: 'done', stream_seq: 4 }, 'session-1');
+
+  assert.equal(deps.messages.value[0].content, 'hello');
+  assert.deepEqual(calls.mergeMessageIdsFromServer, []);
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
+test('刚完成的同一 run 收到 session.updated 不重拉整条消息列表', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.runId = 'run-1';
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({ type: 'done' }, 'session-1');
+  stream.handleWSMessage({ type: 'session.updated', data: { run_id: 'run-1' } }, 'session-1');
+
+  assert.deepEqual(calls.mergeMessageIdsFromServer, [['session-1']]);
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+  assert.deepEqual(calls.refreshSessionExecutionState, [
+    ['session-1', { silent: true }],
+    ['session-1', { silent: true }],
+  ]);
 });
 
 test('output.final_answer 会合并 metadata 并保留已有字段', () => {
@@ -432,7 +474,7 @@ test('全局 seq 跳号不会再误判为 gap', () => {
   assert.deepEqual(calls.loadSessionMessages, []);
 });
 
-test('真正的投递序号 gap 仍会在 run 结束后对账', () => {
+test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];
   deps.isLoading.value = true;
@@ -455,6 +497,50 @@ test('真正的投递序号 gap 仍会在 run 结束后对账', () => {
 
   stream.handleWSMessage({ type: 'done' }, 'session-1');
 
+  assert.deepEqual(calls.mergeMessageIdsFromServer, [['session-1']]);
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
+test('mergeMessageIdsFromServer 不可用时 gap 对账回退到全量刷新', () => {
+  const { deps, calls } = createDeps({ mergeMessageIdsFromServer: undefined });
+  deps.messages.value = [createAssistantMessage({ content: 'final answer' })];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.lastSeenSeq = 1;
+  deps.activeRun.phase = 'llm_streaming';
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.approval_required',
+    stream_seq: 8,
+    data: { approval_id: 'approval-gap' },
+  }, 'session-1');
+  stream.handleWSMessage({ type: 'done' }, 'session-1');
+
+  assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
+  assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
+});
+
+test('投递序号 gap 且没有可展示答案时仍回退到全量刷新', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage()];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.lastSeenSeq = 1;
+  deps.activeRun.phase = 'llm_streaming';
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.approval_required',
+    stream_seq: 8,
+    data: { approval_id: 'approval-gap' },
+  }, 'session-1');
+  stream.handleWSMessage({ type: 'done' }, 'session-1');
+
+  assert.deepEqual(calls.mergeMessageIdsFromServer, []);
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
   assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
 });
