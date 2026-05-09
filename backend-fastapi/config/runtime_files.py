@@ -59,8 +59,9 @@ def build_runtime_config_init_specs(
         RuntimeConfigInitSpec(
             key="vectorizers",
             path=config_root / "vector_store" / "vectorizers.yaml",
-            mode="lazy",
-            hint="向量数据库初始化会跳过；缺失时会在首次保存向量化器时创建。",
+            mode="seed_from_example",
+            example_path=backend_root / "vector_store" / "configs" / "vectorizers.yaml.example",
+            hint="启动时缺失会从示例复制。",
         ),
         RuntimeConfigInitSpec(
             key="mcp_servers",

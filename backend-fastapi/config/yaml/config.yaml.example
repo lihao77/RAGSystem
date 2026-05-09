@@ -1,49 +1,27 @@
-# 系统配置（与 config/models.py 一致）
-# 可省略未修改项，缺省值由 models.py 补全。
+# 系统配置 — 启动时自动初始化到 CONFIG_ROOT/app/config.yaml（已存在则不覆盖）
+# 可省略未修改项，缺省值由 config/models.py 补全。
 
 vector_store:
   backend: sqlite_vec
   sqlite_vec:
-    database_path: ""
-    vector_dimension: 0
     distance_metric: cosine
 
 llm:
-  provider: ""
   provider_type: ""
   model_name: ""
 
 embedding:
-  provider: ""
   provider_type: ""
   model_name: ""
-  batch_size: 100
 
 system:
   max_content_length: 104857600
 
 hooks:
   enabled: true
-  workspace_trust:
-    default: trusted
-    rules: []
 
 waiting:
   enabled: true
-  default_poll_interval_seconds: 3.0
-  max_poll_interval_seconds: 15.0
-  idle_wait_timeout_seconds: 300.0
-  local_cache_ttl_seconds: 600.0
-  keepalive_interval_seconds: 240.0
-  keepalive_grace_seconds: 30.0
-  max_keepalive_rounds: 20
-  allow_provider_keepalive: true
-  hidden_keepalive_token_budget: 8
 
 reflection:
   enabled: true
-  consecutive_tool_failures: 2      # 连续工具失败 N 次触发反思
-  repeated_tool_calls: 3            # 同一工具连续调用 N 次触发
-  rounds_without_answer: 6          # N 轮无答案时触发
-  empty_result_count: 2             # 空结果累积 N 次触发
-  max_reflections_per_run: 3        # 单次 run 最大反思次数

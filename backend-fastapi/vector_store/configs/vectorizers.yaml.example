@@ -1,0 +1,5 @@
+# 向量化器配置 — 启动时自动初始化到 CONFIG_ROOT/vector_store/vectorizers.yaml（已存在则不覆盖）
+# 在前端「向量化器」页面添加配置后会覆盖此文件。
+
+active_vectorizer_key: null
+vectorizers: {}
