@@ -145,9 +145,12 @@ class OrchestratorAgent(BaseAgent):
         state['agent_calls_history'] = []
         state['global_agent_order'] = 0
 
-        # 发布 agent_call_start 供前端构建调用树
+        # 发布 agent_call_start 供前端构建调用树。
+        # 若工具侧已用相同 call_id 发布了 START（skip_agent_call_start=True），
+        # 此处跳过，否则前端会看到同一 call_id 的两次 START 事件。
         publisher = state.get('publisher')
-        if publisher:
+        skip_start = (getattr(context, 'metadata', None) or {}).get('skip_agent_call_start', False)
+        if publisher and not skip_start:
             publisher.agent_call_start(
                 call_id=state['call_id'],
                 agent_name=self.name,

@@ -727,7 +727,12 @@ class BaseAgent(ABC):
         full_response: str,
     ) -> str:
         """返回适合上下文存储的 assistant 消息内容（原始 LLM 输出）。"""
-        return (full_response or "").strip()
+        content = (full_response or "").strip()
+        # stop sequence 为 </tools> 时，LLM 输出被截断，content 可能缺少闭合标签。
+        # 仅补全最外层 </tools>；内层标签（如 <tool_call>）的完整性由 tool_xml_parser 负责。
+        if '<tools>' in content and '</tools>' not in content:
+            content += '\n</tools>'
+        return content
 
     def _on_assistant_message(
         self,

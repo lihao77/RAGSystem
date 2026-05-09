@@ -148,7 +148,10 @@ def test_call_agent_creates_child_agent_and_returns_child_agent_id(monkeypatch, 
     assert runtime.store.messages == []
     assert runtime.execution_calls[0]['child_agent_id'] == result.metadata['child_agent_id']
     assert runtime.execution_calls[0]['parent_run_id'] == 'run-1'
+    # 子 Agent 必须持有与工具侧 CALL_AGENT_START/END 相同的 call_id，
+    # 确保 run step 事件能正确归属到已发布的调用树节点
     assert runtime.execution_calls[0]['call_id'] == result.metadata['agent_call_id']
+    assert runtime.execution_calls[0]['parent_call_id'] == result.metadata['agent_call_id']
 
 
 def test_list_child_agents_returns_existing_children(monkeypatch):
@@ -230,6 +233,8 @@ def test_send_message_reuses_existing_child_agent(monkeypatch):
 
     assert result.success is True
     assert result.tool_name == 'send_message'
+    # 子 Agent 的 call_id 必须与工具侧发布的 child_call_id 对齐，run step 才能正确归属节点
+    assert runtime.execution_calls[0]['call_id'] is not None
     assert runtime.execution_calls[0]['call_id'].startswith('call_')
 
 def test_send_message_publishes_resume_ordering_fields(monkeypatch):

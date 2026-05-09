@@ -197,6 +197,9 @@ class AgentExecutionService:
         context.metadata['agent_name'] = agent_name
         context.metadata['execution_source'] = source
         context.metadata['execution_mode'] = mode
+        context.metadata['entrypoint'] = entrypoint
+        # 工具侧（call_agent/send_message）已发布 CALL_AGENT_START，子 Agent 需跳过避免重复
+        context.metadata['skip_agent_call_start'] = entrypoint in ('call_agent', 'send_message')
         context.metadata['thread_key'] = resolved_thread_key
         context.metadata['conversation_scope'] = conversation_scope
         if child_workspace_root:
@@ -346,6 +349,7 @@ class AgentExecutionService:
             user_id=user_id,
             context_hint=context_hint,
             llm_override=llm_override,
+            llm_tier=llm_tier,
             request_id=request_id,
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -455,17 +459,6 @@ class AgentExecutionService:
         )
         effective_scope = self._resolve_conversation_scope(mode)
         can_persist_messages = hasattr(store, 'add_message') and hasattr(store, 'update_run_steps_message_id')
-        if persist_user_message and can_persist_messages:
-            self.persist_user_message(
-                session_id=session_id,
-                task=task,
-                agent_name=agent_name,
-                mode=mode,
-                run_id=run_id,
-                thread_key=effective_thread_key,
-                child_agent_id=child_agent_id,
-                visible_to_user=effective_visible,
-            )
 
         handle = prepared_handle or self.prepare_execution(
             mode=mode,
@@ -491,6 +484,17 @@ class AgentExecutionService:
         effective_thread_key = handle.thread_key
         effective_scope = getattr(handle.context, 'metadata', {}).get('conversation_scope', effective_scope)
         effective_child_agent_id = handle.child_agent_id
+        if persist_user_message and can_persist_messages:
+            self.persist_user_message(
+                session_id=session_id,
+                task=task,
+                agent_name=agent_name,
+                mode=mode,
+                run_id=handle.run_id,
+                thread_key=effective_thread_key,
+                child_agent_id=effective_child_agent_id,
+                visible_to_user=effective_visible,
+            )
         merged_task = self._merge_task(task, context_hint)
         response = handle.agent.execute(merged_task, handle.context)
         # flush pipeline 缓存到 DB（per-run 持久化）
