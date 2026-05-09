@@ -40,6 +40,7 @@ class VectorLibraryService:
         model_manager=None,
         vector_client=None,
         embedder_factory=None,
+        provider_config_store=None,
         reset_embedder_hook=None,
         reset_vector_client_hook=None,
         reset_vector_store_initialized_hook=None,
@@ -50,6 +51,7 @@ class VectorLibraryService:
         self._model_manager = model_manager
         self._vector_client = vector_client
         self._embedder_factory = embedder_factory or get_embedder_for_vectorizer
+        self._provider_config_store = provider_config_store
         self._reset_embedder_hook = reset_embedder_hook or reset_embedder
         self._reset_vector_client_hook = reset_vector_client_hook or reset_vector_client
         self._reset_vector_store_initialized_hook = (
@@ -235,20 +237,23 @@ class VectorLibraryService:
         store = self._get_vectorizer_store()
         rows = store.list_vectorizers()
         model_manager = self._get_model_manager()
+        provider_keys = self._get_provider_keys()
         result = []
         for row in rows:
             key = row['vectorizer_key']
+            provider_key = row.get('provider_key', '')
             model = model_manager.get_model_by_vectorizer_key(key) if key else None
             stats = model_manager.get_model_stats(model.id) if model else {}
             result.append(
                 {
                     'vectorizer_key': key,
-                    'provider_key': row.get('provider_key', ''),
+                    'provider_key': provider_key,
                     'provider_type': row.get('provider_type'),
                     'model_name': row.get('model_name', ''),
                     'distance_metric': row.get('distance_metric', 'cosine'),
                     'created_at': row.get('created_at'),
                     'is_active': row.get('is_active', False),
+                    'provider_available': provider_key in provider_keys if provider_key else False,
                     'vector_dimension': model.vector_dimension if model else None,
                     'vector_count': stats.get('vector_count', 0),
                     'model_id': model.id if model else None,
@@ -269,6 +274,7 @@ class VectorLibraryService:
 
         if not provider_key or not model_name:
             raise VectorLibraryServiceError('缺少 provider_key 或 model_name', status_code=400)
+        self._ensure_provider_exists(provider_key)
 
         store = self._get_vectorizer_store()
         try:
@@ -309,8 +315,10 @@ class VectorLibraryService:
 
     def activate_vectorizer(self, key: str) -> Dict[str, Any]:
         store = self._get_vectorizer_store()
-        if store.get_vectorizer(key) is None:
+        vectorizer = store.get_vectorizer(key)
+        if vectorizer is None:
             raise VectorLibraryServiceError(f'向量化器不存在: {key}', status_code=404)
+        self._ensure_provider_exists(vectorizer.get('provider_key', ''))
         store.set_active_key(key)
 
         model_manager = self._get_model_manager()
@@ -447,6 +455,31 @@ class VectorLibraryService:
 
     def _get_vector_client(self):
         return self._vector_client or get_vector_client()
+
+    def _get_provider_configs(self) -> Dict[str, Dict[str, Any]]:
+        if self._provider_config_store is not None:
+            return self._provider_config_store.load_all()
+
+        from model_adapter.config_store import ModelAdapterConfigStore
+        return ModelAdapterConfigStore().load_all()
+
+    def _get_provider_keys(self) -> set[str]:
+        try:
+            return set(self._get_provider_configs().keys())
+        except Exception as exc:
+            logger.warning("读取 Provider 配置失败，无法校验向量化器引用: %s", exc)
+            return set()
+
+    def _ensure_provider_exists(self, provider_key: str) -> None:
+        provider_key = (provider_key or '').strip()
+        if not provider_key:
+            raise VectorLibraryServiceError('向量化器缺少 provider_key', status_code=400)
+        provider_keys = self._get_provider_keys()
+        if provider_key not in provider_keys:
+            raise VectorLibraryServiceError(
+                f"向量化器引用的 Provider 不存在: {provider_key}",
+                status_code=400,
+            )
 
     def _reset_runtime_state(self) -> None:
         try:

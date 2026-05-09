@@ -7,6 +7,8 @@ Provider 工厂。
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Any, Dict
 
 from .providers_impl import (
@@ -95,12 +97,30 @@ _PROVIDER_CLASSES = {
     'modelscope': ModelScopeProvider,
 }
 
+_ENV_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def resolve_env_placeholder(value: Any, *, field_name: str) -> Any:
+    """Resolve exact ${ENV_VAR} placeholders without mutating persisted config."""
+    if not isinstance(value, str):
+        return value
+
+    match = _ENV_PLACEHOLDER_RE.match(value.strip())
+    if not match:
+        return value
+
+    env_var = match.group(1)
+    resolved = os.getenv(env_var)
+    if not resolved:
+        raise ValueError(f"{field_name} 引用了环境变量 {env_var}，但该环境变量未设置")
+    return resolved
+
 
 def create_provider_from_config(config: Dict[str, Any]):
     normalized = canonicalize_provider_config(config)
     provider_type = normalized.get('provider_type')
     name = normalized.get('name')
-    api_key = normalized.get('api_key')
+    api_key = resolve_env_placeholder(normalized.get('api_key'), field_name='api_key')
     api_endpoint = normalized.get('api_endpoint')
     model = normalized.get('model', 'gpt-3.5-turbo')
 

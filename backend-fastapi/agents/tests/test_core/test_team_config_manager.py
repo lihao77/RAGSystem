@@ -98,6 +98,8 @@ def test_manager_initializes_default_team_with_system_agents(tmp_path):
         'test_agent',
     ]
     assert configs['team_maker'].skills.enabled_skills == ['team-generation']
+    assert configs['team_maker'].llm_tiers['default'].provider in ('', None)
+    assert configs['team_maker'].llm_tiers['default'].provider_type in ('', None)
 
 
 def test_manager_migrates_legacy_single_file_to_team_index(tmp_path):
@@ -110,6 +112,44 @@ def test_manager_migrates_legacy_single_file_to_team_index(tmp_path):
     assert (config_dir / 'team_index.yaml').exists()
     assert (config_dir / 'teams' / 'default.yaml').exists()
     assert 'orchestrator_agent' in manager.get_all_configs()
+
+
+def test_manager_migrates_provider_type_only_tiers_to_system_default(tmp_path):
+    config_dir = tmp_path / 'agents'
+    team_dir = config_dir / 'teams'
+    team_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / 'team_index.yaml').write_text(
+        """
+active_team: default
+teams:
+  default: teams/default.yaml
+metadata:
+  version: '2.0'
+""".strip() + "\n",
+        encoding='utf-8',
+    )
+    (team_dir / 'default.yaml').write_text(
+        """
+agents:
+  agent_a:
+    agent_name: agent_a
+    enabled: true
+    llm_tiers:
+      default:
+        provider: ''
+        provider_type: openai
+        model_name: ''
+metadata:
+  version: '2.0'
+""".strip() + "\n",
+        encoding='utf-8',
+    )
+
+    manager = AgentConfigManager(config_dir=str(config_dir))
+
+    tier = manager.get_config('agent_a').llm_tiers['default']
+    assert tier.provider in ('', None)
+    assert tier.provider_type in ('', None)
 
 
 def test_switch_active_team_loads_different_agent_sets(tmp_path):

@@ -32,6 +32,7 @@ class ConfigHealthCheck:
         self.agent_teams_dir = CONFIG_ROOT / "agents" / "teams"
         self.mcp_servers_path = CONFIG_ROOT / "mcp" / "mcp_servers.yaml"
         self.vectorizers_path = CONFIG_ROOT / "vector_store" / "vectorizers.yaml"
+        self.daemon_config_path = CONFIG_ROOT / "daemon" / "daemon.yaml"
 
     def check_gitignore(self) -> None:
         """检查敏感文件是否在 .gitignore 中（.gitignore 在仓库根）"""
@@ -44,8 +45,30 @@ class ConfigHealthCheck:
             "backend-fastapi/.env",
             ".ragsystem/config/",
         ]:
-            if rel not in content:
+            if not self._gitignore_covers(content, rel):
                 self.warnings.append(f"建议将敏感文件加入 .gitignore: {rel}")
+
+    def _gitignore_covers(self, content: str, rel: str) -> bool:
+        """Return True when rel or one of its parent directories is ignored."""
+        target = rel.strip().replace("\\", "/").strip("/")
+        if not target:
+            return False
+        patterns = set()
+        for line in content.splitlines():
+            pattern = line.strip()
+            if not pattern or pattern.startswith("#") or pattern.startswith("!"):
+                continue
+            patterns.add(pattern.replace("\\", "/").strip("/"))
+
+        if target in patterns:
+            return True
+
+        parts = target.split("/")
+        for index in range(1, len(parts)):
+            parent = "/".join(parts[:index])
+            if parent in patterns:
+                return True
+        return False
 
     def check_required_configs(self) -> None:
         """检查关键运行时配置文件是否存在；providers.yaml 缺失时仅警告。"""
@@ -144,6 +167,76 @@ class ConfigHealthCheck:
         except Exception as e:
             self.errors.append(f"hooks 配置检查失败: {e}")
 
+    def check_mcp_config(self) -> None:
+        """检查 MCP server 配置结构与 transport 必填项。"""
+        if not self.mcp_servers_path.exists():
+            return
+        try:
+            from mcp.config import MCPServerConfig
+            from utils.yaml_store import load_yaml_file
+
+            raw = load_yaml_file(self.mcp_servers_path, default_factory=dict) or {}
+            servers = raw.get("servers") or {}
+            if not isinstance(servers, dict):
+                self.errors.append("mcp_servers.yaml 中 servers 必须是对象")
+                return
+
+            for server_name, cfg in servers.items():
+                if not isinstance(cfg, dict):
+                    self.errors.append(f"MCP server '{server_name}' 配置必须是对象")
+                    continue
+                try:
+                    server_data = dict(cfg)
+                    server_data.pop("name", None)
+                    server = MCPServerConfig(name=str(server_name), **server_data)
+                except Exception as e:
+                    self.errors.append(f"MCP server '{server_name}' 配置无效: {e}")
+                    continue
+                if server.transport == "stdio" and not server.command:
+                    self.errors.append(f"MCP server '{server_name}' 使用 stdio transport 时必须配置 command")
+                if server.transport in {"sse", "streamable_http"} and not server.url:
+                    self.errors.append(f"MCP server '{server_name}' 使用 {server.transport} transport 时必须配置 url")
+        except Exception as e:
+            self.errors.append(f"MCP 配置检查失败: {e}")
+
+    def check_daemon_config(self) -> None:
+        """检查 daemon 配置结构，以及启用任务引用的 team 是否存在。"""
+        if not self.daemon_config_path.exists():
+            return
+        try:
+            from daemon.models import DaemonSystemConfig
+            from daemon.utils import model_validate
+            from utils.yaml_store import load_yaml_file
+
+            raw = load_yaml_file(self.daemon_config_path, default_factory=dict) or {}
+            config = model_validate(DaemonSystemConfig, raw)
+            if not config.enabled:
+                return
+
+            known_teams = set()
+            if self.agent_team_index_path.exists():
+                index = load_yaml_file(self.agent_team_index_path, default_factory=dict) or {}
+                teams = index.get("teams") or {}
+                if isinstance(teams, dict):
+                    known_teams.update(str(team_name) for team_name in teams.keys())
+
+            if not known_teams:
+                self.warnings.append("daemon 已启用，但未找到可用 Agent team 配置")
+                return
+
+            for agent in config.agents:
+                if agent.enabled and agent.team_name not in known_teams:
+                    self.warnings.append(
+                        f"daemon agent 引用了不存在的 team: '{agent.team_name}'"
+                    )
+                for task in agent.cron_tasks:
+                    if task.enabled and task.team_name not in known_teams:
+                        self.warnings.append(
+                            f"daemon cron 任务 '{task.task_id}' 引用了不存在的 team: '{task.team_name}'"
+                        )
+        except Exception as e:
+            self.errors.append(f"daemon 配置检查失败: {e}")
+
     def run(self) -> bool:
         """
         执行所有检查。
@@ -156,6 +249,8 @@ class ConfigHealthCheck:
         self.check_gitignore()
         self.check_required_configs()
         self.check_hook_config()
+        self.check_mcp_config()
+        self.check_daemon_config()
 
         if not self.errors:
             self.check_config_validity()

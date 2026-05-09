@@ -178,13 +178,19 @@ class ConfigValidator:
                 for config_name, llm in llm_configs:
                     if not llm:
                         continue
-                    p, pt = getattr(llm, 'provider', None), getattr(llm, 'provider_type', None)
-                    if p is not None and pt is None:
+                    p = self._clean_ref(getattr(llm, 'provider', None))
+                    pt = self._clean_ref(getattr(llm, 'provider_type', None))
+                    if p and not pt:
                         warnings.append(
                             f"智能体 '{agent_name}' 已设置 {config_name}.provider 但未设置 {config_name}.provider_type，请补全 provider_type 以便正确解析复合键"
                         )
                         continue
-                    if p is None or pt is None:
+                    if pt and not p:
+                        warnings.append(
+                            f"智能体 '{agent_name}' 已设置 {config_name}.provider_type 但 provider 为空，请补全 provider 或清空 provider_type 以使用系统默认"
+                        )
+                        continue
+                    if not p and not pt:
                         continue
                     composite = f"{p}_{pt}"
                     if composite not in provider_keys:
@@ -199,8 +205,10 @@ class ConfigValidator:
         if self.agents:
             for agent_cfg in self.agents.values():
                 for tier_cfg in (getattr(agent_cfg, 'llm_tiers', None) or {}).values():
-                    if getattr(tier_cfg, 'provider', None) and getattr(tier_cfg, 'provider_type', None):
-                        used.add(f"{tier_cfg.provider}_{tier_cfg.provider_type}")
+                    provider = self._clean_ref(getattr(tier_cfg, 'provider', None))
+                    provider_type = self._clean_ref(getattr(tier_cfg, 'provider_type', None))
+                    if provider and provider_type:
+                        used.add(f"{provider}_{provider_type}")
         # 系统配置（config.yaml）中的 llm / embedding 也算作已使用
         try:
             from config import get_config
@@ -219,3 +227,7 @@ class ConfigValidator:
             )
 
         return warnings
+
+    @staticmethod
+    def _clean_ref(value) -> str:
+        return str(value or "").strip()

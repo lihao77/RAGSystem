@@ -39,8 +39,9 @@ TEAM_CONFIG_DIR_NAME = 'teams'
 LEGACY_CONFIG_FILE_NAME = 'agent_configs.yaml'
 
 _DEFAULT_LLM_TIER = {
+    # 空 provider / provider_type 表示继承 system_config.llm，而不是在默认团队里硬编码厂商。
     'provider': '',
-    'provider_type': 'openai_chat',
+    'provider_type': '',
     'model_name': '',
     'temperature': 0.2,
     'max_completion_tokens': 4096,
@@ -416,6 +417,10 @@ class AgentConfigManager:
         if not isinstance(agents, dict):
             payload['agents'] = {}
             changed = True
+        else:
+            normalized_agents, normalized_changed = self._normalize_agent_provider_refs(agents)
+            payload['agents'] = normalized_agents
+            changed = changed or normalized_changed
 
         metadata = payload.get('metadata')
         if not isinstance(metadata, dict):
@@ -432,6 +437,35 @@ class AgentConfigManager:
             changed = True
 
         return payload, changed
+
+    def _normalize_agent_provider_refs(self, agents: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        """Drop provider_type-only tier defaults that cannot resolve to a provider key."""
+        changed = False
+        normalized_agents = dict(agents)
+        for agent_name, agent_data in list(normalized_agents.items()):
+            if not isinstance(agent_data, dict):
+                continue
+            llm_tiers = agent_data.get('llm_tiers')
+            if not isinstance(llm_tiers, dict):
+                continue
+            normalized_tiers = dict(llm_tiers)
+            agent_changed = False
+            for tier_name, tier_data in list(normalized_tiers.items()):
+                if not isinstance(tier_data, dict):
+                    continue
+                provider = str(tier_data.get('provider') or '').strip()
+                provider_type = str(tier_data.get('provider_type') or '').strip()
+                if not provider and provider_type:
+                    tier_data = dict(tier_data)
+                    tier_data['provider_type'] = ''
+                    normalized_tiers[tier_name] = tier_data
+                    agent_changed = True
+                    changed = True
+            if agent_changed:
+                agent_data = dict(agent_data)
+                agent_data['llm_tiers'] = normalized_tiers
+                normalized_agents[agent_name] = agent_data
+        return normalized_agents, changed
 
     def _resolve_team_file_path(self, team_name: str) -> Path:
         relative_path = self._team_files.get(team_name)

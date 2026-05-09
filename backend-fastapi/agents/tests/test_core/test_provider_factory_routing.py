@@ -8,6 +8,8 @@ import types
 from enum import Enum
 from pathlib import Path
 
+import pytest
+
 
 
 def _load_factory_module():
@@ -137,3 +139,28 @@ def test_create_provider_from_config_uses_openai_proxy_provider():
         'model': 'gpt-5.4',
     })
     assert provider.__class__.__name__ == 'OpenAICompatibleProvider'
+
+
+def test_create_provider_from_config_resolves_api_key_env_placeholder(monkeypatch):
+    monkeypatch.setenv('DEMO_PROVIDER_KEY', 'resolved-key')
+
+    provider = factory_module.create_provider_from_config({
+        'name': 'demo',
+        'provider_type': 'deepseek',
+        'api_key': '${DEMO_PROVIDER_KEY}',
+        'model': 'deepseek-chat',
+    })
+
+    assert provider.kwargs['api_key'] == 'resolved-key'
+
+
+def test_create_provider_from_config_rejects_missing_api_key_env(monkeypatch):
+    monkeypatch.delenv('MISSING_PROVIDER_KEY', raising=False)
+
+    with pytest.raises(ValueError, match='MISSING_PROVIDER_KEY'):
+        factory_module.create_provider_from_config({
+            'name': 'demo',
+            'provider_type': 'deepseek',
+            'api_key': '${MISSING_PROVIDER_KEY}',
+            'model': 'deepseek-chat',
+        })
