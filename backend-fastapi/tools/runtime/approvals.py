@@ -70,10 +70,9 @@ def _candidate_external_paths_for_approval(context: ToolUseContext) -> list[str]
         custom_params = getattr(context.agent_config, "custom_params", None) or {}
         workspace_root = custom_params.get("workspace_root")
 
-    if windows_absolute and os.name != "nt":
-        # pathlib treats "C:\..." as relative on POSIX, but for approval
-        # purposes it is still an absolute external path from the caller.
-        # 不能用 resolve()，POSIX 上会拼出错误的路径。
+    if windows_absolute and os.name != "nt" and operation == "write":
+        # pathlib treats "C:\..." as relative on POSIX. For write/edit
+        # approval payloads, preserve the caller-facing Windows path.
         return [normalized_windows_path]
 
     resolved_candidate = candidate.resolve()

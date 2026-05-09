@@ -99,13 +99,20 @@ def _branch_name(child_agent_id: str) -> str:
 # ── 检测辅助 ────────────────────────────────────────────────────────────────
 
 def is_git_repo(path: str) -> bool:
-    """检测目录是否在 git 仓库或 worktree 内。"""
+    """检测目录是否在 git 仓库或 worktree 内（排除被 gitignore 的目录）。"""
     p = Path(path)
     if not p.is_dir():
         return False
+    # 快速路径：.git 目录（普通仓库）或 .git 文件（worktree）
+    if (p / ".git").exists():
+        return True
     try:
         result = _run_git(["rev-parse", "--is-inside-work-tree"], cwd=str(p), timeout=5)
-        return result.returncode == 0 and result.stdout.strip() == "true"
+        if result.returncode != 0 or result.stdout.strip() != "true":
+            return False
+        # 排除被 gitignore 忽略的目录（如 .pytest-tmp），避免临时目录误判
+        ignored = _run_git(["check-ignore", "-q", "."], cwd=str(p), timeout=5)
+        return ignored.returncode != 0
     except Exception:
         return False
 

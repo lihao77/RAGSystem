@@ -4,6 +4,7 @@
 vector_store:
   backend: sqlite_vec
   sqlite_vec:
+    database_path: ""
     distance_metric: cosine
 
 llm:
