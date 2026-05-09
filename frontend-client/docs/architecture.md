@@ -132,8 +132,8 @@ tool 归属规则：
 
 - 子 agent 的 tool 优先按 `parent_call_id -> subtaskMap` 归入对应 `subtask`
 - 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
-- 根级 `kind=run` 会先投影成一个 root execution step，占位表示“当前入口 agent 已启动”；后续同轮 `intent/tool` 会继续挂到这个根节点
-- 执行树根节点的正文仍只来自有 thought / intent 内容的 root step；但节点头部的 agent 名称会优先继承同轮最近一个带名称的 root step（通常是 `run` step），避免入口 agent 名称在前端回退成 `orchestrator_agent`
+- 根级 `kind=run` 会先投影成一个 root execution step，用于运行态摘要与同轮 `intent/tool` 归属；完整执行树不会为缺少 thought / intent 内容的 root step 额外生成空 thought 节点
+- 执行树根节点的正文仍只来自有 thought / intent 内容的 root step；当 root 轮次只有 tool/subtask 而没有 thought / intent 时，tool/subtask 会直接按同层节点展示，避免根节点与子 Agent 使用不同的空 thought 包装规则
 - `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
 - 所有 UI 展示 agent 名称时统一优先使用 `agent_display_name`，没有时再回退 `agent_name`；`SubtaskStatusTicker.vue` 与执行树节点都直接消费 projector 的投影结果，不再各自硬编码“编排器”等标签
 

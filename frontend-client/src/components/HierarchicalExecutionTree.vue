@@ -196,6 +196,26 @@ const executionTree = computed(() => {
     return subtaskByTaskId.get(tool.linked_task_id) || null;
   };
 
+  const appendRootChildren = (target, mergedToolCalls, rootSubtasks, subtaskByTaskId) => {
+    const linkedSubtaskIds = new Set();
+    mergedToolCalls.forEach(tool => {
+      const linked = getLinkedSubtask(tool, subtaskByTaskId);
+      if (linked) {
+        target.push(createAgentCallNode(linked));
+        linkedSubtaskIds.add(linked.task_id);
+      } else {
+        target.push(createToolNode(tool));
+      }
+    });
+
+    // 未被 tool_call 关联的 subtask 仍然平铺（兜底）
+    rootSubtasks.forEach(subtask => {
+      if (!linkedSubtaskIds.has(subtask.task_id)) {
+        target.push(createAgentCallNode(subtask));
+      }
+    });
+  };
+
   sortedRounds.forEach(round => {
     const executionStepsInRound = executionByRound[round] || [];
     const executionStep = getDisplayExecutionStep(executionStepsInRound);
@@ -210,14 +230,9 @@ const executionTree = computed(() => {
     rootSubtasks.forEach(subtask => {
       subtaskByTaskId.set(subtask.task_id, subtask);
     });
-    const hasVisibleOrchestratorContent = Boolean(
-      executionStep || mergedToolCalls.length > 0
-    );
 
-    if (!hasVisibleOrchestratorContent) {
-      rootSubtasks.forEach(subtask => {
-        tree.push(createAgentCallNode(subtask));
-      });
+    if (!executionStep) {
+      appendRootChildren(tree, mergedToolCalls, rootSubtasks, subtaskByTaskId);
       return;
     }
 
@@ -231,24 +246,7 @@ const executionTree = computed(() => {
       children: []
     };
 
-    const linkedSubtaskIds = new Set();
-    mergedToolCalls.forEach(tool => {
-      const linked = getLinkedSubtask(tool, subtaskByTaskId);
-      if (linked) {
-        node.children.push(createAgentCallNode(linked));
-        linkedSubtaskIds.add(linked.task_id);
-      } else {
-        node.children.push(createToolNode(tool));
-      }
-    });
-
-    // 未被 tool_call 关联的 subtask 仍然平铺（兜底）
-    rootSubtasks.forEach(subtask => {
-      if (!linkedSubtaskIds.has(subtask.task_id)) {
-        node.children.push(createAgentCallNode(subtask));
-      }
-    });
-
+    appendRootChildren(node.children, mergedToolCalls, rootSubtasks, subtaskByTaskId);
     tree.push(node);
   });
 
