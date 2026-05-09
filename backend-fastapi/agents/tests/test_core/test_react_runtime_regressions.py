@@ -5,6 +5,8 @@ import tempfile
 from types import MethodType, SimpleNamespace
 from pathlib import Path
 
+import pytest
+
 from agents.core import AgentContext, AgentResponse, BaseAgent
 from agents.context.config import ContextConfig
 from agents.context.observation_policy import ObservationPolicy
@@ -324,6 +326,91 @@ class _PlaceholderAwareAgent(BaseAgent):
         return str(result.content)
 
 
+def _system_config_with_waiting(waiting):
+    return SimpleNamespace(
+        waiting=waiting,
+        llm=SimpleNamespace(
+            provider='demo',
+            provider_type='test',
+            model_name='demo-model',
+            temperature=0.0,
+            max_completion_tokens=1024,
+            max_context_tokens=8192,
+            extra_params={},
+        ),
+    )
+
+
+def test_setup_react_runtime_uses_injected_waiting_config_and_validates_behavior(monkeypatch):
+    from config.models import WaitingConfig
+
+    def _raise_if_global_config_is_used():
+        raise AssertionError("global config should not be used when system_config is injected")
+
+    import config
+    monkeypatch.setattr(config, 'get_config', _raise_if_global_config_is_used)
+
+    agent = _PlaceholderAwareAgent()
+    agent.system_config = _system_config_with_waiting(
+        WaitingConfig(
+            enabled=False,
+            default_poll_interval_seconds=2.0,
+            max_poll_interval_seconds=9.0,
+            idle_wait_timeout_seconds=120.0,
+            local_cache_ttl_seconds=180.0,
+            keepalive_interval_seconds=90.0,
+            keepalive_grace_seconds=10.0,
+            max_keepalive_rounds=3,
+            allow_provider_keepalive=True,
+            hidden_keepalive_token_budget=4,
+        )
+    )
+    agent.agent_config = SimpleNamespace(
+        custom_params={
+            'behavior': {
+                'waiting_enabled': True,
+                'waiting_poll_interval_seconds': '4.5',
+                'waiting_max_poll_interval_seconds': 6.0,
+                'waiting_allow_provider_keepalive': False,
+                'waiting_hidden_keepalive_token_budget': 13,
+            }
+        }
+    )
+
+    agent._setup_react_runtime()
+
+    config = agent.context_pipeline.config
+    assert config.waiting_enabled is True
+    assert config.waiting_poll_interval_seconds == 4.5
+    assert config.waiting_max_poll_interval_seconds == 6.0
+    assert config.waiting_idle_timeout_seconds == 120.0
+    assert config.local_cache_ttl_seconds == 180.0
+    assert config.keepalive_interval_seconds == 90.0
+    assert config.keepalive_grace_seconds == 10.0
+    assert config.max_hidden_keepalive_rounds == 3
+    assert config.allow_provider_keepalive is False
+    assert config.hidden_keepalive_token_budget == 13
+
+
+def test_setup_react_runtime_rejects_invalid_keepalive_window():
+    from config.models import WaitingConfig
+    from pydantic import ValidationError
+
+    agent = _PlaceholderAwareAgent()
+    agent.system_config = _system_config_with_waiting(WaitingConfig())
+    agent.agent_config = SimpleNamespace(
+        custom_params={
+            'behavior': {
+                'waiting_keepalive_interval_seconds': 30.0,
+                'waiting_keepalive_grace_seconds': 30.0,
+            }
+        }
+    )
+
+    with pytest.raises(ValidationError, match='keepalive_grace_seconds'):
+        agent._setup_react_runtime()
+
+
 def test_base_handle_actions_passes_run_id_to_execute_tool(monkeypatch):
     import tools.runtime.executor as tool_executor
 
@@ -612,6 +699,159 @@ def test_run_waiting_loop_emits_start_and_end_for_completed_task(monkeypatch):
     assert end_call[1]['status'] == 'completed'
     assert state['current_session']
     assert registry.cleared
+
+
+def test_run_waiting_loop_clamps_poll_interval_to_configured_max(monkeypatch):
+    import threading
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _DoneTask:
+        status = 'completed'
+        return_code = 0
+        result_type = 'text'
+        output_path = None
+        completed_at = 123.0
+
+        def is_done(self):
+            return True
+
+    class _Registry:
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id
+            assert bg_wait_state.poll_interval_seconds == 5.0
+            return threading.Event()
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            del task_id, wait_id, payload
+
+        def clear_task_waiting(self, task_id, wait_id):
+            del task_id, wait_id
+
+    class _BackgroundManager:
+        def get_task(self, task_id):
+            assert task_id == 'bg-1'
+            return _DoneTask()
+
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-1'
+            return {'status': 'completed'}
+
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: _Registry())
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', lambda: _BackgroundManager())
+    monkeypatch.setattr('agents.core.base.time.time', lambda: 10.0)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(
+        config=ContextConfig(
+            waiting_poll_interval_seconds=20.0,
+            waiting_max_poll_interval_seconds=5.0,
+        )
+    )
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-1'], run_id='run-1'),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    start_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_start')
+    assert start_call[1]['poll_interval_seconds'] == 5.0
+
+
+def test_run_waiting_loop_clips_sleep_to_timeout_override(monkeypatch):
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _Clock:
+        now = 0.0
+
+    class _Event:
+        def __init__(self):
+            self.wait_timeouts = []
+
+        def wait(self, timeout=None):
+            self.wait_timeouts.append(timeout)
+            _Clock.now += float(timeout or 0.0)
+            return False
+
+    class _Registry:
+        def __init__(self):
+            self.event = _Event()
+
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id, bg_wait_state
+            return self.event
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            del task_id, wait_id, payload
+
+        def clear_task_waiting(self, task_id, wait_id):
+            del task_id, wait_id
+
+    class _RunningTask:
+        status = 'running'
+        return_code = None
+        result_type = 'text'
+        output_path = None
+        completed_at = None
+
+        def is_done(self):
+            return False
+
+    class _BackgroundManager:
+        def get_task(self, task_id):
+            assert task_id == 'bg-1'
+            return _RunningTask()
+
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-1'
+            return {'status': 'running'}
+
+    registry = _Registry()
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: registry)
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', lambda: _BackgroundManager())
+    monkeypatch.setattr('agents.core.base.time.time', lambda: _Clock.now)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(
+        config=ContextConfig(
+            waiting_poll_interval_seconds=3.0,
+            waiting_max_poll_interval_seconds=15.0,
+            allow_provider_keepalive=False,
+        )
+    )
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    observed = agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-1'], run_id='run-1', timeout_ms=1000),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    assert observed == []
+    assert registry.event.wait_timeouts[0] == 1.0
+    timeout_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_timeout')
+    assert timeout_call[1]['timeout_ms'] == 1000
 
 
 def test_task_registry_keeps_multi_target_wait_until_all_targets_complete():

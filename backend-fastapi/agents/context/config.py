@@ -25,6 +25,8 @@ class ContextConfig:
     waiting_enabled: bool = True
     # waiting loop 轮询间隔
     waiting_poll_interval_seconds: float = 3.0
+    # waiting loop 最大轮询间隔
+    waiting_max_poll_interval_seconds: float = 15.0
     # waiting loop 空闲超时
     waiting_idle_timeout_seconds: float = 300.0
     # 是否允许 hidden keepalive 续命 provider KV cache

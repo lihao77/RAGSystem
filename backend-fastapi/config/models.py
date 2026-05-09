@@ -3,7 +3,7 @@
 配置数据模型 - 使用 Pydantic 提供类型安全和验证
 """
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Dict, Optional, Literal
 
 
@@ -110,6 +110,12 @@ class WaitingConfig(BaseModel):
     max_keepalive_rounds: int = Field(default=20, ge=1, description="最大保活轮数")
     allow_provider_keepalive: bool = Field(default=True, description="是否允许 Provider 级别保活")
     hidden_keepalive_token_budget: int = Field(default=8, ge=1, description="隐藏保活 token 预算")
+
+    @model_validator(mode='after')
+    def _validate_keepalive_window(self):
+        if self.keepalive_grace_seconds >= self.keepalive_interval_seconds:
+            raise ValueError("keepalive_grace_seconds 必须小于 keepalive_interval_seconds")
+        return self
 
 
 class MemoryConfig(BaseModel):

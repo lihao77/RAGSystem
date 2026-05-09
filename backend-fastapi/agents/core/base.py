@@ -396,13 +396,74 @@ class BaseAgent(ABC):
             ),
         )
 
-        # waiting/keepalive: 从系统配置读取默认值，允许 agent behavior 覆盖
-        try:
-            from config.base import ConfigManager
-            _sys_waiting = ConfigManager().get_config().waiting
-        except Exception:
-            from config.models import WaitingConfig as _WaitingConfigModel
-            _sys_waiting = _WaitingConfigModel()
+        # waiting/keepalive: 从已注入的系统配置读取默认值，允许 agent behavior 覆盖。
+        from config.models import WaitingConfig as _WaitingConfigModel
+
+        def _behavior_value(*keys: str, default: Any = None) -> Any:
+            for key in keys:
+                if key in behavior_config:
+                    return behavior_config[key]
+            return default
+
+        _sys_waiting = getattr(getattr(self, 'system_config', None), 'waiting', None)
+        if _sys_waiting is None:
+            try:
+                from config import get_config as _get_system_config
+                _sys_waiting = _get_system_config().waiting
+            except Exception as exc:
+                self.logger.warning(
+                    "%s 无法读取系统 waiting 配置，使用内置默认值: %s",
+                    self.name,
+                    exc,
+                )
+                _sys_waiting = _WaitingConfigModel()
+        elif isinstance(_sys_waiting, dict):
+            _sys_waiting = _WaitingConfigModel(**_sys_waiting)
+
+        _effective_waiting = _WaitingConfigModel(
+            enabled=_behavior_value(
+                'waiting_enabled',
+                default=_sys_waiting.enabled,
+            ),
+            default_poll_interval_seconds=_behavior_value(
+                'waiting_poll_interval_seconds',
+                default=_sys_waiting.default_poll_interval_seconds,
+            ),
+            max_poll_interval_seconds=_behavior_value(
+                'waiting_max_poll_interval_seconds',
+                default=_sys_waiting.max_poll_interval_seconds,
+            ),
+            idle_wait_timeout_seconds=_behavior_value(
+                'waiting_idle_timeout_seconds',
+                default=_sys_waiting.idle_wait_timeout_seconds,
+            ),
+            local_cache_ttl_seconds=_behavior_value(
+                'waiting_local_cache_ttl_seconds',
+                default=_sys_waiting.local_cache_ttl_seconds,
+            ),
+            keepalive_interval_seconds=_behavior_value(
+                'waiting_keepalive_interval_seconds',
+                default=_sys_waiting.keepalive_interval_seconds,
+            ),
+            keepalive_grace_seconds=_behavior_value(
+                'waiting_keepalive_grace_seconds',
+                default=_sys_waiting.keepalive_grace_seconds,
+            ),
+            max_keepalive_rounds=_behavior_value(
+                'waiting_max_keepalive_rounds',
+                default=_sys_waiting.max_keepalive_rounds,
+            ),
+            allow_provider_keepalive=_behavior_value(
+                'allow_provider_keepalive',
+                'waiting_allow_provider_keepalive',
+                default=_sys_waiting.allow_provider_keepalive,
+            ),
+            hidden_keepalive_token_budget=_behavior_value(
+                'hidden_keepalive_token_budget',
+                'waiting_hidden_keepalive_token_budget',
+                default=_sys_waiting.hidden_keepalive_token_budget,
+            ),
+        )
 
         context_config = ContextConfig(
             max_tokens=max_context_tokens,
@@ -420,42 +481,16 @@ class BaseAgent(ABC):
                 'preserve_recent_turns',
                 budget_profile.preserve_recent_turns,
             ),
-            local_cache_ttl_seconds=behavior_config.get(
-                'waiting_local_cache_ttl_seconds',
-                _sys_waiting.local_cache_ttl_seconds,
-            ),
-            waiting_enabled=behavior_config.get(
-                'waiting_enabled',
-                _sys_waiting.enabled,
-            ),
-            waiting_poll_interval_seconds=behavior_config.get(
-                'waiting_poll_interval_seconds',
-                _sys_waiting.default_poll_interval_seconds,
-            ),
-            waiting_idle_timeout_seconds=behavior_config.get(
-                'waiting_idle_timeout_seconds',
-                _sys_waiting.idle_wait_timeout_seconds,
-            ),
-            allow_provider_keepalive=behavior_config.get(
-                'allow_provider_keepalive',
-                _sys_waiting.allow_provider_keepalive,
-            ),
-            keepalive_interval_seconds=behavior_config.get(
-                'waiting_keepalive_interval_seconds',
-                _sys_waiting.keepalive_interval_seconds,
-            ),
-            keepalive_grace_seconds=behavior_config.get(
-                'waiting_keepalive_grace_seconds',
-                _sys_waiting.keepalive_grace_seconds,
-            ),
-            max_hidden_keepalive_rounds=behavior_config.get(
-                'waiting_max_keepalive_rounds',
-                _sys_waiting.max_keepalive_rounds,
-            ),
-            hidden_keepalive_token_budget=behavior_config.get(
-                'hidden_keepalive_token_budget',
-                _sys_waiting.hidden_keepalive_token_budget,
-            ),
+            local_cache_ttl_seconds=_effective_waiting.local_cache_ttl_seconds,
+            waiting_enabled=_effective_waiting.enabled,
+            waiting_poll_interval_seconds=_effective_waiting.default_poll_interval_seconds,
+            waiting_max_poll_interval_seconds=_effective_waiting.max_poll_interval_seconds,
+            waiting_idle_timeout_seconds=_effective_waiting.idle_wait_timeout_seconds,
+            allow_provider_keepalive=_effective_waiting.allow_provider_keepalive,
+            keepalive_interval_seconds=_effective_waiting.keepalive_interval_seconds,
+            keepalive_grace_seconds=_effective_waiting.keepalive_grace_seconds,
+            max_hidden_keepalive_rounds=_effective_waiting.max_keepalive_rounds,
+            hidden_keepalive_token_budget=_effective_waiting.hidden_keepalive_token_budget,
         )
         observation_window = ObservationWindowCollector()
         self.context_pipeline = ContextPipeline(
@@ -1290,7 +1325,12 @@ class BaseAgent(ABC):
         wait_id = str(uuid.uuid4())
         publisher = state.get('publisher')
 
-        poll_interval = config.waiting_poll_interval_seconds
+        poll_interval = max(0.1, float(config.waiting_poll_interval_seconds))
+        max_poll_interval = max(
+            0.1,
+            float(config.waiting_max_poll_interval_seconds),
+        )
+        poll_interval = min(poll_interval, max_poll_interval)
         idle_timeout = config.waiting_idle_timeout_seconds
         timeout_override_ms = waiting_request.timeout_ms
         if timeout_override_ms is not None:
@@ -1300,6 +1340,7 @@ class BaseAgent(ABC):
                 idle_timeout = config.waiting_idle_timeout_seconds
         keepalive_interval = config.keepalive_interval_seconds
         keepalive_grace = config.keepalive_grace_seconds
+        keepalive_due_interval = max(1.0, keepalive_interval - keepalive_grace)
         max_keepalive = config.max_hidden_keepalive_rounds
         allow_provider_keepalive = config.allow_provider_keepalive
 
@@ -1396,9 +1437,14 @@ class BaseAgent(ABC):
                 # 计算下次唤醒：取 poll 和 keepalive 触发时间的最小值
                 now = time.time()
                 next_poll = poll_interval
-                next_keepalive = max(0.0, (keepalive_interval - keepalive_grace) - (now - last_keepalive_at))
+                if allow_provider_keepalive and keepalive_count < max_keepalive:
+                    next_keepalive = max(0.0, keepalive_due_interval - (now - last_keepalive_at))
+                else:
+                    next_keepalive = poll_interval
                 sleep_time = min(next_poll, next_keepalive)
-                sleep_time = max(0.1, min(sleep_time, poll_interval))
+                if bg_wait_state.deadline_at:
+                    sleep_time = min(sleep_time, max(0.0, bg_wait_state.deadline_at - now))
+                sleep_time = max(0.05, min(sleep_time, poll_interval))
 
                 # 事件驱动唤醒
                 awoken = evt.wait(timeout=sleep_time)
@@ -1504,13 +1550,14 @@ class BaseAgent(ABC):
                 # hidden keepalive
                 if not allow_provider_keepalive:
                     continue
-                if (now - last_keepalive_at) >= (keepalive_interval - keepalive_grace):
-                    if keepalive_count < max_keepalive:
-                        self._run_hidden_keepalive(context, state, log_prefix)
-                        last_keepalive_at = time.time()
-                        keepalive_count += 1
-                        bg_wait_state.last_keepalive_at = last_keepalive_at
-                        bg_wait_state.keepalive_count = keepalive_count
+                if keepalive_count >= max_keepalive:
+                    continue
+                if (now - last_keepalive_at) >= keepalive_due_interval:
+                    self._run_hidden_keepalive(context, state, log_prefix)
+                    last_keepalive_at = time.time()
+                    keepalive_count += 1
+                    bg_wait_state.last_keepalive_at = last_keepalive_at
+                    bg_wait_state.keepalive_count = keepalive_count
         finally:
             resume_current()
 
