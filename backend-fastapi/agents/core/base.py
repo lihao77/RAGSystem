@@ -823,6 +823,26 @@ class BaseAgent(ABC):
         parts.append('</task-notification>')
         return '\n'.join(parts)
 
+    @staticmethod
+    def _background_task_summary(task_id: str, status: str, *, timeout: bool = False) -> str:
+        if timeout or status == 'running':
+            return f"后台任务 {task_id} 仍在运行"
+        if status == 'failed':
+            return f"后台任务 {task_id} 执行失败，输出已写入文件"
+        if status == 'cancelled':
+            return f"后台任务 {task_id} 已取消，输出已写入文件"
+        return f"后台任务 {task_id} 已完成，输出已写入文件"
+
+    def _aggregate_background_wait_status(self, bg_manager, bg_wait_state) -> str:
+        from agents.task_registry import TaskRegistry
+        payloads = []
+        for bg_tid in bg_wait_state.completed_task_ids:
+            snapshot = bg_manager.get_task_snapshot(bg_tid) or {}
+            payloads.append({'status': snapshot.get('status', 'completed')})
+        if not payloads:
+            return 'completed'
+        return TaskRegistry._aggregate_wait_payload_status(payloads)
+
     def _emit_background_notification_observation(
         self,
         observation: str,
@@ -850,6 +870,7 @@ class BaseAgent(ABC):
         context: AgentContext,
         state: Dict[str, Any],
         rounds: int,
+        exclude_background_task_ids: Optional[List[str]] = None,
     ) -> None:
         """消费 session 级后台完成通知队列（对标 Claude Code 的 dequeue task-notification）。
 
@@ -865,7 +886,15 @@ class BaseAgent(ABC):
         if not notifications:
             return
         self.logger.debug("drain_pending_notifications: 消费 %d 条通知 session=%s", len(notifications), session_id)
+        excluded_ids = {str(bg_tid) for bg_tid in (exclude_background_task_ids or [])}
         for payload in notifications:
+            bg_tid = payload.get('background_task_id') or payload.get('task_id')
+            if bg_tid is not None and str(bg_tid) in excluded_ids:
+                self.logger.debug(
+                    "drain_pending_notifications: 跳过已由 waiting loop 注入的通知 bg_task_id=%s",
+                    bg_tid,
+                )
+                continue
             observation = self._build_background_notification_observation(payload)
             self._emit_background_notification_observation(
                 observation,
@@ -1240,9 +1269,9 @@ class BaseAgent(ABC):
         state: Dict[str, Any],
         rounds: int,
         log_prefix: str,
-    ) -> None:
+    ) -> List[str]:
         """在同一 run 内等待后台任务完成，支持事件唤醒 + poll 兜底 + hidden keepalive。"""
-        from agents.task_registry import get_task_registry, BackgroundWaitState
+        from agents.task_registry import get_task_registry, BackgroundWaitState, TaskRegistry
         from tools.runtime.background_tasks import get_background_task_manager
         from utils.timeout_pause import pause_current, resume_current
 
@@ -1326,7 +1355,7 @@ class BaseAgent(ABC):
         evt = registry.add_task_pending_wait(task_id, wait_id, bg_wait_state)
         if evt is None:
             self.logger.warning("%s 无法注册后台等待（task_id=%s 不存在）", log_prefix, task_id)
-            return
+            return []
         publish_waiting_start()
 
         # 先立即 poll 一次，防止订阅建立前任务已完成
@@ -1334,7 +1363,10 @@ class BaseAgent(ABC):
             bg_manager, bg_wait_state, wait_id, task_id, registry,
         )
         if completed_early:
-            publish_waiting_end(wake_reason='completed_early')
+            publish_waiting_end(
+                status=self._aggregate_background_wait_status(bg_manager, bg_wait_state),
+                wake_reason='completed_early',
+            )
             self._append_waiting_observation(
                 wait_id,
                 task_id,
@@ -1345,7 +1377,7 @@ class BaseAgent(ABC):
                 waiting_request.pending_tool_calls,
                 rounds,
             )
-            return
+            return list(bg_wait_state.completed_task_ids)
 
         last_keepalive_at = time.time()
         keepalive_count = 0
@@ -1374,27 +1406,36 @@ class BaseAgent(ABC):
                 if awoken:
                     # 事件唤醒：检查结果
                     result = registry.get_task_wait_result(task_id, wait_id)
-                    if result.get('status') == 'cancelled':
-                        publish_waiting_end(status='cancelled', wake_reason='cancelled')
-                        self.logger.debug("%s waiting loop 被系统取消", log_prefix)
-                        raise InterruptedError("等待后台任务期间被系统取消")
                     completed_payloads = result.get('completed_payloads') or []
                     completed_task_ids = result.get('completed_task_ids') or []
                     if not completed_task_ids:
                         single_bg_tid = result.get('background_task_id')
                         if single_bg_tid:
                             completed_task_ids = [single_bg_tid]
+                    if result.get('status') == 'cancelled' and not completed_task_ids and not completed_payloads:
+                        publish_waiting_end(status='cancelled', wake_reason='cancelled')
+                        self.logger.debug("%s waiting loop 被系统取消", log_prefix)
+                        raise InterruptedError("等待后台任务期间被系统取消")
                     for bg_tid in completed_task_ids:
                         if bg_tid not in bg_wait_state.completed_task_ids:
                             bg_wait_state.completed_task_ids.append(bg_tid)
                         if bg_tid in bg_wait_state.pending_task_ids:
                             bg_wait_state.pending_task_ids.remove(bg_tid)
-                    if completed_payloads:
-                        session_id = getattr(context, 'session_id', None)
-                        if session_id:
-                            for payload in completed_payloads:
-                                registry.add_session_notification(session_id, payload)
-                    publish_waiting_end(wake_reason=bg_wait_state.wake_reason or 'event')
+
+                    if bg_wait_state.pending_task_ids:
+                        if hasattr(evt, 'clear'):
+                            evt.clear()
+                        continue
+
+                    wait_status = (
+                        TaskRegistry._aggregate_wait_payload_status(completed_payloads)
+                        if completed_payloads
+                        else self._aggregate_background_wait_status(bg_manager, bg_wait_state)
+                    )
+                    publish_waiting_end(
+                        status=wait_status,
+                        wake_reason=bg_wait_state.wake_reason or 'event',
+                    )
                     self._append_waiting_observation(
                         wait_id,
                         task_id,
@@ -1405,7 +1446,7 @@ class BaseAgent(ABC):
                         waiting_request.pending_tool_calls,
                         rounds,
                     )
-                    return
+                    return list(bg_wait_state.completed_task_ids)
 
                 # poll 兜底
                 now = time.time()
@@ -1414,7 +1455,10 @@ class BaseAgent(ABC):
                     bg_manager, bg_wait_state, wait_id, task_id, registry,
                 )
                 if completed:
-                    publish_waiting_end(wake_reason=bg_wait_state.wake_reason or 'poll')
+                    publish_waiting_end(
+                        status=self._aggregate_background_wait_status(bg_manager, bg_wait_state),
+                        wake_reason=bg_wait_state.wake_reason or 'poll',
+                    )
                     self._append_waiting_observation(
                         wait_id,
                         task_id,
@@ -1425,7 +1469,7 @@ class BaseAgent(ABC):
                         waiting_request.pending_tool_calls,
                         rounds,
                     )
-                    return
+                    return list(bg_wait_state.completed_task_ids)
 
                 # 超时检查
                 if bg_wait_state.deadline_at and now >= bg_wait_state.deadline_at:
@@ -1447,7 +1491,7 @@ class BaseAgent(ABC):
                             "role": "user",
                             "content": f"[system] 等待后台任务超时（{idle_timeout:.0f}s），任务仍在运行中。",
                         })
-                    return
+                    return list(bg_wait_state.completed_task_ids)
 
                 # hidden keepalive
                 if not allow_provider_keepalive:
@@ -1471,6 +1515,7 @@ class BaseAgent(ABC):
         registry,
     ) -> bool:
         """轮询后台任务状态，返回是否全部完成。"""
+        from agents.task_registry import TaskRegistry
         completed_payloads = []
         all_done = True
         for bg_tid in bg_wait_state.task_ids:
@@ -1492,14 +1537,14 @@ class BaseAgent(ABC):
                     'output_path': str(bg_task.output_path) if getattr(bg_task, 'output_path', None) else None,
                     'completed_at': bg_task.completed_at,
                     'success': bg_task.status == 'completed',
-                    'summary': f"后台任务 {bg_tid} 已完成，输出已写入文件",
+                    'summary': self._background_task_summary(bg_tid, bg_task.status),
                 })
             else:
                 all_done = False
         if all_done and bg_wait_state.completed_task_ids:
             bg_wait_state.wake_reason = 'poll'
             registry.resolve_task_wait(task_id, wait_id, {
-                'status': 'completed',
+                'status': TaskRegistry._aggregate_wait_payload_status(completed_payloads),
                 'completed_task_ids': bg_wait_state.completed_task_ids,
                 'completed_payloads': completed_payloads,
             })
@@ -1520,37 +1565,43 @@ class BaseAgent(ABC):
         """后台任务完成或超时后，将统一 notification observation 回灌到当前 session。"""
         del pending_tool_calls
         payloads: List[dict] = []
+        seen_ids: set = set()
+        timeout = bg_wait_state.wake_reason == 'timeout'
         for bg_tid in bg_wait_state.completed_task_ids:
             snapshot = bg_manager.get_task_snapshot(bg_tid) or {}
+            status = snapshot.get('status', 'completed')
             payload = {
                 'task_id': bg_tid,
                 'background_task_id': bg_tid,
-                'status': snapshot.get('status', 'completed'),
+                'status': status,
                 'return_code': snapshot.get('return_code'),
                 'result_type': snapshot.get('result_type'),
                 'output_path': snapshot.get('output_path'),
                 'completed_at': snapshot.get('completed_at'),
-                'success': snapshot.get('status') == 'completed',
-                'summary': f"后台任务 {bg_tid} 已完成，输出已写入文件",
+                'success': status == 'completed',
+                'summary': self._background_task_summary(bg_tid, status),
             }
             payloads.append(payload)
+            seen_ids.add(str(bg_tid))
 
-        if not payloads:
+        if not payloads or timeout:
             for bg_tid in bg_wait_state.pending_task_ids or bg_wait_state.task_ids:
+                if str(bg_tid) in seen_ids:
+                    continue
                 snapshot = bg_manager.get_task_snapshot(bg_tid) or {}
+                status = snapshot.get('status', 'running')
                 payloads.append({
                     'task_id': bg_tid,
                     'background_task_id': bg_tid,
-                    'status': snapshot.get('status', 'running'),
+                    'status': status,
                     'return_code': snapshot.get('return_code'),
                     'result_type': snapshot.get('result_type'),
                     'output_path': snapshot.get('output_path'),
                     'completed_at': snapshot.get('completed_at'),
                     'success': False,
-                    'summary': f"后台任务 {bg_tid} 仍在运行",
+                    'summary': self._background_task_summary(bg_tid, status, timeout=timeout),
                 })
 
-        timeout = bg_wait_state.wake_reason == 'timeout'
         parts = [
             self._build_background_notification_observation(payload, timeout=timeout)
             for payload in payloads
@@ -1971,8 +2022,7 @@ class BaseAgent(ABC):
                 if actions:
                     self.logger.debug(f"{log_prefix} 执行 {len(actions)} 个动作")
                     waiting_request = self._handle_actions(actions, context, state, rounds, log_prefix)
-                    # 工具执行后立即 drain，避免后台完成通知要等到下一轮才注入
-                    self._drain_pending_notifications(context, state, rounds)
+                    waiting_observed_task_ids: List[str] = []
                     if (
                         self.context_pipeline.config.waiting_enabled
                         and waiting_request
@@ -1981,7 +2031,20 @@ class BaseAgent(ABC):
                         self.logger.debug(
                             f"{log_prefix} 进入 waiting loop，等待后台任务: {waiting_request.background_task_ids}"
                         )
-                        self._run_waiting_loop(waiting_request, context, state, rounds, log_prefix)
+                        waiting_observed_task_ids = self._run_waiting_loop(
+                            waiting_request,
+                            context,
+                            state,
+                            rounds,
+                            log_prefix,
+                        ) or []
+                    # 工具执行后立即 drain，跳过 waiting loop 已经注入过的后台任务通知。
+                    self._drain_pending_notifications(
+                        context,
+                        state,
+                        rounds,
+                        exclude_background_task_ids=waiting_observed_task_ids,
+                    )
 
                     # === 反思评估点：工具执行后评估是否触发反思 ===
                     ref_eval = state.get('reflection_evaluator')

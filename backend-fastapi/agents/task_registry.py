@@ -481,22 +481,133 @@ class TaskRegistry:
             logger.debug('TaskRegistry: 注册后台等待 task_id=%s wait_id=%s bg_tasks=%s', task_id, wait_id, bg_wait_state.task_ids)
             return evt
 
+    @staticmethod
+    def _wait_payload_completed_ids(result_payload: dict) -> List[str]:
+        completed_ids: List[str] = []
+        for bg_tid in result_payload.get('completed_task_ids') or []:
+            if bg_tid is not None and str(bg_tid) not in completed_ids:
+                completed_ids.append(str(bg_tid))
+
+        single_bg_tid = result_payload.get('background_task_id') or result_payload.get('task_id')
+        status = result_payload.get('status')
+        is_terminal = status not in {None, '', 'running', 'pending'} or result_payload.get('completed') is True
+        if single_bg_tid and is_terminal and str(single_bg_tid) not in completed_ids:
+            completed_ids.append(str(single_bg_tid))
+        return completed_ids
+
+    _WAIT_META_KEYS = frozenset({'completed_task_ids', 'completed_payloads', 'pending_task_ids', 'completed'})
+
+    @classmethod
+    def _wait_payloads(cls, result_payload: dict, completed_ids: List[str]) -> List[dict]:
+        completed_payloads = result_payload.get('completed_payloads')
+        if isinstance(completed_payloads, list):
+            return [dict(payload) for payload in completed_payloads if isinstance(payload, dict)]
+        if completed_ids and (
+            result_payload.get('background_task_id') or result_payload.get('task_id')
+        ):
+            return [{k: v for k, v in result_payload.items() if k not in cls._WAIT_META_KEYS}]
+        return []
+
+    @staticmethod
+    def _aggregate_wait_payload_status(payloads: List[dict]) -> str:
+        statuses = [str(payload.get('status') or '') for payload in payloads]
+        if any(status == 'failed' for status in statuses):
+            return 'failed'
+        if any(status == 'cancelled' for status in statuses):
+            return 'cancelled'
+        return 'completed'
+
     def resolve_task_wait(self, task_id: str, wait_id: str, result_payload: dict) -> bool:
+        result_payload = dict(result_payload or {})
         with self._lock:
             info = self._tasks_by_task_id.get(task_id)
             if info is None or wait_id not in info.pending_waits:
                 logger.warning('TaskRegistry: 未找到后台等待 task_id=%s wait_id=%s', task_id, wait_id)
                 return False
-            info.wait_results[wait_id] = result_payload
             ws = info.background_waits.get(wait_id)
-            if ws and ws.wake_reason is None:
-                ws.wake_reason = 'completed'
-            evt = info.pending_waits.pop(wait_id)
-            self._wait_to_task.pop(wait_id, None)
-            if not info.pending_waits:
-                info.waiting_status = None
+            evt = info.pending_waits.get(wait_id)
+
+            completed_ids = self._wait_payload_completed_ids(result_payload)
+            if result_payload.get('status') == 'cancelled' and not completed_ids:
+                info.wait_results[wait_id] = {'status': 'cancelled'}
+                if ws:
+                    ws.wake_reason = 'cancelled'
+                evt = info.pending_waits.pop(wait_id)
+                self._wait_to_task.pop(wait_id, None)
+                if not info.pending_waits:
+                    info.waiting_status = None
+            else:
+                payloads = self._wait_payloads(result_payload, completed_ids)
+                existing = (
+                    info.wait_results.get(wait_id)
+                    or (ws.last_result_snapshot if ws else None)
+                    or {}
+                )
+                merged_ids = [str(bg_tid) for bg_tid in existing.get('completed_task_ids') or []]
+                if ws:
+                    for bg_tid in ws.completed_task_ids:
+                        if str(bg_tid) not in merged_ids:
+                            merged_ids.append(str(bg_tid))
+                for bg_tid in completed_ids:
+                    if bg_tid not in merged_ids:
+                        merged_ids.append(bg_tid)
+
+                merged_payloads = list(existing.get('completed_payloads') or [])
+                seen_payload_ids = {
+                    str(payload.get('background_task_id') or payload.get('task_id'))
+                    for payload in merged_payloads
+                    if payload.get('background_task_id') or payload.get('task_id')
+                }
+                for payload in payloads:
+                    payload_bg_tid = payload.get('background_task_id') or payload.get('task_id')
+                    if payload_bg_tid and str(payload_bg_tid) in seen_payload_ids:
+                        continue
+                    if payload_bg_tid:
+                        seen_payload_ids.add(str(payload_bg_tid))
+                    merged_payloads.append(payload)
+
+                all_done = False
+                if ws:
+                    if not ws.pending_task_ids:
+                        ws.pending_task_ids = [str(bg_tid) for bg_tid in ws.task_ids]
+                    for bg_tid in completed_ids:
+                        if bg_tid not in ws.completed_task_ids:
+                            ws.completed_task_ids.append(bg_tid)
+                        if bg_tid in ws.pending_task_ids:
+                            ws.pending_task_ids.remove(bg_tid)
+                    all_done = all(str(bg_tid) in ws.completed_task_ids for bg_tid in ws.task_ids)
+                    if all_done:
+                        ws.wake_reason = 'completed'
+
+                merged_status = (
+                    self._aggregate_wait_payload_status(merged_payloads)
+                    if all_done
+                    else 'partial'
+                )
+                info.wait_results[wait_id] = {
+                    'status': merged_status,
+                    'completed_task_ids': merged_ids,
+                    'completed_payloads': merged_payloads,
+                    'pending_task_ids': list(ws.pending_task_ids) if ws else [],
+                }
+                if ws:
+                    ws.last_result_snapshot = dict(info.wait_results[wait_id])
+                if all_done:
+                    evt = info.pending_waits.pop(wait_id)
+                    self._wait_to_task.pop(wait_id, None)
+                    if not info.pending_waits:
+                        info.waiting_status = None
+            resolved_status = info.wait_results.get(wait_id, {}).get('status', result_payload.get('status'))
+        if evt is None:
+            return False
         evt.set()
-        logger.debug('TaskRegistry: 后台等待完成 task_id=%s wait_id=%s', task_id, wait_id)
+        logger.debug(
+            'TaskRegistry: 后台等待唤醒 task_id=%s wait_id=%s status=%s completed=%s',
+            task_id,
+            wait_id,
+            resolved_status,
+            completed_ids,
+        )
         return True
 
     def get_task_wait_result(self, task_id: str, wait_id: str) -> dict:

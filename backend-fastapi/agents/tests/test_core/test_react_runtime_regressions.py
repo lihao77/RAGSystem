@@ -634,6 +634,239 @@ def test_run_waiting_loop_emits_start_and_end_for_completed_task(monkeypatch):
     assert registry.cleared
 
 
+def test_task_registry_keeps_multi_target_wait_until_all_targets_complete():
+    from agents.task_registry import BackgroundWaitState, TaskRegistry
+
+    registry = TaskRegistry()
+    task_id = registry.register_task(
+        session_id='session-1',
+        run_id='run-1',
+        task='demo',
+        status='running',
+        execution_kind='agent_run',
+    )
+    wait_state = BackgroundWaitState(
+        wait_id='wait-1',
+        task_ids=['bg-1', 'bg-2'],
+        pending_task_ids=['bg-1', 'bg-2'],
+    )
+    evt = registry.add_task_pending_wait(task_id, 'wait-1', wait_state)
+
+    assert registry.resolve_task_wait(task_id, 'wait-1', {
+        'background_task_id': 'bg-1',
+        'status': 'failed',
+    }) is True
+    assert evt.is_set()
+    partial = registry.get_task_wait_result(task_id, 'wait-1')
+    assert partial['status'] == 'partial'
+    assert partial['completed_task_ids'] == ['bg-1']
+    assert wait_state.pending_task_ids == ['bg-2']
+    assert registry.find_task_by_wait_target('bg-2') == (task_id, 'wait-1')
+
+    evt.clear()
+    assert registry.resolve_task_wait(task_id, 'wait-1', {
+        'background_task_id': 'bg-2',
+        'status': 'completed',
+    }) is True
+    final = registry.get_task_wait_result(task_id, 'wait-1')
+    assert final['status'] == 'failed'
+    assert final['completed_task_ids'] == ['bg-1', 'bg-2']
+    assert wait_state.pending_task_ids == []
+    assert registry.find_task_by_wait_target('bg-2') is None
+
+
+def test_run_waiting_loop_does_not_end_on_partial_background_completion(monkeypatch):
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _Event:
+        def __init__(self):
+            self.wait_calls = 0
+
+        def wait(self, timeout=None):
+            del timeout
+            self.wait_calls += 1
+            return self.wait_calls == 1
+
+        def clear(self):
+            pass
+
+    class _Registry:
+        def __init__(self):
+            self.event = _Event()
+            self.cleared = []
+
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id, bg_wait_state
+            return self.event
+
+        def get_task_wait_result(self, task_id, wait_id):
+            del task_id, wait_id
+            return {
+                'status': 'partial',
+                'completed_task_ids': ['bg-1'],
+                'completed_payloads': [
+                    {'background_task_id': 'bg-1', 'status': 'completed'},
+                ],
+                'pending_task_ids': ['bg-2'],
+            }
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            del task_id, wait_id, payload
+
+        def clear_task_waiting(self, task_id, wait_id):
+            self.cleared.append((task_id, wait_id))
+
+    class _Task:
+        def __init__(self, status):
+            self.status = status
+            self.return_code = 0
+            self.result_type = 'text'
+            self.output_path = None
+            self.completed_at = 123.0
+
+        def is_done(self):
+            return self.status == 'completed'
+
+    class _BackgroundManager:
+        def __init__(self):
+            self.poll_count = 0
+
+        def get_task(self, task_id):
+            if task_id == 'bg-1':
+                return _Task('completed' if self.poll_count > 0 else 'running')
+            if task_id == 'bg-2':
+                return _Task('completed' if self.poll_count > 0 else 'running')
+            return None
+
+        def get_task_snapshot(self, task_id):
+            assert task_id in {'bg-1', 'bg-2'}
+            return {
+                'status': 'completed',
+                'return_code': 0,
+                'result_type': 'text',
+                'output_path': None,
+                'completed_at': 123.0,
+            }
+
+    bg_manager = _BackgroundManager()
+
+    def _polling_manager():
+        return bg_manager
+
+    registry = _Registry()
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: registry)
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', _polling_manager)
+
+    original_poll = BaseAgent._poll_background_tasks
+
+    def _counting_poll(self, bg_manager_arg, *args, **kwargs):
+        result = original_poll(self, bg_manager_arg, *args, **kwargs)
+        bg_manager.poll_count += 1
+        return result
+
+    monkeypatch.setattr(BaseAgent, '_poll_background_tasks', _counting_poll)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(config=ContextConfig())
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    observed = agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-1', 'bg-2'], run_id='run-1'),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    end_calls = [item for item in publisher.calls if item[0] == 'execution_waiting_end']
+    assert len(end_calls) == 1
+    assert end_calls[0][1]['completed_task_ids'] == ['bg-1', 'bg-2']
+    assert end_calls[0][1]['pending_task_ids'] == []
+    assert observed == ['bg-1', 'bg-2']
+    assert '<task-id>bg-1</task-id>' in state['current_session'][0]['content']
+    assert '<task-id>bg-2</task-id>' in state['current_session'][0]['content']
+
+
+def test_run_waiting_loop_reports_failed_background_task_status(monkeypatch):
+    import threading
+    import agents.task_registry as task_registry_module
+    import tools.runtime.background_tasks as bg_tasks_module
+    from agents.core.base import WaitingRequest
+
+    class _FailedTask:
+        status = 'failed'
+        return_code = 1
+        result_type = 'text'
+        output_path = None
+        completed_at = 123.0
+
+        def is_done(self):
+            return True
+
+    class _Registry:
+        def add_task_pending_wait(self, task_id, wait_id, bg_wait_state):
+            del task_id, wait_id, bg_wait_state
+            return threading.Event()
+
+        def resolve_task_wait(self, task_id, wait_id, payload):
+            del task_id, wait_id, payload
+
+        def clear_task_waiting(self, task_id, wait_id):
+            del task_id, wait_id
+
+    class _BackgroundManager:
+        def get_task(self, task_id):
+            assert task_id == 'bg-failed'
+            return _FailedTask()
+
+        def get_task_snapshot(self, task_id):
+            assert task_id == 'bg-failed'
+            return {
+                'status': 'failed',
+                'return_code': 1,
+                'result_type': 'text',
+                'output_path': None,
+                'completed_at': 123.0,
+            }
+
+    monkeypatch.setattr(task_registry_module, 'get_task_registry', lambda: _Registry())
+    monkeypatch.setattr(bg_tasks_module, 'get_background_task_manager', lambda: _BackgroundManager())
+    monkeypatch.setattr('agents.core.base.time.time', lambda: 10.0)
+
+    agent = _PlaceholderAwareAgent()
+    agent.context_pipeline = SimpleNamespace(config=ContextConfig())
+    publisher = _DummyPublisher()
+    state = {
+        'publisher': publisher,
+        'current_session': [],
+        'run_id': 'run-1',
+        '_execution': {'task_id': 'task-1'},
+    }
+
+    observed = agent._run_waiting_loop(
+        WaitingRequest(background_task_ids=['bg-failed'], run_id='run-1'),
+        AgentContext(session_id='session-1'),
+        state,
+        rounds=2,
+        log_prefix='[test]',
+    )
+
+    end_call = next(item for item in publisher.calls if item[0] == 'execution_waiting_end')
+    assert end_call[1]['status'] == 'failed'
+    assert observed == ['bg-failed']
+    content = state['current_session'][0]['content']
+    assert '<status>failed</status>' in content
+    assert '执行失败' in content
+
+
 def test_append_waiting_observation_returns_notification_with_output_path():
     from tools.runtime.background_tasks import get_background_task_manager
 
@@ -792,6 +1025,51 @@ def test_pending_notifications_drain_into_current_session():
         react_calls = [item for item in publisher.calls if item[0] == "react_intermediate"]
         assert len(react_calls) == 1
         assert react_calls[0][1]["round"] == 3
+    finally:
+        task_registry_module.get_task_registry = original_getter
+
+
+def test_pending_notifications_skip_ids_already_observed_by_waiting_loop():
+    agent = _PlaceholderAwareAgent()
+    publisher = _DummyPublisher()
+
+    class _Registry:
+        def drain_session_notifications(self, session_id):
+            assert session_id == "session-1"
+            return [
+                {
+                    "background_task_id": "bg-waited",
+                    "status": "completed",
+                    "output_path": "E:/tmp/bg_waited.log",
+                },
+                {
+                    "background_task_id": "bg-other",
+                    "status": "completed",
+                    "output_path": "E:/tmp/bg_other.log",
+                },
+            ]
+
+    import agents.task_registry as task_registry_module
+    original_getter = task_registry_module.get_task_registry
+    task_registry_module.get_task_registry = lambda: _Registry()
+    try:
+        context = AgentContext(session_id="session-1")
+        state = {
+            "publisher": publisher,
+            "current_session": [],
+        }
+
+        agent._drain_pending_notifications(
+            context,
+            state,
+            3,
+            exclude_background_task_ids=["bg-waited"],
+        )
+
+        assert len(state["current_session"]) == 1
+        content = state["current_session"][0]["content"]
+        assert "<task-id>bg-other</task-id>" in content
+        assert "bg-waited" not in content
     finally:
         task_registry_module.get_task_registry = original_getter
 
