@@ -137,14 +137,15 @@ class AgentLoader:
         agents = {}
         all_configs = self._resolve_configs(configs)
 
-        # 在 agent 加载前注入 workspace_root，确保 skill 解析可见
-        # 注意：all_configs 是 dict 浅拷贝，AgentConfig 对象是共享引用，
-        # 必须先复制 custom_params 再修改，避免跨 session 污染。
+        # 在 agent 加载前注入 workspace_root，确保 skill 解析可见。
+        # all_configs 是 dict 浅拷贝，AgentConfig 对象仍是共享引用，
+        # 必须用 copy() 创建独立副本再修改，避免跨 session 污染。
         if self._workspace_root:
-            for agent_config in all_configs.values():
+            for agent_name, agent_config in list(all_configs.items()):
                 custom_params = getattr(agent_config, 'custom_params', None)
                 if isinstance(custom_params, dict) and 'workspace_root' not in custom_params:
-                    agent_config.custom_params = {**custom_params, 'workspace_root': self._workspace_root}
+                    new_params = {**custom_params, 'workspace_root': self._workspace_root}
+                    all_configs[agent_name] = agent_config.copy(update={'custom_params': new_params})
 
         # 1. 加载配置中的智能体
         for agent_name, agent_config in all_configs.items():

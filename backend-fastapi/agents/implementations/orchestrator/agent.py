@@ -145,12 +145,12 @@ class OrchestratorAgent(BaseAgent):
         state['agent_calls_history'] = []
         state['global_agent_order'] = 0
 
-        # 发布 agent_call_start 供前端构建调用树。
-        # 若工具侧已用相同 call_id 发布了 START（skip_agent_call_start=True），
-        # 此处跳过，否则前端会看到同一 call_id 的两次 START 事件。
+        # 若工具侧已用相同 call_id 发布了 START/END（skip_agent_call_start=True），
+        # 子 Agent 跳过自身的 START 和 END，由工具层统一管理生命周期。
         publisher = state.get('publisher')
-        skip_start = (getattr(context, 'metadata', None) or {}).get('skip_agent_call_start', False)
-        if publisher and not skip_start:
+        skip_call_events = (getattr(context, 'metadata', None) or {}).get('skip_agent_call_start', False)
+        state['skip_call_events'] = skip_call_events
+        if publisher and not skip_call_events:
             publisher.agent_call_start(
                 call_id=state['call_id'],
                 agent_name=self.name,
@@ -203,7 +203,7 @@ class OrchestratorAgent(BaseAgent):
             metadata['first_token_time'] = first_token_time
         if publisher:
             publisher.final_answer(final_answer, metadata=metadata)
-            if call_id:
+            if call_id and not state.get('skip_call_events'):
                 publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
@@ -246,7 +246,7 @@ class OrchestratorAgent(BaseAgent):
             metadata['first_token_time'] = first_token_time
         if publisher:
             publisher.final_answer(final_content, metadata=metadata)
-            if call_id:
+            if call_id and not state.get('skip_call_events'):
                 publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
@@ -282,7 +282,7 @@ class OrchestratorAgent(BaseAgent):
         self.logger.info(f"任务被用户中断: {error}")
         call_id = state.get('call_id')
         if publisher:
-            if call_id:
+            if call_id and not state.get('skip_call_events'):
                 publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
@@ -313,7 +313,7 @@ class OrchestratorAgent(BaseAgent):
         call_id = state.get('call_id')
         if publisher:
             publisher.agent_error(error=error_message, error_type="LLMError")
-            if call_id:
+            if call_id and not state.get('skip_call_events'):
                 publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
@@ -342,7 +342,7 @@ class OrchestratorAgent(BaseAgent):
         self.logger.error(f"执行任务失败: {error}", exc_info=True)
         call_id = state.get('call_id')
         if publisher:
-            if call_id:
+            if call_id and not state.get('skip_call_events'):
                 publisher.agent_call_end(
                     call_id=call_id,
                     agent_name=self.name,
