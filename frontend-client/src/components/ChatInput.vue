@@ -55,6 +55,7 @@
           </div>
 
           <div class="input-footer-right">
+            <slot name="rightActions" />
             <button
               v-if="isLoading"
               class="send-btn stop-btn"
@@ -426,6 +427,7 @@ textarea::placeholder {
 .input-footer-right {
   display: flex;
   align-items: center;
+  gap: 4px;
   flex: 0 0 auto;
 }
 

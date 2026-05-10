@@ -65,7 +65,7 @@
 
 ## 阶段 1: 聊天页工作台骨架
 
-状态: 未开始
+状态: 已完成
 
 目标:
 - 将聊天页从单一消息流改为“消息主区 + 可折叠运行 Inspector + 底部 Composer”。
@@ -73,17 +73,17 @@
 
 范围:
 - `ChatViewV2.vue`
-- 新增 `components/chat/RunInspector.vue`
+- `components/workpanel/WorkPanel.vue` 及子组件，作为运行 Inspector 实现
 - 新增 `components/chat/SessionContextBar.vue`
-- 新增 `components/chat/ComposerDock.vue` 或先用现有 `ChatInput.vue` 包装
+- 继续使用现有 `ChatInput.vue` 作为底部 Composer
 - `styles/chat-view.css`
 
 任务:
 - [x] 新增右侧 `RunInspector` 容器，桌面端固定右侧，窄屏暂时隐藏。
 - [x] 将当前 assistant 消息中的完整执行详情入口映射到 Inspector。
 - [x] 消息流内默认只保留 `SubtaskStatusTicker` 摘要。
-- [ ] 顶部控制栏收敛为 `SessionContextBar`，展示模型、入口 Agent、工作区、权限和运行态。
-- [ ] 保持审批弹窗、用户输入弹窗、附件抽屉行为不变。
+- [x] 顶部控制栏收敛为 `SessionContextBar`，展示模型、入口 Agent、工作区、权限和运行态。
+- [x] 保持审批弹窗、用户输入弹窗、附件抽屉行为不变。
 
 验收:
 - 运行中任务能在 Inspector 看到执行树。
@@ -232,3 +232,4 @@
 
 - 2026-05-10: 建立工作台改造计划，开始阶段 0。
 - 2026-05-10: 完成阶段 0。`MainLayout.vue` 的 sidebar 管理入口已改为 `sidebarNavItems` 数据渲染；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 完成阶段 1。右侧 `WorkPanel` 承载运行 Inspector；顶部控制栏收敛为 `SessionContextBar`；`npm run build` 与 `npm test` 通过。

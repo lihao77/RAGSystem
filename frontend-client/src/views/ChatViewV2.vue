@@ -2,56 +2,18 @@
   <div class="chat-page-shell">
     <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': showWorkPanel }">
     <div class="chat-conversation-column">
-    <!-- 顶部控制栏 -->
-      <div class="top-controls-bar glass-card" ref="topControlsBarRef">
-        <!-- 左侧：汉堡菜单 + LLM 选择器 -->
-        <div class="left-controls glass-card">
-          <!-- 汉堡菜单按钮（移动端） -->
-          <button class="hamburger-menu-btn" @click="openMobileSidebar" :title="'Open menu'">
-            <IconMenu :size="20" />
-          </button>
-
-          <LLMSelector ref="llmSelectorRef" :model-value="selectedLLM" @update:model-value="emit('update:selectedLLM', $event)" />
-        </div>
-
-        <!-- 右侧：主题切换 -->
-        <div class="right-controls glass-card">
-          <PermissionModeSelector />
-          <button
-            @click="exportCurrentSession"
-            class="session-export-btn version-btn top-action-btn"
-            :disabled="!currentSessionId || isExportingSession"
-            :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3v12"></path>
-              <path d="m7 10 5 5 5-5"></path>
-              <path d="M5 21h14"></path>
-            </svg>
-          </button>
-          <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
-            <!-- Sun icon for dark mode -->
-            <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="5"></circle>
-              <line x1="12" y1="1" x2="12" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="23"></line>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-              <line x1="1" y1="12" x2="3" y2="12"></line>
-              <line x1="21" y1="12" x2="23" y2="12"></line>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-            </svg>
-            <!-- Moon icon for light mode -->
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
+      <SessionContextBar
+        ref="sessionContextBarRef"
+        :selected-llm="selectedLLM"
+        :is-dark="isDark"
+        :current-session-id="currentSessionId || ''"
+        :is-exporting-session="isExportingSession"
+        :scrolled="topControlsBarScrolled"
+        @update:selectedLLM="emit('update:selectedLLM', $event)"
+        @toggle-theme="emit('toggleTheme')"
+        @open-mobile-sidebar="openMobileSidebar"
+        @export-session="exportCurrentSession"
+      />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll" @click="handleMarkdownBlockAction">
         <div class="chat-messages">
           <!-- Welcome Screen -->
@@ -324,60 +286,18 @@
                     压缩中
                   </span>
                 </div>
-                <div v-if="hasStatusPopover" ref="sessionMetaContainerRef" class="session-meta-popover-anchor session-meta-popover-anchor--inline-end">
-                  <button
-                    type="button"
-                    class="execution-pill execution-pill--popover"
-                    :class="[{ 'is-expanded': sessionMetaExpanded }]"
-                    title="查看会话与执行信息"
-                    aria-label="查看会话与执行信息"
-                    :aria-expanded="sessionMetaExpanded ? 'true' : 'false'"
-                    @click="sessionMetaExpanded = !sessionMetaExpanded"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" class="execution-pill__icon">
-                      <path d="M12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9-9 4.03-9 9 4.03 9 9 9Z" fill="none" stroke="currentColor" stroke-width="1.7"/>
-                      <path d="M12 10.25v5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-                      <path d="M12 7.4h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-                    </svg>
-                  </button>
-                  <div v-if="sessionMetaExpanded" class="session-meta-panel session-meta-panel--end">
-                    <div v-if="hasSessionMeta" class="session-meta-section">
-                      <div class="session-meta-section-title">会话信息</div>
-                      <div v-if="currentSessionTeam" class="session-meta-item">
-                        <span class="session-meta-label">Team</span>
-                        <span class="session-meta-value">{{ currentSessionTeam }}</span>
-                      </div>
-                      <div v-if="pendingEntryAgent" class="session-meta-item">
-                        <span class="session-meta-label">Agent</span>
-                        <span class="session-meta-value">{{ pendingEntryAgent }}</span>
-                      </div>
-                      <div v-if="pendingWorkspaceRoot" class="session-meta-item">
-                        <span class="session-meta-label">目录</span>
-                        <span class="session-meta-value session-meta-value--path" :title="pendingWorkspaceRoot">{{ pendingWorkspaceRoot }}</span>
-                      </div>
-                    </div>
-                    <div v-if="showExecutionPill" class="session-meta-section">
-                      <div class="session-meta-section-title">执行状态</div>
-                      <div class="session-meta-item">
-                        <span class="session-meta-label">状态</span>
-                        <span class="session-meta-value">{{ executionStatusText }}</span>
-                      </div>
-                      <div v-if="sessionExecutionObservability?.execution_kind" class="session-meta-item">
-                        <span class="session-meta-label">类型</span>
-                        <span class="session-meta-value">{{ sessionExecutionObservability.execution_kind }}</span>
-                      </div>
-                      <div v-if="sessionExecutionObservability?.task_id" class="session-meta-item">
-                        <span class="session-meta-label">Task</span>
-                        <span class="session-meta-value session-meta-value--path" :title="sessionExecutionObservability.task_id">{{ sessionExecutionObservability.task_id }}</span>
-                      </div>
-                      <div v-if="sessionExecutionObservability?.run_id" class="session-meta-item">
-                        <span class="session-meta-label">Run</span>
-                        <span class="session-meta-value session-meta-value--path" :title="sessionExecutionObservability.run_id">{{ sessionExecutionObservability.run_id }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
+            </template>
+            <template #rightActions>
+              <SessionContextInfoButton
+                :current-session-id="currentSessionId || ''"
+                :team="currentSessionTeam"
+                :entry-agent="pendingEntryAgent"
+                :workspace-root="pendingWorkspaceRoot"
+                :execution-status-text="executionStatusText"
+                :show-execution-status="showExecutionPill"
+                :execution-observability="sessionExecutionObservability"
+              />
             </template>
           </ChatInput>
         </div>
@@ -462,7 +382,6 @@ import { useSessionMessages } from '../composables/useSessionMessages';
 import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
 import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
@@ -473,10 +392,8 @@ import MapRenderer from '../components/MapRenderer.vue';
 import VisualizationLoader from '../components/VisualizationLoader.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
-import LLMSelector from '../components/LLMSelector.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import MessageEditBox from '../components/MessageEditBox.vue';
-import PermissionModeSelector from '../components/PermissionModeSelector.vue';
 import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 
 // 审批 ack 超时计时器（模块级 Map，替代 window 全局）
@@ -565,7 +482,9 @@ import ApprovalDialog from '../components/ApprovalDialog.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
-import { IconLogo, IconMenu } from '../components/icons';
+import SessionContextBar from '../components/chat/SessionContextBar.vue';
+import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
+import { IconLogo } from '../components/icons';
 import { getMessageRunSteps } from '../api/monitoring';
 import CommandResultMessage from '../components/CommandResultMessage.vue';
 import WorkPanel from '../components/workpanel/WorkPanel.vue';
@@ -602,8 +521,8 @@ const messages = ref([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
 const messagesRef = ref(null);
-const topControlsBarRef = ref(null);
-const sessionMetaContainerRef = ref(null);
+const sessionContextBarRef = ref(null);
+const topControlsBarScrolled = ref(false);
 // 跟随状态：true 时自动滚动到底部，用户上滚超过阈值脱离，滚回底部恢复
 const isFollowing = ref(true);
 const scrollBottomGap = ref(0);
@@ -612,8 +531,6 @@ const showScrollToBottomButton = computed(() => {
   return !isFollowing.value;
 });
 
-const hasSessionMeta = computed(() => Boolean(currentSessionId.value && (currentSessionTeam.value || pendingEntryAgent.value || pendingWorkspaceRoot.value)));
-const hasStatusPopover = computed(() => hasSessionMeta.value || showExecutionPill.value);
 const currentSessionId = ref(null);
 const sessionFilesDrawerVisible = ref(false);
 const sessionFilesDrawerTarget = ref('composer');
@@ -642,7 +559,6 @@ const historyError = ref('');
 const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const chatInputRef = ref(null);
-const llmSelectorRef = ref(null);
 const approvalDialogRef = ref(null);
 const filePreviewDialogRef = ref(null);
 const userInputDialogRef = ref(null);
@@ -653,7 +569,7 @@ const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
 
 function getCurrentSelectedLlm() {
-  return llmSelectorRef.value?.getSelection() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+  return sessionContextBarRef.value?.getSelection?.() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
 }
 
 function openCtxDrawer() {
@@ -957,7 +873,6 @@ const situationArtifactId = ref(null);
 const situationMapData = ref(null);
 const situationInfo = ref(null);
 const messageActionsVisible = ref(null);
-const sessionMetaExpanded = ref(false);
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const getChatSessionPath = (sessionId) => sessionId
   ? `/chat/${encodeURIComponent(sessionId)}`
@@ -997,7 +912,6 @@ const syncSessionFromRoute = async (sessionId) => {
     messages.value = [];
     sessionFilesDrawerVisible.value = false;
     sessionFilesDrawerTarget.value = 'composer';
-    sessionMetaExpanded.value = false;
   }
 };
 
@@ -1178,15 +1092,6 @@ const loadActiveTeam = async () => {
   }
 };
 
-usePointerDownOutside({
-  inside: [sessionMetaContainerRef],
-  enabled: () => sessionMetaExpanded.value,
-  target: () => window,
-  onOutside: () => {
-    sessionMetaExpanded.value = false;
-  },
-});
-
 const checkIfAtBottom = () => {
   if (!messagesRef.value) return true;
   const container = messagesRef.value;
@@ -1270,14 +1175,7 @@ const handleScroll = () => {
     _lastScrollTop = currentTop;
   }
 
-  // 控制 top-controls-bar 的边框显示
-  if (topControlsBarRef.value) {
-    if (container.scrollTop > 0) {
-      topControlsBarRef.value.classList.add('scrolled');
-    } else {
-      topControlsBarRef.value.classList.remove('scrolled');
-    }
-  }
+  topControlsBarScrolled.value = container.scrollTop > 0;
 };
 
 const onScrollToBottomClick = () => {
