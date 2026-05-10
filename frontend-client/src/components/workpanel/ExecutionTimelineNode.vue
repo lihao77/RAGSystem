@@ -300,11 +300,12 @@ function formatElapsed(value) {
   --status-border: var(--color-border);
   --status-bg: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.26);
   --rail-width: 22px;
-  --child-rail-width: 18px;
-  --child-indent: 22px;
+  --child-rail-width: 16px;
+  --child-indent: 20px;
   --rail-dot-top: 17px;
   --rail-dot-size: 9px;
   --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
+  --branch-opacity: 0.48;
   position: relative;
   letter-spacing: 0;
 }
@@ -321,7 +322,12 @@ function formatElapsed(value) {
 }
 
 .etn--nested {
-  --rail-width: 18px;
+  --rail-width: 16px;
+  --child-rail-width: 14px;
+  --child-indent: 18px;
+  --rail-dot-top: 16px;
+  --rail-dot-size: 7px;
+  --branch-opacity: 0.4;
 }
 
 .etn.status-running {
@@ -332,8 +338,8 @@ function formatElapsed(value) {
 
 .etn.status-success {
   --status-color: var(--color-success);
-  --status-border: rgba(var(--color-success-rgb), 0.24);
-  --status-bg: rgba(var(--color-success-rgb), 0.09);
+  --status-border: rgba(var(--color-success-rgb), 0.2);
+  --status-bg: rgba(var(--color-success-rgb), 0.055);
 }
 
 .etn.status-error {
@@ -364,7 +370,7 @@ function formatElapsed(value) {
   height: var(--rail-dot-size);
   border-radius: 999px;
   background: var(--status-color);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   transition:
     background var(--transition-fast),
     box-shadow var(--transition-fast);
@@ -415,11 +421,12 @@ function formatElapsed(value) {
 }
 
 .etn--nested .etn-card {
-  background: transparent;
+  border-color: transparent;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.1);
 }
 
 .etn--nested .etn-card.is-interactive:not(.is-selected):hover {
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
 }
 
 .etn--nested .etn-card.is-selected {
@@ -435,9 +442,17 @@ function formatElapsed(value) {
   background: transparent;
 }
 
+.etn--nested.etn--tool_call .etn-card {
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.06);
+}
+
 .etn--tool_call .etn-card.is-interactive:not(.is-selected):hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.24);
+}
+
+.etn--nested.etn--tool_call .etn-card.is-interactive:not(.is-selected):hover {
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.14);
 }
 
 .etn--tool_call .etn-card.is-selected {
@@ -713,14 +728,15 @@ function formatElapsed(value) {
 .etn-substeps {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
   padding-top: 1px;
+  opacity: 0.82;
 }
 
 .etn-substep-dot {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 999px;
   background: var(--color-border);
   transition: background var(--transition-fast), opacity var(--transition-fast);
@@ -739,46 +755,48 @@ function formatElapsed(value) {
   font-size: 10px;
   color: var(--color-text-muted);
   line-height: 1;
+  padding-left: 1px;
 }
 
 .etn-children {
-  --timeline-rail-thickness: 2px;
+  --timeline-rail-thickness: 1px;
   position: relative;
-  margin: 6px 0 0 var(--child-indent);
+  margin: 5px 0 0 var(--child-indent);
   padding: 0;
   transform-origin: top;
 }
 
-/* .etn-children::before {
+.etn-children::before {
   content: '';
   position: absolute;
-  left: calc((var(--rail-width) / 2) - var(--child-indent) - 1px);
-  top: -6px;
-  width: calc(var(--child-indent) + (var(--child-rail-width) / 2) - (var(--rail-width) / 2) + 2px);
+  left: calc((var(--rail-width) / 2) - var(--child-indent));
+  top: -5px;
+  width: calc(var(--child-indent) + (var(--child-rail-width) / 2) - (var(--rail-width) / 2));
   height: var(--timeline-rail-thickness);
   border-radius: var(--radius-full);
   background: var(--color-border);
-  opacity: 0.7;
-} */
+  opacity: var(--branch-opacity);
+  pointer-events: none;
+}
 
 .etn-children::after {
   content: '';
   position: absolute;
   left: calc((var(--child-rail-width) - var(--timeline-rail-thickness)) / 2);
-  top: -6px;
-  bottom: 0;
+  top: -5px;
+  bottom: 2px;
   width: var(--timeline-rail-thickness);
   border-radius: var(--radius-full);
   background: var(--color-border);
-  opacity: 0.7;
+  opacity: var(--branch-opacity);
   pointer-events: none;
-  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 6px, #000 calc(100% - 12px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 6px, #000 calc(100% - 12px), transparent 100%);
 }
 
 .etn-children:not(:has(> .etn + .etn)):not(:has(> .etn--has-children))::after {
   bottom: auto;
-  height: calc(var(--rail-dot-center) + 6px);
+  height: calc(var(--rail-dot-center) + 4px);
 }
 
 .etn-children > .etn > .etn-row {

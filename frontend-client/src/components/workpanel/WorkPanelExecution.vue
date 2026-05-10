@@ -28,12 +28,12 @@
     </div>
     <Transition name="wpe-focus">
       <button
-        v-if="focusNode"
+        v-if="visibleFocusNode"
         type="button"
         class="wpe-focus-strip"
-        :class="`status-${normalizeStatus(focusNode.status)}`"
+        :class="`status-${normalizeStatus(visibleFocusNode.status)}`"
         title="定位当前关注步骤"
-        @click="focusNodeInList(focusNode)"
+        @click="focusNodeInList(visibleFocusNode)"
       >
         <span class="wpe-focus-dot" aria-hidden="true"></span>
         <span class="wpe-focus-label">{{ focusStripLabel }}</span>
@@ -223,6 +223,7 @@ let copiedResetTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionSteps, props.subtasks))
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
+const visibleFocusNode = computed(() => shouldShowFocusStrip(focusNode.value) ? focusNode.value : null)
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
 const selectedKey = computed(() => selectedNode.value ? getNodeKey(selectedNode.value) : '')
 
@@ -315,14 +316,14 @@ const inspectorTitle = computed(() => {
   return node.intent || node.thought || node.thinking || node.description || '执行步骤'
 })
 const focusStripLabel = computed(() => {
-  if (!focusNode.value) return ''
-  const status = normalizeStatus(focusNode.value.status)
+  if (!visibleFocusNode.value) return ''
+  const status = normalizeStatus(visibleFocusNode.value.status)
   if (status === 'error') return '失败'
   if (status === 'running') return '当前'
-  if (focusNode.value.tool_name === 'request_user_input') return '待输入'
+  if (visibleFocusNode.value.tool_name === 'request_user_input') return '待输入'
   return '最新'
 })
-const focusStripTitle = computed(() => getNodeTitle(focusNode.value))
+const focusStripTitle = computed(() => getNodeTitle(visibleFocusNode.value))
 
 const stats = computed(() => {
   const values = { total: 0, agent: 0, tool: 0, running: 0, success: 0, error: 0 }
@@ -491,6 +492,12 @@ function findLastByStatus(status) {
     if (normalizeStatus(flatNodes.value[i]?.status) === status) return flatNodes.value[i]
   }
   return null
+}
+
+function shouldShowFocusStrip(node) {
+  if (!node) return false
+  const status = normalizeStatus(node.status)
+  return status === 'running' || status === 'error' || node.tool_name === 'request_user_input'
 }
 
 function scrollNodeIntoView(key) {
