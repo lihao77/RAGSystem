@@ -101,7 +101,8 @@ function submit(approved) {
 <style scoped>
 .wpa-root {
   padding: 6px 14px 12px;
-  background: var(--color-bg-secondary);
+  background: transparent;
+  letter-spacing: 0;
 }
 
 .wpa-section-label {
@@ -131,9 +132,10 @@ function submit(approved) {
 
 .wpa-card {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg, 10px);
+  border-radius: var(--radius-sm, 8px);
   overflow: hidden;
-  background: var(--color-bg-elevated);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.82);
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -216,7 +218,7 @@ function submit(approved) {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
-  background: var(--color-bg-secondary);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.52);
   padding: 6px 12px;
   max-height: 100px;
   overflow-y: auto;
@@ -229,7 +231,7 @@ function submit(approved) {
   width: 100%;
   font-size: 12px;
   padding: 7px 12px;
-  background: transparent;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
   border: none;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-primary);

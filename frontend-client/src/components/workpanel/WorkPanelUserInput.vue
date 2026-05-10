@@ -65,8 +65,9 @@ function submit() {
 <style scoped>
 .wpui-root {
   padding: 6px 14px 12px;
-  background: var(--color-bg-secondary);
+  background: transparent;
   border-top: 1px solid var(--color-border);
+  letter-spacing: 0;
 }
 
 .wpui-section-label {
@@ -80,9 +81,10 @@ function submit() {
 
 .wpui-card {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg, 10px);
+  border-radius: var(--radius-sm, 8px);
   overflow: hidden;
-  background: var(--color-bg-elevated);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.82);
+  box-shadow: var(--shadow-md);
 }
 
 .wpui-prompt {
@@ -98,7 +100,7 @@ function submit() {
   width: 100%;
   font-size: 13px;
   padding: 8px 12px;
-  background: transparent;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.16);
   border: none;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-primary);

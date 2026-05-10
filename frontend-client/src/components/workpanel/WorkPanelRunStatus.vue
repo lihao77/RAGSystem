@@ -1,15 +1,24 @@
 <template>
-  <div class="wpr-root">
+  <div class="wpr-root" :class="{ active: isActive }">
     <div class="wpr-phase-row">
-      <span class="wpr-icon">{{ phaseIcon }}</span>
-      <span class="wpr-label">{{ phaseLabel }}</span>
+      <span class="wpr-indicator" :class="`tone-${phaseTone}`" aria-hidden="true">
+        <span class="wpr-indicator-core"></span>
+      </span>
+      <div class="wpr-label-block">
+        <span class="wpr-kicker">当前状态</span>
+        <span class="wpr-label">{{ phaseLabel }}</span>
+      </div>
       <span v-if="elapsedText" class="wpr-elapsed">{{ elapsedText }}</span>
     </div>
     <div v-if="contextUsage.max > 0" class="wpr-ctx-row">
-      <div class="wpr-ctx-bar-track">
+      <div class="wpr-ctx-copy">
+        <span>上下文</span>
+        <span>{{ ctxPercent }}%</span>
+      </div>
+      <div class="wpr-ctx-bar-track" :title="`${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
         <div class="wpr-ctx-bar-fill" :class="ctxClass" :style="{ width: ctxPercent + '%' }"></div>
       </div>
-      <span class="wpr-ctx-label">{{ contextUsage.used.toLocaleString() }} / {{ contextUsage.max.toLocaleString() }}</span>
+      <span class="wpr-ctx-label">{{ compactNumber(contextUsage.used) }} / {{ compactNumber(contextUsage.max) }}</span>
     </div>
   </div>
 </template>
@@ -23,17 +32,6 @@ const props = defineProps({
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
 })
 
-const PHASE_ICONS = {
-  idle: '○',
-  llm_waiting_first_token: '◌',
-  llm_streaming: '▶',
-  tool_running: '⚙',
-  background_waiting: '⏳',
-  retrying: '↻',
-  reflecting: '◎',
-  approval_waiting: '◈',
-}
-
 const PHASE_LABELS = {
   idle: '空闲',
   llm_waiting_first_token: '思考中',
@@ -45,10 +43,15 @@ const PHASE_LABELS = {
   approval_waiting: '等待审批',
 }
 
-const phaseIcon = computed(() => PHASE_ICONS[props.phase] || '○')
 const phaseLabel = computed(() => PHASE_LABELS[props.phase] || props.phase)
 
 const isActive = computed(() => props.phase !== 'idle')
+const phaseTone = computed(() => {
+  if (props.phase === 'approval_waiting') return 'warning'
+  if (props.phase === 'retrying') return 'warning'
+  if (props.phase === 'idle') return 'idle'
+  return 'active'
+})
 
 const elapsed = ref(0)
 let timer = null
@@ -78,43 +81,104 @@ const ctxClass = computed(() => {
   if (p >= 70) return 'fill-warning'
   return 'fill-ok'
 })
+
+function compactNumber(value) {
+  const n = Number(value || 0)
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}m`
+  if (n >= 10000) return `${Math.round(n / 1000)}k`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return n.toLocaleString()
+}
 </script>
 
 <style scoped>
 .wpr-root {
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   flex-shrink: 0;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
+  letter-spacing: 0;
 }
 
 .wpr-phase-row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
 }
 
-.wpr-icon {
-  font-size: 14px;
-  color: v-bind("isActive ? 'var(--color-brand-accent)' : 'var(--color-text-muted)'");
+.wpr-indicator {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
   flex-shrink: 0;
-  width: 16px;
-  text-align: center;
-  animation: v-bind("isActive && phase !== 'idle' ? 'wpr-pulse 2s ease-in-out infinite' : 'none'");
+}
+
+.wpr-indicator-core {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-text-muted);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+}
+
+.wpr-indicator.tone-active {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.24);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+}
+
+.wpr-indicator.tone-active .wpr-indicator-core {
+  background: var(--color-brand-accent);
+  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.16);
+  animation: wpr-pulse 1.6s ease-in-out infinite;
+}
+
+.wpr-indicator.tone-warning {
+  border-color: rgba(var(--color-warning-rgb), 0.26);
+  background: rgba(var(--color-warning-rgb), 0.1);
+}
+
+.wpr-indicator.tone-warning .wpr-indicator-core {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb), 0.14);
+  animation: wpr-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes wpr-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.78); }
+}
+
+.wpr-label-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+  flex: 1;
+}
+
+.wpr-kicker {
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  font-weight: 650;
 }
 
 .wpr-label {
   font-size: 13px;
-  font-weight: 500;
+  line-height: 1.35;
+  font-weight: 650;
   color: var(--color-text-primary);
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wpr-elapsed {
@@ -124,22 +188,34 @@ const ctxClass = computed(() => {
 }
 
 .wpr-ctx-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+}
+
+.wpr-ctx-copy {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--color-text-muted);
 }
 
 .wpr-ctx-bar-track {
   flex: 1;
-  height: 3px;
+  height: 5px;
   background: var(--color-border);
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   overflow: hidden;
+  align-self: center;
 }
 
 .wpr-ctx-bar-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   transition: width 0.5s ease;
 }
 

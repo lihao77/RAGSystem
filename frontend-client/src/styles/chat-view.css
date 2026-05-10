@@ -2139,12 +2139,12 @@
   }
 
   .work-panel {
-    width: 380px;
+    width: clamp(360px, 30vw, 430px);
     flex-shrink: 0;
     border-left: 1px solid var(--color-border);
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: var(--color-bg-secondary);
+    background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
   }
 }
