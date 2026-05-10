@@ -318,9 +318,9 @@ const inspectorTitle = computed(() => {
 const focusStripLabel = computed(() => {
   if (!visibleFocusNode.value) return ''
   const status = normalizeStatus(visibleFocusNode.value.status)
+  if (visibleFocusNode.value.tool_name === 'request_user_input') return '待输入'
   if (status === 'error') return '失败'
   if (status === 'running') return '当前'
-  if (visibleFocusNode.value.tool_name === 'request_user_input') return '待输入'
   return '最新'
 })
 const focusStripTitle = computed(() => getNodeTitle(visibleFocusNode.value))

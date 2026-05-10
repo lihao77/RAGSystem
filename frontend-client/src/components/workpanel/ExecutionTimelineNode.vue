@@ -708,19 +708,10 @@ function formatElapsed(value) {
   --type-rgb: 142, 142, 147;
 }
 
-.etn-card.is-selected .etn-type-icon,
-.etn.status-running .etn-type-icon,
-.etn.status-error .etn-type-icon,
-.etn.status-stopped .etn-type-icon {
-  color: var(--status-color);
-  border-color: var(--status-border);
-  background: var(--status-bg);
-}
-
-.etn:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected .etn-type-icon {
-  color: var(--color-brand-accent);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+.etn-card.is-selected .etn-type-icon {
+  color: var(--type-color);
+  border-color: rgba(var(--type-rgb), 0.34);
+  background: rgba(var(--type-rgb), 0.12);
 }
 
 .agent-badge {
