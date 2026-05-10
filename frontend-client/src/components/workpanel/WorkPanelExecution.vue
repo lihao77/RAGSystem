@@ -77,14 +77,17 @@
       </div>
 
       <div class="wpe-inspector-body">
-        <template v-if="selectedNode.type === 'agent_call'">
-          <div v-if="selectedNode.description" class="wpe-detail-block">
-            <div class="wpe-detail-label">任务</div>
-            <div class="wpe-detail-text">{{ selectedNode.description }}</div>
+        <section v-if="selectedInspectorMeta.length || selectedSummarySections.length || selectedNode.ctx?.max > 0" class="wpe-inspector-section">
+          <div class="wpe-section-heading">摘要</div>
+          <div v-if="selectedInspectorMeta.length" class="wpe-meta-grid">
+            <div v-for="item in selectedInspectorMeta" :key="item.label" class="wpe-meta-item">
+              <span class="wpe-meta-label">{{ item.label }}</span>
+              <span class="wpe-meta-value">{{ item.value }}</span>
+            </div>
           </div>
-          <div v-if="selectedNode.result_summary" class="wpe-detail-block">
-            <div class="wpe-detail-label">结果</div>
-            <div class="wpe-detail-text">{{ selectedNode.result_summary }}</div>
+          <div v-for="section in selectedSummarySections" :key="section.id" class="wpe-detail-block">
+            <div class="wpe-detail-label">{{ section.label }}</div>
+            <div class="wpe-detail-text">{{ section.text }}</div>
           </div>
           <div v-if="selectedNode.ctx?.max > 0" class="wpe-context">
             <div class="wpe-context-copy">
@@ -95,42 +98,60 @@
               <span class="wpe-context-fill" :style="{ width: selectedCtxPercent + '%' }"></span>
             </div>
           </div>
-        </template>
+        </section>
 
-        <template v-else-if="selectedNode.type === 'tool_call'">
-          <template v-if="selectedNode.tool_name === 'request_user_input'">
-            <div v-if="selectedNode.arguments?.prompt" class="wpe-detail-block">
-              <div class="wpe-detail-label">智能体提问</div>
-              <div class="wpe-detail-text">{{ selectedNode.arguments.prompt }}</div>
-              <div v-if="Array.isArray(selectedNode.arguments?.options) && selectedNode.arguments.options.length > 0" class="wpe-options">
-                <span v-for="option in selectedNode.arguments.options" :key="String(option)" class="wpe-option">{{ option }}</span>
-              </div>
+        <section v-if="selectedInputSections.length" class="wpe-inspector-section">
+          <div class="wpe-section-heading">输入</div>
+          <div v-for="section in selectedInputSections" :key="section.id" class="wpe-detail-block">
+            <div class="wpe-detail-label">{{ section.label }}</div>
+            <div v-if="section.kind === 'code'" class="wpe-code-wrap">
+              <button
+                type="button"
+                class="wpe-copy-btn"
+                :title="copiedSectionId === section.id ? '已复制' : '复制'"
+                @click="copySectionText(section)"
+              >
+                <svg v-if="copiedSectionId === section.id" viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+                  <path d="m4.5 10.5 3.2 3.2 7.8-8.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+                  <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+              </button>
+              <pre class="wpe-code">{{ section.text }}</pre>
             </div>
-            <div v-if="selectedPreviewResult && selectedPreviewResult !== '（已取消）'" class="wpe-detail-block">
-              <div class="wpe-detail-label">用户回答</div>
-              <div class="wpe-detail-text">{{ selectedPreviewResult }}</div>
+            <div v-else class="wpe-detail-text">{{ section.text }}</div>
+            <div v-if="section.options?.length" class="wpe-options">
+              <span v-for="option in section.options" :key="option" class="wpe-option">{{ option }}</span>
             </div>
-            <div v-else-if="normalizeStatus(selectedNode.status) === 'running'" class="wpe-detail-text muted">等待用户输入中</div>
-          </template>
-
-          <template v-else>
-            <div v-if="hasSelectedArguments" class="wpe-detail-block">
-              <div class="wpe-detail-label">输入参数</div>
-              <pre class="wpe-code">{{ formattedSelectedArguments }}</pre>
-            </div>
-            <div v-if="selectedPreviewResult" class="wpe-detail-block">
-              <div class="wpe-detail-label">执行结果</div>
-              <pre class="wpe-code result">{{ formattedSelectedResult }}</pre>
-            </div>
-          </template>
-        </template>
-
-        <template v-else>
-          <div class="wpe-detail-block">
-            <div class="wpe-detail-label">内容</div>
-            <div class="wpe-detail-text">{{ inspectorTitle }}</div>
           </div>
-        </template>
+        </section>
+
+        <section v-if="selectedOutputSections.length" class="wpe-inspector-section">
+          <div class="wpe-section-heading">输出</div>
+          <div v-for="section in selectedOutputSections" :key="section.id" class="wpe-detail-block">
+            <div class="wpe-detail-label">{{ section.label }}</div>
+            <div v-if="section.kind === 'code'" class="wpe-code-wrap">
+              <button
+                type="button"
+                class="wpe-copy-btn"
+                :title="copiedSectionId === section.id ? '已复制' : '复制'"
+                @click="copySectionText(section)"
+              >
+                <svg v-if="copiedSectionId === section.id" viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+                  <path d="m4.5 10.5 3.2 3.2 7.8-8.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+                  <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+              </button>
+              <pre class="wpe-code result">{{ section.text }}</pre>
+            </div>
+            <div v-else class="wpe-detail-text" :class="{ muted: section.muted }">{{ section.text }}</div>
+          </div>
+        </section>
       </div>
       </div>
     </Transition>
@@ -138,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
 import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 
@@ -151,6 +172,8 @@ const props = defineProps({
 
 const listRef = ref(null)
 const selectedNode = ref(null)
+const copiedSectionId = ref('')
+let copiedResetTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionSteps, props.subtasks))
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
@@ -170,6 +193,81 @@ const selectedCtxPercent = computed(() => {
   const ctx = selectedNode.value?.ctx
   if (!ctx?.max) return 0
   return Math.min(100, Math.round((ctx.used / ctx.max) * 100))
+})
+const selectedStatusLabel = computed(() => {
+  const label = {
+    running: '执行中',
+    success: '完成',
+    error: '失败',
+    stopped: '已停止',
+    pending: '等待',
+  }
+  return label[normalizeStatus(selectedNode.value?.status)] || selectedNode.value?.status || '未知'
+})
+const selectedElapsedLabel = computed(() => formatElapsed(selectedNode.value?.elapsed_time))
+const selectedInspectorMeta = computed(() => {
+  const node = selectedNode.value
+  if (!node) return []
+  const meta = [{ label: '状态', value: selectedStatusLabel.value }]
+  if (selectedElapsedLabel.value) meta.push({ label: '耗时', value: selectedElapsedLabel.value })
+  if (node.type === 'agent_call') {
+    const agent = node.agent_display_name || node.agent_name || node.agent
+    if (agent) meta.push({ label: 'Agent', value: agent })
+  }
+  if (node.type === 'tool_call' && node.tool_name) meta.push({ label: '工具', value: node.tool_name })
+  if (node.type === 'thought' && node.round) meta.push({ label: '轮次', value: String(node.round) })
+  return meta
+})
+const selectedSummarySections = computed(() => {
+  const node = selectedNode.value
+  if (!node) return []
+  if (node.type === 'agent_call' && node.description) {
+    return [{ id: 'summary-agent-task', label: '任务', text: node.description }]
+  }
+  if (node.type === 'thought') {
+    const text = node.intent || node.thought || node.thinking || node.description || inspectorTitle.value
+    return text ? [{ id: 'summary-thought', label: '内容', text }] : []
+  }
+  if (node.type !== 'tool_call') {
+    const text = node.description || inspectorTitle.value
+    return text ? [{ id: 'summary-content', label: '内容', text }] : []
+  }
+  return []
+})
+const selectedInputSections = computed(() => {
+  const node = selectedNode.value
+  if (!node || node.type !== 'tool_call') return []
+  const args = node.arguments || {}
+  if (node.tool_name === 'request_user_input') {
+    if (!args.prompt) return []
+    return [{
+      id: 'input-prompt',
+      label: '问题',
+      text: String(args.prompt),
+      options: normalizeOptions(args.options),
+    }]
+  }
+  if (!hasSelectedArguments.value) return []
+  return [{ id: 'input-args', label: '参数', text: formattedSelectedArguments.value, kind: 'code' }]
+})
+const selectedOutputSections = computed(() => {
+  const node = selectedNode.value
+  if (!node) return []
+  if (node.type === 'agent_call' && node.result_summary) {
+    return [{ id: 'output-agent-result', label: '结果', text: node.result_summary }]
+  }
+  if (node.type !== 'tool_call') return []
+  if (node.tool_name === 'request_user_input') {
+    if (selectedPreviewResult.value && selectedPreviewResult.value !== '（已取消）') {
+      return [{ id: 'output-user-answer', label: '回答', text: selectedPreviewResult.value }]
+    }
+    if (normalizeStatus(node.status) === 'running') {
+      return [{ id: 'output-input-waiting', label: '状态', text: '等待用户输入中', muted: true }]
+    }
+    return []
+  }
+  if (!selectedPreviewResult.value) return []
+  return [{ id: 'output-result', label: '执行结果', text: formattedSelectedResult.value, kind: 'code' }]
 })
 const inspectorTypeLabel = computed(() => {
   if (!selectedNode.value) return ''
@@ -227,15 +325,20 @@ const scrollSignature = computed(() => flatNodes.value.map((node, index) => [
 
 watch(scrollSignature, async () => {
   if (!props.running) return
+  const shouldFollow = !listRef.value || isListNearBottom(listRef.value)
   await nextTick()
   const el = listRef.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (el && shouldFollow) el.scrollTop = el.scrollHeight
 })
 
 watch(focusNode, (node) => {
   if (!selectedNode.value && node) {
     selectedNode.value = node
   }
+})
+
+onUnmounted(() => {
+  if (copiedResetTimer) clearTimeout(copiedResetTimer)
 })
 
 function flattenNodes(items = []) {
@@ -255,8 +358,69 @@ function flattenNodes(items = []) {
 function normalizeStatus(status) {
   if (status === 'completed' || status === 'success') return 'success'
   if (status === 'failed' || status === 'error') return 'error'
+  if (status === 'cancelled' || status === 'stopped') return 'stopped'
   if (status === 'running') return 'running'
   return status || 'pending'
+}
+
+function formatElapsed(value) {
+  if (value === null || value === undefined || value === '') return ''
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds)) return ''
+  if (seconds < 1) return `${Math.max(1, Math.round(seconds * 1000))}ms`
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  return `${minutes}m${rest}s`
+}
+
+function normalizeOptions(options) {
+  if (!Array.isArray(options)) return []
+  return options
+    .map(option => {
+      if (option && typeof option === 'object') {
+        const value = option.label ?? option.value ?? option.name
+        return value == null ? JSON.stringify(option) : String(value)
+      }
+      return option == null ? '' : String(option)
+    })
+    .filter(Boolean)
+}
+
+async function copyToClipboard(text) {
+  const value = String(text || '')
+  if (!value) return false
+  try {
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === 'function' &&
+      typeof window !== 'undefined' &&
+      window.isSecureContext
+    ) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch {
+    // Fall through to the textarea fallback.
+  }
+
+  if (typeof document === 'undefined') return false
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return Boolean(document.execCommand && document.execCommand('copy'))
+  } catch {
+    return false
+  } finally {
+    document.body.removeChild(textarea)
+  }
 }
 
 function nodeKey(node, index) {
@@ -273,6 +437,18 @@ function getNodeKey(node) {
 
 function selectNode(node) {
   selectedNode.value = node
+}
+
+async function copySectionText(section) {
+  const text = String(section?.text || '')
+  if (!text) return
+  const ok = await copyToClipboard(text)
+  if (!ok) return
+  copiedSectionId.value = section.id
+  if (copiedResetTimer) clearTimeout(copiedResetTimer)
+  copiedResetTimer = setTimeout(() => {
+    if (copiedSectionId.value === section.id) copiedSectionId.value = ''
+  }, 1200)
 }
 
 async function focusNodeInList(node) {
@@ -306,6 +482,11 @@ function scrollNodeIntoView(key) {
   if (!target) return
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   target.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' })
+}
+
+function isListNearBottom(el) {
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 36
 }
 
 function findFocusNode(items) {
@@ -674,8 +855,8 @@ button.wpe-chip:hover {
 
 .wpe-inspector {
   flex-shrink: 0;
-  max-height: 38%;
-  min-height: 120px;
+  max-height: 44%;
+  min-height: 150px;
   border-top: 1px solid var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
   display: flex;
@@ -744,7 +925,57 @@ button.wpe-chip:hover {
   padding: 0 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+}
+
+.wpe-inspector-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.wpe-inspector-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.wpe-section-heading {
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.wpe-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.wpe-meta-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wpe-meta-label {
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+}
+
+.wpe-meta-value {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wpe-detail-block {
@@ -774,11 +1005,43 @@ button.wpe-chip:hover {
   color: var(--color-text-muted);
 }
 
+.wpe-code-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.wpe-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.82);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.wpe-copy-btn:hover {
+  border-color: var(--color-border-hover);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.96);
+  color: var(--color-text-primary);
+}
+
 .wpe-code {
   margin: 0;
   max-height: 190px;
   overflow: auto;
-  padding: 8px 9px;
+  padding: 8px 36px 8px 9px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28);

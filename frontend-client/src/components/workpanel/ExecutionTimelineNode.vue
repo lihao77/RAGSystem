@@ -524,7 +524,7 @@ function parseMaybeJson(value) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: start;
   gap: 8px;
   padding: 8px 10px;
@@ -649,24 +649,30 @@ function parseMaybeJson(value) {
 }
 
 .etn-side {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content max-content 16px;
   align-items: center;
   gap: 6px;
   padding-top: 1px;
   flex-shrink: 0;
+  justify-items: end;
 }
 
 .etn-time {
+  min-width: 38px;
   font-size: 11px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-align: right;
 }
 
 .etn-status-pill {
+  min-width: 42px;
   height: 20px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 0 7px;
   border-radius: var(--radius-full);
   color: var(--status-color);
@@ -683,6 +689,8 @@ function parseMaybeJson(value) {
 
 .etn-chevron {
   display: inline-flex;
+  width: 16px;
+  justify-content: center;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast), color var(--transition-fast);
 }
