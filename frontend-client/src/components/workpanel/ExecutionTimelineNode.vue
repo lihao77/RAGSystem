@@ -7,13 +7,12 @@
         </span>
       </div>
 
-      <section class="etn-card" :class="{ 'is-interactive': canToggle }">
+      <section class="etn-card" :class="{ 'is-interactive': true, 'is-selected': selectedKey === nodeKeyValue }">
         <button
           type="button"
           class="etn-summary"
-          :disabled="!canToggle"
-          :aria-expanded="canToggle ? expanded : undefined"
-          @click="toggleExpanded"
+          :aria-expanded="hasChildren ? expanded : undefined"
+          @click="handleSummaryClick"
         >
           <div class="etn-main">
             <div class="etn-kicker">
@@ -38,65 +37,13 @@
           <div class="etn-side">
             <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
             <span v-if="statusText" class="etn-status-pill">{{ statusText }}</span>
-            <span v-if="canToggle" class="etn-chevron" :class="{ expanded }" aria-hidden="true">
+            <span v-if="hasChildren" class="etn-chevron" :class="{ expanded }" aria-hidden="true">
               <svg viewBox="0 0 20 20" width="14" height="14">
                 <path d="M7 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </span>
           </div>
         </button>
-
-        <div v-if="expanded && hasDetails" class="etn-details">
-          <template v-if="node.type === 'agent_call'">
-            <div v-if="node.description" class="etn-detail-block">
-              <div class="etn-detail-label">任务</div>
-              <div class="etn-detail-text">{{ node.description }}</div>
-            </div>
-            <div v-if="node.result_summary" class="etn-detail-block">
-              <div class="etn-detail-label">结果</div>
-              <div class="etn-detail-text">{{ node.result_summary }}</div>
-            </div>
-            <div v-if="node.ctx && node.ctx.max > 0" class="etn-context">
-              <div class="etn-context-copy">
-                <span>上下文</span>
-                <span>{{ ctxPercent }}%</span>
-              </div>
-              <div class="etn-context-track">
-                <span class="etn-context-fill" :style="{ width: ctxPercent + '%' }"></span>
-              </div>
-            </div>
-          </template>
-
-          <template v-else-if="node.type === 'tool_call'">
-            <template v-if="node.tool_name === 'request_user_input'">
-              <div v-if="node.arguments?.prompt" class="etn-detail-block">
-                <div class="etn-detail-label">智能体提问</div>
-                <div class="etn-detail-text">{{ node.arguments.prompt }}</div>
-                <div v-if="Array.isArray(node.arguments?.options) && node.arguments.options.length > 0" class="etn-options">
-                  <span v-for="option in node.arguments.options" :key="String(option)" class="etn-option">{{ option }}</span>
-                </div>
-              </div>
-              <div v-if="previewResult && previewResult !== '（已取消）'" class="etn-detail-block">
-                <div class="etn-detail-label">用户回答</div>
-                <div class="etn-detail-text">{{ previewResult }}</div>
-              </div>
-              <div v-else-if="isRunning" class="etn-detail-block">
-                <div class="etn-detail-text muted">等待用户输入中</div>
-              </div>
-            </template>
-
-            <template v-else>
-              <div v-if="hasArguments" class="etn-detail-block">
-                <div class="etn-detail-label">输入参数</div>
-                <pre class="etn-code">{{ formattedArguments }}</pre>
-              </div>
-              <div v-if="previewResult" class="etn-detail-block">
-                <div class="etn-detail-label">执行结果</div>
-                <pre class="etn-code result">{{ formattedResult }}</pre>
-              </div>
-            </template>
-          </template>
-        </div>
       </section>
     </div>
 
@@ -107,13 +54,16 @@
         :node="child"
         :depth="depth + 1"
         :session-id="sessionId"
+        :focus-key="focusKey"
+        :selected-key="selectedKey"
+        @inspect="emit('inspect', $event)"
       />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getAgentBadgeClass } from '../../utils/agentBadge'
 
 defineOptions({ name: 'ExecutionTimelineNode' })
@@ -122,7 +72,10 @@ const props = defineProps({
   node: { type: Object, required: true },
   depth: { type: Number, default: 0 },
   sessionId: { type: String, default: '' },
+  focusKey: { type: String, default: '' },
+  selectedKey: { type: String, default: '' },
 })
+const emit = defineEmits(['inspect'])
 
 const expanded = ref(defaultExpanded(props.node))
 
@@ -147,6 +100,7 @@ const agentLabel = computed(() => shortName(props.node.agent_display_name || pro
 const agentBadgeClass = computed(() => getAgentBadgeClass(props.node.agent_name || props.node.agent || props.node.agent_display_name))
 const elapsedText = computed(() => formatElapsed(props.node.elapsed_time))
 const previewResult = computed(() => props.node?.result_preview ?? props.node?.result ?? '')
+const nodeKeyValue = computed(() => getNodeKey(props.node))
 
 const typeLabel = computed(() => {
   if (props.node.type === 'thought') return props.node.round ? `轮次 ${props.node.round}` : '思考'
@@ -233,22 +187,15 @@ const statusText = computed(() => {
 })
 
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0)
-const hasArguments = computed(() => {
-  const args = props.node.arguments
-  if (!args) return false
-  if (typeof args === 'object') return Object.keys(args).length > 0
-  return String(args).trim().length > 0
-})
-const hasResult = computed(() => previewResult.value !== null && previewResult.value !== undefined && String(previewResult.value).trim().length > 0)
-const hasDetails = computed(() => {
-  if (props.node.type === 'agent_call') return Boolean(props.node.description || props.node.result_summary || props.node.ctx?.max)
-  if (props.node.type === 'tool_call') return hasArguments.value || hasResult.value || props.node.tool_name === 'request_user_input'
-  return false
-})
-const canToggle = computed(() => hasChildren.value || hasDetails.value)
-
-const formattedArguments = computed(() => formatContent(props.node.arguments, 900))
-const formattedResult = computed(() => formatContent(previewResult.value, 900))
+watch(
+  () => [props.focusKey, props.node.status, props.node.children?.length],
+  () => {
+    if (hasChildren.value && shouldRevealNode(props.node, props.focusKey)) {
+      expanded.value = true
+    }
+  },
+  { immediate: true }
+)
 
 const toolStatuses = computed(() => {
   if (props.node.type !== 'agent_call') return []
@@ -257,23 +204,15 @@ const toolStatuses = computed(() => {
   return statuses
 })
 
-const ctxPercent = computed(() => {
-  const ctx = props.node.ctx
-  if (!ctx?.max) return 0
-  return Math.min(100, Math.round((ctx.used / ctx.max) * 100))
-})
-
-function toggleExpanded() {
-  if (!canToggle.value) return
+function handleSummaryClick() {
+  emit('inspect', props.node)
+  if (!hasChildren.value) return
   expanded.value = !expanded.value
 }
 
 function defaultExpanded(node) {
   if (node.expanded !== undefined) return Boolean(node.expanded)
-  if (node.tool_name === 'request_user_input') return true
-  if (node.type === 'thought') return true
-  if (node.status === 'running') return true
-  return node.type === 'agent_call'
+  return shouldRevealNode(node, props.focusKey)
 }
 
 function shortName(name) {
@@ -294,9 +233,38 @@ function normalizeStatus(status) {
   return 'pending'
 }
 
+function getNodeKey(node) {
+  if (!node) return ''
+  if (node.call_id) return `call:${node.call_id}`
+  if (node.task_id) return `task:${node.task_id}`
+  const identity = node.tool_name || node.agent_name || node.agent || node.agent_display_name || node.intent || node.description || ''
+  return `${node.type || 'node'}:${node.round || ''}:${String(identity).slice(0, 80)}`
+}
+
+function shouldRevealNode(node, focusKey) {
+  if (!node) return false
+  const status = normalizeStatus(node.status)
+  if (status === 'running' || status === 'error') return true
+  if (node.tool_name === 'request_user_input') return true
+  if (hasRunningChild(node) || hasErrorChild(node)) return true
+  return Boolean(focusKey && containsNodeKey(node, focusKey))
+}
+
 function hasRunningChild(node) {
   if (!Array.isArray(node.children)) return false
   return node.children.some(child => normalizeStatus(child.status) === 'running' || hasRunningChild(child))
+}
+
+function hasErrorChild(node) {
+  if (!Array.isArray(node.children)) return false
+  return node.children.some(child => normalizeStatus(child.status) === 'error' || hasErrorChild(child))
+}
+
+function containsNodeKey(node, key) {
+  if (!key || !node) return false
+  if (getNodeKey(node) === key) return true
+  if (!Array.isArray(node.children)) return false
+  return node.children.some(child => containsNodeKey(child, key))
 }
 
 function collectToolStatuses(children, statuses) {
@@ -329,21 +297,6 @@ function parseMaybeJson(value) {
   }
 }
 
-function formatContent(value, maxLength) {
-  if (value === null || value === undefined) return ''
-  let text = ''
-  if (typeof value === 'string') {
-    const parsed = parseMaybeJson(value)
-    text = parsed && typeof parsed !== 'string' ? JSON.stringify(parsed, null, 2) : value
-  } else {
-    try {
-      text = JSON.stringify(value, null, 2)
-    } catch {
-      text = String(value)
-    }
-  }
-  return text.length > maxLength ? `${text.slice(0, maxLength)}\n...` : text
-}
 </script>
 
 <style scoped>
@@ -443,12 +396,21 @@ function formatContent(value, maxLength) {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
 }
 
+.etn-card.is-selected {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+}
+
 .etn--nested .etn-card {
   background: transparent;
 }
 
 .etn--nested .etn-card.is-interactive:hover {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
+}
+
+.etn--nested .etn-card.is-selected {
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .etn--tool_call .etn-card {
@@ -459,6 +421,11 @@ function formatContent(value, maxLength) {
 .etn--tool_call .etn-card.is-interactive:hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.24);
+}
+
+.etn--tool_call .etn-card.is-selected {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .etn-summary {
@@ -602,109 +569,6 @@ function formatContent(value, maxLength) {
   font-size: 10px;
   color: var(--color-text-muted);
   line-height: 1;
-}
-
-.etn-details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0 10px 10px;
-  padding: 9px 0 0;
-  border-top: 1px solid var(--color-border);
-  background: transparent;
-}
-
-.etn-detail-block {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-
-.etn-detail-label {
-  font-size: 10px;
-  line-height: 1.2;
-  font-weight: 700;
-  color: var(--color-text-muted);
-}
-
-.etn-detail-text {
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--color-text-secondary);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.etn-detail-text.muted {
-  color: var(--color-text-muted);
-}
-
-.etn-code {
-  margin: 0;
-  max-height: 160px;
-  overflow: auto;
-  padding: 7px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28);
-  color: var(--color-text-secondary);
-  font: 11px/1.5 var(--font-mono);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.etn-code.result {
-  color: var(--color-result-text);
-  background: var(--color-result-bg);
-  border-color: var(--color-result-border);
-}
-
-.etn-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.etn-option {
-  max-width: 100%;
-  padding: 3px 7px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.etn-context {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.etn-context-copy {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--color-text-muted);
-}
-
-.etn-context-track {
-  height: 4px;
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  background: var(--color-border);
-}
-
-.etn-context-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-brand-accent);
 }
 
 .etn-children {
