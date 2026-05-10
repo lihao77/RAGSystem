@@ -234,3 +234,4 @@
 - 2026-05-10: 完成阶段 0。`MainLayout.vue` 的 sidebar 管理入口已改为 `sidebarNavItems` 数据渲染；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 完成阶段 1。右侧 `WorkPanel` 承载运行 Inspector；顶部控制栏收敛为 `SessionContextBar`；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 启动。新增 `ChatMessageList.vue` 与 `ChatMessageItem.vue`，先拆出消息展示外壳；`ChatViewV2.vue` 继续持有状态和副作用；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 阶段 2 继续拆分。新增 `MessageActions.vue`、`AssistantMessage.vue`、`UserMessage.vue`，消息操作、assistant 内容和用户消息编辑态展示已下沉到子组件；markdown copy 事件仍由消息 wrapper 代理，后续单独收敛；`npm run build` 与 `npm test` 通过。
