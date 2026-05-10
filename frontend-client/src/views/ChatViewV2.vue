@@ -601,51 +601,85 @@ const {
   syncSessionFromRoute,
   ensureSession,
 } = useChatSessionController({
-  currentSessionId,
-  isLoading,
-  messages,
-  sessionFiles,
-  sessionFilesDrawerVisible,
-  sessionFilesDrawerTarget,
-  loadSessionMessages,
-  loadSessionFiles,
-  connectSessionWS,
-  disconnectSessionWS,
-  invalidateActiveStream,
-  clearExecutionState: () => clearExecutionState(),
-  clearComposerAttachments: () => clearComposerAttachments(),
-  checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
-  showToast: (...a) => showToast(...a),
-  onSessionCreated: (...a) => props.onSessionCreated?.(...a),
-  onSessionUpdated: (...a) => props.onSessionUpdated?.(...a),
+  state: {
+    currentSessionId,
+    isLoading,
+    messages,
+  },
+  filesState: {
+    sessionFiles,
+    sessionFilesDrawerVisible,
+    sessionFilesDrawerTarget,
+  },
+  messageStore: {
+    loadSessionMessages,
+  },
+  files: {
+    loadSessionFiles,
+  },
+  connection: {
+    connectSessionWS,
+    disconnectSessionWS,
+    invalidateActiveStream,
+  },
+  runtime: {
+    clearExecutionState: () => clearExecutionState(),
+    checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
+  },
+  ui: {
+    clearComposerAttachments: () => clearComposerAttachments(),
+    showToast: (...a) => showToast(...a),
+  },
+  callbacks: {
+    onSessionCreated: (...a) => props.onSessionCreated?.(...a),
+    onSessionUpdated: (...a) => props.onSessionUpdated?.(...a),
+  },
 });
 
 const {
   handleSend,
   handleStop,
 } = useSessionSend({
-  currentSessionId,
-  messages,
-  inputMessage,
-  isLoading,
-  activeRun: _activeRun,
-  sessionTaskInfo,
-  contextUsage,
-  pendingAttachments,
-  ensureSession: (...a) => ensureSession(...a),
-  getWS: () => getWS(),
-  materializeAttachmentsForSend,
-  cacheMessages,
-  resetEditingState: (...a) => resetEditingState(...a),
-  clearEditingAttachments,
-  clearComposerAttachments,
-  stickToBottom,
-  updateRecentSession,
-  beginOptimisticExecutionState,
-  mergeExecutionObservability,
-  scheduleCommandFallback,
-  getCurrentSelectedLlm: () => getCurrentSelectedLlm(),
-  showToast: (...a) => showToast(...a),
+  state: {
+    currentSessionId,
+    messages,
+    inputMessage,
+    isLoading,
+    activeRun: _activeRun,
+    sessionTaskInfo,
+    contextUsage,
+  },
+  composer: {
+    pendingAttachments,
+    getCurrentSelectedLlm: () => getCurrentSelectedLlm(),
+  },
+  session: {
+    ensureSession: (...a) => ensureSession(...a),
+    updateRecentSession,
+  },
+  connection: {
+    getWS: () => getWS(),
+    scheduleCommandFallback,
+  },
+  attachments: {
+    materializeAttachmentsForSend,
+    clearComposerAttachments,
+  },
+  messageStore: {
+    cacheMessages,
+  },
+  editing: {
+    resetEditingState: (...a) => resetEditingState(...a),
+    clearEditingAttachments,
+  },
+  runtime: {
+    beginOptimisticExecutionState,
+    mergeExecutionObservability,
+  },
+  ui: {
+    stickToBottom,
+    showToast: (...a) => showToast(...a),
+  },
 });
 
 const {

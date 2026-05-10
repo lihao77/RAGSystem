@@ -38,10 +38,38 @@ const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime,
   kind,
 });
 
+function normalizeSessionSendDeps(deps) {
+  const {
+    state = {},
+    composer = {},
+    session = {},
+    connection = {},
+    attachments = {},
+    messageStore = {},
+    editing = {},
+    runtime = {},
+    ui = {},
+  } = deps || {};
+
+  return {
+    ...deps,
+    ...state,
+    ...composer,
+    ...session,
+    ...connection,
+    ...attachments,
+    ...messageStore,
+    ...editing,
+    ...runtime,
+    ...ui,
+  };
+}
+
 /**
  * 发送、停止和 active run 初始化控制。
  */
 export function useSessionSend(deps) {
+  deps = normalizeSessionSendDeps(deps);
   const lastFailedSendContent = ref('');
 
   const handleStop = async () => {

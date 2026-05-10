@@ -16,6 +16,7 @@ function normalizeSessionRunStreamDeps(deps) {
   } = deps || {};
 
   return {
+    ...deps,
     ...state,
     ...messageStore,
     ...sessionStatus,
@@ -27,7 +28,6 @@ function normalizeSessionRunStreamDeps(deps) {
     ...artifacts,
     ...ui,
     ...sending,
-    ...deps,
   };
 }
 
