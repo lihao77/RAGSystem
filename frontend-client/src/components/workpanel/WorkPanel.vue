@@ -11,6 +11,11 @@
     />
 
     <div class="wp-body">
+      <ArtifactPanel
+        :message="currentMessage"
+        @select="emit('artifactSelect', $event)"
+      />
+
       <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
           v-if="currentMessage"
@@ -53,6 +58,7 @@ import WorkPanelRunStatus from './WorkPanelRunStatus.vue'
 import WorkPanelExecution from './WorkPanelExecution.vue'
 import WorkPanelApproval from './WorkPanelApproval.vue'
 import WorkPanelUserInput from './WorkPanelUserInput.vue'
+import ArtifactPanel from '../chat/ArtifactPanel.vue'
 
 const props = defineProps({
   activeRun: { type: Object, required: true },
@@ -65,7 +71,7 @@ const props = defineProps({
   messageKey: { type: String, default: '' },
 })
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'])
+const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect'])
 
 const messageHasError = computed(() => {
   const msg = props.currentMessage

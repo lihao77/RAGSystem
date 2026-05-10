@@ -12,6 +12,7 @@
     @approval-submit="emit('approvalSubmit', $event)"
     @user-input-submit="emit('userInputSubmit', $event)"
     @user-input-cancel="emit('userInputCancel')"
+    @artifact-select="emit('artifactSelect', $event)"
   />
 
   <ApprovalDialog ref="approvalDialogRef" />
@@ -36,7 +37,7 @@ defineProps({
   messageKey: { type: String, default: '' },
 });
 
-const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel']);
+const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect']);
 
 const approvalDialogRef = ref(null);
 const userInputDialogRef = ref(null);

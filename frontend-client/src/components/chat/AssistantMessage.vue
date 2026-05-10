@@ -19,7 +19,11 @@
         @notify="emit('notify', $event)"
       />
     </div>
-    <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
+    <div
+      v-else-if="part.type === 'viz'"
+      class="inline-chart-wrapper"
+      :data-artifact-id="part.artifactId"
+    >
       <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
     </div>
   </template>

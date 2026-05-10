@@ -156,6 +156,7 @@
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
       @user-input-submit="handleWorkPanelUserInputSubmit"
       @user-input-cancel="handleWorkPanelUserInputCancel"
+      @artifact-select="handleArtifactSelect"
     />
     </main>
     <AppToast ref="toastRef" />
@@ -1536,6 +1537,31 @@ function parseMessageParts(msg) {
   return parts;
 }
 
+const artifactFocusTimer = ref(null);
+const artifactFocusTarget = ref(null);
+
+const handleArtifactSelect = async ({ artifactId } = {}) => {
+  if (!artifactId) return;
+  await nextTick();
+  const root = messagesRef.value;
+  const target = Array.from(root?.querySelectorAll('[data-artifact-id]') || [])
+    .find((node) => node.getAttribute('data-artifact-id') === artifactId);
+  if (!target) return;
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (artifactFocusTimer.value) clearTimeout(artifactFocusTimer.value);
+  artifactFocusTarget.value?.classList.remove('artifact-inline-focus');
+  artifactFocusTarget.value = target;
+  target.classList.add('artifact-inline-focus');
+  artifactFocusTimer.value = setTimeout(() => {
+    target.classList.remove('artifact-inline-focus');
+    if (artifactFocusTarget.value === target) {
+      artifactFocusTarget.value = null;
+    }
+    artifactFocusTimer.value = null;
+  }, 1600);
+};
+
 const copyMessage = async (msg) => {
   const text = (msg.content || '').trim();
   if (!text) {
@@ -1860,6 +1886,12 @@ onMounted(() => {
 onUnmounted(() => {
   stopRetryTicker();
   disconnectSessionWS();
+  if (artifactFocusTimer.value) {
+    clearTimeout(artifactFocusTimer.value);
+    artifactFocusTimer.value = null;
+  }
+  artifactFocusTarget.value?.classList.remove('artifact-inline-focus');
+  artifactFocusTarget.value = null;
 
   // 不再通知后端停止任务 — Agent 继续在后台执行
 
@@ -2323,6 +2355,13 @@ onUnmounted(() => {
 .inline-chart-wrapper {
   margin: 12px 0;
   width: 100%;
+}
+
+.artifact-inline-focus {
+  border-radius: 10px;
+  outline: 1px solid rgba(var(--color-active-rgb), 0.34);
+  outline-offset: 4px;
+  transition: outline-color 0.2s ease;
 }
 
 @media (max-width: 600px) {

@@ -96,6 +96,8 @@
 
 ## 阶段 2: `ChatViewV2.vue` 组件拆分
 
+状态: 已完成
+
 目标:
 - 降低聊天页单文件复杂度。
 - 把展示组件和副作用逻辑分层。
@@ -114,7 +116,7 @@
 - [x] 先拆消息展示组件，props 输入 `visibleMessages`、当前 session 和操作回调。
 - [x] 再拆 markdown copy、message action、编辑态展示。
 - [x] 把审批队列展示移入 `ApprovalQueueHost`，状态仍暂由 `ChatViewV2` 持有。
-- [ ] 把 artifact / visualization 入口移入 `ArtifactPanel` 或 Inspector tab。
+- [x] 把 artifact / visualization 入口移入 `ArtifactPanel` 或 Inspector tab。
 
 验收:
 - `ChatViewV2.vue` 行数明显下降。
@@ -238,3 +240,4 @@
 - 2026-05-11: 阶段 2 继续拆分。新增 `ApprovalQueueHost.vue`，承载右侧 `WorkPanel`、普通审批弹窗和用户输入弹窗；审批队列状态与提交逻辑仍由 `ChatViewV2.vue` 持有，文件预览确认弹窗暂保留在页面层；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 继续拆分。新增 `MarkdownContent.vue` 与 `utils/clipboard.js`，markdown 代码块/表格/引用复制逻辑从 `ChatViewV2.vue` 下沉到消息渲染组件；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 清理旧可视化兼容链路。移除 `[CHART:n]` 与 `multimodalContents` 历史格式支持，消息渲染仅保留 `[viz:artifact_id]`；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 完成阶段 2。新增 `ArtifactPanel.vue`，右侧工作栏展示当前消息中的 `[viz:artifact_id]` 产物入口；点击条目可定位到消息流中的内联可视化；`npm run build` 与 `npm test` 通过。
