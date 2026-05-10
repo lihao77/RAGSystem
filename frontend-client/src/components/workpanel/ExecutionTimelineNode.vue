@@ -1,5 +1,13 @@
 <template>
-  <div class="etn" :class="[`etn--${node.type}`, `status-${normalizedStatus}`, { 'etn--nested': depth > 0 }]">
+  <div
+    class="etn"
+    :class="[
+      `etn--${node.type}`,
+      `status-${normalizedStatus}`,
+      { 'etn--nested': depth > 0, 'etn--has-children': hasChildren },
+    ]"
+    :data-node-key="nodeKeyValue"
+  >
     <div class="etn-row">
       <div class="etn-rail" aria-hidden="true">
         <span class="etn-status-dot">
@@ -15,28 +23,40 @@
           @click="handleSummaryClick"
         >
           <div class="etn-main">
-            <div class="etn-kicker">
-              <span class="etn-type">{{ typeLabel }}</span>
-              <span v-if="agentLabel" class="agent-badge" :class="agentBadgeClass">{{ agentLabel }}</span>
-            </div>
+            <span
+              class="etn-type-icon"
+              :class="`icon-${nodeIconKind}`"
+              :title="typeLabel"
+              :aria-label="typeLabel"
+              role="img"
+              v-html="nodeIconSvg"
+            ></span>
 
-            <div class="etn-title">{{ titleText }}</div>
-            <div v-if="subtitleText" class="etn-subtitle">{{ subtitleText }}</div>
+            <div class="etn-content">
+              <div class="etn-title-row">
+                <div class="etn-title">{{ titleText }}</div>
+                <span v-if="agentLabel" class="agent-badge" :class="agentBadgeClass">{{ agentLabel }}</span>
+              </div>
 
-            <div v-if="node.type === 'agent_call' && toolStatuses.length > 0" class="etn-substeps">
-              <span
-                v-for="(status, index) in toolStatuses.slice(0, 8)"
-                :key="`${status}-${index}`"
-                class="etn-substep-dot"
-                :class="`substep-${normalizeStatus(status)}`"
-              ></span>
-              <span v-if="toolStatuses.length > 8" class="etn-substep-more">+{{ toolStatuses.length - 8 }}</span>
+              <div v-if="subtitleText" class="etn-subtitle">{{ subtitleText }}</div>
+
+              <div v-if="node.type === 'agent_call' && toolStatuses.length > 0" class="etn-substeps">
+                <span
+                  v-for="(status, index) in toolStatuses.slice(0, 8)"
+                  :key="`${status}-${index}`"
+                  class="etn-substep-dot"
+                  :class="`substep-${normalizeStatus(status)}`"
+                ></span>
+                <span v-if="toolStatuses.length > 8" class="etn-substep-more">+{{ toolStatuses.length - 8 }}</span>
+              </div>
             </div>
           </div>
 
           <div class="etn-side">
             <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
-            <span v-if="statusText" class="etn-status-pill">{{ statusText }}</span>
+            <Transition name="etn-status" mode="out-in">
+              <span v-if="statusText" :key="statusText" class="etn-status-pill">{{ statusText }}</span>
+            </Transition>
             <span v-if="hasChildren" class="etn-chevron" :class="{ expanded }" aria-hidden="true">
               <svg viewBox="0 0 20 20" width="14" height="14">
                 <path d="M7 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
@@ -47,18 +67,20 @@
       </section>
     </div>
 
-    <div v-if="expanded && node.children?.length" class="etn-children">
-      <ExecutionTimelineNode
-        v-for="(child, index) in node.children"
-        :key="child.call_id || child.task_id || `${child.type}-${depth + 1}-${index}`"
-        :node="child"
-        :depth="depth + 1"
-        :session-id="sessionId"
-        :focus-key="focusKey"
-        :selected-key="selectedKey"
-        @inspect="emit('inspect', $event)"
-      />
-    </div>
+    <Transition name="etn-expand">
+      <div v-if="expanded && node.children?.length" class="etn-children">
+        <ExecutionTimelineNode
+          v-for="(child, index) in node.children"
+          :key="child.call_id || child.task_id || `${child.type}-${depth + 1}-${index}`"
+          :node="child"
+          :depth="depth + 1"
+          :session-id="sessionId"
+          :focus-key="focusKey"
+          :selected-key="selectedKey"
+          @inspect="emit('inspect', $event)"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -90,6 +112,24 @@ const SKILL_TOOL_TEMPLATES = {
   get_skill_info: (args) => `查询 ${args?.skill_name || 'Skill'} 信息`,
 }
 
+const NODE_ICON_SVG = {
+  agent: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
+  thought: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5a6 6 0 1 1 7 0c-.9.6-1.5 1.6-1.5 2.5h-4c0-.9-.6-1.9-1.5-2.5Z"/></svg>',
+  tool: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.7 6.3a4 4 0 0 0-5 5L4 17l3 3 5.7-5.7a4 4 0 0 0 5-5l-2.9 2.9-3-3 2.9-2.9Z"/></svg>',
+  code: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16v14H4z"/><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/></svg>',
+  file: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></svg>',
+  map: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3Z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V5"/><path d="M4 19h16"/><rect x="7" y="11" width="3" height="5" rx="1"/><rect x="12" y="8" width="3" height="8" rx="1"/><rect x="17" y="5" width="3" height="11" rx="1"/></svg>',
+  skill: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Z"/><path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Z"/><path d="M19 14l.6 1.6L21 16l-1.4.4L19 18l-.6-1.6L17 16l1.4-.4L19 14Z"/></svg>',
+  input: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16v12H7l-3 3V5Z"/><path d="M8 10h8"/><path d="M8 14h5"/></svg>',
+  database: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>',
+  task: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h8"/><path d="m15 18 2 2 4-4"/></svg>',
+  agentCall: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="7" cy="12" r="3"/><circle cx="17" cy="6" r="3"/><circle cx="17" cy="18" r="3"/><path d="M10 11l4-3"/><path d="M10 13l4 3"/></svg>',
+  step: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7"/><path d="M12 8v4l3 2"/></svg>',
+}
+
 const normalizedStatus = computed(() => {
   const ownStatus = normalizeStatus(props.node.status)
   if (ownStatus === 'pending' && hasRunningChild(props.node)) return 'running'
@@ -101,6 +141,14 @@ const agentBadgeClass = computed(() => getAgentBadgeClass(props.node.agent_name 
 const elapsedText = computed(() => formatElapsed(props.node.elapsed_time))
 const previewResult = computed(() => props.node?.result_preview ?? props.node?.result ?? '')
 const nodeKeyValue = computed(() => getNodeKey(props.node))
+
+const nodeIconKind = computed(() => {
+  if (props.node.type === 'agent_call') return 'agent'
+  if (props.node.type === 'thought') return 'thought'
+  if (props.node.type === 'tool_call') return getToolIconKind(props.node.tool_name)
+  return 'step'
+})
+const nodeIconSvg = computed(() => NODE_ICON_SVG[nodeIconKind.value] || NODE_ICON_SVG.step)
 
 const typeLabel = computed(() => {
   if (props.node.type === 'thought') return props.node.round ? `轮次 ${props.node.round}` : '思考'
@@ -274,6 +322,22 @@ function collectToolStatuses(children, statuses) {
   })
 }
 
+function getToolIconKind(toolName = '') {
+  const name = String(toolName || '').toLowerCase()
+  if (name === 'request_user_input') return 'input'
+  if (name === 'call_agent') return 'agentCall'
+  if (name.includes('skill')) return 'skill'
+  if (name.includes('map') || name.includes('geo') || name.includes('spatial') || name.includes('basin')) return 'map'
+  if (name.includes('chart') || name.includes('visual') || name.includes('risk_matrix')) return 'chart'
+  if (name.includes('bash') || name.includes('code') || name.includes('script') || name.includes('terminal')) return 'code'
+  if (name.includes('file') || name.includes('document') || name.includes('report') || name.includes('artifact')) return 'file'
+  if (name.includes('grep') || name.includes('glob') || name.includes('search') || name.includes('query') || name.includes('explore')) return 'search'
+  if (name.includes('web') || name.includes('fetch') || name.includes('http') || name.includes('url')) return 'globe'
+  if (name.includes('memory') || name.includes('vector') || name.includes('database') || name.includes('store')) return 'database'
+  if (name.includes('task') || name.includes('todo') || name.includes('plan') || name.includes('approval')) return 'task'
+  return 'tool'
+}
+
 function formatElapsed(value) {
   if (value === null || value === undefined || value === '') return ''
   const seconds = Number(value)
@@ -304,8 +368,15 @@ function parseMaybeJson(value) {
   --status-color: var(--color-border);
   --status-border: var(--color-border);
   --status-bg: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.26);
+  --rail-width: 22px;
+  --child-rail-width: 18px;
+  --child-indent: 22px;
+  --rail-dot-top: 17px;
+  --rail-dot-size: 9px;
+  --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
   position: relative;
   letter-spacing: 0;
+  animation: etn-row-enter 220ms ease-out both;
 }
 
 .etn + .etn {
@@ -314,9 +385,13 @@ function parseMaybeJson(value) {
 
 .etn-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
   gap: 0;
-  align-items: start;
+  align-items: stretch;
+}
+
+.etn--nested {
+  --rail-width: 18px;
 }
 
 .etn.status-running {
@@ -346,27 +421,23 @@ function parseMaybeJson(value) {
 .etn-rail {
   position: relative;
   display: flex;
+  align-self: stretch;
   justify-content: center;
-  padding-top: 17px;
-}
-
-.etn-rail::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: -8px;
-  width: 1px;
-  background: linear-gradient(180deg, transparent, var(--color-border) 14px, var(--color-border) calc(100% - 8px), transparent);
+  min-height: calc(var(--rail-dot-top) + var(--rail-dot-size) + 8px);
+  padding-top: var(--rail-dot-top);
 }
 
 .etn-status-dot {
   position: relative;
   z-index: 1;
-  width: 9px;
-  height: 9px;
+  width: var(--rail-dot-size);
+  height: var(--rail-dot-size);
   border-radius: 999px;
   background: var(--status-color);
-  box-shadow: 0 0 0 4px rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.86);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition:
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .etn-status-pulse {
@@ -388,28 +459,44 @@ function parseMaybeJson(value) {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
-  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
-.etn-card.is-interactive:hover {
+.etn-card.is-interactive:not(.is-selected):hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
 }
 
 .etn-card.is-selected {
+  border-color: var(--status-border);
+  background: var(--status-bg);
+  box-shadow: inset 0 0 0 1px var(--status-border);
+}
+
+.etn:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
   border-color: rgba(var(--color-brand-accent-rgb), 0.34);
   background: rgba(var(--color-brand-accent-rgb), 0.1);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
 .etn--nested .etn-card {
   background: transparent;
 }
 
-.etn--nested .etn-card.is-interactive:hover {
+.etn--nested .etn-card.is-interactive:not(.is-selected):hover {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
 }
 
 .etn--nested .etn-card.is-selected {
+  background: var(--status-bg);
+}
+
+.etn--nested:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
   background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
@@ -418,12 +505,17 @@ function parseMaybeJson(value) {
   background: transparent;
 }
 
-.etn--tool_call .etn-card.is-interactive:hover {
+.etn--tool_call .etn-card.is-interactive:not(.is-selected):hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.24);
 }
 
 .etn--tool_call .etn-card.is-selected {
+  border-color: var(--status-border);
+  background: var(--status-bg);
+}
+
+.etn--tool_call:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
   border-color: rgba(var(--color-brand-accent-rgb), 0.34);
   background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
@@ -441,6 +533,7 @@ function parseMaybeJson(value) {
   color: inherit;
   text-align: left;
   font: inherit;
+  cursor: pointer;
 }
 
 .etn-summary:disabled {
@@ -449,24 +542,70 @@ function parseMaybeJson(value) {
 
 .etn-main {
   min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.etn-content {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-.etn-kicker {
+.etn-title-row {
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
 }
 
-.etn-type {
-  font-size: 10px;
-  line-height: 1.2;
-  font-weight: 700;
+.etn-type-icon {
+  width: 22px;
+  height: 20px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.24);
   color: var(--color-text-muted);
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.etn-type-icon :deep(svg) {
+  width: 13px;
+  height: 13px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.etn-card.is-selected .etn-type-icon,
+.etn.status-running .etn-type-icon,
+.etn.status-success .etn-type-icon,
+.etn.status-error .etn-type-icon,
+.etn.status-stopped .etn-type-icon {
+  color: var(--status-color);
+  border-color: var(--status-border);
+  background: var(--status-bg);
+}
+
+.etn:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected .etn-type-icon {
+  color: var(--color-brand-accent);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .agent-badge {
@@ -481,17 +620,21 @@ function parseMaybeJson(value) {
   line-height: 1;
   font-weight: 700;
   white-space: nowrap;
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .etn-title {
+  flex: 1;
   min-width: 0;
   font-size: 12px;
   line-height: 1.45;
   color: var(--color-text-primary);
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .etn-subtitle {
@@ -532,6 +675,10 @@ function parseMaybeJson(value) {
   font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .etn-chevron {
@@ -558,9 +705,14 @@ function parseMaybeJson(value) {
   height: 5px;
   border-radius: 999px;
   background: var(--color-border);
+  transition: background var(--transition-fast), opacity var(--transition-fast);
 }
 
-.substep-running { background: var(--color-brand-accent); }
+.substep-running {
+  background: var(--color-brand-accent);
+  animation: etn-substep-pulse 1.5s ease-in-out infinite;
+}
+
 .substep-success { background: var(--color-success); }
 .substep-error { background: var(--color-error); }
 .substep-stopped { background: var(--color-warning); }
@@ -572,12 +724,52 @@ function parseMaybeJson(value) {
 }
 
 .etn-children {
-  margin: 6px 0 0 22px;
+  --timeline-rail-thickness: 2px;
+  position: relative;
+  margin: 6px 0 0 var(--child-indent);
   padding: 0;
+  transform-origin: top;
+}
+
+/* .etn-children::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) / 2) - var(--child-indent) - 1px);
+  top: -6px;
+  width: calc(var(--child-indent) + (var(--child-rail-width) / 2) - (var(--rail-width) / 2) + 2px);
+  height: var(--timeline-rail-thickness);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  opacity: 0.7;
+} */
+
+.etn-children::after {
+  content: '';
+  position: absolute;
+  left: calc((var(--child-rail-width) - var(--timeline-rail-thickness)) / 2);
+  top: -6px;
+  bottom: 0;
+  width: var(--timeline-rail-thickness);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  opacity: 0.7;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+
+.etn-children:not(:has(> .etn + .etn)):not(:has(> .etn--has-children))::after {
+  bottom: auto;
+  height: calc(var(--rail-dot-center) + 6px);
 }
 
 .etn-children > .etn > .etn-row {
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+}
+
+.etn-children > .etn {
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 1320px) {
@@ -588,6 +780,81 @@ function parseMaybeJson(value) {
   .etn-side {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+}
+
+.etn-status-enter-active,
+.etn-status-leave-active {
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.etn-status-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.etn-status-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.etn-expand-enter-active,
+.etn-expand-leave-active {
+  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.etn-expand-enter-from,
+.etn-expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@keyframes etn-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes etn-substep-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.75);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .etn,
+  .etn-status-pulse,
+  .substep-running {
+    animation: none;
+  }
+
+  .etn-status-dot,
+  .etn-card,
+  .etn-status-pill,
+  .etn-substep-dot,
+  .etn-chevron,
+  .etn-status-enter-active,
+  .etn-status-leave-active,
+  .etn-expand-enter-active,
+  .etn-expand-leave-active {
+    transition-duration: 1ms;
+  }
+
+  .etn-status-enter-from,
+  .etn-status-leave-to,
+  .etn-expand-enter-from,
+  .etn-expand-leave-to {
+    transform: none;
   }
 }
 </style>

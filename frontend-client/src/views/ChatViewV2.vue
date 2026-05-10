@@ -211,6 +211,21 @@
                   </button>
                 </template>
                 <template v-if="msg.role === 'assistant' && msg.finished">
+                  <button
+                    v-if="showWorkPanel && hasExecutionContent(msg)"
+                    type="button"
+                    class="msg-action-btn btn-execution-tree"
+                    :class="{ active: selectedWorkPanelMessageKey === getWorkPanelMessageKey(msg) }"
+                    title="在工作栏查看执行树"
+                    @click="selectWorkPanelMessage(msg)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M6 3v12"></path>
+                      <circle cx="6" cy="18" r="3"></circle>
+                      <path d="M6 9h8"></path>
+                      <circle cx="17" cy="9" r="3"></circle>
+                    </svg>
+                  </button>
                   <button type="button" class="msg-action-btn btn-copy" title="复制" @click="copyMessage(msg)">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                   </button>
@@ -378,6 +393,7 @@
       :pending-user-input="pendingUserInput"
       :context-usage="contextUsage"
       :session-id="currentSessionId || ''"
+      :message-key="currentRunMessageKey"
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
       @user-input-submit="({ inputId, value }) => { pendingUserInput.value?.submit(inputId, value); pendingUserInput.value = null; }"
       @user-input-cancel="() => { pendingUserInput.value?.cancel(); pendingUserInput.value = null; }"
@@ -710,19 +726,71 @@ const {
 });
 
 const { showWorkPanel } = useWorkbenchLayout();
+const selectedWorkPanelMessageKey = ref('');
+const getWorkPanelMessageKey = (msg) => {
+  if (!msg) return '';
+  if (msg.id) return `id:${msg.id}`;
+  if (msg.seq != null) return `seq:${msg.seq}`;
+  return `idx:${messages.value.indexOf(msg)}`;
+};
+const workPanelExecutionMessages = computed(() => messages.value
+  .map((msg, index) => ({ msg, index }))
+  .filter(({ msg }) => hasExecutionContent(msg))
+  .map(({ msg, index }) => ({
+    key: getWorkPanelMessageKey(msg),
+    index,
+    message: msg,
+  })));
+
 const currentRunMessage = computed(() => {
-  if (_activeRun.assistantMsgIndex >= 0) {
+  if (_activeRun.active && _activeRun.assistantMsgIndex >= 0) {
     return messages.value[_activeRun.assistantMsgIndex] ?? null;
   }
-  // idle 时展示最后一条有执行数据的 assistant 消息
-  for (let i = messages.value.length - 1; i >= 0; i--) {
-    const msg = messages.value[i];
-    if (msg.role === 'assistant' && (msg.execution_steps?.length > 0 || msg.subtasks?.length > 0)) {
-      return msg;
+  const selected = workPanelExecutionMessages.value.find(item => item.key === selectedWorkPanelMessageKey.value)?.message;
+  if (selected) return selected;
+  return workPanelExecutionMessages.value.at(-1)?.message || null;
+});
+const currentRunMessageKey = computed(() => getWorkPanelMessageKey(currentRunMessage.value));
+
+watch(currentRunMessage, (msg) => {
+  if (!_activeRun.active && msg?.has_execution && !msg.executionStepsLoaded) {
+    ensureExecutionStepsLoaded(msg).catch(() => {
+      showToast(msg.executionStepsLoadError || '加载执行过程失败');
+    });
+  }
+});
+
+watch(workPanelExecutionMessages, (items) => {
+  if (_activeRun.active) return;
+  const latestKey = items.at(-1)?.key || '';
+  const activeRunMessage = _activeRun.assistantMsgIndex >= 0
+    ? messages.value[_activeRun.assistantMsgIndex]
+    : null;
+  const activeRunKey = getWorkPanelMessageKey(activeRunMessage);
+  if (activeRunKey && items.some(item => item.key === activeRunKey)) {
+    selectedWorkPanelMessageKey.value = activeRunKey;
+    return;
+  }
+  if (selectedWorkPanelMessageKey.value && items.some(item => item.key === selectedWorkPanelMessageKey.value)) {
+    return;
+  }
+  selectedWorkPanelMessageKey.value = latestKey;
+}, { immediate: true });
+
+async function selectWorkPanelMessage(msgOrKey) {
+  const key = typeof msgOrKey === 'string' ? msgOrKey : getWorkPanelMessageKey(msgOrKey);
+  selectedWorkPanelMessageKey.value = key || '';
+  const msg = typeof msgOrKey === 'string'
+    ? workPanelExecutionMessages.value.find(item => item.key === key)?.message
+    : msgOrKey;
+  if (msg?.has_execution && !msg.executionStepsLoaded) {
+    try {
+      await ensureExecutionStepsLoaded(msg);
+    } catch (_) {
+      showToast(msg.executionStepsLoadError || '加载执行过程失败');
     }
   }
-  return null;
-});
+}
 
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
@@ -2810,6 +2878,26 @@ onUnmounted(() => {
 
 .stopped-badge svg {
   flex-shrink: 0;
+}
+
+.msg-action-btn.btn-execution-tree.active {
+  color: var(--color-brand-accent);
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-brand-accent-rgb), 0.28);
+}
+
+.msg-action-btn.btn-execution-tree:not(.active):hover {
+  color: var(--color-brand-accent);
+  background: rgba(var(--color-brand-accent-rgb), 0.06);
+}
+
+.msg-action-btn.btn-execution-tree.active:hover {
+  color: var(--color-brand-accent);
+  background: rgba(var(--color-brand-accent-rgb), 0.16);
+}
+
+.msg-action-btn.btn-execution-tree:active {
+  transform: none;
 }
 
 /* 消息查看/编辑模式切换动画 */

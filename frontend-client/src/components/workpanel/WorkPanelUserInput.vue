@@ -129,19 +129,27 @@ function submit() {
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 0.12s;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.wpui-option:hover {
-  border-color: var(--color-brand-accent, #6366f1);
-  color: var(--color-brand-accent, #6366f1);
+.wpui-option:not(.selected):hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-hover-overlay, rgba(255,255,255,0.04));
+  color: var(--color-text-primary);
 }
 
 .wpui-option.selected {
-  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.12);
+  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.14);
   border-color: var(--color-brand-accent, #6366f1);
   color: var(--color-brand-accent, #6366f1);
   font-weight: 600;
+}
+
+.wpui-option.selected:hover {
+  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.18);
 }
 
 .wpui-actions {
@@ -158,7 +166,6 @@ function submit() {
   background: transparent;
   transition: background 0.12s;
 }
-.wpui-btn:active { transform: scale(0.98); }
 
 .wpui-btn--submit {
   color: var(--color-brand-accent, #6366f1);

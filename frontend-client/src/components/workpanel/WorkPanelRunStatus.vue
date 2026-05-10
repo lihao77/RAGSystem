@@ -6,9 +6,13 @@
       </span>
       <div class="wpr-label-block">
         <span class="wpr-kicker">当前状态</span>
-        <span class="wpr-label">{{ phaseLabel }}</span>
+        <Transition name="wpr-label" mode="out-in">
+          <span :key="phaseLabel" class="wpr-label">{{ phaseLabel }}</span>
+        </Transition>
       </div>
-      <span v-if="elapsedText" class="wpr-elapsed">{{ elapsedText }}</span>
+      <Transition name="wpr-elapsed">
+        <span v-if="elapsedText" class="wpr-elapsed">{{ elapsedText }}</span>
+      </Transition>
     </div>
     <div v-if="contextUsage.max > 0" class="wpr-ctx-row">
       <div class="wpr-ctx-copy">
@@ -101,6 +105,12 @@ function compactNumber(value) {
   flex-shrink: 0;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
   letter-spacing: 0;
+  animation: wpr-enter 220ms ease-out 70ms both;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.wpr-root.active {
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.3);
 }
 
 .wpr-phase-row {
@@ -119,6 +129,10 @@ function compactNumber(value) {
   border: 1px solid var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
   flex-shrink: 0;
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .wpr-indicator-core {
@@ -127,6 +141,11 @@ function compactNumber(value) {
   border-radius: 999px;
   background: var(--color-text-muted);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+  transition:
+    background var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .wpr-indicator.tone-active {
@@ -228,5 +247,61 @@ function compactNumber(value) {
   color: var(--color-text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.wpr-label-enter-active,
+.wpr-label-leave-active,
+.wpr-elapsed-enter-active,
+.wpr-elapsed-leave-active {
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.wpr-label-enter-from,
+.wpr-elapsed-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.wpr-label-leave-to,
+.wpr-elapsed-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@keyframes wpr-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wpr-root,
+  .wpr-indicator.tone-active .wpr-indicator-core,
+  .wpr-indicator.tone-warning .wpr-indicator-core {
+    animation: none;
+  }
+
+  .wpr-root,
+  .wpr-indicator,
+  .wpr-indicator-core,
+  .wpr-ctx-bar-fill,
+  .wpr-label-enter-active,
+  .wpr-label-leave-active,
+  .wpr-elapsed-enter-active,
+  .wpr-elapsed-leave-active {
+    transition-duration: 1ms;
+  }
+
+  .wpr-label-enter-from,
+  .wpr-label-leave-to,
+  .wpr-elapsed-enter-from,
+  .wpr-elapsed-leave-to {
+    transform: none;
+  }
 }
 </style>

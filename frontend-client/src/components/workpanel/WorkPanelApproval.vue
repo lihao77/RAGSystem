@@ -257,7 +257,6 @@ function submit(approved) {
   transition: background 0.12s;
 }
 .wpa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.wpa-btn:active:not(:disabled) { transform: scale(0.98); }
 
 .wpa-btn--approve {
   color: var(--color-success, #22c55e);

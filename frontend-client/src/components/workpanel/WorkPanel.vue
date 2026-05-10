@@ -3,11 +3,17 @@
     <div class="wp-header">
       <div class="wp-title-block">
         <span class="wp-header-title">工作栏</span>
-        <span class="wp-header-subtitle">{{ activeRun.active ? '实时执行' : '上下文追踪' }}</span>
+        <Transition name="wp-label" mode="out-in">
+          <span :key="activeRun.active ? 'live' : 'trace'" class="wp-header-subtitle">
+            {{ activeRun.active ? '实时执行' : '上下文追踪' }}
+          </span>
+        </Transition>
       </div>
       <span class="wp-run-pill" :class="{ active: activeRun.active }">
         <span class="wp-run-dot"></span>
-        {{ activeRun.active ? '运行中' : '待命' }}
+        <Transition name="wp-label" mode="out-in">
+          <span :key="activeRun.active ? 'running' : 'idle'">{{ activeRun.active ? '运行中' : '待命' }}</span>
+        </Transition>
       </span>
     </div>
 
@@ -18,20 +24,24 @@
     />
 
     <div class="wp-body">
-      <WorkPanelExecution
-        v-if="currentMessage"
-        :execution-steps="currentMessage.execution_steps || []"
-        :subtasks="currentMessage.subtasks || []"
-        :running="activeRun.active"
-        :session-id="sessionId"
-      />
+      <Transition name="wp-content" mode="out-in">
+        <WorkPanelExecution
+          v-if="currentMessage"
+          :key="messageKey"
+          :execution-steps="currentMessage.execution_steps || []"
+          :subtasks="currentMessage.subtasks || []"
+          :running="activeRun.active"
+          :session-id="sessionId"
+        />
 
-      <div v-if="!currentMessage && approvalQueue.length === 0 && !pendingUserInput" class="wp-empty">
-        <div class="wp-empty-icon" aria-hidden="true"></div>
-        <div class="wp-empty-text">暂无执行记录</div>
-      </div>
+        <div v-else-if="approvalQueue.length === 0 && !pendingUserInput" class="wp-empty">
+          <div class="wp-empty-icon" aria-hidden="true"></div>
+          <div class="wp-empty-text">暂无执行记录</div>
+        </div>
+      </Transition>
 
-      <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
+      <Transition name="wp-overlay">
+        <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
         <WorkPanelUserInput
           v-if="pendingUserInput"
           :input-data="pendingUserInput.data"
@@ -44,7 +54,8 @@
           :submitting-id="approvalSubmittingId"
           @submit="emit('approvalSubmit', $event)"
         />
-      </div>
+        </div>
+      </Transition>
     </div>
   </aside>
 </template>
@@ -63,6 +74,7 @@ defineProps({
   pendingUserInput: { type: Object, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
+  messageKey: { type: String, default: '' },
 })
 
 const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'])
@@ -75,6 +87,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   border-left: 1px solid var(--color-border);
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.02);
   letter-spacing: 0;
+  animation: wp-panel-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .wp-header {
@@ -86,6 +99,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   height: 56px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  animation: wp-section-enter 220ms ease-out 40ms both;
 }
 
 .wp-title-block {
@@ -122,12 +136,18 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .wp-run-pill.active {
   color: var(--color-brand-accent);
   border-color: rgba(var(--color-brand-accent-rgb), 0.28);
   background: rgba(var(--color-brand-accent-rgb), 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.05);
 }
 
 .wp-run-dot {
@@ -136,6 +156,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   border-radius: 999px;
   background: currentColor;
   opacity: 0.72;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
 }
 
 .wp-run-pill.active .wp-run-dot {
@@ -170,6 +191,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   );
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
+  will-change: transform, opacity;
 }
 
 .wp-empty {
@@ -180,6 +202,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   justify-content: center;
   gap: 8px;
   color: var(--color-text-muted);
+  animation: wp-empty-drift 420ms ease-out both;
 }
 
 .wp-empty-icon {
@@ -201,5 +224,108 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
 
 .wp-empty-text {
   font-size: 12px;
+}
+
+.wp-label-enter-active,
+.wp-label-leave-active {
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.wp-label-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.wp-label-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+.wp-content-enter-active,
+.wp-content-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.wp-content-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.wp-content-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.wp-overlay-enter-active,
+.wp-overlay-leave-active {
+  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.wp-overlay-enter-from,
+.wp-overlay-leave-to {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+@keyframes wp-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes wp-section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wp-empty-drift {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-panel,
+  .wp-header,
+  .wp-empty,
+  .wp-run-pill.active .wp-run-dot {
+    animation: none;
+  }
+
+  .wp-run-pill,
+  .wp-run-dot,
+  .wp-label-enter-active,
+  .wp-label-leave-active,
+  .wp-content-enter-active,
+  .wp-content-leave-active,
+  .wp-overlay-enter-active,
+  .wp-overlay-leave-active {
+    transition-duration: 1ms;
+  }
+
+  .wp-label-enter-from,
+  .wp-label-leave-to,
+  .wp-content-enter-from,
+  .wp-content-leave-to,
+  .wp-overlay-enter-from,
+  .wp-overlay-leave-to {
+    transform: none;
+  }
 }
 </style>
