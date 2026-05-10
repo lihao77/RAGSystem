@@ -219,9 +219,8 @@ function prepareExpandEnter(el) {
     height: '0px',
     paddingTop: '0px',
     opacity: '0',
-    transform: 'translateY(-4px)',
     overflow: 'hidden',
-    willChange: 'height, padding-top, opacity, transform',
+    willChange: 'height, padding-top, opacity',
   })
 }
 
@@ -236,7 +235,6 @@ function runExpandEnter(el, done) {
     el.style.height = `${el.scrollHeight + gap}px`
     el.style.paddingTop = `${gap}px`
     el.style.opacity = '1'
-    el.style.transform = 'translateY(0)'
   })
   finishAfterHeightTransition(el, done)
 }
@@ -248,9 +246,8 @@ function prepareExpandLeave(el) {
     height: `${el.scrollHeight}px`,
     paddingTop: styles.paddingTop,
     opacity: '1',
-    transform: 'translateY(0)',
     overflow: 'hidden',
-    willChange: 'height, padding-top, opacity, transform',
+    willChange: 'height, padding-top, opacity',
   })
 }
 
@@ -265,13 +262,12 @@ function runExpandLeave(el, done) {
     el.style.height = '0px'
     el.style.paddingTop = '0px'
     el.style.opacity = '0'
-    el.style.transform = 'translateY(-4px)'
   })
   finishAfterHeightTransition(el, done)
 }
 
 function finishExpandTransition(el) {
-  const animatedStyles = ['height', 'paddingTop', 'opacity', 'transform', 'overflow', 'transition', 'willChange']
+  const animatedStyles = ['height', 'paddingTop', 'opacity', 'overflow', 'transition', 'willChange']
   animatedStyles.forEach((name) => {
     el.style[name] = ''
   })
@@ -297,7 +293,6 @@ function expandTransition() {
     `height ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
     `padding-top ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
     `opacity 160ms ease`,
-    `transform ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
   ].join(', ')
 }
 
@@ -393,6 +388,9 @@ function formatElapsed(value) {
   --status-color: var(--color-border);
   --status-border: var(--color-border);
   --status-bg: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.26);
+  --selection-border: rgba(var(--color-brand-accent-rgb), 0.34);
+  --selection-bg: rgba(var(--color-brand-accent-rgb), 0.085);
+  --selection-ring: rgba(var(--color-brand-accent-rgb), 0.08);
   --rail-width: 22px;
   --child-rail-width: 16px;
   --child-indent: 20px;
@@ -502,18 +500,6 @@ function formatElapsed(value) {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
 }
 
-.etn-card.is-selected {
-  border-color: var(--status-border);
-  background: var(--status-bg);
-  box-shadow: inset 0 0 0 1px var(--status-border);
-}
-
-.etn:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
-  box-shadow: inset 0 0 0 1px rgba(var(--color-brand-accent-rgb), 0.08);
-}
-
 .etn--nested .etn-card {
   border-color: transparent;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.1);
@@ -521,14 +507,6 @@ function formatElapsed(value) {
 
 .etn--nested .etn-card.is-interactive:not(.is-selected):hover {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
-}
-
-.etn--nested .etn-card.is-selected {
-  background: var(--status-bg);
-}
-
-.etn--nested:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
 }
 
 .etn--tool_call .etn-card {
@@ -549,14 +527,13 @@ function formatElapsed(value) {
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.14);
 }
 
-.etn--tool_call .etn-card.is-selected {
-  border-color: var(--status-border);
-  background: var(--status-bg);
-}
-
-.etn--tool_call:not(.status-success):not(.status-error):not(.status-running):not(.status-stopped) .etn-card.is-selected {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.34);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+.etn-card.is-selected,
+.etn--nested .etn-card.is-selected,
+.etn--tool_call .etn-card.is-selected,
+.etn--nested.etn--tool_call .etn-card.is-selected {
+  border-color: var(--selection-border);
+  background: var(--selection-bg);
+  box-shadow: inset 0 0 0 1px var(--selection-ring);
 }
 
 .etn-summary {
