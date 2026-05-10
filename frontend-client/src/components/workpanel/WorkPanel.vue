@@ -1,11 +1,9 @@
 <template>
-  <aside class="work-panel" :class="`tone-${panelState.tone}`">
+  <aside class="work-panel">
     <WorkPanelRunStatus
       :phase="activeRun.phase"
       :run-started-at="activeRun.runStartedAt"
       :context-usage="contextUsage"
-      :overall-state="panelState.key"
-      :overall-tone="panelState.tone"
       :pending-input="Boolean(pendingUserInput)"
       :approval-count="approvalQueue.length"
       :has-error="messageHasError"
@@ -69,14 +67,6 @@ const props = defineProps({
 
 const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'])
 
-const waitingTaskCount = computed(() => {
-  const waiting = props.activeRun?.waiting || {}
-  return waiting.pendingTaskCount
-    || waiting.pendingTaskIds?.length
-    || waiting.backgroundTaskIds?.length
-    || 0
-})
-
 const messageHasError = computed(() => {
   const msg = props.currentMessage
   if (!msg) return false
@@ -90,49 +80,6 @@ const messageCompleted = computed(() => {
   const msg = props.currentMessage
   return Boolean(msg?.finished && !props.activeRun?.active && !messageHasError.value)
 })
-
-const panelState = computed(() => {
-  const approvalCount = props.approvalQueue.length
-
-  if (props.pendingUserInput) {
-    return makePanelState('input', '需要输入', '等待用户响应', 'input', 'input')
-  }
-  if (approvalCount > 0 || props.activeRun?.phase === 'approval_waiting') {
-    return makePanelState('approval', '待审批', '等待权限审批', 'warning', 'approval', approvalCount)
-  }
-  if (messageHasError.value) {
-    return makePanelState('error', '错误', '执行异常', 'error', 'error')
-  }
-  if (props.activeRun?.active) {
-    return activePanelState(props.activeRun?.phase, waitingTaskCount.value)
-  }
-  if (messageCompleted.value) {
-    return makePanelState('success', '已完成', '执行记录已完成', 'success', 'success')
-  }
-  if (props.currentMessage) {
-    return makePanelState('trace', '待命', '查看执行记录', 'idle', 'idle')
-  }
-  return makePanelState('idle', '待命', '上下文追踪', 'idle', 'idle')
-})
-
-function activePanelState(phase, waitCount) {
-  if (phase === 'retrying') return makePanelState('retrying', '重试中', '模型调用重试', 'warning', 'approval')
-  if (phase === 'background_waiting') {
-    const subtitle = waitCount > 0 ? `等待后台任务 · ${waitCount} 个` : '等待后台任务'
-    return makePanelState('running', '执行中', subtitle, 'running', 'running')
-  }
-  const subtitles = {
-    llm_waiting_first_token: '等待模型响应',
-    llm_streaming: '模型输出中',
-    tool_running: '工具执行中',
-    reflecting: '反思中',
-  }
-  return makePanelState('running', '执行中', subtitles[phase] || '实时执行', 'running', 'running')
-}
-
-function makePanelState(key, label, subtitle, tone, icon, count = 0) {
-  return { key, label, subtitle, tone, icon, count }
-}
 
 function isErrorStatusItem(item) {
   if (!item) return false

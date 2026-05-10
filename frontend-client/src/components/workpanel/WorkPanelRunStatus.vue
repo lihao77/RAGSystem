@@ -35,8 +35,6 @@ const props = defineProps({
   phase: { type: String, default: 'idle' },
   runStartedAt: { type: Number, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
-  overallState: { type: String, default: 'idle' },
-  overallTone: { type: String, default: '' },
   pendingInput: { type: Boolean, default: false },
   approvalCount: { type: Number, default: 0 },
   hasError: { type: Boolean, default: false },
@@ -67,11 +65,7 @@ const displayState = computed(() => {
 })
 
 const displayLabel = computed(() => displayState.value.label)
-const displayTone = computed(() => (
-  props.overallTone && props.overallTone !== 'idle'
-    ? props.overallTone
-    : displayState.value.tone
-))
+const displayTone = computed(() => displayState.value.tone)
 const displayIcon = computed(() => displayState.value.icon)
 const isRuntimeActive = computed(() => props.phase !== 'idle')
 const isEmphasized = computed(() => displayTone.value !== 'idle')
