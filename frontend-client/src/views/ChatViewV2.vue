@@ -14,7 +14,7 @@
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
       />
-      <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll" @click="handleMarkdownBlockAction">
+      <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
           v-model:editing-draft="editingDraft"
           :messages-loading="messagesLoading"
@@ -51,6 +51,7 @@
           :rollback-and-retry="rollbackAndRetry"
           :get-message-execution-time-text="getMessageExecutionTimeText"
           :get-message-execution-time-title="getMessageExecutionTimeTitle"
+          @notify="({ message, type }) => showToast(message, type)"
         />
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="bottom-dock">
@@ -208,6 +209,7 @@
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
+import { copyToClipboard } from '../utils/clipboard';
 import { buildExecutionState, createExecutionState, applyStep } from '../utils/executionProjector';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useSessionConnection } from '../composables/useSessionConnection';
@@ -1623,115 +1625,6 @@ function getChartProps(item) {
   const fn = TYPE_TO_PROPS[item.type];
   return fn ? fn(item) : {};
 }
-
-const copyToClipboard = async (text) => {
-  try {
-    if (typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === 'function' &&
-        typeof window !== 'undefined' &&
-        window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (e) {
-    // 忽略错误，继续走后备方案
-  }
-
-  // 回退到隐藏 textarea + execCommand（兼容部分手机浏览器）
-  try {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.top = '-9999px';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const ok = document.execCommand && document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return !!ok;
-  } catch (e) {
-    return false;
-  }
-};
-
-const COPY_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 10.5H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h5.5a2 2 0 0 1 2 2v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
-const COPIED_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-const markdownCopyFeedbackTimer = ref(null);
-
-const copyTableAsText = (table) => {
-  if (!table) return '';
-  const rows = Array.from(table.querySelectorAll('tr'));
-  return rows
-    .map((row) => Array.from(row.querySelectorAll('th, td'))
-      .map((cell) => (cell.textContent || '').replace(/\s+/g, ' ').trim())
-      .join('\t'))
-    .filter(Boolean)
-    .join('\n');
-};
-
-const setMarkdownCopyFeedback = (button, copied) => {
-  if (!(button instanceof HTMLElement)) return;
-  if (markdownCopyFeedbackTimer.value) {
-    clearTimeout(markdownCopyFeedbackTimer.value);
-    markdownCopyFeedbackTimer.value = null;
-  }
-
-  button.dataset.copied = copied ? 'true' : 'false';
-  const icon = button.querySelector('.md-block-copy-btn__icon');
-  if (icon) {
-    icon.innerHTML = copied ? COPIED_ICON_SVG : COPY_ICON_SVG;
-  }
-
-  if (copied) {
-    markdownCopyFeedbackTimer.value = setTimeout(() => {
-      button.dataset.copied = 'false';
-      if (icon) icon.innerHTML = COPY_ICON_SVG;
-      markdownCopyFeedbackTimer.value = null;
-    }, 1600);
-  }
-};
-
-const handleMarkdownBlockAction = async (event) => {
-  const button = event.target instanceof Element
-    ? event.target.closest('.md-block-copy-btn')
-    : null;
-  if (!button) return;
-
-  const copyType = button.getAttribute('data-copy-type') || '';
-  const rawPayload = button.getAttribute('data-copy-content') || '';
-  let text = '';
-
-  if (copyType === 'code') {
-    try {
-      text = decodeURIComponent(rawPayload);
-    } catch {
-      text = rawPayload;
-    }
-  } else if (copyType === 'table') {
-    const block = button.closest('.md-table-block');
-    const table = block?.querySelector('table');
-    text = copyTableAsText(table);
-  } else if (copyType === 'quote') {
-    const block = button.closest('.md-quote-block');
-    const quote = block?.querySelector('blockquote');
-    text = (quote?.textContent || '').replace(/\s+/g, ' ').trim();
-  }
-
-  if (!text) {
-    setMarkdownCopyFeedback(button, false);
-    showToast('无可复制内容');
-    return;
-  }
-
-  const ok = await copyToClipboard(text);
-  setMarkdownCopyFeedback(button, ok);
-  showToast(ok ? '已复制到剪贴板' : '复制失败', ok ? 'success' : 'error');
-};
-
 
 const copyMessage = async (msg) => {
   const text = (msg.content || '').trim();

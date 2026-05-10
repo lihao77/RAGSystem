@@ -45,6 +45,7 @@
           :handle-enter-situation="handleEnterSituation"
           :get-chart-component="getChartComponent"
           :get-chart-props="getChartProps"
+          @notify="emit('notify', $event)"
         />
         <UserMessage
           v-if="msg.role === 'user'"
@@ -134,5 +135,5 @@ defineProps({
   getMessageExecutionTimeTitle: { type: Function, required: true },
 });
 
-const emit = defineEmits(['hover', 'update:editingDraft']);
+const emit = defineEmits(['hover', 'update:editingDraft', 'notify']);
 </script>

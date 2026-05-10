@@ -13,7 +13,11 @@
 
   <template v-for="(part, pi) in parseMessageParts(msg)" :key="pi">
     <div v-if="part.type === 'text' && part.content?.trim()" class="final-answer">
-      <div class="markdown-body" v-html="renderMarkdown(part.content)"></div>
+      <MarkdownContent
+        :content="part.content"
+        :render-markdown="renderMarkdown"
+        @notify="emit('notify', $event)"
+      />
     </div>
     <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
       <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
@@ -35,6 +39,7 @@
 </template>
 
 <script setup>
+import MarkdownContent from './MarkdownContent.vue';
 import VisualizationLoader from '../VisualizationLoader.vue';
 
 defineProps({
@@ -46,4 +51,6 @@ defineProps({
   getChartComponent: { type: Function, required: true },
   getChartProps: { type: Function, required: true },
 });
+
+const emit = defineEmits(['notify']);
 </script>

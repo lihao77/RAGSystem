@@ -58,6 +58,7 @@
         :get-message-execution-time-title="getMessageExecutionTimeTitle"
         @hover="messageActionsVisible = $event"
         @update:editing-draft="emit('update:editingDraft', $event)"
+        @notify="emit('notify', $event)"
       />
     </div>
   </div>
@@ -106,7 +107,7 @@ const props = defineProps({
   getMessageExecutionTimeTitle: { type: Function, required: true },
 });
 
-const emit = defineEmits(['update:editingDraft']);
+const emit = defineEmits(['update:editingDraft', 'notify']);
 const messageActionsVisible = ref(null);
 
 function getRetryMessage(index) {
