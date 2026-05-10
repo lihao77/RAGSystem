@@ -105,7 +105,6 @@ function compactNumber(value) {
   flex-shrink: 0;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
   letter-spacing: 0;
-  animation: wpr-enter 220ms ease-out 70ms both;
   transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
@@ -268,19 +267,7 @@ function compactNumber(value) {
   transform: translateY(-4px);
 }
 
-@keyframes wpr-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .wpr-root,
   .wpr-indicator.tone-active .wpr-indicator-core,
   .wpr-indicator.tone-warning .wpr-indicator-core {
     animation: none;

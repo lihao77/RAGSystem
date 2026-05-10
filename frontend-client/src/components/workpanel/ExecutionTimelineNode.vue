@@ -87,6 +87,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getAgentBadgeClass } from '../../utils/agentBadge'
+import {
+  getToolDisplayName as resolveToolDisplayName,
+  getToolIconKind as resolveToolIconKind,
+  getToolSubtitle,
+} from '../../utils/toolPresentation'
 
 defineOptions({ name: 'ExecutionTimelineNode' })
 
@@ -100,19 +105,6 @@ const props = defineProps({
 const emit = defineEmits(['inspect'])
 
 const expanded = ref(defaultExpanded(props.node))
-
-const TOOL_DISPLAY_NAMES = {
-  request_user_input: '请求用户输入',
-}
-
-const VISUALIZATION_TOOLS = ['create_chart', 'create_map', 'create_bindmap', 'create_risk_map', 'revise_visualization']
-
-const SKILL_TOOL_TEMPLATES = {
-  activate_skill: (args) => `激活 ${args?.skill_name || 'Skill'}`,
-  load_skill_resource: (args) => `加载 ${args?.skill_name || 'Skill'} 资源`,
-  execute_skill_script: (args) => `执行 ${args?.skill_name || 'Skill'} 脚本`,
-  get_skill_info: (args) => `查询 ${args?.skill_name || 'Skill'} 信息`,
-}
 
 const NODE_ICON_SVG = {
   agent: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
@@ -141,25 +133,12 @@ const isRunning = computed(() => normalizedStatus.value === 'running')
 const agentLabel = computed(() => shortName(props.node.agent_display_name || props.node.agent_name || props.node.agent || ''))
 const agentBadgeClass = computed(() => getAgentBadgeClass(props.node.agent_name || props.node.agent || props.node.agent_display_name))
 const elapsedText = computed(() => formatElapsed(props.node.elapsed_time))
-const previewResult = computed(() => props.node?.result_preview ?? props.node?.result ?? '')
-const toolArgs = computed(() => asRecord(parseMaybeJson(props.node.arguments) ?? props.node.arguments))
-const parsedPreviewResult = computed(() => parseMaybeJson(previewResult.value))
-const parsedRawResult = computed(() => parseMaybeJson(props.node.raw_result))
-const resultPayload = computed(() => parsedRawResult.value || parsedPreviewResult.value || null)
-const resultContent = computed(() => {
-  const payload = resultPayload.value
-  if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'content')) {
-    return payload.content
-  }
-  return payload
-})
-const resultMetadata = computed(() => asRecord(resultPayload.value?.metadata))
 const nodeKeyValue = computed(() => getNodeKey(props.node))
 
 const nodeIconKind = computed(() => {
   if (props.node.type === 'agent_call') return 'agent'
   if (props.node.type === 'thought') return 'thought'
-  if (props.node.type === 'tool_call') return getToolIconKind(props.node.tool_name)
+  if (props.node.type === 'tool_call') return resolveToolIconKind(props.node.tool_name)
   return 'step'
 })
 const nodeIconSvg = computed(() => NODE_ICON_SVG[nodeIconKind.value] || NODE_ICON_SVG.step)
@@ -172,56 +151,11 @@ const typeLabel = computed(() => {
 })
 
 const toolDisplayName = computed(() => {
-  const name = props.node.tool_name || ''
-  if (TOOL_DISPLAY_NAMES[name]) return TOOL_DISPLAY_NAMES[name]
-  const tpl = SKILL_TOOL_TEMPLATES[name]
-  if (tpl) return tpl(toolArgs.value)
-  return name || '工具调用'
+  return resolveToolDisplayName(props.node)
 })
 
 const smartPreview = computed(() => {
-  if (props.node.type !== 'tool_call') return ''
-  const name = props.node.tool_name || ''
-  const args = toolArgs.value
-  const payload = resultPayload.value
-  const content = resultContent.value
-  const metadata = resultMetadata.value
-  const running = normalizedStatus.value === 'running'
-  const errorText = normalizedStatus.value === 'error' ? getErrorText(payload, previewResult.value) : ''
-
-  if (errorText) return truncate(`失败: ${errorText}`, 58)
-  if (name === 'call_agent') return previewCallAgent(args, content, running)
-  if (name === 'request_user_input') return previewUserInput(args, content, metadata, running)
-  if (name === 'execute_bash') return previewBash(args, content, metadata, running)
-  if (name === 'execute_code') return previewCode(args, content, metadata, running)
-  if (['read_file', 'write_file', 'edit_file', 'preview_data_structure'].includes(name)) {
-    return previewFileTool(name, args, content, metadata, running)
-  }
-  if (name === 'grep' || name === 'glob') return previewSearchTool(name, args, content, running)
-  if (name === 'web_fetch') return previewWebFetch(args, content, running)
-  if (name.includes('skill')) return previewSkillTool(name, args, content, metadata, running)
-  if (name === 'todo_write' || name.startsWith('task_')) return previewTaskTool(name, args, content, metadata, running)
-  if (name.includes('memory')) return previewMemoryTool(name, args, content, metadata, running)
-
-  if (VISUALIZATION_TOOLS.includes(name)) {
-    const title = pickString(content?.title, content?.preview?.title, payload?.title, payload?.preview?.title)
-    return title ? `已生成: ${truncate(title, 36)}` : '已生成可视化'
-  }
-  if (name === 'query_emergency_plan') {
-    const count = countFrom(content?.results) ?? content?.total ?? payload?.total
-    if (count != null) return `${count} 条结果`
-  }
-  if (name === 'assess_flood_risk') {
-    const level = content?.risk_level ?? content?.risk_label ?? payload?.risk_level ?? payload?.risk_label
-    if (level) return `${level}级风险`
-  }
-  if (name === 'generate_report' && content?.title) return truncate(content.title, 42)
-  if (name === 'match_emergency_response') {
-    const count = countFrom(content?.matched_plans)
-    if (count != null) return `${count} 个匹配方案`
-  }
-  const summary = payload?.summary || content?.summary || content?.message || payload?.message
-  return typeof summary === 'string' ? truncate(summary, 42) : ''
+  return getToolSubtitle(props.node, { running: isRunning.value })
 })
 
 const titleText = computed(() => {
@@ -347,225 +281,6 @@ function collectToolStatuses(children, statuses) {
   })
 }
 
-function previewCallAgent(args, content, running) {
-  const calledAgent = props.node.linkedAgentCall?.agent_display_name || args.agent_name || content?.metadata?.agent_name || ''
-  const task = pickString(args.task, args.description, content?.summary)
-  const lead = calledAgent ? `${running ? '调用中' : '调用'} ${shortName(calledAgent)}` : (running ? '调用中' : '调用子 Agent')
-  return joinParts([lead, truncate(task, 36)])
-}
-
-function previewUserInput(args, content, metadata, running) {
-  const prompt = pickString(args.prompt)
-  if (running) return prompt ? `等待输入: ${truncate(prompt, 42)}` : '等待用户输入'
-  if (metadata.degraded) return '未等待输入'
-  const inputType = args.input_type === 'select' ? '选择' : '输入'
-  return `已收到${inputType}`
-}
-
-function previewBash(args, content, metadata, running) {
-  const command = pickString(args.description, args.command, metadata.command)
-  if (running) return command ? `运行: ${truncate(command, 50)}` : '运行命令'
-
-  const backgroundId = pickString(content?.background_task_id, metadata.background_task_id)
-  if (content?.background_started || metadata.background_started) {
-    return joinParts(['后台任务已启动', backgroundId])
-  }
-
-  const code = firstNumber(content?.return_code, content?.exit_code, metadata.return_code, metadata.exit_code)
-  const stdout = firstLine(content?.stdout)
-  const stderr = firstLine(content?.stderr)
-  if (code != null) {
-    const lead = code === 0 ? '执行成功' : `退出码 ${code}`
-    return joinParts([lead, truncate(stdout || stderr, 34)])
-  }
-
-  return truncate(pickString(content?.summary, metadata.summary), 42)
-}
-
-function previewCode(args, content, metadata, running) {
-  const intent = pickString(args.description, firstLine(args.code))
-  if (running) return intent ? `运行代码: ${truncate(intent, 46)}` : '运行代码'
-
-  const stdout = firstLine(metadata.stdout)
-  const toolCalls = firstNumber(metadata.tool_calls_count, content?.tool_calls_count)
-  const output = stdout || firstLine(typeof content === 'string' ? content : content?.result)
-  const suffix = toolCalls ? `调用 ${toolCalls} 个工具` : output
-  return joinParts(['执行成功', truncate(suffix, 34)])
-}
-
-function previewFileTool(name, args, content, metadata, running) {
-  const path = compactPath(pickString(
-    content?.display_path,
-    metadata.display_path,
-    content?.file_path,
-    metadata.file_path,
-    args.file_path,
-    args.path
-  ))
-
-  if (running) {
-    const action = { read_file: '读取', write_file: '写入', edit_file: '编辑', preview_data_structure: '预览' }[name] || '处理'
-    return path ? `${action} ${path}` : `${action}文件`
-  }
-
-  if (name === 'read_file') {
-    const start = firstNumber(metadata.start_line)
-    const end = firstNumber(metadata.end_line)
-    const total = firstNumber(metadata.total_lines)
-    const lines = start != null && end != null
-      ? `${start}-${end}${total != null ? `/${total}` : ''} 行`
-      : `${countTextLines(content)} 行`
-    return joinParts([path ? `读取 ${path}` : '读取文件', lines])
-  }
-
-  if (name === 'write_file') {
-    const size = firstNumber(content?.file_size, metadata.file_size)
-    return joinParts([path ? `写入 ${path}` : '写入文件', formatBytes(size)])
-  }
-
-  if (name === 'edit_file') {
-    const replacements = firstNumber(content?.replacements, metadata.replacements)
-    return joinParts([path ? `编辑 ${path}` : '编辑文件', replacements != null ? `替换 ${replacements} 处` : ''])
-  }
-
-  const shape = previewDataShape(content)
-  return joinParts([path ? `预览 ${path}` : '预览数据', shape])
-}
-
-function previewSearchTool(name, args, content, running) {
-  const pattern = pickString(args.pattern, args.query, args.glob)
-  const path = compactPath(pickString(args.path))
-  if (running) {
-    const action = name === 'glob' ? '匹配' : '搜索'
-    return joinParts([pattern ? `${action} ${quoteShort(pattern)}` : action, path])
-  }
-
-  if (name === 'glob') {
-    const count = firstNumber(content?.numFiles, countFrom(content?.filenames))
-    return joinParts([pattern ? `匹配 ${quoteShort(pattern)}` : '匹配文件', count != null ? `${count} 个文件` : ''])
-  }
-
-  const count = firstNumber(content?.count, countFrom(content?.matches))
-  const label = args.output_mode === 'files_with_matches' ? '个文件' : '条结果'
-  return joinParts([pattern ? `搜索 ${quoteShort(pattern)}` : '搜索内容', count != null ? `${count} ${label}` : ''])
-}
-
-function previewWebFetch(args, content, running) {
-  const url = pickString(content?.url, args.url)
-  const target = url ? compactUrl(url) : ''
-  if (running) return target ? `获取 ${target}` : '获取网页'
-  const total = firstNumber(content?.total_length)
-  const range = total != null ? `${formatCount(total)} 字符` : ''
-  const truncated = content?.truncated ? '已截断' : ''
-  return joinParts([target ? `获取 ${target}` : '获取网页', range, truncated])
-}
-
-function previewSkillTool(name, args, content, metadata, running) {
-  const skill = pickString(args.skill_name, content?.skill, content?.skill_name, metadata.skill, metadata.skill_name)
-  const script = pickString(args.script_name, content?.script_name, metadata.script_name)
-  const resource = pickString(args.resource_file, content?.file_name)
-  if (running) {
-    if (name === 'execute_skill_script') return joinParts([skill ? `执行 ${skill}` : '执行 Skill 脚本', script])
-    if (name === 'load_skill_resource') return joinParts([skill ? `加载 ${skill}` : '加载 Skill 资源', resource])
-    if (name === 'get_skill_info') return skill ? `查询 ${skill}` : '查询 Skill 信息'
-    return skill ? `激活 ${skill}` : '激活 Skill'
-  }
-
-  if (content?.background_started || metadata.background_started) {
-    return joinParts(['后台脚本已启动', script || skill])
-  }
-  if (content?.artifact_id || metadata.artifact_id) {
-    return joinParts(['生成可视化', pickString(content?.title, content?.artifact_id, metadata.artifact_id)])
-  }
-  if (content?.team_name || metadata.team_name) {
-    return `应用团队 ${pickString(content?.team_name, metadata.team_name)}`
-  }
-  if (name === 'execute_skill_script') {
-    const code = firstNumber(content?.return_code)
-    return joinParts([skill ? `${skill}/${script || '脚本'}` : (script || 'Skill 脚本'), code != null ? `返回码 ${code}` : '执行完成'])
-  }
-  if (name === 'load_skill_resource') {
-    const length = firstNumber(metadata.length, content?.content?.length)
-    return joinParts([resource ? `加载 ${resource}` : '加载资源', length != null ? `${formatCount(length)} 字符` : ''])
-  }
-  if (name === 'get_skill_info') {
-    const scriptLabel = content?.has_scripts === true ? '含脚本' : (content?.has_scripts === false ? '无脚本' : '')
-    return joinParts([skill ? `Skill ${skill}` : 'Skill 信息', scriptLabel])
-  }
-  const length = firstNumber(metadata.content_length)
-  return joinParts([skill ? `已激活 ${skill}` : '已激活 Skill', length != null ? `${formatCount(length)} 字符` : ''])
-}
-
-function previewTaskTool(name, args, content, metadata, running) {
-  if (name === 'todo_write') {
-    const total = firstNumber(metadata.count, countFrom(content?.new_todos), countFrom(args.todos))
-    if (running) return total != null ? `更新 ${total} 个待办` : '更新待办'
-    const inProgress = firstNumber(metadata.in_progress)
-    const completed = firstNumber(metadata.completed)
-    return joinParts([total != null ? `待办 ${total} 项` : '待办已更新', inProgress != null ? `进行中 ${inProgress}` : '', completed != null ? `完成 ${completed}` : ''])
-  }
-
-  const task = content?.task || {}
-  const taskId = pickString(args.task_id, task.id, content?.task_id, metadata.task_id)
-  const subject = pickString(args.subject, task.subject)
-  if (running) {
-    const verb = {
-      task_create: '创建任务',
-      task_get: '读取任务',
-      task_update: '更新任务',
-      task_output: '读取后台任务',
-      task_stop: '停止后台任务',
-      task_list: '列出任务',
-    }[name] || '处理任务'
-    return joinParts([taskId ? `${verb} #${taskId}` : verb, truncate(subject, 34)])
-  }
-
-  if (name === 'task_list') {
-    const total = firstNumber(content?.total, content?.items?.length, metadata.total)
-    return total != null ? `任务列表 ${total} 项` : '任务列表已更新'
-  }
-  if (name === 'task_update') {
-    const status = pickString(args.status, content?.status_change?.to, task.status, metadata.status)
-    return joinParts([taskId ? `任务 #${taskId}` : '任务已更新', statusLabel(status)])
-  }
-  if (name === 'task_output') {
-    const status = pickString(content?.status, metadata.status)
-    return joinParts([taskId ? `后台任务 ${taskId}` : '后台任务输出', statusLabel(status)])
-  }
-  if (name === 'task_stop') return taskId ? `已停止后台任务 ${taskId}` : '已停止后台任务'
-
-  const status = pickString(task.status, metadata.status)
-  return joinParts([taskId ? `任务 #${taskId}` : '任务', truncate(subject, 34), statusLabel(status)])
-}
-
-function previewMemoryTool(name, args, content, metadata, running) {
-  const memoryName = pickString(args.name, args.file_name, content?.file_name, content?.name, metadata.file_name)
-  if (running) {
-    if (name.startsWith('read')) return memoryName ? `读取记忆 ${memoryName}` : '读取记忆'
-    if (name.startsWith('write')) return memoryName ? `写入记忆 ${memoryName}` : '写入记忆'
-    if (name.startsWith('archive')) return memoryName ? `归档记忆 ${memoryName}` : '归档记忆'
-    return '查询记忆'
-  }
-  const count = firstNumber(content?.count, content?.items?.length, metadata.count)
-  return joinParts([memoryName ? `记忆 ${memoryName}` : '记忆', count != null ? `${count} 项` : '已完成'])
-}
-
-function getToolIconKind(toolName = '') {
-  const name = String(toolName || '').toLowerCase()
-  if (name === 'request_user_input') return 'input'
-  if (name === 'call_agent') return 'agentCall'
-  if (name.includes('skill')) return 'skill'
-  if (name.includes('map') || name.includes('geo') || name.includes('spatial') || name.includes('basin')) return 'map'
-  if (name.includes('chart') || name.includes('visual') || name.includes('risk_matrix')) return 'chart'
-  if (name.includes('bash') || name.includes('code') || name.includes('script') || name.includes('terminal')) return 'code'
-  if (name.includes('file') || name.includes('document') || name.includes('report') || name.includes('artifact')) return 'file'
-  if (name.includes('grep') || name.includes('glob') || name.includes('search') || name.includes('query') || name.includes('explore')) return 'search'
-  if (name.includes('web') || name.includes('fetch') || name.includes('http') || name.includes('url')) return 'globe'
-  if (name.includes('memory') || name.includes('vector') || name.includes('database') || name.includes('store')) return 'database'
-  if (name.includes('task') || name.includes('todo') || name.includes('plan') || name.includes('approval')) return 'task'
-  return 'tool'
-}
-
 function formatElapsed(value) {
   if (value === null || value === undefined || value === '') return ''
   const seconds = Number(value)
@@ -575,167 +290,6 @@ function formatElapsed(value) {
   const minutes = Math.floor(seconds / 60)
   const rest = Math.round(seconds % 60)
   return `${minutes}m${rest}s`
-}
-
-function parseMaybeJson(value) {
-  if (value && typeof value === 'object') return value
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    return null
-  }
-}
-
-function asRecord(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-}
-
-function pickString(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined) continue
-    if (Array.isArray(value)) {
-      const nested = pickString(...value)
-      if (nested) return nested
-      continue
-    }
-    if (typeof value === 'string') {
-      const text = value.trim()
-      if (text) return text
-      continue
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  }
-  return ''
-}
-
-function firstNumber(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined || value === '') continue
-    const number = Number(value)
-    if (Number.isFinite(number)) return number
-  }
-  return null
-}
-
-function toPreviewText(value) {
-  if (value === null || value === undefined) return ''
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return ''
-  }
-}
-
-function stripToolHeader(value) {
-  return String(value || '').replace(/^\[[^\]]+\]\s*/, '').trim()
-}
-
-function firstLine(value) {
-  const text = stripToolHeader(toPreviewText(value))
-  if (!text) return ''
-  return text.split(/\r?\n/).map(line => line.trim()).find(Boolean) || ''
-}
-
-function joinParts(parts) {
-  return parts.map(part => String(part || '').trim()).filter(Boolean).join(' · ')
-}
-
-function countFrom(value) {
-  if (Array.isArray(value)) return value.length
-  const number = firstNumber(value)
-  return number == null ? null : number
-}
-
-function countTextLines(value) {
-  if (typeof value !== 'string' || !value) return 0
-  return value.split(/\r?\n/).length
-}
-
-function compactPath(value, max = 34) {
-  const text = pickString(value).replace(/\\/g, '/')
-  if (!text) return ''
-  if (text.length <= max) return text
-  const parts = text.split('/').filter(Boolean)
-  const tail = parts.slice(-2).join('/')
-  if (tail && tail.length + 4 <= max) return `.../${tail}`
-  return truncate(text, max)
-}
-
-function compactUrl(value) {
-  const text = pickString(value)
-  if (!text) return ''
-  try {
-    const parsed = new URL(text.includes('://') ? text : `https://${text}`)
-    const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/\/$/, '') : ''
-    return truncate(`${parsed.hostname}${path}`, 38)
-  } catch {
-    return truncate(text, 38)
-  }
-}
-
-function quoteShort(value) {
-  const text = truncate(value, 30)
-  return text ? `"${text}"` : ''
-}
-
-function formatCount(value) {
-  const number = firstNumber(value)
-  if (number == null) return ''
-  return number.toLocaleString('zh-CN')
-}
-
-function formatBytes(value) {
-  const bytes = firstNumber(value)
-  if (bytes == null) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
-}
-
-function previewDataShape(value) {
-  if (!value) return ''
-  if (Array.isArray(value)) return `${value.length} 项`
-  if (typeof value !== 'object') return ''
-  const featureCount = firstNumber(value.feature_count, value.features?.length)
-  if (featureCount != null) return `${featureCount} 个要素`
-  const rows = firstNumber(value.row_count, value.rows?.length, value.records?.length)
-  const columns = firstNumber(value.column_count, value.columns?.length, value.fields?.length)
-  if (rows != null && columns != null) return `${rows} 行 ${columns} 列`
-  if (rows != null) return `${rows} 行`
-  if (columns != null) return `${columns} 个字段`
-  return `${Object.keys(value).length} 个字段`
-}
-
-function statusLabel(status) {
-  const labels = {
-    pending: '待处理',
-    in_progress: '进行中',
-    running: '进行中',
-    completed: '已完成',
-    success: '已完成',
-    deleted: '已删除',
-    error: '失败',
-    stopped: '已停止',
-  }
-  return labels[status] || status || ''
-}
-
-function getErrorText(payload, preview) {
-  const text = pickString(
-    payload?.error,
-    payload?.summary,
-    payload?.message,
-    payload?.content?.error,
-    payload?.content?.message,
-    payload?.content,
-    preview
-  )
-  return firstLine(text)
 }
 
 </script>
@@ -753,7 +307,6 @@ function getErrorText(payload, preview) {
   --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
   position: relative;
   letter-spacing: 0;
-  animation: etn-row-enter 220ms ease-out both;
 }
 
 .etn + .etn {
@@ -1026,6 +579,7 @@ function getErrorText(payload, preview) {
 }
 
 .etn-side {
+  min-width: 0;
   display: grid;
   grid-template-columns: max-content max-content 16px;
   align-items: center;
@@ -1157,17 +711,6 @@ function getErrorText(payload, preview) {
   z-index: 1;
 }
 
-@media (max-width: 1320px) {
-  .etn-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .etn-side {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-}
-
 .etn-status-enter-active,
 .etn-status-leave-active {
   transition: opacity 140ms ease, transform 140ms ease;
@@ -1194,17 +737,6 @@ function getErrorText(payload, preview) {
   transform: translateY(-6px);
 }
 
-@keyframes etn-row-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes etn-substep-pulse {
   0%, 100% {
     opacity: 1;
@@ -1217,7 +749,6 @@ function getErrorText(payload, preview) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .etn,
   .etn-status-pulse,
   .substep-running {
     animation: none;

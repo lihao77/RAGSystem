@@ -87,7 +87,6 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   border-left: 1px solid var(--color-border);
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.02);
   letter-spacing: 0;
-  animation: wp-panel-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .wp-header {
@@ -99,7 +98,6 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   height: 56px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
-  animation: wp-section-enter 220ms ease-out 40ms both;
 }
 
 .wp-title-block {
@@ -202,7 +200,6 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   justify-content: center;
   gap: 8px;
   color: var(--color-text-muted);
-  animation: wp-empty-drift 420ms ease-out both;
 }
 
 .wp-empty-icon {
@@ -267,43 +264,7 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
   transform: translateY(14px);
 }
 
-@keyframes wp-panel-enter {
-  from {
-    opacity: 0;
-    transform: translateX(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes wp-section-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes wp-empty-drift {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .work-panel,
-  .wp-header,
-  .wp-empty,
   .wp-run-pill.active .wp-run-dot {
     animation: none;
   }
