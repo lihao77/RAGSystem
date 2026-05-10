@@ -1,28 +1,5 @@
 <template>
   <aside class="work-panel" :class="`tone-${panelState.tone}`">
-    <div class="wp-header">
-      <div class="wp-title-block">
-        <span class="wp-title-icon" aria-hidden="true">
-          <WorkPanelStateIcon :kind="panelState.icon" />
-        </span>
-        <div class="wp-title-copy">
-          <span class="wp-header-title">工作栏</span>
-          <Transition name="wp-label" mode="out-in">
-            <span :key="panelState.subtitle" class="wp-header-subtitle">
-              {{ panelState.subtitle }}
-            </span>
-          </Transition>
-        </div>
-      </div>
-      <span class="wp-run-pill">
-        <span class="wp-run-dot"></span>
-        <Transition name="wp-label" mode="out-in">
-          <span :key="panelState.key">{{ panelState.label }}</span>
-        </Transition>
-        <span v-if="panelState.count" class="wp-run-count">{{ panelState.count }}</span>
-      </span>
-    </div>
-
     <WorkPanelRunStatus
       :phase="activeRun.phase"
       :run-started-at="activeRun.runStartedAt"
@@ -78,7 +55,6 @@ import WorkPanelRunStatus from './WorkPanelRunStatus.vue'
 import WorkPanelExecution from './WorkPanelExecution.vue'
 import WorkPanelApproval from './WorkPanelApproval.vue'
 import WorkPanelUserInput from './WorkPanelUserInput.vue'
-import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   activeRun: { type: Object, required: true },
@@ -181,134 +157,11 @@ function hasErrorInItems(items) {
 
 <style scoped>
 .work-panel {
-  --wp-state-color: var(--color-text-muted);
-  --wp-state-rgb: var(--color-text-muted-rgb, 142, 142, 147);
   background:
     linear-gradient(180deg, rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.58), rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.34));
   border-left: 1px solid var(--color-border);
   box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.02);
   letter-spacing: 0;
-}
-
-.work-panel.tone-running,
-.work-panel.tone-input {
-  --wp-state-color: var(--color-brand-accent);
-  --wp-state-rgb: var(--color-brand-accent-rgb);
-}
-
-.work-panel.tone-warning {
-  --wp-state-color: var(--color-warning);
-  --wp-state-rgb: var(--color-warning-rgb);
-}
-
-.work-panel.tone-error {
-  --wp-state-color: var(--color-error);
-  --wp-state-rgb: var(--color-error-rgb);
-}
-
-.work-panel.tone-success {
-  --wp-state-color: var(--color-success);
-  --wp-state-rgb: var(--color-success-rgb);
-}
-
-.wp-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 14px;
-  height: 58px;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.wp-title-block {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.wp-title-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-sm, 8px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--wp-state-color);
-  border: 1px solid rgba(var(--wp-state-rgb), 0.18);
-  background: rgba(var(--wp-state-rgb), 0.07);
-}
-
-.wp-title-icon :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-
-.wp-title-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.wp-header-title {
-  font-size: 14px;
-  line-height: 1.2;
-  font-weight: 650;
-  color: var(--color-text-primary);
-}
-
-.wp-header-subtitle {
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--color-text-muted);
-}
-
-.wp-run-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: var(--radius-full);
-  border: 1px solid rgba(var(--wp-state-rgb), 0.2);
-  color: var(--wp-state-color);
-  background: rgba(var(--wp-state-rgb), 0.07);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.work-panel.tone-idle .wp-run-pill {
-  border-color: var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.38);
-}
-
-.wp-run-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.72;
-}
-
-.wp-run-count {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  line-height: 1;
-  color: var(--wp-state-color);
-  background: rgba(var(--wp-state-rgb), 0.12);
-  border: 1px solid rgba(var(--wp-state-rgb), 0.2);
 }
 
 .wp-body {
@@ -368,19 +221,6 @@ function hasErrorInItems(items) {
   font-size: 12px;
 }
 
-.wp-label-enter-active,
-.wp-label-leave-active {
-  transition: opacity 140ms ease;
-}
-
-.wp-label-enter-from {
-  opacity: 0;
-}
-
-.wp-label-leave-to {
-  opacity: 0;
-}
-
 .wp-content-enter-active,
 .wp-content-leave-active {
   transition: opacity 180ms ease, transform 180ms ease;
@@ -408,8 +248,6 @@ function hasErrorInItems(items) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wp-label-enter-active,
-  .wp-label-leave-active,
   .wp-content-enter-active,
   .wp-content-leave-active,
   .wp-overlay-enter-active,
@@ -417,8 +255,6 @@ function hasErrorInItems(items) {
     transition-duration: 1ms;
   }
 
-  .wp-label-enter-from,
-  .wp-label-leave-to,
   .wp-content-enter-from,
   .wp-content-leave-to,
   .wp-overlay-enter-from,

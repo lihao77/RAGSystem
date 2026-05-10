@@ -5,7 +5,7 @@
         <WorkPanelStateIcon :kind="displayIcon" />
       </span>
       <div class="wpr-label-block">
-        <span class="wpr-kicker">当前状态</span>
+        <span class="wpr-kicker">工作栏</span>
         <Transition name="wpr-label" mode="out-in">
           <span :key="displayLabel" class="wpr-label">{{ displayLabel }}</span>
         </Transition>
@@ -45,17 +45,17 @@ const props = defineProps({
 
 const PHASE_LABELS = {
   idle: '待命',
-  llm_waiting_first_token: '思考中',
-  llm_streaming: '生成中',
+  llm_waiting_first_token: '等待模型响应',
+  llm_streaming: '模型输出中',
   tool_running: '工具执行中',
-  background_waiting: '等待后台',
+  background_waiting: '等待后台任务',
   retrying: '重试中',
   reflecting: '反思中',
   approval_waiting: '等待审批',
 }
 
 const displayState = computed(() => {
-  if (props.pendingInput) return { label: '需要输入', tone: 'input', icon: 'input' }
+  if (props.pendingInput) return { label: '待输入', tone: 'input', icon: 'input' }
   if (props.approvalCount > 0 || props.phase === 'approval_waiting') return { label: '等待审批', tone: 'warning', icon: 'approval' }
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
@@ -124,11 +124,11 @@ function compactNumber(value) {
 .wpr-root {
   --wpr-tone-color: var(--color-text-muted);
   --wpr-tone-rgb: var(--color-text-muted-rgb, 142, 142, 147);
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
   letter-spacing: 0;
@@ -164,12 +164,12 @@ function compactNumber(value) {
 .wpr-phase-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .wpr-indicator {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -186,8 +186,8 @@ function compactNumber(value) {
 }
 
 .wpr-indicator :deep(svg) {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .wpr-label-block {
@@ -206,7 +206,7 @@ function compactNumber(value) {
 }
 
 .wpr-label {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
   font-weight: 650;
   color: var(--color-text-primary);
@@ -224,7 +224,7 @@ function compactNumber(value) {
 .wpr-ctx-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 6px 10px;
+  gap: 4px 10px;
 }
 
 .wpr-ctx-copy {
@@ -240,7 +240,7 @@ function compactNumber(value) {
 
 .wpr-ctx-bar-track {
   flex: 1;
-  height: 5px;
+  height: 4px;
   background: var(--color-border);
   border-radius: var(--radius-full);
   overflow: hidden;
@@ -258,7 +258,7 @@ function compactNumber(value) {
 .fill-danger { background: var(--color-error, #ef4444); }
 
 .wpr-ctx-label {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--color-text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
