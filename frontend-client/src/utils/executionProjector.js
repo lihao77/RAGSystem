@@ -65,31 +65,11 @@ const createSubtask = (state, step) => ({
   _attached: false,
 });
 
-const createMultimodalContent = (step) => {
-  if (step.visualization_type === 'chart') {
-    return {
-      type: 'chart',
-      echartsConfig: step.data?.echarts_config || step.data?.config,
-      title: step.data?.title || 'Data Visualization',
-      chartType: step.data?.chart_type || 'bar',
-    };
-  }
-  if (step.visualization_type === 'map') {
-    return {
-      type: 'map',
-      mapData: step.data?.mapData || step.data?.data,
-      title: step.data?.title || 'Map Visualization',
-    };
-  }
-  return null;
-};
-
 export function createExecutionState() {
   return {
     rawSteps: [],
     subtasks: [],
     execution_steps: [],
-    multimodalContents: [],
     subtaskMap: new Map(),
     stepMap: new Map(),
     toolMap: new Map(),
@@ -478,11 +458,6 @@ export function applyStep(state, step) {
       }
       return state;
     }
-  }
-
-  if (step.kind === 'visualization') {
-    const content = createMultimodalContent(step);
-    if (content) state.multimodalContents.push(content);
   }
 
   return state;

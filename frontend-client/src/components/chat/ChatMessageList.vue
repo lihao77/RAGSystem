@@ -39,8 +39,6 @@
         :parse-message-parts="parseMessageParts"
         :render-markdown="renderMarkdown"
         :handle-enter-situation="handleEnterSituation"
-        :get-chart-component="getChartComponent"
-        :get-chart-props="getChartProps"
         :parse-task-notifications="parseTaskNotifications"
         :is-image-attachment="isImageAttachment"
         :get-attachment-preview-url="getAttachmentPreviewUrl"
@@ -88,8 +86,6 @@ const props = defineProps({
   parseMessageParts: { type: Function, required: true },
   renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
-  getChartComponent: { type: Function, required: true },
-  getChartProps: { type: Function, required: true },
   parseTaskNotifications: { type: Function, required: true },
   isImageAttachment: { type: Function, required: true },
   getAttachmentPreviewUrl: { type: Function, required: true },

@@ -43,8 +43,6 @@
           :parse-message-parts="parseMessageParts"
           :render-markdown="renderMarkdown"
           :handle-enter-situation="handleEnterSituation"
-          :get-chart-component="getChartComponent"
-          :get-chart-props="getChartProps"
           @notify="emit('notify', $event)"
         />
         <UserMessage
@@ -116,8 +114,6 @@ defineProps({
   parseMessageParts: { type: Function, required: true },
   renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
-  getChartComponent: { type: Function, required: true },
-  getChartProps: { type: Function, required: true },
   parseTaskNotifications: { type: Function, required: true },
   isImageAttachment: { type: Function, required: true },
   getAttachmentPreviewUrl: { type: Function, required: true },

@@ -34,8 +34,6 @@
           :parse-message-parts="parseMessageParts"
           :render-markdown="renderMarkdown"
           :handle-enter-situation="handleEnterSituation"
-          :get-chart-component="getChartComponent"
-          :get-chart-props="getChartProps"
           :parse-task-notifications="parseTaskNotifications"
           :is-image-attachment="isImageAttachment"
           :get-attachment-preview-url="getAttachmentPreviewUrl"
@@ -220,8 +218,6 @@ import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import ChatInput from '../components/ChatInput.vue';
-import ChartRenderer from '../components/ChartRenderer.vue';
-import MapRenderer from '../components/MapRenderer.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import CustomSelect from '../components/CustomSelect.vue';
@@ -230,52 +226,12 @@ import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 // 审批 ack 超时计时器（模块级 Map，替代 window 全局）
 const _approvalAckTimers = new Map();
 
-// ── 可视化注册表（兼容：仅用于历史消息回放） ─────────────────────────
-// 新架构下 SSE 不再推送可视化数据，但历史消息中可能仍有旧格式
-const VISUALIZATION_REGISTRY = {
-  'visualization.chart': {
-    type: 'chart',
-    component: ChartRenderer,
-    extract: (data) => ({
-      type: 'chart',
-      echartsConfig: data.echarts_config || data.config,
-      title: data.title || 'Data Visualization',
-      chartType: data.chart_type || 'bar',
-    }),
-    props: (item) => ({
-      echartsConfig: item.echartsConfig,
-      title: item.title,
-      chartType: item.chartType,
-    }),
-  },
-  'visualization.map': {
-    type: 'map',
-    component: MapRenderer,
-    extract: (data) => ({
-      type: 'map',
-      mapData: data.mapData || data.data,
-      title: data.title || 'Map Visualization',
-    }),
-    props: (item) => ({
-      mapData: item.mapData,
-      title: item.title,
-    }),
-  },
-};
-
-const TYPE_TO_COMPONENT = Object.fromEntries(
-  Object.values(VISUALIZATION_REGISTRY).map((r) => [r.type, r.component])
-);
-const TYPE_TO_PROPS = Object.fromEntries(
-  Object.values(VISUALIZATION_REGISTRY).map((r) => [r.type, r.props])
-);
 const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
   content: '',
   subtasks: [],
   execution_steps: [],
   showFullSubtasks: false,
-  multimodalContents: [],
   status: [],
   finished: false,
   has_execution: false,
@@ -1035,9 +991,6 @@ const syncExecutionProjection = (msg) => {
   msg.subtasks = state.subtasks;
   msg.execution_steps = state.execution_steps;
   msg.has_execution = state.rawSteps.length > 0 || msg.has_execution;
-  if (!msg.multimodalContents?.length || state.multimodalContents.length) {
-    msg.multimodalContents = state.multimodalContents.slice();
-  }
 };
 
 const ensureExecutionStepsLoaded = async (msg) => {
@@ -1053,9 +1006,6 @@ const ensureExecutionStepsLoaded = async (msg) => {
     msg._executionProjector = projected;
     msg.subtasks = projected.subtasks;
     msg.execution_steps = projected.execution_steps;
-    if (!msg.multimodalContents?.length || projected.multimodalContents.length) {
-      msg.multimodalContents = projected.multimodalContents;
-    }
     msg.executionStepsLoaded = true;
   } catch (error) {
     msg.executionStepsLoadError = error?.message || '加载执行过程失败';
@@ -1090,7 +1040,6 @@ const createAssistantMessageFromHistory = (item) => {
     content: interrupted ? '' : (item.content || ''),
     subtasks: [],
     execution_steps: [],
-    multimodalContents: item.multimodalContents?.length > 0 ? item.multimodalContents : [],
     status: interrupted ? [{ type: 'error', content: '已中断' }] : (item.status || []),
     finished: true,
     stopped: interrupted,
@@ -1564,66 +1513,27 @@ function buildTaskNotificationMessage(sessionId, event) {
 }
 
 function parseMessageParts(msg) {
-  const contents = msg.multimodalContents || [];
   const content = msg.content || '';
-
-  // 新格式：[viz:artifact_id]
   const VIZ_RE = /\[viz:(viz_\w+)\]/g;
-  // 旧格式兼容：[CHART:N]
-  const CHART_RE = /\[CHART:(\d+)\]/g;
-
   const hasViz = VIZ_RE.test(content);
   VIZ_RE.lastIndex = 0;
-  const hasChart = CHART_RE.test(content);
-  CHART_RE.lastIndex = 0;
 
-  // 无任何占位符
-  if (!hasViz && !hasChart) {
-    if (!contents.length) {
-      return [{ type: 'text', content }];
-    }
-    // 有旧格式 multimodal 但无占位符，追加到末尾
-    return [
-      { type: 'text', content },
-      ...contents.map((_, i) => ({ type: 'chart', index: i }))
-    ];
-  }
+  if (!hasViz) return [{ type: 'text', content }];
 
-  // 统一正则匹配两种格式
-  const COMBINED_RE = /\[viz:(viz_\w+)\]|\[CHART:(\d+)\]/g;
   const parts = [];
   let lastIndex = 0;
   let match;
-  while ((match = COMBINED_RE.exec(content)) !== null) {
+  while ((match = VIZ_RE.exec(content)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
     }
-    if (match[1]) {
-      // 新格式 [viz:artifact_id]
-      parts.push({ type: 'viz', artifactId: match[1] });
-    } else if (match[2]) {
-      // 旧格式 [CHART:N] 兼容
-      const chartIdx = parseInt(match[2], 10) - 1;
-      if (chartIdx >= 0 && chartIdx < contents.length) {
-        parts.push({ type: 'chart', index: chartIdx });
-      }
-    }
+    parts.push({ type: 'viz', artifactId: match[1] });
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {
     parts.push({ type: 'text', content: content.slice(lastIndex) });
   }
   return parts;
-}
-
-function getChartComponent(item) {
-  return TYPE_TO_COMPONENT[item?.type] || ChartRenderer;
-}
-
-function getChartProps(item) {
-  if (!item) return {};
-  const fn = TYPE_TO_PROPS[item.type];
-  return fn ? fn(item) : {};
 }
 
 const copyMessage = async (msg) => {

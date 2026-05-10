@@ -22,12 +22,6 @@
     <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
       <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
     </div>
-    <div v-else-if="part.type === 'chart'" class="inline-chart-wrapper">
-      <component
-        :is="getChartComponent(msg.multimodalContents[part.index])"
-        v-bind="getChartProps(msg.multimodalContents[part.index])"
-      />
-    </div>
   </template>
 
   <div v-if="msg.stopped" class="stopped-badge">
@@ -48,8 +42,6 @@ defineProps({
   parseMessageParts: { type: Function, required: true },
   renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
-  getChartComponent: { type: Function, required: true },
-  getChartProps: { type: Function, required: true },
 });
 
 const emit = defineEmits(['notify']);
