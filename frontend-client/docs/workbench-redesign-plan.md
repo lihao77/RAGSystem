@@ -241,3 +241,8 @@
 - 2026-05-11: 阶段 2 继续拆分。新增 `MarkdownContent.vue` 与 `utils/clipboard.js`，markdown 代码块/表格/引用复制逻辑从 `ChatViewV2.vue` 下沉到消息渲染组件；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 阶段 2 清理旧可视化兼容链路。移除 `[CHART:n]` 与 `multimodalContents` 历史格式支持，消息渲染仅保留 `[viz:artifact_id]`；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 完成阶段 2。新增 `ArtifactPanel.vue`，右侧工作栏展示当前消息中的 `[viz:artifact_id]` 产物入口；点击条目可定位到消息流中的内联可视化；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 继续下沉 `ChatViewV2.vue` 的会话入口、历史、创建与导出逻辑到 `useChatSessionController`，页面层仅保留编排与事件转发；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 继续下沉 `ChatViewV2.vue` 的审批队列与工作栏内联用户输入逻辑到 `useApprovalQueue`，保留 WS ack、HTTP 降级和队列轮转行为；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 继续下沉 `ChatViewV2.vue` 的 LLM 重试状态、倒计时 ticker 与消息状态同步到 `useLlmRetryState`；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 继续下沉 `ChatViewV2.vue` 的发送/停止链路到 `useSessionSend`，保留运行中状态检查、附件物化、WS/REST fallback 和 active run 初始化；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 继续剥离 `ChatViewV2.vue` 的纯视图派生逻辑。新增 `useMessageListView`、`useRuntimeStatusView`、`useTaskNotifications`，将压缩摘要可见列表、消息复制、上下文用量/执行状态文案和后台任务通知解析移出页面层；同时把工作栏用户输入路由并入 `useApprovalQueue`。
