@@ -1,5 +1,36 @@
 import { nextTick } from 'vue';
 
+function normalizeSessionRunStreamDeps(deps) {
+  const {
+    state = {},
+    messageStore = {},
+    sessionStatus = {},
+    connection = {},
+    retry = {},
+    execution = {},
+    approvals = {},
+    notifications = {},
+    artifacts = {},
+    ui = {},
+    sending = {},
+  } = deps || {};
+
+  return {
+    ...state,
+    ...messageStore,
+    ...sessionStatus,
+    ...connection,
+    ...retry,
+    ...execution,
+    ...approvals,
+    ...notifications,
+    ...artifacts,
+    ...ui,
+    ...sending,
+    ...deps,
+  };
+}
+
 /**
  * 会话流式事件路由与 run 生命周期管理。
  *
@@ -7,6 +38,8 @@ import { nextTick } from 'vue';
  * 不负责 socket 连接建立本身，也不改动视图模板结构。
  */
 export function useSessionRunStream(deps) {
+  deps = normalizeSessionRunStreamDeps(deps);
+
   // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
   let _pendingReconciliation = false;
   const FINALIZED_RUN_WINDOW_MS = 10_000;

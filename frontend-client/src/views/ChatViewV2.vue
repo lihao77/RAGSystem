@@ -205,11 +205,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { applyStep } from '../utils/executionProjector';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
+import { useActiveRunState } from '../composables/useActiveRunState';
 import { useChatSessionController } from '../composables/useChatSessionController';
 import { useSessionConnection } from '../composables/useSessionConnection';
 import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
@@ -222,11 +223,9 @@ import { useSessionSend } from '../composables/useSessionSend';
 import { useChatScrolling } from '../composables/useChatScrolling';
 import { useMessageArtifacts } from '../composables/useMessageArtifacts';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
-import { createAssistantMessage, normalizeAssistantExecutionState, useMessageExecution } from '../composables/useMessageExecution';
+import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
 import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
-import { useTaskNotifications } from '../composables/useTaskNotifications';
-import { useWorkPanelSelection } from '../composables/useWorkPanelSelection';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import ChatInput from '../components/ChatInput.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
@@ -306,23 +305,7 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-
-// ── 当前活跃 run 的状态（WS 事件处理用，共享给 composables） ──
-const _activeRun = reactive({
-  active: false,
-  assistantMsgIndex: -1,
-  runId: null,
-  lastSeenSeq: 0,
-  isReplaying: false,
-  phase: 'idle',
-  runStartedAt: null,
-  firstTokenAt: null,
-  firstTokenLatencyMs: null,
-  latestLlmFirstTokenAt: null,
-  lastChunkAt: null,
-  waiting: null,
-  outputCharCount: 0,
-});
+const { activeRun: _activeRun } = useActiveRunState();
 
 // ── Composables ─────────────────────────────────────────────────────────
 // 注意：deps 中的函数通过闭包引用，在调用时（非初始化时）解析，
@@ -339,6 +322,8 @@ const {
 });
 
 const {
+  createAssistantMessage,
+  normalizeAssistantExecutionState,
   hasExecutionContent,
   ensureExecutionProjector,
   syncExecutionProjection,
@@ -351,22 +336,17 @@ const {
   findRunningSubtaskByAgentName,
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
-} = useMessageExecution({
-  currentSessionId,
-  showToast: (...a) => showToast(...a),
-});
-
-const {
   selectedWorkPanelMessageKey,
   getWorkPanelMessageKey,
   currentRunMessage,
   currentRunMessageKey,
   selectWorkPanelMessage,
-} = useWorkPanelSelection({
+  parseTaskNotifications,
+  buildTaskNotificationMessage,
+} = useChatMessageRuntime({
+  currentSessionId,
   messages,
   activeRun: _activeRun,
-  hasExecutionContent,
-  ensureExecutionStepsLoaded,
   showToast: (...a) => showToast(...a),
 });
 
@@ -536,51 +516,68 @@ const {
 });
 
 const {
-  parseTaskNotifications,
-  buildTaskNotificationMessage,
-} = useTaskNotifications();
-
-const {
   handleWSMessage,
   finalizeActiveRun: _finalizeActiveRun,
 } = useSessionRunStream({
-  currentSessionId,
-  messages,
-  isLoading,
-  isCompressing,
-  contextUsage,
-  sessionTaskInfo,
-  activeRun: _activeRun,
-  llmRetryState,
-  showUserInput,
-  getWS,
-  createAssistantMessage,
-  clearSessionResumeRecovery,
-  clearCommandFallback,
-  scheduleCommandFallback,
-  deleteMessageCache,
-  loadSessionMessages,
-  mergeMessageIdsFromServer,
-  refreshSessionExecutionState,
-  mergeExecutionObservability,
-  cacheMessages,
-  clearLlmRetryState: (...a) => clearLlmRetryState(...a),
-  scrollToBottom: (...a) => scrollToBottom(...a),
-  showToast: (...a) => showToast(...a),
-  setLlmRetryState: (...a) => setLlmRetryState(...a),
-  updateRecentSession: (...a) => updateRecentSession(...a),
-  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
-  ensureExecutionProjector: (...a) => ensureExecutionProjector(...a),
-  syncExecutionProjection: (...a) => syncExecutionProjection(...a),
-  findSubtaskByCallId: (...a) => findSubtaskByCallId(...a),
-  findRunningSubtaskByAgentName: (...a) => findRunningSubtaskByAgentName(...a),
-  enqueueApproval: (...a) => enqueueApproval(...a),
-  handleApprovalResolved: (...a) => handleApprovalResolved(...a),
-  buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
-  isRootEvent: (...a) => isRootEvent(...a),
-  isMasterEvent: (...a) => isMasterEvent(...a),
-  applyStep,
-  handleStop: (...a) => handleStop(...a),
+  state: {
+    currentSessionId,
+    messages,
+    isLoading,
+    isCompressing,
+    contextUsage,
+    sessionTaskInfo,
+    activeRun: _activeRun,
+    llmRetryState,
+  },
+  messageStore: {
+    createAssistantMessage,
+    cacheMessages,
+    deleteMessageCache,
+    loadSessionMessages,
+    mergeMessageIdsFromServer,
+  },
+  sessionStatus: {
+    refreshSessionExecutionState,
+    mergeExecutionObservability,
+    updateRecentSession: (...a) => updateRecentSession(...a),
+  },
+  connection: {
+    getWS,
+    clearSessionResumeRecovery,
+    clearCommandFallback,
+    scheduleCommandFallback,
+  },
+  retry: {
+    clearLlmRetryState: (...a) => clearLlmRetryState(...a),
+    setLlmRetryState: (...a) => setLlmRetryState(...a),
+  },
+  execution: {
+    ensureExecutionProjector: (...a) => ensureExecutionProjector(...a),
+    syncExecutionProjection: (...a) => syncExecutionProjection(...a),
+    findSubtaskByCallId: (...a) => findSubtaskByCallId(...a),
+    findRunningSubtaskByAgentName: (...a) => findRunningSubtaskByAgentName(...a),
+    isRootEvent: (...a) => isRootEvent(...a),
+    isMasterEvent: (...a) => isMasterEvent(...a),
+    applyStep,
+  },
+  approvals: {
+    enqueueApproval: (...a) => enqueueApproval(...a),
+    handleApprovalResolved: (...a) => handleApprovalResolved(...a),
+    showUserInput,
+  },
+  notifications: {
+    buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
+  },
+  artifacts: {
+    checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
+  },
+  ui: {
+    scrollToBottom: (...a) => scrollToBottom(...a),
+    showToast: (...a) => showToast(...a),
+  },
+  sending: {
+    handleStop: (...a) => handleStop(...a),
+  },
 });
 
 // clearExecutionState 需要额外清理 view 级状态

@@ -246,3 +246,4 @@
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的 LLM 重试状态、倒计时 ticker 与消息状态同步到 `useLlmRetryState`；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的发送/停止链路到 `useSessionSend`，保留运行中状态检查、附件物化、WS/REST fallback 和 active run 初始化；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续剥离 `ChatViewV2.vue` 的纯视图派生逻辑。新增 `useMessageListView`、`useRuntimeStatusView`、`useTaskNotifications`，将压缩摘要可见列表、消息复制、上下文用量/执行状态文案和后台任务通知解析移出页面层；同时把工作栏用户输入路由并入 `useApprovalQueue`。
+- 2026-05-11: 继续收敛 `ChatViewV2.vue` 的运行时接线。新增 `useChatMessageRuntime` 聚合消息执行、工作栏选择和后台通知逻辑；`useSessionRunStream` 改为支持按 state/messageStore/sessionStatus/connection/retry/execution/approvals 等分组依赖；新增 `useActiveRunState` 承载 active run 初始状态。
