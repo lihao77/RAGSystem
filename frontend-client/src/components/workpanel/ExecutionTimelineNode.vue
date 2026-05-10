@@ -119,6 +119,7 @@ const emit = defineEmits(['inspect'])
 const expanded = ref(defaultExpanded(props.node))
 const EXPAND_TRANSITION_MS = 230
 const EXPAND_TRANSITION_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const DEFAULT_EXPAND_GAP_PX = 5
 
 const normalizedStatus = computed(() => {
   const ownStatus = normalizeStatus(props.node.status)
@@ -216,11 +217,11 @@ function prepareExpandEnter(el) {
   if (shouldReduceMotion()) return
   Object.assign(el.style, {
     height: '0px',
-    marginTop: '0px',
+    paddingTop: '0px',
     opacity: '0',
     transform: 'translateY(-4px)',
     overflow: 'hidden',
-    willChange: 'height, margin-top, opacity, transform',
+    willChange: 'height, padding-top, opacity, transform',
   })
 }
 
@@ -231,8 +232,9 @@ function runExpandEnter(el, done) {
   }
   el.style.transition = expandTransition()
   requestAnimationFrame(() => {
-    el.style.height = `${el.scrollHeight}px`
-    el.style.marginTop = ''
+    const gap = getExpandGapPx(el)
+    el.style.height = `${el.scrollHeight + gap}px`
+    el.style.paddingTop = `${gap}px`
     el.style.opacity = '1'
     el.style.transform = 'translateY(0)'
   })
@@ -241,13 +243,14 @@ function runExpandEnter(el, done) {
 
 function prepareExpandLeave(el) {
   if (shouldReduceMotion()) return
+  const styles = getComputedStyle(el)
   Object.assign(el.style, {
     height: `${el.scrollHeight}px`,
-    marginTop: getComputedStyle(el).marginTop,
+    paddingTop: styles.paddingTop,
     opacity: '1',
     transform: 'translateY(0)',
     overflow: 'hidden',
-    willChange: 'height, margin-top, opacity, transform',
+    willChange: 'height, padding-top, opacity, transform',
   })
 }
 
@@ -260,7 +263,7 @@ function runExpandLeave(el, done) {
   void el.offsetHeight
   requestAnimationFrame(() => {
     el.style.height = '0px'
-    el.style.marginTop = '0px'
+    el.style.paddingTop = '0px'
     el.style.opacity = '0'
     el.style.transform = 'translateY(-4px)'
   })
@@ -268,7 +271,7 @@ function runExpandLeave(el, done) {
 }
 
 function finishExpandTransition(el) {
-  const animatedStyles = ['height', 'marginTop', 'opacity', 'transform', 'overflow', 'transition', 'willChange']
+  const animatedStyles = ['height', 'paddingTop', 'opacity', 'transform', 'overflow', 'transition', 'willChange']
   animatedStyles.forEach((name) => {
     el.style[name] = ''
   })
@@ -292,10 +295,15 @@ function finishAfterHeightTransition(el, done) {
 function expandTransition() {
   return [
     `height ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
-    `margin-top ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
+    `padding-top ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
     `opacity 160ms ease`,
     `transform ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
   ].join(', ')
+}
+
+function getExpandGapPx(el) {
+  const value = parseFloat(getComputedStyle(el).getPropertyValue('--child-gap'))
+  return Number.isFinite(value) ? value : DEFAULT_EXPAND_GAP_PX
 }
 
 function shouldReduceMotion() {
@@ -845,10 +853,12 @@ function formatElapsed(value) {
 }
 
 .etn-children {
+  --child-gap: 5px;
   --timeline-rail-thickness: 1px;
   position: relative;
-  margin: 5px 0 0 var(--child-indent);
-  padding: 0;
+  box-sizing: border-box;
+  margin: 0 0 0 var(--child-indent);
+  padding: var(--child-gap) 0 0;
   transform-origin: top;
 }
 
@@ -856,7 +866,7 @@ function formatElapsed(value) {
   content: '';
   position: absolute;
   left: calc((var(--rail-width) / 2) - var(--child-indent));
-  top: -5px;
+  top: 0;
   width: calc(var(--child-indent) + (var(--child-rail-width) / 2) - (var(--rail-width) / 2));
   height: var(--timeline-rail-thickness);
   border-radius: var(--radius-full);
@@ -869,7 +879,7 @@ function formatElapsed(value) {
   content: '';
   position: absolute;
   left: calc((var(--child-rail-width) - var(--timeline-rail-thickness)) / 2);
-  top: -5px;
+  top: 0;
   bottom: 2px;
   width: var(--timeline-rail-thickness);
   border-radius: var(--radius-full);
