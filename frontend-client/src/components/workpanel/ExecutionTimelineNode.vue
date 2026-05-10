@@ -454,9 +454,9 @@ function formatElapsed(value) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) minmax(104px, max-content);
   align-items: start;
-  gap: 8px;
+  gap: 10px;
   padding: 8px 10px;
   border: 0;
   background: transparent;
@@ -482,7 +482,7 @@ function formatElapsed(value) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .etn-title-row {
@@ -490,16 +490,18 @@ function formatElapsed(value) {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
 .etn-type-icon {
+  --type-color: var(--color-text-muted);
+  --type-rgb: 142, 142, 147;
   width: 22px;
   height: 20px;
   border-radius: 7px;
-  border: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.24);
-  color: var(--color-text-muted);
+  border: 1px solid rgba(var(--type-rgb), 0.24);
+  background: rgba(var(--type-rgb), 0.08);
+  color: var(--type-color);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -522,9 +524,83 @@ function formatElapsed(value) {
   stroke-linejoin: round;
 }
 
+.etn-type-icon.icon-agent {
+  --type-color: #a855f7;
+  --type-rgb: 168, 85, 247;
+}
+
+.etn-type-icon.icon-thought {
+  --type-color: var(--color-warning);
+  --type-rgb: var(--color-warning-rgb);
+}
+
+.etn-type-icon.icon-tool {
+  --type-color: #94a3b8;
+  --type-rgb: 148, 163, 184;
+}
+
+.etn-type-icon.icon-code {
+  --type-color: var(--color-brand-accent);
+  --type-rgb: var(--color-brand-accent-rgb);
+}
+
+.etn-type-icon.icon-file {
+  --type-color: var(--color-success);
+  --type-rgb: var(--color-success-rgb);
+}
+
+.etn-type-icon.icon-search {
+  --type-color: #22d3ee;
+  --type-rgb: 34, 211, 238;
+}
+
+.etn-type-icon.icon-globe {
+  --type-color: #38bdf8;
+  --type-rgb: 56, 189, 248;
+}
+
+.etn-type-icon.icon-map {
+  --type-color: #34d399;
+  --type-rgb: 52, 211, 153;
+}
+
+.etn-type-icon.icon-chart {
+  --type-color: #f472b6;
+  --type-rgb: 244, 114, 182;
+}
+
+.etn-type-icon.icon-skill {
+  --type-color: #a78bfa;
+  --type-rgb: 167, 139, 250;
+}
+
+.etn-type-icon.icon-input {
+  --type-color: var(--color-warning);
+  --type-rgb: var(--color-warning-rgb);
+}
+
+.etn-type-icon.icon-database {
+  --type-color: #14b8a6;
+  --type-rgb: 20, 184, 166;
+}
+
+.etn-type-icon.icon-task {
+  --type-color: #fb923c;
+  --type-rgb: 251, 146, 60;
+}
+
+.etn-type-icon.icon-agentCall {
+  --type-color: #8b5cf6;
+  --type-rgb: 139, 92, 246;
+}
+
+.etn-type-icon.icon-step {
+  --type-color: var(--color-text-muted);
+  --type-rgb: 142, 142, 147;
+}
+
 .etn-card.is-selected .etn-type-icon,
 .etn.status-running .etn-type-icon,
-.etn.status-success .etn-type-icon,
 .etn.status-error .etn-type-icon,
 .etn.status-stopped .etn-type-icon {
   color: var(--status-color);
@@ -542,7 +618,7 @@ function formatElapsed(value) {
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  max-width: 150px;
+  max-width: min(112px, 38%);
   height: 18px;
   padding: 0 7px;
   border-radius: var(--radius-full);
@@ -559,9 +635,9 @@ function formatElapsed(value) {
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.35;
   color: var(--color-text-primary);
-  font-weight: 600;
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -570,27 +646,29 @@ function formatElapsed(value) {
 .etn-subtitle {
   min-width: 0;
   font-size: 11px;
-  line-height: 1.45;
-  color: var(--color-text-muted);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  opacity: 0.78;
   overflow: hidden;
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
 .etn-side {
-  min-width: 0;
+  min-width: 104px;
   display: grid;
-  grid-template-columns: max-content max-content 16px;
+  grid-template-columns: minmax(38px, max-content) minmax(46px, max-content) 16px;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding-top: 1px;
   flex-shrink: 0;
   justify-items: end;
 }
 
 .etn-time {
-  min-width: 38px;
+  width: 38px;
   font-size: 11px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
@@ -599,18 +677,19 @@ function formatElapsed(value) {
 }
 
 .etn-status-pill {
-  min-width: 42px;
+  min-width: 46px;
   height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 7px;
+  padding: 0 8px;
   border-radius: var(--radius-full);
   color: var(--status-color);
   border: 1px solid var(--status-border);
   background: var(--status-bg);
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
   white-space: nowrap;
   transition:
     color var(--transition-fast),

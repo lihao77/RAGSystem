@@ -90,7 +90,13 @@
             <span>摘要</span>
           </div>
           <div v-if="selectedInspectorMeta.length" class="wpe-meta-grid">
-            <div v-for="item in selectedInspectorMeta" :key="item.label" class="wpe-meta-item">
+            <div
+              v-for="item in selectedInspectorMeta"
+              :key="item.label"
+              class="wpe-meta-item"
+              :class="metaItemClass(item)"
+              :title="`${item.label}: ${item.value}`"
+            >
               <span class="wpe-meta-label">{{ item.label }}</span>
               <span class="wpe-meta-value">{{ item.value }}</span>
             </div>
@@ -523,6 +529,16 @@ function getNodeTitle(node) {
     return resolveToolDisplayName(node)
   }
   return node.intent || node.thought || node.thinking || node.description || '执行步骤'
+}
+
+function metaItemClass(item) {
+  if (item?.label !== '状态') return ''
+  const value = String(item.value || '')
+  if (value.includes('失败')) return 'meta-status-error'
+  if (value.includes('完成')) return 'meta-status-success'
+  if (value.includes('执行') || value.includes('等待')) return 'meta-status-running'
+  if (value.includes('停止')) return 'meta-status-stopped'
+  return ''
 }
 
 function dedupeMeta(items) {
@@ -974,54 +990,128 @@ button.wpe-chip:hover {
 }
 
 .wpe-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
 }
 
 .wpe-meta-item {
+  --meta-tone: var(--color-text-muted);
+  --meta-tone-rgb: var(--color-bg-elevated-rgb, 28, 28, 30);
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.3);
+  color: var(--color-text-secondary);
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .wpe-meta-label {
   font-size: 10px;
-  line-height: 1.2;
+  line-height: 1;
+  font-weight: 700;
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .wpe-meta-value {
   min-width: 0;
   font-size: 11px;
-  line-height: 1.35;
-  color: var(--color-text-secondary);
+  line-height: 1;
+  color: currentColor;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.wpe-meta-item.meta-status-success {
+  --meta-tone: var(--color-success);
+  --meta-tone-rgb: var(--color-success-rgb);
+}
+
+.wpe-meta-item.meta-status-running {
+  --meta-tone: var(--color-brand-accent);
+  --meta-tone-rgb: var(--color-brand-accent-rgb);
+}
+
+.wpe-meta-item.meta-status-error {
+  --meta-tone: var(--color-error);
+  --meta-tone-rgb: var(--color-error-rgb);
+}
+
+.wpe-meta-item.meta-status-stopped {
+  --meta-tone: var(--color-warning);
+  --meta-tone-rgb: var(--color-warning-rgb);
+}
+
+.wpe-meta-item[class*="meta-status-"] {
+  border-color: rgba(var(--meta-tone-rgb), 0.24);
+  background: rgba(var(--meta-tone-rgb), 0.08);
+  color: var(--meta-tone);
+}
+
+.wpe-meta-item[class*="meta-status-"] .wpe-meta-label {
+  color: var(--meta-tone);
+}
+
 .wpe-detail-block {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
   min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
 }
 
 .wpe-detail-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   line-height: 1.2;
   font-weight: 700;
   color: var(--color-text-muted);
 }
 
+.wpe-detail-label::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-hover);
+  flex-shrink: 0;
+}
+
 .wpe-detail-text {
+  max-height: 132px;
+  overflow: auto;
   font-size: 12px;
   line-height: 1.55;
   color: var(--color-text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.wpe-detail-text::-webkit-scrollbar,
+.wpe-code::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.wpe-detail-text::-webkit-scrollbar-thumb,
+.wpe-code::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
 }
 
 .wpe-detail-text.muted,
@@ -1058,21 +1148,22 @@ button.wpe-chip:hover {
 .wpe-copy-btn:hover {
   border-color: var(--color-border-hover);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.96);
-  color: var(--color-text-primary);
 }
 
 .wpe-code {
   margin: 0;
-  max-height: 190px;
+  max-height: 210px;
   overflow: auto;
-  padding: 8px 36px 8px 9px;
+  padding: 9px 38px 9px 10px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.38);
   color: var(--color-text-secondary);
   font: 11px/1.5 var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .wpe-code.result {
@@ -1103,7 +1194,11 @@ button.wpe-chip:hover {
 .wpe-context {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
 }
 
 .wpe-context-copy {
