@@ -68,7 +68,17 @@
       </section>
     </div>
 
-    <Transition name="etn-expand">
+    <Transition
+      name="etn-expand"
+      @before-enter="prepareExpandEnter"
+      @enter="runExpandEnter"
+      @after-enter="finishExpandTransition"
+      @enter-cancelled="finishExpandTransition"
+      @before-leave="prepareExpandLeave"
+      @leave="runExpandLeave"
+      @after-leave="finishExpandTransition"
+      @leave-cancelled="finishExpandTransition"
+    >
       <div v-if="expanded && node.children?.length" class="etn-children">
         <ExecutionTimelineNode
           v-for="(child, index) in node.children"
@@ -107,6 +117,8 @@ const props = defineProps({
 const emit = defineEmits(['inspect'])
 
 const expanded = ref(defaultExpanded(props.node))
+const EXPAND_TRANSITION_MS = 230
+const EXPAND_TRANSITION_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 const normalizedStatus = computed(() => {
   const ownStatus = normalizeStatus(props.node.status)
@@ -198,6 +210,97 @@ function handleSummaryClick() {
   emit('inspect', props.node)
   if (!hasChildren.value) return
   expanded.value = !expanded.value
+}
+
+function prepareExpandEnter(el) {
+  if (shouldReduceMotion()) return
+  Object.assign(el.style, {
+    height: '0px',
+    marginTop: '0px',
+    opacity: '0',
+    transform: 'translateY(-4px)',
+    overflow: 'hidden',
+    willChange: 'height, margin-top, opacity, transform',
+  })
+}
+
+function runExpandEnter(el, done) {
+  if (shouldReduceMotion()) {
+    done()
+    return
+  }
+  el.style.transition = expandTransition()
+  requestAnimationFrame(() => {
+    el.style.height = `${el.scrollHeight}px`
+    el.style.marginTop = ''
+    el.style.opacity = '1'
+    el.style.transform = 'translateY(0)'
+  })
+  finishAfterHeightTransition(el, done)
+}
+
+function prepareExpandLeave(el) {
+  if (shouldReduceMotion()) return
+  Object.assign(el.style, {
+    height: `${el.scrollHeight}px`,
+    marginTop: getComputedStyle(el).marginTop,
+    opacity: '1',
+    transform: 'translateY(0)',
+    overflow: 'hidden',
+    willChange: 'height, margin-top, opacity, transform',
+  })
+}
+
+function runExpandLeave(el, done) {
+  if (shouldReduceMotion()) {
+    done()
+    return
+  }
+  el.style.transition = expandTransition()
+  void el.offsetHeight
+  requestAnimationFrame(() => {
+    el.style.height = '0px'
+    el.style.marginTop = '0px'
+    el.style.opacity = '0'
+    el.style.transform = 'translateY(-4px)'
+  })
+  finishAfterHeightTransition(el, done)
+}
+
+function finishExpandTransition(el) {
+  const animatedStyles = ['height', 'marginTop', 'opacity', 'transform', 'overflow', 'transition', 'willChange']
+  animatedStyles.forEach((name) => {
+    el.style[name] = ''
+  })
+}
+
+function finishAfterHeightTransition(el, done) {
+  let finished = false
+  const finish = () => {
+    if (finished) return
+    finished = true
+    el.removeEventListener('transitionend', onTransitionEnd)
+    done()
+  }
+  const onTransitionEnd = (event) => {
+    if (event.target === el && event.propertyName === 'height') finish()
+  }
+  el.addEventListener('transitionend', onTransitionEnd)
+  window.setTimeout(finish, EXPAND_TRANSITION_MS + 80)
+}
+
+function expandTransition() {
+  return [
+    `height ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
+    `margin-top ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
+    `opacity 160ms ease`,
+    `transform ${EXPAND_TRANSITION_MS}ms ${EXPAND_TRANSITION_EASE}`,
+  ].join(', ')
+}
+
+function shouldReduceMotion() {
+  return typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
 function defaultExpanded(node) {
@@ -808,13 +911,7 @@ function formatElapsed(value) {
 
 .etn-expand-enter-active,
 .etn-expand-leave-active {
-  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.etn-expand-enter-from,
-.etn-expand-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
+  overflow: hidden;
 }
 
 @keyframes etn-substep-pulse {
@@ -840,16 +937,12 @@ function formatElapsed(value) {
   .etn-substep-dot,
   .etn-chevron,
   .etn-status-enter-active,
-  .etn-status-leave-active,
-  .etn-expand-enter-active,
-  .etn-expand-leave-active {
+  .etn-status-leave-active {
     transition-duration: 1ms;
   }
 
   .etn-status-enter-from,
-  .etn-status-leave-to,
-  .etn-expand-enter-from,
-  .etn-expand-leave-to {
+  .etn-status-leave-to {
     transform: none;
   }
 }

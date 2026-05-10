@@ -395,8 +395,8 @@
       :session-id="currentSessionId || ''"
       :message-key="currentRunMessageKey"
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
-      @user-input-submit="({ inputId, value }) => { pendingUserInput.value?.submit(inputId, value); pendingUserInput.value = null; }"
-      @user-input-cancel="() => { pendingUserInput.value?.cancel(); pendingUserInput.value = null; }"
+      @user-input-submit="handleWorkPanelUserInputSubmit"
+      @user-input-cancel="handleWorkPanelUserInputCancel"
     />
     </main>
     <AppToast ref="toastRef" />
@@ -669,6 +669,23 @@ const approvalQueue = ref([]);
 const approvalSubmittingId = ref('');
 const pendingUserInput = ref(null); // { data, submit, cancel } — 双栏内联用户输入
 
+const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {
+  const pending = pendingUserInput.value;
+  if (!pending?.submit) return;
+  pendingUserInput.value = null;
+  await pending.submit(inputId, value);
+};
+
+const handleWorkPanelUserInputCancel = async () => {
+  const pending = pendingUserInput.value;
+  if (!pending?.cancel) {
+    pendingUserInput.value = null;
+    return;
+  }
+  pendingUserInput.value = null;
+  await pending.cancel();
+};
+
 // ── 当前活跃 run 的状态（WS 事件处理用，共享给 composables） ──
 const _activeRun = reactive({
   active: false,
@@ -742,9 +759,15 @@ const workPanelExecutionMessages = computed(() => messages.value
     message: msg,
   })));
 
+const activeWorkPanelRunMessage = computed(() => {
+  if (_activeRun.assistantMsgIndex < 0) return null;
+  return messages.value[_activeRun.assistantMsgIndex] ?? null;
+});
+const activeWorkPanelRunMessageKey = computed(() => getWorkPanelMessageKey(activeWorkPanelRunMessage.value));
+
 const currentRunMessage = computed(() => {
-  if (_activeRun.active && _activeRun.assistantMsgIndex >= 0) {
-    return messages.value[_activeRun.assistantMsgIndex] ?? null;
+  if (_activeRun.active) {
+    return activeWorkPanelRunMessage.value;
   }
   const selected = workPanelExecutionMessages.value.find(item => item.key === selectedWorkPanelMessageKey.value)?.message;
   if (selected) return selected;
@@ -763,10 +786,7 @@ watch(currentRunMessage, (msg) => {
 watch(workPanelExecutionMessages, (items) => {
   if (_activeRun.active) return;
   const latestKey = items.at(-1)?.key || '';
-  const activeRunMessage = _activeRun.assistantMsgIndex >= 0
-    ? messages.value[_activeRun.assistantMsgIndex]
-    : null;
-  const activeRunKey = getWorkPanelMessageKey(activeRunMessage);
+  const activeRunKey = activeWorkPanelRunMessageKey.value;
   if (activeRunKey && items.some(item => item.key === activeRunKey)) {
     selectedWorkPanelMessageKey.value = activeRunKey;
     return;
@@ -776,6 +796,17 @@ watch(workPanelExecutionMessages, (items) => {
   }
   selectedWorkPanelMessageKey.value = latestKey;
 }, { immediate: true });
+
+watch(() => _activeRun.active, (active, wasActive) => {
+  const activeRunKey = activeWorkPanelRunMessageKey.value;
+  if (activeRunKey && workPanelExecutionMessages.value.some(item => item.key === activeRunKey)) {
+    selectedWorkPanelMessageKey.value = activeRunKey;
+    return;
+  }
+  if (wasActive && !active) {
+    selectedWorkPanelMessageKey.value = workPanelExecutionMessages.value.at(-1)?.key || '';
+  }
+});
 
 async function selectWorkPanelMessage(msgOrKey) {
   const key = typeof msgOrKey === 'string' ? msgOrKey : getWorkPanelMessageKey(msgOrKey);

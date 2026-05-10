@@ -497,7 +497,7 @@ function findLastByStatus(status) {
 function shouldShowFocusStrip(node) {
   if (!node) return false
   const status = normalizeStatus(node.status)
-  return status === 'running' || status === 'error' || node.tool_name === 'request_user_input'
+  return status === 'running' || status === 'error' || isWaitingUserInputNode(node)
 }
 
 function scrollNodeIntoView(key) {
@@ -522,9 +522,15 @@ function findFocusNode(items) {
     if (normalizeStatus(items[i]?.status) === 'running') return items[i]
   }
   for (let i = items.length - 1; i >= 0; i -= 1) {
-    if (items[i]?.tool_name === 'request_user_input') return items[i]
+    if (isWaitingUserInputNode(items[i])) return items[i]
   }
   return items[items.length - 1] || null
+}
+
+function isWaitingUserInputNode(node) {
+  if (node?.tool_name !== 'request_user_input') return false
+  const status = normalizeStatus(node.status)
+  return props.running && (status === 'pending' || status === 'running')
 }
 
 function getNodeTitle(node) {
