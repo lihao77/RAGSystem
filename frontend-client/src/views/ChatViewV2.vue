@@ -143,8 +143,9 @@
       </div>
     </div>
     </div><!-- end .chat-conversation-column -->
-    <WorkPanel
-      v-if="showWorkPanel"
+    <ApprovalQueueHost
+      ref="approvalQueueHostRef"
+      :show-work-panel="showWorkPanel"
       :active-run="_activeRun"
       :current-message="currentRunMessage"
       :approval-queue="approvalQueue"
@@ -186,14 +187,8 @@
       @removePending="sessionFilesDrawerTarget === 'message-edit' ? removeEditingAttachment($event) : removePendingAttachment($event)"
     />
 
-    <!-- 工具审批对话框 -->
-    <ApprovalDialog ref="approvalDialogRef" />
-
     <!-- 文件预览确认对话框 -->
     <FilePreviewConfirmDialog ref="filePreviewDialogRef" />
-
-    <!-- 用户输入对话框 -->
-    <UserInputDialog ref="userInputDialogRef" />
 
     <!-- 态势大屏 -->
     <SituationScreen
@@ -222,7 +217,6 @@ import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
-import UserInputDialog from '../components/UserInputDialog.vue';
 import ChatInput from '../components/ChatInput.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
@@ -313,15 +307,14 @@ const normalizeAssistantExecutionState = (msg) => {
 };
 
 import LiquidGlass from '../components/LiquidGlass.vue';
-import ApprovalDialog from '../components/ApprovalDialog.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
+import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import { getMessageRunSteps } from '../api/monitoring';
-import WorkPanel from '../components/workpanel/WorkPanel.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 
 // Props
@@ -393,9 +386,8 @@ const historyError = ref('');
 const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const chatInputRef = ref(null);
-const approvalDialogRef = ref(null);
+const approvalQueueHostRef = ref(null);
 const filePreviewDialogRef = ref(null);
-const userInputDialogRef = ref(null);
 const toastRef = ref(null);
 const isExportingSession = ref(false);
 const isCompressing = ref(false);
@@ -656,13 +648,13 @@ const {
   sessionTaskInfo,
   activeRun: _activeRun,
   llmRetryState,
-  userInputDialogRef,
+  userInputDialogRef: approvalQueueHostRef,
   showUserInput: (eventData, submitFn, cancelFn) => {
     if (showWorkPanel.value) {
       // 双栏模式：存入工作栏内联
       pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
     } else {
-      userInputDialogRef.value?.show(eventData, submitFn, cancelFn);
+      approvalQueueHostRef.value?.showUserInput?.(eventData, submitFn, cancelFn);
     }
   },
   getWS,
@@ -769,11 +761,11 @@ const getApprovalDialogRef = (approval) => {
   if (!approval) return null;
   return approval.approval_type === 'file_read_confirm'
     ? filePreviewDialogRef.value
-    : approvalDialogRef.value;
+    : approvalQueueHostRef.value;
 };
 
 const hideApprovalDialogs = () => {
-  approvalDialogRef.value?.hide?.();
+  approvalQueueHostRef.value?.hideApproval?.();
   filePreviewDialogRef.value?.hide?.();
 };
 
