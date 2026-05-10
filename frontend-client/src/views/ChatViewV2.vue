@@ -1,6 +1,7 @@
 <template>
   <div class="chat-page-shell">
-    <main class="chat-main" :class="{ 'has-messages': messages.length > 0 }">
+    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': showWorkPanel }">
+    <div class="chat-conversation-column">
     <!-- 顶部控制栏 -->
       <div class="top-controls-bar glass-card" ref="topControlsBarRef">
         <!-- 左侧：汉堡菜单 + LLM 选择器 -->
@@ -79,8 +80,8 @@
               <div v-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
                 <CommandResultMessage :message="msg" />
               </div>
-              <!-- Subtasks Container - 占满整个 message 宽度 -->
-              <div v-else-if="msg.role === 'assistant' && (hasExecutionContent(msg) || !msg.finished)"
+              <!-- Subtasks Container - 占满整个 message 宽度（桌面双栏时隐藏，执行信息移至工作栏）-->
+              <div v-else-if="!showWorkPanel && msg.role === 'assistant' && (hasExecutionContent(msg) || !msg.finished)"
                 class="subtasks-container-full">
                 <!-- 常驻 Ticker (现在同时作为 Header) -->
                 <SubtaskStatusTicker :subtasks="msg.subtasks" :execution-steps="msg.execution_steps" :expanded="msg.showFullSubtasks"
@@ -367,6 +368,20 @@
         </div>
       </div>
     </div>
+    </div><!-- end .chat-conversation-column -->
+    <WorkPanel
+      v-if="showWorkPanel"
+      :active-run="_activeRun"
+      :current-message="currentRunMessage"
+      :approval-queue="approvalQueue"
+      :approval-submitting-id="approvalSubmittingId"
+      :pending-user-input="pendingUserInput"
+      :context-usage="contextUsage"
+      :session-id="currentSessionId || ''"
+      @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
+      @user-input-submit="({ inputId, value }) => { pendingUserInput.value?.submit(inputId, value); pendingUserInput.value = null; }"
+      @user-input-cancel="() => { pendingUserInput.value?.cancel(); pendingUserInput.value = null; }"
+    />
     </main>
     <AppToast ref="toastRef" />
 
@@ -537,6 +552,8 @@ import AppToast from '../components/AppToast.vue';
 import { IconLogo, IconMenu } from '../components/icons';
 import { getMessageRunSteps } from '../api/monitoring';
 import CommandResultMessage from '../components/CommandResultMessage.vue';
+import WorkPanel from '../components/workpanel/WorkPanel.vue';
+import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 
 // Props
 const props = defineProps({
@@ -634,6 +651,7 @@ let llmRetryTimer = null;
 const lastFailedSendContent = ref('');
 const approvalQueue = ref([]);
 const approvalSubmittingId = ref('');
+const pendingUserInput = ref(null); // { data, submit, cancel } — 双栏内联用户输入
 
 // ── 当前活跃 run 的状态（WS 事件处理用，共享给 composables） ──
 const _activeRun = reactive({
@@ -689,6 +707,21 @@ const {
   scheduleCommandFallback: (...a) => scheduleCommandFallback(...a),
   scheduleResumeRecovery: (...a) => scheduleSessionResumeRecovery(...a),
   clearLlmRetryState: () => clearLlmRetryState(),
+});
+
+const { showWorkPanel } = useWorkbenchLayout();
+const currentRunMessage = computed(() => {
+  if (_activeRun.assistantMsgIndex >= 0) {
+    return messages.value[_activeRun.assistantMsgIndex] ?? null;
+  }
+  // idle 时展示最后一条有执行数据的 assistant 消息
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i];
+    if (msg.role === 'assistant' && (msg.execution_steps?.length > 0 || msg.subtasks?.length > 0)) {
+      return msg;
+    }
+  }
+  return null;
 });
 
 const {
@@ -775,6 +808,14 @@ const {
   activeRun: _activeRun,
   llmRetryState,
   userInputDialogRef,
+  showUserInput: (eventData, submitFn, cancelFn) => {
+    if (showWorkPanel.value) {
+      // 双栏模式：存入工作栏内联
+      pendingUserInput.value = { data: eventData, submit: submitFn, cancel: cancelFn };
+    } else {
+      userInputDialogRef.value?.show(eventData, submitFn, cancelFn);
+    }
+  },
   getWS,
   createAssistantMessage,
   clearSessionResumeRecovery,
@@ -895,66 +936,62 @@ const removeApprovalFromQueue = (approvalId) => {
   approvalQueue.value = approvalQueue.value.filter(item => item?.approval_id !== approvalId);
 };
 
+// 统一审批提交逻辑（WS 优先，降级 HTTP），供对话框和工作栏内联共用
+const submitApproval = async (aid, approved, message, sessionId) => {
+  if (!aid || approvalSubmittingId.value) return;
+  approvalSubmittingId.value = aid;
+  const sid = sessionId || currentSessionId.value;
+  if (getWS()?.readyState === WebSocket.OPEN) {
+    getWS().send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
+    const ackTimer = setTimeout(async () => {
+      if (approvalSubmittingId.value !== aid) return;
+      console.warn(`[Approval] WS ack 超时 (${aid})，降级 HTTP 重试`);
+      try {
+        const resp = await fetch(
+          `/api/agent/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(aid)}/respond`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, message }) }
+        );
+        if (!resp.ok) throw new Error(`HTTP fallback 失败 (${resp.status})`);
+        handleApprovalResolved(aid, sid);
+      } catch (e) {
+        removeApprovalFromQueue(aid);
+        approvalSubmittingId.value = '';
+        showToast(e.message || '审批提交超时', 'warning');
+        hideApprovalDialogs();
+        showNextApproval(sid);
+      }
+    }, 5000);
+    _approvalAckTimers.set(aid, ackTimer);
+    return;
+  }
+  try {
+    const resp = await fetch(
+      `/api/agent/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(aid)}/respond`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, message }) }
+    );
+    if (!resp.ok) {
+      const result = await resp.json().catch(() => ({}));
+      throw new Error(result.message || `审批提交失败 (${resp.status})`);
+    }
+    handleApprovalResolved(aid, sid);
+  } catch (e) {
+    removeApprovalFromQueue(aid);
+    approvalSubmittingId.value = '';
+    console.warn('审批响应失败:', e);
+    showToast(e.message || '审批提交失败', 'warning');
+    hideApprovalDialogs();
+    showNextApproval(sid);
+  }
+};
+
 const showQueuedApproval = (approval, sessionId) => {
   if (!approval?.approval_id || !sessionId) return;
   const dialogRef = getApprovalDialogRef(approval);
   if (!dialogRef?.show) return;
-  const makeApprovalResponder = (approved) => async (aid, message) => {
-    if (!aid || approvalSubmittingId.value) return;
-    approvalSubmittingId.value = aid;
-    if (getWS()?.readyState === WebSocket.OPEN) {
-      getWS().send(JSON.stringify({ type: 'approve', approval_id: aid, approved, message }));
-      // 设置 ack 超时：5秒内未收到后端确认则降级为 HTTP 重试
-      const ackTimer = setTimeout(async () => {
-        if (approvalSubmittingId.value !== aid) return; // 已被 ack 处理
-        console.warn(`[Approval] WS ack 超时 (${aid})，降级 HTTP 重试`);
-        try {
-          const resp = await fetch(
-            `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved, message }) }
-          );
-          if (!resp.ok) throw new Error(`HTTP fallback 失败 (${resp.status})`);
-          handleApprovalResolved(aid, sessionId);
-        } catch (e) {
-          removeApprovalFromQueue(aid);
-          approvalSubmittingId.value = '';
-          showToast(e.message || '审批提交超时', 'warning');
-          hideApprovalDialogs();
-          showNextApproval(sessionId);
-        }
-      }, 5000);
-      // 存储 timer 以便 ack 到达时清除
-      _approvalAckTimers.set(aid, ackTimer);
-      return;
-    }
-    try {
-      const resp = await fetch(
-        `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(aid)}/respond`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved, message })
-        }
-      );
-      if (!resp.ok) {
-        const result = await resp.json().catch(() => ({}));
-        throw new Error(result.message || `审批提交失败 (${resp.status})`);
-      }
-      // HTTP 成功：乐观出队，不依赖后端事件广播（WS 断连时收不到 ack）
-      handleApprovalResolved(aid, sessionId);
-    } catch (e) {
-      removeApprovalFromQueue(aid);
-      approvalSubmittingId.value = '';
-      console.warn('审批响应失败:', e);
-      showToast(e.message || '审批提交失败', 'warning');
-      hideApprovalDialogs();
-      showNextApproval(sessionId);
-    }
-  };
   dialogRef.show(
     { ...approval, queue_count: approvalQueue.value.length || 1 },
-    makeApprovalResponder(true),
-    makeApprovalResponder(false)
+    (aid, message) => submitApproval(aid, true, message, sessionId),
+    (aid, message) => submitApproval(aid, false, message, sessionId)
   );
 };
 
@@ -976,7 +1013,8 @@ const enqueueApproval = (event, eventData, sessionId) => {
   if (!exists) {
     approvalQueue.value = [...approvalQueue.value, approval];
   }
-  showNextApproval(sessionId);
+  // 双栏模式：工作栏内联处理，无需弹窗
+  if (!showWorkPanel.value) showNextApproval(sessionId);
 };
 
 const handleApprovalResolved = (approvalId, sessionId) => {
@@ -1000,6 +1038,7 @@ const handleApprovalResolved = (approvalId, sessionId) => {
 const resetApprovalState = () => {
   approvalQueue.value = [];
   approvalSubmittingId.value = '';
+  pendingUserInput.value = null;
   hideApprovalDialogs();
 };
 

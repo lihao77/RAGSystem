@@ -353,29 +353,32 @@ export function useSessionRunStream(deps) {
       deps.activeRun.phase = 'approval_waiting';
       deps.enqueueApproval(event, eventData, sessionId);
     } else if (eventType === 'user.input_required') {
-      deps.userInputDialogRef.value?.show(
-        eventData,
-        async (inputId, value) => {
-          if (deps.getWS()?.readyState === WebSocket.OPEN) {
-            deps.getWS().send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
-          } else {
-            try {
-              const resp = await fetch(
-                `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
-                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
-              );
-              if (!resp.ok) {
-                const result = await resp.json().catch(() => ({}));
-                throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
-              }
-            } catch (e) {
-              console.warn('用户输入提交失败:', e);
-              deps.showToast(e.message || '用户输入提交失败', 'warning');
+      const submitUserInput = async (inputId, value) => {
+        if (deps.getWS()?.readyState === WebSocket.OPEN) {
+          deps.getWS().send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
+        } else {
+          try {
+            const resp = await fetch(
+              `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
+              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
+            );
+            if (!resp.ok) {
+              const result = await resp.json().catch(() => ({}));
+              throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
             }
+          } catch (e) {
+            console.warn('用户输入提交失败:', e);
+            deps.showToast(e.message || '用户输入提交失败', 'warning');
           }
-        },
-        async () => { await deps.handleStop(); }
-      );
+        }
+      };
+      const cancelUserInput = async () => { await deps.handleStop(); };
+      // 优先使用 showUserInput 路由函数（支持内联工作栏），回退到对话框
+      if (deps.showUserInput) {
+        deps.showUserInput(eventData, submitUserInput, cancelUserInput);
+      } else {
+        deps.userInputDialogRef.value?.show(eventData, submitUserInput, cancelUserInput);
+      }
     }
 
     deps.scrollToBottom();

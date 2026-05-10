@@ -1,0 +1,234 @@
+# 前端 Agent 工作台改造计划
+
+本文档定义 `frontend-client/` 从当前“聊天页 + 管理页集合”演进为“Agent 工作台”的实施路线。计划按小步可验收方式推进，避免一次性重写 `ChatViewV2.vue` 或改变后端协议。
+
+## 目标
+
+- 把聊天、运行过程、产物、审批、上下文和配置入口拆成清晰工作区。
+- 降低 `ChatViewV2.vue` 与 `MainLayout.vue` 的复杂度，让后续功能可局部迭代。
+- 保持现有 API、WebSocket 事件、`executionProjector` 和 artifact 渲染链路稳定。
+- 优先提升高频路径：新建任务、查看运行状态、处理审批、查看结果、切换会话。
+
+## 非目标
+
+- 不重写后端 Agent 运行时。
+- 不改 `execution.step` canonical 协议。
+- 不迁移 Vue 技术栈。
+- 不一次性替换所有管理页 UI。
+- 不为了视觉风格引入新的重型 UI 框架。
+
+## 当前主要问题
+
+1. `ChatViewV2.vue` 承载会话路由同步、WebSocket、消息渲染、执行树、审批、附件、上下文抽屉和态势屏触发，单文件过重。
+2. 左侧 sidebar 同时承载“会话历史”和“系统管理入口”，用户注意力被管理功能抢占。
+3. 执行过程直接嵌入消息流，历史消息长、调试噪声重，最终回答和运行诊断边界不清晰。
+4. 欢迎页偏展示性质，缺少工作区、入口 Agent、Team、模型和附件等任务启动动作。
+5. 管理页虽然已收敛到 `PageLayout`，但列表、详情、表单、状态展示仍不够统一。
+6. 全局视觉中过多 glass、blur、glow 和大圆角，桌面工具感不足。
+
+## 设计原则
+
+- 消息流只负责对话和最终结果，运行细节进入 Inspector。
+- 导航先数据化，再做信息架构迁移。
+- 大组件先拆只读展示组件，再迁移状态和副作用。
+- 管理页优先统一结构，再统一视觉。
+- 每个阶段都必须能独立构建、独立回滚。
+
+## 阶段 0: 基线与导航数据化
+
+状态: 已完成
+
+目标:
+- 建立本计划文档，作为后续前端改造的执行清单。
+- 先把 `MainLayout.vue` 的管理入口按钮改为数据驱动，降低后续拆分侧栏/管理中心的改动成本。
+
+范围:
+- `frontend-client/docs/workbench-redesign-plan.md`
+- `frontend-client/docs/README.md`
+- `frontend-client/src/layouts/MainLayout.vue`
+
+任务:
+- [x] 新增前端工作台改造计划文档。
+- [x] 将计划文档加入前端文档索引。
+- [x] 将 sidebar 管理入口改为 `sidebarNavItems` 数据渲染。
+- [x] 保持现有路由、按钮文案、active 规则和移动端行为不变。
+- [x] 运行前端构建验证。
+
+验收:
+- `npm run build` 通过。
+- 左侧管理入口顺序不变。
+- 当前路由高亮行为不变。
+- 新聊天和历史会话行为不变。
+
+回滚点:
+- 只需回滚 `MainLayout.vue` 与文档索引，不影响业务 API。
+
+## 阶段 1: 聊天页工作台骨架
+
+状态: 未开始
+
+目标:
+- 将聊天页从单一消息流改为“消息主区 + 可折叠运行 Inspector + 底部 Composer”。
+- 初期只迁移展示位置，不改变数据来源。
+
+范围:
+- `ChatViewV2.vue`
+- 新增 `components/chat/RunInspector.vue`
+- 新增 `components/chat/SessionContextBar.vue`
+- 新增 `components/chat/ComposerDock.vue` 或先用现有 `ChatInput.vue` 包装
+- `styles/chat-view.css`
+
+任务:
+- [x] 新增右侧 `RunInspector` 容器，桌面端固定右侧，窄屏暂时隐藏。
+- [x] 将当前 assistant 消息中的完整执行详情入口映射到 Inspector。
+- [x] 消息流内默认只保留 `SubtaskStatusTicker` 摘要。
+- [ ] 顶部控制栏收敛为 `SessionContextBar`，展示模型、入口 Agent、工作区、权限和运行态。
+- [ ] 保持审批弹窗、用户输入弹窗、附件抽屉行为不变。
+
+验收:
+- 运行中任务能在 Inspector 看到执行树。
+- 历史消息有 `has_execution` 时展开仍能懒加载 run steps。
+- 移动端不出现横向溢出。
+- 消息滚动和“滚动到底部”按钮仍绑定 `chat-messages-wrapper`。
+
+回滚点:
+- 保留原消息内执行详情渲染代码一个阶段，Inspector 稳定后再删除。
+
+## 阶段 2: `ChatViewV2.vue` 组件拆分
+
+目标:
+- 降低聊天页单文件复杂度。
+- 把展示组件和副作用逻辑分层。
+
+拆分目标:
+- `components/chat/ChatMessageList.vue`
+- `components/chat/ChatMessageItem.vue`
+- `components/chat/AssistantMessage.vue`
+- `components/chat/UserMessage.vue`
+- `components/chat/RunInspector.vue`
+- `components/chat/SessionContextBar.vue`
+- `components/chat/ApprovalQueueHost.vue`
+- `components/chat/ArtifactPanel.vue`
+
+任务:
+- [ ] 先拆消息展示组件，props 输入 `visibleMessages`、当前 session 和操作回调。
+- [ ] 再拆 markdown copy、message action、编辑态展示。
+- [ ] 把审批队列展示移入 `ApprovalQueueHost`，状态仍暂由 `ChatViewV2` 持有。
+- [ ] 把 artifact / visualization 入口移入 `ArtifactPanel` 或 Inspector tab。
+
+验收:
+- `ChatViewV2.vue` 行数明显下降。
+- 原有组件测试通过。
+- 不引入跨组件隐式事件总线。
+
+## 阶段 3: 欢迎页改为任务启动器
+
+目标:
+- 首页空会话状态从品牌展示改为可操作的任务启动界面。
+
+功能:
+- 工作区路径输入。
+- 入口 Agent 选择。
+- Team 信息展示。
+- 模型选择。
+- 附件入口。
+- 最近任务和常用任务模板。
+
+任务:
+- [ ] 新增 `components/chat/TaskLauncher.vue`。
+- [ ] 复用现有 `pendingWorkspaceRoot`、`pendingEntryAgent`、`entryAgentOptions`。
+- [ ] 将欢迎页 logo 与 subtitle 降级为小型品牌标识。
+- [ ] 提供常用任务模板，不直接写死后端依赖。
+
+验收:
+- 空会话首屏可完成任务启动前的主要配置。
+- 新建 session 仍由 `ensureSession()` 负责。
+- 任务模板只填充输入框，不自动发送。
+
+## 阶段 4: 侧栏信息架构调整
+
+目标:
+- 左侧侧栏聚焦会话和工作区。
+- 管理入口收敛到单独的管理中心。
+
+方案:
+- sidebar 顶部: 新聊天、当前 Team/工作区摘要。
+- sidebar 中部: 会话历史。
+- sidebar 底部: 管理中心入口、系统状态、版本。
+- 管理中心页内展示模型、Agent、Team、MCP、知识库、监控、守护系统、系统配置。
+
+任务:
+- [ ] 新增 `/admin` 或 `/settings` 管理中心路由。
+- [ ] 将现有管理入口数据迁移到管理中心卡片/列表。
+- [ ] sidebar 只保留一个“管理中心”入口。
+- [ ] 保持旧路径可直接访问。
+
+验收:
+- 会话历史在桌面端获得更多空间。
+- 旧路由不破坏。
+- 移动端菜单层级更短。
+
+## 阶段 5: 管理页控制台化
+
+目标:
+- 统一管理页的密度、列表、详情、表单和状态表达。
+
+任务:
+- [ ] 抽象 `EntityListLayout` 或轻量复用模式: 列表 + 详情 + 操作区。
+- [ ] 统一 `badge`、`act-btn`、`form-control`、空态、错误态。
+- [ ] 优先改 `ModelProviderManager` 和 `MCPManager`，因为它们最接近基础设施配置。
+- [ ] 再改 `AgentConfig`、`TeamBuilder`、`VectorLibraryManager`。
+
+验收:
+- 管理页首屏信息密度提升。
+- 搜索、筛选、创建、编辑、删除、测试行为位置一致。
+- 移动端仍有可用的单列布局。
+
+## 阶段 6: 视觉收敛
+
+目标:
+- 从强装饰 glass 风格收敛到稳定的桌面工具风格。
+
+任务:
+- [ ] 减少全局 glow、blur、radial background 的存在感。
+- [ ] 控制卡片圆角，工具型容器优先 8px-12px。
+- [ ] 状态色只用于状态，不作为大面积装饰。
+- [ ] 保留深色/浅色主题变量，不改主题切换机制。
+- [ ] 为移动端和窄屏增加关键页面截图检查。
+
+验收:
+- 同一页面不再出现多层卡片嵌套感。
+- 文本、按钮、badge 在暗色/亮色下对比稳定。
+- 页面更像生产工具，而不是演示页。
+
+## 阶段 7: 测试与回归清单
+
+每个阶段至少执行:
+- `npm run build`
+- `npm test`
+
+关键手工回归:
+- 新聊天创建。
+- 历史会话切换。
+- 运行中切走再切回。
+- 审批队列连续处理。
+- 附件上传、粘贴、拖拽。
+- artifact 图表/地图渲染。
+- 移动端打开 sidebar、切页、发送消息。
+- 暗色/亮色切换。
+
+## 推荐实施顺序
+
+1. 阶段 0: 文档与导航数据化。
+2. 阶段 1: 聊天页工作台骨架。
+3. 阶段 2: 消息展示组件拆分。
+4. 阶段 3: 任务启动器。
+5. 阶段 4: 侧栏和管理中心重分层。
+6. 阶段 5: 管理页统一。
+7. 阶段 6: 视觉收敛。
+8. 阶段 7: 持续回归。
+
+## 当前执行记录
+
+- 2026-05-10: 建立工作台改造计划，开始阶段 0。
+- 2026-05-10: 完成阶段 0。`MainLayout.vue` 的 sidebar 管理入口已改为 `sidebarNavItems` 数据渲染；`npm run build` 与 `npm test` 通过。
