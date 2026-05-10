@@ -19,6 +19,7 @@
         <button
           type="button"
           class="etn-summary"
+          :class="{ 'etn-summary--compact': !hasChildren }"
           :aria-expanded="hasChildren ? expanded : undefined"
           @click="handleSummaryClick"
         >
@@ -53,7 +54,7 @@
             </div>
           </div>
 
-          <div class="etn-side">
+          <div class="etn-side" :class="{ 'etn-side--compact': !hasChildren }">
             <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
             <Transition name="etn-status" mode="out-in">
               <span v-if="statusText" :key="statusText" class="etn-status-pill">{{ statusText }}</span>
@@ -552,6 +553,14 @@ function formatElapsed(value) {
   cursor: pointer;
 }
 
+.etn-summary--compact {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.etn--agent_call .etn-summary {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
 .etn-summary:disabled {
   cursor: default;
 }
@@ -744,6 +753,19 @@ function formatElapsed(value) {
   justify-items: end;
 }
 
+.etn-side--compact {
+  min-width: 0;
+  grid-template-columns: minmax(38px, max-content) minmax(46px, max-content);
+}
+
+.etn--agent_call .etn-side {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+}
+
 .etn-time {
   width: 38px;
   font-size: 11px;
@@ -780,6 +802,27 @@ function formatElapsed(value) {
   justify-content: center;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.etn--agent_call .etn-time {
+  width: 34px;
+  font-size: 10px;
+}
+
+.etn--agent_call .etn-status-pill {
+  min-width: 40px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+
+.etn--agent_call .etn-chevron {
+  width: 12px;
+}
+
+.etn--agent_call .etn-chevron :deep(svg) {
+  width: 12px;
+  height: 12px;
 }
 
 .etn-chevron.expanded {

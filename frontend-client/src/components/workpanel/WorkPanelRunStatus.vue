@@ -58,7 +58,7 @@ const displayState = computed(() => {
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
   if (props.phase && props.phase !== 'idle') {
-    return { label: PHASE_LABELS[props.phase] || props.phase, tone: 'running', icon: 'running' }
+    return { label: PHASE_LABELS[props.phase] || '执行中', tone: 'running', icon: 'running' }
   }
   if (props.completed) return { label: '已完成', tone: 'success', icon: 'success' }
   return { label: '待命', tone: 'idle', icon: 'idle' }

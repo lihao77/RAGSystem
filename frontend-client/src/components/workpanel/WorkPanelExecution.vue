@@ -1258,47 +1258,42 @@ button.wpe-chip:hover {
 
 .wpe-focus-enter-active,
 .wpe-focus-leave-active {
-  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: opacity 180ms ease;
 }
 
 .wpe-focus-enter-from,
 .wpe-focus-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
 }
 
 .wpe-list-state-enter-active,
 .wpe-list-state-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity 180ms ease;
 }
 
 .wpe-list-state-enter-from {
   opacity: 0;
-  transform: translateY(8px);
 }
 
 .wpe-list-state-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
 }
 
 .wpe-node-enter-active,
 .wpe-node-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity 180ms ease;
 }
 
 .wpe-node-enter-from {
   opacity: 0;
-  transform: translateY(8px);
 }
 
 .wpe-node-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
 }
 
 .wpe-node-move {
-  transition: transform 180ms ease;
+  transition: opacity 180ms ease;
 }
 
 .wpe-inspector-enter-active,
@@ -1347,9 +1342,7 @@ button.wpe-chip:hover {
   .wpe-list-state-enter-from,
   .wpe-list-state-leave-to,
   .wpe-node-enter-from,
-  .wpe-node-leave-to,
-  .wpe-inspector-enter-from,
-  .wpe-inspector-leave-to {
+  .wpe-node-leave-to {
     transform: none;
   }
 }
