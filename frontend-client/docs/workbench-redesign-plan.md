@@ -111,7 +111,7 @@
 - `components/chat/ArtifactPanel.vue`
 
 任务:
-- [ ] 先拆消息展示组件，props 输入 `visibleMessages`、当前 session 和操作回调。
+- [x] 先拆消息展示组件，props 输入 `visibleMessages`、当前 session 和操作回调。
 - [ ] 再拆 markdown copy、message action、编辑态展示。
 - [ ] 把审批队列展示移入 `ApprovalQueueHost`，状态仍暂由 `ChatViewV2` 持有。
 - [ ] 把 artifact / visualization 入口移入 `ArtifactPanel` 或 Inspector tab。
@@ -233,3 +233,4 @@
 - 2026-05-10: 建立工作台改造计划，开始阶段 0。
 - 2026-05-10: 完成阶段 0。`MainLayout.vue` 的 sidebar 管理入口已改为 `sidebarNavItems` 数据渲染；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 完成阶段 1。右侧 `WorkPanel` 承载运行 Inspector；顶部控制栏收敛为 `SessionContextBar`；`npm run build` 与 `npm test` 通过。
+- 2026-05-11: 阶段 2 启动。新增 `ChatMessageList.vue` 与 `ChatMessageItem.vue`，先拆出消息展示外壳；`ChatViewV2.vue` 继续持有状态和副作用；`npm run build` 与 `npm test` 通过。

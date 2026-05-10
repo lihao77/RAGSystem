@@ -15,204 +15,43 @@
         @export-session="exportCurrentSession"
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll" @click="handleMarkdownBlockAction">
-        <div class="chat-messages">
-          <!-- Welcome Screen -->
-          <div v-if="messagesLoading" class="messages-skeleton">
-            <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
-          </div>
-          <div v-else-if="messages.length === 0" class="welcome-screen">
-            <div class="welcome-content">
-              <div class="welcome-header">
-                <div class="logo-placeholder">
-                  <!-- 系统 Logo -->
-                  <IconLogo :size="80" animated />
-                </div>
-                <h1>RAG Agent System</h1>
-                <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
-              </div>
-            </div>
-          </div>
-
-
-          <!-- Message Stream -->
-          <div v-else class="message-stream">
-            <div v-for="(msg, index) in visibleMessages" :key="messageKey(msg)" :class="['message', msg.role]" :data-msg-index="index"
-              @mouseenter="messageActionsVisible = index" @mouseleave="messageActionsVisible = null">
-              <!-- 斜杠命令结果 -->
-              <div v-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
-                <CommandResultMessage :message="msg" />
-              </div>
-              <!-- Subtasks Container - 占满整个 message 宽度（桌面双栏时隐藏，执行信息移至工作栏）-->
-              <div v-else-if="!showWorkPanel && msg.role === 'assistant' && (hasExecutionContent(msg) || !msg.finished)"
-                class="subtasks-container-full">
-                <!-- 常驻 Ticker (现在同时作为 Header) -->
-                <SubtaskStatusTicker :subtasks="msg.subtasks" :execution-steps="msg.execution_steps" :expanded="msg.showFullSubtasks"
-                  :running="!msg.finished"
-                  :has-execution="msg.has_execution"
-                  :loading="msg.executionStepsLoading"
-                  @toggle-view="toggleExecutionView(msg)" />
-
-                <!-- 视图切换按钮 -->
-                <!-- 完整详情模式 -->
-                <transition name="expand">
-                  <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
-                    <!-- 层次化视图 -->
-                    <HierarchicalExecutionTree
-                      :execution-steps="msg.execution_steps || []"
-                      :subtasks="msg.subtasks || []"
-                      :session-id="currentSessionId || ''"
-                    />
-                  </div>
-                </transition>
-
-              </div>
-
-              <div class="message-content-wrapper" >
-                <div class="message-content">
-                  <!-- Loading State -->
-                  <div
-                    v-if="msg.role === 'assistant' && !msg.content && (!msg.subtasks || msg.subtasks.length === 0) && !msg.finished"
-                    class="loading-indicator">
-                    <div class="loading-dots" aria-hidden="true">
-                      <div class="dot"></div>
-                      <div class="dot"></div>
-                      <div class="dot"></div>
-                    </div>
-                    <span class="loading-text">{{ getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
-                  </div>
-
-
-                  <!-- Multimodal Content + Final Answer（统一内联渲染） -->
-                  <template v-if="msg.role === 'assistant'">
-                    <template v-for="(part, pi) in parseMessageParts(msg)" :key="pi">
-                      <div v-if="part.type === 'text' && part.content?.trim()"
-                           class="final-answer">
-                        <div class="markdown-body" v-html="renderMarkdown(part.content)"></div>
-                      </div>
-                      <div v-else-if="part.type === 'viz'" class="inline-chart-wrapper">
-                        <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
-                      </div>
-                      <div v-else-if="part.type === 'chart'" class="inline-chart-wrapper">
-                        <component
-                          :is="getChartComponent(msg.multimodalContents[part.index])"
-                          v-bind="getChartProps(msg.multimodalContents[part.index])"
-                        />
-                      </div>
-                    </template>
-                    <!-- 停止/中断标记 -->
-                    <div v-if="msg.stopped" class="stopped-badge">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
-                      <span>{{ msg.metadata?.interrupted ? '已中断' : '已停止生成' }}</span>
-                    </div>
-                  </template>
-
-                  <!-- User Message -->
-                  <template v-if="msg.role === 'user'">
-                    <!-- Task Notification Block -->
-                    <div v-if="msg.metadata?.source === 'system.bg_notification'" class="task-notification-block">
-                      <div class="task-notification-header">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
-                        <span>Background Task Notification</span>
-                      </div>
-                      <div class="task-notification-body">
-                        <div v-for="item in parseTaskNotifications(msg)" :key="item.taskId" class="task-notification-item">
-                          <span class="tn-status" :class="item.status">{{ item.status }}</span>
-                          <code class="tn-task-id">{{ item.taskId.slice(0, 8) }}</code>
-                          <span v-if="item.resultType" class="tn-type">{{ item.resultType }}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- 非编辑态：气泡 -->
-                    <div v-else-if="editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
-                      <div class="user-text">{{ msg.content }}</div>
-                      <div v-if="msg.attachments?.length" class="user-attachments">
-                        <div v-for="attachment in msg.attachments" :key="attachment.file_id || attachment.id" class="user-attachment-card">
-                          <img v-if="isImageAttachment(attachment)" :src="getAttachmentPreviewUrl(attachment)" :alt="attachment.original_name || attachment.stored_name" class="user-attachment-image" />
-                          <div v-else class="user-attachment-file-icon">文件</div>
-                          <div class="user-attachment-info">
-                            <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
-                            <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
-                          </div>
-                        </div>
-                      </div>
-                      <!-- Status Updates -->
-                      <div v-if="msg.status && msg.status.length > 0" class="status-updates">
-                        <div v-for="(status, sIndex) in msg.status" :key="sIndex" class="status-tag" :class="status.type">
-                          <span v-if="status.type === 'error'" class="status-icon">⚠️</span>
-                          {{ status.content }}
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- 编辑态：编辑框 -->
-                    <div v-else class="message-edit-mode">
-                      <MessageEditBox
-                        v-model="editingDraft"
-                        :attachments="editingAttachmentsDraft"
-                        :submitting="editingSubmitting"
-                        :session-id="currentSessionId"
-                        @confirm="confirmEditAndResend"
-                        @cancel="cancelEdit"
-                        @open-attachments="openSessionFilesDrawer('message-edit')"
-                        @remove-attachment="removeEditingAttachment"
-                      />
-                    </div>
-                  </template>
-                </div>
-              </div>
-
-
-              <!-- 消息操作 -->
-              <div class="message-actions" :class="{ 'visible': messageActionsVisible === index || editingMessage === msg }">
-                <template v-if="msg.role === 'user' && editingMessage !== msg">
-                  <button type="button" class="msg-action-btn btn-edit" :disabled="isLoading" title="编辑" @click="startEditMessage(msg)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                  </button>
-                  <button type="button" class="msg-action-btn btn-copy" title="复制" @click="copyMessage(msg)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                  </button>
-                </template>
-                <template v-if="msg.role === 'assistant' && msg.finished">
-                  <button
-                    v-if="showWorkPanel && hasExecutionContent(msg)"
-                    type="button"
-                    class="msg-action-btn btn-execution-tree"
-                    :class="{ active: selectedWorkPanelMessageKey === getWorkPanelMessageKey(msg) }"
-                    title="在工作栏查看执行树"
-                    @click="selectWorkPanelMessage(msg)"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M6 3v12"></path>
-                      <circle cx="6" cy="18" r="3"></circle>
-                      <path d="M6 9h8"></path>
-                      <circle cx="17" cy="9" r="3"></circle>
-                    </svg>
-                  </button>
-                  <button type="button" class="msg-action-btn btn-copy" title="复制" @click="copyMessage(msg)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                  </button>
-                  <button
-                    v-if="visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null) != null"
-                    type="button"
-                    class="msg-action-btn btn-retry"
-                    :disabled="isLoading"
-                    title="重试"
-                    @click="rollbackAndRetry(visibleMessages.slice(0, index).findLast(m => m.role === 'user' && m.seq != null))"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-                  </button>
-                  <span
-                    v-if="getMessageExecutionTimeText(msg)"
-                    class="message-execution-time"
-                    :title="getMessageExecutionTimeTitle(msg)"
-                  >
-                    {{ getMessageExecutionTimeText(msg) }}
-                  </span>
-                </template>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ChatMessageList
+          v-model:editing-draft="editingDraft"
+          :messages-loading="messagesLoading"
+          :messages="messages"
+          :visible-messages="visibleMessages"
+          :current-session-id="currentSessionId || ''"
+          :show-work-panel="showWorkPanel"
+          :is-loading="isLoading"
+          :selected-work-panel-message-key="selectedWorkPanelMessageKey"
+          :editing-message="editingMessage"
+          :editing-attachments-draft="editingAttachmentsDraft"
+          :editing-submitting="editingSubmitting"
+          :message-key="messageKey"
+          :has-execution-content="hasExecutionContent"
+          :toggle-execution-view="toggleExecutionView"
+          :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
+          :parse-message-parts="parseMessageParts"
+          :render-markdown="renderMarkdown"
+          :handle-enter-situation="handleEnterSituation"
+          :get-chart-component="getChartComponent"
+          :get-chart-props="getChartProps"
+          :parse-task-notifications="parseTaskNotifications"
+          :is-image-attachment="isImageAttachment"
+          :get-attachment-preview-url="getAttachmentPreviewUrl"
+          :format-attachment-meta="formatAttachmentMeta"
+          :confirm-edit-and-resend="confirmEditAndResend"
+          :cancel-edit="cancelEdit"
+          :open-session-files-drawer="openSessionFilesDrawer"
+          :remove-editing-attachment="removeEditingAttachment"
+          :start-edit-message="startEditMessage"
+          :copy-message="copyMessage"
+          :get-work-panel-message-key="getWorkPanelMessageKey"
+          :select-work-panel-message="selectWorkPanelMessage"
+          :rollback-and-retry="rollbackAndRetry"
+          :get-message-execution-time-text="getMessageExecutionTimeText"
+          :get-message-execution-time-title="getMessageExecutionTimeTitle"
+        />
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="bottom-dock">
           <transition name="scroll-btn-fade">
@@ -383,17 +222,13 @@ import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
-import SubtaskStatusTicker from '../components/SubtaskStatusTicker.vue';
-import HierarchicalExecutionTree from '../components/HierarchicalExecutionTree.vue';
 import UserInputDialog from '../components/UserInputDialog.vue';
 import ChatInput from '../components/ChatInput.vue';
 import ChartRenderer from '../components/ChartRenderer.vue';
 import MapRenderer from '../components/MapRenderer.vue';
-import VisualizationLoader from '../components/VisualizationLoader.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
 import CustomSelect from '../components/CustomSelect.vue';
-import MessageEditBox from '../components/MessageEditBox.vue';
 import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 
 // 审批 ack 超时计时器（模块级 Map，替代 window 全局）
@@ -482,11 +317,10 @@ import ApprovalDialog from '../components/ApprovalDialog.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
+import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
-import { IconLogo } from '../components/icons';
 import { getMessageRunSteps } from '../api/monitoring';
-import CommandResultMessage from '../components/CommandResultMessage.vue';
 import WorkPanel from '../components/workpanel/WorkPanel.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 
@@ -872,7 +706,6 @@ const situationScreenActive = ref(false);
 const situationArtifactId = ref(null);
 const situationMapData = ref(null);
 const situationInfo = ref(null);
-const messageActionsVisible = ref(null);
 /** 展开查看详情的摘要消息 seq（持久化压缩：仅一条生效，用 seq 区分） */
 const getChatSessionPath = (sessionId) => sessionId
   ? `/chat/${encodeURIComponent(sessionId)}`
@@ -2245,8 +2078,8 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped src="../styles/chat-view.css"></style>
-<style scoped>
+<style src="../styles/chat-view.css"></style>
+<style>
 /* #9: 压缩摘要 - 已移除独立卡片样式，走通用 assistant 渲染路径 */
 .user-edit-shell {
   display: flex;
