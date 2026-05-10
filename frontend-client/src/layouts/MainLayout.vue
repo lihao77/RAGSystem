@@ -19,56 +19,15 @@
           <IconNewConversation :size="22" class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('model-providers') }" @click="goToModelProviders" title="模型 Provider 管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/>
-          </svg>
-          <span class="btn-text">模型管理</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('team-builder') }" @click="goToTeamBuilder" title="Team 方案编排">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="14" y="15" width="7" height="7" rx="1"/><path d="M10 7h4"/><path d="M17.5 11v4"/>
-          </svg>
-          <span class="btn-text">Team编排</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('agent-config') }" @click="goToAgentConfig" title="智能体配置">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/>
-          </svg>
-          <span class="btn-text">Agent配置</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('mcp') }" @click="goToMCPManager" title="MCP 服务管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 22v-5"/><rect x="6" y="9" width="12" height="6" rx="2"/><path d="M10 9V2"/><path d="M14 9V2"/>
-          </svg>
-          <span class="btn-text">MCP管理</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('vector-library') }" @click="goToVectorLibrary" title="知识库管理">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-          </svg>
-          <span class="btn-text">知识库</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-monitor" :class="{ active: isPageActive('monitor') }" @click="goToMonitor" title="智能体性能监控">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-          </svg>
-          <span class="btn-text">监控面板</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-daemon" :class="{ active: isPageActive('daemon') }" @click="goToDaemon" title="守护 Agent 系统">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-            <path d="M2 17l10 5 10-5"></path>
-            <path d="M2 12l10 5 10-5"></path>
-          </svg>
-          <span class="btn-text">守护系统</span>
-        </button>
-        <button class="sidebar-btn sidebar-btn-secondary" :class="{ active: isPageActive('system-config') }" @click="goToSystemConfig" title="系统配置">
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-          <span class="btn-text">系统配置</span>
+        <button
+          v-for="item in sidebarNavItems"
+          :key="item.key"
+          :class="['sidebar-btn', item.buttonClass, { active: isPageActive(item.mainView) }]"
+          :title="item.title"
+          @click="navigateTo(item.path)"
+        >
+          <component :is="item.icon" class="icon" />
+          <span class="btn-text">{{ item.label }}</span>
         </button>
       </div>
 
@@ -160,7 +119,7 @@
 </template>
 
 <script setup>
-import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+import { Transition, TransitionGroup, computed, h, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import AppToast from '../components/AppToast.vue';
@@ -218,6 +177,138 @@ const chatReturnPath = computed(() => activeSessionId.value ? `/chat/${encodeURI
 const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
+const createSidebarIcon = (children) => ({
+  render() {
+    return h(
+      'svg',
+      {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: '22',
+        height: '22',
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      },
+      children.map(({ tag, attrs }) => h(tag, attrs))
+    );
+  },
+});
+const SidebarIconModelProviders = createSidebarIcon([
+  { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
+  { tag: 'path', attrs: { d: 'M19.07 4.93a10 10 0 0 1 0 14.14' } },
+  { tag: 'path', attrs: { d: 'M4.93 4.93a10 10 0 0 0 0 14.14' } },
+]);
+const SidebarIconTeamBuilder = createSidebarIcon([
+  { tag: 'rect', attrs: { x: '3', y: '4', width: '7', height: '7', rx: '1' } },
+  { tag: 'rect', attrs: { x: '14', y: '4', width: '7', height: '7', rx: '1' } },
+  { tag: 'rect', attrs: { x: '14', y: '15', width: '7', height: '7', rx: '1' } },
+  { tag: 'path', attrs: { d: 'M10 7h4' } },
+  { tag: 'path', attrs: { d: 'M17.5 11v4' } },
+]);
+const SidebarIconAgentConfig = createSidebarIcon([
+  { tag: 'path', attrs: { d: 'M12 20h9' } },
+  { tag: 'path', attrs: { d: 'M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z' } },
+]);
+const SidebarIconMcp = createSidebarIcon([
+  { tag: 'path', attrs: { d: 'M12 22v-5' } },
+  { tag: 'rect', attrs: { x: '6', y: '9', width: '12', height: '6', rx: '2' } },
+  { tag: 'path', attrs: { d: 'M10 9V2' } },
+  { tag: 'path', attrs: { d: 'M14 9V2' } },
+]);
+const SidebarIconVectorLibrary = createSidebarIcon([
+  { tag: 'ellipse', attrs: { cx: '12', cy: '5', rx: '9', ry: '3' } },
+  { tag: 'path', attrs: { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' } },
+  { tag: 'path', attrs: { d: 'M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5' } },
+]);
+const SidebarIconMonitor = createSidebarIcon([
+  { tag: 'polyline', attrs: { points: '22 12 18 12 15 21 9 3 6 12 2 12' } },
+]);
+const SidebarIconDaemon = createSidebarIcon([
+  { tag: 'path', attrs: { d: 'M12 2L2 7l10 5 10-5-10-5z' } },
+  { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
+  { tag: 'path', attrs: { d: 'M2 12l10 5 10-5' } },
+]);
+const SidebarIconSystemConfig = createSidebarIcon([
+  { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
+  { tag: 'path', attrs: { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' } },
+]);
+const sidebarNavItems = [
+  {
+    key: 'model-providers',
+    mainView: 'model-providers',
+    path: '/model-providers',
+    label: '模型管理',
+    title: '模型 Provider 管理',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconModelProviders,
+  },
+  {
+    key: 'team-builder',
+    mainView: 'team-builder',
+    path: '/team-builder',
+    label: 'Team编排',
+    title: 'Team 方案编排',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconTeamBuilder,
+  },
+  {
+    key: 'agent-config',
+    mainView: 'agent-config',
+    path: '/agent-config',
+    label: 'Agent配置',
+    title: '智能体配置',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconAgentConfig,
+  },
+  {
+    key: 'mcp',
+    mainView: 'mcp',
+    path: '/mcp',
+    label: 'MCP管理',
+    title: 'MCP 服务管理',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconMcp,
+  },
+  {
+    key: 'vector-library',
+    mainView: 'vector-library',
+    path: '/vector-library',
+    label: '知识库',
+    title: '知识库管理',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconVectorLibrary,
+  },
+  {
+    key: 'monitor',
+    mainView: 'monitor',
+    path: '/monitor',
+    label: '监控面板',
+    title: '智能体性能监控',
+    buttonClass: 'sidebar-btn-monitor',
+    icon: SidebarIconMonitor,
+  },
+  {
+    key: 'daemon',
+    mainView: 'daemon',
+    path: '/daemon',
+    label: '守护系统',
+    title: '守护 Agent 系统',
+    buttonClass: 'sidebar-btn-daemon',
+    icon: SidebarIconDaemon,
+  },
+  {
+    key: 'system-config',
+    mainView: 'system-config',
+    path: '/system-config',
+    label: '系统配置',
+    title: '系统配置',
+    buttonClass: 'sidebar-btn-secondary',
+    icon: SidebarIconSystemConfig,
+  },
+];
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -464,15 +555,6 @@ const navigateTo = async (path) => {
     closeMobileSidebar();
   }
 };
-
-const goToMonitor = () => navigateTo('/monitor');
-const goToDaemon = () => navigateTo('/daemon');
-const goToTeamBuilder = () => navigateTo('/team-builder');
-const goToAgentConfig = () => navigateTo('/agent-config');
-const goToMCPManager = () => navigateTo('/mcp');
-const goToVectorLibrary = () => navigateTo('/vector-library');
-const goToModelProviders = () => navigateTo('/model-providers');
-const goToSystemConfig = () => navigateTo('/system-config');
 
 watch(
   () => route.fullPath,
