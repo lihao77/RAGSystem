@@ -1,13 +1,13 @@
 <template>
-  <div class="wpr-root" :class="{ active: isActive }">
+  <div class="wpr-root" :class="[`tone-${displayTone}`, { active: isEmphasized }]">
     <div class="wpr-phase-row">
-      <span class="wpr-indicator" :class="`tone-${phaseTone}`" aria-hidden="true">
-        <span class="wpr-indicator-core"></span>
+      <span class="wpr-indicator" aria-hidden="true">
+        <WorkPanelStateIcon :kind="displayIcon" />
       </span>
       <div class="wpr-label-block">
         <span class="wpr-kicker">当前状态</span>
         <Transition name="wpr-label" mode="out-in">
-          <span :key="phaseLabel" class="wpr-label">{{ phaseLabel }}</span>
+          <span :key="displayLabel" class="wpr-label">{{ displayLabel }}</span>
         </Transition>
       </div>
       <Transition name="wpr-elapsed">
@@ -29,39 +29,64 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   phase: { type: String, default: 'idle' },
   runStartedAt: { type: Number, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
+  overallState: { type: String, default: 'idle' },
+  overallTone: { type: String, default: '' },
+  pendingInput: { type: Boolean, default: false },
+  approvalCount: { type: Number, default: 0 },
+  hasError: { type: Boolean, default: false },
+  completed: { type: Boolean, default: false },
 })
 
 const PHASE_LABELS = {
-  idle: '空闲',
+  idle: '待命',
   llm_waiting_first_token: '思考中',
   llm_streaming: '生成中',
-  tool_running: '执行工具',
+  tool_running: '工具执行中',
   background_waiting: '等待后台',
   retrying: '重试中',
   reflecting: '反思中',
   approval_waiting: '等待审批',
 }
 
-const phaseLabel = computed(() => PHASE_LABELS[props.phase] || props.phase)
-
-const isActive = computed(() => props.phase !== 'idle')
-const phaseTone = computed(() => {
-  if (props.phase === 'approval_waiting') return 'warning'
-  if (props.phase === 'retrying') return 'warning'
-  if (props.phase === 'idle') return 'idle'
-  return 'active'
+const displayState = computed(() => {
+  if (props.pendingInput) return { label: '需要输入', tone: 'input', icon: 'input' }
+  if (props.approvalCount > 0 || props.phase === 'approval_waiting') return { label: '等待审批', tone: 'warning', icon: 'approval' }
+  if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
+  if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
+  if (props.phase && props.phase !== 'idle') {
+    return { label: PHASE_LABELS[props.phase] || props.phase, tone: 'running', icon: 'running' }
+  }
+  if (props.completed) return { label: '已完成', tone: 'success', icon: 'success' }
+  return { label: '待命', tone: 'idle', icon: 'idle' }
 })
+
+const displayLabel = computed(() => displayState.value.label)
+const displayTone = computed(() => (
+  props.overallTone && props.overallTone !== 'idle'
+    ? props.overallTone
+    : displayState.value.tone
+))
+const displayIcon = computed(() => displayState.value.icon)
+const isRuntimeActive = computed(() => props.phase !== 'idle')
+const isEmphasized = computed(() => displayTone.value !== 'idle')
 
 const elapsed = ref(0)
 let timer = null
 
+const startedAtMs = computed(() => {
+  const value = Number(props.runStartedAt)
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return value < 10000000000 ? value * 1000 : value
+})
+
 function tick() {
-  elapsed.value = props.runStartedAt ? Math.floor((Date.now() - props.runStartedAt) / 1000) : 0
+  elapsed.value = startedAtMs.value ? Math.max(0, Math.floor((Date.now() - startedAtMs.value) / 1000)) : 0
 }
 
 onMounted(() => { timer = setInterval(tick, 1000); tick() })
@@ -69,7 +94,7 @@ onUnmounted(() => clearInterval(timer))
 watch(() => props.runStartedAt, tick)
 
 const elapsedText = computed(() => {
-  if (!props.runStartedAt || !isActive.value) return ''
+  if (!startedAtMs.value || !isRuntimeActive.value) return ''
   const s = elapsed.value
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`
 })
@@ -97,6 +122,8 @@ function compactNumber(value) {
 
 <style scoped>
 .wpr-root {
+  --wpr-tone-color: var(--color-text-muted);
+  --wpr-tone-rgb: var(--color-text-muted-rgb, 142, 142, 147);
   padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
@@ -105,11 +132,33 @@ function compactNumber(value) {
   flex-shrink: 0;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.2);
   letter-spacing: 0;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .wpr-root.active {
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.3);
+  background:
+    linear-gradient(90deg, rgba(var(--wpr-tone-rgb), 0.055), transparent 58%),
+    rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.26);
+}
+
+.wpr-root.tone-running,
+.wpr-root.tone-input {
+  --wpr-tone-color: var(--color-brand-accent);
+  --wpr-tone-rgb: var(--color-brand-accent-rgb);
+}
+
+.wpr-root.tone-warning {
+  --wpr-tone-color: var(--color-warning);
+  --wpr-tone-rgb: var(--color-warning-rgb);
+}
+
+.wpr-root.tone-error {
+  --wpr-tone-color: var(--color-error);
+  --wpr-tone-rgb: var(--color-error-rgb);
+}
+
+.wpr-root.tone-success {
+  --wpr-tone-color: var(--color-success);
+  --wpr-tone-rgb: var(--color-success-rgb);
 }
 
 .wpr-phase-row {
@@ -125,53 +174,20 @@ function compactNumber(value) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  border: 1px solid rgba(var(--wpr-tone-rgb), 0.2);
+  background: rgba(var(--wpr-tone-rgb), 0.07);
+  color: var(--wpr-tone-color);
   flex-shrink: 0;
-  transition:
-    border-color var(--transition-fast),
-    background var(--transition-fast),
-    box-shadow var(--transition-fast);
 }
 
-.wpr-indicator-core {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: var(--color-text-muted);
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
-  transition:
-    background var(--transition-fast),
-    box-shadow var(--transition-fast),
-    transform var(--transition-fast),
-    opacity var(--transition-fast);
+.wpr-root.tone-idle .wpr-indicator {
+  border-color: var(--color-border);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
 }
 
-.wpr-indicator.tone-active {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.24);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
-}
-
-.wpr-indicator.tone-active .wpr-indicator-core {
-  background: var(--color-brand-accent);
-  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.16);
-  animation: wpr-pulse 1.6s ease-in-out infinite;
-}
-
-.wpr-indicator.tone-warning {
-  border-color: rgba(var(--color-warning-rgb), 0.26);
-  background: rgba(var(--color-warning-rgb), 0.1);
-}
-
-.wpr-indicator.tone-warning .wpr-indicator-core {
-  background: var(--color-warning);
-  box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb), 0.14);
-  animation: wpr-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes wpr-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.78); }
+.wpr-indicator :deep(svg) {
+  width: 15px;
+  height: 15px;
 }
 
 .wpr-label-block {
@@ -252,30 +268,20 @@ function compactNumber(value) {
 .wpr-label-leave-active,
 .wpr-elapsed-enter-active,
 .wpr-elapsed-leave-active {
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity 140ms ease;
 }
 
 .wpr-label-enter-from,
 .wpr-elapsed-enter-from {
   opacity: 0;
-  transform: translateY(4px);
 }
 
 .wpr-label-leave-to,
 .wpr-elapsed-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wpr-indicator.tone-active .wpr-indicator-core,
-  .wpr-indicator.tone-warning .wpr-indicator-core {
-    animation: none;
-  }
-
-  .wpr-root,
-  .wpr-indicator,
-  .wpr-indicator-core,
   .wpr-ctx-bar-fill,
   .wpr-label-enter-active,
   .wpr-label-leave-active,

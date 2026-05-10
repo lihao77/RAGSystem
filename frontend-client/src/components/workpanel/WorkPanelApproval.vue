@@ -1,6 +1,9 @@
 <template>
   <div v-if="currentApproval" class="wpa-root">
     <div class="wpa-section-label">
+      <span class="wpa-section-icon" aria-hidden="true">
+        <WorkPanelStateIcon kind="approval" />
+      </span>
       <span>待审批</span>
       <span v-if="queue.length > 1" class="wpa-queue-badge">{{ queue.length }}</span>
     </div>
@@ -55,6 +58,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   queue: { type: Array, default: () => [] },
@@ -108,13 +112,31 @@ function submit(approved) {
 .wpa-section-label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-warning, #f59e0b);
   margin-bottom: 8px;
+}
+
+.wpa-section-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-warning, #f59e0b);
+  background: rgba(var(--color-warning-rgb), 0.1);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.2);
+}
+
+.wpa-section-icon :deep(svg) {
+  width: 12px;
+  height: 12px;
 }
 
 .wpa-queue-badge {

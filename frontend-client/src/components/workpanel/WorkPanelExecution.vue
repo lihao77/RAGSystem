@@ -857,22 +857,27 @@ button.wpe-chip:hover {
 
 .wpe-inspector {
   flex-shrink: 0;
-  max-height: 44%;
-  min-height: 150px;
+  max-height: min(52%, 520px);
+  min-height: 180px;
   border-top: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
   display: flex;
   flex-direction: column;
   transform-origin: bottom;
   will-change: transform, opacity;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
 .wpe-inspector-header {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px 8px;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.52);
   flex-shrink: 0;
 }
 
@@ -924,19 +929,30 @@ button.wpe-chip:hover {
 .wpe-inspector-body {
   min-height: 0;
   overflow: auto;
-  padding: 0 14px 14px;
+  padding: 10px 14px 22px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.wpe-inspector-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.wpe-inspector-body::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
 }
 
 .wpe-inspector-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
 }
 
 .wpe-inspector-section:first-child {
@@ -1074,8 +1090,9 @@ button.wpe-chip:hover {
   min-width: 0;
   padding: 9px;
   border: 1px solid var(--color-border);
+  border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: 6px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.16);
 }
 
 .wpe-detail-label {
@@ -1163,8 +1180,9 @@ button.wpe-chip:hover {
   overflow: auto;
   padding: 9px 38px 9px 10px;
   border: 1px solid var(--color-border);
+  border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: 6px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.38);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.28);
   color: var(--color-text-secondary);
   font: 11px/1.5 var(--font-mono);
   white-space: pre-wrap;
@@ -1204,8 +1222,9 @@ button.wpe-chip:hover {
   gap: 7px;
   padding: 9px;
   border: 1px solid var(--color-border);
+  border-color: color-mix(in srgb, var(--color-border) 72%, transparent);
   border-radius: 6px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.16);
 }
 
 .wpe-context-copy {

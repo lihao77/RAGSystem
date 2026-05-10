@@ -1,6 +1,11 @@
 <template>
   <div v-if="inputData" class="wpui-root">
-    <div class="wpui-section-label">需要输入</div>
+    <div class="wpui-section-label">
+      <span class="wpui-section-icon" aria-hidden="true">
+        <WorkPanelStateIcon kind="input" />
+      </span>
+      <span>需要输入</span>
+    </div>
 
     <div class="wpui-card">
       <div class="wpui-prompt">{{ inputData.prompt }}</div>
@@ -40,6 +45,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 
 const props = defineProps({
   inputData: { type: Object, default: null },
@@ -71,12 +77,33 @@ function submit() {
 }
 
 .wpui-section-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-brand-accent, #6366f1);
   margin-bottom: 8px;
+}
+
+.wpui-section-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-brand-accent, #6366f1);
+  background: rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.1);
+  border: 1px solid rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.2);
+}
+
+.wpui-section-icon :deep(svg) {
+  width: 12px;
+  height: 12px;
 }
 
 .wpui-card {
