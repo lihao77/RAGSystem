@@ -298,7 +298,7 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-const { activeRun: _activeRun } = useActiveRunState();
+const { activeRun: _activeRun, resetActiveRun } = useActiveRunState();
 
 // ── Composables ─────────────────────────────────────────────────────────
 // 注意：deps 中的函数通过闭包引用，在调用时（非初始化时）解析，
@@ -578,6 +578,8 @@ const {
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = () => {
   _clearExecutionStateBase();
+  resetActiveRun();
+  isCompressing.value = false;
 };
 
 const {

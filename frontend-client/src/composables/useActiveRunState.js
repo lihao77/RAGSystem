@@ -18,8 +18,15 @@ export function createActiveRunState() {
   };
 }
 
+export function resetActiveRunState(activeRun) {
+  if (!activeRun) return;
+  Object.assign(activeRun, createActiveRunState());
+}
+
 export function useActiveRunState() {
+  const activeRun = reactive(createActiveRunState());
   return {
-    activeRun: reactive(createActiveRunState()),
+    activeRun,
+    resetActiveRun: () => resetActiveRunState(activeRun),
   };
 }

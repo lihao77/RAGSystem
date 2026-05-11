@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume } from '../utils/sessionSocket';
+import { resetActiveRunState } from './useActiveRunState.js';
 
 /**
  * 会话 WebSocket 连接管理、重连、定时器、activeRun 状态。
@@ -31,12 +32,7 @@ export function useSessionConnection(deps) {
   let _sessionResumeRecoveryAbort = null;
 
   const invalidateActiveStream = () => {
-    const { activeRun } = deps;
-    activeRun.active = false;
-    activeRun.assistantMsgIndex = -1;
-    activeRun.runId = null;
-    activeRun.lastSeenSeq = 0;
-    activeRun.isReplaying = false;
+    resetActiveRunState(deps.activeRun);
   };
 
   const scheduleCommandFallback = (sessionId, msgIndex, timeout = 10000) => {
@@ -50,7 +46,7 @@ export function useSessionConnection(deps) {
         msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
         msg.finished = true;
       }
-      deps.activeRun.active = false;
+      resetActiveRunState(deps.activeRun);
       deps.isLoading.value = false;
       deps.deleteMessageCache(sessionId);
       deps.loadSessionMessages(sessionId, { silent: true });

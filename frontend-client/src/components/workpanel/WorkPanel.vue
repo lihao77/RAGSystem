@@ -18,11 +18,11 @@
 
       <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
-          :key="workspaceContentKey"
           :execution-steps="executionSteps"
           :subtasks="subtasks"
           :running="activeRun.active"
           :session-id="sessionId"
+          :message-key="messageKey"
         />
       </Transition>
 
@@ -81,7 +81,6 @@ const messageCompleted = computed(() => {
   return Boolean(msg?.finished && !props.activeRun?.active && !messageHasError.value)
 })
 
-const workspaceContentKey = computed(() => props.messageKey || props.sessionId || 'new-chat')
 const executionSteps = computed(() => props.currentMessage?.execution_steps || [])
 const subtasks = computed(() => props.currentMessage?.subtasks || [])
 

@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { resetActiveRunState } from './useActiveRunState.js';
 
 /**
  * 会话任务状态、可观测性管理。
@@ -89,8 +90,15 @@ export function useSessionTaskStatus(deps) {
       const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
       if (!resp.ok) return;
       const result = await resp.json();
+      if (deps.currentSessionId.value !== sessionId) return;
       const hasRunningTask = Boolean(result.data?.has_running_task);
       const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
+      const activeRun = deps.getActiveRun();
+      const needsMessageRefresh = !hasRunningTask && deps.shouldRefreshFn({
+        hasRunningTask,
+        activeRun: activeRun.active,
+        messages: deps.messages.value,
+      });
       if (result.data?.task_info) {
         sessionTaskInfo.value = result.data.task_info;
       }
@@ -102,13 +110,10 @@ export function useSessionTaskStatus(deps) {
       if (deps.shouldRunWatchdogFn({ hasRunningTask, hasActiveSystemCommand })) {
         deps.scheduleResumeRecovery(sessionId);
       }
-      const activeRun = deps.getActiveRun();
-      if (!hasRunningTask && !deps.isLoading.value) {
-        if (deps.shouldRefreshFn({
-          hasRunningTask,
-          activeRun: activeRun.active,
-          messages: deps.messages.value,
-        })) {
+      if (!hasRunningTask && !hasActiveSystemCommand) {
+        resetActiveRunState(activeRun);
+        deps.isLoading.value = false;
+        if (needsMessageRefresh) {
           deps.invalidateActiveStream();
           deps.deleteMessageCache(sessionId);
           await deps.loadSessionMessages(sessionId, { silent: true });

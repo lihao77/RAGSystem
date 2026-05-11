@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 
 export function useWorkPanelSelection(deps) {
   const selectedWorkPanelMessageKey = ref('');
+  const selectedByUser = ref(false);
 
   const getWorkPanelMessageKey = (msg) => {
     if (!msg) return '';
@@ -27,10 +28,11 @@ export function useWorkPanelSelection(deps) {
   const activeWorkPanelRunMessageKey = computed(() => getWorkPanelMessageKey(activeWorkPanelRunMessage.value));
 
   const currentRunMessage = computed(() => {
+    const selected = workPanelExecutionMessages.value.find(item => item.key === selectedWorkPanelMessageKey.value)?.message;
+    if (selectedByUser.value && selected) return selected;
     if (deps.activeRun.active) {
       return activeWorkPanelRunMessage.value;
     }
-    const selected = workPanelExecutionMessages.value.find(item => item.key === selectedWorkPanelMessageKey.value)?.message;
     if (selected) return selected;
     return workPanelExecutionMessages.value.at(-1)?.message || null;
   });
@@ -46,26 +48,51 @@ export function useWorkPanelSelection(deps) {
   });
 
   watch(workPanelExecutionMessages, (items) => {
-    if (deps.activeRun.active) return;
+    const selectedExists = selectedWorkPanelMessageKey.value && items.some(item => item.key === selectedWorkPanelMessageKey.value);
+    if (deps.activeRun.active) {
+      if (selectedByUser.value && selectedExists) return;
+      selectedByUser.value = false;
+      const activeRunKey = activeWorkPanelRunMessageKey.value;
+      if (activeRunKey && items.some(item => item.key === activeRunKey)) {
+        selectedWorkPanelMessageKey.value = activeRunKey;
+      }
+      return;
+    }
     const latestKey = items.at(-1)?.key || '';
     const activeRunKey = activeWorkPanelRunMessageKey.value;
+    if (selectedByUser.value && selectedExists) {
+      return;
+    }
     if (activeRunKey && items.some(item => item.key === activeRunKey)) {
+      selectedByUser.value = false;
       selectedWorkPanelMessageKey.value = activeRunKey;
       return;
     }
-    if (selectedWorkPanelMessageKey.value && items.some(item => item.key === selectedWorkPanelMessageKey.value)) {
+    if (selectedExists) {
       return;
     }
+    selectedByUser.value = false;
     selectedWorkPanelMessageKey.value = latestKey;
   }, { immediate: true });
 
   watch(() => deps.activeRun.active, (active, wasActive) => {
     const activeRunKey = activeWorkPanelRunMessageKey.value;
-    if (activeRunKey && workPanelExecutionMessages.value.some(item => item.key === activeRunKey)) {
-      selectedWorkPanelMessageKey.value = activeRunKey;
+    if (active) {
+      selectedByUser.value = false;
+      if (activeRunKey && workPanelExecutionMessages.value.some(item => item.key === activeRunKey)) {
+        selectedWorkPanelMessageKey.value = activeRunKey;
+      }
       return;
     }
     if (wasActive && !active) {
+      if (
+        selectedByUser.value
+        && selectedWorkPanelMessageKey.value
+        && workPanelExecutionMessages.value.some(item => item.key === selectedWorkPanelMessageKey.value)
+      ) {
+        return;
+      }
+      selectedByUser.value = false;
       selectedWorkPanelMessageKey.value = workPanelExecutionMessages.value.at(-1)?.key || '';
     }
   });
@@ -73,6 +100,7 @@ export function useWorkPanelSelection(deps) {
   async function selectWorkPanelMessage(msgOrKey) {
     const key = typeof msgOrKey === 'string' ? msgOrKey : getWorkPanelMessageKey(msgOrKey);
     selectedWorkPanelMessageKey.value = key || '';
+    selectedByUser.value = Boolean(key);
     const msg = typeof msgOrKey === 'string'
       ? workPanelExecutionMessages.value.find(item => item.key === key)?.message
       : msgOrKey;

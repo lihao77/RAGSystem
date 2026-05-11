@@ -2,28 +2,23 @@
   <div class="wpe-root">
     <div class="wpe-header">
       <div class="wpe-heading">
-        <span class="wpe-title">执行过程</span>
-        <span class="wpe-summary">{{ summaryText }}</span>
+        <span class="wpe-title">{{ executionView.title }}</span>
+        <span class="wpe-summary">{{ executionView.summary }}</span>
       </div>
       <div class="wpe-meta">
-        <button
-          v-if="stats.running > 0"
+        <component
+          :is="item.action ? 'button' : 'span'"
+          v-for="item in executionView.meta"
+          :key="item.id"
           type="button"
-          class="wpe-chip chip-running"
-          title="定位运行中步骤"
-          @click="focusRunningNode"
+          class="wpe-chip"
+          :class="`chip-${item.tone}`"
+          :title="item.title"
+          @click="handleMetaAction(item.action)"
         >
-          <span class="wpe-running-dot"></span>
-          {{ stats.running }}
-        </button>
-        <button
-          v-if="stats.error > 0"
-          type="button"
-          class="wpe-chip chip-error"
-          title="定位失败步骤"
-          @click="focusErrorNode"
-        >{{ stats.error }} 失败</button>
-        <span v-else-if="stats.success > 0" class="wpe-chip chip-success">{{ stats.success }} 完成</span>
+          <span v-if="item.pulse" class="wpe-running-dot"></span>
+          {{ item.label }}
+        </component>
       </div>
     </div>
     <Transition name="wpe-focus">
@@ -41,16 +36,16 @@
       </button>
     </Transition>
 
-    <Transition name="wpe-list-state" mode="out-in">
-      <div v-if="nodes.length === 0" key="empty" class="wpe-empty">
+    <div class="wpe-body-state">
+      <div v-if="!executionView.hasNodes" class="wpe-empty">
         <span class="wpe-empty-mark" aria-hidden="true"></span>
-        <span>{{ running ? '等待第一步执行' : '暂无执行过程' }}</span>
+        <span>{{ executionView.emptyText }}</span>
       </div>
-      <div v-else key="list" class="wpe-list" ref="listRef">
+      <div v-else class="wpe-list" ref="listRef">
         <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
           <ExecutionTimelineNode
-            v-for="(node, i) in nodes"
-            :key="nodeKey(node, i)"
+            v-for="(node, i) in executionView.nodes"
+            :key="timelineNodeKey(node, i)"
             :node="node"
             :depth="0"
             :session-id="sessionId"
@@ -60,7 +55,7 @@
           />
         </TransitionGroup>
       </div>
-    </Transition>
+    </div>
 
     <Transition name="wpe-inspector">
       <div v-if="selectedNode" class="wpe-inspector">
@@ -214,6 +209,7 @@ const props = defineProps({
   subtasks: { type: Array, default: () => [] },
   running: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
+  messageKey: { type: String, default: '' },
 })
 
 const listRef = ref(null)
@@ -226,6 +222,7 @@ const focusNode = computed(() => findFocusNode(flatNodes.value))
 const visibleFocusNode = computed(() => shouldShowFocusStrip(focusNode.value) ? focusNode.value : null)
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
 const selectedKey = computed(() => selectedNode.value ? getNodeKey(selectedNode.value) : '')
+const viewScopeKey = computed(() => props.messageKey || props.sessionId || 'work-panel')
 
 const selectedToolPayload = computed(() => selectedNode.value?.type === 'tool_call' ? parseToolPayload(selectedNode.value) : null)
 const selectedPreviewResult = computed(() => selectedToolPayload.value?.preview ?? selectedNode.value?.result_preview ?? selectedNode.value?.result ?? '')
@@ -339,13 +336,54 @@ const stats = computed(() => {
   return values
 })
 
-const summaryText = computed(() => {
-  if (!stats.value.total) return props.running ? '准备中' : '无记录'
-  const parts = [`${stats.value.total} 步`]
-  if (stats.value.agent) parts.push(`${stats.value.agent} Agent`)
-  if (stats.value.tool) parts.push(`${stats.value.tool} 工具`)
-  return parts.join(' / ')
+const executionView = computed(() => {
+  const total = stats.value.total
+  const meta = []
+
+  if (stats.value.running > 0) {
+    meta.push({
+      id: 'running',
+      tone: 'running',
+      label: String(stats.value.running),
+      title: '定位运行中步骤',
+      action: 'focus-running',
+      pulse: true,
+    })
+  }
+
+  if (stats.value.error > 0) {
+    meta.push({
+      id: 'error',
+      tone: 'error',
+      label: `${stats.value.error} 失败`,
+      title: '定位失败步骤',
+      action: 'focus-error',
+    })
+  } else if (stats.value.success > 0) {
+    meta.push({
+      id: 'success',
+      tone: 'success',
+      label: `${stats.value.success} 完成`,
+      title: '已完成步骤',
+    })
+  }
+
+  return {
+    title: '执行过程',
+    hasNodes: total > 0,
+    nodes: nodes.value,
+    summary: total ? formatExecutionSummary(stats.value) : (props.running ? '准备中' : '无记录'),
+    emptyText: props.running ? '等待第一步执行' : '暂无执行过程',
+    meta,
+  }
 })
+
+function formatExecutionSummary(values) {
+  const parts = [`${values.total} 步`]
+  if (values.agent) parts.push(`${values.agent} Agent`)
+  if (values.tool) parts.push(`${values.tool} 工具`)
+  return parts.join(' / ')
+}
 
 const scrollSignature = computed(() => flatNodes.value.map((node, index) => [
   index,
@@ -367,6 +405,17 @@ watch(focusNode, (node) => {
   if (!selectedNode.value && node) {
     selectedNode.value = node
   }
+})
+
+watch(viewScopeKey, async () => {
+  selectedNode.value = null
+  copiedSectionId.value = ''
+  if (copiedResetTimer) {
+    clearTimeout(copiedResetTimer)
+    copiedResetTimer = null
+  }
+  await nextTick()
+  if (listRef.value) listRef.value.scrollTop = 0
 })
 
 onUnmounted(() => {
@@ -446,6 +495,10 @@ function nodeKey(node, index) {
   return node.call_id || node.task_id || `${node.type}-${node.round || ''}-${index}`
 }
 
+function timelineNodeKey(node, index) {
+  return `${viewScopeKey.value}:${nodeKey(node, index)}`
+}
+
 function getNodeKey(node) {
   if (!node) return ''
   if (node.call_id) return `call:${node.call_id}`
@@ -485,6 +538,14 @@ function focusErrorNode() {
 function focusRunningNode() {
   const node = findLastByStatus('running')
   focusNodeInList(node)
+}
+
+function handleMetaAction(action) {
+  if (action === 'focus-running') {
+    focusRunningNode()
+  } else if (action === 'focus-error') {
+    focusErrorNode()
+  }
 }
 
 function findLastByStatus(status) {
@@ -684,6 +745,13 @@ button.wpe-chip:hover {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.wpe-body-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .wpe-empty {
