@@ -14,15 +14,15 @@
         <span v-if="elapsedText" class="wpr-elapsed">{{ elapsedText }}</span>
       </Transition>
     </div>
-    <div v-if="contextUsage.max > 0" class="wpr-ctx-row">
+    <div class="wpr-ctx-row" :class="{ 'is-empty': !hasContextUsage }">
       <div class="wpr-ctx-copy">
         <span>上下文</span>
-        <span>{{ ctxPercent }}%</span>
+        <span>{{ ctxPercentText }}</span>
       </div>
-      <div class="wpr-ctx-bar-track" :title="`${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
+      <div class="wpr-ctx-bar-track" :title="ctxTitle">
         <div class="wpr-ctx-bar-fill" :class="ctxClass" :style="{ width: ctxPercent + '%' }"></div>
       </div>
-      <span class="wpr-ctx-label">{{ compactNumber(contextUsage.used) }} / {{ compactNumber(contextUsage.max) }}</span>
+      <span class="wpr-ctx-label">{{ ctxValueText }}</span>
     </div>
   </div>
 </template>
@@ -100,8 +100,19 @@ const ctxPercent = computed(() => {
   if (!props.contextUsage.max) return 0
   return Math.min(100, Math.round(props.contextUsage.used / props.contextUsage.max * 100))
 })
+const hasContextUsage = computed(() => Number(props.contextUsage?.max || 0) > 0)
+const ctxPercentText = computed(() => hasContextUsage.value ? `${ctxPercent.value}%` : '待计算')
+const ctxValueText = computed(() => {
+  if (!hasContextUsage.value) return isRuntimeActive.value ? '准备上下文' : '等待任务'
+  return `${compactNumber(props.contextUsage.used)} / ${compactNumber(props.contextUsage.max)}`
+})
+const ctxTitle = computed(() => {
+  if (!hasContextUsage.value) return '上下文将在任务开始后计算'
+  return `${props.contextUsage.used.toLocaleString()} / ${props.contextUsage.max.toLocaleString()} tokens`
+})
 
 const ctxClass = computed(() => {
+  if (!hasContextUsage.value) return 'fill-empty'
   const p = ctxPercent.value
   if (p >= 90) return 'fill-danger'
   if (p >= 70) return 'fill-warning'
@@ -224,6 +235,10 @@ function compactNumber(value) {
   gap: 4px 10px;
 }
 
+.wpr-ctx-row.is-empty {
+  opacity: 0.72;
+}
+
 .wpr-ctx-copy {
   grid-column: 1 / -1;
   display: flex;
@@ -250,6 +265,7 @@ function compactNumber(value) {
   transition: width 0.5s ease;
 }
 
+.fill-empty { background: transparent; }
 .fill-ok { background: var(--color-success, #22c55e); }
 .fill-warning { background: var(--color-warning, #f59e0b); }
 .fill-danger { background: var(--color-error, #ef4444); }

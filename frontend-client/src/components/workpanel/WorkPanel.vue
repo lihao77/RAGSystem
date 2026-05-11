@@ -18,34 +18,28 @@
 
       <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
-          v-if="currentMessage"
-          :key="messageKey"
-          :execution-steps="currentMessage.execution_steps || []"
-          :subtasks="currentMessage.subtasks || []"
+          :key="workspaceContentKey"
+          :execution-steps="executionSteps"
+          :subtasks="subtasks"
           :running="activeRun.active"
           :session-id="sessionId"
         />
-
-        <div v-else-if="approvalQueue.length === 0 && !pendingUserInput" class="wp-empty">
-          <div class="wp-empty-icon" aria-hidden="true"></div>
-          <div class="wp-empty-text">{{ emptyStateText }}</div>
-        </div>
       </Transition>
 
       <Transition name="wp-overlay">
         <div v-if="pendingUserInput || approvalQueue.length > 0" class="wp-overlay-stack">
-        <WorkPanelUserInput
-          v-if="pendingUserInput"
-          :input-data="pendingUserInput.data"
-          @submit="emit('userInputSubmit', $event)"
-          @cancel="emit('userInputCancel')"
-        />
-        <WorkPanelApproval
-          v-if="approvalQueue.length > 0"
-          :queue="approvalQueue"
-          :submitting-id="approvalSubmittingId"
-          @submit="emit('approvalSubmit', $event)"
-        />
+          <WorkPanelUserInput
+            v-if="pendingUserInput"
+            :input-data="pendingUserInput.data"
+            @submit="emit('userInputSubmit', $event)"
+            @cancel="emit('userInputCancel')"
+          />
+          <WorkPanelApproval
+            v-if="approvalQueue.length > 0"
+            :queue="approvalQueue"
+            :submitting-id="approvalSubmittingId"
+            @submit="emit('approvalSubmit', $event)"
+          />
         </div>
       </Transition>
     </div>
@@ -87,7 +81,9 @@ const messageCompleted = computed(() => {
   return Boolean(msg?.finished && !props.activeRun?.active && !messageHasError.value)
 })
 
-const emptyStateText = computed(() => props.sessionId ? '暂无执行记录' : '等待第一条任务')
+const workspaceContentKey = computed(() => props.messageKey || props.sessionId || 'new-chat')
+const executionSteps = computed(() => props.currentMessage?.execution_steps || [])
+const subtasks = computed(() => props.currentMessage?.subtasks || [])
 
 function isErrorStatusItem(item) {
   if (!item) return false
@@ -143,37 +139,6 @@ function hasErrorInItems(items) {
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   will-change: transform, opacity;
-}
-
-.wp-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--color-text-muted);
-}
-
-.wp-empty-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  position: relative;
-  opacity: 0.72;
-}
-
-.wp-empty-icon::after {
-  content: '';
-  position: absolute;
-  inset: 9px;
-  border-radius: 50%;
-  background: var(--color-border);
-}
-
-.wp-empty-text {
-  font-size: 12px;
 }
 
 .wp-content-enter-active,
