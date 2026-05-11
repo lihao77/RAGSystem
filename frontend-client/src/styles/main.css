@@ -47,6 +47,7 @@
 
     /* Borders - Subtle but Visible */
     --color-border: rgba(255, 255, 255, 0.1);
+    --color-border-rgb: 255, 255, 255;
     --color-border-hover: rgba(255, 255, 255, 0.16);
     --color-border-focus: rgba(10, 132, 255, 0.5);
     /* Apple Blue focus */
@@ -77,10 +78,15 @@
     /* Apple Red */
     --color-error-bg: rgba(255, 69, 58, 0.1);
     --color-error-rgb: 255, 69, 58;
+    --color-danger: var(--color-error);
+    --color-danger-rgb: var(--color-error-rgb);
     --color-active: #0a84ff;
     /* Apple Blue */
     --color-active-bg: rgba(10, 132, 255, 0.1);
     --color-active-rgb: 10, 132, 255;
+    --color-primary: var(--color-brand-accent);
+    --color-primary-rgb: var(--color-brand-accent-rgb);
+    --color-brand-primary: var(--color-brand-accent);
 
     /* Link Color */
     --color-link: #0a84ff;
@@ -122,6 +128,12 @@
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
     --glass-blur: 0px;
 
+    /* Semantic Surfaces */
+    --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.42);
+    --surface-panel: var(--color-bg-elevated);
+    --surface-panel-muted: var(--color-hover-overlay);
+    --surface-panel-hover: var(--color-bg-secondary);
+
     /* Refined Shadows — Apple-style layered shadows */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.14);
@@ -141,6 +153,16 @@
     --spacing-xl: 32px;
     --spacing-2xl: 48px;
     --spacing-3xl: 64px;
+
+    /* Control Dimensions */
+    --control-height-sm: 32px;
+    --control-height-compact: 38px;
+    --control-height-md: 44px;
+    --control-height-lg: 52px;
+    --control-radius: 8px;
+    --icon-button-size-sm: 40px;
+    --icon-button-size-md: var(--control-height-md);
+    --chat-mobile-top-offset: 69.33px;
 
     /* Border Radius - restrained tool surfaces */
     --radius-sm: 8px;
@@ -274,6 +296,7 @@
 
     /* Borders */
     --color-border: #d2d2d7;
+    --color-border-rgb: 210, 210, 215;
     /* Apple Light Border */
     --color-border-hover: #b0b0b5;
     --color-border-focus: rgba(0, 122, 255, 0.5);
@@ -305,10 +328,15 @@
     /* Apple Red Light */
     --color-error-bg: rgba(255, 59, 48, 0.1);
     --color-error-rgb: 255, 59, 48;
+    --color-danger: var(--color-error);
+    --color-danger-rgb: var(--color-error-rgb);
     --color-active: #007aff;
     /* Apple Blue */
     --color-active-bg: rgba(0, 122, 255, 0.1);
     --color-active-rgb: 0, 122, 255;
+    --color-primary: var(--color-brand-accent);
+    --color-primary-rgb: var(--color-brand-accent-rgb);
+    --color-brand-primary: var(--color-brand-accent);
 
     /* Link Color */
     --color-link: #007aff;
@@ -348,6 +376,10 @@
     --glass-bg-light: rgba(255, 255, 255, 0.92);
     --color-glass-border: rgba(0, 0, 0, 0.1);
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.72);
+    --surface-panel: var(--color-bg-elevated);
+    --surface-panel-muted: var(--color-hover-overlay);
+    --surface-panel-hover: var(--color-bg-secondary);
 
     /* Refined Shadows — Apple-style layered shadows for light mode */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -454,7 +486,7 @@ body {
     color: var(--color-text-primary);
     font-size: var(--font-size-base);
     line-height: 1.6;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
     position: relative;
 }
 
@@ -736,7 +768,7 @@ input[type='number'] {
 }
 
 .glass-card {
-    background: var(--glass-bg);
+    background: var(--surface-panel);
     border: 1px solid var(--color-glass-border);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;

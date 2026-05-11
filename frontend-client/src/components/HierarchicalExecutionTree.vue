@@ -55,7 +55,7 @@ const executionTree = computed(() =>
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text-secondary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .tree-container {

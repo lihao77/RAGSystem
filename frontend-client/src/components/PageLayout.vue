@@ -295,7 +295,7 @@ usePointerDownOutside({
   font-size: 17px;
   font-weight: 600;
   color: var(--color-text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -343,8 +343,8 @@ usePointerDownOutside({
 }
 
 .page-header__more-btn {
-  width: 44px;
-  min-width: 44px;
+  width: var(--icon-button-size-md);
+  min-width: var(--icon-button-size-md);
   padding: 0;
 }
 
@@ -376,8 +376,8 @@ usePointerDownOutside({
 }
 
 .page-header__actions :deep(.select-trigger) {
-  height: 44px;
-  min-height: 44px;
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
   padding: 0 34px 0 12px;
   border-radius: 8px;
   background: var(--color-hover-overlay);
@@ -391,10 +391,10 @@ usePointerDownOutside({
   align-items: center;
   justify-content: center;
   gap: var(--spacing-xs);
-  height: 44px;
-  min-height: 44px;
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
@@ -409,8 +409,8 @@ usePointerDownOutside({
 }
 
 .pl-btn--icon {
-  width: 44px;
-  min-width: 44px;
+  width: var(--icon-button-size-md);
+  min-width: var(--icon-button-size-md);
   padding: 0;
 }
 
@@ -439,7 +439,7 @@ usePointerDownOutside({
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
-  min-height: 52px;
+  min-height: var(--control-height-lg);
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
@@ -462,9 +462,9 @@ usePointerDownOutside({
 
 .page-mobile-nav__menu,
 .page-mobile-nav__more {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+  width: var(--icon-button-size-sm);
+  height: var(--icon-button-size-sm);
+  border-radius: var(--control-radius);
   border: none;
   background: transparent;
   color: var(--color-text-primary);
@@ -503,7 +503,7 @@ usePointerDownOutside({
 }
 
 .page-mobile-nav__spacer {
-  width: 40px;
+  width: var(--icon-button-size-sm);
   flex-shrink: 0;
 }
 

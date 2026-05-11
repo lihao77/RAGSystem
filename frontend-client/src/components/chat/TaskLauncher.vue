@@ -64,7 +64,7 @@ const emit = defineEmits([
   padding: 0 8px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: rgba(var(--color-bg-elevated-rgb), 0.42);
+  background: var(--surface-shell);
   transition: border-color 180ms ease, background-color 180ms ease;
 }
 

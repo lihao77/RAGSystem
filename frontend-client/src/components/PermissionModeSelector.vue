@@ -261,8 +261,8 @@ onMounted(() => {
 }
 
 .permission-trigger {
-  width: 44px;
-  height: 44px;
+  width: var(--icon-button-size-md);
+  height: var(--control-height-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -527,7 +527,7 @@ onMounted(() => {
 }
 
 .mode-option.selected {
-  background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.08);
+  background: rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
 .mode-option.danger {
@@ -562,7 +562,7 @@ onMounted(() => {
 }
 
 .check-icon {
-  color: var(--color-primary, #6366f1);
+  color: var(--color-brand-accent);
   flex-shrink: 0;
 }
 
@@ -614,14 +614,14 @@ onMounted(() => {
 }
 
 .rule-input:focus {
-  border-color: var(--color-primary, #6366f1);
+  border-color: var(--color-brand-accent);
 }
 
 .rule-confirm-btn {
   padding: 4px 10px;
   border: none;
   border-radius: 6px;
-  background: var(--color-primary, #6366f1);
+  background: var(--color-brand-accent);
   color: var(--color-on-color);
   font-size: 0.75rem;
   font-weight: 500;
@@ -656,8 +656,8 @@ onMounted(() => {
 .rule-type-badge {
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.12);
-  color: var(--color-primary, #6366f1);
+  background: rgba(var(--color-brand-accent-rgb), 0.12);
+  color: var(--color-brand-accent);
   font-size: 0.6875rem;
   font-weight: 600;
   flex-shrink: 0;
@@ -719,8 +719,8 @@ onMounted(() => {
   }
   .permission-trigger {
     padding: 8px;
-    width: 44px;
-    height: 44px;
+    width: var(--icon-button-size-md);
+    height: var(--control-height-md);
     justify-content: center;
   }
   .dropdown-panel {

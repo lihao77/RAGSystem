@@ -189,7 +189,7 @@ defineExpose({ getSelection });
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid transparent;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
   color: var(--color-text-secondary);
 }
 
@@ -325,14 +325,14 @@ defineExpose({ getSelection });
 
 .theme-btn,
 .version-btn {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
+  width: var(--icon-button-size-md);
+  min-width: var(--icon-button-size-md);
+  height: var(--control-height-md);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border-radius: 22px;
+  border-radius: var(--radius-full);
   transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   box-shadow: none;
 }
@@ -378,8 +378,8 @@ defineExpose({ getSelection });
 }
 
 .hamburger-menu-btn {
-  width: 44px;
-  height: 44px;
+  width: var(--icon-button-size-md);
+  height: var(--control-height-md);
   border-radius: 50%;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
@@ -482,9 +482,9 @@ defineExpose({ getSelection });
   .theme-btn,
   .version-btn,
   .top-action-btn {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
+    width: var(--icon-button-size-md);
+    min-width: var(--icon-button-size-md);
+    height: var(--control-height-md);
     padding: 0;
     justify-content: center;
     gap: 0;

@@ -551,7 +551,7 @@ onUnmounted(() => {
 
 .sidebar {
   box-shadow: var(--shadow-sm);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
   width: 260px;
   border-radius: var(--radius-lg);
   display: flex;
@@ -1004,7 +1004,7 @@ onUnmounted(() => {
   margin-left: 8px;
   border: none;
   background: transparent;
-  color: var(--color-brand-primary);
+  color: var(--color-brand-accent);
   cursor: pointer;
 }
 
@@ -1070,7 +1070,7 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
@@ -1120,7 +1120,7 @@ onUnmounted(() => {
 }
 
 .skeleton-item {
-  height: 44px;
+  height: var(--control-height-md);
   opacity: 0.75;
 }
 

@@ -164,8 +164,8 @@
 }
 
 .theme-btn {
-  width: 44px;
-  height: 44px;
+  width: var(--icon-button-size-md);
+  height: var(--control-height-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -182,9 +182,9 @@
 }
 
 .version-btn {
-  height: 44px;
-  width: 44px;
-  border-radius: 22px;
+  height: var(--control-height-md);
+  width: var(--icon-button-size-md);
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -378,7 +378,7 @@
   color: var(--color-text-primary);
   margin-bottom: var(--spacing-sm);
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   text-shadow: 0 4px 32px rgba(var(--color-brand-accent-rgb), 0.4);
   animation: titleFadeIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
   animation-delay: 0.2s;
@@ -388,7 +388,7 @@
   font-size: var(--welcome-subtitle-size);
   color: var(--color-text-secondary);
   font-weight: 400;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   animation: titleFadeIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
   animation-delay: 0.4s;
 }
@@ -1755,8 +1755,8 @@
 
 /* ===== 汉堡菜单按钮（移动端） ===== */
 .hamburger-menu-btn {
-  width: 44px;
-  height: 44px;
+  width: var(--icon-button-size-md);
+  height: var(--control-height-md);
   border-radius: 50%;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
@@ -1803,7 +1803,7 @@
   }
 
   .chat-messages {
-    padding-top: calc(2 * var(--spacing-sm) + 69.33px);
+    padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
     overflow: visible;
     scrollbar-width: none;
     /* Firefox */
@@ -1834,13 +1834,12 @@
 
   /* 移动端顶部按钮统一 44px 高度 */
   .theme-btn {
-    width: 44px;
-    height: 44px;
+    width: var(--icon-button-size-md);
+    height: var(--control-height-md);
   }
 
   .version-btn {
-    height: 44px;
-    height: 44px;
+    height: var(--control-height-md);
   }
 
   .version-label {
@@ -1861,7 +1860,7 @@
 
   /* 移动端消息布局调整 */
   .chat-messages {
-    padding-top: calc(2 * var(--spacing-sm) + 69.33px);
+    padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
     overflow: visible;
   }
 
@@ -1974,7 +1973,7 @@
 
   /* 小屏手机上保持按钮一致性 */
   .chat-messages {
-    padding-top: calc(2 * var(--spacing-sm) + 69.33px);
+    padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
     overflow: visible;
   }
 
@@ -2113,7 +2112,7 @@
   background: rgba(34, 197, 94, 0.1);
 }
 .tn-status.failed, .tn-status.error {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-error);
   background: rgba(239, 68, 68, 0.1);
 }
 .tn-task-id {

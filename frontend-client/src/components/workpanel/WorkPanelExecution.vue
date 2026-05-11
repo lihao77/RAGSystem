@@ -702,7 +702,7 @@ button.wpe-chip {
 
 button.wpe-chip:hover {
   border-color: var(--color-border-hover);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
 }
 
 .chip-running {

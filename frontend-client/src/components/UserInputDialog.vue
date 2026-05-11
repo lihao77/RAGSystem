@@ -282,7 +282,7 @@ defineExpose({ show, hide, toggleCollapsed });
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .input-header-action {

@@ -164,7 +164,7 @@ const artifacts = computed(() => {
 
 .artifact-item:hover {
   border-color: var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
 }
 
 .artifact-item-index {

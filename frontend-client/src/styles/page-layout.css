@@ -9,15 +9,15 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-xs);
-  height: 44px;
+  height: var(--control-height-md);
   padding: 0 20px;
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
   user-select: none;
@@ -75,8 +75,8 @@
 
 /* 仅图标按钮 */
 .pl-btn--icon {
-  width: 44px;
-  min-width: 44px;
+  width: var(--icon-button-size-md);
+  min-width: var(--icon-button-size-md);
   padding: 0;
 }
 
@@ -210,14 +210,14 @@
   margin: 0;
   font-size: var(--font-size-xl);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--color-text-primary);
 }
 
 .pl-card__head span {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .pl-card__body {

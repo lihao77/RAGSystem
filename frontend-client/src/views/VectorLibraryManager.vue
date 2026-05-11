@@ -1374,7 +1374,7 @@ onMounted(() => {
     border-radius: 12px;
     padding: 14px;
     border: 1px solid var(--color-border);
-    background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+    background: var(--surface-shell);
     transition: border-color 0.2s;
 }
 

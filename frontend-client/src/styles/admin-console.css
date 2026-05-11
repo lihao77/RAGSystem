@@ -13,7 +13,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
 }
 
 .adm-kpi-icon {
@@ -60,7 +60,7 @@
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
+  background: var(--surface-shell);
 }
 
 .adm-panel__header {
@@ -278,10 +278,10 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 38px;
+  min-height: var(--control-height-compact);
   padding: 0 14px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   background: transparent;
   color: var(--color-text-primary);
   font: inherit;

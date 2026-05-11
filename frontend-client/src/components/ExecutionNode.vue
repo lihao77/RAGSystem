@@ -1386,7 +1386,7 @@ const formatResultContent = (value) => {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--color-text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 

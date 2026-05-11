@@ -112,7 +112,7 @@
   font-size: var(--font-size-xl);
   font-weight: 700;
   color: var(--color-text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .section-head span {
@@ -865,7 +865,7 @@ input[type='number'].form-control {
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-decoration: none;

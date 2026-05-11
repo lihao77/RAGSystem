@@ -280,16 +280,16 @@ defineExpose({ getSelection });
 
 /* 触发按钮 */
 .llm-select-trigger {
-  height: 44px;
+  height: var(--control-height-md);
   min-width: 180px;
   padding: 0 44px 0 18px;
-  border-radius: 22px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: all 0.3s;
   display: flex;
@@ -523,7 +523,7 @@ defineExpose({ getSelection });
 /* 移动端优化 */
 @media (max-width: 767px) {
   .llm-select-trigger {
-    height: 44px;
+    height: var(--control-height-md);
     min-width: 140px;
     font-size: 12px;
     padding: 0 36px 0 12px;
