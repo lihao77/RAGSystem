@@ -48,65 +48,72 @@
     </template>
 
       <!-- ── 统计卡片 ──────────────────────────────────── -->
-      <section class="summary-grid">
-        <article class="summary-card glass-card">
-          <div class="summary-icon summary-icon--total">
+      <section class="summary-grid adm-kpi-grid">
+        <article class="summary-card adm-kpi-card">
+          <div class="summary-icon adm-kpi-icon summary-icon--total">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
             </svg>
           </div>
-          <div class="summary-body">
-            <span class="summary-label">Provider 总数</span>
-            <strong class="summary-value">{{ providers.length }}</strong>
+          <div class="summary-body adm-kpi-body">
+            <span class="summary-label adm-kpi-label">Provider 总数</span>
+            <strong class="summary-value adm-kpi-value">{{ providers.length }}</strong>
           </div>
         </article>
-        <article class="summary-card glass-card">
-          <div class="summary-icon summary-icon--openai">
+        <article class="summary-card adm-kpi-card">
+          <div class="summary-icon adm-kpi-icon summary-icon--openai">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </svg>
           </div>
-          <div class="summary-body">
-            <span class="summary-label">可用模型数</span>
-            <strong class="summary-value summary-value--connected">{{ totalModels }}</strong>
+          <div class="summary-body adm-kpi-body">
+            <span class="summary-label adm-kpi-label">可用模型数</span>
+            <strong class="summary-value adm-kpi-value summary-value--connected">{{ totalModels }}</strong>
           </div>
         </article>
-        <article class="summary-card glass-card">
-          <div class="summary-icon summary-icon--types">
+        <article class="summary-card adm-kpi-card">
+          <div class="summary-icon adm-kpi-icon summary-icon--types">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 6h16M4 12h16M4 18h7"/>
             </svg>
           </div>
-          <div class="summary-body">
-            <span class="summary-label">Provider 类型</span>
-            <strong class="summary-value summary-value--enabled">{{ uniqueTypes }}</strong>
+          <div class="summary-body adm-kpi-body">
+            <span class="summary-label adm-kpi-label">Provider 类型</span>
+            <strong class="summary-value adm-kpi-value summary-value--enabled">{{ uniqueTypes }}</strong>
           </div>
         </article>
-        <article class="summary-card glass-card">
-          <div class="summary-icon summary-icon--embedding">
+        <article class="summary-card adm-kpi-card">
+          <div class="summary-icon adm-kpi-icon summary-icon--embedding">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/>
               <circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
             </svg>
           </div>
-          <div class="summary-body">
-            <span class="summary-label">支持 Embedding</span>
-            <strong class="summary-value summary-value--tools">{{ embeddingCount }}</strong>
+          <div class="summary-body adm-kpi-body">
+            <span class="summary-label adm-kpi-label">支持 Embedding</span>
+            <strong class="summary-value adm-kpi-value summary-value--tools">{{ embeddingCount }}</strong>
           </div>
         </article>
       </section>
 
       <!-- ── Provider 列表 ──────────────────────────────── -->
-      <section class="provider-list-section glass-card builder-panel">
-        <div class="section-toolbar">
-          <div class="toolbar-left">
-            <h2 class="section-title">Provider 列表</h2>
-            <p class="section-desc">查看 Provider 配置、模型映射与连通性测试结果，统一管理模型接入实例。</p>
-          </div>
+      <EntityListLayout
+        class="provider-list-section"
+        title="Provider 列表"
+        description="查看 Provider 配置、模型映射与连通性测试结果，统一管理模型接入实例。"
+        :loading="loading && providers.length === 0"
+        loading-text="加载中..."
+        :error="error"
+        :empty="providers.length === 0"
+        empty-title="暂无 Provider"
+        empty-hint="点击右上角“添加 Provider”开始配置"
+        @retry="loadProviders"
+      >
+        <template #actions>
           <div class="inline-actions">
             <span v-if="reordering" class="reorder-status">正在保存排序...</span>
             <span v-else-if="reorderError" class="reorder-status reorder-status--error">{{ reorderError }}</span>
@@ -118,28 +125,19 @@
               {{ loading ? '刷新中...' : '刷新列表' }}
             </button>
           </div>
-        </div>
-
-        <div v-if="loading && providers.length === 0" class="state-panel">
-          <div class="spinner"></div>
-          <p>加载中...</p>
-        </div>
-        <div v-else-if="error" class="state-panel state-panel--error">
-          <p>{{ error }}</p>
-          <button class="btn-secondary" @click="loadProviders">重试</button>
-        </div>
-        <div v-else-if="providers.length === 0" class="state-panel state-panel--empty">
+        </template>
+        <template #empty-icon>
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
           </svg>
-          <p>暂无 Provider，点击右上角“添加 Provider”开始配置</p>
-        </div>
-        <TransitionGroup v-else name="provider-row-list" tag="div" class="provider-list">
+        </template>
+
+        <TransitionGroup name="provider-row-list" tag="div" class="provider-list adm-entity-list">
           <article
             v-for="(provider, index) in providers"
             :key="getProviderKey(provider)"
-            class="provider-row"
+            class="provider-row adm-entity-row"
             :class="{
               'provider-row--dragging': draggingKey === getProviderKey(provider)
             }"
@@ -172,7 +170,7 @@
               </div>
 
               <div class="provider-row-actions">
-                <button class="act-btn act-btn--test"
+                <button class="adm-action-btn adm-action-btn--success act-btn act-btn--test"
                   :disabled="testingKey === getProviderKey(provider)"
                   @click="quickTest(provider)">
                   <div v-if="testingKey === getProviderKey(provider)" class="spinner spinner--sm"></div>
@@ -182,7 +180,7 @@
                   </svg>
                   {{ testingKey === getProviderKey(provider) ? '测试中' : '测试' }}
                 </button>
-                <button class="act-btn" @click="openEditDialog(provider)">
+                <button class="adm-action-btn act-btn" @click="openEditDialog(provider)">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -190,7 +188,7 @@
                   </svg>
                   编辑
                 </button>
-                <button class="act-btn act-btn--danger" @click="confirmDelete(provider)">
+                <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" @click="confirmDelete(provider)">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
@@ -210,12 +208,12 @@
             </div>
           </article>
         </TransitionGroup>
-      </section>
+      </EntityListLayout>
 
     <!-- ── 新增/编辑 Dialog ──────────────────────────────── -->
     <div v-if="dialog.visible" class="dialog-backdrop">
-      <div ref="dialogPanelRef" class="dialog-panel glass-card">
-        <div class="dialog-header">
+      <div ref="dialogPanelRef" class="dialog-panel adm-modal glass-card">
+        <div class="dialog-header adm-modal-header">
           <h2>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</h2>
           <button class="dialog-close" @click="closeDialog">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
@@ -225,21 +223,21 @@
           </button>
         </div>
 
-        <form class="dialog-form" @submit.prevent="handleSubmit">
-          <section class="dialog-form-section">
-            <div class="dialog-form-section__head">
+        <form class="dialog-form adm-form" @submit.prevent="handleSubmit">
+          <section class="dialog-form-section adm-form-section">
+            <div class="dialog-form-section__head adm-form-section__head">
               <h3>基础配置</h3>
               <p>填写 Provider 标识、鉴权信息与基础接入地址。</p>
             </div>
-            <div class="dialog-form-grid">
+            <div class="dialog-form-grid adm-form-grid">
               <!-- 基础字段（仅新建时可改） -->
-              <div class="form-row" v-if="dialog.mode === 'create'">
-                <label class="form-label">名称 <span class="required">*</span></label>
-                <input v-model="form.name" class="form-control" placeholder="例如: my_gpt" />
-                <p class="form-hint">Provider 实例的唯一名称，不可包含空格</p>
+              <div class="form-row adm-field" v-if="dialog.mode === 'create'">
+                <label class="form-label adm-field-label">名称 <span class="required">*</span></label>
+                <input v-model="form.name" class="form-control adm-form-control" placeholder="例如: my_gpt" />
+                <p class="form-hint adm-form-hint">Provider 实例的唯一名称，不可包含空格</p>
               </div>
-              <div class="form-row" v-if="dialog.mode === 'create'">
-                <label class="form-label">Provider 类型 <span class="required">*</span></label>
+              <div class="form-row adm-field" v-if="dialog.mode === 'create'">
+                <label class="form-label adm-field-label">Provider 类型 <span class="required">*</span></label>
                 <CustomSelect
                   :model-value="form.provider_type"
                   :options="providerTypeOptions"
@@ -247,66 +245,66 @@
                   @update:model-value="handleProviderTypeChange"
                 />
               </div>
-              <div class="form-row dialog-form-grid__full">
-                <label class="form-label">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
-                <input v-model="form.api_key" class="form-control" type="password"
+              <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
+                <label class="form-label adm-field-label">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
+                <input v-model="form.api_key" class="form-control adm-form-control" type="password"
                   :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
-                <p class="form-hint">
+                <p class="form-hint adm-form-hint">
                   {{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量' : '仅在需要替换密钥时填写；留空表示保持当前值' }}
                 </p>
               </div>
-              <div class="form-row dialog-form-grid__full">
-                <label class="form-label">API Endpoint</label>
-                <input v-model="form.api_endpoint" class="form-control"
+              <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
+                <label class="form-label adm-field-label">API Endpoint</label>
+                <input v-model="form.api_endpoint" class="form-control adm-form-control"
                   :placeholder="apiEndpointPlaceholder" />
               </div>
             </div>
           </section>
 
-          <section class="dialog-form-section">
-            <div class="dialog-form-section__head">
+          <section class="dialog-form-section adm-form-section">
+            <div class="dialog-form-section__head adm-form-section__head">
               <h3>运行参数</h3>
               <p>配置温度、token 上限与超时时间等运行时参数。</p>
             </div>
-            <div class="dialog-form-grid">
-              <div class="form-row">
-                <label class="form-label">温度</label>
-                <input v-model.number="form.temperature" class="form-control" type="number"
+            <div class="dialog-form-grid adm-form-grid">
+              <div class="form-row adm-field">
+                <label class="form-label adm-field-label">温度</label>
+                <input v-model.number="form.temperature" class="form-control adm-form-control" type="number"
                   step="0.1" min="0" max="2" placeholder="0.7" />
               </div>
-              <div class="form-row">
-                <label class="form-label">Max Completion Tokens</label>
-                <input v-model.number="form.max_completion_tokens" class="form-control" type="number"
+              <div class="form-row adm-field">
+                <label class="form-label adm-field-label">Max Completion Tokens</label>
+                <input v-model.number="form.max_completion_tokens" class="form-control adm-form-control" type="number"
                   step="256" min="256" placeholder="4096" />
               </div>
-              <div class="form-row">
-                <label class="form-label">Max Context Tokens</label>
-                <input v-model.number="form.max_context_tokens" class="form-control" type="number"
+              <div class="form-row adm-field">
+                <label class="form-label adm-field-label">Max Context Tokens</label>
+                <input v-model.number="form.max_context_tokens" class="form-control adm-form-control" type="number"
                   step="1024" min="1024" placeholder="128000" />
               </div>
-              <div class="form-row">
-                <label class="form-label">Timeout (s)</label>
-                <input v-model.number="form.timeout" class="form-control" type="number"
+              <div class="form-row adm-field">
+                <label class="form-label adm-field-label">Timeout (s)</label>
+                <input v-model.number="form.timeout" class="form-control adm-form-control" type="number"
                   step="5" min="5" placeholder="60" />
               </div>
             </div>
           </section>
 
-          <section class="dialog-form-section">
-            <div class="dialog-form-section__head">
+          <section class="dialog-form-section adm-form-section">
+            <div class="dialog-form-section__head adm-form-section__head">
               <h3>模型与扩展</h3>
               <p>管理 Provider 的扩展字段与任务模型映射。</p>
             </div>
 
             <template v-if="activeProviderConfigFields.length > 0">
-              <div class="form-section-title">Provider 扩展配置</div>
-              <div class="dialog-form-grid">
+              <div class="form-section-title adm-form-section-title">Provider 扩展配置</div>
+              <div class="dialog-form-grid adm-form-grid">
                 <div
                   v-for="field in activeProviderConfigFields"
                   :key="field.key"
-                  class="form-row"
+                  class="form-row adm-field"
                 >
-                  <label class="form-label">{{ field.label }}</label>
+                  <label class="form-label adm-field-label">{{ field.label }}</label>
                   <CustomSelect
                     v-if="field.type === 'select'"
                     :model-value="form[field.key] ?? ''"
@@ -317,7 +315,7 @@
                   <input
                     v-else-if="field.type === 'number'"
                     v-model.number="form[field.key]"
-                    class="form-control"
+                    class="form-control adm-form-control"
                     type="number"
                     :step="field.step || 1"
                     :min="field.min"
@@ -327,22 +325,22 @@
                   <input
                     v-else
                     v-model="form[field.key]"
-                    class="form-control"
+                    class="form-control adm-form-control"
                     :type="field.type === 'password' ? 'password' : 'text'"
                     :placeholder="field.placeholder || ''"
                   />
-                  <p v-if="field.help" class="form-hint">{{ field.help }}</p>
+                  <p v-if="field.help" class="form-hint adm-form-hint">{{ field.help }}</p>
                 </div>
               </div>
             </template>
 
-            <div class="form-section-title">模型映射 (model_map)</div>
-            <p class="form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding</p>
+            <div class="form-section-title adm-form-section-title">模型映射 (model_map)</div>
+            <p class="form-hint adm-form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding</p>
             <div class="model-map-editor">
               <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-                <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
+                <input v-model="entry.task" class="form-control adm-form-control form-control--sm" placeholder="chat" />
                 <span class="map-arrow">→</span>
-                <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
+                <input v-model="entry.model" class="form-control adm-form-control" placeholder="gpt-4o" />
                 <button type="button" class="icon-btn icon-btn--delete" @click="removeModelMapEntry(idx)">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -354,11 +352,11 @@
             </div>
           </section>
 
-          <div v-if="dialog.error" class="form-error">{{ dialog.error }}</div>
+          <div v-if="dialog.error" class="form-error adm-form-error">{{ dialog.error }}</div>
 
-          <div class="dialog-footer">
-            <button type="button" class="btn-secondary" @click="closeDialog">取消</button>
-            <button type="submit" class="btn-primary" :disabled="dialog.saving">
+          <div class="dialog-footer adm-modal-footer">
+            <button type="button" class="adm-button btn-secondary" @click="closeDialog">取消</button>
+            <button type="submit" class="adm-button adm-button--primary btn-primary" :disabled="dialog.saving">
               {{ dialog.saving ? '保存中...' : '保存' }}
             </button>
           </div>
@@ -368,8 +366,8 @@
 
     <!-- ── 删除确认 Dialog ───────────────────────────────── -->
     <div v-if="deleteTarget" class="dialog-backdrop">
-      <div ref="deleteDialogPanelRef" class="dialog-panel dialog-panel--sm glass-card">
-        <div class="dialog-header">
+      <div ref="deleteDialogPanelRef" class="dialog-panel adm-modal dialog-panel--sm glass-card">
+        <div class="dialog-header adm-modal-header">
           <h2>确认删除</h2>
           <button class="dialog-close" @click="deleteTarget = null">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
@@ -381,9 +379,9 @@
         <p class="delete-confirm-msg">
           确定要删除 Provider <strong>{{ getProviderKey(deleteTarget) }}</strong> 吗？此操作不可撤销。
         </p>
-        <div class="dialog-footer">
-          <button class="btn-secondary" @click="deleteTarget = null">取消</button>
-          <button class="btn-danger" :disabled="deleting" @click="doDelete">
+        <div class="dialog-footer adm-modal-footer">
+          <button class="adm-button btn-secondary" @click="deleteTarget = null">取消</button>
+          <button class="adm-button adm-button--danger btn-danger" :disabled="deleting" @click="doDelete">
             {{ deleting ? '删除中...' : '确认删除' }}
           </button>
         </div>
@@ -397,6 +395,7 @@
 import { ref, computed, onMounted } from 'vue'
 import AppToast from '../components/AppToast.vue'
 import CustomSelect from '../components/CustomSelect.vue'
+import EntityListLayout from '../components/admin/EntityListLayout.vue'
 import PageLayout from '../components/PageLayout.vue'
 import { usePointerDownOutside } from '../composables/usePointerDownOutside'
 import {

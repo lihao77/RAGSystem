@@ -27,9 +27,9 @@
     </template>
 
     <!-- ── 统计卡片 ────────────────────────────────────────── -->
-    <section class="summary-grid">
-      <article class="summary-card glass-card">
-        <div class="summary-icon summary-icon--total">
+    <section class="summary-grid adm-kpi-grid">
+      <article class="summary-card adm-kpi-card">
+        <div class="summary-icon adm-kpi-icon summary-icon--total">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
@@ -37,14 +37,14 @@
             <line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
         </div>
-        <div class="summary-body">
-          <span class="summary-label">服务总数</span>
-          <strong class="summary-value">{{ summary.total }}</strong>
+        <div class="summary-body adm-kpi-body">
+          <span class="summary-label adm-kpi-label">服务总数</span>
+          <strong class="summary-value adm-kpi-value">{{ summary.total }}</strong>
         </div>
       </article>
 
-      <article class="summary-card glass-card">
-        <div class="summary-icon summary-icon--connected">
+      <article class="summary-card adm-kpi-card">
+        <div class="summary-icon adm-kpi-icon summary-icon--connected">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
@@ -53,36 +53,36 @@
             <line x1="12" y1="20" x2="12.01" y2="20"/>
           </svg>
         </div>
-        <div class="summary-body">
-          <span class="summary-label">已连接</span>
-          <strong class="summary-value summary-value--connected">{{ summary.connected }}</strong>
+        <div class="summary-body adm-kpi-body">
+          <span class="summary-label adm-kpi-label">已连接</span>
+          <strong class="summary-value adm-kpi-value summary-value--connected">{{ summary.connected }}</strong>
         </div>
       </article>
 
-      <article class="summary-card glass-card">
-        <div class="summary-icon summary-icon--enabled">
+      <article class="summary-card adm-kpi-card">
+        <div class="summary-icon adm-kpi-icon summary-icon--enabled">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
         </div>
-        <div class="summary-body">
-          <span class="summary-label">已启用</span>
-          <strong class="summary-value summary-value--enabled">{{ summary.enabled }}</strong>
+        <div class="summary-body adm-kpi-body">
+          <span class="summary-label adm-kpi-label">已启用</span>
+          <strong class="summary-value adm-kpi-value summary-value--enabled">{{ summary.enabled }}</strong>
         </div>
       </article>
 
-      <article class="summary-card glass-card">
-        <div class="summary-icon summary-icon--tools">
+      <article class="summary-card adm-kpi-card">
+        <div class="summary-icon adm-kpi-icon summary-icon--tools">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
           </svg>
         </div>
-        <div class="summary-body">
-          <span class="summary-label">可用工具</span>
-          <strong class="summary-value summary-value--tools">{{ summary.tools }}</strong>
+        <div class="summary-body adm-kpi-body">
+          <span class="summary-label adm-kpi-label">可用工具</span>
+          <strong class="summary-value adm-kpi-value summary-value--tools">{{ summary.tools }}</strong>
         </div>
       </article>
     </section>
@@ -104,12 +104,19 @@
     </nav>
 
     <!-- ── Tab: 已安装服务 ─────────────────────────────────── -->
-    <section v-if="activeTab === 'installed'" class="tab-content">
-      <div class="section-toolbar">
-        <div class="toolbar-left">
-          <h2 class="section-title">已安装服务</h2>
-          <p class="section-desc">管理连接状态、查看工具、修改运行参数。</p>
-        </div>
+    <EntityListLayout
+      v-if="activeTab === 'installed'"
+      class="tab-content"
+      title="已安装服务"
+      description="管理连接状态、查看工具、修改运行参数。"
+      :loading="loadingServers"
+      loading-text="正在加载 MCP 服务..."
+      :empty="!servers.length"
+      empty-title="暂无 MCP 服务"
+      empty-hint="前往“模板安装”或“Registry”标签页添加服务"
+      @retry="loadServers"
+    >
+      <template #actions>
         <button class="pl-btn" :disabled="loadingServers" @click="loadServers">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -119,26 +126,19 @@
           </svg>
           刷新
         </button>
-      </div>
+      </template>
 
-      <div v-if="loadingServers" class="state-panel">
-        <div class="spinner"></div>
-        <p>正在加载 MCP 服务...</p>
-      </div>
-      <div v-else-if="!servers.length" class="state-panel state-panel--empty">
-        <div class="empty-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-        </div>
-        <p class="empty-title">暂无 MCP 服务</p>
-        <p class="empty-hint">前往「模板安装」或「Registry」标签页添加服务</p>
-      </div>
-      <div v-else class="server-grid">
-        <article v-for="server in servers" :key="server.name" class="server-card glass-card">
+      <template #empty-icon>
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </template>
+
+      <div class="server-grid adm-entity-list">
+        <article v-for="server in servers" :key="server.name" class="server-card adm-entity-row">
           <!-- 卡片顶部：名称 + 状态 -->
           <div class="server-card-head">
             <div class="server-card-icon" :class="`server-icon--${server.transport || 'stdio'}`">
@@ -158,25 +158,25 @@
             </div>
             <div class="server-card-badges">
               <span class="status-dot" :class="`status-dot--${server.status || 'unknown'}`" :title="server.status || 'unknown'"></span>
-              <span class="badge" :class="statusBadgeClass(server.status)">{{ server.status || 'unknown' }}</span>
+              <span class="adm-badge badge" :class="statusBadgeClass(server.status)">{{ server.status || 'unknown' }}</span>
             </div>
           </div>
 
           <!-- 元数据行 -->
           <div class="server-meta-row">
-            <div class="meta-chip">
+            <div class="meta-chip adm-chip">
               <span class="meta-chip-label">传输</span>
               <span class="meta-chip-value meta-chip-value--mono">{{ server.transport || 'stdio' }}</span>
             </div>
-            <div class="meta-chip">
+            <div class="meta-chip adm-chip">
               <span class="meta-chip-label">工具</span>
               <span class="meta-chip-value">{{ server.tool_count || 0 }}</span>
             </div>
-            <div class="meta-chip">
+            <div class="meta-chip adm-chip">
               <span class="meta-chip-label">风险</span>
               <span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span>
             </div>
-            <div class="meta-chip">
+            <div class="meta-chip adm-chip">
               <span class="meta-chip-label">状态</span>
               <span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">
                 {{ server.enabled ? '已启用' : '已禁用' }}
@@ -204,7 +204,7 @@
 
           <!-- 操作按钮组 -->
           <div class="server-actions">
-            <button class="act-btn act-btn--connect" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
+            <button class="adm-action-btn adm-action-btn--success act-btn act-btn--connect" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/>
@@ -212,7 +212,7 @@
               </svg>
               连接
             </button>
-            <button class="act-btn act-btn--disconnect" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
+            <button class="adm-action-btn adm-action-btn--warning act-btn act-btn--disconnect" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
@@ -222,21 +222,21 @@
               </svg>
               断开
             </button>
-            <button class="act-btn" @click="handleTest(server)" title="测试连接">
+            <button class="adm-action-btn act-btn" @click="handleTest(server)" title="测试连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
               测试
             </button>
-            <button class="act-btn" @click="showTools(server)" title="查看工具">
+            <button class="adm-action-btn act-btn" @click="showTools(server)" title="查看工具">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
               </svg>
               工具 <span v-if="server.tool_count" class="act-badge">{{ server.tool_count }}</span>
             </button>
-            <button class="act-btn" @click="openEditDialog(server)" title="编辑配置">
+            <button class="adm-action-btn act-btn" @click="openEditDialog(server)" title="编辑配置">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -244,7 +244,7 @@
               </svg>
               编辑
             </button>
-            <button class="act-btn act-btn--danger" @click="handleDelete(server)" title="删除">
+            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" @click="handleDelete(server)" title="删除">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/>
@@ -255,7 +255,7 @@
           </div>
         </article>
       </div>
-    </section>
+    </EntityListLayout>
 
     <!-- ── Tab: 模板安装 ──────────────────────────────────── -->
     <section v-if="activeTab === 'template'" class="tab-content">
@@ -539,8 +539,8 @@
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <div v-if="registryInstallDialogVisible" class="modal-backdrop">
-        <div ref="registryInstallDialogRef" class="modal-shell glass-card">
-          <div class="modal-header">
+        <div ref="registryInstallDialogRef" class="modal-shell adm-modal glass-card">
+          <div class="modal-header adm-modal-header">
             <div class="modal-title-block">
               <h3>配置安装</h3>
               <p>{{ selectedRegistryServer?.display_name || selectedRegistryServer?.name }}</p>
@@ -553,7 +553,7 @@
             </button>
           </div>
 
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div class="form-grid">
               <label class="field">
                 <span>安装方式</span>
@@ -639,9 +639,9 @@
             </label>
           </div>
 
-          <div class="modal-footer">
-            <button class="btn-ghost" @click="closeRegistryInstallDialog">取消</button>
-            <button class="pl-btn pl-btn--primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
+          <div class="modal-footer adm-modal-footer">
+            <button class="adm-button btn-ghost" @click="closeRegistryInstallDialog">取消</button>
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
               <div v-if="installingRegistry" class="spinner spinner--sm spinner--inline"></div>
               {{ installingRegistry ? '安装中...' : '安装服务' }}
             </button>
@@ -655,8 +655,8 @@
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <div v-if="editDialogVisible && editForm" class="modal-backdrop">
-        <div ref="editDialogRef" class="modal-shell glass-card">
-          <div class="modal-header">
+        <div ref="editDialogRef" class="modal-shell adm-modal glass-card">
+          <div class="modal-header adm-modal-header">
             <div class="modal-title-block">
               <h3>编辑 MCP 服务</h3>
               <p class="font-mono">{{ editForm.name }}</p>
@@ -669,7 +669,7 @@
             </button>
           </div>
 
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div class="form-grid two-col">
               <label class="field">
                 <span>显示名称</span>
@@ -749,9 +749,9 @@
             </label>
           </div>
 
-          <div class="modal-footer">
-            <button class="btn-ghost" @click="closeEditDialog">取消</button>
-            <button class="pl-btn pl-btn--primary" :disabled="savingEdit" @click="saveEdit">
+          <div class="modal-footer adm-modal-footer">
+            <button class="adm-button btn-ghost" @click="closeEditDialog">取消</button>
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" :disabled="savingEdit" @click="saveEdit">
               <div v-if="savingEdit" class="spinner spinner--sm spinner--inline"></div>
               {{ savingEdit ? '保存中...' : '保存更改' }}
             </button>
@@ -765,8 +765,8 @@
          ════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <div v-if="toolsDialogVisible" class="modal-backdrop">
-        <div ref="toolsDialogRef" class="modal-shell modal-shell--narrow glass-card">
-          <div class="modal-header">
+        <div ref="toolsDialogRef" class="modal-shell adm-modal modal-shell--narrow glass-card">
+          <div class="modal-header adm-modal-header">
             <div class="modal-title-block">
               <h3>工具列表</h3>
               <p>{{ activeToolsServerName }}</p>
@@ -779,7 +779,7 @@
             </button>
           </div>
 
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div v-if="!serverTools.length" class="state-panel state-panel--empty">
               <p class="empty-title">暂无工具</p>
               <p class="empty-hint">服务未声明任何工具，或连接未成功</p>
@@ -805,6 +805,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import AppToast from '../components/AppToast.vue';
 import CustomSelect from '../components/CustomSelect.vue';
+import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import NumberInput from '../components/NumberInput.vue';
 import PageLayout from '../components/PageLayout.vue';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
@@ -1535,36 +1536,40 @@ onUnmounted(() => {
 
 .btn-sm { height: 36px !important; padding: 0 14px; font-size: var(--font-size-xs); border-radius: 18px; }
 
-/* ─── 已安装服务卡片网格 ────────────────────────────────── */
+/* ─── 已安装服务行式列表 ────────────────────────────────── */
 .server-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .server-card {
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  border: 1px solid var(--color-glass-border);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  display: grid;
+  grid-template-columns: minmax(240px, 1.15fr) minmax(220px, 1fr) minmax(260px, auto);
+  grid-template-areas:
+    "head meta actions"
+    "connection connection actions"
+    "error error error";
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: rgba(var(--color-bg-elevated-rgb), 0.38);
+  box-shadow: inset 0 1px 0 var(--color-soft-inset);
+  transition: border-color 0.2s, background 0.2s;
 }
 .server-card:hover {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-  box-shadow: var(--shadow-lg),
-    inset 0 1px 0 var(--color-soft-inset);
+  border-color: var(--color-border-hover);
+  background: rgba(var(--color-bg-elevated-rgb), 0.52);
 }
 
 .server-card-head {
+  grid-area: head;
   display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-md);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .server-card-icon {
@@ -1573,7 +1578,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   flex-shrink: 0;
   border: 1px solid var(--color-border);
 }
@@ -1601,9 +1606,11 @@ onUnmounted(() => {
 
 /* 元数据行 */
 .server-meta-row {
+  grid-area: meta;
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
+  min-width: 0;
 }
 
 .meta-chip {
@@ -1628,9 +1635,11 @@ onUnmounted(() => {
 
 /* 接入信息 */
 .server-connection-info {
+  grid-area: connection;
   background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: 8px;
+  padding: 7px 10px;
+  min-width: 0;
 }
 .connection-code {
   font-family: var(--font-mono);
@@ -1642,6 +1651,7 @@ onUnmounted(() => {
 
 /* 错误横幅 */
 .error-banner {
+  grid-area: error;
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-xs);
@@ -1655,11 +1665,13 @@ onUnmounted(() => {
 
 /* 服务操作按钮 */
 .server-actions {
+  grid-area: actions;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding-top: var(--spacing-xs);
-  border-top: 1px solid var(--color-border);
+  justify-content: flex-end;
+  padding-top: 0;
+  border-top: none;
 }
 
 .act-btn {
@@ -2179,13 +2191,25 @@ onUnmounted(() => {
 /* ─── 响应式 ────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .server-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "head"
+      "meta"
+      "connection"
+      "error"
+      "actions";
+    align-items: stretch;
+  }
+  .server-actions {
+    justify-content: flex-start;
+  }
   .install-layout { grid-template-columns: 1fr; }
   .form-grid.four-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
   .summary-grid { grid-template-columns: 1fr 1fr; }
-  .server-grid  { grid-template-columns: 1fr; }
   .registry-grid { grid-template-columns: 1fr; }
   .form-grid.two-col { grid-template-columns: 1fr; }
   .form-grid.four-col { grid-template-columns: 1fr 1fr; }

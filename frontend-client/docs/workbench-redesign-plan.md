@@ -174,13 +174,15 @@
 
 ## 阶段 5: 管理页控制台化
 
+状态: 进行中
+
 目标:
 - 统一管理页的密度、列表、详情、表单和状态表达。
 
 任务:
-- [ ] 抽象 `EntityListLayout` 或轻量复用模式: 列表 + 详情 + 操作区。
+- [x] 抽象 `EntityListLayout` 或轻量复用模式: 列表 + 详情 + 操作区。
 - [ ] 统一 `badge`、`act-btn`、`form-control`、空态、错误态。
-- [ ] 优先改 `ModelProviderManager` 和 `MCPManager`，因为它们最接近基础设施配置。
+- [x] 优先改 `ModelProviderManager` 和 `MCPManager`，因为它们最接近基础设施配置。
 - [ ] 再改 `AgentConfig`、`TeamBuilder`、`VectorLibraryManager`。
 
 验收:
@@ -251,3 +253,5 @@
 - 2026-05-11: 继续收敛 `ChatViewV2.vue` 的运行时接线。新增 `useChatMessageRuntime` 聚合消息执行、工作栏选择和后台通知逻辑；`useSessionRunStream` 改为支持按 state/messageStore/sessionStatus/connection/retry/execution/approvals 等分组依赖；新增 `useActiveRunState` 承载 active run 初始状态。
 - 2026-05-11: 阶段 3 完成。新增 `TaskLauncher.vue` 作为空会话任务启动器，复用入口 Agent、工作目录、Team、模型和附件状态；常用任务模板只填充输入框，不自动创建 session 或发送；移除底部 Composer 上方重复的空会话入口配置行。
 - 2026-05-12: 阶段 4 完成。新增 `/admin` 管理中心页与共享管理导航数据，侧栏管理入口收敛为底部单一“管理中心”入口，并在顶部展示当前 Team/工作区摘要；模型、Agent、Team、MCP、知识库、监控、守护系统和系统配置旧路径保持直达；`npm run build` 与 `npm test` 通过。
+- 2026-05-12: 阶段 5 启动。新增 `EntityListLayout.vue` 与 `admin-console.css` 作为管理页控制台基础结构；`ModelProviderManager` 的 Provider 列表和 `MCPManager` 的已安装服务列表接入共享列表/状态容器，MCP 服务首屏从卡片网格收敛为行式控制台列表。
+- 2026-05-12: 阶段 5 继续推进。扩展 `admin-console.css` 的 `adm-form-*`、`adm-modal-*`、`adm-button-*` 原子类；`ModelProviderManager` 的创建/编辑/删除弹窗接入共享表单与模态结构，`MCPManager` 的 Registry 安装、服务编辑和工具查看模态接入共享模态结构。
