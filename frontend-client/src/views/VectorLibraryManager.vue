@@ -26,23 +26,23 @@
         </template>
 
             <!-- ── 统计卡片 ───────────────────────────────────── -->
-            <section class="summary-grid">
-                <article class="summary-card glass-card">
-                    <div class="summary-icon summary-icon--files">
+            <section class="summary-grid adm-kpi-grid">
+                <article class="summary-card adm-kpi-card">
+                    <div class="summary-icon adm-kpi-icon summary-icon--files">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                             <polyline points="14 2 14 8 20 8" />
                         </svg>
                     </div>
-                    <div class="summary-body">
-                        <span class="summary-label">文件总数</span>
-                        <strong class="summary-value">{{ summary.totalFiles }}</strong>
+                    <div class="summary-body adm-kpi-body">
+                        <span class="summary-label adm-kpi-label">文件总数</span>
+                        <strong class="summary-value adm-kpi-value">{{ summary.totalFiles }}</strong>
                     </div>
                 </article>
 
-                <article class="summary-card glass-card">
-                    <div class="summary-icon summary-icon--indexed">
+                <article class="summary-card adm-kpi-card">
+                    <div class="summary-icon adm-kpi-icon summary-icon--indexed">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -50,14 +50,14 @@
                             <path d="M2 12l10 5 10-5" />
                         </svg>
                     </div>
-                    <div class="summary-body">
-                        <span class="summary-label">已索引文件</span>
-                        <strong class="summary-value summary-value--indexed">{{ summary.indexedFiles }}</strong>
+                    <div class="summary-body adm-kpi-body">
+                        <span class="summary-label adm-kpi-label">已索引文件</span>
+                        <strong class="summary-value adm-kpi-value summary-value--indexed">{{ summary.indexedFiles }}</strong>
                     </div>
                 </article>
 
-                <article class="summary-card glass-card">
-                    <div class="summary-icon summary-icon--vectorizers">
+                <article class="summary-card adm-kpi-card">
+                    <div class="summary-icon adm-kpi-icon summary-icon--vectorizers">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -65,23 +65,23 @@
                             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                         </svg>
                     </div>
-                    <div class="summary-body">
-                        <span class="summary-label">向量化器</span>
-                        <strong class="summary-value summary-value--vectorizers">{{ summary.vectorizers }}</strong>
+                    <div class="summary-body adm-kpi-body">
+                        <span class="summary-label adm-kpi-label">向量化器</span>
+                        <strong class="summary-value adm-kpi-value summary-value--vectorizers">{{ summary.vectorizers }}</strong>
                     </div>
                 </article>
 
-                <article class="summary-card glass-card">
-                    <div class="summary-icon summary-icon--active">
+                <article class="summary-card adm-kpi-card">
+                    <div class="summary-icon adm-kpi-icon summary-icon--active">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                             <polyline points="22 4 12 14.01 9 11.01" />
                         </svg>
                     </div>
-                    <div class="summary-body">
-                        <span class="summary-label">激活向量化器</span>
-                        <strong class="summary-value summary-value--active" :title="activeVectorizerDisplay">
+                    <div class="summary-body adm-kpi-body">
+                        <span class="summary-label adm-kpi-label">激活向量化器</span>
+                        <strong class="summary-value adm-kpi-value summary-value--active" :title="activeVectorizerDisplay">
                             {{ activeVectorizerDisplay || '未设置' }}
                         </strong>
                     </div>
@@ -582,12 +582,12 @@
         <!-- 索引新文档对话框 -->
         <Teleport to="body">
             <div v-if="showIndexDialog" class="modal-overlay">
-                <div ref="indexDialogRef" class="modal-shell">
-                    <div class="modal-header">
+                <div ref="indexDialogRef" class="modal-shell adm-modal">
+                    <div class="modal-header adm-modal-header">
                         <h3>索引新文档</h3>
                         <button class="modal-close" @click="showIndexDialog = false">&times;</button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body adm-modal-body">
                         <!-- 索引方式切换 -->
                         <div class="index-mode-tabs">
                             <button v-for="m in indexModes" :key="m.id" class="mode-tab"
@@ -685,9 +685,9 @@
                             </div>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button class="btn-secondary" @click="showIndexDialog = false">取消</button>
-                        <button class="btn-primary" :disabled="indexing" @click="handleIndexDocument">
+                    <div class="modal-footer adm-modal-footer">
+                        <button class="adm-button" @click="showIndexDialog = false">取消</button>
+                        <button class="adm-button adm-button--primary" :disabled="indexing" @click="handleIndexDocument">
                             {{ indexing ? '索引中...' : '开始索引' }}
                         </button>
                     </div>
@@ -698,12 +698,12 @@
         <!-- 新增向量化器对话框 -->
         <Teleport to="body">
             <div v-if="showAddVectorizerDialog" class="modal-overlay">
-                <div ref="addVectorizerDialogRef" class="modal-shell modal-shell--narrow">
-                    <div class="modal-header">
+                <div ref="addVectorizerDialogRef" class="modal-shell modal-shell--narrow adm-modal">
+                    <div class="modal-header adm-modal-header">
                         <h3>新增向量化器</h3>
                         <button class="modal-close" @click="showAddVectorizerDialog = false">&times;</button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body adm-modal-body">
                         <div class="form-grid">
                             <div class="field field--full">
                                 <label>Provider <em>*</em></label>
@@ -725,9 +725,9 @@
                             </div>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button class="btn-secondary" @click="showAddVectorizerDialog = false">取消</button>
-                        <button class="btn-primary"
+                    <div class="modal-footer adm-modal-footer">
+                        <button class="adm-button" @click="showAddVectorizerDialog = false">取消</button>
+                        <button class="adm-button adm-button--primary"
                             :disabled="addingVectorizer || !addVectorizerForm.provider_key || !addVectorizerForm.model_name"
                             @click="handleAddVectorizer">
                             {{ addingVectorizer ? '添加中...' : '确定' }}
@@ -740,12 +740,12 @@
         <!-- 迁移对话框 -->
         <Teleport to="body">
             <div v-if="showMigrateDialog" class="modal-overlay">
-                <div ref="migrateDialogRef" class="modal-shell modal-shell--narrow">
-                    <div class="modal-header">
+                <div ref="migrateDialogRef" class="modal-shell modal-shell--narrow adm-modal">
+                    <div class="modal-header adm-modal-header">
                         <h3>迁移向量数据</h3>
                         <button class="modal-close" @click="showMigrateDialog = false">&times;</button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body adm-modal-body">
                         <p class="migrate-desc">将「{{ migrateFromKey }}」中的向量数据迁移到另一个向量化器。</p>
                         <div class="form-grid">
                             <div class="field field--full">
@@ -755,9 +755,9 @@
                             </div>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button class="btn-secondary" @click="showMigrateDialog = false">取消</button>
-                        <button class="btn-primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
+                    <div class="modal-footer adm-modal-footer">
+                        <button class="adm-button" @click="showMigrateDialog = false">取消</button>
+                        <button class="adm-button adm-button--primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
                             {{ migrating ? '迁移中...' : '开始迁移' }}
                         </button>
                     </div>
@@ -1376,19 +1376,17 @@ onMounted(() => {
 .summary-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--spacing-md);
+    gap: 10px;
 }
 
 .summary-card {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    gap: 12px;
+    border-radius: 12px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.42);
     transition: border-color 0.2s;
 }
 
@@ -1401,9 +1399,9 @@ onMounted(() => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-md);
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     border: 1px solid var(--color-border);
     flex-shrink: 0;
 }
@@ -1447,7 +1445,7 @@ onMounted(() => {
 
 .summary-value {
     display: block;
-    font-size: var(--font-size-2xl);
+    font-size: var(--font-size-xl);
     font-weight: 700;
     line-height: 1.2;
     color: var(--color-text-primary);

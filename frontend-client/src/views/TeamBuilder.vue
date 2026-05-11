@@ -14,63 +14,63 @@
     </template>
 
     <div class="team-builder-page">
-      <div v-if="loading" class="state-panel state-panel--loading">
-        <div class="spinner"></div>
-        <p>加载 Team 配置中...</p>
-      </div>
-
-      <div v-else-if="error" class="state-panel state-panel--error">
-        <p>{{ error }}</p>
-        <button class="pl-btn" @click="loadTeams">重试</button>
-      </div>
+      <EntityListLayout
+        v-if="loading || error"
+        title="Team 编排数据"
+        description="加载 Team、Agent 映射与当前生效状态。"
+        :loading="loading"
+        loading-text="加载 Team 配置中..."
+        :error="error"
+        @retry="loadTeams"
+      />
 
       <template v-else>
-        <section class="summary-grid">
-          <article class="summary-card glass-card summary-card--accent">
-            <div class="summary-icon summary-icon--active">
+        <section class="summary-grid adm-kpi-grid">
+          <article class="summary-card adm-kpi-card summary-card--accent">
+            <div class="summary-icon adm-kpi-icon summary-icon--active">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
               </svg>
             </div>
-            <div class="summary-body">
-              <span class="summary-label">当前 Team</span>
-              <strong class="summary-value summary-value--active">{{ activeTeam || '未选择' }}</strong>
+            <div class="summary-body adm-kpi-body">
+              <span class="summary-label adm-kpi-label">当前 Team</span>
+              <strong class="summary-value adm-kpi-value summary-value--active">{{ activeTeam || '未选择' }}</strong>
             </div>
           </article>
 
-          <article class="summary-card glass-card">
-            <div class="summary-icon summary-icon--total">
+          <article class="summary-card adm-kpi-card">
+            <div class="summary-icon adm-kpi-icon summary-icon--total">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="14" y="15" width="7" height="7" rx="1"/>
               </svg>
             </div>
-            <div class="summary-body">
-              <span class="summary-label">Team 总数</span>
-              <strong class="summary-value">{{ teams.length }}</strong>
+            <div class="summary-body adm-kpi-body">
+              <span class="summary-label adm-kpi-label">Team 总数</span>
+              <strong class="summary-value adm-kpi-value">{{ teams.length }}</strong>
             </div>
           </article>
 
-          <article class="summary-card glass-card">
-            <div class="summary-icon summary-icon--agents">
+          <article class="summary-card adm-kpi-card">
+            <div class="summary-icon adm-kpi-icon summary-icon--agents">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/>
               </svg>
             </div>
-            <div class="summary-body">
-              <span class="summary-label">当前 Agent 数</span>
-              <strong class="summary-value">{{ activeTeamInfo?.agent_count || 0 }}</strong>
+            <div class="summary-body adm-kpi-body">
+              <span class="summary-label adm-kpi-label">当前 Agent 数</span>
+              <strong class="summary-value adm-kpi-value">{{ activeTeamInfo?.agent_count || 0 }}</strong>
             </div>
           </article>
 
-          <article class="summary-card glass-card">
-            <div class="summary-icon summary-icon--file">
+          <article class="summary-card adm-kpi-card">
+            <div class="summary-icon adm-kpi-icon summary-icon--file">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
               </svg>
             </div>
-            <div class="summary-body">
-              <span class="summary-label">配置文件</span>
-              <strong class="summary-value summary-value--mono">{{ activeTeamInfo?.file_path || '—' }}</strong>
+            <div class="summary-body adm-kpi-body">
+              <span class="summary-label adm-kpi-label">配置文件</span>
+              <strong class="summary-value adm-kpi-value summary-value--mono">{{ activeTeamInfo?.file_path || '—' }}</strong>
             </div>
           </article>
         </section>
@@ -280,20 +280,20 @@
           </div>
         </section>
 
-        <section class="glass-card builder-panel">
-          <div class="section-toolbar">
-            <div>
-              <h2 class="section-title">Team 列表</h2>
-              <p class="section-desc">每个 Team 对应一个独立配置文件，可单独激活、删除，并继续进入配置页细调。</p>
-            </div>
-          </div>
-          <div class="team-list">
-            <article v-for="team in teams" :key="team.team_name" class="team-card glass-card" :class="{ 'team-card--active': team.is_active }">
+        <EntityListLayout
+          title="Team 列表"
+          description="每个 Team 对应一个独立配置文件，可单独激活、删除，并继续进入配置页细调。"
+          :empty="teams.length === 0"
+          empty-title="暂无 Team"
+          empty-hint="创建 Team 后会显示在这里。"
+        >
+          <div class="team-list adm-entity-list">
+            <article v-for="team in teams" :key="team.team_name" class="team-card adm-entity-row" :class="{ 'team-card--active': team.is_active }">
               <div class="team-card__head">
                 <div class="team-card__identity">
                   <div class="team-card__title-row">
                     <h3>{{ team.team_name }}</h3>
-                    <span class="team-badge" :class="{ 'team-badge--active': team.is_active }">
+                    <span class="team-badge adm-badge" :class="team.is_active ? 'team-badge--active adm-badge--success' : 'adm-badge--neutral'">
                       {{ team.is_active ? '当前生效' : `${team.agent_count} Agents` }}
                     </span>
                   </div>
@@ -302,18 +302,18 @@
               </div>
 
               <div class="team-card__agents">
-                <span v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" class="team-agent-tag" :title="agent">{{ agentDisplayMap[agent] || agent }}</span>
+                <span v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" class="team-agent-tag adm-chip" :title="agent">{{ agentDisplayMap[agent] || agent }}</span>
               </div>
 
-              <div class="section-actions section-actions--compact">
-                <button class="pl-btn" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</button>
-                <button class="pl-btn" @click="openTeamConfig(team.team_name)">细调配置</button>
-                <button v-if="team.team_name === 'default'" class="pl-btn" :disabled="working" @click="handleResetDefaultTeam">恢复默认</button>
-                <button class="pl-btn pl-btn--danger" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</button>
+              <div class="section-actions section-actions--compact adm-action-row">
+                <button class="adm-action-btn adm-action-btn--success" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</button>
+                <button class="adm-action-btn" @click="openTeamConfig(team.team_name)">细调配置</button>
+                <button v-if="team.team_name === 'default'" class="adm-action-btn adm-action-btn--warning" :disabled="working" @click="handleResetDefaultTeam">恢复默认</button>
+                <button class="adm-action-btn adm-action-btn--danger" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</button>
               </div>
             </article>
           </div>
-        </section>
+        </EntityListLayout>
       </template>
     </div>
     <AppToast ref="toastRef" />
@@ -324,6 +324,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
+import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import AppToast from '../components/AppToast.vue';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getAllAgentConfigs, getTeams, resetDefaultTeam } from '../api/agentConfig';
@@ -551,22 +552,22 @@ onMounted(() => {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .summary-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 18px;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
 }
 
 .summary-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -597,11 +598,10 @@ onMounted(() => {
 .summary-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
-.summary-label,
 .field-label-text,
 .board-caption {
   font-size: 12px;
@@ -610,10 +610,23 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
+.summary-label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .summary-value {
   font-size: 20px;
   font-weight: 700;
   color: var(--color-text-primary);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .summary-value--active {
@@ -928,6 +941,14 @@ onMounted(() => {
   font-size: 12px;
 }
 
+.team-agent-tag {
+  max-width: 100%;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .target-chip--incoming {
   border-color: rgba(245, 158, 11, 0.28);
   background: rgba(245, 158, 11, 0.08);
@@ -1001,14 +1022,18 @@ onMounted(() => {
 }
 
 .team-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .team-card {
-  padding: 18px;
-  border-radius: 18px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 10px;
   transition: border-color 0.18s ease;
 }
 
@@ -1029,34 +1054,37 @@ onMounted(() => {
 
 .team-card__title-row h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  line-height: 1.25;
   color: var(--color-text-primary);
 }
 
 .team-card__identity p {
-  margin: 8px 0;
+  margin: 6px 0 0;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.45;
   color: var(--color-text-secondary);
   word-break: break-all;
 }
 
 .team-badge {
-  padding: 5px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
   background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
 }
 
 .team-badge--active {
-  background: rgba(99, 102, 241, 0.18);
-  color: #c7d2fe;
+  border-color: rgba(var(--color-success-rgb), 0.28);
+  background: rgba(var(--color-success-rgb), 0.1);
+  color: var(--color-success);
 }
 
 .section-actions--compact {
-  margin-top: 14px;
   justify-content: flex-end;
 }
 
@@ -1075,10 +1103,19 @@ onMounted(() => {
 }
 
 @media (max-width: 960px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .panel-grid,
   .form-grid,
   .form-grid--triple {
     grid-template-columns: 1fr;
+  }
+
+  .team-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 

@@ -119,20 +119,26 @@
         当前 Team：<strong>{{ activeTeam }}</strong>
       </div>
       <div ref="configBodyRef" class="config-body">
-      <div v-if="loading" class="state-panel state-panel--loading">
-        <div class="spinner"></div>
-        <p>加载中...</p>
-      </div>
-
-      <div v-else-if="error" class="state-panel state-panel--error">
-        <p>{{ error }}</p>
-        <button class="pl-btn" @click="loadInitialData">重试</button>
-      </div>
+      <EntityListLayout
+        v-if="loading || error"
+        title="Agent 配置数据"
+        description="加载 Agent 列表、模型 Provider、工具、Skills 与 MCP 服务。"
+        :loading="loading"
+        loading-text="加载中..."
+        :error="error"
+        @retry="loadInitialData"
+      />
 
       <template v-else>
-        <div v-if="!selectedAgent" class="state-panel state-panel--empty">
-          <p>暂无可配置的 Agent</p>
-        </div>
+        <EntityListLayout
+          v-if="!selectedAgent"
+          title="Agent 配置"
+          description="当前 Team 下还没有可配置的 Agent。"
+          empty
+          empty-title="暂无可配置的 Agent"
+          empty-hint="新建 Agent 后即可在这里维护模型、工具、Skills 和委派关系。"
+          :retryable="false"
+        />
 
         <template v-else>
           <form class="config-form" @submit.prevent="handleSave">
@@ -635,8 +641,8 @@
     <!-- 新建 Agent 对话框 -->
     <Teleport to="body">
       <div v-if="createDialog.visible" class="modal-overlay">
-        <div ref="createDialogPanelRef" class="modal-panel">
-          <div class="modal-head">
+        <div ref="createDialogPanelRef" class="modal-panel adm-modal">
+          <div class="modal-head adm-modal-header">
             <h3>新建 Agent</h3>
             <button class="modal-close" @click="closeCreateDialog">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -645,30 +651,30 @@
               </svg>
             </button>
           </div>
-          <div class="modal-body">
-            <label class="form-item">
-              <span class="field-label-text">Agent 名称 <em class="required-mark">*</em></span>
+          <div class="modal-body adm-modal-body">
+            <label class="form-item adm-field">
+              <span class="field-label-text adm-field-label">Agent 名称 <em class="required-mark">*</em></span>
               <input
                 v-model.trim="createDialog.agentName"
                 type="text"
-                class="form-control"
+                class="form-control adm-form-control"
                 placeholder="仅限英文、数字和下划线，如 my_agent"
                 @keydown.enter="handleCreateAgent"
               />
-              <small class="field-hint">创建后不可修改，将作为唯一标识符</small>
+              <small class="field-hint adm-form-hint">创建后不可修改，将作为唯一标识符</small>
             </label>
-            <label class="form-item">
-              <span class="field-label-text">显示名称</span>
-              <input v-model.trim="createDialog.displayName" type="text" class="form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
+            <label class="form-item adm-field">
+              <span class="field-label-text adm-field-label">显示名称</span>
+              <input v-model.trim="createDialog.displayName" type="text" class="form-control adm-form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
             </label>
-            <label class="form-item">
-              <span class="field-label-text">描述</span>
-              <input v-model.trim="createDialog.description" type="text" class="form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
+            <label class="form-item adm-field">
+              <span class="field-label-text adm-field-label">描述</span>
+              <input v-model.trim="createDialog.description" type="text" class="form-control adm-form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
             </label>
           </div>
-          <div class="modal-foot">
-            <button class="pl-btn" :disabled="createDialog.loading" @click="closeCreateDialog">取消</button>
-            <button class="pl-btn pl-btn--primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
+          <div class="modal-foot adm-modal-footer">
+            <button class="adm-button" :disabled="createDialog.loading" @click="closeCreateDialog">取消</button>
+            <button class="adm-button adm-button--primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
               {{ createDialog.loading ? '创建中...' : '创建' }}
             </button>
           </div>
@@ -679,8 +685,8 @@
     <!-- 删除 Agent 确认对话框 -->
     <Teleport to="body">
       <div v-if="deleteDialog.visible" class="modal-overlay">
-        <div ref="deleteDialogPanelRef" class="modal-panel modal-panel--sm">
-          <div class="modal-head">
+        <div ref="deleteDialogPanelRef" class="modal-panel modal-panel--sm adm-modal">
+          <div class="modal-head adm-modal-header">
             <h3>删除 Agent</h3>
             <button class="modal-close" @click="closeDeleteDialog">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -689,12 +695,12 @@
               </svg>
             </button>
           </div>
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
           </div>
-          <div class="modal-foot">
-            <button class="pl-btn" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</button>
-            <button class="pl-btn pl-btn--danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
+          <div class="modal-foot adm-modal-footer">
+            <button class="adm-button" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</button>
+            <button class="adm-button adm-button--danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
               {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
             </button>
           </div>
@@ -708,6 +714,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
+import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import {
   getAllAgentConfigs,
   getAgentConfig,
