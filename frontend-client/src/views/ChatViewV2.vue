@@ -52,23 +52,7 @@
           @notify="({ message, type }) => showToast(message, type)"
         >
           <template #empty>
-            <section class="new-chat-start" aria-label="新聊天起始页">
-              <div class="new-chat-start__eyebrow">New chat</div>
-              <h1>想让 Agent 做什么？</h1>
-              <p>代码库、知识库、自动化任务，先定一个清晰目标。</p>
-              <div class="new-chat-prompts" aria-label="快捷开始">
-                <button
-                  v-for="item in newChatSuggestions"
-                  :key="item.title"
-                  type="button"
-                  class="new-chat-prompt"
-                  @click="applyNewChatSuggestion(item.prompt)"
-                >
-                  <span class="new-chat-prompt__title">{{ item.title }}</span>
-                  <span class="new-chat-prompt__desc">{{ item.desc }}</span>
-                </button>
-              </div>
-            </section>
+            <ChatEmptyState @select-prompt="applyNewChatSuggestion" />
           </template>
         </ChatMessageList>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
@@ -83,7 +67,7 @@
               </svg>
             </LiquidGlass>
           </transition>
-          <div class="input-area-wrapper" :class="{ 'input-area-wrapper--new-chat': messages.length === 0 }">
+          <div class="input-area-wrapper">
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -240,6 +224,7 @@ import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
 import AppToast from '../components/AppToast.vue';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
+import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
@@ -303,28 +288,6 @@ const ctxDrawerSelectedLlm = ref('');
 const newChatLaunching = ref(false);
 const switchingToNewChat = ref(false);
 let newChatLaunchTimer = null;
-const newChatSuggestions = [
-  {
-    title: '梳理代码库',
-    desc: '找出入口、模块关系和下一步改造点',
-    prompt: '请先梳理这个代码库的结构，说明主要模块、启动入口和最值得优先改进的地方。',
-  },
-  {
-    title: '实现一个改动',
-    desc: '描述目标后直接进入修改和验证',
-    prompt: '请根据当前项目实现这个改动：',
-  },
-  {
-    title: '排查问题',
-    desc: '从现象定位原因并给出修复',
-    prompt: '请帮我排查这个问题，先定位原因，再给出最小修复方案：',
-  },
-  {
-    title: '生成方案',
-    desc: '把模糊需求拆成可执行步骤',
-    prompt: '请把下面这个需求拆成清晰的实施方案，并指出风险点：',
-  },
-];
 
 function getCurrentSelectedLlm() {
   return sessionContextBarRef.value?.getSelection?.() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
