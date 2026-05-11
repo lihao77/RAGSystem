@@ -149,6 +149,8 @@
 
 ## 阶段 4: 侧栏信息架构调整
 
+状态: 已完成
+
 目标:
 - 左侧侧栏聚焦会话和工作区。
 - 管理入口收敛到单独的管理中心。
@@ -160,10 +162,10 @@
 - 管理中心页内展示模型、Agent、Team、MCP、知识库、监控、守护系统、系统配置。
 
 任务:
-- [ ] 新增 `/admin` 或 `/settings` 管理中心路由。
-- [ ] 将现有管理入口数据迁移到管理中心卡片/列表。
-- [ ] sidebar 只保留一个“管理中心”入口。
-- [ ] 保持旧路径可直接访问。
+- [x] 新增 `/admin` 或 `/settings` 管理中心路由。
+- [x] 将现有管理入口数据迁移到管理中心卡片/列表。
+- [x] sidebar 只保留一个“管理中心”入口。
+- [x] 保持旧路径可直接访问。
 
 验收:
 - 会话历史在桌面端获得更多空间。
@@ -248,3 +250,4 @@
 - 2026-05-11: 继续剥离 `ChatViewV2.vue` 的纯视图派生逻辑。新增 `useMessageListView`、`useRuntimeStatusView`、`useTaskNotifications`，将压缩摘要可见列表、消息复制、上下文用量/执行状态文案和后台任务通知解析移出页面层；同时把工作栏用户输入路由并入 `useApprovalQueue`。
 - 2026-05-11: 继续收敛 `ChatViewV2.vue` 的运行时接线。新增 `useChatMessageRuntime` 聚合消息执行、工作栏选择和后台通知逻辑；`useSessionRunStream` 改为支持按 state/messageStore/sessionStatus/connection/retry/execution/approvals 等分组依赖；新增 `useActiveRunState` 承载 active run 初始状态。
 - 2026-05-11: 阶段 3 完成。新增 `TaskLauncher.vue` 作为空会话任务启动器，复用入口 Agent、工作目录、Team、模型和附件状态；常用任务模板只填充输入框，不自动创建 session 或发送；移除底部 Composer 上方重复的空会话入口配置行。
+- 2026-05-12: 阶段 4 完成。新增 `/admin` 管理中心页与共享管理导航数据，侧栏管理入口收敛为底部单一“管理中心”入口，并在顶部展示当前 Team/工作区摘要；模型、Agent、Team、MCP、知识库、监控、守护系统和系统配置旧路径保持直达；`npm run build` 与 `npm test` 通过。
