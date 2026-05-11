@@ -307,13 +307,17 @@
 .chat-main.is-switching-to-new-chat .chat-stage-enter-active,
 .chat-main.is-switching-to-new-chat .chat-stage-leave-active,
 .chat-main.is-switching-to-new-chat .new-chat-start,
-.chat-main.is-switching-to-new-chat .bottom-dock {
+.chat-main.is-switching-to-new-chat .bottom-dock,
+.chat-main.is-restoring-session-scroll .chat-stage-enter-active,
+.chat-main.is-restoring-session-scroll .chat-stage-leave-active {
   animation: none !important;
   transition: none !important;
 }
 
 .chat-main.is-switching-to-new-chat .chat-stage-enter-from,
-.chat-main.is-switching-to-new-chat .chat-stage-leave-to {
+.chat-main.is-switching-to-new-chat .chat-stage-leave-to,
+.chat-main.is-restoring-session-scroll .chat-stage-enter-from,
+.chat-main.is-restoring-session-scroll .chat-stage-leave-to {
   opacity: 1;
   transform: none;
   filter: none;
@@ -419,6 +423,17 @@
   animation: messageSlideIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
   will-change: opacity, transform;
   width: 100%;
+}
+
+.chat-main.is-restoring-session-scroll .message-stream {
+  visibility: hidden;
+  animation: none !important;
+}
+
+.chat-main.is-restoring-session-scroll .message {
+  opacity: 1 !important;
+  animation: none !important;
+  transform: none !important;
 }
 
 @keyframes messageSlideIn {

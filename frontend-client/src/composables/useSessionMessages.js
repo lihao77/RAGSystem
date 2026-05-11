@@ -15,6 +15,8 @@ import { ref, nextTick } from 'vue';
  * @param {Function} deps.loadContextSnapshot
  * @param {Function} deps.showToast
  * @param {Function} deps.invalidateActiveStream
+ * @param {Function} [deps.beginInitialScrollRestore]
+ * @param {Function} [deps.endInitialScrollRestore]
  */
 export function useSessionMessages(deps) {
   const messageCache = ref(new Map());
@@ -46,8 +48,18 @@ export function useSessionMessages(deps) {
    */
   const loadSessionMessages = async (sessionId, { silent = false } = {}) => {
     if (!sessionId) return;
+    let scrollRestoreStarted = false;
+    let scrollRestoreEnded = false;
+    const endScrollRestore = () => {
+      if (!scrollRestoreStarted || scrollRestoreEnded) return;
+      deps.endInitialScrollRestore?.();
+      scrollRestoreEnded = true;
+    };
+
     if (!silent) {
       deps.invalidateActiveStream();
+      deps.beginInitialScrollRestore?.();
+      scrollRestoreStarted = true;
       messagesLoading.value = true;
     }
     try {
@@ -57,9 +69,10 @@ export function useSessionMessages(deps) {
         deps.messages.value = cached.map(item => deps.normalizeAssistantExecutionState(item));
         messagesLoading.value = false;
         await nextTick();
-        await deps.scrollToBottom(true);
+        await deps.scrollToBottom(true, 'auto');
         await deps.waitForScrollLayout();
-        await deps.scrollToBottom(true);
+        await deps.scrollToBottom(true, 'auto');
+        endScrollRestore();
         deps.focusInput();
         return;
       }
@@ -97,9 +110,10 @@ export function useSessionMessages(deps) {
       messagesLoading.value = false;
       await nextTick();
       await nextTick();
-      await deps.scrollToBottom(true);
+      await deps.scrollToBottom(true, 'auto');
       await deps.waitForScrollLayout();
-      await deps.scrollToBottom(true);
+      await deps.scrollToBottom(true, 'auto');
+      endScrollRestore();
       deps.focusInput();
       if (!silent) await deps.loadContextSnapshot(sessionId);
     } catch (error) {
@@ -107,6 +121,7 @@ export function useSessionMessages(deps) {
       deps.showToast('加载会话失败', () => loadSessionMessages(sessionId));
     } finally {
       messagesLoading.value = false;
+      endScrollRestore();
     }
   };
 

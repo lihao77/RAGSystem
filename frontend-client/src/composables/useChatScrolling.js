@@ -37,20 +37,32 @@ export function useChatScrolling(deps) {
     await new Promise(resolve => requestAnimationFrame(() => resolve()));
   };
 
+  const scrollContainerTo = (container, top, behavior) => {
+    if (behavior === 'smooth') {
+      container.scrollTo({
+        top,
+        behavior: 'smooth',
+      });
+      return;
+    }
+
+    const previousScrollBehavior = container.style.scrollBehavior;
+    container.style.scrollBehavior = 'auto';
+    container.scrollTop = top;
+    if (previousScrollBehavior) {
+      container.style.scrollBehavior = previousScrollBehavior;
+    } else {
+      container.style.removeProperty('scroll-behavior');
+    }
+  };
+
   const scrollToBottom = async (force = false, behavior = 'auto') => {
     await waitForScrollLayout();
     if (!messagesRef.value) return;
     if (force || isFollowing.value) {
       const container = messagesRef.value;
       isProgrammaticScroll = true;
-      if (behavior === 'smooth') {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: 'smooth',
-        });
-      } else {
-        container.scrollTop = container.scrollHeight;
-      }
+      scrollContainerTo(container, container.scrollHeight, behavior);
       lastScrollTop = container.scrollTop;
       updateScrollBottomGap();
     }

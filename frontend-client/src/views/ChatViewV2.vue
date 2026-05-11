@@ -1,6 +1,6 @@
 <template>
   <div class="chat-page-shell">
-    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': visibleWorkPanel, 'is-new-chat': messages.length === 0, 'is-launching-chat': newChatLaunching, 'is-switching-to-new-chat': switchingToNewChat }">
+    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': visibleWorkPanel, 'is-new-chat': messages.length === 0, 'is-launching-chat': newChatLaunching, 'is-switching-to-new-chat': switchingToNewChat, 'is-restoring-session-scroll': restoringSessionScroll }">
     <div class="chat-conversation-column">
       <SessionContextBar
         ref="sessionContextBarRef"
@@ -288,7 +288,10 @@ const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
 const newChatLaunching = ref(false);
 const switchingToNewChat = ref(false);
+const restoringSessionScroll = ref(false);
 let newChatLaunchTimer = null;
+let sessionScrollRestoreTimer = null;
+let pendingSessionScrollRestores = 0;
 
 function getCurrentSelectedLlm() {
   return sessionContextBarRef.value?.getSelection?.() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
@@ -358,6 +361,8 @@ const {
   loadContextSnapshot: (...a) => loadContextSnapshot(...a),
   showToast: (...a) => showToast(...a),
   invalidateActiveStream: () => invalidateActiveStream(),
+  beginInitialScrollRestore: () => beginInitialScrollRestore(),
+  endInitialScrollRestore: () => endInitialScrollRestore(),
 });
 
 const {
@@ -721,6 +726,28 @@ const clearNewChatLaunchTimer = () => {
   newChatLaunchTimer = null;
 };
 
+const clearSessionScrollRestoreTimer = () => {
+  if (!sessionScrollRestoreTimer) return;
+  window.clearTimeout(sessionScrollRestoreTimer);
+  sessionScrollRestoreTimer = null;
+};
+
+const beginInitialScrollRestore = () => {
+  clearSessionScrollRestoreTimer();
+  pendingSessionScrollRestores += 1;
+  restoringSessionScroll.value = true;
+};
+
+const endInitialScrollRestore = () => {
+  pendingSessionScrollRestores = Math.max(0, pendingSessionScrollRestores - 1);
+  if (pendingSessionScrollRestores > 0) return;
+  clearSessionScrollRestoreTimer();
+  sessionScrollRestoreTimer = window.setTimeout(() => {
+    restoringSessionScroll.value = false;
+    sessionScrollRestoreTimer = null;
+  }, 0);
+};
+
 const finishNewChatLaunchSoon = (delay = 680) => {
   clearNewChatLaunchTimer();
   newChatLaunchTimer = window.setTimeout(() => {
@@ -793,6 +820,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearNewChatLaunchTimer();
+  clearSessionScrollRestoreTimer();
+  pendingSessionScrollRestores = 0;
   clearLlmRetryState();
   disconnectSessionWS();
 
