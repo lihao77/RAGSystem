@@ -22,7 +22,7 @@
     <div v-if="msg.attachments?.length" class="user-attachments">
       <div
         v-for="attachment in msg.attachments"
-        :key="attachment.file_id || attachment.id"
+        :key="attachment.file_id || attachment.id || attachment.local_id || attachment.stored_name"
         class="user-attachment-card"
       >
         <img

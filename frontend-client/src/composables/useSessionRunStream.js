@@ -38,6 +38,8 @@ function normalizeSessionRunStreamDeps(deps) {
  * 不负责 socket 连接建立本身，也不改动视图模板结构。
  */
 export function useSessionRunStream(deps) {
+  const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
+
   deps = normalizeSessionRunStreamDeps(deps);
 
   // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
@@ -483,6 +485,9 @@ export function useSessionRunStream(deps) {
         return;
       }
       deps.activeRun.runId = ackData.run_id || null;
+      if (deps.activeRun.active && startupPhases.has(deps.activeRun.phase)) {
+        deps.activeRun.phase = 'llm_waiting_first_token';
+      }
       if (ackData.kind === 'command') {
         deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex, 60000);
       }
@@ -548,7 +553,7 @@ export function useSessionRunStream(deps) {
         startActiveRunRuntime(event);
       }
       deps.activeRun.runId = nextRunId;
-      if (deps.activeRun.phase === 'idle' || !deps.activeRun.runStartedAt) {
+      if (deps.activeRun.phase === 'idle' || !deps.activeRun.runStartedAt || startupPhases.has(deps.activeRun.phase)) {
         startActiveRunRuntime(event);
       }
       deps.isLoading.value = true;

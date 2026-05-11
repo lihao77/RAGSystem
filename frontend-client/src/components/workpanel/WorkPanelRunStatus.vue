@@ -43,6 +43,9 @@ const props = defineProps({
 
 const PHASE_LABELS = {
   idle: '待命',
+  creating_session: '创建会话中',
+  preparing_attachments: '准备附件中',
+  starting_agent: '启动 Agent 中',
   llm_waiting_first_token: '等待模型响应',
   llm_streaming: '模型输出中',
   tool_running: '工具执行中',

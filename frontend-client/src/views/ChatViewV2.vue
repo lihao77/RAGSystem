@@ -1,6 +1,6 @@
 <template>
   <div class="chat-page-shell">
-    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': showWorkPanel }">
+    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': visibleWorkPanel, 'is-new-chat': messages.length === 0, 'is-launching-chat': newChatLaunching, 'is-switching-to-new-chat': switchingToNewChat }">
     <div class="chat-conversation-column">
       <SessionContextBar
         ref="sessionContextBarRef"
@@ -21,7 +21,7 @@
           :messages="messages"
           :visible-messages="visibleMessages"
           :current-session-id="currentSessionId || ''"
-          :show-work-panel="showWorkPanel"
+          :show-work-panel="visibleWorkPanel"
           :is-loading="isLoading"
           :selected-work-panel-message-key="selectedWorkPanelMessageKey"
           :editing-message="editingMessage"
@@ -52,18 +52,27 @@
           @notify="({ message, type }) => showToast(message, type)"
         >
           <template #empty>
-            <TaskLauncher
-              v-model:entry-agent="pendingEntryAgent"
-              v-model:workspace-root="pendingWorkspaceRoot"
-              :entry-agent-options="entryAgentOptions"
-              :entry-agent-loading="entryAgentLoading"
-              :normalize-workspace-root-input="normalizeWorkspaceRootInput"
-              @select-template="handleTaskTemplateSelect"
-            />
+            <section class="new-chat-start" aria-label="新聊天起始页">
+              <div class="new-chat-start__eyebrow">New chat</div>
+              <h1>想让 Agent 做什么？</h1>
+              <p>代码库、知识库、自动化任务，先定一个清晰目标。</p>
+              <div class="new-chat-prompts" aria-label="快捷开始">
+                <button
+                  v-for="item in newChatSuggestions"
+                  :key="item.title"
+                  type="button"
+                  class="new-chat-prompt"
+                  @click="applyNewChatSuggestion(item.prompt)"
+                >
+                  <span class="new-chat-prompt__title">{{ item.title }}</span>
+                  <span class="new-chat-prompt__desc">{{ item.desc }}</span>
+                </button>
+              </div>
+            </section>
           </template>
         </ChatMessageList>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
-        <div class="bottom-dock">
+        <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': messages.length === 0, 'bottom-dock--launching': newChatLaunching && messages.length > 0 }">
           <transition name="scroll-btn-fade">
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
@@ -74,7 +83,7 @@
               </svg>
             </LiquidGlass>
           </transition>
-          <div class="input-area-wrapper">
+          <div class="input-area-wrapper" :class="{ 'input-area-wrapper--new-chat': messages.length === 0 }">
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -88,6 +97,14 @@
           >
             <template #footerMeta>
               <div class="composer-status-row">
+                <TaskLauncher
+                  v-if="messages.length === 0"
+                  v-model:entry-agent="pendingEntryAgent"
+                  v-model:workspace-root="pendingWorkspaceRoot"
+                  :entry-agent-options="entryAgentOptions"
+                  :entry-agent-loading="entryAgentLoading"
+                  :normalize-workspace-root-input="normalizeWorkspaceRootInput"
+                />
                 <div v-if="contextUsage && contextUsage.max > 0" class="context-usage-content" @click="openCtxDrawer" title="点击查看上下文详情">
                   <svg width="22" height="22" viewBox="0 0 22 22" class="ctx-ring-master" :title="`上下文: ${contextUsage.used.toLocaleString()} / ${contextUsage.max.toLocaleString()} tokens`">
                     <circle cx="11" cy="11" r="9" fill="none" :stroke="'var(--ctx-ring-track)'" stroke-width="2.5" />
@@ -130,7 +147,8 @@
     </div><!-- end .chat-conversation-column -->
     <ApprovalQueueHost
       ref="approvalQueueHostRef"
-      :show-work-panel="showWorkPanel"
+      :show-work-panel="visibleWorkPanel"
+      :disable-transition="switchingToNewChat"
       :active-run="_activeRun"
       :current-message="currentRunMessage"
       :approval-queue="approvalQueue"
@@ -191,7 +209,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { applyStep } from '../utils/executionProjector';
@@ -266,6 +284,7 @@ const {
   waitForScrollLayout,
   scrollToBottom,
   resetFollowing,
+  resetScrollPosition,
   stickToBottom,
   handleScroll,
   onScrollToBottomClick,
@@ -281,6 +300,31 @@ const toastRef = ref(null);
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
+const newChatLaunching = ref(false);
+const switchingToNewChat = ref(false);
+let newChatLaunchTimer = null;
+const newChatSuggestions = [
+  {
+    title: '梳理代码库',
+    desc: '找出入口、模块关系和下一步改造点',
+    prompt: '请先梳理这个代码库的结构，说明主要模块、启动入口和最值得优先改进的地方。',
+  },
+  {
+    title: '实现一个改动',
+    desc: '描述目标后直接进入修改和验证',
+    prompt: '请根据当前项目实现这个改动：',
+  },
+  {
+    title: '排查问题',
+    desc: '从现象定位原因并给出修复',
+    prompt: '请帮我排查这个问题，先定位原因，再给出最小修复方案：',
+  },
+  {
+    title: '生成方案',
+    desc: '把模糊需求拆成可执行步骤',
+    prompt: '请把下面这个需求拆成清晰的实施方案，并指出风险点：',
+  },
+];
 
 function getCurrentSelectedLlm() {
   return sessionContextBarRef.value?.getSelection?.() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
@@ -410,6 +454,18 @@ const {
   getWS: () => getWS(),
   showToast: (...a) => showToast(...a),
 });
+
+const effectiveShowWorkPanel = computed(() => (
+  showWorkPanel.value
+  && (
+    messages.value.length > 0
+    || isLoading.value
+    || _activeRun.active
+    || approvalQueue.value.length > 0
+    || Boolean(pendingUserInput.value)
+  )
+));
+const visibleWorkPanel = computed(() => effectiveShowWorkPanel.value && !switchingToNewChat.value);
 
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
@@ -623,7 +679,7 @@ const {
 });
 
 const {
-  handleSend,
+  handleSend: sendSessionMessage,
   handleStop,
 } = useSessionSend({
   state: {
@@ -703,10 +759,40 @@ const focusInput = async () => {
   }
 };
 
-const handleTaskTemplateSelect = async (prompt) => {
-  inputMessage.value = prompt || '';
+const clearNewChatLaunchTimer = () => {
+  if (!newChatLaunchTimer) return;
+  window.clearTimeout(newChatLaunchTimer);
+  newChatLaunchTimer = null;
+};
+
+const finishNewChatLaunchSoon = (delay = 680) => {
+  clearNewChatLaunchTimer();
+  newChatLaunchTimer = window.setTimeout(() => {
+    newChatLaunching.value = false;
+    newChatLaunchTimer = null;
+  }, delay);
+};
+
+const handleSend = async (payload = null) => {
+  const startsFromNewChat = messages.value.length === 0 && !currentSessionId.value;
+  if (startsFromNewChat) {
+    clearNewChatLaunchTimer();
+    newChatLaunching.value = true;
+  }
+
+  try {
+    await sendSessionMessage(payload);
+  } finally {
+    if (startsFromNewChat) {
+      finishNewChatLaunchSoon(messages.value.length > 0 ? 620 : 220);
+    }
+  }
+};
+
+const applyNewChatSuggestion = async (prompt) => {
+  inputMessage.value = prompt;
   await nextTick();
-  focusInput();
+  await focusInput();
 };
 
 const handleSituationSendMessage = (text) => {
@@ -717,9 +803,25 @@ const handleSituationSendMessage = (text) => {
 
 watch(
   () => route.params.id || null,
-  async (routeSessionId) => {
+  async (routeSessionId, previousRouteSessionId) => {
     const nextSessionId = typeof routeSessionId === 'string' ? decodeURIComponent(routeSessionId) : null;
+    const wasSessionChat = typeof previousRouteSessionId === 'string';
+    const isEnteringBlankChat = !nextSessionId && wasSessionChat;
+    if (isEnteringBlankChat) {
+      clearNewChatLaunchTimer();
+      newChatLaunching.value = false;
+      switchingToNewChat.value = true;
+    }
     await syncSessionFromRoute(nextSessionId);
+    if (isEnteringBlankChat) {
+      await nextTick();
+      resetScrollPosition();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          switchingToNewChat.value = false;
+        });
+      });
+    }
   },
   { immediate: true }
 );
@@ -734,6 +836,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  clearNewChatLaunchTimer();
   clearLlmRetryState();
   disconnectSessionWS();
 
@@ -1025,7 +1128,7 @@ onUnmounted(() => {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .execution-pill {

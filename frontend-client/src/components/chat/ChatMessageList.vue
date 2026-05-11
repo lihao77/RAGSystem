@@ -1,66 +1,68 @@
 <template>
   <div class="chat-messages">
-    <div v-if="messagesLoading" class="messages-skeleton">
-      <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
-    </div>
+    <Transition name="chat-stage" mode="out-in">
+      <div v-if="messagesLoading" key="loading" class="messages-skeleton">
+        <div v-for="n in 6" :key="`msg-skeleton-${n}`" class="message-skeleton-row"></div>
+      </div>
 
-    <div v-else-if="messages.length === 0" class="welcome-screen">
-      <slot name="empty">
-        <div class="welcome-content">
-          <div class="welcome-header">
-            <div class="logo-placeholder">
-              <IconLogo :size="80" animated />
+      <div v-else-if="messages.length === 0" key="welcome" class="welcome-screen">
+        <slot name="empty">
+          <div class="welcome-content">
+            <div class="welcome-header">
+              <div class="logo-placeholder">
+                <IconLogo :size="80" animated />
+              </div>
+              <h1>RAG Agent System</h1>
+              <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
             </div>
-            <h1>RAG Agent System</h1>
-            <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
           </div>
-        </div>
-      </slot>
-    </div>
+        </slot>
+      </div>
 
-    <div v-else class="message-stream">
-      <ChatMessageItem
-        v-for="(msg, index) in visibleMessages"
-        :key="messageKey(msg)"
-        :msg="msg"
-        :index="index"
-        :current-session-id="currentSessionId"
-        :show-work-panel="showWorkPanel"
-        :is-loading="isLoading"
-        :selected-work-panel-message-key="selectedWorkPanelMessageKey"
-        :actions-visible="messageActionsVisible === index"
-        :retry-message="getRetryMessage(index)"
-        :editing-message="editingMessage"
-        :editing-draft="editingDraft"
-        :editing-attachments-draft="editingAttachmentsDraft"
-        :editing-submitting="editingSubmitting"
-        :message-key="messageKey"
-        :has-execution-content="hasExecutionContent"
-        :toggle-execution-view="toggleExecutionView"
-        :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-        :parse-message-parts="parseMessageParts"
-        :render-markdown="renderMarkdown"
-        :handle-enter-situation="handleEnterSituation"
-        :parse-task-notifications="parseTaskNotifications"
-        :is-image-attachment="isImageAttachment"
-        :get-attachment-preview-url="getAttachmentPreviewUrl"
-        :format-attachment-meta="formatAttachmentMeta"
-        :confirm-edit-and-resend="confirmEditAndResend"
-        :cancel-edit="cancelEdit"
-        :open-session-files-drawer="openSessionFilesDrawer"
-        :remove-editing-attachment="removeEditingAttachment"
-        :start-edit-message="startEditMessage"
-        :copy-message="copyMessage"
-        :get-work-panel-message-key="getWorkPanelMessageKey"
-        :select-work-panel-message="selectWorkPanelMessage"
-        :rollback-and-retry="rollbackAndRetry"
-        :get-message-execution-time-text="getMessageExecutionTimeText"
-        :get-message-execution-time-title="getMessageExecutionTimeTitle"
-        @hover="messageActionsVisible = $event"
-        @update:editing-draft="emit('update:editingDraft', $event)"
-        @notify="emit('notify', $event)"
-      />
-    </div>
+      <div v-else key="stream" class="message-stream">
+        <ChatMessageItem
+          v-for="(msg, index) in visibleMessages"
+          :key="messageKey(msg)"
+          :msg="msg"
+          :index="index"
+          :current-session-id="currentSessionId"
+          :show-work-panel="showWorkPanel"
+          :is-loading="isLoading"
+          :selected-work-panel-message-key="selectedWorkPanelMessageKey"
+          :actions-visible="messageActionsVisible === index"
+          :retry-message="getRetryMessage(index)"
+          :editing-message="editingMessage"
+          :editing-draft="editingDraft"
+          :editing-attachments-draft="editingAttachmentsDraft"
+          :editing-submitting="editingSubmitting"
+          :message-key="messageKey"
+          :has-execution-content="hasExecutionContent"
+          :toggle-execution-view="toggleExecutionView"
+          :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
+          :parse-message-parts="parseMessageParts"
+          :render-markdown="renderMarkdown"
+          :handle-enter-situation="handleEnterSituation"
+          :parse-task-notifications="parseTaskNotifications"
+          :is-image-attachment="isImageAttachment"
+          :get-attachment-preview-url="getAttachmentPreviewUrl"
+          :format-attachment-meta="formatAttachmentMeta"
+          :confirm-edit-and-resend="confirmEditAndResend"
+          :cancel-edit="cancelEdit"
+          :open-session-files-drawer="openSessionFilesDrawer"
+          :remove-editing-attachment="removeEditingAttachment"
+          :start-edit-message="startEditMessage"
+          :copy-message="copyMessage"
+          :get-work-panel-message-key="getWorkPanelMessageKey"
+          :select-work-panel-message="selectWorkPanelMessage"
+          :rollback-and-retry="rollbackAndRetry"
+          :get-message-execution-time-text="getMessageExecutionTimeText"
+          :get-message-execution-time-title="getMessageExecutionTimeTitle"
+          @hover="messageActionsVisible = $event"
+          @update:editing-draft="emit('update:editingDraft', $event)"
+          @notify="emit('notify', $event)"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 

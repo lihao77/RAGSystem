@@ -28,7 +28,7 @@
             v-model="inputText"
             @keydown.enter.prevent="handleEnter"
             @paste="handlePaste"
-            placeholder="Ask anything..."
+            placeholder="描述你想让 Agent 完成的任务..."
             rows="1"
             ref="textareaRef"
           ></textarea>
@@ -411,7 +411,7 @@ textarea::placeholder {
   gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .input-footer-meta {
@@ -421,7 +421,7 @@ textarea::placeholder {
   flex: 1 1 auto;
   min-width: 0;
   overflow: visible;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .input-footer-right {

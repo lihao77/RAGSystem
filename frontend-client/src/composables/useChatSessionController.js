@@ -271,7 +271,7 @@ export function useChatSessionController(deps) {
     }
   };
 
-  const ensureSession = async () => {
+  const ensureSession = async ({ replaceRoute = false } = {}) => {
     if (deps.currentSessionId.value) {
       deps.connectSessionWS(deps.currentSessionId.value);
       return deps.currentSessionId.value;
@@ -324,10 +324,11 @@ export function useChatSessionController(deps) {
       pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(sessionMetadata.workspace_root || '');
       pendingEntryAgent.value = sessionMetadata.entry_agent || '';
       currentSessionTeam.value = sessionMetadata.team || '';
-      await router.push(getChatSessionPath(sessionId));
       if (deps.currentSessionId.value !== sessionId) {
         deps.currentSessionId.value = sessionId;
       }
+      const navigate = replaceRoute ? router.replace : router.push;
+      await navigate(getChatSessionPath(sessionId));
       deps.connectSessionWS(sessionId);
       await deps.loadSessionFiles(sessionId);
     }

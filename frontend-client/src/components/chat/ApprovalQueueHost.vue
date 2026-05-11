@@ -1,19 +1,24 @@
 <template>
-  <WorkPanel
-    v-if="showWorkPanel"
-    :active-run="activeRun"
-    :current-message="currentMessage"
-    :approval-queue="approvalQueue"
-    :approval-submitting-id="approvalSubmittingId"
-    :pending-user-input="pendingUserInput"
-    :context-usage="contextUsage"
-    :session-id="sessionId"
-    :message-key="messageKey"
-    @approval-submit="emit('approvalSubmit', $event)"
-    @user-input-submit="emit('userInputSubmit', $event)"
-    @user-input-cancel="emit('userInputCancel')"
-    @artifact-select="emit('artifactSelect', $event)"
-  />
+  <Transition
+    :name="disableTransition ? '' : 'work-panel-shell'"
+    :css="!disableTransition"
+  >
+    <WorkPanel
+      v-if="showWorkPanel"
+      :active-run="activeRun"
+      :current-message="currentMessage"
+      :approval-queue="approvalQueue"
+      :approval-submitting-id="approvalSubmittingId"
+      :pending-user-input="pendingUserInput"
+      :context-usage="contextUsage"
+      :session-id="sessionId"
+      :message-key="messageKey"
+      @approval-submit="emit('approvalSubmit', $event)"
+      @user-input-submit="emit('userInputSubmit', $event)"
+      @user-input-cancel="emit('userInputCancel')"
+      @artifact-select="emit('artifactSelect', $event)"
+    />
+  </Transition>
 
   <ApprovalDialog ref="approvalDialogRef" />
   <UserInputDialog ref="userInputDialogRef" />
@@ -35,6 +40,7 @@ defineProps({
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
   messageKey: { type: String, default: '' },
+  disableTransition: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect']);
@@ -61,3 +67,28 @@ defineExpose({
   toggleUserInputCollapsed,
 });
 </script>
+
+<style scoped>
+.work-panel-shell-enter-active,
+.work-panel-shell-leave-active {
+  transition:
+    width 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.work-panel-shell-enter-from,
+.work-panel-shell-leave-to {
+  width: 0 !important;
+  opacity: 0;
+  transform: translateX(36px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-panel-shell-enter-active,
+  .work-panel-shell-leave-active {
+    transition: none !important;
+  }
+}
+</style>

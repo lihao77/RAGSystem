@@ -38,6 +38,13 @@ const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime,
   kind,
 });
 
+const createUserMessage = (content, attachments) => ({
+  role: 'user',
+  content,
+  attachments,
+  metadata: attachments.length ? { attachments } : {},
+});
+
 function normalizeSessionSendDeps(deps) {
   const {
     state = {},
@@ -113,7 +120,45 @@ export function useSessionSend(deps) {
     const clearEditing = payload?.clearEditing === true;
     if ((!content && !draftAttachments.length) || deps.isLoading.value) return;
 
-    const sessionId = await deps.ensureSession();
+    const startsDraftSession = !deps.currentSessionId.value && replaceFromIndex == null;
+    let sessionId = deps.currentSessionId.value;
+    let assistantMsgIndex = -1;
+    let userMsgIndex = -1;
+    let attachments = draftAttachments;
+
+    if (startsDraftSession) {
+      userMsgIndex = deps.messages.value.push(createUserMessage(content, draftAttachments)) - 1;
+      deps.inputMessage.value = '';
+      deps.clearComposerAttachments();
+      deps.stickToBottom();
+
+      assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
+      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+      deps.activeRun.phase = 'creating_session';
+      deps.isLoading.value = true;
+      deps.contextUsage.value = { used: 0, max: 0 };
+    }
+
+    try {
+      sessionId = await deps.ensureSession({ replaceRoute: startsDraftSession });
+    } catch (error) {
+      console.error('Error creating session:', error);
+      if (startsDraftSession) {
+        const currentMsg = deps.messages.value[assistantMsgIndex];
+        if (currentMsg) {
+          currentMsg.content += `\n\n[System Error: ${error.message || '创建会话失败'}]`;
+          currentMsg.finished = true;
+        }
+        resetActiveRunAfterSendError(deps.activeRun);
+        deps.isLoading.value = false;
+      }
+      deps.showToast('会话创建失败');
+      return;
+    }
+
+    if (startsDraftSession && deps.activeRun.active) {
+      deps.activeRun.phase = draftAttachments.length ? 'preparing_attachments' : 'starting_agent';
+    }
 
     try {
       const statusResp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
@@ -125,6 +170,15 @@ export function useSessionSend(deps) {
         }
         if (result.data?.has_running_task) {
           deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
+          if (startsDraftSession) {
+            const currentMsg = deps.messages.value[assistantMsgIndex];
+            if (currentMsg) {
+              currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
+              currentMsg.finished = true;
+            }
+            resetActiveRunAfterSendError(deps.activeRun);
+            deps.isLoading.value = false;
+          }
           return;
         }
       }
@@ -132,7 +186,25 @@ export function useSessionSend(deps) {
       // 查询失败不阻塞发送
     }
 
-    const attachments = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
+    try {
+      attachments = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
+    } catch (error) {
+      if (startsDraftSession) {
+        const currentMsg = deps.messages.value[assistantMsgIndex];
+        if (currentMsg) {
+          currentMsg.content += `\n\n[System Error: ${error.message || '附件准备失败'}]`;
+          currentMsg.finished = true;
+        }
+        resetActiveRunAfterSendError(deps.activeRun);
+        deps.isLoading.value = false;
+      }
+      deps.showToast(error.message || '附件准备失败');
+      return;
+    }
+
+    if (startsDraftSession && deps.activeRun.active) {
+      deps.activeRun.phase = 'starting_agent';
+    }
 
     if (replaceFromIndex != null) {
       deps.messages.value = deps.messages.value.slice(0, replaceFromIndex);
@@ -143,23 +215,31 @@ export function useSessionSend(deps) {
       }
     }
 
-    deps.messages.value.push({
-      role: 'user',
-      content,
-      attachments,
-      metadata: attachments.length ? { attachments } : {},
-    });
-    deps.inputMessage.value = '';
-    deps.clearComposerAttachments();
-    deps.stickToBottom();
+    if (startsDraftSession) {
+      const userMsg = deps.messages.value[userMsgIndex];
+      if (userMsg) {
+        userMsg.attachments = attachments;
+        userMsg.metadata = attachments.length ? { attachments } : {};
+      }
+      deps.cacheMessages(sessionId, deps.messages.value);
+    } else {
+      deps.messages.value.push(createUserMessage(content, attachments));
+      deps.inputMessage.value = '';
+      deps.clearComposerAttachments();
+      deps.stickToBottom();
+    }
     deps.updateRecentSession(sessionId, content, new Date().toISOString());
 
-    const assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
-    resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+    if (!startsDraftSession) {
+      assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
+      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+    }
 
     deps.beginOptimisticExecutionState(sessionId);
-    deps.isLoading.value = true;
-    deps.contextUsage.value = { used: 0, max: 0 };
+    if (!startsDraftSession) {
+      deps.isLoading.value = true;
+      deps.contextUsage.value = { used: 0, max: 0 };
+    }
 
     try {
       const body = {
@@ -199,6 +279,7 @@ export function useSessionSend(deps) {
       }
 
       deps.activeRun.runId = result.run_id;
+      deps.activeRun.phase = 'llm_waiting_first_token';
 
       if (result.kind === 'command') {
         deps.scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);

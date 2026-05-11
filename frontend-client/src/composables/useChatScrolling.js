@@ -61,6 +61,18 @@ export function useChatScrolling(deps) {
     isFollowing.value = true;
   };
 
+  const resetScrollPosition = () => {
+    userScrollUpAccum = 0;
+    isFollowing.value = true;
+    isProgrammaticScroll = false;
+    lastScrollTop = 0;
+    scrollBottomGap.value = 0;
+    deps.topControlsBarScrolled.value = false;
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = 0;
+    }
+  };
+
   const stickToBottom = (behavior = 'auto') => {
     resetFollowing();
     scrollToBottom(true, behavior);
@@ -111,6 +123,7 @@ export function useChatScrolling(deps) {
     waitForScrollLayout,
     scrollToBottom,
     resetFollowing,
+    resetScrollPosition,
     stickToBottom,
     handleScroll,
     onScrollToBottomClick,

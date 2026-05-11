@@ -52,6 +52,9 @@ export function useRuntimeStatusView({
       const count = getBackgroundWaitingCount();
       return count > 0 ? `等待后台任务完成 · ${count} 个任务` : '等待后台任务完成';
     }
+    if (activeRun.phase === 'creating_session') return '正在创建会话';
+    if (activeRun.phase === 'preparing_attachments') return '正在准备附件';
+    if (activeRun.phase === 'starting_agent') return '正在启动 Agent';
     if (activeRun.phase === 'approval_waiting') return '等待权限审批';
     if (activeRun.phase === 'tool_running') return '工具执行中';
     if (activeRun.phase === 'llm_streaming') return '模型输出中';
@@ -75,6 +78,9 @@ export function useRuntimeStatusView({
       if (activeRun.phase === 'approval_waiting') return '等待权限审批';
       if (activeRun.phase === 'llm_streaming') return '模型输出中';
       if (activeRun.phase === 'llm_waiting_first_token') return '等待模型响应';
+      if (activeRun.phase === 'creating_session') return '创建会话中';
+      if (activeRun.phase === 'preparing_attachments') return '准备附件中';
+      if (activeRun.phase === 'starting_agent') return '启动 Agent 中';
       if (activeRun.phase === 'tool_running') return '工具执行中';
       if (activeRun.phase === 'retrying') return '重试中';
       return '运行中';
