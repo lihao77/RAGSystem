@@ -33,6 +33,19 @@ const createExecutionStep = (round = null, stepId = null, parentStepId = null) =
   _intentComplete: false,
 });
 
+function normalizeTerminalStatus(status) {
+  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'cancelled' || status === 'stopped') return 'stopped';
+  return 'success';
+}
+
+function resolveCompletedIntentStatus(step, executionStep) {
+  if (executionStep.run_status && executionStep.run_status !== 'running') {
+    return executionStep.run_status;
+  }
+  return normalizeTerminalStatus(step.status);
+}
+
 function resolveAgentDisplayName(state, agentName, explicitDisplayName) {
   return explicitDisplayName || state.agentNameDisplayNameMap.get(agentName) || agentName || 'orchestrator_agent';
 }
@@ -410,7 +423,9 @@ export function applyStep(state, step) {
       if (step.phase === 'complete') executionStep._intentComplete = true;
       executionStep.status = executionStep.toolCalls.some(item => item?.status === 'running')
         ? 'running'
-        : (executionStep.run_status || executionStep.status || 'success');
+        : (step.phase === 'complete'
+          ? resolveCompletedIntentStatus(step, executionStep)
+          : (executionStep.run_status || executionStep.status || 'running'));
       flushRootPendingSubtasks(state);
       return state;
     }

@@ -655,6 +655,23 @@ a:focus:not(:focus-visible) {
     background-clip: padding-box;
 }
 
+/* Reserve scrollbar gutter for scroll containers so content length changes do not shift centered layouts. */
+:where(
+    .chat-messages-wrapper,
+    .chat-subview-wrapper,
+    .page-content-scroll,
+    .history-list,
+    .wpe-scroll,
+    .wpe-inspector-body,
+    .ctx-drawer-body,
+    .modal-body,
+    .dialog-body,
+    .input-body,
+    .template-list
+) {
+    scrollbar-gutter: stable;
+}
+
 /* ===== Number Input — 隐藏原生上下箭头 ===== */
 input[type='number']::-webkit-outer-spin-button,
 input[type='number']::-webkit-inner-spin-button {

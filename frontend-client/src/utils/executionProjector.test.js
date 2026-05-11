@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { applyStep, buildExecutionState, createExecutionState } from './executionProjector.js';
+import { buildExecutionTree } from './executionTreeBuilder.js';
 
 function createRunStart(overrides = {}) {
   return {
@@ -383,6 +384,32 @@ test('根级 intent 未携带 display name 时仍保留 run step 的入口名称
   assert.equal(state.execution_steps[0].intent, '先梳理需求');
 });
 
+test('只有根级 intent 然后直接 final answer 时 intent 节点不保持执行中', () => {
+  const state = createExecutionState();
+
+  applyStep(state, createRunStart());
+  applyStep(state, {
+    kind: 'intent',
+    phase: 'complete',
+    call_id: 'root-call',
+    parent_call_id: null,
+    step_id: 'root-call:round:1',
+    parent_step_id: 'root-call:run',
+    agent_name: 'orchestrator_agent',
+    round: 1,
+    content: '直接回答用户问题',
+    status: 'completed',
+  });
+
+  const tree = buildExecutionTree(state.execution_steps, state.subtasks);
+
+  assert.equal(state.execution_steps.find(item => item.intent === '直接回答用户问题').status, 'success');
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].type, 'thought');
+  assert.equal(tree[0].intent, '直接回答用户问题');
+  assert.equal(tree[0].status, 'success');
+});
+
 
 
 
@@ -472,4 +499,3 @@ test('buildExecutionState 与逐步 applyStep 对多层结构输出一致', () =
   assert.equal(built.subtasks[0].children[0].tool_calls[0].call_id, incremental.subtasks[0].children[0].tool_calls[0].call_id);
   assert.equal(built.subtasks[0].children[0].children[0].task_id, incremental.subtasks[0].children[0].children[0].task_id);
 });
-

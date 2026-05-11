@@ -21,39 +21,38 @@
         </component>
       </div>
     </div>
-    <Transition name="wpe-focus">
-      <button
-        v-if="visibleFocusNode"
-        type="button"
-        class="wpe-focus-strip"
-        :class="`status-${normalizeStatus(visibleFocusNode.status)}`"
-        title="定位当前关注步骤"
-        @click="focusNodeInList(visibleFocusNode)"
-      >
-        <span class="wpe-focus-dot" aria-hidden="true"></span>
-        <span class="wpe-focus-label">{{ focusStripLabel }}</span>
-        <span class="wpe-focus-title">{{ focusStripTitle }}</span>
-      </button>
-    </Transition>
-
     <div class="wpe-body-state">
       <div v-if="!executionView.hasNodes" class="wpe-empty">
         <span class="wpe-empty-mark" aria-hidden="true"></span>
         <span>{{ executionView.emptyText }}</span>
       </div>
-      <div v-else class="wpe-list" ref="listRef">
-        <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
-          <ExecutionTimelineNode
-            v-for="(node, i) in executionView.nodes"
-            :key="timelineNodeKey(node, i)"
-            :node="node"
-            :depth="0"
-            :session-id="sessionId"
-            :focus-key="focusKey"
-            :selected-key="selectedKey"
-            @inspect="selectNode"
-          />
-        </TransitionGroup>
+      <div v-else class="wpe-list">
+        <button
+          v-if="visibleFocusNode"
+          type="button"
+          class="wpe-focus-strip"
+          :class="`status-${normalizeStatus(visibleFocusNode.status)}`"
+          title="定位当前关注步骤"
+          @click="focusNodeInList(visibleFocusNode)"
+        >
+          <span class="wpe-focus-dot" aria-hidden="true"></span>
+          <span class="wpe-focus-label">{{ focusStripLabel }}</span>
+          <span class="wpe-focus-title">{{ focusStripTitle }}</span>
+        </button>
+        <div class="wpe-scroll" ref="listRef">
+          <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
+            <ExecutionTimelineNode
+              v-for="(node, i) in executionView.nodes"
+              :key="timelineNodeKey(node, i)"
+              :node="node"
+              :depth="0"
+              :session-id="sessionId"
+              :focus-key="focusKey"
+              :selected-key="selectedKey"
+              @inspect="selectNode"
+            />
+          </TransitionGroup>
+        </div>
       </div>
     </div>
 
@@ -768,7 +767,9 @@ button.wpe-chip:hover {
 }
 
 .wpe-focus-strip {
-  margin: 0 14px 10px;
+  flex-shrink: 0;
+  width: 100%;
+  margin: 0 0 10px;
   min-height: 34px;
   padding: 7px 9px;
   border-radius: var(--radius-sm);
@@ -889,8 +890,17 @@ button.wpe-chip:hover {
 
 .wpe-list {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0 12px 12px 10px;
+}
+
+.wpe-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
@@ -923,8 +933,8 @@ button.wpe-chip:hover {
   display: none;
 }
 
-.wpe-list::-webkit-scrollbar { width: 3px; }
-.wpe-list::-webkit-scrollbar-thumb {
+.wpe-scroll::-webkit-scrollbar { width: 3px; }
+.wpe-scroll::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 2px;
 }
@@ -1324,16 +1334,6 @@ button.wpe-chip:hover {
   transition: width 420ms ease;
 }
 
-.wpe-focus-enter-active,
-.wpe-focus-leave-active {
-  transition: opacity 180ms ease;
-}
-
-.wpe-focus-enter-from,
-.wpe-focus-leave-to {
-  opacity: 0;
-}
-
 .wpe-list-state-enter-active,
 .wpe-list-state-leave-active {
   transition: opacity 180ms ease;
@@ -1393,8 +1393,6 @@ button.wpe-chip:hover {
   .wpe-focus-strip,
   .wpe-inspector-close,
   .wpe-context-fill,
-  .wpe-focus-enter-active,
-  .wpe-focus-leave-active,
   .wpe-list-state-enter-active,
   .wpe-list-state-leave-active,
   .wpe-node-enter-active,
@@ -1405,8 +1403,6 @@ button.wpe-chip:hover {
     transition-duration: 1ms;
   }
 
-  .wpe-focus-enter-from,
-  .wpe-focus-leave-to,
   .wpe-list-state-enter-from,
   .wpe-list-state-leave-to,
   .wpe-node-enter-from,

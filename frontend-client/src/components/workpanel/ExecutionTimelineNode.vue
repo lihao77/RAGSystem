@@ -54,7 +54,7 @@
             </div>
           </div>
 
-          <div class="etn-side" :class="{ 'etn-side--compact': !hasChildren }">
+          <div class="etn-side" :class="sideClasses">
             <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
             <Transition name="etn-status" mode="out-in">
               <span v-if="statusText" :key="statusText" class="etn-status-pill">{{ statusText }}</span>
@@ -191,6 +191,12 @@ const statusText = computed(() => {
 })
 
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0)
+const sideClasses = computed(() => ({
+  'etn-side--compact': !hasChildren.value,
+  'etn-side--has-time': Boolean(elapsedText.value),
+  'etn-side--has-status': Boolean(statusText.value),
+  'etn-side--has-chevron': hasChildren.value,
+}))
 watch(
   () => [props.focusKey, props.node.status, props.node.children?.length],
   () => {
@@ -541,7 +547,7 @@ function formatElapsed(value) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(104px, max-content);
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: start;
   gap: 10px;
   padding: 8px 10px;
@@ -554,10 +560,6 @@ function formatElapsed(value) {
 }
 
 .etn-summary--compact {
-  grid-template-columns: minmax(0, 1fr) max-content;
-}
-
-.etn--agent_call .etn-summary {
   grid-template-columns: minmax(0, 1fr) max-content;
 }
 
@@ -743,31 +745,58 @@ function formatElapsed(value) {
 }
 
 .etn-side {
-  min-width: 104px;
-  display: grid;
-  grid-template-columns: minmax(38px, max-content) minmax(46px, max-content) 16px;
-  align-items: center;
-  gap: 5px;
-  padding-top: 1px;
-  flex-shrink: 0;
-  justify-items: end;
-}
-
-.etn-side--compact {
-  min-width: 0;
-  grid-template-columns: minmax(38px, max-content) minmax(46px, max-content);
-}
-
-.etn--agent_call .etn-side {
+  --etn-side-time-width: 38px;
+  --etn-side-status-width: 46px;
+  --etn-side-chevron-width: 16px;
+  --etn-side-gap: 5px;
+  width: 0;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
-  width: max-content;
+  justify-content: flex-end;
+  gap: var(--etn-side-gap);
+  padding-top: 1px;
+  flex-shrink: 0;
+}
+
+.etn-side--has-time {
+  width: var(--etn-side-time-width);
+}
+
+.etn-side--has-status {
+  width: var(--etn-side-status-width);
+}
+
+.etn-side--has-chevron {
+  width: var(--etn-side-chevron-width);
+}
+
+.etn-side--has-time.etn-side--has-status {
+  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-status-width));
+}
+
+.etn-side--has-time.etn-side--has-chevron {
+  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
+}
+
+.etn-side--has-status.etn-side--has-chevron {
+  width: calc(var(--etn-side-status-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
+}
+
+.etn-side--has-time.etn-side--has-status.etn-side--has-chevron {
+  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-status-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
+}
+
+.etn--agent_call .etn-side {
+  --etn-side-time-width: 34px;
+  --etn-side-status-width: 40px;
+  --etn-side-chevron-width: 12px;
+  --etn-side-gap: 4px;
 }
 
 .etn-time {
-  width: 38px;
+  flex: 0 0 auto;
+  width: var(--etn-side-time-width);
   font-size: 11px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
@@ -776,7 +805,9 @@ function formatElapsed(value) {
 }
 
 .etn-status-pill {
-  min-width: 46px;
+  flex: 0 0 auto;
+  width: var(--etn-side-status-width);
+  min-width: 0;
   height: 20px;
   display: inline-flex;
   align-items: center;
@@ -797,27 +828,22 @@ function formatElapsed(value) {
 }
 
 .etn-chevron {
+  flex: 0 0 auto;
   display: inline-flex;
-  width: 16px;
+  width: var(--etn-side-chevron-width);
   justify-content: center;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast), color var(--transition-fast);
 }
 
 .etn--agent_call .etn-time {
-  width: 34px;
   font-size: 10px;
 }
 
 .etn--agent_call .etn-status-pill {
-  min-width: 40px;
   height: 18px;
   padding: 0 6px;
   font-size: 9px;
-}
-
-.etn--agent_call .etn-chevron {
-  width: 12px;
 }
 
 .etn--agent_call .etn-chevron :deep(svg) {
