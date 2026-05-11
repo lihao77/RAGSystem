@@ -1593,10 +1593,14 @@ onUnmounted(() => {
 .team-banner {
   margin-bottom: 12px;
   padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(var(--color-brand-accent-rgb), 0.28);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  color: var(--color-brand-accent-light);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.team-banner strong {
+  color: var(--color-text-primary);
 }
 
 .skill-group {

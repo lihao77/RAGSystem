@@ -11,7 +11,7 @@
   gap: var(--spacing-xs);
   height: 44px;
   padding: 0 20px;
-  border-radius: 22px;
+  border-radius: 8px;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
@@ -19,22 +19,19 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
   user-select: none;
   white-space: nowrap;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .pl-btn:hover:not(:disabled) {
   background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .pl-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
+  background: var(--color-interactive);
 }
 
 .pl-btn:focus-visible {
@@ -52,19 +49,16 @@
   background: var(--color-brand-accent);
   border-color: var(--color-brand-accent);
   color: var(--color-on-color);
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
+  box-shadow: none;
 }
 
 .pl-btn--primary:hover:not(:disabled) {
   background: var(--color-brand-accent-light);
   border-color: var(--color-brand-accent-light);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.35);
 }
 
 .pl-btn--primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
+  background: var(--color-brand-accent);
 }
 
 /* 危险按钮（删除、重置） */
@@ -103,7 +97,7 @@
 
 .pl-state--error {
   border-color: rgba(var(--color-error-rgb), 0.35);
-  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
+  background: rgba(var(--color-error-rgb), 0.08);
   color: var(--color-error);
 }
 
@@ -191,19 +185,16 @@
 
 /* ===== 内容卡片 ===== */
 .pl-card {
-  border: 1px solid var(--color-glass-border);
-  border-radius: var(--radius-xl);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+  box-shadow: none;
   overflow: hidden;
-  transition: all 0.3s;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .pl-card:hover {
-  box-shadow: var(--shadow-lg),
-    inset 0 1px 0 var(--color-soft-inset);
+  border-color: var(--color-border-hover);
 }
 
 .pl-card__head {

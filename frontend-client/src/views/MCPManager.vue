@@ -1405,7 +1405,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(var(--glass-blur));
   transition: border-color 0.2s, box-shadow 0.2s;
 }
-.summary-card:hover { border-color: rgba(var(--color-brand-accent-rgb), 0.35); box-shadow: inset 0 1px 0 var(--color-soft-inset); }
+.summary-card:hover { border-color: var(--color-border-hover); box-shadow: none; }
 
 .summary-icon {
   display: flex;
@@ -1416,11 +1416,13 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   flex-shrink: 0;
+  background: var(--color-interactive);
+  color: var(--color-text-secondary);
 }
-.summary-icon--total   { background: rgba(var(--color-brand-accent-rgb), 0.1); color: var(--color-brand-accent-light); border-color: rgba(var(--color-brand-accent-rgb), 0.2); }
-.summary-icon--connected { background: rgba(var(--color-success-rgb), 0.1); color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.2); }
-.summary-icon--enabled { background: rgba(var(--color-active-rgb), 0.1); color: var(--color-active); border-color: rgba(var(--color-active-rgb), 0.2); }
-.summary-icon--tools   { background: rgba(var(--color-warning-rgb), 0.1);  color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), 0.2); }
+.summary-icon--total,
+.summary-icon--connected,
+.summary-icon--enabled,
+.summary-icon--tools { background: var(--color-interactive); color: var(--color-text-secondary); border-color: var(--color-border); }
 
 .summary-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .summary-label { color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: nowrap; }
@@ -1581,10 +1583,12 @@ onUnmounted(() => {
   border-radius: 10px;
   flex-shrink: 0;
   border: 1px solid var(--color-border);
+  background: var(--color-interactive);
+  color: var(--color-text-secondary);
 }
-.server-icon--stdio { background: rgba(99, 102, 241, 0.12); color: var(--color-brand-accent-light); }
-.server-icon--sse   { background: rgba(52, 211, 153, 0.12); color: var(--color-success); }
-.server-icon--streamable_http { background: rgba(96, 165, 250, 0.12); color: var(--color-active); }
+.server-icon--stdio,
+.server-icon--sse,
+.server-icon--streamable_http { background: var(--color-interactive); color: var(--color-text-secondary); }
 
 .server-card-info { flex: 1; min-width: 0; }
 .server-card-name { font-weight: 600; font-size: var(--font-size-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

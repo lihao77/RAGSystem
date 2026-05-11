@@ -71,21 +71,6 @@
                     </div>
                 </article>
 
-                <article class="summary-card adm-kpi-card">
-                    <div class="summary-icon adm-kpi-icon summary-icon--active">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                            <polyline points="22 4 12 14.01 9 11.01" />
-                        </svg>
-                    </div>
-                    <div class="summary-body adm-kpi-body">
-                        <span class="summary-label adm-kpi-label">激活向量化器</span>
-                        <strong class="summary-value adm-kpi-value summary-value--active" :title="activeVectorizerDisplay">
-                            {{ activeVectorizerDisplay || '未设置' }}
-                        </strong>
-                    </div>
-                </article>
             </section>
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
@@ -874,8 +859,10 @@ const summary = computed(() => ({
     vectorizers: vectorizers.value.length,
 }));
 
+const activeVectorizer = computed(() => vectorizers.value.find(v => v.is_active));
+
 const activeVectorizerDisplay = computed(() => {
-    const active = vectorizers.value.find(v => v.is_active);
+    const active = activeVectorizer.value;
     if (!active) return '';
     return active.model_name ? `${active.model_name} (${active.provider_key})` : active.vectorizer_key;
 });
@@ -1375,7 +1362,7 @@ onMounted(() => {
 /* ─── 统计卡片 ──────────────────────────────────────────── */
 .summary-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
 }
 
@@ -1383,6 +1370,7 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
     border-radius: 12px;
     padding: 14px;
     border: 1px solid var(--color-border);
@@ -1391,8 +1379,8 @@ onMounted(() => {
 }
 
 .summary-card:hover {
-    border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-    box-shadow: inset 0 1px 0 var(--color-soft-inset);
+    border-color: var(--color-border-hover);
+    box-shadow: none;
 }
 
 .summary-icon {
@@ -1407,34 +1395,30 @@ onMounted(() => {
 }
 
 .summary-icon--files {
-    background: rgba(var(--color-brand-accent-rgb), 0.1);
-    color: var(--color-brand-accent-light);
-    border-color: rgba(var(--color-brand-accent-rgb), 0.2);
+    background: var(--color-interactive);
+    color: var(--color-text-secondary);
+    border-color: var(--color-border);
 }
 
 .summary-icon--indexed {
-    background: rgba(var(--color-success-rgb), 0.1);
-    color: var(--color-success);
-    border-color: rgba(var(--color-success-rgb), 0.2);
+    background: var(--color-interactive);
+    color: var(--color-text-secondary);
+    border-color: var(--color-border);
 }
 
 .summary-icon--vectorizers {
-    background: rgba(var(--color-warning-rgb), 0.1);
-    color: var(--color-warning);
-    border-color: rgba(var(--color-warning-rgb), 0.2);
-}
-
-.summary-icon--active {
-    background: rgba(var(--color-active-rgb, var(--color-success-rgb)), 0.1);
-    color: var(--color-active, var(--color-success));
-    border-color: rgba(var(--color-active-rgb, var(--color-success-rgb)), 0.2);
+    background: var(--color-interactive);
+    color: var(--color-text-secondary);
+    border-color: var(--color-border);
 }
 
 .summary-body {
     display: flex;
     flex-direction: column;
+    flex: 1 1 0;
     gap: 2px;
     min-width: 0;
+    overflow: hidden;
 }
 
 .summary-label {
@@ -1460,12 +1444,6 @@ onMounted(() => {
 
 .summary-value--vectorizers {
     color: var(--color-warning);
-}
-
-.summary-value--active {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--color-success);
 }
 
 /* ─── Tab 导航 ──────────────────────────────────────────── */
@@ -1663,21 +1641,22 @@ onMounted(() => {
     gap: var(--spacing-xs);
     height: 40px;
     padding: 0 20px;
-    border-radius: 20px;
-    border: none;
-    background: linear-gradient(135deg, rgba(var(--color-brand-accent-rgb), 0.9), rgba(var(--color-brand-accent-light-rgb), 0.95));
+    border-radius: 8px;
+    border: 1px solid var(--color-brand-accent);
+    background: var(--color-brand-accent);
     color: var(--color-on-color);
     font: inherit;
     font-size: var(--font-size-sm);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
     white-space: nowrap;
 }
 
 .btn-primary:hover:not(:disabled) {
-    /* transform: translateY(-1px); */
-    box-shadow: 0 4px 14px rgba(var(--color-brand-accent-rgb), 0.35);
+    border-color: var(--color-brand-accent-light);
+    background: var(--color-brand-accent-light);
+    box-shadow: none;
 }
 
 .btn-primary:disabled {
@@ -2478,6 +2457,8 @@ onMounted(() => {
         flex-wrap: wrap;
         justify-content: flex-end;
         gap: var(--spacing-xs);
+        width: 100%;
+        min-width: 0;
     }
 
     /* 筛选下拉撑满剩余宽度 */
@@ -2558,6 +2539,10 @@ onMounted(() => {
 
     .summary-card {
         padding: var(--spacing-xs) var(--spacing-sm);
+        width: 100%;
+        max-width: calc(100vw - 16px);
+        min-width: 0;
+        overflow: hidden;
     }
 
     .summary-icon {
@@ -2566,6 +2551,14 @@ onMounted(() => {
 
     .summary-value {
         font-size: var(--font-size-lg);
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .summary-body {
+        flex: 1 1 0;
+        width: auto;
+        min-width: 0;
     }
 
     /* Tab：图标隐藏，只留文字 */
@@ -2582,6 +2575,38 @@ onMounted(() => {
     /* 按钮文字缩减 */
     .btn-primary {
         font-size: 12px;
+    }
+
+    .toolbar-right {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        justify-content: stretch;
+    }
+
+    .toolbar-right .filter-select-wrap {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .toolbar-right .btn-primary {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+
+    .search-box .btn-primary {
+        width: 100%;
+    }
+
+    .active-bar {
+        min-width: 0;
+    }
+
+    .active-bar__tag {
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     /* 表格单元格更紧凑 */

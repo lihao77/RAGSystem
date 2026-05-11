@@ -206,7 +206,7 @@ usePointerDownOutside({
   pointer-events: none;
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   background: none;
-  backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
@@ -232,7 +232,7 @@ usePointerDownOutside({
   gap: 6px;
   min-width: 0;
   padding: 2px;
-  border-radius: 28px;
+  border-radius: 12px;
   background-color: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -363,12 +363,10 @@ usePointerDownOutside({
 
 .page-header__menu-list {
   padding: 6px;
-  border-radius: 18px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-glass-border);
-  box-shadow: var(--shadow-lg);
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
 }
 
 .page-header__actions :deep(.custom-select) {
@@ -381,7 +379,7 @@ usePointerDownOutside({
   height: 44px;
   min-height: 44px;
   padding: 0 34px 0 12px;
-  border-radius: 22px;
+  border-radius: 8px;
   background: var(--color-hover-overlay);
   font-size: 12px;
   box-sizing: border-box;
@@ -396,7 +394,7 @@ usePointerDownOutside({
   height: 44px;
   min-height: 44px;
   padding: 0 12px;
-  border-radius: 22px;
+  border-radius: 8px;
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
@@ -404,7 +402,7 @@ usePointerDownOutside({
   font-weight: 500;
   letter-spacing: 0;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
   user-select: none;
   white-space: nowrap;
   flex-shrink: 0;
@@ -447,7 +445,7 @@ usePointerDownOutside({
   z-index: var(--z-sticky);
   padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
   background: none;
-  backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
@@ -466,7 +464,7 @@ usePointerDownOutside({
 .page-mobile-nav__more {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--color-text-primary);
@@ -519,12 +517,10 @@ usePointerDownOutside({
 }
 
 .page-mobile-menu__list {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-glass-border);
-  border-radius: 18px;
-  box-shadow: var(--shadow-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
   overflow: hidden;
   padding: 6px;
 }

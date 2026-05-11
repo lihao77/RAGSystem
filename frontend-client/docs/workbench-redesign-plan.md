@@ -192,15 +192,17 @@
 
 ## 阶段 6: 视觉收敛
 
+状态: 完成
+
 目标:
 - 从强装饰 glass 风格收敛到稳定的桌面工具风格。
 
 任务:
-- [ ] 减少全局 glow、blur、radial background 的存在感。
-- [ ] 控制卡片圆角，工具型容器优先 8px-12px。
-- [ ] 状态色只用于状态，不作为大面积装饰。
-- [ ] 保留深色/浅色主题变量，不改主题切换机制。
-- [ ] 为移动端和窄屏增加关键页面截图检查。
+- [x] 减少全局 glow、blur、radial background 的存在感。
+- [x] 控制卡片圆角，工具型容器优先 8px-12px。
+- [x] 状态色只用于状态，不作为大面积装饰。
+- [x] 保留深色/浅色主题变量，不改主题切换机制。
+- [x] 为移动端和窄屏增加关键页面截图检查。
 
 验收:
 - 同一页面不再出现多层卡片嵌套感。
@@ -257,3 +259,5 @@
 - 2026-05-12: 阶段 5 继续推进。扩展 `admin-console.css` 的 `adm-form-*`、`adm-modal-*`、`adm-button-*` 原子类；`ModelProviderManager` 的创建/编辑/删除弹窗接入共享表单与模态结构，`MCPManager` 的 Registry 安装、服务编辑和工具查看模态接入共享模态结构。
 - 2026-05-12: 阶段 5 继续推进。`TeamBuilder` 的加载/错误态、KPI 与 Team 列表接入共享控制台结构，Team 卡片收敛为行式列表；`AgentConfig` 的加载/错误/空态与新建/删除 Agent 弹窗接入共享状态、模态、表单和按钮类；`VectorLibraryManager` 的统计卡和索引/新增向量化器/迁移弹窗接入共享 KPI 与模态按钮类。
 - 2026-05-12: 阶段 5 完成。`VectorLibraryManager` 的表格操作、状态徽标和加载/空态补齐共享类；`DaemonManager` 的状态概览、操作按钮、空态和弹窗接入 `adm-*` 控制台基础类；`SystemConfig` 的加载/错误态改为共享状态容器，`AgentConfig`、`MCPManager`、`AgentMonitor` 的局部空态完成补齐。
+- 2026-05-12: 阶段 6 启动。全局视觉 token 收敛为低透明、低阴影、无 glow；移除 body radial 环境光并降低网格背景存在感；`PageLayout` 通用按钮、菜单和 `pl-card` 从 glass/pill/抬升风格改为 8px-12px 工具型控件；移动端 sidebar 去除 blur 并降低阴影。
+- 2026-05-12: 阶段 6 完成。管理页 KPI 图标、平台图标和辅助标识收敛为中性工具样式，局部渐变主按钮改为扁平主按钮；`VectorLibraryManager` 移除与激活提示条重复的“激活向量化器” KPI 卡，并修正移动端工具栏换行；已用 headless Chrome 生成 `screenshots/stage6-team-builder-mobile.png`、`screenshots/stage6-vector-library-mobile.png`、`screenshots/stage6-mcp-narrow.png`、`screenshots/stage6-daemon-narrow.png`；`npm run build`、`npm test`、`git diff --check` 通过。

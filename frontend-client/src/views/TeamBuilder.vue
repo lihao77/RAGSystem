@@ -571,28 +571,18 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-primary);
-  background: var(--color-hover-overlay-md);
+  color: var(--color-text-secondary);
+  background: var(--color-interactive);
+  border: 1px solid var(--color-border);
 }
 
-.summary-icon--active {
-  background: rgba(99, 102, 241, 0.2);
-  color: #c7d2fe;
-}
-
-.summary-icon--total {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fcd34d;
-}
-
-.summary-icon--agents {
-  background: rgba(16, 185, 129, 0.16);
-  color: #6ee7b7;
-}
-
+.summary-icon--active,
+.summary-icon--total,
+.summary-icon--agents,
 .summary-icon--file {
-  background: rgba(168, 85, 247, 0.16);
-  color: #d8b4fe;
+  color: var(--color-text-secondary);
+  background: var(--color-interactive);
+  border-color: var(--color-border);
 }
 
 .summary-body {
@@ -895,9 +885,9 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   min-height: 220px;
-  border-radius: 18px;
-  border: 1px dashed rgba(var(--color-brand-accent-rgb), 0.28);
-  background: linear-gradient(180deg, rgba(var(--color-brand-accent-rgb), 0.08), var(--color-hover-overlay) 72%);
+  border-radius: 12px;
+  border: 1px dashed var(--color-border);
+  background: var(--color-hover-overlay);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -909,9 +899,10 @@ onMounted(() => {
 
 .transfer-badge {
   padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(var(--color-brand-accent-rgb), 0.14);
-  color: var(--color-brand-accent-light);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-interactive);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 

@@ -1145,9 +1145,9 @@ onUnmounted(() => {
   }
 
   .sidebar-backdrop {
-    background: rgba(6, 8, 12, 0.36);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(6, 8, 12, 0.42);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .sidebar {
@@ -1155,14 +1155,14 @@ onUnmounted(() => {
     left: 0;
     top: 0;
     bottom: 0;
-    border-radius: 0 18px 18px 0;
+    border-radius: 0 12px 12px 0;
     transform: translateX(-100%);
     width: 280px;
-    background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.84);
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    background: var(--color-bg-elevated);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border-right: 1px solid var(--color-border);
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+    box-shadow: var(--shadow-lg);
   }
 
   .sidebar.mobile-open {
