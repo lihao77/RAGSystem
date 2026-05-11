@@ -137,10 +137,10 @@
 - 最近任务和常用任务模板。
 
 任务:
-- [ ] 新增 `components/chat/TaskLauncher.vue`。
-- [ ] 复用现有 `pendingWorkspaceRoot`、`pendingEntryAgent`、`entryAgentOptions`。
-- [ ] 将欢迎页 logo 与 subtitle 降级为小型品牌标识。
-- [ ] 提供常用任务模板，不直接写死后端依赖。
+- [x] 新增 `components/chat/TaskLauncher.vue`。
+- [x] 复用现有 `pendingWorkspaceRoot`、`pendingEntryAgent`、`entryAgentOptions`。
+- [x] 将欢迎页 logo 与 subtitle 降级为小型品牌标识。
+- [x] 提供常用任务模板，不直接写死后端依赖。
 
 验收:
 - 空会话首屏可完成任务启动前的主要配置。
@@ -247,3 +247,4 @@
 - 2026-05-11: 继续下沉 `ChatViewV2.vue` 的发送/停止链路到 `useSessionSend`，保留运行中状态检查、附件物化、WS/REST fallback 和 active run 初始化；`npm run build` 与 `npm test` 通过。
 - 2026-05-11: 继续剥离 `ChatViewV2.vue` 的纯视图派生逻辑。新增 `useMessageListView`、`useRuntimeStatusView`、`useTaskNotifications`，将压缩摘要可见列表、消息复制、上下文用量/执行状态文案和后台任务通知解析移出页面层；同时把工作栏用户输入路由并入 `useApprovalQueue`。
 - 2026-05-11: 继续收敛 `ChatViewV2.vue` 的运行时接线。新增 `useChatMessageRuntime` 聚合消息执行、工作栏选择和后台通知逻辑；`useSessionRunStream` 改为支持按 state/messageStore/sessionStatus/connection/retry/execution/approvals 等分组依赖；新增 `useActiveRunState` 承载 active run 初始状态。
+- 2026-05-11: 阶段 3 完成。新增 `TaskLauncher.vue` 作为空会话任务启动器，复用入口 Agent、工作目录、Team、模型和附件状态；常用任务模板只填充输入框，不自动创建 session 或发送；移除底部 Composer 上方重复的空会话入口配置行。

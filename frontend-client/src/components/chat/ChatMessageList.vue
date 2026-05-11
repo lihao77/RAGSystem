@@ -5,15 +5,17 @@
     </div>
 
     <div v-else-if="messages.length === 0" class="welcome-screen">
-      <div class="welcome-content">
-        <div class="welcome-header">
-          <div class="logo-placeholder">
-            <IconLogo :size="80" animated />
+      <slot name="empty">
+        <div class="welcome-content">
+          <div class="welcome-header">
+            <div class="logo-placeholder">
+              <IconLogo :size="80" animated />
+            </div>
+            <h1>RAG Agent System</h1>
+            <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
           </div>
-          <h1>RAG Agent System</h1>
-          <p class="welcome-subtitle">Dynamic Agent Orchestration with ReAct Pattern</p>
         </div>
-      </div>
+      </slot>
     </div>
 
     <div v-else class="message-stream">

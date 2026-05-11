@@ -50,7 +50,18 @@
           :get-message-execution-time-text="getMessageExecutionTimeText"
           :get-message-execution-time-title="getMessageExecutionTimeTitle"
           @notify="({ message, type }) => showToast(message, type)"
-        />
+        >
+          <template #empty>
+            <TaskLauncher
+              v-model:entry-agent="pendingEntryAgent"
+              v-model:workspace-root="pendingWorkspaceRoot"
+              :entry-agent-options="entryAgentOptions"
+              :entry-agent-loading="entryAgentLoading"
+              :normalize-workspace-root-input="normalizeWorkspaceRootInput"
+              @select-template="handleTaskTemplateSelect"
+            />
+          </template>
+        </ChatMessageList>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
         <div class="bottom-dock">
           <transition name="scroll-btn-fade">
@@ -64,31 +75,6 @@
             </LiquidGlass>
           </transition>
           <div class="input-area-wrapper">
-          <div v-if="!currentSessionId" class="workspace-root-input-row">
-            <label class="workspace-root-input-label">入口 Agent</label>
-            <CustomSelect
-              v-model="pendingEntryAgent"
-              :options="entryAgentOptions"
-              :disabled="entryAgentLoading"
-              :dropdown-max-height="320"
-              dropdown-placement="auto"
-              placeholder="使用配置默认入口 Agent"
-              style="flex: 1"
-            />
-          </div>
-          <div v-if="!currentSessionId" class="workspace-root-input-row">
-            <label class="workspace-root-input-label" for="workspace-root-input">根目录</label>
-            <input
-              id="workspace-root-input"
-              v-model="pendingWorkspaceRoot"
-              type="text"
-              class="workspace-root-input"
-              placeholder="可选，如 E:/Users/.../Desktop"
-              autocomplete="off"
-              spellcheck="false"
-              @blur="pendingWorkspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot)"
-            />
-          </div>
           <ChatInput
             ref="chatInputRef"
             v-model="inputMessage"
@@ -230,7 +216,6 @@ import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/
 import ChatInput from '../components/ChatInput.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import SituationScreen from '../components/SituationScreen.vue';
-import CustomSelect from '../components/CustomSelect.vue';
 
 import LiquidGlass from '../components/LiquidGlass.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
@@ -240,6 +225,7 @@ import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
 import SessionContextInfoButton from '../components/chat/SessionContextInfoButton.vue';
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
+import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 
 // Props
@@ -717,6 +703,12 @@ const focusInput = async () => {
   }
 };
 
+const handleTaskTemplateSelect = async (prompt) => {
+  inputMessage.value = prompt || '';
+  await nextTick();
+  focusInput();
+};
+
 const handleSituationSendMessage = (text) => {
   // 在态势大屏中发送消息：复用主聊天的发送逻辑
   inputMessage.value = text;
@@ -893,54 +885,6 @@ onUnmounted(() => {
   margin-top: 4px;
   font-size: 11px;
   color: var(--color-text-muted);
-}
-
-/* 优化后的 workspace-root-input-row 样式 */
-.workspace-root-input-row {
-  width: 100%;
-  max-width: 800px;
-  margin: 0 auto 6px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.workspace-root-input-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-weight: 500;
-  min-width: 72px;
-  flex-shrink: 0;
-}
-
-.workspace-root-input {
-  flex: 1;
-  height: 42px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.05rem;
-  /* font-family: var(--font-sans); */
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.workspace-root-input::placeholder {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-
-.workspace-root-input:hover {
-  border-color: var(--color-border-hover);
-}
-
-.workspace-root-input:focus {
-  outline: none;
-  border-color: rgba(var(--color-brand-accent-rgb), 0.5);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.08);
 }
 
 .session-meta-section {
