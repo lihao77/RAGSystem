@@ -174,14 +174,14 @@
 
 ## 阶段 5: 管理页控制台化
 
-状态: 进行中
+状态: 完成
 
 目标:
 - 统一管理页的密度、列表、详情、表单和状态表达。
 
 任务:
 - [x] 抽象 `EntityListLayout` 或轻量复用模式: 列表 + 详情 + 操作区。
-- [ ] 统一 `badge`、`act-btn`、`form-control`、空态、错误态。
+- [x] 统一 `badge`、`act-btn`、`form-control`、空态、错误态。
 - [x] 优先改 `ModelProviderManager` 和 `MCPManager`，因为它们最接近基础设施配置。
 - [x] 再改 `AgentConfig`、`TeamBuilder`、`VectorLibraryManager` 首轮控制台化。
 
@@ -256,3 +256,4 @@
 - 2026-05-12: 阶段 5 启动。新增 `EntityListLayout.vue` 与 `admin-console.css` 作为管理页控制台基础结构；`ModelProviderManager` 的 Provider 列表和 `MCPManager` 的已安装服务列表接入共享列表/状态容器，MCP 服务首屏从卡片网格收敛为行式控制台列表。
 - 2026-05-12: 阶段 5 继续推进。扩展 `admin-console.css` 的 `adm-form-*`、`adm-modal-*`、`adm-button-*` 原子类；`ModelProviderManager` 的创建/编辑/删除弹窗接入共享表单与模态结构，`MCPManager` 的 Registry 安装、服务编辑和工具查看模态接入共享模态结构。
 - 2026-05-12: 阶段 5 继续推进。`TeamBuilder` 的加载/错误态、KPI 与 Team 列表接入共享控制台结构，Team 卡片收敛为行式列表；`AgentConfig` 的加载/错误/空态与新建/删除 Agent 弹窗接入共享状态、模态、表单和按钮类；`VectorLibraryManager` 的统计卡和索引/新增向量化器/迁移弹窗接入共享 KPI 与模态按钮类。
+- 2026-05-12: 阶段 5 完成。`VectorLibraryManager` 的表格操作、状态徽标和加载/空态补齐共享类；`DaemonManager` 的状态概览、操作按钮、空态和弹窗接入 `adm-*` 控制台基础类；`SystemConfig` 的加载/错误态改为共享状态容器，`AgentConfig`、`MCPManager`、`AgentMonitor` 的局部空态完成补齐。

@@ -259,7 +259,7 @@
                           <button type="button" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</button>
                         </div>
                       </div>
-                      <div v-else class="state-panel state-panel--empty state-panel--compact">
+                      <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
                         <p>暂无额外参数</p>
                       </div>
                     </div>
@@ -348,7 +348,7 @@
                             <button type="button" :style="{width: '100%'}" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</button>
                           </div>
                         </div>
-                        <div v-else class="state-panel state-panel--empty state-panel--compact">
+                        <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
                           <p>暂无额外参数</p>
                         </div>
                         <small class="field-hint">type 可选 string / number / boolean / json，json 类型的 value 需填写合法 JSON</small>
@@ -549,7 +549,7 @@
               <span>将可用 MCP Server 授权给当前 Agent</span>
             </div>
             <div class="section-body">
-              <div v-if="mcpServers.length === 0" class="state-panel state-panel--empty state-panel--compact">
+              <div v-if="mcpServers.length === 0" class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
                 <p>当前还没有可用的 MCP 服务，请先在管理端完成 MCP Server 配置。</p>
               </div>
 

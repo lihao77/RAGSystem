@@ -3,7 +3,7 @@
     <template #header-actions>
       <div class="hdr-actions">
         <button
-          class="pl-btn" :class="status.running ? 'pl-btn--danger' : 'pl-btn--primary'"
+          class="adm-button pl-btn" :class="status.running ? 'pl-btn--danger adm-button--danger' : 'pl-btn--primary adm-button--primary'"
           @click="toggleDaemon" :disabled="loading"
         >
           <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -15,7 +15,7 @@
           <span v-if="loading" class="btn-spin"/>
           {{ loading ? '...' : (status.running ? '停止' : '启动') }}
         </button>
-        <button class="pl-btn pl-btn--ghost pl-btn--icon" @click="refresh" :disabled="loading" title="刷新">
+        <button class="adm-button pl-btn pl-btn--ghost pl-btn--icon" @click="refresh" :disabled="loading" title="刷新">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
@@ -27,53 +27,53 @@
     <div class="dmgr">
 
       <!-- 状态概览 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">状态概览</span>
-          <span class="status-badge" :class="statusBadgeClass">{{ statusBadgeText }}</span>
+          <span class="adm-badge status-badge" :class="statusBadgeClass">{{ statusBadgeText }}</span>
         </div>
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--blue">
+        <div class="stats-grid adm-kpi-grid">
+          <div class="stat-card adm-kpi-card">
+            <div class="stat-icon adm-kpi-icon stat-icon--blue">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
               </svg>
             </div>
-            <div class="stat-body">
-              <div class="stat-value">{{ status.adapter_count || 0 }}</div>
-              <div class="stat-label">已连接平台</div>
+            <div class="stat-body adm-kpi-body">
+              <div class="stat-value adm-kpi-value">{{ status.adapter_count || 0 }}</div>
+              <div class="stat-label adm-kpi-label">已连接平台</div>
             </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--green">
+          <div class="stat-card adm-kpi-card">
+            <div class="stat-icon adm-kpi-icon stat-icon--green">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
             </div>
-            <div class="stat-body">
-              <div class="stat-value">{{ cronTaskCount }}</div>
-              <div class="stat-label">定时任务</div>
+            <div class="stat-body adm-kpi-body">
+              <div class="stat-value adm-kpi-value">{{ cronTaskCount }}</div>
+              <div class="stat-label adm-kpi-label">定时任务</div>
             </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-icon stat-icon--purple">
+          <div class="stat-card adm-kpi-card">
+            <div class="stat-icon adm-kpi-icon stat-icon--purple">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </div>
-            <div class="stat-body">
-              <div class="stat-value">{{ status.daemon_sessions || 0 }}</div>
-              <div class="stat-label">守护会话</div>
+            <div class="stat-body adm-kpi-body">
+              <div class="stat-value adm-kpi-value">{{ status.daemon_sessions || 0 }}</div>
+              <div class="stat-label adm-kpi-label">守护会话</div>
             </div>
           </div>
         </div>
       </section>
 
       <!-- 基础配置 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">基础配置</span>
-          <button class="act-btn act-btn--accent" @click="saveBaseConfig" :disabled="baseSaving">
+          <button class="adm-action-btn act-btn act-btn--accent" @click="saveBaseConfig" :disabled="baseSaving">
             {{ baseSaving ? '保存中...' : '保存' }}
           </button>
         </div>
@@ -82,7 +82,7 @@
             <div class="form-item">
               <label class="form-label">守护系统开关</label>
               <div class="toggle-row">
-                <span class="status-badge" :class="baseForm.enabled ? 'status-badge--success' : 'status-badge--neutral'">
+                <span class="adm-badge status-badge" :class="baseForm.enabled ? 'status-badge--success adm-badge--success' : 'status-badge--neutral adm-badge--neutral'">
                   {{ baseForm.enabled ? '已启用' : '未启用' }}
                 </span>
                 <button
@@ -119,10 +119,10 @@
       </section>
 
       <!-- 平台配置 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">平台配置</span>
-          <button class="act-btn act-btn--accent" @click="openAddPlatform">+ 添加</button>
+          <button class="adm-action-btn act-btn act-btn--accent" @click="openAddPlatform">+ 添加</button>
         </div>
         <div v-if="platformConfigs.length" class="platform-grid">
           <div
@@ -157,12 +157,12 @@
               </div>
             </div>
             <div class="platform-card-foot">
-              <button class="act-btn" @click="openEditPlatform(pc.key)">编辑</button>
-              <button class="act-btn act-btn--danger" @click="removePlatform(pc.key)">移除</button>
+              <button class="adm-action-btn act-btn" @click="openEditPlatform(pc.key)">编辑</button>
+              <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" @click="removePlatform(pc.key)">移除</button>
             </div>
           </div>
         </div>
-        <div v-else class="empty-panel">
+        <div v-else class="empty-panel adm-state adm-state--empty">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
@@ -171,7 +171,7 @@
       </section>
 
       <!-- 适配器状态 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">适配器状态</span>
         </div>
@@ -193,14 +193,14 @@
                 <span class="adp-status">{{ statusLabel(info.status) }}</span>
                 <button
                   v-if="info.enabled && info.status === 'connected'"
-                  class="act-btn act-btn--xs"
+                  class="adm-action-btn act-btn act-btn--xs"
                   @click="openTestDialog(agent.team_name, platform)"
                 >测试</button>
               </div>
             </div>
           </div>
         </div>
-        <div v-else class="empty-panel">
+        <div v-else class="empty-panel adm-state adm-state--empty">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
             <path d="M18 20V10M12 20V4M6 20v-6"/>
           </svg>
@@ -209,10 +209,10 @@
       </section>
 
       <!-- 权限配置 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">权限配置</span>
-          <button class="act-btn act-btn--accent" @click="savePermissions" :disabled="permSaving">
+          <button class="adm-action-btn act-btn act-btn--accent" @click="savePermissions" :disabled="permSaving">
             {{ permSaving ? '保存中...' : '保存' }}
           </button>
         </div>
@@ -245,7 +245,7 @@
             <CustomSelect v-model="newPatternForm.pattern_type" :options="autoAcceptPatternOptions" />
             <input v-model="newPatternForm.pattern_value" class="form-ctrl" placeholder="如: read_file / *.md / high" />
             <input v-model="newPatternForm.description" class="form-ctrl" placeholder="描述（可选）" />
-            <button class="act-btn act-btn--accent" @click="addAutoAcceptPattern" :disabled="!newPatternForm.pattern_value.trim()">添加</button>
+            <button class="adm-action-btn act-btn act-btn--accent" @click="addAutoAcceptPattern" :disabled="!newPatternForm.pattern_value.trim()">添加</button>
           </div>
           <div v-if="permForm.auto_accept_patterns.length" class="permission-rule-list">
             <div v-for="(pattern, index) in permForm.auto_accept_patterns" :key="`${pattern.pattern_type}-${pattern.pattern_value}-${index}`" class="permission-rule-item">
@@ -254,22 +254,22 @@
                 <code class="permission-rule-value">{{ pattern.pattern_value }}</code>
                 <span v-if="pattern.description" class="permission-rule-desc">{{ pattern.description }}</span>
               </div>
-              <button class="act-btn act-btn--icon act-btn--danger" @click="removeAutoAcceptPattern(index)" title="删除规则">
+              <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--icon act-btn--danger" @click="removeAutoAcceptPattern(index)" title="删除规则">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
           </div>
-          <div v-else class="empty-panel empty-panel--compact">
+          <div v-else class="empty-panel empty-panel--compact adm-state adm-state--empty">
             <p>暂无自动接受规则</p>
           </div>
         </div>
       </section>
 
       <!-- 定时任务 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">定时任务</span>
-          <button class="act-btn act-btn--accent" @click="showAddTask = true">+ 新增</button>
+          <button class="adm-action-btn act-btn act-btn--accent" @click="showAddTask = true">+ 新增</button>
         </div>
         <div v-if="cronTasks.length" class="cron-list">
           <div v-for="task in cronTasks" :key="task.task_id" class="cron-row">
@@ -277,7 +277,7 @@
               <div class="cron-meta">
                 <span class="cron-name">{{ task.name || task.task_id }}</span>
                 <code class="cron-expr">{{ task.cron }}</code>
-                <span class="status-badge" :class="task.enabled ? 'status-badge--success' : 'status-badge--neutral'">
+                <span class="adm-badge status-badge" :class="task.enabled ? 'status-badge--success adm-badge--success' : 'status-badge--neutral adm-badge--neutral'">
                   {{ task.enabled ? '启用' : '禁用' }}
                 </span>
               </div>
@@ -289,20 +289,20 @@
               </div>
             </div>
             <div class="cron-row-actions">
-              <button class="act-btn act-btn--icon" @click="handleTriggerTask(task.task_id)" title="手动触发">
+              <button class="adm-action-btn act-btn act-btn--icon" @click="handleTriggerTask(task.task_id)" title="手动触发">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               </button>
-              <button class="act-btn act-btn--icon" @click="handleToggleTask(task)" :title="task.enabled ? '禁用' : '启用'">
+              <button class="adm-action-btn act-btn act-btn--icon" @click="handleToggleTask(task)" :title="task.enabled ? '禁用' : '启用'">
                 <svg v-if="task.enabled" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               </button>
-              <button class="act-btn act-btn--icon act-btn--danger" @click="handleDeleteTask(task.task_id)" title="删除">
+              <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--icon act-btn--danger" @click="handleDeleteTask(task.task_id)" title="删除">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
           </div>
         </div>
-        <div v-else class="empty-panel">
+        <div v-else class="empty-panel adm-state adm-state--empty">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
@@ -311,7 +311,7 @@
       </section>
 
       <!-- 主动推送 -->
-      <section class="dmgr-section">
+      <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">主动推送</span>
         </div>
@@ -324,7 +324,7 @@
           </div>
           <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
           <div class="push-foot">
-            <button class="pl-btn pl-btn--primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">
               {{ pushSending ? '发送中...' : '发送' }}
             </button>
           </div>
@@ -336,12 +336,12 @@
     <!-- 平台配置弹窗 -->
     <teleport to="body">
       <div v-if="showConfigModal" class="modal-bg">
-        <div ref="configModalRef" class="modal-box">
-          <div class="modal-hdr">
+        <div ref="configModalRef" class="modal-box adm-modal">
+          <div class="modal-hdr adm-modal-header">
             <h3>{{ isNewPlatform ? '添加平台' : '编辑配置' }} — {{ platformLabel(platformForm.key) }}</h3>
             <button class="modal-close" @click="showConfigModal = false">×</button>
           </div>
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div v-if="isNewPlatform" class="form-item">
               <label class="form-label">平台</label>
               <CustomSelect v-model="platformForm.key" :options="PLATFORM_OPTIONS" />
@@ -382,9 +382,9 @@
               </div>
             </div>
           </div>
-          <div class="modal-foot">
-            <button class="pl-btn pl-btn--ghost" @click="showConfigModal = false">取消</button>
-            <button class="pl-btn pl-btn--primary" @click="savePlatformConfig" :disabled="configSaving">
+          <div class="modal-foot adm-modal-footer">
+            <button class="adm-button pl-btn pl-btn--ghost" @click="showConfigModal = false">取消</button>
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="savePlatformConfig" :disabled="configSaving">
               {{ configSaving ? '保存中...' : '保存' }}
             </button>
           </div>
@@ -395,12 +395,12 @@
     <!-- 新增 Cron 任务弹窗 -->
     <teleport to="body">
       <div v-if="showAddTask" class="modal-bg">
-        <div ref="addTaskModalRef" class="modal-box">
-          <div class="modal-hdr">
+        <div ref="addTaskModalRef" class="modal-box adm-modal">
+          <div class="modal-hdr adm-modal-header">
             <h3>新增定时任务</h3>
             <button class="modal-close" @click="showAddTask = false">×</button>
           </div>
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div class="form-two-col">
               <div class="form-item">
                 <label class="form-label">任务名称</label>
@@ -437,9 +437,9 @@
               </div>
             </div>
           </div>
-          <div class="modal-foot">
-            <button class="pl-btn pl-btn--ghost" @click="showAddTask = false">取消</button>
-            <button class="pl-btn pl-btn--primary" @click="handleAddTask">创建</button>
+          <div class="modal-foot adm-modal-footer">
+            <button class="adm-button pl-btn pl-btn--ghost" @click="showAddTask = false">取消</button>
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handleAddTask">创建</button>
           </div>
         </div>
       </div>
@@ -448,12 +448,12 @@
     <!-- 测试消息弹窗 -->
     <teleport to="body">
       <div v-if="showTestDialog" class="modal-bg">
-        <div ref="testDialogRef" class="modal-box modal-box--sm">
-          <div class="modal-hdr">
+        <div ref="testDialogRef" class="modal-box modal-box--sm adm-modal">
+          <div class="modal-hdr adm-modal-header">
             <h3>测试 — {{ platformLabel(testTarget.platform) }}</h3>
             <button class="modal-close" @click="showTestDialog = false">×</button>
           </div>
-          <div class="modal-body">
+          <div class="modal-body adm-modal-body">
             <div class="form-item">
               <label class="form-label">Chat ID</label>
               <input v-model="testForm.chat_id" class="form-ctrl" placeholder="真实 chat_id" />
@@ -463,9 +463,9 @@
               <input v-model="testForm.content" class="form-ctrl" placeholder="测试消息" />
             </div>
           </div>
-          <div class="modal-foot">
-            <button class="pl-btn pl-btn--ghost" @click="showTestDialog = false">取消</button>
-            <button class="pl-btn pl-btn--primary" @click="handleTest">发送</button>
+          <div class="modal-foot adm-modal-footer">
+            <button class="adm-button pl-btn pl-btn--ghost" @click="showTestDialog = false">取消</button>
+            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handleTest">发送</button>
           </div>
         </div>
       </div>
@@ -580,9 +580,9 @@ const platformForm = ref({
 // ── 计算属性 ──
 
 const statusBadgeClass = computed(() => {
-  if (status.value.running) return 'status-badge--success'
-  if (status.value.enabled) return 'status-badge--warning'
-  return 'status-badge--neutral'
+  if (status.value.running) return 'status-badge--success adm-badge--success'
+  if (status.value.enabled) return 'status-badge--warning adm-badge--warning'
+  return 'status-badge--neutral adm-badge--neutral'
 })
 
 const statusBadgeText = computed(() => {

@@ -441,11 +441,11 @@
         </button>
       </div>
 
-      <div v-if="loadingRegistryResults" class="state-panel">
+      <div v-if="loadingRegistryResults" class="state-panel adm-state">
         <div class="spinner"></div>
         <p>正在搜索 Registry...</p>
       </div>
-      <div v-else-if="!registryResults.length" class="state-panel state-panel--empty">
+      <div v-else-if="!registryResults.length" class="state-panel state-panel--empty adm-state adm-state--empty">
         <div class="empty-icon">
           <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -780,7 +780,7 @@
           </div>
 
           <div class="modal-body adm-modal-body">
-            <div v-if="!serverTools.length" class="state-panel state-panel--empty">
+            <div v-if="!serverTools.length" class="state-panel state-panel--empty adm-state adm-state--empty">
               <p class="empty-title">暂无工具</p>
               <p class="empty-hint">服务未声明任何工具，或连接未成功</p>
             </div>

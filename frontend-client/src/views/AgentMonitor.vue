@@ -279,7 +279,7 @@
             <span>各智能体调用统计与工具使用分布</span>
           </div>
 
-          <div v-if="agentMetrics.length === 0" class="empty-state">
+          <div v-if="agentMetrics.length === 0" class="empty-state adm-state adm-state--empty">
             暂无性能数据
           </div>
 

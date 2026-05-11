@@ -137,7 +137,7 @@
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
                                     placeholder="全部集合" />
                             </div>
-                            <button class="btn-primary" @click="showIndexDialog = true">
+                            <button class="adm-button adm-button--primary btn-primary" @click="showIndexDialog = true">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round">
@@ -165,10 +165,10 @@
 
                     <!-- 矩阵表格 -->
                     <div class="data-table-wrapper glass-card">
-                        <div v-if="storeLoading" class="loading-state">
+                        <div v-if="storeLoading" class="loading-state adm-state">
                             <div class="spinner"></div>加载中...
                         </div>
-                        <div v-else-if="filteredFileList.length === 0" class="empty-state">
+                        <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                                 stroke-linejoin="round">
@@ -176,7 +176,7 @@
                                 <polyline points="14 2 14 8 20 8" />
                             </svg>
                             <p>{{ fileList.length === 0 ? '暂无已索引文件，点击「索引新文档」开始' : '当前集合下无文件，尝试清空筛选' }}</p>
-                            <button v-if="fileList.length === 0" class="btn-primary"
+                            <button v-if="fileList.length === 0" class="adm-button adm-button--primary btn-primary"
                                 @click="showIndexDialog = true">索引新文档</button>
                         </div>
                         <div v-else class="table-scroll">
@@ -215,8 +215,8 @@
                                         <td v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
                                             class="text-center">
                                             <span v-if="row.vectorizer_status?.[v.vectorizer_key] === '已索引'"
-                                                class="status-badge status-badge--success">已索引</span>
-                                            <button v-else class="btn-index-cell"
+                                                class="adm-badge adm-badge--success status-badge status-badge--success">已索引</span>
+                                            <button v-else class="adm-action-btn btn-index-cell"
                                                 :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
                                                 @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
                                                 {{ indexingFileKey === row.file_id + ':' + v.vectorizer_key ? '索引中...' :
@@ -224,8 +224,8 @@
                                             </button>
                                         </td>
                                         <td>
-                                            <div class="row-actions">
-                                                <button class="act-btn act-btn--secondary"
+                                            <div class="row-actions adm-action-row">
+                                                <button class="adm-action-btn act-btn act-btn--secondary"
                                                     @click="openSearchTest(row.collection)" title="测试检索">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
                                                         viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -234,7 +234,7 @@
                                                         <line x1="21" y1="21" x2="16.65" y2="16.65" />
                                                     </svg>
                                                 </button>
-                                                <button class="act-btn act-btn--danger"
+                                                <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
                                                     :disabled="deletingFileId === row.file_id"
                                                     @click="handleDeleteIndexedFile(row)" title="删除">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -257,13 +257,13 @@
                     <div v-if="searchCollection" class="search-inline-card glass-card">
                         <div class="search-inline-header">
                             <span class="search-inline-title">检索测试：{{ searchCollection }}</span>
-                            <button class="act-btn act-btn--secondary"
+                            <button class="adm-action-btn act-btn act-btn--secondary"
                                 @click="searchCollection = ''; searchResults = []">关闭</button>
                         </div>
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入查询文本..."
                                 @keyup.enter="handleSearch" />
-                            <button class="btn-primary" :disabled="searchLoading" @click="handleSearch">
+                            <button class="adm-button adm-button--primary btn-primary" :disabled="searchLoading" @click="handleSearch">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round">
@@ -294,7 +294,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div v-else-if="searchPerformed" class="empty-state" style="padding: var(--spacing-lg)">
+                        <div v-else-if="searchPerformed" class="empty-state adm-state adm-state--empty" style="padding: var(--spacing-lg)">
                             <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                                 stroke-linejoin="round">
@@ -337,10 +337,10 @@
 
                     <!-- 文件列表 -->
                     <div class="data-table-wrapper glass-card">
-                        <div v-if="filesLoading" class="loading-state">
+                        <div v-if="filesLoading" class="loading-state adm-state">
                             <div class="spinner"></div>加载中...
                         </div>
-                        <div v-else-if="uploadedFiles.length === 0" class="empty-state">
+                        <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                                 stroke-linejoin="round">
@@ -348,7 +348,7 @@
                                 <polyline points="14 2 14 8 20 8" />
                             </svg>
                             <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
-                            <button class="btn-primary" @click="triggerFileInput">上传文件</button>
+                            <button class="adm-button adm-button--primary btn-primary" @click="triggerFileInput">上传文件</button>
                         </div>
                         <table v-else class="data-table">
                             <thead>
@@ -375,8 +375,8 @@
                                     <td>{{ file.mime || '-' }}</td>
                                     <td>{{ formatTime(file.uploaded_at) }}</td>
                                     <td>
-                                        <div class="row-actions">
-                                            <button class="act-btn act-btn--secondary" title="下载"
+                                        <div class="row-actions adm-action-row">
+                                            <button class="adm-action-btn act-btn act-btn--secondary" title="下载"
                                                 @click="downloadFile(file)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
                                                     viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -386,7 +386,7 @@
                                                     <line x1="12" y1="15" x2="12" y2="3" />
                                                 </svg>
                                             </button>
-                                            <button class="act-btn act-btn--danger" title="删除"
+                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
                                                 @click="handleDeleteUploadedFile(file)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -423,7 +423,7 @@
                                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                                 </svg>
                             </button>
-                            <button class="btn-primary" @click="openAddVectorizerDialog">
+                            <button class="adm-button adm-button--primary btn-primary" @click="openAddVectorizerDialog">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round">
@@ -435,10 +435,10 @@
                         </div>
                     </div>
 
-                    <div v-if="vectorizersLoading" class="loading-state">
+                    <div v-if="vectorizersLoading" class="loading-state adm-state">
                         <div class="spinner"></div>加载中...
                     </div>
-                    <div v-else-if="vectorizers.length === 0" class="empty-state glass-card"
+                    <div v-else-if="vectorizers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
                         style="padding: var(--spacing-xl)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -447,7 +447,7 @@
                             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                         </svg>
                         <p>暂无向量化器，添加后即可在「向量库管理」中建立索引。</p>
-                        <button class="btn-primary" @click="openAddVectorizerDialog">新增向量化器</button>
+                        <button class="adm-button adm-button--primary btn-primary" @click="openAddVectorizerDialog">新增向量化器</button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
                         <table class="data-table">
@@ -471,7 +471,7 @@
                                     <td class="text-center">{{ v.vector_dimension ?? '-' }}</td>
                                     <td class="text-center">{{ v.vector_count ?? '-' }}</td>
                                     <td class="text-center">
-                                        <span v-if="v.is_active" class="status-badge status-badge--success">当前</span>
+                                        <span v-if="v.is_active" class="adm-badge adm-badge--success status-badge status-badge--success">当前</span>
                                         <button v-else class="btn-link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
@@ -479,8 +479,8 @@
                                         </button>
                                     </td>
                                     <td>
-                                        <div class="row-actions">
-                                            <button class="act-btn act-btn--secondary"
+                                        <div class="row-actions adm-action-row">
+                                            <button class="adm-action-btn act-btn act-btn--secondary"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -490,7 +490,7 @@
                                                     <path d="M12 5l7 7-7 7" />
                                                 </svg>
                                             </button>
-                                            <button class="act-btn act-btn--danger"
+                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -522,7 +522,7 @@
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入搜索关键词..."
                                 @keyup.enter="handleSearch" />
-                            <button class="btn-primary" :disabled="searchLoading" @click="handleSearch">
+                            <button class="adm-button adm-button--primary btn-primary" :disabled="searchLoading" @click="handleSearch">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round">
@@ -563,7 +563,7 @@
                             </div>
                         </div>
                     </div>
-                    <div v-else-if="searchPerformed" class="empty-state glass-card" style="padding: var(--spacing-xl)">
+                    <div v-else-if="searchPerformed" class="empty-state adm-state adm-state--empty glass-card" style="padding: var(--spacing-xl)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24"
                             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                             stroke-linejoin="round">
