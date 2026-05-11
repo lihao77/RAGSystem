@@ -2429,16 +2429,40 @@ onMounted(() => {
     .tab-nav {
         width: 100%;
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 2px;
     }
 
+    .tab-nav::before {
+        display: none;
+    }
+
     .tab-btn {
+        min-width: 0;
         padding: 8px 6px;
+        border: 1px solid transparent;
         font-size: 12px;
         justify-content: center;
         flex-direction: column;
         gap: 3px;
+        white-space: nowrap;
+    }
+
+    .tab-btn--active {
+        border-color: var(--color-border-hover);
+        background: var(--color-bg-elevated);
+    }
+
+    .tab-btn__content {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .tab-label {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
         white-space: nowrap;
     }
 
@@ -2562,6 +2586,10 @@ onMounted(() => {
     }
 
     /* Tab：图标隐藏，只留文字 */
+    .tab-nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .tab-icon {
         display: none;
     }

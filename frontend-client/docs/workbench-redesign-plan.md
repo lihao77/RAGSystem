@@ -211,9 +211,15 @@
 
 ## 阶段 7: 测试与回归清单
 
+状态: 进行中
+
 每个阶段至少执行:
 - `npm run build`
 - `npm test`
+- `git diff --check`
+
+关键布局改动额外执行:
+- `npm run screenshot:smoke`
 
 关键手工回归:
 - 新聊天创建。
@@ -261,3 +267,4 @@
 - 2026-05-12: 阶段 5 完成。`VectorLibraryManager` 的表格操作、状态徽标和加载/空态补齐共享类；`DaemonManager` 的状态概览、操作按钮、空态和弹窗接入 `adm-*` 控制台基础类；`SystemConfig` 的加载/错误态改为共享状态容器，`AgentConfig`、`MCPManager`、`AgentMonitor` 的局部空态完成补齐。
 - 2026-05-12: 阶段 6 启动。全局视觉 token 收敛为低透明、低阴影、无 glow；移除 body radial 环境光并降低网格背景存在感；`PageLayout` 通用按钮、菜单和 `pl-card` 从 glass/pill/抬升风格改为 8px-12px 工具型控件；移动端 sidebar 去除 blur 并降低阴影。
 - 2026-05-12: 阶段 6 完成。管理页 KPI 图标、平台图标和辅助标识收敛为中性工具样式，局部渐变主按钮改为扁平主按钮；`VectorLibraryManager` 移除与激活提示条重复的“激活向量化器” KPI 卡，并修正移动端工具栏换行；已用 headless Chrome 生成 `screenshots/stage6-team-builder-mobile.png`、`screenshots/stage6-vector-library-mobile.png`、`screenshots/stage6-mcp-narrow.png`、`screenshots/stage6-daemon-narrow.png`；`npm run build`、`npm test`、`git diff --check` 通过。
+- 2026-05-12: 阶段 7 启动。新增 `npm run screenshot:smoke`，自动启动 Vite、调用本机 Chrome/Edge，对 Team、知识库、MCP、守护 Agent 的移动端/窄屏关键路径生成截图并做非空校验；`screenshots/` 加入忽略列表，避免 smoke 产物污染工作树；知识库移动端 Tab 改为 2x2 工具型分段布局。
