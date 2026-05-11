@@ -25,5 +25,29 @@ export default defineConfig(({ mode }) => {
       },
       host: true,
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, '/')
+            if (normalizedId.includes('/node_modules/zrender/')) {
+              return 'vendor-zrender'
+            }
+            if (normalizedId.includes('/node_modules/echarts/')) {
+              if (normalizedId.includes('/node_modules/echarts/lib/chart/')) {
+                return 'vendor-echarts-charts'
+              }
+              if (normalizedId.includes('/node_modules/echarts/lib/component/')) {
+                return 'vendor-echarts-components'
+              }
+              if (normalizedId.includes('/node_modules/echarts/lib/coord/')) {
+                return 'vendor-echarts-coord'
+              }
+              return 'vendor-echarts-core'
+            }
+          },
+        },
+      },
+    },
   }
 })

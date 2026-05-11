@@ -1,14 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import MainLayout from '../layouts/MainLayout.vue';
-import ChatViewV2 from '../views/ChatViewV2.vue';
-import AgentMonitor from '../views/AgentMonitor.vue';
-import AgentConfig from '../views/AgentConfig.vue';
-import TeamBuilder from '../views/TeamBuilder.vue';
-import MCPManager from '../views/MCPManager.vue';
-import VectorLibraryManager from '../views/VectorLibraryManager.vue';
-import ModelProviderManager from '../views/ModelProviderManager.vue';
-import DaemonManager from '../views/DaemonManager.vue';
-import SystemConfig from '../views/SystemConfig.vue';
+
+const ChatViewV2 = () => import('../views/ChatViewV2.vue');
+const AgentMonitor = () => import('../views/AgentMonitor.vue');
+const AgentConfig = () => import('../views/AgentConfig.vue');
+const TeamBuilder = () => import('../views/TeamBuilder.vue');
+const MCPManager = () => import('../views/MCPManager.vue');
+const VectorLibraryManager = () => import('../views/VectorLibraryManager.vue');
+const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
+const DaemonManager = () => import('../views/DaemonManager.vue');
+const SystemConfig = () => import('../views/SystemConfig.vue');
 
 const shellMeta = {
   depth: 0,

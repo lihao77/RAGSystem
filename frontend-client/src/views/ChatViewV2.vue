@@ -193,7 +193,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { applyStep } from '../utils/executionProjector';
@@ -217,7 +217,6 @@ import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
 import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import ChatInput from '../components/ChatInput.vue';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
-import SituationScreen from '../components/SituationScreen.vue';
 
 import LiquidGlass from '../components/LiquidGlass.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
@@ -230,6 +229,8 @@ import SessionContextInfoButton from '../components/chat/SessionContextInfoButto
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
+
+const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
 
 // Props
 const props = defineProps({

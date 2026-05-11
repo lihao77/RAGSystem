@@ -56,9 +56,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import ChartRenderer from './ChartRenderer.vue';
-import MapRenderer from './MapRenderer.vue';
+import { ref, computed, defineAsyncComponent, onMounted } from 'vue';
+
+const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'));
+const MapRenderer = defineAsyncComponent(() => import('./MapRenderer.vue'));
 
 const props = defineProps({
   artifactId: {

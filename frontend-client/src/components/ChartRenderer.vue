@@ -79,7 +79,37 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
+import {
+  DatasetComponent,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  ToolboxComponent,
+  TooltipComponent,
+  TransformComponent,
+  VisualMapComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+echarts.use([
+  BarChart,
+  LineChart,
+  PieChart,
+  ScatterChart,
+  DatasetComponent,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  ToolboxComponent,
+  TooltipComponent,
+  TransformComponent,
+  VisualMapComponent,
+  CanvasRenderer,
+]);
 
 const props = defineProps({
   echartsConfig: {
@@ -182,11 +212,8 @@ const initChart = (container) => {
     chartInstance.value.dispose();
   }
 
-  // 检测当前主题
-  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-
   // 创建新实例
-  chartInstance.value = echarts.init(container, isDark ? 'dark' : null);
+  chartInstance.value = echarts.init(container);
 
   // 构建最终配置（使用提取的公共函数）
   const finalOption = buildFinalOption(props.echartsConfig);
