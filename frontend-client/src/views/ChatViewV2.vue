@@ -418,17 +418,7 @@ const {
   showToast: (...a) => showToast(...a),
 });
 
-const effectiveShowWorkPanel = computed(() => (
-  showWorkPanel.value
-  && (
-    messages.value.length > 0
-    || isLoading.value
-    || _activeRun.active
-    || approvalQueue.value.length > 0
-    || Boolean(pendingUserInput.value)
-  )
-));
-const visibleWorkPanel = computed(() => effectiveShowWorkPanel.value && !switchingToNewChat.value);
+const visibleWorkPanel = computed(() => showWorkPanel.value);
 
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,

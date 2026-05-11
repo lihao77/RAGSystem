@@ -2,8 +2,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 const WIDE_BREAKPOINT = 1200
 
+function getInitialWideScreen() {
+  return typeof window !== 'undefined'
+    ? window.matchMedia(`(min-width: ${WIDE_BREAKPOINT}px)`).matches
+    : false
+}
+
 export function useWorkbenchLayout() {
-  const isWideScreen = ref(false)
+  const isWideScreen = ref(getInitialWideScreen())
   const _manualOverride = ref(null) // null = auto, true/false = manual
 
   let mq = null

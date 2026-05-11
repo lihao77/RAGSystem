@@ -28,7 +28,7 @@
 
         <div v-else-if="approvalQueue.length === 0 && !pendingUserInput" class="wp-empty">
           <div class="wp-empty-icon" aria-hidden="true"></div>
-          <div class="wp-empty-text">暂无执行记录</div>
+          <div class="wp-empty-text">{{ emptyStateText }}</div>
         </div>
       </Transition>
 
@@ -86,6 +86,8 @@ const messageCompleted = computed(() => {
   const msg = props.currentMessage
   return Boolean(msg?.finished && !props.activeRun?.active && !messageHasError.value)
 })
+
+const emptyStateText = computed(() => props.sessionId ? '暂无执行记录' : '等待第一条任务')
 
 function isErrorStatusItem(item) {
   if (!item) return false
