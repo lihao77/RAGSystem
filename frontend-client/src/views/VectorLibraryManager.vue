@@ -74,12 +74,12 @@
             </section>
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="tab-nav glass-card" ref="tabNavRef">
-                <button v-for="tab in tabs" :key="tab.id" class="tab-btn"
-                    :class="{ 'tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
-                    <span class="tab-btn__content">
-                        <span class="tab-icon" v-html="tab.icon"></span>
-                        <span class="tab-label">{{ tab.label }}</span>
+            <nav class="adm-tabs adm-tabs--four tab-nav" ref="tabNavRef">
+                <button v-for="tab in tabs" :key="tab.id" class="adm-tab tab-btn"
+                    :class="{ 'adm-tab--active tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
+                    <span class="adm-tab__content tab-btn__content">
+                        <span class="adm-tab__icon tab-icon" v-html="tab.icon"></span>
+                        <span class="adm-tab__label tab-label">{{ tab.label }}</span>
                     </span>
                 </button>
             </nav>
@@ -1446,84 +1446,6 @@ onMounted(() => {
     color: var(--color-warning);
 }
 
-/* ─── Tab 导航 ──────────────────────────────────────────── */
-.tab-nav {
-    position: relative;
-    display: flex;
-    gap: 2px;
-    padding: 4px;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    box-shadow: var(--glass-shadow);
-    width: fit-content;
-}
-
-.tab-nav::before {
-    content: '';
-    position: absolute;
-    top: 4px;
-    left: var(--slider-left, 4px);
-    width: var(--slider-width, 0px);
-    height: calc(100% - 8px);
-    background: var(--color-bg-elevated);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-border-hover);
-    box-shadow:
-        0 2px 8px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 var(--color-soft-inset);
-    transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 0;
-    pointer-events: none;
-}
-
-.tab-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 18px;
-    border-radius: var(--radius-md);
-    border: none;
-    background: transparent;
-    color: var(--color-text-secondary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: color 0.2s;
-    white-space: nowrap;
-    position: relative;
-    z-index: 1;
-}
-
-.tab-btn:hover {
-    color: var(--color-text-primary);
-}
-
-.tab-btn--active {
-    background: transparent;
-    color: var(--color-text-primary);
-    font-weight: 500;
-    box-shadow: none;
-}
-
-.tab-btn__content {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-}
-
-.tab-icon {
-    display: flex;
-    align-items: center;
-}
-
-.tab-label {
-    display: inline-block;
-}
-
 /* ─── Tab 内容 ──────────────────────────────────────────── */
 .tab-content {
     display: flex;
@@ -2425,47 +2347,6 @@ onMounted(() => {
         font-size: var(--font-size-xl);
     }
 
-    /* Tab 导航：等宽平铺 */
-    .tab-nav {
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 2px;
-    }
-
-    .tab-nav::before {
-        display: none;
-    }
-
-    .tab-btn {
-        min-width: 0;
-        padding: 8px 6px;
-        border: 1px solid transparent;
-        font-size: 12px;
-        justify-content: center;
-        flex-direction: column;
-        gap: 3px;
-        white-space: nowrap;
-    }
-
-    .tab-btn--active {
-        border-color: var(--color-border-hover);
-        background: var(--color-bg-elevated);
-    }
-
-    .tab-btn__content {
-        min-width: 0;
-        max-width: 100%;
-    }
-
-    .tab-label {
-        min-width: 0;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
     .tab-badge {
         display: none;
     }
@@ -2583,21 +2464,6 @@ onMounted(() => {
         flex: 1 1 0;
         width: auto;
         min-width: 0;
-    }
-
-    /* Tab：图标隐藏，只留文字 */
-    .tab-nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .tab-icon {
-        display: none;
-    }
-
-    .tab-btn {
-        flex-direction: row;
-        font-size: 11px;
-        padding: 7px 4px;
     }
 
     /* 按钮文字缩减 */

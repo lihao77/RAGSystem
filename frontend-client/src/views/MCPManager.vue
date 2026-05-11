@@ -88,17 +88,17 @@
     </section>
 
     <!-- ── Tab 导航 ───────────────────────────────────────── -->
-    <nav class="tab-nav glass-card" ref="tabNavRef">
+    <nav class="adm-tabs adm-tabs--three tab-nav" ref="tabNavRef">
       <button
         v-for="tab in tabs"
         :key="tab.id"
-        class="tab-btn"
-        :class="{ 'tab-btn--active': activeTab === tab.id }"
+        class="adm-tab tab-btn"
+        :class="{ 'adm-tab--active tab-btn--active': activeTab === tab.id }"
         @click="activeTab = tab.id"
       >
-        <span class="tab-btn__content">
-          <span class="tab-icon" v-html="tab.icon"></span>
-          <span class="tab-label">{{ tab.label }}</span>
+        <span class="adm-tab__content tab-btn__content">
+          <span class="adm-tab__icon tab-icon" v-html="tab.icon"></span>
+          <span class="adm-tab__label tab-label">{{ tab.label }}</span>
         </span>
       </button>
     </nav>
@@ -1431,74 +1431,6 @@ onUnmounted(() => {
 .summary-value--enabled   { color: var(--color-active); }
 .summary-value--tools     { color: var(--color-warning); }
 
-/* ─── Tab 导航 ──────────────────────────────────────────── */
-.tab-nav {
-  position: relative;
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-glass-border);
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
-  width: fit-content;
-}
-
-.tab-nav::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  left: var(--slider-left, 4px);
-  width: var(--slider-width, 0px);
-  height: calc(100% - 8px);
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-hover);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 var(--color-soft-inset);
-  transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 0;
-  pointer-events: none;
-}
-
-.tab-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 18px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition: color 0.2s;
-  white-space: nowrap;
-  position: relative;
-  z-index: 1;
-}
-.tab-btn:hover { color: var(--color-text-primary); }
-.tab-btn--active {
-  background: transparent;
-  color: var(--color-text-primary);
-  font-weight: 500;
-  box-shadow: none;
-}
-
-.tab-btn__content {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.tab-icon { display: flex; align-items: center; }
-.tab-label { display: inline-block; }
-
 /* ─── Tab 内容区 ────────────────────────────────────────── */
 .tab-content { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 
@@ -2221,15 +2153,6 @@ onUnmounted(() => {
   .section-toolbar {
     flex-direction: column;
     align-items: stretch;
-  }
-  .tab-nav {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .tab-btn {
-    min-width: 0;
-    padding: 8px 10px;
   }
   .template-detail-header {
     flex-direction: column;

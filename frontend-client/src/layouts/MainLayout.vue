@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-layout">
+  <div class="chat-layout" :class="{ 'chat-layout--sidebar-overlay': isMobile }">
     <div class="sidebar-backdrop" :class="{ active: mobileOpen }" @click="closeMobileSidebar"></div>
 
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }">
@@ -191,6 +191,7 @@ const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
 const sidebarNavItems = [sidebarAdminNavItem];
+const sidebarOverlayBreakpoint = computed(() => isChatRoute.value ? 768 : 900);
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -220,7 +221,7 @@ const getChildProps = (childRoute) => {
 };
 
 const checkMobile = () => {
-  isMobile.value = window.innerWidth < 768;
+  isMobile.value = window.innerWidth < sidebarOverlayBreakpoint.value;
   if (!isMobile.value) {
     mobileOpen.value = false;
     document.body.style.overflow = '';
@@ -241,6 +242,8 @@ provide('shellSidebarControl', {
   openMobileSidebar,
   closeMobileSidebar,
 });
+
+watch(sidebarOverlayBreakpoint, checkMobile);
 
 const toggleSidebar = () => {
   if (isMobile.value) {
@@ -1138,39 +1141,37 @@ onUnmounted(() => {
   height: 12px;
 }
 
-@media (max-width: 767px) {
-  .chat-layout {
-    padding: 0;
-    gap: 0;
-  }
+.chat-layout--sidebar-overlay {
+  padding: 0;
+  gap: 0;
+}
 
-  .sidebar-backdrop {
-    background: rgba(6, 8, 12, 0.42);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
+.chat-layout--sidebar-overlay .sidebar-backdrop {
+  background: rgba(6, 8, 12, 0.42);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 
-  .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    border-radius: 0 12px 12px 0;
-    transform: translateX(-100%);
-    width: 280px;
-    background: var(--color-bg-elevated);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    border-right: 1px solid var(--color-border);
-    box-shadow: var(--shadow-lg);
-  }
+.chat-layout--sidebar-overlay .sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 0 12px 12px 0;
+  transform: translateX(-100%);
+  width: 280px;
+  background: var(--color-bg-elevated);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-right: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+}
 
-  .sidebar.mobile-open {
-    transform: translateX(0);
-  }
+.chat-layout--sidebar-overlay .sidebar.mobile-open {
+  transform: translateX(0);
+}
 
-  .sidebar.collapsed {
-    width: 280px;
-  }
+.chat-layout--sidebar-overlay .sidebar.collapsed {
+  width: 280px;
 }
 </style>

@@ -269,3 +269,4 @@
 - 2026-05-12: 阶段 6 完成。管理页 KPI 图标、平台图标和辅助标识收敛为中性工具样式，局部渐变主按钮改为扁平主按钮；`VectorLibraryManager` 移除与激活提示条重复的“激活向量化器” KPI 卡，并修正移动端工具栏换行；已用 headless Chrome 生成 `screenshots/stage6-team-builder-mobile.png`、`screenshots/stage6-vector-library-mobile.png`、`screenshots/stage6-mcp-narrow.png`、`screenshots/stage6-daemon-narrow.png`；`npm run build`、`npm test`、`git diff --check` 通过。
 - 2026-05-12: 阶段 7 启动。新增 `npm run screenshot:smoke`，自动启动 Vite、调用本机 Chrome/Edge，对 Team、知识库、MCP、守护 Agent 的移动端/窄屏关键路径生成截图并做非空校验；`screenshots/` 加入忽略列表，避免 smoke 产物污染工作树；知识库移动端 Tab 改为 2x2 工具型分段布局。
 - 2026-05-12: 阶段 7 继续增强。`npm run screenshot:smoke` 改为通过 Chrome DevTools Protocol 驱动页面，同步校验 `document.scrollWidth` 是否超过视口，能在截图生成时直接拦截横向溢出回归；四个 smoke 页面均通过。
+- 2026-05-12: 阶段 7 继续收敛页面风格。管理类页面在 900px 以下提前使用覆盖式侧栏，避免窄屏主内容被挤压；`MCPManager` 与 `VectorLibraryManager` 的 Tab 导航接入共享 `adm-tabs` 工具型分段控件，移除局部 glass/blur 样式和重复响应式规则；`npm run build`、`npm test`、`npm run screenshot:smoke`、`git diff --check` 通过。
