@@ -117,15 +117,17 @@
       @retry="loadServers"
     >
       <template #actions>
-        <button class="pl-btn" :disabled="loadingServers" @click="loadServers">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
+        <UiButton :disabled="loadingServers" @click="loadServers">
+          <template #icon>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </template>
           刷新
-        </button>
+        </UiButton>
       </template>
 
       <template #empty-icon>
@@ -264,15 +266,17 @@
           <h2 class="section-title">模板安装</h2>
           <p class="section-desc">从预置模板快速安装常用 MCP 服务。</p>
         </div>
-        <button class="pl-btn" :disabled="loadingTemplates" @click="loadTemplates">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
+        <UiButton :disabled="loadingTemplates" @click="loadTemplates">
+          <template #icon>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </template>
           刷新模板
-        </button>
+        </UiButton>
       </div>
 
       <div class="install-layout">
@@ -389,16 +393,18 @@
             </label>
 
             <div class="form-actions">
-              <button class="btn-ghost" @click="resetInstallForm">重置</button>
-              <button class="pl-btn pl-btn--primary" :disabled="installing" @click="installSelectedTemplate">
-                <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-                <div v-else class="spinner spinner--sm spinner--inline"></div>
+              <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
+              <UiButton variant="primary" size="compact" :disabled="installing" @click="installSelectedTemplate">
+                <template #icon>
+                  <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <div v-else class="spinner spinner--sm spinner--inline"></div>
+                </template>
                 {{ installing ? '安装中...' : '安装服务' }}
-              </button>
+              </UiButton>
             </div>
           </template>
         </div>
@@ -436,9 +442,9 @@
           </div>
           <span>仅最新版本</span>
         </label>
-        <button class="pl-btn" :disabled="loadingRegistryResults" @click="searchRegistryServers">
+        <UiButton :disabled="loadingRegistryResults" @click="searchRegistryServers">
           {{ loadingRegistryResults ? '搜索中...' : '搜索' }}
-        </button>
+        </UiButton>
       </div>
 
       <div v-if="loadingRegistryResults" class="state-panel adm-state">
@@ -640,11 +646,13 @@
           </div>
 
           <div class="modal-footer adm-modal-footer">
-            <button class="adm-button btn-ghost" @click="closeRegistryInstallDialog">取消</button>
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
-              <div v-if="installingRegistry" class="spinner spinner--sm spinner--inline"></div>
+            <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
+            <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
+              <template v-if="installingRegistry" #icon>
+                <div class="spinner spinner--sm spinner--inline"></div>
+              </template>
               {{ installingRegistry ? '安装中...' : '安装服务' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </div>
@@ -750,11 +758,13 @@
           </div>
 
           <div class="modal-footer adm-modal-footer">
-            <button class="adm-button btn-ghost" @click="closeEditDialog">取消</button>
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" :disabled="savingEdit" @click="saveEdit">
-              <div v-if="savingEdit" class="spinner spinner--sm spinner--inline"></div>
+            <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
+            <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">
+              <template v-if="savingEdit" #icon>
+                <div class="spinner spinner--sm spinner--inline"></div>
+              </template>
               {{ savingEdit ? '保存中...' : '保存更改' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </div>
@@ -808,6 +818,7 @@ import CustomSelect from '../components/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import NumberInput from '../components/NumberInput.vue';
 import PageLayout from '../components/PageLayout.vue';
+import { UiButton } from '../components/ui';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import {
   connectMCPServer,

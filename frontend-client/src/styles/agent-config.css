@@ -209,6 +209,10 @@
   align-items: center;
 }
 
+.extra-param-delete-button {
+  justify-self: end;
+}
+
 /* ===== Form controls (inputs & selects) ===== */
 /* 优化表单控件 - Apple 风格 */
 .form-control {

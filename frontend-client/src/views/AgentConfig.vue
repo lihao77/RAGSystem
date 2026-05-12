@@ -18,20 +18,22 @@
         style="width: 200px"
         @update:model-value="selectedAgent = $event; handleAgentChange()"
       />
-      <button class="pl-btn pl-btn--icon" :disabled="saving || agentLoading" title="新建 Agent" @click="openCreateDialog">
+      <UiIconButton label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
         </svg>
-      </button>
-      <button v-if="selectedAgent" class="pl-btn pl-btn--primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-          <polyline points="17 21 17 13 7 13 7 21"></polyline>
-          <polyline points="7 3 7 8 15 8"></polyline>
-        </svg>
+      </UiIconButton>
+      <UiButton v-if="selectedAgent" variant="primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
+        <template #icon>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+        </template>
         <span>{{ saving ? '保存中...' : '保存配置' }}</span>
-      </button>
+      </UiButton>
     </template>
 
     <template #header-menu="{ close }">
@@ -249,14 +251,14 @@
                     <div class="extra-param-editor">
                       <div class="field-label-row">
                         <span class="field-label-text">额外参数</span>
-                        <button type="button" class="pl-btn" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</button>
+                        <UiButton size="compact" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</UiButton>
                       </div>
                       <div v-if="configForm.llm_tiers.default?.extra_params_entries?.length" class="extra-param-list">
                         <div v-for="(entry, index) in configForm.llm_tiers.default.extra_params_entries" :key="`default-${index}`" class="extra-param-row">
                           <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
                           <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
                           <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
-                          <button type="button" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</button>
+                          <UiButton size="compact" variant="danger" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</UiButton>
                         </div>
                       </div>
                       <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
@@ -333,7 +335,7 @@
                       <div class="extra-param-editor">
                         <div class="field-label-row">
                           <span class="field-label-text">额外参数</span>
-                          <button type="button" class="pl-btn" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</button>
+                          <UiButton size="compact" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</UiButton>
                         </div>
                         <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
                           <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
@@ -345,7 +347,7 @@
                               @update:model-value="entry.type = $event"
                             />
                             <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
-                            <button type="button" :style="{width: '100%'}" class="pl-btn pl-btn--danger" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</button>
+                            <UiButton size="compact" variant="danger" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</UiButton>
                           </div>
                         </div>
                         <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
@@ -673,10 +675,10 @@
             </label>
           </div>
           <div class="modal-foot adm-modal-footer">
-            <button class="adm-button" :disabled="createDialog.loading" @click="closeCreateDialog">取消</button>
-            <button class="adm-button adm-button--primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
+            <UiButton size="compact" :disabled="createDialog.loading" @click="closeCreateDialog">取消</UiButton>
+            <UiButton size="compact" variant="primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
               {{ createDialog.loading ? '创建中...' : '创建' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </div>
@@ -699,10 +701,10 @@
             <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
           </div>
           <div class="modal-foot adm-modal-footer">
-            <button class="adm-button" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</button>
-            <button class="adm-button adm-button--danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
+            <UiButton size="compact" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</UiButton>
+            <UiButton size="compact" variant="danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
               {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </div>
@@ -731,6 +733,7 @@ import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import AppToast from '../components/AppToast.vue';
+import { UiButton, UiIconButton } from '../components/ui';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 const props = defineProps({
   embedded: { type: Boolean, default: false },
