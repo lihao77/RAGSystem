@@ -163,8 +163,7 @@
   box-shadow: none;
 }
 
-.adm-chip,
-.adm-badge {
+.adm-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -181,38 +180,6 @@
 
 .adm-chip {
   padding: 4px 8px;
-}
-
-.adm-badge {
-  padding: 3px 8px;
-}
-
-.adm-badge--success,
-.adm-badge.badge-success {
-  color: var(--color-success);
-  border-color: rgba(var(--color-success-rgb), 0.28);
-  background: rgba(var(--color-success-rgb), 0.1);
-}
-
-.adm-badge--warning,
-.adm-badge.badge-warning {
-  color: var(--color-warning);
-  border-color: rgba(var(--color-warning-rgb), 0.28);
-  background: rgba(var(--color-warning-rgb), 0.1);
-}
-
-.adm-badge--error,
-.adm-badge.badge-error {
-  color: var(--color-error);
-  border-color: rgba(var(--color-error-rgb), 0.28);
-  background: rgba(var(--color-error-rgb), 0.1);
-}
-
-.adm-badge--neutral,
-.adm-badge.badge-neutral {
-  color: var(--color-text-secondary);
-  border-color: var(--color-border);
-  background: var(--color-hover-overlay);
 }
 
 .adm-action-row {
@@ -271,45 +238,6 @@
 .adm-action-btn--danger:hover:not(:disabled) {
   border-color: rgba(var(--color-error-rgb), 0.4);
   background: rgba(var(--color-error-rgb), 0.1);
-}
-
-.adm-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: var(--control-height-compact);
-  padding: 0 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--control-radius);
-  background: transparent;
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.adm-button:hover:not(:disabled) {
-  border-color: var(--color-border-hover);
-  background: var(--color-hover-overlay);
-}
-
-.adm-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.adm-button--primary {
-  border-color: var(--color-brand-accent);
-  background: var(--color-brand-accent);
-  color: var(--color-on-color);
-}
-
-.adm-button--danger {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: rgba(var(--color-error-rgb), 0.08);
-  color: var(--color-error);
 }
 
 .adm-tabs.adm-tabs.adm-tabs {

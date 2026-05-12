@@ -2,25 +2,29 @@
   <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 飞书消息网关 · 定时调度 · 心跳监控">
     <template #header-actions>
       <div class="hdr-actions">
-        <button
-          class="adm-button pl-btn" :class="status.running ? 'pl-btn--danger adm-button--danger' : 'pl-btn--primary adm-button--primary'"
-          @click="toggleDaemon" :disabled="loading"
+        <UiButton
+          size="compact"
+          :variant="status.running ? 'danger' : 'primary'"
+          :disabled="loading"
+          @click="toggleDaemon"
         >
-          <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-          </svg>
-          <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          <span v-if="loading" class="btn-spin"/>
+          <template #icon>
+            <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+            </svg>
+            <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <span v-if="loading" class="btn-spin"/>
+          </template>
           {{ loading ? '...' : (status.running ? '停止' : '启动') }}
-        </button>
-        <button class="adm-button pl-btn pl-btn--ghost pl-btn--icon" @click="refresh" :disabled="loading" title="刷新">
+        </UiButton>
+        <UiIconButton variant="ghost" label="刷新" :disabled="loading" @click="refresh">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-        </button>
+        </UiIconButton>
       </div>
     </template>
 
@@ -30,7 +34,7 @@
       <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">状态概览</span>
-          <span class="adm-badge status-badge" :class="statusBadgeClass">{{ statusBadgeText }}</span>
+          <UiBadge class="status-badge" size="sm" :tone="statusBadgeTone">{{ statusBadgeText }}</UiBadge>
         </div>
         <div class="stats-grid adm-kpi-grid">
           <div class="stat-card adm-kpi-card">
@@ -82,9 +86,9 @@
             <div class="form-item">
               <label class="form-label">守护系统开关</label>
               <div class="toggle-row">
-                <span class="adm-badge status-badge" :class="baseForm.enabled ? 'status-badge--success adm-badge--success' : 'status-badge--neutral adm-badge--neutral'">
+                <UiBadge class="status-badge" size="sm" :tone="baseForm.enabled ? 'success' : 'neutral'">
                   {{ baseForm.enabled ? '已启用' : '未启用' }}
-                </span>
+                </UiBadge>
                 <button
                   class="toggle-btn" :class="{ 'toggle-btn--on': baseForm.enabled }"
                   @click="baseForm.enabled = !baseForm.enabled"
@@ -277,9 +281,9 @@
               <div class="cron-meta">
                 <span class="cron-name">{{ task.name || task.task_id }}</span>
                 <code class="cron-expr">{{ task.cron }}</code>
-                <span class="adm-badge status-badge" :class="task.enabled ? 'status-badge--success adm-badge--success' : 'status-badge--neutral adm-badge--neutral'">
+                <UiBadge class="status-badge" size="sm" :tone="task.enabled ? 'success' : 'neutral'">
                   {{ task.enabled ? '启用' : '禁用' }}
-                </span>
+                </UiBadge>
               </div>
               <div class="cron-desc">{{ taskDesc(task.task) }}</div>
               <div class="cron-footer">
@@ -324,9 +328,9 @@
           </div>
           <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
           <div class="push-foot">
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">
+            <UiButton size="compact" variant="primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">
               {{ pushSending ? '发送中...' : '发送' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </section>
@@ -383,10 +387,10 @@
             </div>
           </div>
           <div class="modal-foot adm-modal-footer">
-            <button class="adm-button pl-btn pl-btn--ghost" @click="showConfigModal = false">取消</button>
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="savePlatformConfig" :disabled="configSaving">
+            <UiButton size="compact" @click="showConfigModal = false">取消</UiButton>
+            <UiButton size="compact" variant="primary" @click="savePlatformConfig" :disabled="configSaving">
               {{ configSaving ? '保存中...' : '保存' }}
-            </button>
+            </UiButton>
           </div>
         </div>
       </div>
@@ -438,8 +442,8 @@
             </div>
           </div>
           <div class="modal-foot adm-modal-footer">
-            <button class="adm-button pl-btn pl-btn--ghost" @click="showAddTask = false">取消</button>
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handleAddTask">创建</button>
+            <UiButton size="compact" @click="showAddTask = false">取消</UiButton>
+            <UiButton size="compact" variant="primary" @click="handleAddTask">创建</UiButton>
           </div>
         </div>
       </div>
@@ -464,8 +468,8 @@
             </div>
           </div>
           <div class="modal-foot adm-modal-footer">
-            <button class="adm-button pl-btn pl-btn--ghost" @click="showTestDialog = false">取消</button>
-            <button class="adm-button adm-button--primary pl-btn pl-btn--primary" @click="handleTest">发送</button>
+            <UiButton size="compact" @click="showTestDialog = false">取消</UiButton>
+            <UiButton size="compact" variant="primary" @click="handleTest">发送</UiButton>
           </div>
         </div>
       </div>
@@ -478,6 +482,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PageLayout from '../components/PageLayout.vue'
 import CustomSelect from '../components/CustomSelect.vue'
+import { UiBadge, UiButton, UiIconButton } from '../components/ui'
 import { usePointerDownOutside } from '../composables/usePointerDownOutside'
 import * as api from '../api/daemon'
 import { getTeams, getAllAgentConfigs } from '../api/agentConfig'
@@ -579,10 +584,10 @@ const platformForm = ref({
 
 // ── 计算属性 ──
 
-const statusBadgeClass = computed(() => {
-  if (status.value.running) return 'status-badge--success adm-badge--success'
-  if (status.value.enabled) return 'status-badge--warning adm-badge--warning'
-  return 'status-badge--neutral adm-badge--neutral'
+const statusBadgeTone = computed(() => {
+  if (status.value.running) return 'success'
+  if (status.value.enabled) return 'warning'
+  return 'neutral'
 })
 
 const statusBadgeText = computed(() => {
@@ -948,33 +953,8 @@ onMounted(() => { refresh(); loadTeamAgentOptions() })
 
 /* ── 状态徽章 ── */
 .status-badge {
-  display: inline-flex; align-items: center;
-  padding: 2px 9px; border-radius: 999px;
-  font-size: 11px; font-weight: 500; line-height: 1.6;
+  line-height: 1.4;
 }
-.status-badge--success { background: rgba(var(--color-success-rgb),.14); color: var(--color-success); }
-.status-badge--warning { background: rgba(var(--color-warning-rgb),.14); color: var(--color-warning); }
-.status-badge--neutral { background: var(--color-hover-overlay); color: var(--color-text-secondary); }
-
-/* ── 按钮 ── */
-.pl-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 6px; height: 36px; min-height: 36px; padding: 0 14px;
-  border-radius: 18px; border: 1px solid var(--color-border);
-  background: var(--color-interactive); color: var(--color-text-primary);
-  font-size: 12px; font-weight: 500; cursor: pointer;
-  transition: background 0.18s, border-color 0.18s, opacity 0.18s;
-  white-space: nowrap; flex-shrink: 0; user-select: none;
-}
-.pl-btn:hover:not(:disabled) { background: var(--color-interactive-hover); border-color: var(--color-border-hover); }
-.pl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.pl-btn--primary { background: var(--color-brand-accent); color: #fff; border-color: transparent; }
-.pl-btn--primary:hover:not(:disabled) { opacity: 0.88; background: var(--color-brand-accent); }
-.pl-btn--danger { background: rgba(var(--color-error-rgb),.12); color: var(--color-error); border-color: rgba(var(--color-error-rgb),.28); }
-.pl-btn--danger:hover:not(:disabled) { background: rgba(var(--color-error-rgb),.2); }
-.pl-btn--ghost { background: transparent; color: var(--color-text-secondary); border-color: transparent; }
-.pl-btn--ghost:hover:not(:disabled) { background: var(--color-hover-overlay); color: var(--color-text-primary); }
-.pl-btn--icon { width: 36px; min-width: 36px; padding: 0; }
 
 .act-btn {
   display: inline-flex; align-items: center; justify-content: center;

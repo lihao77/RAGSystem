@@ -94,9 +94,9 @@
                 />
               </label>
               <div class="inline-actions inline-actions--wrap">
-                <button class="pl-btn pl-btn--primary" :disabled="working || !activeTeam" @click="goToAgentConfig">
+                <UiButton variant="primary" :disabled="working || !activeTeam" @click="goToAgentConfig">
                   前往当前 Team 配置页
-                </button>
+                </UiButton>
               </div>
             </div>
           </article>
@@ -125,7 +125,7 @@
                 </label>
               </div>
               <div class="section-actions">
-                <button class="pl-btn pl-btn--primary" :disabled="working" @click="handleCreateTeam">创建 Team</button>
+                <UiButton variant="primary" :disabled="working" @click="handleCreateTeam">创建 Team</UiButton>
               </div>
             </div>
           </article>
@@ -170,12 +170,12 @@
               </div>
             </div>
             <div class="inline-actions inline-actions--wrap composition-actions">
-              <button class="pl-btn pl-btn--ghost" :disabled="availableSourceAgents.length === 0" @click="selectAllAvailableAgents">
+              <UiButton variant="ghost" :disabled="availableSourceAgents.length === 0" @click="selectAllAvailableAgents">
                 全选可新增 Agent
-              </button>
-              <button class="pl-btn pl-btn--ghost" :disabled="copySourceAgents.length === 0" @click="selectAllSourceAgents">
+              </UiButton>
+              <UiButton variant="ghost" :disabled="copySourceAgents.length === 0" @click="selectAllSourceAgents">
                 全选来源 Agent
-              </button>
+              </UiButton>
               <span class="selection-hint">可新增 {{ availableSourceAgents.length }} 个，已存在 {{ conflictingSelectedAgents.length }} 个</span>
             </div>
           </div>
@@ -221,9 +221,9 @@
             <article class="board-transfer">
               <div class="transfer-stack">
                 <div class="transfer-badge">{{ selectedCopyAgents.length }} / {{ copySourceAgents.length }}</div>
-                <button class="pl-btn pl-btn--primary transfer-button" :disabled="working" @click="handleCopyAgents">
+                <UiButton class="transfer-button" variant="primary" :disabled="working" @click="handleCopyAgents">
                   复制到目标 Team
-                </button>
+                </UiButton>
                 <p class="transfer-hint">这是增量复制，不会覆盖目标 Team 已有的其他 Agent。</p>
               </div>
             </article>
@@ -293,9 +293,9 @@
                 <div class="team-card__identity">
                   <div class="team-card__title-row">
                     <h3>{{ team.team_name }}</h3>
-                    <span class="team-badge adm-badge" :class="team.is_active ? 'team-badge--active adm-badge--success' : 'adm-badge--neutral'">
+                    <UiBadge class="team-badge" size="sm" :tone="team.is_active ? 'success' : 'neutral'">
                       {{ team.is_active ? '当前生效' : `${team.agent_count} Agents` }}
-                    </span>
+                    </UiBadge>
                   </div>
                   <p>{{ team.file_path }}</p>
                 </div>
@@ -327,6 +327,7 @@ import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import AppToast from '../components/AppToast.vue';
+import { UiBadge, UiButton } from '../components/ui';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getAllAgentConfigs, getTeams, resetDefaultTeam } from '../api/agentConfig';
 
 const props = defineProps({
@@ -1059,20 +1060,8 @@ onMounted(() => {
 }
 
 .team-badge {
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
+  flex: 0 0 auto;
   white-space: nowrap;
-  background: var(--color-hover-overlay-md);
-  color: var(--color-text-secondary);
-}
-
-.team-badge--active {
-  border-color: rgba(var(--color-success-rgb), 0.28);
-  background: rgba(var(--color-success-rgb), 0.1);
-  color: var(--color-success);
 }
 
 .section-actions--compact {

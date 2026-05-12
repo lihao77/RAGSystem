@@ -160,7 +160,7 @@
             </div>
             <div class="server-card-badges">
               <span class="status-dot" :class="`status-dot--${server.status || 'unknown'}`" :title="server.status || 'unknown'"></span>
-              <span class="adm-badge badge" :class="statusBadgeClass(server.status)">{{ server.status || 'unknown' }}</span>
+              <UiBadge class="badge" size="sm" :tone="statusBadgeTone(server.status)">{{ server.status || 'unknown' }}</UiBadge>
             </div>
           </div>
 
@@ -506,12 +506,12 @@
           </div>
 
           <div class="registry-card-actions">
-            <button class="btn-accent btn-sm" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">
+            <UiButton size="sm" variant="primary" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">
               {{ quickInstallButtonText(item) }}
-            </button>
-            <button class="btn-secondary btn-sm" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">
+            </UiButton>
+            <UiButton size="sm" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">
               配置安装
-            </button>
+            </UiButton>
             <div class="registry-links">
               <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
@@ -534,9 +534,9 @@
       </div>
 
       <div v-if="registryNextCursor" class="load-more-row">
-        <button class="btn-secondary" :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">
+        <UiButton :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">
           {{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}
-        </button>
+        </UiButton>
       </div>
     </section>
 
@@ -818,7 +818,7 @@ import CustomSelect from '../components/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import NumberInput from '../components/NumberInput.vue';
 import PageLayout from '../components/PageLayout.vue';
-import { UiButton } from '../components/ui';
+import { UiBadge, UiButton } from '../components/ui';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import {
   connectMCPServer,
@@ -1017,11 +1017,11 @@ function openExternalLink(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-function statusBadgeClass(status) {
-  if (status === 'connected') return 'badge-success';
-  if (status === 'connecting') return 'badge-warning';
-  if (status === 'error') return 'badge-error';
-  return 'badge-neutral';
+function statusBadgeTone(status) {
+  if (status === 'connected') return 'success';
+  if (status === 'connecting') return 'warning';
+  if (status === 'error') return 'error';
+  return 'neutral';
 }
 
 function formatArgs(args) {
@@ -1454,32 +1454,6 @@ onUnmounted(() => {
 .toolbar-left { display: flex; flex-direction: column; gap: 2px; }
 .section-title { font-size: var(--font-size-lg); font-weight: 600; margin: 0; color: var(--color-text-primary); }
 .section-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
-/* ─── 轻量强调按钮（卡片内操作，无发光） */
-.btn-accent {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(var(--color-brand-accent-rgb), 0.4);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  color: var(--color-brand-accent-light);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
-}
-.btn-accent:hover:not(:disabled) {
-  background: rgba(var(--color-brand-accent-rgb), 0.22);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.6);
-}
-.btn-accent:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.btn-sm { height: 36px !important; padding: 0 14px; font-size: var(--font-size-xs); border-radius: 18px; }
 
 /* ─── 已安装服务行式列表 ────────────────────────────────── */
 .server-grid {

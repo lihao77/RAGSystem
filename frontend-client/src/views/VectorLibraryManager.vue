@@ -108,8 +108,7 @@
                             <p class="section-desc">每行为一个已上传文件，每列为一个向量化器，可逐项建立或查看索引状态。</p>
                         </div>
                         <div class="toolbar-right">
-                            <button class="pl-btn pl-btn--icon" :disabled="storeLoading" @click="refreshFileStatus"
-                                title="刷新索引状态">
+                            <UiIconButton label="刷新索引状态" :disabled="storeLoading" @click="refreshFileStatus">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round" :class="{ 'spin': storeLoading }">
@@ -117,20 +116,22 @@
                                     <polyline points="1 20 1 14 7 14" />
                                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                                 </svg>
-                            </button>
+                            </UiIconButton>
                             <div class="filter-select-wrap">
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
                                     placeholder="全部集合" />
                             </div>
-                            <button class="adm-button adm-button--primary btn-primary" @click="showIndexDialog = true">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
+                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="showIndexDialog = true">
+                                <template #icon>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                </template>
                                 索引新文档
-                            </button>
+                            </UiButton>
                         </div>
                     </div>
 
@@ -161,8 +162,8 @@
                                 <polyline points="14 2 14 8 20 8" />
                             </svg>
                             <p>{{ fileList.length === 0 ? '暂无已索引文件，点击「索引新文档」开始' : '当前集合下无文件，尝试清空筛选' }}</p>
-                            <button v-if="fileList.length === 0" class="adm-button adm-button--primary btn-primary"
-                                @click="showIndexDialog = true">索引新文档</button>
+                            <UiButton v-if="fileList.length === 0" class="primary-action-button" variant="primary" size="compact"
+                                @click="showIndexDialog = true">索引新文档</UiButton>
                         </div>
                         <div v-else class="table-scroll">
                             <table class="data-table matrix-table">
@@ -199,8 +200,8 @@
                                         <!-- 各向量化器状态单元格 -->
                                         <td v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
                                             class="text-center">
-                                            <span v-if="row.vectorizer_status?.[v.vectorizer_key] === '已索引'"
-                                                class="adm-badge adm-badge--success status-badge status-badge--success">已索引</span>
+                                            <UiBadge v-if="row.vectorizer_status?.[v.vectorizer_key] === '已索引'"
+                                                class="status-badge" size="sm" tone="success">已索引</UiBadge>
                                             <button v-else class="adm-action-btn btn-index-cell"
                                                 :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
                                                 @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
@@ -248,15 +249,17 @@
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入查询文本..."
                                 @keyup.enter="handleSearch" />
-                            <button class="adm-button adm-button--primary btn-primary" :disabled="searchLoading" @click="handleSearch">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8" />
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                </svg>
+                            <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
+                                <template #icon>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8" />
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                    </svg>
+                                </template>
                                 {{ searchLoading ? '搜索中...' : '搜索' }}
-                            </button>
+                            </UiButton>
                             <div class="search-option">
                                 <label>Top K</label>
                                 <input v-model.number="searchTopK" type="number" min="1" max="20"
@@ -333,7 +336,7 @@
                                 <polyline points="14 2 14 8 20 8" />
                             </svg>
                             <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
-                            <button class="adm-button adm-button--primary btn-primary" @click="triggerFileInput">上传文件</button>
+                            <UiButton class="primary-action-button" variant="primary" size="compact" @click="triggerFileInput">上传文件</UiButton>
                         </div>
                         <table v-else class="data-table">
                             <thead>
@@ -398,8 +401,8 @@
                             <p class="section-desc">配置多套向量化器，激活后用于新建索引；支持向量化器间的数据迁移。</p>
                         </div>
                         <div class="toolbar-right">
-                            <button class="pl-btn pl-btn--icon" :disabled="vectorizersLoading"
-                                @click="refreshVectorizers" title="刷新向量化器">
+                            <UiIconButton label="刷新向量化器" :disabled="vectorizersLoading"
+                                @click="refreshVectorizers">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round" :class="{ 'spin': vectorizersLoading }">
@@ -407,16 +410,18 @@
                                     <polyline points="1 20 1 14 7 14" />
                                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                                 </svg>
-                            </button>
-                            <button class="adm-button adm-button--primary btn-primary" @click="openAddVectorizerDialog">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <line x1="12" y1="5" x2="12" y2="19" />
-                                    <line x1="5" y1="12" x2="19" y2="12" />
-                                </svg>
+                            </UiIconButton>
+                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddVectorizerDialog">
+                                <template #icon>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                </template>
                                 新增向量化器
-                            </button>
+                            </UiButton>
                         </div>
                     </div>
 
@@ -432,7 +437,7 @@
                             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                         </svg>
                         <p>暂无向量化器，添加后即可在「向量库管理」中建立索引。</p>
-                        <button class="adm-button adm-button--primary btn-primary" @click="openAddVectorizerDialog">新增向量化器</button>
+                        <UiButton class="primary-action-button" variant="primary" size="compact" @click="openAddVectorizerDialog">新增向量化器</UiButton>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
                         <table class="data-table">
@@ -456,7 +461,7 @@
                                     <td class="text-center">{{ v.vector_dimension ?? '-' }}</td>
                                     <td class="text-center">{{ v.vector_count ?? '-' }}</td>
                                     <td class="text-center">
-                                        <span v-if="v.is_active" class="adm-badge adm-badge--success status-badge status-badge--success">当前</span>
+                                        <UiBadge v-if="v.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
                                         <button v-else class="btn-link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
@@ -507,15 +512,17 @@
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入搜索关键词..."
                                 @keyup.enter="handleSearch" />
-                            <button class="adm-button adm-button--primary btn-primary" :disabled="searchLoading" @click="handleSearch">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8" />
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                </svg>
+                            <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
+                                <template #icon>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8" />
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                    </svg>
+                                </template>
                                 {{ searchLoading ? '搜索中...' : '搜索' }}
-                            </button>
+                            </UiButton>
                         </div>
                         <div class="search-options-row">
                             <div class="search-option">
@@ -671,10 +678,10 @@
                         </div>
                     </div>
                     <div class="modal-footer adm-modal-footer">
-                        <button class="adm-button" @click="showIndexDialog = false">取消</button>
-                        <button class="adm-button adm-button--primary" :disabled="indexing" @click="handleIndexDocument">
+                        <UiButton size="compact" @click="showIndexDialog = false">取消</UiButton>
+                        <UiButton size="compact" variant="primary" :disabled="indexing" @click="handleIndexDocument">
                             {{ indexing ? '索引中...' : '开始索引' }}
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
@@ -711,12 +718,12 @@
                         </div>
                     </div>
                     <div class="modal-footer adm-modal-footer">
-                        <button class="adm-button" @click="showAddVectorizerDialog = false">取消</button>
-                        <button class="adm-button adm-button--primary"
+                        <UiButton size="compact" @click="showAddVectorizerDialog = false">取消</UiButton>
+                        <UiButton size="compact" variant="primary"
                             :disabled="addingVectorizer || !addVectorizerForm.provider_key || !addVectorizerForm.model_name"
                             @click="handleAddVectorizer">
                             {{ addingVectorizer ? '添加中...' : '确定' }}
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
@@ -741,10 +748,10 @@
                         </div>
                     </div>
                     <div class="modal-footer adm-modal-footer">
-                        <button class="adm-button" @click="showMigrateDialog = false">取消</button>
-                        <button class="adm-button adm-button--primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
+                        <UiButton size="compact" @click="showMigrateDialog = false">取消</UiButton>
+                        <UiButton size="compact" variant="primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
                             {{ migrating ? '迁移中...' : '开始迁移' }}
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
@@ -775,6 +782,7 @@ import {
     uploadFiles,
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/CustomSelect.vue';
+import { UiBadge, UiButton, UiIconButton } from '../components/ui';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
 const props = defineProps({
@@ -1557,56 +1565,6 @@ onMounted(() => {
     to { transform: rotate(360deg); }
 }
 
-.btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    height: 40px;
-    padding: 0 20px;
-    border-radius: 8px;
-    border: 1px solid var(--color-brand-accent);
-    background: var(--color-brand-accent);
-    color: var(--color-on-color);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    cursor: pointer;
-    transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
-    white-space: nowrap;
-}
-
-.btn-primary:hover:not(:disabled) {
-    border-color: var(--color-brand-accent-light);
-    background: var(--color-brand-accent-light);
-    box-shadow: none;
-}
-
-.btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    height: 40px;
-    padding: 0 16px;
-    border-radius: 20px;
-    border: 1px solid var(--color-border);
-    background: var(--color-interactive);
-    color: var(--color-text-primary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-secondary:hover {
-    background: var(--color-interactive-hover);
-}
-
 .btn-link {
     background: none;
     border: none;
@@ -1811,18 +1769,7 @@ onMounted(() => {
 
 /* 状态标签 */
 .status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
-    font-size: var(--font-size-xs);
-    font-weight: 500;
-}
-
-.status-badge--success {
-    background: rgba(var(--color-success-rgb), 0.15);
-    color: var(--color-success);
-    border: 1px solid rgba(var(--color-success-rgb), 0.25);
+    white-space: nowrap;
 }
 
 /* 矩阵单元格内的索引按钮 */
@@ -2467,7 +2414,9 @@ onMounted(() => {
     }
 
     /* 按钮文字缩减 */
-    .btn-primary {
+    .primary-action-button,
+    .toolbar-primary-action,
+    .search-submit-button {
         font-size: 12px;
     }
 
@@ -2482,12 +2431,12 @@ onMounted(() => {
         width: 100%;
     }
 
-    .toolbar-right .btn-primary {
+    .toolbar-right .toolbar-primary-action {
         grid-column: 1 / -1;
         width: 100%;
     }
 
-    .search-box .btn-primary {
+    .search-box .search-submit-button {
         width: 100%;
     }
 
