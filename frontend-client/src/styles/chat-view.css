@@ -1848,7 +1848,8 @@
 
   /* 主聊天区域占满全屏 */
   .chat-main {
-    width: 100vw;
+    width: 100%;
+    max-width: 100%;
     margin-left: 0;
     border-radius: 0;
   }

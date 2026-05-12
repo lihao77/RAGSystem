@@ -846,13 +846,12 @@ input[type='number'].form-control {
   --slider-left: 6px;
   display: none;
   position: fixed;
-  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(560px, calc(100vw - 24px));
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - 32px);
   z-index: var(--z-dropdown);
-  padding: 6px;
+  padding: 6px 12px;
   background: var(--glass-bg);
   backdrop-filter: blur(32px) saturate(240%);
   -webkit-backdrop-filter: blur(32px) saturate(240%);
@@ -933,7 +932,7 @@ input[type='number'].form-control {
   .section-nav--desktop { display: none; }
   .section-nav--mobile {
     display: flex;
-    gap: 4px;
+    gap: 10px;
   }
 
   .extra-param-row {
