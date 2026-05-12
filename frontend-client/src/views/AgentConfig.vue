@@ -12,10 +12,10 @@
     <template #header-actions>
       <CustomSelect
         id="agent-select"
+        class="agent-header-select"
         :model-value="selectedAgent"
         :options="agents.map(a => ({ value: a, label: a }))"
         placeholder="请选择 Agent"
-        style="width: 200px"
         @update:model-value="selectedAgent = $event; handleAgentChange()"
       />
       <UiIconButton label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">

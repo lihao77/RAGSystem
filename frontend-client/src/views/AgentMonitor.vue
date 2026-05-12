@@ -17,10 +17,10 @@
 
     <template #header-actions>
       <CustomSelect
+        class="monitor-agent-select"
         :model-value="selectedAgent"
         :options="[{ value: '', label: '全部智能体' }, ...agentList.map(a => ({ value: a, label: a }))]"
         placeholder="全部智能体"
-        style="width: 200px"
         @update:model-value="selectedAgent = $event; loadMetrics()"
       />
     </template>
@@ -593,6 +593,12 @@ onUnmounted(() => {
   background: var(--color-hover-overlay);
   border: 1px solid var(--color-border);
   white-space: nowrap;
+}
+
+.monitor-agent-select {
+  width: clamp(136px, 15vw, 200px);
+  flex: 0 1 200px;
+  min-width: 0;
 }
 
 /* ===== Stat cards (overview) ===== */

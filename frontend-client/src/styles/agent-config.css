@@ -68,6 +68,12 @@
 /* legacy - no longer used */
 .config-card__head { display: none; }
 
+.agent-header-select {
+  width: clamp(136px, 15vw, 200px);
+  flex: 0 1 200px;
+  min-width: 0;
+}
+
 .field-label {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
@@ -613,7 +619,11 @@ input[type='number'].form-control {
   }
 
   .config-body {
-    padding-bottom: var(--spacing-xl);
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .config-form {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
 
   .form-grid,
@@ -836,12 +846,13 @@ input[type='number'].form-control {
   --slider-left: 6px;
   display: none;
   position: fixed;
-  bottom: 16px;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
+  width: min(560px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   z-index: var(--z-dropdown);
-  padding: 6px 12px;
+  padding: 6px;
   background: var(--glass-bg);
   backdrop-filter: blur(32px) saturate(240%);
   -webkit-backdrop-filter: blur(32px) saturate(240%);
@@ -922,7 +933,7 @@ input[type='number'].form-control {
   .section-nav--desktop { display: none; }
   .section-nav--mobile {
     display: flex;
-    gap: 10px;
+    gap: 4px;
   }
 
   .extra-param-row {

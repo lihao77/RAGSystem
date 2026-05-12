@@ -9,6 +9,24 @@
       </UiButton>
     </template>
 
+    <template #mobile-menu="{ close }">
+      <button class="pl-menu-item" :disabled="loading || saving" @click="handleReload(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        重新加载
+      </button>
+      <button class="pl-menu-item" :disabled="loading || saving" @click="handleSave(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        {{ saving ? '保存中...' : '保存配置' }}
+      </button>
+    </template>
+
     <EntityListLayout
       v-if="loading || error"
       title="系统配置数据"

@@ -28,6 +28,26 @@
       </div>
     </template>
 
+    <template #mobile-menu="{ close }">
+      <button class="pl-menu-item" :disabled="loading" @click="toggleDaemon(); close()">
+        <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
+        <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        <span v-else class="btn-spin"></span>
+        {{ loading ? '处理中...' : (status.running ? '停止守护系统' : '启动守护系统') }}
+      </button>
+      <button class="pl-menu-item" :disabled="loading" @click="refresh(); close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        刷新
+      </button>
+    </template>
+
     <div class="dmgr">
 
       <!-- 状态概览 -->

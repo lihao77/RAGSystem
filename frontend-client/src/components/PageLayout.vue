@@ -63,6 +63,7 @@
         </div>
         <button
           v-if="hasMobileMenu"
+          ref="mobileMenuTriggerRef"
           class="page-mobile-nav__more"
           :class="{ 'is-open': mobileMenuOpen }"
           @click="mobileMenuOpen = !mobileMenuOpen"
@@ -116,6 +117,7 @@ const mobileMenuOpen = ref(false);
 const desktopMenuOpen = ref(false);
 const desktopMenuRef = ref(null);
 const mobileMenuRef = ref(null);
+const mobileMenuTriggerRef = ref(null);
 
 const shellStyle = computed(() => ({
   '--page-shell-max-width': props.maxWidth,
@@ -136,7 +138,7 @@ usePointerDownOutside({
 });
 
 usePointerDownOutside({
-  inside: [mobileMenuRef],
+  inside: [mobileMenuRef, mobileMenuTriggerRef],
   enabled: () => mobileMenuOpen.value,
   onOutside: () => {
     mobileMenuOpen.value = false;

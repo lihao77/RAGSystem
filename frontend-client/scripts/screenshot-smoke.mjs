@@ -14,10 +14,16 @@ const minScreenshotBytes = 8 * 1024;
 const maxHorizontalOverflowPx = 2;
 
 const shots = [
+  { name: 'chat-mobile', path: '/', width: 390, height: 844 },
+  { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
+  { name: 'agent-config-narrow', path: '/agent-config', width: 768, height: 900 },
   { name: 'team-builder-mobile', path: '/team-builder', width: 390, height: 844 },
+  { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
   { name: 'vector-library-mobile', path: '/vector-library', width: 390, height: 844 },
   { name: 'mcp-narrow', path: '/mcp', width: 768, height: 900 },
+  { name: 'monitor-narrow', path: '/monitor', width: 768, height: 900 },
   { name: 'daemon-narrow', path: '/daemon', width: 768, height: 900 },
+  { name: 'system-config-mobile', path: '/system-config', width: 390, height: 844 },
 ];
 
 function findBrowser() {
