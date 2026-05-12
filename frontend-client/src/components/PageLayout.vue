@@ -470,14 +470,18 @@ usePointerDownOutside({
   right: var(--top-bar-padding-x);
   z-index: var(--z-dropdown);
   min-width: 220px;
+  max-width: calc(100vw - var(--top-bar-padding-x) - var(--top-bar-padding-x));
 }
 
 .page-mobile-menu__list {
+  max-height: min(70vh, 520px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   box-shadow: var(--shadow-md);
-  overflow: hidden;
   padding: 6px;
 }
 

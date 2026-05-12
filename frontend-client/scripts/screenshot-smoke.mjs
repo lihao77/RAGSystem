@@ -24,6 +24,87 @@ const shots = [
   { name: 'monitor-narrow', path: '/monitor', width: 768, height: 900 },
   { name: 'daemon-narrow', path: '/daemon', width: 768, height: 900 },
   { name: 'system-config-mobile', path: '/system-config', width: 390, height: 844 },
+  {
+    name: 'agent-config-mobile-menu',
+    path: '/agent-config',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '保存配置' },
+    ],
+  },
+  {
+    name: 'agent-config-mobile-bottom',
+    path: '/agent-config',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'scrollToBottom', selector: '.page-content-scroll' },
+      { type: 'expectText', selector: '.config-form', text: '委派' },
+      { type: 'expectVisible', selector: '#section-delegation' },
+    ],
+  },
+  {
+    name: 'daemon-mobile-menu',
+    path: '/daemon',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '刷新' },
+    ],
+  },
+  {
+    name: 'system-config-mobile-menu',
+    path: '/system-config',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '保存配置' },
+    ],
+  },
+  {
+    name: 'model-providers-mobile-menu',
+    path: '/model-providers',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '添加 Provider' },
+    ],
+  },
+  {
+    name: 'vector-library-mobile-menu',
+    path: '/vector-library',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '全局刷新' },
+    ],
+  },
+  {
+    name: 'mcp-mobile-menu',
+    path: '/mcp',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '刷新' },
+    ],
+  },
+  {
+    name: 'monitor-mobile-menu',
+    path: '/monitor',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'expectText', selector: '.page-mobile-menu', text: '重置指标' },
+    ],
+  },
 ];
 
 function findBrowser() {
@@ -228,6 +309,27 @@ async function waitForReady(client, timeoutMs = 10000) {
   throw new Error('Timed out waiting for document.readyState=complete');
 }
 
+async function waitForRouteTransition(client, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  const transitionSelector = [
+    '.slide-forward-enter-active',
+    '.slide-forward-leave-active',
+    '.slide-backward-enter-active',
+    '.slide-backward-leave-active',
+  ].join(',');
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const active = await evaluate(client, `document.querySelector(${jsString(transitionSelector)}) !== null`);
+    if (!active) {
+      await wait(100);
+      return;
+    }
+    await wait(100);
+  }
+
+  throw new Error('Timed out waiting for route transition to settle');
+}
+
 async function measureLayout(client) {
   const expression = `(() => {
     const doc = document.documentElement;
@@ -278,6 +380,79 @@ async function measureLayout(client) {
   return result.result.value;
 }
 
+async function evaluate(client, expression) {
+  const result = await client.send('Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+  });
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.text || 'Runtime evaluation failed');
+  }
+  return result.result?.value;
+}
+
+function jsString(value) {
+  return JSON.stringify(String(value));
+}
+
+async function runShotActions(client, shot) {
+  for (const action of shot.actions || []) {
+    if (action.type === 'click') {
+      const clicked = await evaluate(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return false;
+        element.click();
+        return true;
+      })()`);
+      if (!clicked) {
+        throw new Error(`${shot.name} could not find clickable selector: ${action.selector}`);
+      }
+      await wait(action.waitMs ?? 250);
+      continue;
+    }
+
+    if (action.type === 'expectText') {
+      const found = await evaluate(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        return !!element && element.textContent.includes(${jsString(action.text)});
+      })()`);
+      if (!found) {
+        throw new Error(`${shot.name} did not find text "${action.text}" in ${action.selector}`);
+      }
+      continue;
+    }
+
+    if (action.type === 'scrollToBottom') {
+      const scrolled = await evaluate(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return false;
+        element.scrollTop = element.scrollHeight;
+        return true;
+      })()`);
+      if (!scrolled) {
+        throw new Error(`${shot.name} could not find scroll selector: ${action.selector}`);
+      }
+      await wait(action.waitMs ?? 500);
+      continue;
+    }
+
+    if (action.type === 'expectVisible') {
+      const visible = await evaluate(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+      })()`);
+      if (!visible) {
+        throw new Error(`${shot.name} selector is not visible in viewport: ${action.selector}`);
+      }
+      continue;
+    }
+
+    throw new Error(`${shot.name} has unsupported action type: ${action.type}`);
+  }
+}
+
 async function captureShot(browserPath, baseUrl, shot) {
   const target = new URL(shot.path, baseUrl).toString();
   const output = join(outputDir, `${shot.name}.png`);
@@ -320,6 +495,9 @@ async function captureShot(browserPath, baseUrl, shot) {
     });
     await client.send('Page.navigate', { url: target });
     await waitForReady(client);
+    await waitForRouteTransition(client);
+    await runShotActions(client, shot);
+    await waitForRouteTransition(client);
 
     const layout = await measureLayout(client);
     if (layout.horizontalOverflow > maxHorizontalOverflowPx) {

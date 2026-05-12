@@ -54,6 +54,7 @@
 /* ===== 移动端菜单项（供 slot="mobile-menu" 使用） ===== */
 .pl-menu-item {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -67,6 +68,18 @@
   text-align: left;
   cursor: pointer;
   transition: background 0.2s;
+}
+
+.pl-menu-item > svg {
+  flex: 0 0 auto;
+}
+
+.pl-menu-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pl-menu-item:hover:not(:disabled) {
