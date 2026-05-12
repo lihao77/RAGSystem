@@ -82,7 +82,7 @@
     <!-- Error -->
     <div v-else-if="error" class="pl-state pl-state--error">
       <p>{{ error }}</p>
-      <button class="pl-btn" @click="loadMetrics">重试</button>
+      <UiButton @click="loadMetrics">重试</UiButton>
     </div>
 
         <template v-else>
@@ -364,6 +364,7 @@ import {
 } from '../api/monitoring';
 import CustomSelect from '../components/CustomSelect.vue';
 import PageLayout from '../components/PageLayout.vue';
+import { UiButton } from '../components/ui';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },

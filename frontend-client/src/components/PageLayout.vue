@@ -26,9 +26,10 @@
             <slot name="header-actions" />
           </div>
           <div v-if="hasHeaderMenu" ref="desktopMenuRef" class="page-header__menu-wrap">
-            <button
-              class="pl-btn pl-btn--icon page-header__more-btn"
+            <UiIconButton
+              class="page-header__more-btn"
               :class="{ 'is-open': desktopMenuOpen }"
+              label="更多操作"
               title="更多操作"
               @click="desktopMenuOpen = !desktopMenuOpen"
             >
@@ -37,7 +38,7 @@
                 <circle cx="12" cy="12" r="1" fill="currentColor" />
                 <circle cx="12" cy="19" r="1" fill="currentColor" />
               </svg>
-            </button>
+            </UiIconButton>
             <div v-if="desktopMenuOpen" class="page-header__menu-dropdown">
               <div class="page-header__menu-list">
                 <slot name="header-menu" :close="() => { desktopMenuOpen = false }" />
@@ -94,6 +95,7 @@
 <script setup>
 import { computed, inject, ref, useSlots } from 'vue';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { UiIconButton } from './ui';
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -383,54 +385,6 @@ usePointerDownOutside({
   background: var(--color-hover-overlay);
   font-size: 12px;
   box-sizing: border-box;
-}
-
-/* ===== 通用按钮 ===== */
-.pl-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  height: var(--control-height-md);
-  min-height: var(--control-height-md);
-  padding: 0 12px;
-  border-radius: var(--control-radius);
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-  user-select: none;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.pl-btn--icon {
-  width: var(--icon-button-size-md);
-  min-width: var(--icon-button-size-md);
-  padding: 0;
-}
-
-.pl-btn:hover:not(:disabled) {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
-}
-
-.pl-btn:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.pl-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.pl-btn--back {
-  background: transparent;
 }
 
 /* ===== 移动端导航栏 ===== */

@@ -1,12 +1,12 @@
 <template>
   <PageLayout title="系统配置" subtitle="管理全局 LLM、向量存储、反思机制等系统级参数">
     <template #header-actions>
-      <button class="adm-button pl-btn pl-btn--ghost" :disabled="loading || saving" @click="handleReload">
+      <UiButton variant="ghost" :disabled="loading || saving" @click="handleReload">
         重新加载
-      </button>
-      <button class="adm-button adm-button--primary pl-btn pl-btn--primary" :disabled="loading || saving" @click="handleSave">
+      </UiButton>
+      <UiButton variant="primary" :disabled="loading || saving" @click="handleSave">
         {{ saving ? '保存中...' : '保存配置' }}
-      </button>
+      </UiButton>
     </template>
 
     <EntityListLayout
@@ -35,6 +35,7 @@ import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
 import AppToast from '../components/AppToast.vue';
+import { UiButton } from '../components/ui';
 import {
   getSystemConfigSchema,
   getSystemConfig,

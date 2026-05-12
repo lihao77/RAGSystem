@@ -10,24 +10,24 @@
     mobile-content-padding="var(--spacing-sm)"
   >
     <template #header-actions>
-      <RouterLink class="pl-btn admin-header-link" :to="chatReturnPath" title="返回工作台">
+      <UiButton :as="RouterLink" class="admin-header-link" :to="chatReturnPath" title="返回工作台">
         返回工作台
-      </RouterLink>
+      </UiButton>
     </template>
 
     <section class="admin-overview" aria-label="管理概览">
-      <article class="admin-overview-item">
+      <UiPanel as="article" class="admin-overview-item" tone="muted">
         <span class="admin-overview-item__label">管理入口</span>
         <strong>{{ managementNavItems.length }}</strong>
-      </article>
-      <article class="admin-overview-item">
+      </UiPanel>
+      <UiPanel as="article" class="admin-overview-item" tone="muted">
         <span class="admin-overview-item__label">工作区</span>
         <strong>会话优先</strong>
-      </article>
-      <article class="admin-overview-item">
+      </UiPanel>
+      <UiPanel as="article" class="admin-overview-item" tone="muted">
         <span class="admin-overview-item__label">旧路径</span>
         <strong>保留直达</strong>
-      </article>
+      </UiPanel>
     </section>
 
     <section
@@ -41,15 +41,19 @@
           <h2 :id="`admin-section-${group.key}`">{{ group.label }}</h2>
           <p>{{ group.description }}</p>
         </div>
-        <span class="admin-section__count">{{ group.items.length }}</span>
+        <UiBadge class="admin-section__count">{{ group.items.length }}</UiBadge>
       </div>
 
       <div class="admin-card-grid">
-        <RouterLink
+        <UiPanel
           v-for="item in group.items"
           :key="item.key"
+          :as="RouterLink"
           class="admin-card"
           :to="item.path"
+          tone="shell"
+          padding="none"
+          interactive
         >
           <span class="admin-card__icon">
             <component :is="item.icon" />
@@ -63,7 +67,7 @@
               <path d="M9 18l6-6-6-6" />
             </svg>
           </span>
-        </RouterLink>
+        </UiPanel>
       </div>
     </section>
   </PageLayout>
@@ -71,7 +75,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
+import { UiBadge, UiButton, UiPanel } from '../components/ui';
 import { adminNavGroups, managementNavItems } from '../navigation/adminNavigation';
 
 defineProps({

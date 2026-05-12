@@ -18,7 +18,7 @@
     <div v-else-if="error" class="adm-state adm-state--error">
       <slot name="error-icon" />
       <p>{{ error }}</p>
-      <button v-if="retryable" class="pl-btn" @click="emit('retry')">{{ retryText }}</button>
+      <UiButton v-if="retryable" @click="emit('retry')">{{ retryText }}</UiButton>
     </div>
 
     <div v-else-if="empty" class="adm-state adm-state--empty">
@@ -32,6 +32,8 @@
 </template>
 
 <script setup>
+import { UiButton } from '../ui';
+
 defineProps({
   title: { type: String, required: true },
   description: { type: String, default: '' },

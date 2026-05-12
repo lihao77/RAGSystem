@@ -9,12 +9,12 @@
     mobile-title="Provider 管理"
   >
     <template #header-actions>
-      <button class="pl-btn pl-btn--icon pl-btn--primary" title="添加 Provider" @click="openCreateDialog">
+      <UiIconButton variant="primary" label="添加 Provider" @click="openCreateDialog">
         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
-      </button>
+      </UiIconButton>
     </template>
 
     <template #header-menu="{ close }">
@@ -117,13 +117,15 @@
           <div class="inline-actions">
             <span v-if="reordering" class="reorder-status">正在保存排序...</span>
             <span v-else-if="reorderError" class="reorder-status reorder-status--error">{{ reorderError }}</span>
-            <button class="pl-btn" :disabled="loading || reordering" @click="loadProviders">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spin: loading }">
-                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-              </svg>
+            <UiButton :disabled="loading || reordering" @click="loadProviders">
+              <template #icon>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spin: loading }">
+                  <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+              </template>
               {{ loading ? '刷新中...' : '刷新列表' }}
-            </button>
+            </UiButton>
           </div>
         </template>
         <template #empty-icon>
@@ -355,10 +357,10 @@
           <div v-if="dialog.error" class="form-error adm-form-error">{{ dialog.error }}</div>
 
           <div class="dialog-footer adm-modal-footer">
-            <button type="button" class="adm-button btn-secondary" @click="closeDialog">取消</button>
-            <button type="submit" class="adm-button adm-button--primary btn-primary" :disabled="dialog.saving">
+            <UiButton size="compact" type="button" @click="closeDialog">取消</UiButton>
+            <UiButton size="compact" type="submit" variant="primary" :disabled="dialog.saving">
               {{ dialog.saving ? '保存中...' : '保存' }}
-            </button>
+            </UiButton>
           </div>
         </form>
       </div>
@@ -380,10 +382,10 @@
           确定要删除 Provider <strong>{{ getProviderKey(deleteTarget) }}</strong> 吗？此操作不可撤销。
         </p>
         <div class="dialog-footer adm-modal-footer">
-          <button class="adm-button btn-secondary" @click="deleteTarget = null">取消</button>
-          <button class="adm-button adm-button--danger btn-danger" :disabled="deleting" @click="doDelete">
+          <UiButton size="compact" @click="deleteTarget = null">取消</UiButton>
+          <UiButton size="compact" variant="danger" :disabled="deleting" @click="doDelete">
             {{ deleting ? '删除中...' : '确认删除' }}
-          </button>
+          </UiButton>
         </div>
       </div>
     </div>
@@ -397,6 +399,7 @@ import AppToast from '../components/AppToast.vue'
 import CustomSelect from '../components/CustomSelect.vue'
 import EntityListLayout from '../components/admin/EntityListLayout.vue'
 import PageLayout from '../components/PageLayout.vue'
+import { UiButton, UiIconButton } from '../components/ui'
 import { usePointerDownOutside } from '../composables/usePointerDownOutside'
 import {
   getProviderTypes,
@@ -1290,70 +1293,6 @@ onMounted(() => {
   opacity: 0.55;
   cursor: not-allowed;
 }
-
-/* ── Buttons ──────────────────────────────────────── */
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xs);
-  min-height: 40px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid var(--color-brand-accent);
-  background: var(--color-brand-accent);
-  color: var(--color-on-color);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
-  white-space: nowrap;
-}
-
-.btn-primary:hover:not(:disabled) {
-  border-color: var(--color-brand-accent-light);
-  background: var(--color-brand-accent-light);
-  box-shadow: none;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-secondary,
-.btn-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 0 18px;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
-}
-
-.btn-secondary {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-primary);
-}
-
-.btn-secondary:hover {
-  background: var(--color-hover-overlay);
-}
-
-.btn-danger {
-  border: none;
-  background: var(--color-error);
-  color: var(--color-on-color);
-}
-
-.btn-danger:hover:not(:disabled) { opacity: .85; }
-.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
 
 .icon-btn {
   width: 34px;
