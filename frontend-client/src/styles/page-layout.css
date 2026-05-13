@@ -11,9 +11,9 @@
   justify-content: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border, var(--color-border));
   border-radius: var(--radius-lg);
-  background: var(--color-hover-overlay);
+  background: var(--adm-surface-muted, var(--color-hover-overlay));
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
@@ -67,7 +67,7 @@
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .pl-menu-item > svg {
@@ -83,7 +83,7 @@
 }
 
 .pl-menu-item:hover:not(:disabled) {
-  background: var(--color-interactive);
+  background: var(--adm-control-bg, var(--color-interactive));
 }
 
 .pl-menu-item:disabled {
@@ -94,6 +94,7 @@
 .pl-menu-item--active {
   color: var(--color-brand-accent-light);
   font-weight: 600;
+  background: var(--adm-control-active, rgba(var(--color-brand-accent-rgb), 0.1));
 }
 
 .pl-menu-item--danger {
@@ -115,22 +116,22 @@
 
 .pl-menu-divider {
   height: 1px;
-  background: var(--color-border);
+  background: var(--adm-border, var(--color-border));
   margin: 4px 8px;
 }
 
 /* ===== 内容卡片 ===== */
 .pl-card {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border, var(--color-border));
   border-radius: 12px;
-  background: var(--color-bg-elevated);
+  background: var(--adm-surface, var(--color-bg-elevated));
   box-shadow: none;
   overflow: hidden;
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .pl-card:hover {
-  border-color: var(--color-border-hover);
+  border-color: var(--adm-border-strong, var(--color-border-hover));
 }
 
 .pl-card__head {
@@ -138,8 +139,8 @@
   flex-direction: column;
   gap: 4px;
   padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-hover-overlay);
+  border-bottom: 1px solid var(--adm-border, var(--color-border));
+  background: var(--adm-surface-muted, var(--color-hover-overlay));
 }
 
 .pl-card__head h2 {

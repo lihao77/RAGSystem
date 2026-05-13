@@ -1,4 +1,19 @@
 /* Shared console primitives for infrastructure/admin pages. */
+:root {
+  --adm-surface: rgba(var(--color-bg-elevated-rgb), 0.62);
+  --adm-surface-muted: rgba(var(--color-bg-elevated-rgb), 0.42);
+  --adm-surface-raised: rgba(var(--color-bg-elevated-rgb), 0.72);
+  --adm-surface-hover: rgba(var(--color-bg-elevated-rgb), 0.86);
+  --adm-control-bg: rgba(var(--color-bg-elevated-rgb), 0.5);
+  --adm-control-hover: rgba(var(--color-bg-elevated-rgb), 0.72);
+  --adm-control-active: rgba(var(--color-brand-accent-rgb), 0.12);
+  --adm-input-bg: rgba(var(--color-bg-elevated-rgb), 0.64);
+  --adm-border: rgba(var(--color-border-rgb), 0.14);
+  --adm-border-strong: rgba(var(--color-border-rgb), 0.24);
+  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.3);
+  --adm-shadow-inset: inset 0 1px 0 var(--color-soft-inset);
+}
+
 .adm-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -11,9 +26,16 @@
   gap: 12px;
   min-width: 0;
   padding: 14px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 12px;
-  background: var(--surface-shell);
+  background: var(--adm-surface-raised);
+  box-shadow: var(--adm-shadow-inset);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.adm-kpi-card:hover {
+  border-color: var(--adm-border-strong);
+  background: var(--adm-surface-hover);
 }
 
 .adm-kpi-icon {
@@ -23,9 +45,10 @@
   width: 40px;
   height: 40px;
   flex: 0 0 auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 10px;
-  background: var(--color-interactive);
+  background: var(--adm-control-bg);
+  color: var(--color-text-secondary);
 }
 
 .adm-kpi-body {
@@ -58,9 +81,10 @@
   gap: 12px;
   min-width: 0;
   padding: 14px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 12px;
-  background: var(--surface-shell);
+  background: var(--adm-surface);
+  box-shadow: var(--adm-shadow-inset);
 }
 
 .adm-panel__header {
@@ -111,9 +135,9 @@
   gap: 8px;
   min-height: 180px;
   padding: 24px;
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--adm-border-strong);
   border-radius: 10px;
-  background: var(--color-hover-overlay);
+  background: var(--adm-surface-muted);
   color: var(--color-text-secondary);
   text-align: center;
   font-size: var(--font-size-sm);
@@ -157,10 +181,16 @@
 
 .adm-entity-row {
   min-width: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 10px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
-  box-shadow: none;
+  background: var(--adm-surface-muted);
+  box-shadow: var(--adm-shadow-inset);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.adm-entity-row:hover {
+  border-color: var(--adm-border-strong);
+  background: var(--adm-surface);
 }
 
 .adm-chip {
@@ -169,9 +199,9 @@
   justify-content: center;
   gap: 4px;
   min-width: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 999px;
-  background: var(--color-hover-overlay);
+  background: var(--adm-control-bg);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -197,20 +227,25 @@
   gap: 6px;
   min-height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 8px;
-  background: transparent;
+  background: var(--adm-control-bg);
   color: var(--color-text-secondary);
   font: inherit;
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .adm-action-btn:hover:not(:disabled) {
-  border-color: var(--color-border-hover);
-  background: var(--color-hover-overlay);
+  border-color: var(--adm-border-strong);
+  background: var(--adm-control-hover);
   color: var(--color-text-primary);
 }
 
@@ -222,11 +257,13 @@
 .adm-action-btn--success:hover:not(:disabled) {
   color: var(--color-success);
   border-color: rgba(var(--color-success-rgb), 0.35);
+  background: rgba(var(--color-success-rgb), 0.08);
 }
 
 .adm-action-btn--warning:hover:not(:disabled) {
   color: var(--color-warning);
   border-color: rgba(var(--color-warning-rgb), 0.35);
+  background: rgba(var(--color-warning-rgb), 0.08);
 }
 
 .adm-action-btn--danger {
@@ -247,10 +284,10 @@
   width: fit-content;
   min-width: 0;
   padding: 4px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 10px;
-  background: var(--color-hover-overlay);
-  box-shadow: none;
+  background: var(--adm-control-bg);
+  box-shadow: var(--adm-shadow-inset);
 }
 
 .adm-tabs.adm-tabs.adm-tabs::before {
@@ -260,9 +297,9 @@
   left: var(--slider-left, 4px);
   width: var(--slider-width, 0px);
   height: calc(100% - 8px);
-  border: 1px solid var(--color-border-hover);
+  border: 1px solid var(--adm-accent-border);
   border-radius: 8px;
-  background: var(--color-bg-elevated);
+  background: var(--adm-control-active);
   box-shadow: inset 0 1px 0 var(--color-soft-inset);
   pointer-events: none;
   z-index: 0;
@@ -290,7 +327,14 @@
 }
 
 .adm-tab.adm-tab.adm-tab:hover {
+  background: var(--color-hover-overlay);
   color: var(--color-text-primary);
+}
+
+.adm-tab.adm-tab.adm-tab:focus-visible,
+.adm-action-btn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
 }
 
 .adm-tab.adm-tab.adm-tab.adm-tab--active {
@@ -336,9 +380,9 @@
 .adm-form-section {
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 10px;
-  background: var(--color-hover-overlay);
+  background: var(--adm-surface-muted);
 }
 
 .adm-form-section__head {
@@ -388,9 +432,9 @@
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 8px;
-  background: var(--color-bg-secondary);
+  background: var(--adm-input-bg);
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -404,7 +448,7 @@ textarea.adm-form-control.adm-form-control {
 }
 
 .adm-form-control.adm-form-control:hover {
-  border-color: var(--color-border-hover);
+  border-color: var(--adm-border-strong);
 }
 
 .adm-form-control.adm-form-control:focus {
@@ -442,9 +486,9 @@ textarea.adm-form-control.adm-form-control {
 }
 
 .adm-modal {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border-strong);
   border-radius: 12px;
-  background: var(--color-bg-elevated);
+  background: var(--adm-surface-hover);
   box-shadow: var(--shadow-xl);
 }
 
@@ -458,7 +502,7 @@ textarea.adm-form-control.adm-form-control {
 
 .adm-modal-header {
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--adm-border);
 }
 
 .adm-modal-body {
@@ -470,7 +514,7 @@ textarea.adm-form-control.adm-form-control {
 .adm-modal-footer {
   justify-content: flex-end;
   padding-top: 12px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--adm-border);
 }
 
 .adm-modal.adm-modal .field {
@@ -492,9 +536,9 @@ textarea.adm-form-control.adm-form-control {
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border);
   border-radius: 8px;
-  background: var(--color-bg-secondary);
+  background: var(--adm-input-bg);
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -508,7 +552,7 @@ textarea.adm-form-control.adm-form-control {
 
 .adm-modal.adm-modal .field input:hover,
 .adm-modal.adm-modal .field textarea:hover {
-  border-color: var(--color-border-hover);
+  border-color: var(--adm-border-strong);
 }
 
 .adm-modal.adm-modal .field input:focus,
@@ -558,8 +602,8 @@ textarea.adm-form-control.adm-form-control {
   }
 
   .adm-tab.adm-tab.adm-tab.adm-tab--active {
-    border-color: var(--color-border-hover);
-    background: var(--color-bg-elevated);
+    border-color: var(--adm-accent-border);
+    background: var(--adm-control-active);
   }
 }
 

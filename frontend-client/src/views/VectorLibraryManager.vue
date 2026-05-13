@@ -1381,14 +1381,15 @@ onMounted(() => {
     min-width: 0;
     border-radius: 12px;
     padding: 14px;
-    border: 1px solid var(--color-border);
-    background: var(--surface-shell);
-    transition: border-color 0.2s;
+    border: 1px solid var(--adm-border);
+    background: var(--adm-surface-raised);
+    box-shadow: var(--adm-shadow-inset);
+    transition: border-color 0.2s, background 0.2s;
 }
 
 .summary-card:hover {
-    border-color: var(--color-border-hover);
-    box-shadow: none;
+    border-color: var(--adm-border-strong);
+    background: var(--adm-surface-hover);
 }
 
 .summary-icon {
@@ -1398,26 +1399,26 @@ onMounted(() => {
     width: 40px;
     height: 40px;
     border-radius: 10px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--adm-border);
     flex-shrink: 0;
 }
 
 .summary-icon--files {
-    background: var(--color-interactive);
+    background: var(--adm-control-bg);
     color: var(--color-text-secondary);
-    border-color: var(--color-border);
+    border-color: var(--adm-border);
 }
 
 .summary-icon--indexed {
-    background: var(--color-interactive);
+    background: var(--adm-control-bg);
     color: var(--color-text-secondary);
-    border-color: var(--color-border);
+    border-color: var(--adm-border);
 }
 
 .summary-icon--vectorizers {
-    background: var(--color-interactive);
+    background: var(--adm-control-bg);
     color: var(--color-text-secondary);
-    border-color: var(--color-border);
+    border-color: var(--adm-border);
 }
 
 .summary-body {
@@ -1474,8 +1475,8 @@ onMounted(() => {
     gap: var(--spacing-sm);
     padding: 10px 16px;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
+    border: 1px solid var(--adm-border);
+    background: var(--adm-surface);
     font-size: var(--font-size-sm);
 }
 
@@ -1600,8 +1601,8 @@ onMounted(() => {
     width: 30px;
     height: 30px;
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
-    background: var(--color-interactive);
+    border: 1px solid var(--adm-border);
+    background: var(--adm-control-bg);
     color: var(--color-text-secondary);
     cursor: pointer;
     transition: all 0.2s;
@@ -1609,7 +1610,7 @@ onMounted(() => {
 
 .act-btn:hover:not(:disabled) {
     color: var(--color-text-primary);
-    background: var(--color-interactive-hover);
+    background: var(--adm-control-hover);
 }
 
 .act-btn:disabled {
@@ -1631,8 +1632,8 @@ onMounted(() => {
 /* ─── 矩阵表格 ──────────────────────────────────────────── */
 .data-table-wrapper {
     border-radius: var(--radius-xl);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
+    border: 1px solid var(--adm-border);
+    background: var(--adm-surface);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     overflow: hidden;
@@ -1801,8 +1802,8 @@ onMounted(() => {
 .search-inline-card {
     padding: var(--spacing-md);
     border-radius: var(--radius-xl);
-    border: 1px solid var(--color-glass-border);
-    background: var(--glass-bg);
+    border: 1px solid var(--adm-border);
+    background: var(--adm-surface);
     backdrop-filter: blur(var(--glass-blur));
 }
 

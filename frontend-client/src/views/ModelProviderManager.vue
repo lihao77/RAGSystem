@@ -989,19 +989,22 @@ onMounted(() => {
   justify-content: center;
   flex-shrink: 0;
   border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  background: var(--adm-control-bg);
   color: var(--color-text-secondary);
 }
 .summary-icon--total,
 .summary-icon--openai,
 .summary-icon--types,
-.summary-icon--embedding { background: var(--color-interactive); color: var(--color-text-secondary); }
+.summary-icon--embedding {
+  background: var(--adm-control-bg);
+  color: var(--color-text-secondary);
+}
 
 .summary-label { font-size: 0.78rem; color: var(--color-text-secondary); display: block; }
 .summary-value { font-size: 1.5rem; font-weight: 700; color: var(--color-text-primary); }
-.summary-value--connected { color: #34d399; }
-.summary-value--enabled   { color: #fbbf24; }
-.summary-value--tools     { color: #a78bfa; }
+.summary-value--connected { color: var(--color-success); }
+.summary-value--enabled   { color: var(--color-warning); }
+.summary-value--tools     { color: var(--color-agent-violet); }
 
 /* ── TeamBuilder 风格区块 ──────────────────────────── */
 .builder-panel {
@@ -1077,10 +1080,15 @@ onMounted(() => {
   padding: 0 12px 0 0;
   overflow: hidden;
   border-radius: 16px;
-  border: 1px solid rgba(var(--color-border-rgb, 148,163,184), 0.56);
-  background: rgba(var(--color-bg-elevated-rgb), 0.46);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface-muted);
   box-shadow: inset 0 1px 0 var(--color-soft-inset);
-  transition: transform 0.22s cubic-bezier(.2,.8,.2,1);
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.provider-row:hover {
+  border-color: var(--adm-border-strong);
+  background: var(--adm-surface);
 }
 
 .provider-row--dragging {
@@ -1135,7 +1143,7 @@ onMounted(() => {
   width: 72px;
   border: none;
   border-radius: 0;
-  background: rgba(var(--color-bg-elevated-rgb), 0.24);
+  background: var(--adm-control-bg);
   color: var(--color-text-muted);
   cursor: grab;
   transition: background 0.16s ease, color 0.16s ease;
@@ -1143,7 +1151,7 @@ onMounted(() => {
 
 .drag-handle:hover:not(:disabled) {
   color: var(--color-text-secondary);
-  background: rgba(var(--color-bg-elevated-rgb), 0.38);
+  background: var(--adm-control-hover);
 }
 
 .drag-handle:active:not(:disabled) {

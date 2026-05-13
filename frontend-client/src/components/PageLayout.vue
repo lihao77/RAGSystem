@@ -353,8 +353,8 @@ usePointerDownOutside({
 }
 
 .page-header__more-btn.is-open {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
+  background: var(--adm-control-active, var(--color-interactive-hover));
+  border-color: var(--adm-accent-border, var(--color-border-hover));
 }
 
 .page-header__menu-dropdown {
@@ -368,8 +368,8 @@ usePointerDownOutside({
 .page-header__menu-list {
   padding: 6px;
   border-radius: 12px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--adm-surface-hover, var(--color-bg-elevated));
+  border: 1px solid var(--adm-border-strong, var(--color-border));
   box-shadow: var(--shadow-md);
 }
 
@@ -434,7 +434,7 @@ usePointerDownOutside({
 
 .page-mobile-nav__menu:hover,
 .page-mobile-nav__more:hover {
-  background: var(--color-interactive);
+  background: var(--adm-control-bg, var(--color-interactive));
 }
 
 .page-mobile-nav__copy {
@@ -478,8 +478,8 @@ usePointerDownOutside({
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--adm-surface-hover, var(--color-bg-elevated));
+  border: 1px solid var(--adm-border-strong, var(--color-border));
   border-radius: 12px;
   box-shadow: var(--shadow-md);
   padding: 6px;

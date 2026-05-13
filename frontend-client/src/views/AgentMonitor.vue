@@ -613,17 +613,18 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-md) var(--spacing-lg);
-  border: 1px solid var(--color-glass-border);
+  border: 1px solid var(--adm-border);
   border-radius: var(--radius-lg);
-  background: var(--glass-bg);
+  background: var(--adm-surface-raised);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: var(--adm-shadow-inset);
+  transition: border-color 0.2s, background 0.2s;
 }
 
 .stat-card:hover {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.35);
-  box-shadow: inset 0 1px 0 var(--color-soft-inset);
+  border-color: var(--adm-border-strong);
+  background: var(--adm-surface-hover);
 }
 
 .stat-card--success .stat-icon {
@@ -636,8 +637,8 @@ onUnmounted(() => {
   width: 44px;
   height: 44px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-control-bg);
   color: var(--color-brand-accent-light);
   display: flex;
   align-items: center;
@@ -667,12 +668,12 @@ onUnmounted(() => {
 
 /* ===== Detail card (agent list wrapper) ===== */
 .detail-card {
-  border: 1px solid var(--color-glass-border);
+  border: 1px solid var(--adm-border);
   border-radius: var(--radius-xl);
-  background: var(--glass-bg);
+  background: var(--adm-surface);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--adm-shadow-inset);
   overflow: hidden;
 }
 
@@ -681,8 +682,8 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 2px;
   padding: var(--spacing-md) var(--spacing-lg);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-hover-overlay);
+  border-bottom: 1px solid var(--adm-border);
+  background: var(--adm-surface-muted);
 }
 
 .detail-card__head h2 {
@@ -716,7 +717,7 @@ onUnmounted(() => {
 
 .agent-card {
   padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--adm-border);
   transition: background 0.2s;
 }
 
@@ -725,7 +726,7 @@ onUnmounted(() => {
 }
 
 .agent-card:hover {
-  background: var(--color-hover-overlay-md);
+  background: var(--adm-surface-muted);
 }
 
 .agent-card__head {
@@ -755,8 +756,8 @@ onUnmounted(() => {
   border-radius: 20px;
   font-size: var(--font-size-xs);
   font-weight: 500;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-control-bg);
   color: var(--color-text-secondary);
 }
 

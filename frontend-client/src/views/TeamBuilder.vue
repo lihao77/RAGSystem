@@ -563,6 +563,9 @@ onMounted(() => {
   gap: 12px;
   padding: 14px;
   border-radius: 12px;
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface-raised);
+  box-shadow: var(--adm-shadow-inset);
 }
 
 .summary-icon {
@@ -573,8 +576,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   color: var(--color-text-secondary);
-  background: var(--color-interactive);
-  border: 1px solid var(--color-border);
+  background: var(--adm-control-bg);
+  border: 1px solid var(--adm-border);
 }
 
 .summary-icon--active,
@@ -582,8 +585,8 @@ onMounted(() => {
 .summary-icon--agents,
 .summary-icon--file {
   color: var(--color-text-secondary);
-  background: var(--color-interactive);
-  border-color: var(--color-border);
+  background: var(--adm-control-bg);
+  border-color: var(--adm-border);
 }
 
 .summary-body {
@@ -847,7 +850,7 @@ onMounted(() => {
 }
 
 .agent-card__status--selected {
-  background: #60a5fa;
+  background: var(--color-brand-accent-light);
 }
 
 .agent-card__content {
@@ -872,7 +875,7 @@ onMounted(() => {
 
 .agent-card__action {
   font-size: 12px;
-  color: #93c5fd;
+  color: var(--color-brand-accent-light);
   white-space: nowrap;
 }
 
@@ -901,8 +904,8 @@ onMounted(() => {
 .transfer-badge {
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-control-bg);
   color: var(--color-text-secondary);
   font-size: 12px;
 }
@@ -966,7 +969,7 @@ onMounted(() => {
 
 .agent-chip--active .agent-chip__dot,
 .agent-chip--warning .agent-chip__dot {
-  background: #60a5fa;
+  background: var(--color-brand-accent-light);
 }
 
 .plan-preview {

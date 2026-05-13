@@ -49,9 +49,9 @@ const buttonClasses = computed(() => [
   justify-content: center;
   gap: var(--spacing-xs);
   min-width: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--adm-border, var(--color-border));
   border-radius: var(--control-radius);
-  background: var(--color-interactive);
+  background: var(--adm-control-bg, var(--color-interactive));
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -69,8 +69,8 @@ const buttonClasses = computed(() => [
 }
 
 .ui-button:hover:not(.is-disabled) {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
+  background: var(--adm-control-hover, var(--color-interactive-hover));
+  border-color: var(--adm-border-strong, var(--color-border-hover));
 }
 
 .ui-button:focus-visible {
@@ -111,6 +111,7 @@ const buttonClasses = computed(() => [
   border-color: var(--color-brand-accent);
   background: var(--color-brand-accent);
   color: var(--color-on-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .ui-button--primary:hover:not(.is-disabled) {
@@ -120,7 +121,7 @@ const buttonClasses = computed(() => [
 
 .ui-button--danger {
   border-color: rgba(var(--color-error-rgb), 0.35);
-  background: rgba(var(--color-error-rgb), 0.08);
+  background: rgba(var(--color-error-rgb), 0.1);
   color: var(--color-error);
 }
 
@@ -136,8 +137,8 @@ const buttonClasses = computed(() => [
 }
 
 .ui-button--ghost:hover:not(.is-disabled) {
-  border-color: var(--color-border);
-  background: var(--color-hover-overlay);
+  border-color: var(--adm-border, var(--color-border));
+  background: var(--adm-control-bg, var(--color-hover-overlay));
   color: var(--color-text-primary);
 }
 
