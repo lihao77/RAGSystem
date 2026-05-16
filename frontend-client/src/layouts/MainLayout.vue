@@ -93,7 +93,7 @@
           <span class="sidebar-status__dot"></span>
           <span class="sidebar-status__text">工作台就绪</span>
         </div>
-        <span class="sidebar-footer__version">RAG Agent System</span>
+        <!-- <span class="sidebar-footer__version">RAG Agent System</span> -->
       </div>
     </aside>
 

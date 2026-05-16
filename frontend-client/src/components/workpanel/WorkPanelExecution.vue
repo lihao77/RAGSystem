@@ -894,7 +894,6 @@ button.wpe-chip:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 0 12px 12px 10px;
 }
 
 .wpe-scroll {
@@ -903,6 +902,7 @@ button.wpe-chip:hover {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
+    padding: 0 12px 12px 10px;
 }
 
 .wpe-node-stack {
