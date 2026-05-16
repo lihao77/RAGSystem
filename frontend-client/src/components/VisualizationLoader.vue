@@ -1,11 +1,20 @@
 <template>
   <div class="visualization-loader">
+    <!-- 骨架屏：结构与实际渲染器 (chart-renderer / map-renderer) 对齐 -->
     <div v-if="loading" class="viz-skeleton">
-      <div class="skeleton-bar"></div>
-      <div class="skeleton-body">
-        <div class="skeleton-map-placeholder"></div>
+      <div class="skel-header">
+        <span class="skel-icon"></span>
+        <span class="skel-title"></span>
+        <span class="skel-actions">
+          <span class="skel-btn"></span>
+          <span class="skel-btn"></span>
+        </span>
+      </div>
+      <div class="skel-body">
+        <div class="skel-shimmer"></div>
       </div>
     </div>
+
     <div v-else-if="error" class="viz-error">
       <span class="error-icon">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -18,6 +27,7 @@
       <span class="error-text">{{ error }}</span>
       <button @click="fetchConfig" class="retry-btn">重试</button>
     </div>
+
     <template v-else>
       <ChartRenderer
         v-if="vizData.viz_type === 'chart'"
@@ -80,7 +90,6 @@ const imageUrl = computed(() => {
   if (vizData.value.viz_type === 'image') {
     const raw = vizData.value.image_url;
     const path = typeof raw === 'string' ? raw : '';
-    // 如果是相对路径，转为 API 可访问的路径
     if (path.startsWith('./static/')) {
       return '/' + path.replace('./', '');
     }
@@ -129,38 +138,102 @@ onMounted(fetchConfig);
   margin: 0.5rem 0;
 }
 
+/* ===== 骨架屏：结构对齐 chart-renderer / map-renderer ===== */
+
 .viz-skeleton {
-  border-radius: 12px;
-  padding: 1rem;
-  background: var(--msg-bg, #f4f4f5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  overflow: hidden;
+  background: var(--glass-bg-light);
 }
 
-.skeleton-bar {
-  height: 16px;
-  width: 40%;
-  border-radius: 4px;
-  background: var(--skeleton-bg, #e4e4e7);
-  margin-bottom: 1rem;
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
-}
-
-.skeleton-body {
+/* 头部：与 chart-header / map-header 同高、同结构 */
+.skel-header {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  padding: var(--spacing-md, 16px);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.skeleton-map-placeholder {
-  height: 260px;
-  border-radius: 8px;
-  background: var(--skeleton-bg, #e4e4e7);
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
+.skel-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--color-bg-tertiary);
+  flex-shrink: 0;
+  opacity: 0.6;
 }
 
-@keyframes skeleton-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+.skel-title {
+  height: 14px;
+  width: 30%;
+  min-width: 80px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  opacity: 0.6;
 }
+
+.skel-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.skel-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+}
+
+/* 内容区：尺寸匹配实际渲染器的 chart-container / map-container */
+.skel-body {
+  aspect-ratio: 16 / 9;
+  min-height: 300px;
+  max-height: 500px;
+  background: var(--color-bg-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 微光扫过动效 */
+.skel-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(var(--color-interactive-rgb), 0.035) 45%,
+    rgba(var(--color-interactive-rgb), 0.07) 50%,
+    rgba(var(--color-interactive-rgb), 0.035) 55%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: skel-shimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 响应式：匹配 ChartRenderer / MapRenderer 的移动端收缩 */
+@media (max-width: 768px) {
+  .skel-body {
+    aspect-ratio: 4 / 3;
+    min-height: 250px;
+    max-height: 350px;
+  }
+
+  .skel-header {
+    padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
+  }
+}
+
+/* ===== 错误状态 ===== */
 
 .viz-error {
   display: flex;
@@ -199,6 +272,8 @@ onMounted(fetchConfig);
   background: var(--error-color, #dc2626);
   color: var(--color-on-color);
 }
+
+/* ===== 图片回退 ===== */
 
 .fallback-image-wrapper {
   text-align: center;
