@@ -29,7 +29,7 @@
               </div>
             </section>
 
-            <div v-if="uploading" class="ctx-loading">正在准备发送附件...</div>
+            <div v-if="uploading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>正在准备发送附件...</div>
             <section v-if="pendingFiles.length" class="ctx-section">
               <div class="ctx-section-title">{{ pendingTitle }}</div>
               <div class="ctx-file-list">
@@ -49,7 +49,7 @@
               </div>
             </section>
 
-            <div v-if="loading" class="ctx-loading">加载文件中...</div>
+            <div v-if="loading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>加载文件中...</div>
             <section v-else-if="files.length" class="ctx-section">
               <div class="ctx-section-title">当前会话文件</div>
               <div class="ctx-file-list">
@@ -239,7 +239,7 @@ const onFileChange = (event) => {
 .ctx-action-btn__icon { font-size: 14px; line-height: 1; }
 .ctx-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.ctx-loading { padding: 36px 20px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
+.ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: 13px; color: var(--color-text-muted); }
 .ctx-empty-state { padding: 36px 20px; text-align: center; }
 .ctx-empty-title { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); }
 .ctx-empty-desc { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--color-text-muted); }

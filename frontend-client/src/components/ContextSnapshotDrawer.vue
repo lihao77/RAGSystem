@@ -8,7 +8,7 @@
             <button class="ctx-close-btn" @click="$emit('close')">&times;</button>
           </div>
 
-          <div v-if="loading" class="ctx-loading">加载中...</div>
+          <div v-if="loading" class="ctx-loading"><span class="g-spinner"></span>加载中...</div>
           <div v-else-if="error" class="ctx-error">{{ error }}</div>
           <div v-else class="ctx-drawer-body">
 
@@ -335,7 +335,7 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-drawer-header h3 { margin: 0; font-size: 15px; }
 .ctx-close-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--color-text-secondary, #666); line-height: 1; }
 .ctx-drawer-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
-.ctx-loading, .ctx-error { padding: 40px; text-align: center; color: var(--color-text-muted, #999); }
+.ctx-loading, .ctx-error { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--color-text-muted, #999); }
 .ctx-error { color: var(--color-error); }
 .ctx-section { margin-bottom: 18px; }
 .ctx-section h4 { font-size: 13px; margin: 0 0 8px; color: var(--color-text-secondary, #666); }

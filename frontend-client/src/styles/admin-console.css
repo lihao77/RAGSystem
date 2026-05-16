@@ -160,17 +160,14 @@
   color: var(--color-text-secondary);
 }
 
+/* Spinner — 复用全局 g-spin 动画节奏 */
 .adm-spinner {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-brand-accent-light);
-  animation: adm-spin 0.75s linear infinite;
-}
-
-@keyframes adm-spin {
-  to { transform: rotate(360deg); }
+  animation: g-spin 0.8s linear infinite;
 }
 
 .adm-entity-list {

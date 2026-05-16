@@ -70,7 +70,7 @@
               </button>
             </div>
           </TransitionGroup>
-          <div v-if="historyLoadingMore" class="history-loading-more">加载中...</div>
+          <div v-if="historyLoadingMore" class="history-loading-more"><span class="g-spinner g-spinner--sm"></span>加载中...</div>
           <div v-if="historyError" class="history-error">
             <span>{{ historyError }}</span>
             <button class="retry-btn" @click="retryLoadHistory">重试</button>
@@ -996,8 +996,11 @@ onUnmounted(() => {
 
 .history-error,
 .history-loading-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 16px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
 
@@ -1116,18 +1119,21 @@ onUnmounted(() => {
 .history-skeleton {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   padding: 0 var(--spacing-sm);
 }
 
 .skeleton-item {
   height: var(--control-height-md);
-  opacity: 0.75;
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
 }
 
 .skeleton-icon,
 .skeleton-line {
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.5);
+  background: var(--color-bg-tertiary);
+  opacity: 0.45;
   border-radius: 999px;
 }
 
@@ -1135,12 +1141,31 @@ onUnmounted(() => {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+  border-radius: 5px;
 }
 
 .skeleton-line {
   flex: 1;
   height: 12px;
 }
+
+/* shimmer sweep */
+.skeleton-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.035) 45%, rgba(var(--color-interactive-rgb), 0.07) 50%, rgba(var(--color-interactive-rgb), 0.035) 55%, transparent 70%);
+  background-size: 250% 100%;
+  animation: g-shimmer 2.4s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.skeleton-item:nth-child(2)::after { animation-delay: 0.15s; }
+.skeleton-item:nth-child(3)::after { animation-delay: 0.3s; }
+.skeleton-item:nth-child(4)::after { animation-delay: 0.4s; }
+.skeleton-item:nth-child(5)::after { animation-delay: 0.55s; }
+.skeleton-item:nth-child(6)::after { animation-delay: 0.7s; }
 
 .chat-layout--sidebar-overlay {
   padding: 0;

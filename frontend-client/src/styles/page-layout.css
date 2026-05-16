@@ -24,23 +24,18 @@
   color: var(--color-error);
 }
 
-/* 加载旋转器 */
+/* Spinner — 复用全局 g-spin 动画节奏 */
 .pl-spinner {
-  width: 36px;
-  height: 36px;
-  border: 2px solid var(--color-border);
+  width: 32px;
+  height: 32px;
+  border: 2.5px solid var(--color-border);
   border-top-color: var(--color-brand-accent-light);
   border-radius: 50%;
-  animation: pl-spin 0.8s linear infinite;
+  animation: g-spin 0.8s linear infinite;
 }
 
-@keyframes pl-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* 可附加在任意元素上的旋转动画 */
 .pl-spin {
-  animation: pl-spin 0.8s linear infinite;
+  animation: g-spin 0.8s linear infinite;
 }
 
 /* 空状态 */

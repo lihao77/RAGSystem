@@ -152,7 +152,7 @@
                     <!-- 矩阵表格 -->
                     <div class="data-table-wrapper glass-card">
                         <div v-if="storeLoading" class="loading-state adm-state">
-                            <div class="spinner"></div>加载中...
+                            <span class="g-spinner"></span>加载中...
                         </div>
                         <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
@@ -326,7 +326,7 @@
                     <!-- 文件列表 -->
                     <div class="data-table-wrapper glass-card">
                         <div v-if="filesLoading" class="loading-state adm-state">
-                            <div class="spinner"></div>加载中...
+                            <span class="g-spinner"></span>加载中...
                         </div>
                         <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
@@ -426,7 +426,7 @@
                     </div>
 
                     <div v-if="vectorizersLoading" class="loading-state adm-state">
-                        <div class="spinner"></div>加载中...
+                        <span class="g-spinner"></span>加载中...
                     </div>
                     <div v-else-if="vectorizers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
                         style="padding: var(--spacing-xl)">
@@ -1557,13 +1557,9 @@ onMounted(() => {
     font-size: var(--font-size-sm);
 }
 
-/* 刷新中旋转动画 */
+/* 刷新中旋转动画 — 复用全局节奏 */
 .spin {
-    animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
+    animation: g-spin 0.8s linear infinite;
 }
 
 .btn-link {

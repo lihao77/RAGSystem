@@ -1571,26 +1571,23 @@ input[type='number'].form-control { padding-right: 8px; }
   line-height: 1.7;
 }
 
-/* ── Spinner ──────────────────────────────────────── */
+/* ── Spinner — 复用全局 g-spin 节奏 ──────────────── */
 .spinner {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-brand-accent-light);
-  animation: spin .7s linear infinite;
+  animation: g-spin 0.8s linear infinite;
 }
 
 .spinner--sm {
   width: 14px;
   height: 14px;
+  border-width: 1.5px;
 }
 
-.spin { animation: spin .7s linear infinite; }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.spin { animation: g-spin 0.8s linear infinite; }
 
 /* ── glass-card fallback ──────────────────────────── */
 .glass-card {

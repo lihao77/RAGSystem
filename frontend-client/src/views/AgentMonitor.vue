@@ -185,7 +185,7 @@
                   <button type="button" class="btn-inline" @click="clearSelectedTask">关闭</button>
                 </div>
 
-                <div v-if="taskDetailLoading" class="inline-state">加载任务详情中...</div>
+                <div v-if="taskDetailLoading" class="inline-state"><span class="g-spinner g-spinner--sm"></span>加载任务详情中...</div>
                 <div v-else-if="taskDetailError" class="inline-state inline-state--error">{{ taskDetailError }}</div>
                 <div v-else-if="selectedTaskStatus" class="task-detail-grid">
                   <div class="task-detail-card">
@@ -882,10 +882,14 @@ onUnmounted(() => {
 }
 
 .inline-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .inline-state--error {

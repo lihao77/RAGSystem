@@ -290,7 +290,7 @@
             <input v-model="templateFilter" type="text" placeholder="筛选模板..." class="sidebar-search-input" />
           </div>
           <div v-if="loadingTemplates" class="sidebar-loading">
-            <div class="spinner spinner--sm"></div>
+            <div class="g-spinner g-spinner--sm"></div>
           </div>
           <ul v-else class="template-list">
             <li v-if="!filteredTemplates.length" class="template-list-empty">暂无模板</li>
@@ -401,7 +401,7 @@
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
-                  <div v-else class="spinner spinner--sm spinner--inline"></div>
+                  <div v-else class="g-spinner g-spinner--sm"></div>
                 </template>
                 {{ installing ? '安装中...' : '安装服务' }}
               </UiButton>
@@ -448,7 +448,7 @@
       </div>
 
       <div v-if="loadingRegistryResults" class="state-panel adm-state">
-        <div class="spinner"></div>
+        <div class="g-spinner"></div>
         <p>正在搜索 Registry...</p>
       </div>
       <div v-else-if="!registryResults.length" class="state-panel state-panel--empty adm-state adm-state--empty">
@@ -649,7 +649,7 @@
             <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
             <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
               <template v-if="installingRegistry" #icon>
-                <div class="spinner spinner--sm spinner--inline"></div>
+                <div class="g-spinner g-spinner--sm"></div>
               </template>
               {{ installingRegistry ? '安装中...' : '安装服务' }}
             </UiButton>
@@ -761,7 +761,7 @@
             <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
             <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">
               <template v-if="savingEdit" #icon>
-                <div class="spinner spinner--sm spinner--inline"></div>
+                <div class="g-spinner g-spinner--sm"></div>
               </template>
               {{ savingEdit ? '保存中...' : '保存更改' }}
             </UiButton>

@@ -323,6 +323,85 @@
   filter: none;
 }
 
+/* ===== Message List Skeleton ===== */
+
+.messages-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: var(--chat-padding-y) var(--chat-padding-x);
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.message-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 奇数行：模拟用户消息气泡（右对齐、短宽、有背景） */
+.message-skeleton-row:nth-child(odd) {
+  align-self: flex-end;
+  width: 50%;
+  height: 44px;
+  background: var(--color-bg-message-user);
+  border-radius: 18px 18px 6px 18px;
+}
+
+/* 偶数行：模拟助手回复（左对齐、多行文本占位） */
+.message-skeleton-row:nth-child(even) {
+  align-self: flex-start;
+  width: 78%;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.message-skeleton-row:nth-child(even)::before,
+.message-skeleton-row:nth-child(even)::after {
+  content: '';
+  display: block;
+  height: 13px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  opacity: 0.45;
+}
+
+.message-skeleton-row:nth-child(even)::before { width: 92%; }
+.message-skeleton-row:nth-child(even)::after  { width: 64%; }
+
+/* Shimmer sweep */
+.message-skeleton-row:nth-child(odd)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%);
+  background-size: 250% 100%;
+  animation: g-shimmer 2.4s ease-in-out infinite;
+  border-radius: inherit;
+}
+
+/* Stagger */
+.message-skeleton-row:nth-child(1)::after { animation-delay: 0s; }
+.message-skeleton-row:nth-child(2)::before,
+.message-skeleton-row:nth-child(2)::after { animation: g-shimmer 2.4s ease-in-out 0.2s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
+.message-skeleton-row:nth-child(3)::after { animation-delay: 0.35s; }
+.message-skeleton-row:nth-child(4)::before,
+.message-skeleton-row:nth-child(4)::after { animation: g-shimmer 2.4s ease-in-out 0.5s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
+.message-skeleton-row:nth-child(5)::after { animation-delay: 0.65s; }
+.message-skeleton-row:nth-child(6)::before,
+.message-skeleton-row:nth-child(6)::after { animation: g-shimmer 2.4s ease-in-out 0.8s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
+
+/* 移动端骨架屏收窄 */
+@media (max-width: 767px) {
+  .message-skeleton-row:nth-child(odd) { width: 65%; }
+  .message-skeleton-row:nth-child(even) { width: 90%; }
+}
+
 .welcome-content {
   max-width: 600px;
   display: flex;
