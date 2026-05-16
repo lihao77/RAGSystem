@@ -367,14 +367,17 @@
   display: block;
   height: 13px;
   border-radius: 4px;
-  background: var(--color-bg-tertiary);
+  background-color: var(--color-bg-tertiary);
+  background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%);
+  background-size: 250% 100%;
+  animation: g-shimmer 2.4s ease-in-out infinite;
   opacity: 0.45;
 }
 
 .message-skeleton-row:nth-child(even)::before { width: 92%; }
 .message-skeleton-row:nth-child(even)::after  { width: 64%; }
 
-/* Shimmer sweep */
+/* Shimmer sweep — odd rows (user bubble) */
 .message-skeleton-row:nth-child(odd)::after {
   content: '';
   position: absolute;
@@ -385,16 +388,16 @@
   border-radius: inherit;
 }
 
-/* Stagger */
-.message-skeleton-row:nth-child(1)::after { animation-delay: 0s; }
+/* Stagger delays */
+.message-skeleton-row:nth-child(1)::after  { animation-delay: 0s; }
 .message-skeleton-row:nth-child(2)::before,
-.message-skeleton-row:nth-child(2)::after { animation: g-shimmer 2.4s ease-in-out 0.2s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
-.message-skeleton-row:nth-child(3)::after { animation-delay: 0.35s; }
+.message-skeleton-row:nth-child(2)::after  { animation-delay: 0.2s; }
+.message-skeleton-row:nth-child(3)::after  { animation-delay: 0.35s; }
 .message-skeleton-row:nth-child(4)::before,
-.message-skeleton-row:nth-child(4)::after { animation: g-shimmer 2.4s ease-in-out 0.5s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
-.message-skeleton-row:nth-child(5)::after { animation-delay: 0.65s; }
+.message-skeleton-row:nth-child(4)::after  { animation-delay: 0.5s; }
+.message-skeleton-row:nth-child(5)::after  { animation-delay: 0.65s; }
 .message-skeleton-row:nth-child(6)::before,
-.message-skeleton-row:nth-child(6)::after { animation: g-shimmer 2.4s ease-in-out 0.8s infinite; background-size: 250% 100%; background-image: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%); }
+.message-skeleton-row:nth-child(6)::after  { animation-delay: 0.8s; }
 
 /* 移动端骨架屏收窄 */
 @media (max-width: 767px) {

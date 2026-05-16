@@ -70,7 +70,7 @@
               </button>
             </div>
           </TransitionGroup>
-          <div v-if="historyLoadingMore" class="history-loading-more"><span class="g-spinner g-spinner--sm"></span>加载中...</div>
+          <div v-if="historyLoadingMore" class="history-loading-more g-loading-inline"><span class="g-spinner g-spinner--sm"></span>加载中...</div>
           <div v-if="historyError" class="history-error">
             <span>{{ historyError }}</span>
             <button class="retry-btn" @click="retryLoadHistory">重试</button>
@@ -994,8 +994,7 @@ onUnmounted(() => {
   }
 }
 
-.history-error,
-.history-loading-more {
+.history-error {
   display: flex;
   align-items: center;
   gap: 8px;

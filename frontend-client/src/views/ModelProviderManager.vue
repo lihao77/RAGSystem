@@ -175,7 +175,7 @@
                 <button class="adm-action-btn adm-action-btn--success act-btn act-btn--test"
                   :disabled="testingKey === getProviderKey(provider)"
                   @click="quickTest(provider)">
-                  <div v-if="testingKey === getProviderKey(provider)" class="spinner spinner--sm"></div>
+                  <div v-if="testingKey === getProviderKey(provider)" class="g-spinner g-spinner--sm"></div>
                   <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="5 3 19 12 5 21 5 3"/>
@@ -1571,22 +1571,7 @@ input[type='number'].form-control { padding-right: 8px; }
   line-height: 1.7;
 }
 
-/* ── Spinner — 复用全局 g-spin 节奏 ──────────────── */
-.spinner {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-brand-accent-light);
-  animation: g-spin 0.8s linear infinite;
-}
-
-.spinner--sm {
-  width: 14px;
-  height: 14px;
-  border-width: 1.5px;
-}
-
+/* ── Spin helper（SVG 刷新图标旋转）──────────────── */
 .spin { animation: g-spin 0.8s linear infinite; }
 
 /* ── glass-card fallback ──────────────────────────── */
