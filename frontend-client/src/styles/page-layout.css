@@ -125,7 +125,7 @@
 .pl-card__head {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: 1px solid var(--adm-border, var(--color-border));
   background: var(--adm-surface-muted, var(--color-hover-overlay));

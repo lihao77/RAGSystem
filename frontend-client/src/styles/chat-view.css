@@ -193,7 +193,7 @@
 }
 
 .session-export-btn {
-  gap: 8px;
+  gap: var(--spacing-sm);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
@@ -321,7 +321,7 @@
 .messages-skeleton {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--spacing-lg);
   padding: var(--chat-padding-y) var(--chat-padding-x);
   max-width: var(--content-max-width);
   margin: 0 auto;
@@ -350,7 +350,7 @@
 .message-skeleton-row:nth-child(even) {
   align-self: flex-start;
   width: 78%;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 4px 0;
 }
 
@@ -639,7 +639,7 @@
 /* 编辑态确定/取消按钮 */
 .user-edit-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 .btn-editor {
   padding: 5px 14px;
@@ -939,7 +939,7 @@
 }
 
 .markdown-body .md-block-title {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -958,7 +958,7 @@
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
@@ -1196,7 +1196,7 @@
 .loading-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: var(--spacing-sm);
   color: var(--color-text-secondary);
 }
@@ -1204,11 +1204,11 @@
 .loading-dots {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 .loading-text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .dot {
@@ -1336,7 +1336,7 @@
 }
 
 .execution-steps-label .pulse-icon {
-  font-size: 1rem;
+  font-size: var(--font-size-base);
 }
 
 .subtasks-list {
@@ -1410,7 +1410,7 @@
 }
 
 .status-tag {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   padding: 4px 10px;
   border-radius: var(--radius-full);
   background-color: var(--color-bg-app);
@@ -1418,7 +1418,7 @@
   border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
   font-weight: 500;
   transition: all 0.3s var(--ease-default);
   box-shadow: var(--shadow-sm);
@@ -1444,7 +1444,7 @@
 }
 
 .status-icon {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .bottom-dock {
@@ -1571,7 +1571,7 @@
   /* 顶部控制栏移动端调整 */
   .left-controls,
   .right-controls {
-    gap: 4px;
+    gap: var(--spacing-xs);
     padding: 2px;
   }
 
@@ -1744,15 +1744,15 @@
   }
 
   .markdown-body h3 {
-    font-size: 1rem;
+    font-size: var(--font-size-base);
   }
 
   .markdown-body .md-code-block pre {
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
   }
 
   .markdown-body .md-code-block pre code {
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
   }
 
   .markdown-body .md-code-block .hljs {
@@ -1768,7 +1768,7 @@
   }
 
   .execution-steps-label {
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
   }
 
   .status-tag {
@@ -1821,7 +1821,7 @@
 .task-notification-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 8px 14px;
   border-bottom: 1px solid rgba(var(--color-border-rgb, 128, 128, 128), 0.18);
   font-weight: 500;
@@ -1844,7 +1844,7 @@
   border-top: 1px solid rgba(var(--color-border-rgb, 128, 128, 128), 0.1);
 }
 .tn-status {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 1px 8px;
   border-radius: var(--radius-full);
@@ -1861,11 +1861,11 @@
 }
 .tn-task-id {
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   opacity: 0.6;
 }
 .tn-type {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   opacity: 0.5;
 }
 /* ===== User 消息气泡容器 ===== */
@@ -1878,7 +1878,7 @@
 .user-attachments {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .user-attachment-card {
@@ -1932,7 +1932,7 @@
 }
 
 .user-attachment-meta {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-top: 2px;
 }

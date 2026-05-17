@@ -371,7 +371,7 @@ input[type='number'].form-control {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -480,7 +480,7 @@ input[type='number'].form-control {
 .memory-scope-card__header {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   padding-bottom: 8px;
   border-bottom: 1px dashed rgba(var(--color-brand-accent-rgb), 0.16);
 }
@@ -495,7 +495,7 @@ input[type='number'].form-control {
 .memory-scope-card__permission {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   padding: 6px 10px;
@@ -670,7 +670,7 @@ input[type='number'].form-control {
 .tier-toggle__copy {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   min-width: 0;
 }
 
@@ -760,7 +760,7 @@ input[type='number'].form-control {
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--spacing-xs);
   padding: 8px;
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
@@ -796,7 +796,7 @@ input[type='number'].form-control {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 6px 12px;
   border-radius: var(--radius-md);
   border-left: 2px solid transparent;
