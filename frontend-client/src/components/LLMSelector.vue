@@ -2,6 +2,7 @@
   <div class="llm-selector" ref="selectorRef">
     <!-- 选择器按钮 -->
     <div
+      ref="triggerRef"
       class="llm-select-trigger"
       :class="{ 'open': dropdownOpen, 'disabled': loading || models.length === 0 }"
       @click="toggleDropdown"
@@ -31,84 +32,92 @@
     </div>
 
     <!-- 下拉列表 -->
-    <transition name="dropdown">
-      <div v-if="dropdownOpen" class="dropdown-menu">
-        <div class="dropdown-content">
-          <!-- 搜索框（可选） -->
-          <div v-if="models.length > 5" class="search-box">
-            <input
-              ref="searchInputRef"
-              v-model="searchQuery"
-              type="text"
-              placeholder="Search models..."
-              class="search-input"
-              @click.stop
-            />
-          </div>
-
-          <!-- 选项列表 -->
-          <div class="options-list">
-            <!-- 默认选项：使用智能体配置 -->
-            <div
-              class="option-item"
-              :class="{ 'selected': selectedModel === '' }"
-              @click="selectModel('')"
-            >
-              <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
-              <svg
-                v-if="selectedModel === ''"
-                class="check-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
+    <Teleport to="body">
+      <transition :name="dropdownTransitionName">
+        <div
+          v-if="dropdownOpen"
+          ref="dropdownRef"
+          class="dropdown-menu dropdown-menu--teleported"
+          :class="`dropdown-menu--${resolvedPlacement}`"
+          :style="dropdownStyle"
+        >
+          <div ref="dropdownContentRef" class="dropdown-content">
+            <!-- 搜索框（可选） -->
+            <div v-if="models.length > 5" class="search-box">
+              <input
+                ref="searchInputRef"
+                v-model="searchQuery"
+                type="text"
+                placeholder="Search models..."
+                class="search-input"
+                @click.stop
+              />
             </div>
 
-            <!-- 分隔线 -->
-            <div class="options-divider"></div>
-
-            <!-- 模型选项 -->
-            <div
-              v-for="model in filteredModels"
-              :key="model.value"
-              class="option-item"
-              :class="{ 'selected': model.value === selectedModel }"
-              @click="selectModel(model.value)"
-            >
-              <span class="option-label">{{ model.label }}</span>
-              <svg
-                v-if="model.value === selectedModel"
-                class="check-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+            <!-- 选项列表 -->
+            <div class="options-list">
+              <!-- 默认选项：使用智能体配置 -->
+              <div
+                class="option-item"
+                :class="{ 'selected': selectedModel === '' }"
+                @click="selectModel('')"
               >
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            </div>
+                <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
+                <svg
+                  v-if="selectedModel === ''"
+                  class="check-icon"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
 
-            <!-- 无结果提示 -->
-            <div v-if="filteredModels.length === 0" class="no-results">
-              No models found
+              <!-- 分隔线 -->
+              <div class="options-divider"></div>
+
+              <!-- 模型选项 -->
+              <div
+                v-for="model in filteredModels"
+                :key="model.value"
+                class="option-item"
+                :class="{ 'selected': model.value === selectedModel }"
+                @click="selectModel(model.value)"
+              >
+                <span class="option-label">{{ model.label }}</span>
+                <svg
+                  v-if="model.value === selectedModel"
+                  class="check-icon"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+
+              <!-- 无结果提示 -->
+              <div v-if="filteredModels.length === 0" class="no-results">
+                No models found
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </transition>
+      </transition>
+    </Teleport>
 
     <!-- Error indicator -->
     <div
@@ -123,7 +132,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
+import { useDropdownPosition } from '../composables/useDropdownPosition';
 import { getAvailableModels } from '../api/modelAdapter';
 
 const props = defineProps({
@@ -142,6 +152,9 @@ const error = ref('');
 const dropdownOpen = ref(false);
 const searchQuery = ref('');
 const selectorRef = ref(null);
+const triggerRef = ref(null);
+const dropdownRef = ref(null);
+const dropdownContentRef = ref(null);
 const searchInputRef = ref(null);
 
 // 显示文本
@@ -162,6 +175,27 @@ const filteredModels = computed(() => {
     m.provider.toLowerCase().includes(query) ||
     m.model.toLowerCase().includes(query)
   );
+});
+
+const {
+  resolvedPlacement,
+  dropdownStyle,
+  dropdownTransitionName,
+  updatePosition,
+} = useDropdownPosition({
+  triggerRef,
+  dropdownRef,
+  contentRef: dropdownContentRef,
+  isOpen: dropdownOpen,
+  maxHeight: 360,
+  minWidth: 220,
+  // padding(8*2) + gap(12) + check-icon(16) + sub-text-margin(6) + scrollbar(6) + item-padding(14*2) ≈ 78
+  widthChrome: 78,
+  getLabels: () => [
+    '默认 使用智能体配置',
+    ...filteredModels.value.map(m => m.label ?? m.value ?? ''),
+  ],
+  fallbackFont: '500 14px sans-serif',
 });
 
 // 加载可用模型列表
@@ -193,20 +227,16 @@ const loadModels = async () => {
   }
 };
 
-// 切换下拉菜单
-const toggleDropdown = () => {
+const toggleDropdown = async () => {
   if (loading.value || models.value.length === 0) return;
   dropdownOpen.value = !dropdownOpen.value;
 
   if (dropdownOpen.value) {
-    // 聚焦搜索框
-    nextTick(() => {
-      if (searchInputRef.value) {
-        searchInputRef.value.focus();
-      }
-    });
+    await nextTick();
+    updatePosition();
+    await nextTick();
+    searchInputRef.value?.focus();
   } else {
-    // 清空搜索
     searchQuery.value = '';
   }
 };
@@ -230,13 +260,15 @@ const selectModel = (value) => {
 };
 
 usePointerDownOutside({
-  inside: [selectorRef],
+  inside: [selectorRef, dropdownRef],
   enabled: () => dropdownOpen.value,
   onOutside: () => {
     dropdownOpen.value = false;
     searchQuery.value = '';
   },
 });
+
+usePointerInsideRegistry([dropdownRef], () => dropdownOpen.value);
 
 // 键盘导航支持
 const handleKeydown = (event) => {
@@ -252,6 +284,12 @@ const handleKeydown = (event) => {
 watch(() => props.modelValue, (newValue) => {
   if (newValue !== selectedModel.value) {
     selectedModel.value = newValue;
+  }
+});
+
+watch(() => [filteredModels.value.length, models.value.length], () => {
+  if (dropdownOpen.value) {
+    nextTick(updatePosition);
   }
 });
 
@@ -366,22 +404,32 @@ defineExpose({ getSelection });
 
 /* 下拉菜单 */
 .dropdown-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  min-width: 220px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
-  z-index: var(--z-overlay);
   overflow: hidden;
+  box-sizing: border-box;
+}
+
+.dropdown-menu--teleported {
+  position: fixed;
+  z-index: 9999;
+}
+
+.dropdown-menu--up {
+  transform-origin: bottom center;
+}
+
+.dropdown-menu--down {
+  transform-origin: top center;
 }
 
 .dropdown-content {
   display: flex;
   flex-direction: column;
+  max-height: inherit;
+  overflow: hidden;
 }
 
 /* 搜索框 */
@@ -414,9 +462,10 @@ defineExpose({ getSelection });
 
 /* 选项列表 */
 .options-list {
-  max-height: 280px;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px;
+  box-sizing: border-box;
 }
 
 .option-item {
@@ -479,35 +528,35 @@ defineExpose({ getSelection });
   font-style: italic;
 }
 
-/* 下拉动画 */
-.dropdown-enter-active {
-  animation: dropdownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+/* 下拉动画（方向感知） */
+.dropdown-down-enter-active {
+  animation: dropdownDownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-down-leave-active {
+  animation: dropdownDownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
+}
+.dropdown-up-enter-active {
+  animation: dropdownUpIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-up-leave-active {
+  animation: dropdownUpOut 0.15s cubic-bezier(0.4, 0, 1, 1);
 }
 
-.dropdown-leave-active {
-  animation: dropdownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
+@keyframes dropdownDownIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
-@keyframes dropdownIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+@keyframes dropdownDownOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
 }
-
-@keyframes dropdownOut {
-  from {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.96);
-  }
+@keyframes dropdownUpIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dropdownUpOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
 
 /* Error indicator */
@@ -531,10 +580,6 @@ defineExpose({ getSelection });
 
   .arrow-icon {
     right: 10px;
-  }
-
-  .dropdown-menu {
-    min-width: 200px;
   }
 
   .option-item {

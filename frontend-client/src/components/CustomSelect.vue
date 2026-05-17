@@ -35,7 +35,7 @@
           :class="`dropdown-menu--${resolvedPlacement}`"
           :style="dropdownStyle"
         >
-          <div class="options-list" :style="optionsListStyle">
+          <div ref="optionsListRef" class="options-list" :style="optionsListStyle">
             <div
               v-for="opt in options"
               :key="opt.value"
@@ -69,12 +69,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
+import { useDropdownPosition } from '../composables/useDropdownPosition';
 
 const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
-const DROPDOWN_OFFSET = 8;
-const VIEWPORT_PADDING = 12;
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -94,9 +93,8 @@ const emit = defineEmits(['update:modelValue', 'change']);
 const rootRef = ref(null);
 const triggerRef = ref(null);
 const dropdownRef = ref(null);
+const optionsListRef = ref(null);
 const isOpen = ref(false);
-const resolvedPlacement = ref('down');
-const dropdownPosition = ref({ top: 0, left: 0, width: 0 });
 
 const normalizedDropdownMaxHeight = computed(() => {
   const numericValue = Number(props.dropdownMaxHeight);
@@ -113,51 +111,37 @@ const displayLabel = computed(() => {
   return found ? found.label : props.modelValue;
 });
 
-const dropdownStyle = computed(() => ({
-  top: `${dropdownPosition.value.top}px`,
-  left: `${dropdownPosition.value.left}px`,
-  width: `${dropdownPosition.value.width}px`,
-}));
+const {
+  resolvedPlacement,
+  dropdownPosition,
+  dropdownStyle,
+  dropdownTransitionName,
+  updatePosition,
+} = useDropdownPosition({
+  triggerRef,
+  dropdownRef,
+  contentRef: optionsListRef,
+  isOpen,
+  maxHeight: normalizedDropdownMaxHeight,
+  placement: computed(() => props.dropdownPlacement),
+  // padding(6*2) + gap(10) + check-icon(14) + scrollbar(5) + item-padding(12*2) ≈ 64
+  widthChrome: 64,
+  getLabels: () => (
+    props.options.length
+      ? props.options.map(o => o.label ?? o.value ?? '')
+      : ['暂无选项']
+  ),
+  fallbackFont: '500 13px sans-serif',
+});
 
 const optionsListStyle = computed(() => ({
-  maxHeight: `${normalizedDropdownMaxHeight.value}px`,
+  maxHeight: `${dropdownPosition.value.maxHeight}px`,
 }));
-
-const dropdownTransitionName = computed(() => (
-  resolvedPlacement.value === 'up' ? 'dropdown-up' : 'dropdown-down'
-));
-
-const updateDropdownPosition = () => {
-  if (!triggerRef.value) return;
-
-  const rect = triggerRef.value.getBoundingClientRect();
-  const dropdownHeight = dropdownRef.value?.offsetHeight ?? normalizedDropdownMaxHeight.value;
-  const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_PADDING;
-  const spaceAbove = rect.top - VIEWPORT_PADDING;
-
-  let placement = props.dropdownPlacement;
-  if (placement === 'auto') {
-    placement = spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove ? 'down' : 'up';
-  }
-
-  resolvedPlacement.value = placement;
-
-  const unclampedTop = placement === 'up'
-    ? rect.top - dropdownHeight - DROPDOWN_OFFSET
-    : rect.bottom + DROPDOWN_OFFSET;
-  const maxTop = Math.max(VIEWPORT_PADDING, window.innerHeight - dropdownHeight - VIEWPORT_PADDING);
-
-  dropdownPosition.value = {
-    top: Math.min(Math.max(unclampedTop, VIEWPORT_PADDING), maxTop),
-    left: rect.left,
-    width: rect.width,
-  };
-};
 
 const openDropdown = async () => {
   isOpen.value = true;
   await nextTick();
-  updateDropdownPosition();
+  updatePosition();
 };
 
 const closeDropdown = () => {
@@ -187,32 +171,16 @@ usePointerDownOutside({
 
 usePointerInsideRegistry([dropdownRef], () => isOpen.value);
 
-const onWindowChange = () => {
-  if (isOpen.value) {
-    updateDropdownPosition();
-  }
-};
-
 watch(() => props.options, () => {
   if (isOpen.value) {
-    nextTick(updateDropdownPosition);
+    nextTick(updatePosition);
   }
 }, { deep: true });
 
 watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
   if (isOpen.value) {
-    nextTick(updateDropdownPosition);
+    nextTick(updatePosition);
   }
-});
-
-onMounted(() => {
-  window.addEventListener('resize', onWindowChange);
-  window.addEventListener('scroll', onWindowChange, true);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('resize', onWindowChange);
-  window.removeEventListener('scroll', onWindowChange, true);
 });
 </script>
 
@@ -286,6 +254,7 @@ onUnmounted(() => {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg), 0 0 0 1px var(--color-hover-overlay);
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .dropdown-menu--teleported {
@@ -304,6 +273,7 @@ onUnmounted(() => {
 .options-list {
   overflow-y: auto;
   padding: 6px;
+  box-sizing: border-box;
 }
 
 .option-item {
