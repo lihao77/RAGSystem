@@ -8,9 +8,9 @@
   --adm-control-hover: rgba(var(--color-bg-elevated-rgb), 0.72);
   --adm-control-active: rgba(var(--color-brand-accent-rgb), 0.12);
   --adm-input-bg: rgba(var(--color-bg-elevated-rgb), 0.64);
-  --adm-border: rgba(var(--color-border-rgb), 0.14);
-  --adm-border-strong: rgba(var(--color-border-rgb), 0.24);
-  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.3);
+  --adm-border: rgba(var(--color-border-rgb), 0.10);
+  --adm-border-strong: rgba(var(--color-border-rgb), 0.18);
+  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.22);
   --adm-shadow-inset: inset 0 1px 0 var(--color-soft-inset);
 }
 

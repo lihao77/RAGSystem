@@ -378,7 +378,7 @@ defineExpose({ show, hide, toggleCollapsed });
   width: 100%;
   padding: 10px 13px;
   background: var(--color-bg-secondary);
-  border: 1.5px solid var(--color-border);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   color: var(--color-text-primary);
   font-size: 0.9rem;

@@ -45,10 +45,10 @@
     --color-bg-message-user: #2c2c2e;
     --color-bg-message-assistant: transparent;
 
-    /* Borders - Subtle but Visible */
-    --color-border: rgba(255, 255, 255, 0.1);
+    /* Borders - Ultra-subtle, transparency-first */
+    --color-border: rgba(255, 255, 255, 0.07);
     --color-border-rgb: 255, 255, 255;
-    --color-border-hover: rgba(255, 255, 255, 0.16);
+    --color-border-hover: rgba(255, 255, 255, 0.12);
     --color-border-focus: rgba(10, 132, 255, 0.5);
     /* Apple Blue focus */
     --color-map-marker-fill: #2a81cb;
@@ -124,7 +124,7 @@
     /* Low-transparency surface tokens for tool UIs. */
     --glass-bg: rgba(28, 28, 30, 0.94);
     --glass-bg-light: rgba(28, 28, 30, 0.88);
-    --color-glass-border: rgba(255, 255, 255, 0.1);
+    --color-glass-border: rgba(255, 255, 255, 0.07);
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
     --glass-blur: 0px;
 
@@ -302,11 +302,10 @@
     --color-bg-message-user: #e8e8ed;
     --color-bg-message-assistant: transparent;
 
-    /* Borders */
-    --color-border: #d2d2d7;
-    --color-border-rgb: 210, 210, 215;
-    /* Apple Light Border */
-    --color-border-hover: #b0b0b5;
+    /* Borders — semi-transparent, consistent with dark mode philosophy */
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-border-rgb: 0, 0, 0;
+    --color-border-hover: rgba(0, 0, 0, 0.14);
     --color-border-focus: rgba(0, 122, 255, 0.5);
     /* Apple Blue focus */
     --color-map-marker-fill: #007aff;
@@ -382,7 +381,7 @@
     /* Glass - Light：保留 token，但收敛为近似实体表面 */
     --glass-bg: rgba(255, 255, 255, 0.96);
     --glass-bg-light: rgba(255, 255, 255, 0.92);
-    --color-glass-border: rgba(0, 0, 0, 0.1);
+    --color-glass-border: rgba(0, 0, 0, 0.06);
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
     --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.72);
     --surface-panel: var(--color-bg-elevated);

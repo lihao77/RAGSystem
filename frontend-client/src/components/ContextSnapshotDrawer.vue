@@ -358,11 +358,11 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-tool-name { font-family: monospace; color: var(--color-text-primary, #333); }
 .ctx-history-list { max-height: 300px; overflow-y: auto; }
 .ctx-history-item { padding: 6px 8px; margin-bottom: 4px; border-radius: 4px; background: var(--color-bg-secondary, #f9f9f9); font-size: 12px; }
-.ctx-history-item.role-user { border-left: 3px solid var(--color-active); }
-.ctx-history-item.role-assistant { border-left: 3px solid var(--color-success); }
-.ctx-history-item.role-system { border-left: 3px solid var(--color-warning); }
-.ctx-history-item.react-thought { border-left: 3px dashed var(--color-agent-violet); opacity: 0.75; }
-.ctx-history-item.react-observation { border-left: 3px dashed var(--color-agent-blue); opacity: 0.75; }
+.ctx-history-item.role-user { border-left: 2px solid var(--color-active); }
+.ctx-history-item.role-assistant { border-left: 2px solid var(--color-success); }
+.ctx-history-item.role-system { border-left: 2px solid var(--color-warning); }
+.ctx-history-item.react-thought { border-left: 2px dashed var(--color-agent-violet); opacity: 0.75; }
+.ctx-history-item.react-observation { border-left: 2px dashed var(--color-agent-blue); opacity: 0.75; }
 .ctx-msg-type { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); margin-right: 6px; }
 .ctx-role { font-weight: 600; text-transform: uppercase; margin-right: 8px; }
 .ctx-tokens { color: var(--color-text-muted, #999); float: right; }

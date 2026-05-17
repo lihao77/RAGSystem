@@ -136,7 +136,7 @@ defineExpose({ show, hide });
 
 .fp-container {
   background: var(--color-bg-primary);
-  border: 2px solid var(--color-accent);
+  border: 1.5px solid var(--color-accent);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
   max-width: 640px;

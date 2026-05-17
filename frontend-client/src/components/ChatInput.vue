@@ -283,7 +283,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-container {
   /* background: var(--glass-bg); */
   backdrop-filter: blur(40px);
-  border: 2px solid var(--color-border);
+  border: 1.5px solid var(--color-border);
   border-radius: 28px;
   padding: 10px;
   transition: all 0.3s;

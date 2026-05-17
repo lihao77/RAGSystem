@@ -47,7 +47,7 @@ defineExpose({ show });
   max-width: min(90vw, 420px);
   border-radius: var(--radius-xl);
   border: 1px solid var(--color-glass-border);
-  border-left-width: 4px;
+  border-left-width: 3px;
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));

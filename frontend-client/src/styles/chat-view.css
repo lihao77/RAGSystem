@@ -779,7 +779,7 @@
 /* #11: Toast 添加 warning 类型，背景色区分语义 */
 /* 成功：左侧细条 + 柔和背景 */
 .toast.success {
-  border-left: 3px solid var(--color-success);
+  border-left: 2px solid var(--color-success);
   background: var(--toast-success-bg);
   color: var(--color-text-primary);
 }
@@ -790,7 +790,7 @@
 
 /* 错误：左侧细条 + 柔和背景 */
 .toast.error {
-  border-left: 3px solid var(--color-error);
+  border-left: 2px solid var(--color-error);
   background: var(--toast-error-bg);
   color: var(--color-text-primary);
 }
@@ -801,14 +801,14 @@
 
 /* 警告：左侧细条 + 柔和背景 */
 .toast.warning {
-  border-left: 3px solid var(--toast-warning-border);
+  border-left: 2px solid var(--toast-warning-border);
   background: var(--toast-warning-bg);
   color: var(--color-text-primary);
 }
 
 /* 默认 / 信息：品牌色细条 */
 .toast:not(.success):not(.error):not(.warning) {
-  border-left: 3px solid var(--color-border-hover);
+  border-left: 2px solid var(--color-border-hover);
 }
 
 .toast-action {
@@ -1102,7 +1102,7 @@
 .markdown-body .md-quote-block blockquote {
   margin: 0;
   padding: 12px 14px;
-  border-left: 3px solid var(--color-border-hover);
+  border-left: 2px solid var(--color-border-hover);
   border-radius: 0;
   background: transparent;
   color: var(--color-text-secondary);
@@ -1167,7 +1167,7 @@
 /* 分隔线 */
 .markdown-body hr {
   border: none;
-  border-top: 2px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
   margin: 2em 0;
 }
 
@@ -1361,7 +1361,7 @@
   color: var(--color-text-secondary);
   margin-bottom: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm);
-  border-left: 3px solid var(--color-interactive);
+  border-left: 2px solid var(--color-interactive);
   background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
 }

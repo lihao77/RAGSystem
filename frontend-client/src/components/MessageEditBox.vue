@@ -142,7 +142,7 @@ onMounted(async () => {
   box-sizing: border-box;
   padding: 20px;
   background: var(--color-bg-secondary);
-  border: 2px solid var(--color-border);
+  border: 1.5px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
   transition: all 0.3s;

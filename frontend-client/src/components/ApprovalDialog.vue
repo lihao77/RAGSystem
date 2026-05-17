@@ -303,7 +303,7 @@ defineExpose({ show, hide, toggleCollapsed });
 
 .approval-container {
   background: var(--color-bg-primary);
-  border: 2px solid var(--color-warning);
+  border: 1.5px solid rgba(var(--color-warning-rgb), 0.6);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(var(--color-warning-rgb), 0.2);
   max-width: 520px;
@@ -471,7 +471,7 @@ defineExpose({ show, hide, toggleCollapsed });
 .approval-action-box {
   padding: var(--spacing-md);
   background: var(--color-bg-secondary);
-  border-left: 3px solid var(--color-warning);
+  border-left: 2px solid rgba(var(--color-warning-rgb), 0.6);
   border-radius: var(--radius-sm);
 }
 

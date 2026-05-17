@@ -54,7 +54,7 @@ const statusClass = computed(() => {
 
 .command-result.error {
   background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(var(--color-error-rgb), 0.18);
 }
 
 .command-name {

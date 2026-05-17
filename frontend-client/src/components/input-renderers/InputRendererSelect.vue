@@ -54,7 +54,7 @@ const selectOption = (opt) => {
   gap: 10px;
   padding: 11px 14px;
   background: var(--color-bg-secondary);
-  border: 1.5px solid var(--color-border);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   cursor: pointer;
   text-align: left;
