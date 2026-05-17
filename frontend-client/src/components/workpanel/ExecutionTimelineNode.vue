@@ -475,6 +475,12 @@ function formatElapsed(value) {
     box-shadow var(--transition-fast);
 }
 
+.etn.status-running > .etn-row .etn-status-dot {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 8px rgba(var(--color-brand-accent-rgb), 0.5);
+}
+
 .etn-status-pulse {
   position: absolute;
   inset: -5px;
@@ -499,12 +505,14 @@ function formatElapsed(value) {
   transition:
     background var(--transition-fast),
     border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .etn-card.is-interactive:not(.is-selected):hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
+  transform: translateY(-1px);
 }
 
 .etn--nested .etn-card {
@@ -540,7 +548,9 @@ function formatElapsed(value) {
 .etn--nested.etn--tool_call .etn-card.is-selected {
   border-color: var(--selection-border);
   background: var(--selection-bg);
-  box-shadow: inset 0 0 0 1px var(--selection-ring);
+  box-shadow:
+    inset 0 0 0 1px var(--selection-ring),
+    0 0 10px rgba(var(--color-brand-accent-rgb), 0.06);
 }
 
 .etn-summary {
@@ -976,6 +986,10 @@ function formatElapsed(value) {
   .etn-status-pulse,
   .substep-running {
     animation: none;
+  }
+
+  .etn-card.is-interactive:not(.is-selected):hover {
+    transform: none;
   }
 
   .etn-status-dot,

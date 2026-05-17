@@ -111,6 +111,8 @@ function submit() {
   border-radius: var(--radius-sm, 8px);
   overflow: hidden;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.82);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
   box-shadow: var(--shadow-md);
 }
 
@@ -191,8 +193,9 @@ function submit() {
   cursor: pointer;
   border: none;
   background: transparent;
-  transition: background 0.12s;
+  transition: background 0.12s, transform 0.1s;
 }
+.wpui-btn:active:not(:disabled) { transform: scale(0.97); }
 
 .wpui-btn--submit {
   color: var(--color-brand-accent, #6366f1);
@@ -201,11 +204,17 @@ function submit() {
 .wpui-btn--submit:hover {
   background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.08);
 }
+.wpui-btn--submit:active {
+  background: rgba(var(--color-brand-accent-rgb, 99,102,241), 0.14);
+}
 
 .wpui-btn--cancel {
   color: var(--color-text-muted);
 }
 .wpui-btn--cancel:hover {
   background: var(--color-hover-overlay, rgba(255,255,255,0.04));
+}
+.wpui-btn--cancel:active {
+  background: rgba(255,255,255,0.06);
 }
 </style>
