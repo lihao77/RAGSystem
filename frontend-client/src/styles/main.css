@@ -128,8 +128,16 @@
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
     --glass-blur: 0px;
 
-    /* Semantic Surfaces */
-    --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.42);
+    /* Semantic Surfaces — 三级深度：shell(主内容) > sidebar(导航) > workpanel(辅助)
+     * 在 #000 上的合成近似值：
+     *   shell     ≈ rgb(23, 23, 26)  — 主焦点，明确高于纯黑
+     *   sidebar   ≈ rgb(10, 10, 12)  — 导航退后，差 13pt
+     *   workpanel ≈ rgb(15, 15, 19)  — 叠在 shell 上，差 8pt
+     */
+    --surface-shell: rgba(36, 36, 40, 0.64);
+    --surface-sidebar: rgba(20, 20, 24, 0.48);
+    --surface-workpanel: rgba(8, 8, 12, 0.48);
+    --surface-workpanel-rgb: 8, 8, 12;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
@@ -383,7 +391,11 @@
     --glass-bg-light: rgba(255, 255, 255, 0.92);
     --color-glass-border: rgba(0, 0, 0, 0.06);
     --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    /* shell≈white / sidebar≈rgb(246,246,250) / workpanel≈rgb(243,244,247) */
     --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.72);
+    --surface-sidebar: rgba(242, 242, 247, 0.70);
+    --surface-workpanel: rgba(238, 239, 244, 0.76);
+    --surface-workpanel-rgb: 238, 239, 244;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);

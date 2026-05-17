@@ -107,10 +107,9 @@ function hasErrorInItems(items) {
 
 <style scoped>
 .work-panel {
-  background:
-    linear-gradient(180deg, rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.58), rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.34));
-  border-left: 1px solid var(--color-border);
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.02);
+  background: var(--surface-workpanel);
+  border-left: 1px solid rgba(var(--color-border-rgb, 255, 255, 255), 0.12);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.04);
   letter-spacing: 0;
 }
 
@@ -132,8 +131,8 @@ function hasErrorInItems(items) {
   background: linear-gradient(
     to bottom,
     transparent 0,
-    rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.84) 22px,
-    rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.96) 100%
+    rgba(var(--surface-workpanel-rgb, 8, 8, 12), 0.90) 22px,
+    rgba(var(--surface-workpanel-rgb, 8, 8, 12), 0.97) 100%
   );
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);

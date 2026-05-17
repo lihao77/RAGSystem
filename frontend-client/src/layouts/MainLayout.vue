@@ -548,7 +548,7 @@ onUnmounted(() => {
 
 .sidebar {
   box-shadow: var(--shadow-sm);
-  background: var(--surface-shell);
+  background: var(--surface-sidebar);
   width: 260px;
   border-radius: var(--radius-lg);
   display: flex;
