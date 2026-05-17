@@ -1013,7 +1013,7 @@ onUnmounted(() => {
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .metrics-grid { grid-template-columns: 1fr; }
   .metric-item { border-right: none; border-bottom: 1px solid var(--color-border); }
   .metric-item:last-child { border-bottom: none; }

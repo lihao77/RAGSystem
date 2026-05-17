@@ -399,7 +399,7 @@ onUnmounted(() => {
 }
 
 /* 响应式调整 */
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .chart-container {
     /* 移动端使用 4:3 比例，更适合竖屏 */
     aspect-ratio: 4 / 3;

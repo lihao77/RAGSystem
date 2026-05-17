@@ -221,7 +221,7 @@ onMounted(fetchConfig);
 }
 
 /* 响应式：匹配 ChartRenderer / MapRenderer 的移动端收缩 */
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .skel-body {
     aspect-ratio: 4 / 3;
     min-height: 250px;

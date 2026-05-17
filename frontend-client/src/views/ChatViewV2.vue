@@ -1243,7 +1243,7 @@ onUnmounted(() => {
   transition: outline-color 0.2s ease;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .composer-status-row {
     align-items: center;
   }

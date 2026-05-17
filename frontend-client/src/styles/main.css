@@ -176,6 +176,16 @@
     --transition-fast: 0.2s var(--ease-default);
     --transition-normal: 0.3s var(--ease-default);
 
+    /* ── Breakpoints (CSS 不支持变量用于 @media，此处仅做文档) ──
+     *  xs   480px   小屏手机（单列堆叠）
+     *  sm   640px   大屏手机 / 横屏
+     *  md   767px   平板竖屏以下（max-width: 767px）
+     *  lg   900px   管理面板紧凑（admin/agent-config 通用）
+     *  xl  1024px   平板横屏 / 小笔记本
+     * 2xl  1200px   桌面端
+     * 特殊: 360px(极小屏)、720px(admin tabs)、1440px(大屏图表)
+     */
+
     /* Z-Index Layers */
     --z-base: 0;
     --z-sticky: 10;         /* 顶部控制栏、固定导航 */

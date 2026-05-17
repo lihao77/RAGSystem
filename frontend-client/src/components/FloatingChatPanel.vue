@@ -422,7 +422,7 @@ watch(isCollapsed, (val) => {
   border-radius: var(--radius-full);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .panel-main {
     width: calc(100vw - 48px);
   }

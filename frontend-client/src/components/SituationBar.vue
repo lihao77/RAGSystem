@@ -208,7 +208,7 @@ const formatNumber = (num) => {
   background: rgba(var(--color-error-rgb), 0.18);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .situation-bar {
     padding: 6px 12px;
     flex-wrap: wrap;
