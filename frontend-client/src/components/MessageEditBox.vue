@@ -399,6 +399,6 @@ onMounted(async () => {
 }
 
 .spinner {
-  animation: spin 0.8s linear infinite;
+  animation: g-spin 0.8s linear infinite;
 }
 </style>

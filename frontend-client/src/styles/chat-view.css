@@ -2,7 +2,7 @@
 
 :root {
   --edit-transition-duration: 240ms;
-  --edit-transition-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --edit-transition-ease: var(--ease-out-expo);
   --user-message-edit-width: min(920px, 95%);
 }
 
@@ -115,7 +115,7 @@
   height: 1px;
   background: var(--color-glass-border);
   opacity: 0;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default);
 }
 
 /* 桌面端：常驻显示，带渐变效果 */
@@ -148,7 +148,7 @@
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--color-glass-border);
   box-shadow: var(--shadow-md);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .left-controls:hover,
@@ -169,7 +169,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   box-shadow: none;
 }
 
@@ -188,7 +188,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   box-shadow: none;
 }
 
@@ -249,15 +249,8 @@
   /* padding-bottom: 140px; */
 }
 
-.new-chat-empty-state {
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .chat-main.is-launching-chat.has-messages .message-stream {
-  animation: launchMessageStreamIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: launchMessageStreamIn 520ms var(--ease-out-expo) both;
 }
 
 .chat-main.is-launching-chat.has-messages .bottom-dock {
@@ -287,9 +280,9 @@
 .chat-stage-enter-active,
 .chat-stage-leave-active {
   transition:
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 220ms var(--ease-out-expo),
+    transform 260ms var(--ease-out-expo),
+    filter 260ms var(--ease-out-expo);
 }
 
 .chat-stage-enter-from {
@@ -439,7 +432,7 @@
 
 .logo-placeholder svg {
   filter: drop-shadow(0 8px 32px rgba(var(--color-brand-accent-rgb), 0.5));
-  transition: filter 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: filter 0.3s var(--ease-default);
 }
 
 .logo-placeholder:hover svg {
@@ -462,7 +455,7 @@
   font-weight: 700;
   letter-spacing: 0;
   text-shadow: 0 4px 32px rgba(var(--color-brand-accent-rgb), 0.4);
-  animation: titleFadeIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
+  animation: titleFadeIn 0.8s var(--ease-default) backwards;
   animation-delay: 0.2s;
 }
 
@@ -471,7 +464,7 @@
   color: var(--color-text-secondary);
   font-weight: 400;
   letter-spacing: 0;
-  animation: titleFadeIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
+  animation: titleFadeIn 0.8s var(--ease-default) backwards;
   animation-delay: 0.4s;
 }
 
@@ -502,7 +495,7 @@
   gap: var(--spacing-md);
   opacity: 0;
   /* Apple-style smooth entrance */
-  animation: messageSlideIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation: messageSlideIn 0.5s var(--ease-default) forwards;
   will-change: opacity, transform;
   width: 100%;
 }
@@ -538,7 +531,7 @@
 .message.user {
   align-items: flex-end;
   width: 100%;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default), transform 0.3s var(--ease-default);
   will-change: transform, opacity;
   /* 用户消息靠右 */
 }
@@ -583,7 +576,7 @@
 .message.assistant .message-content-wrapper {
   width: 100%;
   max-width: 100%;
-  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: transform 0.3s var(--ease-default);
   will-change: transform;
 }
 
@@ -615,7 +608,7 @@
   background: var(--color-bg-tertiary);
   padding: 14px 18px;
   border-radius: var(--radius-xl);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: var(--user-bubble-corner);
   border: 1px solid transparent;
   color: var(--color-text-primary);
   line-height: 1.6;
@@ -764,7 +757,7 @@
   max-width: min(90vw, 420px);
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
-  animation: toastIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: toastIn 0.3s var(--ease-material);
 }
 
 @keyframes toastIn {
@@ -827,7 +820,7 @@
   cursor: pointer;
   font-size: var(--font-size-xs);
   white-space: nowrap;
-  transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), border-color 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), color 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: background 0.2s var(--ease-default), border-color 0.2s var(--ease-default), color 0.2s var(--ease-default);
 }
 
 .toast-action:hover {
@@ -961,7 +954,7 @@
   min-width: 74px;
   min-height: 28px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-secondary);
@@ -1120,7 +1113,7 @@
   color: var(--color-link);
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.2s var(--ease-default);
 }
 
 .markdown-body a:hover {
@@ -1222,7 +1215,7 @@
   width: 6px;
   height: 6px;
   background-color: var(--color-text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: bounce 1.4s infinite ease-in-out both;
 }
 
@@ -1273,7 +1266,7 @@
 .timeline-icon {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1282,7 +1275,7 @@
   border: 2px solid var(--color-border);
   position: relative;
   z-index: 2;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -1337,10 +1330,10 @@
   left: -3px;
   right: -3px;
   bottom: -3px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border: 2px solid transparent;
   border-top-color: var(--color-interactive);
-  animation: spin 1s linear infinite;
+  animation: g-spin 1s linear infinite;
 }
 
 /* 卡片列 */
@@ -1420,7 +1413,7 @@
 .timeline-node {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--color-bg-secondary);
   border: 2px solid var(--color-border);
   display: flex;
@@ -1540,16 +1533,10 @@
   left: -2px;
   right: -2px;
   bottom: -2px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border: 2px solid transparent;
   border-top-color: var(--color-interactive);
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: g-spin 1s linear infinite;
 }
 
 @keyframes pulse-border {
@@ -1603,10 +1590,10 @@
   overflow: hidden;
   /* 使用较大上限以保留展开/收起动画，不限制内容高度 */
   max-height: 3000px;
-  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: max-height 0.35s var(--ease-material),
+              opacity 0.3s var(--ease-material),
+              padding 0.3s var(--ease-material),
+              transform 0.3s var(--ease-material);
 }
 
 .expand-enter-from,
@@ -1650,7 +1637,7 @@
   padding: 4px 10px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.2s var(--ease-default);
 }
 
 .toggle-minimal-btn:hover {
@@ -1759,7 +1746,7 @@
   align-items: center;
   gap: 4px;
   font-weight: 500;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   box-shadow: var(--shadow-sm);
 }
 
@@ -1839,7 +1826,7 @@
 .hamburger-menu-btn {
   width: var(--icon-button-size-md);
   height: var(--control-height-md);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
@@ -1848,7 +1835,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
 }
@@ -2186,7 +2173,7 @@
   font-size: 12px;
   font-weight: 600;
   padding: 1px 8px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -2278,13 +2265,6 @@
 
 
 /* ===== User 消息编辑动画（简单淡入淡出 + 轻微位移）===== */
-
-/* 气泡容器 */
-.user-bubble-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 
 /* Vue Transition 钩子 */
 .v-enter-active,

@@ -88,12 +88,8 @@
         >
           <component :is="item.icon" class="icon" />
           <span class="btn-text">{{ item.label }}</span>
-        </button>
-        <div class="sidebar-status" title="系统状态">
           <span class="sidebar-status__dot"></span>
-          <span class="sidebar-status__text">工作台就绪</span>
-        </div>
-        <!-- <span class="sidebar-footer__version">RAG Agent System</span> -->
+        </button>
       </div>
     </aside>
 
@@ -559,7 +555,7 @@ onUnmounted(() => {
   flex-direction: column;
   flex-shrink: 0;
   z-index: var(--z-sidebar);
-  transition: width 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.3s ease;
+  transition: width 0.3s var(--ease-default), transform 0.3s ease;
   --icon-center-line: 25px;
 }
 
@@ -573,7 +569,7 @@ onUnmounted(() => {
   align-items: center;
   padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
   padding-bottom: var(--spacing-md);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .sidebar.collapsed .sidebar-top-bar {
@@ -589,13 +585,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: left;
   flex: 1;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .sidebar-logo-icon {
   flex-shrink: 0;
   filter: drop-shadow(0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4));
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default), filter 0.3s var(--ease-default);
 }
 
 .sidebar-logo-wrapper:hover .sidebar-logo-icon {
@@ -610,7 +606,7 @@ onUnmounted(() => {
   opacity: 0;
   color: var(--color-text-secondary);
   pointer-events: none;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default);
 }
 
 .sidebar:not(.collapsed) .sidebar-logo-icon {
@@ -650,7 +646,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   flex-shrink: 0;
   opacity: 1;
   max-width: 32px;
@@ -693,7 +689,7 @@ onUnmounted(() => {
   justify-content: left;
   gap: var(--spacing-sm);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   white-space: nowrap;
   overflow: hidden;
   width: 100%;
@@ -703,7 +699,7 @@ onUnmounted(() => {
 .sidebar-btn .icon {
   flex-shrink: 0;
   color: var(--color-text-primary);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .sidebar-btn.active {
@@ -789,16 +785,13 @@ onUnmounted(() => {
 
 .sidebar.collapsed .btn-text,
 .sidebar.collapsed .sidebar-context,
-.sidebar.collapsed .sidebar-status,
-.sidebar.collapsed .sidebar-footer__version,
 .sidebar.collapsed .history-list {
   opacity: 0;
   max-width: 0;
   overflow: hidden;
 }
 
-.sidebar.collapsed .sidebar-context,
-.sidebar.collapsed .sidebar-status {
+.sidebar.collapsed .sidebar-context {
   max-height: 0;
   margin: 0;
   padding: 0;
@@ -814,7 +807,7 @@ onUnmounted(() => {
   overflow-y: auto;
   opacity: 1;
   max-height: 100%;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), max-height 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default), max-height 0.3s var(--ease-default);
 }
 
 .sidebar.collapsed .history-list {
@@ -834,7 +827,7 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   padding-left: var(--spacing-xs);
   opacity: 0;
-  animation: labelFadeIn 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation: labelFadeIn 0.4s var(--ease-default) forwards;
   animation-delay: 0.1s;
 }
 
@@ -859,7 +852,7 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   border: 1px solid transparent;
   background: transparent;
   position: relative;
@@ -895,7 +888,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   opacity: 0.7;
   color: var(--color-text-secondary);
-  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.2s var(--ease-default);
 }
 
 .history-item:hover .history-icon {
@@ -976,7 +969,7 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .history-delete-btn:hover {
@@ -1015,57 +1008,26 @@ onUnmounted(() => {
   padding: var(--spacing-md) var(--spacing-sm);
   margin-top: auto;
   border-top: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-}
-
-.sidebar.collapsed .sidebar-footer {
-  padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
 }
 
 .sidebar-footer-btn {
   margin: 0;
 }
 
-.sidebar-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  width: 100%;
-  padding: 0 var(--spacing-sm);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  line-height: 1.2;
-  transition: opacity var(--transition-fast), max-height var(--transition-fast), padding var(--transition-fast);
-}
-
-.sidebar-status__dot {
+.sidebar-footer-btn .sidebar-status__dot {
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
+  margin-left: auto;
   border-radius: 999px;
   background: var(--color-success);
   box-shadow: 0 0 0 3px rgba(var(--color-success-rgb), 0.12);
+  transition: opacity var(--transition-fast), margin var(--transition-fast);
 }
 
-.sidebar-status__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-footer__version {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: opacity 0.3s;
+.sidebar.collapsed .sidebar-footer-btn .sidebar-status__dot {
+  opacity: 0;
+  margin-left: -7px;
 }
 
 .layout-main-host {

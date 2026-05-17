@@ -11,7 +11,7 @@
     </header>
 
     <div v-if="loading" class="adm-state">
-      <div class="adm-spinner" aria-hidden="true"></div>
+      <div class="g-spinner" aria-hidden="true"></div>
       <p>{{ loadingText }}</p>
     </div>
 

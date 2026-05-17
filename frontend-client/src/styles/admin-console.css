@@ -27,7 +27,7 @@
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--adm-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--adm-surface-raised);
   box-shadow: var(--adm-shadow-inset);
   transition: background var(--transition-fast), border-color var(--transition-fast);
@@ -82,7 +82,7 @@
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--adm-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--adm-surface);
   box-shadow: var(--adm-shadow-inset);
 }
@@ -106,7 +106,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
   letter-spacing: 0;
 }
@@ -152,7 +152,7 @@
 .adm-state__title {
   margin: 0;
   color: var(--color-text-primary);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .adm-state__hint {
@@ -160,15 +160,8 @@
   color: var(--color-text-secondary);
 }
 
-/* Spinner — 复用全局 g-spin 动画节奏 */
-.adm-spinner {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-brand-accent-light);
-  animation: g-spin 0.8s linear infinite;
-}
+/* Spinner — 复用全局 .g-spinner */
+.adm-spinner { /* alias → .g-spinner */ }
 
 .adm-entity-list {
   display: flex;
@@ -197,7 +190,7 @@
   gap: 4px;
   min-width: 0;
   border: 1px solid var(--adm-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--adm-control-bg);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
@@ -392,7 +385,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -421,7 +414,7 @@
 .adm-field-label {
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -484,7 +477,7 @@ textarea.adm-form-control.adm-form-control {
 
 .adm-modal {
   border: 1px solid var(--adm-border-strong);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--adm-surface-hover);
   box-shadow: var(--shadow-xl);
 }
@@ -524,7 +517,7 @@ textarea.adm-form-control.adm-form-control {
 .adm-modal.adm-modal .field > label {
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
 }
 

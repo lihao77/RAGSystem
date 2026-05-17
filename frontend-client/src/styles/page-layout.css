@@ -24,15 +24,8 @@
   color: var(--color-error);
 }
 
-/* Spinner — 复用全局 g-spin 动画节奏 */
-.pl-spinner {
-  width: 32px;
-  height: 32px;
-  border: 2.5px solid var(--color-border);
-  border-top-color: var(--color-brand-accent-light);
-  border-radius: 50%;
-  animation: g-spin 0.8s linear infinite;
-}
+/* Spinner — 复用全局 .g-spinner--lg */
+.pl-spinner { /* alias → .g-spinner--lg */ }
 
 .pl-spin {
   animation: g-spin 0.8s linear infinite;
@@ -118,7 +111,7 @@
 /* ===== 内容卡片 ===== */
 .pl-card {
   border: 1px solid var(--adm-border, var(--color-border));
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--adm-surface, var(--color-bg-elevated));
   box-shadow: none;
   overflow: hidden;

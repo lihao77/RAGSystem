@@ -75,7 +75,7 @@
 
     <!-- Loading -->
     <div v-if="loading" class="pl-state">
-      <div class="pl-spinner"></div>
+      <div class="g-spinner g-spinner--lg"></div>
       <p>加载中...</p>
     </div>
 
