@@ -1,18 +1,6 @@
 <template>
   <div class="number-input" :class="{ disabled }">
-    <button
-      class="step-btn"
-      type="button"
-      :disabled="disabled || internalValue <= min"
-      @click="step(-1)"
-      tabindex="-1"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="5" y1="12" x2="19" y2="12"/>
-      </svg>
-    </button>
-
+    <!-- input 放在 DOM 首位，使父级 <label> 隐式关联到 input 而非 button -->
     <input
       ref="inputRef"
       class="number-input__field"
@@ -28,7 +16,20 @@
     />
 
     <button
-      class="step-btn"
+      class="step-btn step-btn--dec"
+      type="button"
+      :disabled="disabled || internalValue <= min"
+      @click="step(-1)"
+      tabindex="-1"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
+
+    <button
+      class="step-btn step-btn--inc"
       type="button"
       :disabled="disabled || internalValue >= max"
       @click="step(1)"
@@ -132,11 +133,14 @@ function onBlur(e) {
   cursor: not-allowed;
 }
 
-.step-btn:first-child {
+/* DOM 顺序: input → btn-dec → btn-inc，用 order 保持视觉 btn-dec | input | btn-inc */
+.step-btn--dec {
+  order: -1;
   border-right: 1px solid var(--color-border);
 }
 
-.step-btn:last-child {
+.step-btn--inc {
+  order: 1;
   border-left: 1px solid var(--color-border);
 }
 
