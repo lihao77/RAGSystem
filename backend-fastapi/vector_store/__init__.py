@@ -23,6 +23,14 @@ def __getattr__(name):
     if name == "VectorRetriever":
         from .retriever import VectorRetriever
         return VectorRetriever
+    if name in {"RerankerBase", "NoopReranker", "LexicalReranker", "get_reranker"}:
+        from .reranker import RerankerBase, NoopReranker, LexicalReranker, get_reranker
+        return {
+            "RerankerBase": RerankerBase,
+            "NoopReranker": NoopReranker,
+            "LexicalReranker": LexicalReranker,
+            "get_reranker": get_reranker,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
@@ -41,7 +49,11 @@ __all__ = [
 
     # 索引和检索
     'DocumentIndexer',
-    'VectorRetriever'
+    'VectorRetriever',
+    'RerankerBase',
+    'NoopReranker',
+    'LexicalReranker',
+    'get_reranker'
 ]
 
 __version__ = '2.0.0'

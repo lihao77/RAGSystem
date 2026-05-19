@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Any
 
 from .client import get_vector_client
 from .embedder import get_embedder
+from .reranker import get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,10 @@ class VectorRetriever:
         keyword_top_k: Optional[int] = None,
         keyword_candidate_limit: int = 2000,
         rrf_k: int = 60,
+        rerank: bool = False,
+        rerank_mode: str = 'none',
+        rerank_top_k: Optional[int] = None,
+        final_top_k: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         混合搜索（向量搜索 + 本地 BM25 关键词检索 + RRF 融合）
@@ -205,6 +210,10 @@ class VectorRetriever:
             keyword_top_k: 关键词召回数量，默认 top_k * 5
             keyword_candidate_limit: 关键词召回最多扫描的分块数
             rrf_k: Reciprocal Rank Fusion 平滑参数
+            rerank: 是否对融合后的候选进行重排序
+            rerank_mode: 重排序模式，支持 none / lexical
+            rerank_top_k: 进入重排序阶段的候选数量，默认 final_top_k * 3
+            final_top_k: 最终返回数量，默认 top_k
 
         Returns:
             搜索结果列表
@@ -212,8 +221,10 @@ class VectorRetriever:
         if not query or not query.strip():
             return []
 
-        vector_limit = max(top_k, vector_top_k or top_k * 5)
-        keyword_limit = max(top_k, keyword_top_k or top_k * 5)
+        top_k = max(1, int(top_k or 5))
+        final_limit = max(1, int(final_top_k or top_k))
+        vector_limit = max(final_limit, int(vector_top_k or final_limit * 5))
+        keyword_limit = max(final_limit, int(keyword_top_k or final_limit * 5))
         rrf_k = max(1, int(rrf_k or 60))
 
         # 1. 语义向量召回
@@ -245,7 +256,20 @@ class VectorRetriever:
             rrf_k=rrf_k,
         )
 
-        return fused[:top_k]
+        if not rerank:
+            return fused[:final_limit]
+
+        rerank_limit = min(
+            len(fused),
+            max(final_limit, int(rerank_top_k or final_limit * 3)),
+        )
+        reranker = get_reranker(rerank_mode)
+        reranked = reranker.rerank(
+            query=query,
+            documents=fused[:rerank_limit],
+            top_k=rerank_limit,
+        )
+        return (reranked + fused[rerank_limit:])[:final_limit]
 
     def _load_keyword_candidates(
         self,

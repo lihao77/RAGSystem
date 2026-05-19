@@ -82,6 +82,10 @@ class VectorManagementService:
         top_k = int(data.get('top_k', 5) or 5)
         search_mode = (data.get('search_mode') or data.get('mode') or 'hybrid').strip().lower()
         filters = data.get('filters')
+        rerank = self._coerce_bool(data.get('rerank', False))
+        rerank_mode = (data.get('rerank_mode') or ('lexical' if rerank else 'none')).strip().lower()
+        rerank_top_k = self._optional_int(data.get('rerank_top_k'))
+        final_top_k = self._optional_int(data.get('final_top_k'))
         if not query:
             raise VectorManagementServiceError('查询内容不能为空', status_code=400)
         if search_mode not in {'hybrid', 'vector'}:
@@ -96,23 +100,48 @@ class VectorManagementService:
                 include_distances=True,
             )
         else:
-            results = retriever.hybrid_search(
-                query=query,
-                keyword=data.get('keyword'),
-                top_k=top_k,
-                filters=filters,
-                vector_top_k=data.get('vector_top_k'),
-                keyword_top_k=data.get('keyword_top_k'),
-                keyword_candidate_limit=int(data.get('keyword_candidate_limit', 2000) or 2000),
-                rrf_k=int(data.get('rrf_k', 60) or 60),
-            )
+            try:
+                results = retriever.hybrid_search(
+                    query=query,
+                    keyword=data.get('keyword'),
+                    top_k=top_k,
+                    filters=filters,
+                    vector_top_k=data.get('vector_top_k'),
+                    keyword_top_k=data.get('keyword_top_k'),
+                    keyword_candidate_limit=int(data.get('keyword_candidate_limit', 2000) or 2000),
+                    rrf_k=int(data.get('rrf_k', 60) or 60),
+                    rerank=rerank,
+                    rerank_mode=rerank_mode,
+                    rerank_top_k=rerank_top_k,
+                    final_top_k=final_top_k,
+                )
+            except ValueError as error:
+                raise VectorManagementServiceError(str(error), status_code=400) from error
         return {
             'results': results,
             'count': len(results),
             'collection_name': collection_name,
             'query': query,
             'search_mode': search_mode,
+            'rerank': bool(rerank and search_mode == 'hybrid'),
+            'rerank_mode': rerank_mode if rerank and search_mode == 'hybrid' else 'none',
         }
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, (int, float)):
+            return value != 0
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'y', 'on', '是', '启用'}
+
+    @staticmethod
+    def _optional_int(value: Any) -> Optional[int]:
+        if value is None or value == '':
+            return None
+        return int(value)
 
     def index_document(
         self,

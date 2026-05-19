@@ -47,10 +47,15 @@ def test_search_vectors_defaults_to_hybrid_and_accepts_collection_alias():
                 "keyword_top_k": None,
                 "keyword_candidate_limit": 2000,
                 "rrf_k": 60,
+                "rerank": False,
+                "rerank_mode": "none",
+                "rerank_top_k": None,
+                "final_top_k": None,
             },
         )
     ]
     assert result["search_mode"] == "hybrid"
+    assert result["rerank"] is False
     assert result["results"][0]["id"] == "hybrid"
 
 
@@ -78,6 +83,42 @@ def test_search_vectors_can_use_vector_mode():
     ]
     assert result["search_mode"] == "vector"
     assert result["results"][0]["id"] == "vector"
+
+
+def test_search_vectors_passes_rerank_options_to_hybrid_search():
+    service = VectorManagementService(retriever_factory=FakeRetriever)
+
+    result = service.search_vectors({
+        "query": "三级响应",
+        "search_mode": "hybrid",
+        "rerank": "true",
+        "rerank_mode": "lexical",
+        "rerank_top_k": "12",
+        "final_top_k": 4,
+    })
+
+    retriever = FakeRetriever.instances[-1]
+    _, kwargs = retriever.calls[-1]
+    assert kwargs["rerank"] is True
+    assert kwargs["rerank_mode"] == "lexical"
+    assert kwargs["rerank_top_k"] == 12
+    assert kwargs["final_top_k"] == 4
+    assert result["rerank"] is True
+    assert result["rerank_mode"] == "lexical"
+
+
+def test_search_vectors_converts_unknown_rerank_mode_to_client_error():
+    class RejectingRetriever(FakeRetriever):
+        def hybrid_search(self, **kwargs):
+            raise ValueError("不支持的 rerank_mode: remote")
+
+    service = VectorManagementService(retriever_factory=RejectingRetriever)
+
+    with pytest.raises(VectorManagementServiceError) as error:
+        service.search_vectors({"query": "三级响应", "rerank": True, "rerank_mode": "remote"})
+
+    assert error.value.status_code == 400
+    assert "rerank_mode" in error.value.message
 
 
 def test_search_vectors_rejects_unknown_mode():

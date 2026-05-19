@@ -269,6 +269,12 @@
                                 <label>模式</label>
                                 <CustomSelect v-model="searchMode" :options="searchModeOptions" />
                             </div>
+                            <div class="search-option search-option--toggle">
+                                <label class="search-toggle" :class="{ 'search-toggle--disabled': searchMode !== 'hybrid' }">
+                                    <input v-model="searchRerank" type="checkbox" :disabled="searchMode !== 'hybrid'" />
+                                    <span>重排序</span>
+                                </label>
+                            </div>
                         </div>
                         <div v-if="searchResults.length > 0" class="search-results">
                             <div v-for="(r, i) in searchResults" :key="i" class="result-item">
@@ -282,6 +288,8 @@
                                 </div>
                                 <div class="result-meta-row">
                                     <span v-if="r.hybrid_score != null" class="result-meta-chip">Hybrid {{ formatScore(r.hybrid_score) }}</span>
+                                    <span v-if="r.rerank_score != null" class="result-meta-chip">Rerank {{ formatScore(r.rerank_score) }}</span>
+                                    <span v-if="r.rerank_rank != null" class="result-meta-chip">Rerank #{{ r.rerank_rank }}</span>
                                     <span v-if="r.vector_rank != null" class="result-meta-chip">Vector #{{ r.vector_rank }}</span>
                                     <span v-if="r.keyword_rank != null" class="result-meta-chip">Keyword #{{ r.keyword_rank }}</span>
                                     <span v-for="source in (r.retrieval_sources || [])" :key="source" class="result-meta-chip">{{ source }}</span>
@@ -545,6 +553,12 @@
                                 <label>模式：</label>
                                 <CustomSelect v-model="searchMode" :options="searchModeOptions" />
                             </div>
+                            <div class="search-option search-option--toggle">
+                                <label class="search-toggle" :class="{ 'search-toggle--disabled': searchMode !== 'hybrid' }">
+                                    <input v-model="searchRerank" type="checkbox" :disabled="searchMode !== 'hybrid'" />
+                                    <span>重排序</span>
+                                </label>
+                            </div>
                             <div class="search-option">
                                 <label>集合：</label>
                                 <input v-model="searchCollection" class="option-input option-input--wide"
@@ -566,6 +580,8 @@
                             </div>
                             <div class="result-meta-row">
                                 <span v-if="r.hybrid_score != null" class="result-meta-chip">Hybrid {{ formatScore(r.hybrid_score) }}</span>
+                                <span v-if="r.rerank_score != null" class="result-meta-chip">Rerank {{ formatScore(r.rerank_score) }}</span>
+                                <span v-if="r.rerank_rank != null" class="result-meta-chip">Rerank #{{ r.rerank_rank }}</span>
                                 <span v-if="r.vector_rank != null" class="result-meta-chip">Vector #{{ r.vector_rank }}</span>
                                 <span v-if="r.keyword_rank != null" class="result-meta-chip">Keyword #{{ r.keyword_rank }}</span>
                                 <span v-for="source in (r.retrieval_sources || [])" :key="source" class="result-meta-chip">{{ source }}</span>
@@ -1325,6 +1341,7 @@ async function handleMigrate() {
 const searchQuery = ref('');
 const searchTopK = ref(5);
 const searchMode = ref('hybrid');
+const searchRerank = ref(false);
 const searchModeOptions = [
     { value: 'hybrid', label: '混合' },
     { value: 'vector', label: '向量' },
@@ -1333,6 +1350,10 @@ const searchCollection = ref('');
 const searchLoading = ref(false);
 const searchResults = ref([]);
 const searchPerformed = ref(false);
+
+watch(searchMode, mode => {
+    if (mode !== 'hybrid') searchRerank.value = false;
+});
 
 function openSearchTest(collection) {
     searchCollection.value = collection;
@@ -1346,11 +1367,16 @@ async function handleSearch() {
     searchLoading.value = true;
     searchPerformed.value = true;
     try {
+        const topK = Number(searchTopK.value) || 5;
+        const shouldRerank = searchMode.value === 'hybrid' && searchRerank.value;
         const res = await searchVectors({
             query: searchQuery.value,
-            top_k: searchTopK.value,
+            top_k: topK,
             collection: searchCollection.value || undefined,
             search_mode: searchMode.value,
+            rerank: shouldRerank,
+            rerank_mode: shouldRerank ? 'lexical' : undefined,
+            rerank_top_k: shouldRerank ? Math.max(topK * 3, 10) : undefined,
         });
         searchResults.value = res.data?.results || res.results || [];
         if (searchResults.value.length === 0) showToast('未找到相关结果', 'warning');
@@ -1953,6 +1979,30 @@ onMounted(() => {
     gap: var(--spacing-sm);
     font-size: var(--font-size-sm);
     color: var(--color-text-secondary);
+}
+
+.search-option--toggle {
+    min-height: 34px;
+}
+
+.search-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.search-toggle--disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.search-toggle input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--color-brand-accent);
 }
 
 .option-input {

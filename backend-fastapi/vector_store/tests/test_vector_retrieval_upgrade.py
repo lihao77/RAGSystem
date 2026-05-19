@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from types import MethodType, SimpleNamespace
 
+import pytest
+
 from vector_store.indexer import DocumentIndexer
+from vector_store.reranker import NoopReranker, get_reranker
 from vector_store.retriever import VectorRetriever
 
 
@@ -98,6 +101,51 @@ def test_hybrid_search_can_include_keyword_only_candidate():
     assert keyword_hit["hybrid_score"] > 0
 
 
+def test_hybrid_search_can_apply_lexical_reranker_after_fusion():
+    retriever = VectorRetriever.__new__(VectorRetriever)
+
+    vector_results = [
+        {
+            "id": "semantic-high",
+            "text": "这里描述一般防汛流程。",
+            "metadata": {},
+            "similarity": 0.99,
+            "distance": 0.1,
+        },
+        {
+            "id": "rerank-hit",
+            "text": "三级响应 启动条件 为持续强降雨达到预警阈值。",
+            "metadata": {"section_path": "防汛预案 > 响应条件"},
+            "similarity": 0.4,
+            "distance": 0.8,
+        },
+    ]
+
+    def fake_search(self, query, top_k=5, filters=None, include_distances=True):
+        return vector_results
+
+    def fake_load_keyword_candidates(self, filters=None, limit=2000):
+        return vector_results
+
+    def fake_bm25_rank(self, query, documents, top_k):
+        return []
+
+    retriever.search = MethodType(fake_search, retriever)
+    retriever._load_keyword_candidates = MethodType(fake_load_keyword_candidates, retriever)
+    retriever._bm25_rank = MethodType(fake_bm25_rank, retriever)
+
+    results = retriever.hybrid_search(
+        "三级响应启动条件",
+        top_k=2,
+        rerank=True,
+        rerank_mode="lexical",
+    )
+
+    assert [item["id"] for item in results] == ["rerank-hit", "semantic-high"]
+    assert results[0]["rerank_score"] > results[1]["rerank_score"]
+    assert results[0]["rerank_rank"] == 1
+
+
 def test_load_keyword_candidates_uses_vector_client_and_filters_keys():
     retriever = VectorRetriever.__new__(VectorRetriever)
     retriever.collection_name = "plans"
@@ -156,6 +204,23 @@ def test_rrf_fuse_merges_overlapping_documents():
     assert results[0]["vector_rank"] == 1
     assert results[0]["keyword_rank"] == 1
     assert results[0]["hybrid_score"] > 0
+
+
+def test_noop_reranker_preserves_order_without_scores():
+    documents = [
+        {"id": "a", "text": "first", "metadata": {}},
+        {"id": "b", "text": "second", "metadata": {}},
+    ]
+
+    results = NoopReranker().rerank(query="anything", documents=documents, top_k=2)
+
+    assert [item["id"] for item in results] == ["a", "b"]
+    assert "rerank_score" not in results[0]
+
+
+def test_get_reranker_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        get_reranker("remote-model")
 
 
 def test_tokenize_falls_back_without_jieba(monkeypatch):
