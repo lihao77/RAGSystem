@@ -19,12 +19,19 @@ from .bus import EventBus, Event, EventType, CRITICAL_EVENT_TYPES
 logger = logging.getLogger(__name__)
 
 
+def _event_type_value(event_type: str | EventType) -> str:
+    return event_type.value if hasattr(event_type, "value") else str(event_type)
+
+
+_CRITICAL_EVENT_VALUES: frozenset[str] = frozenset(_event_type_value(e) for e in CRITICAL_EVENT_TYPES)
+
+
 def is_critical_event_type(event_type: str | EventType) -> bool:
     """Accept both raw strings and EventType enums for backpressure protection."""
     if event_type in CRITICAL_EVENT_TYPES:
         return True
     if isinstance(event_type, str):
-        return any(event_type == critical.value for critical in CRITICAL_EVENT_TYPES)
+        return event_type in _CRITICAL_EVENT_VALUES
     return False
 
 
@@ -45,23 +52,31 @@ def build_client_event_data(event_type: str, data: Optional[dict]) -> dict:
 
 def event_to_client_dict(event: "Event") -> dict:
     """将 Event 对象转换为客户端字典格式（SSE 和 WebSocket 共用）。"""
+    event_type = _event_type_value(event.type)
     d = {
-        "type": event.type.value,
+        "type": event_type,
         "event_id": event.event_id,
         "timestamp": event.timestamp,
-        "priority": event.priority.value,
-        "session_id": event.session_id,
-        "trace_id": event.trace_id,
-        "span_id": event.span_id,
-        "agent_name": event.agent_name,
-        "call_id": event.call_id,
-        "parent_call_id": event.parent_call_id,
-        "data": build_client_event_data(event.type.value, event.data),
+        "priority": event.priority.value if hasattr(event.priority, "value") else event.priority,
+        "data": build_client_event_data(event_type, event.data),
         "requires_user_action": event.requires_user_action,
-        "user_action_timeout": event.user_action_timeout,
         "seq": event.sequence_number,
     }
-    return {k: v for k, v in d.items() if v is not None}
+    if event.session_id is not None:
+        d["session_id"] = event.session_id
+    if event.trace_id is not None:
+        d["trace_id"] = event.trace_id
+    if event.span_id is not None:
+        d["span_id"] = event.span_id
+    if event.agent_name is not None:
+        d["agent_name"] = event.agent_name
+    if event.call_id is not None:
+        d["call_id"] = event.call_id
+    if event.parent_call_id is not None:
+        d["parent_call_id"] = event.parent_call_id
+    if event.user_action_timeout is not None:
+        d["user_action_timeout"] = event.user_action_timeout
+    return d
 
 
 class SSEAdapter:
@@ -151,12 +166,13 @@ class SSEAdapter:
         logger.info(f"[SSEAdapter] 已停止 (session: {self.session_id})")
 
     def _terminal_reason(self, event: Event) -> Optional[str]:
-        if event.type == EventType.USER_INTERRUPT:
-            return event.type.value
-        if event.type == EventType.RUN_END:
-            return event.type.value
-        if event.type == EventType.SESSION_END:
-            return event.type.value
+        event_type = _event_type_value(event.type)
+        if event_type == EventType.USER_INTERRUPT.value:
+            return event_type
+        if event_type == EventType.RUN_END.value:
+            return event_type
+        if event_type == EventType.SESSION_END.value:
+            return event_type
         return None
 
     def _filter_event(self, event: Event) -> bool:
@@ -188,10 +204,10 @@ class SSEAdapter:
                     try:
                         self._event_queue.put_nowait(event)
                     except Exception:
-                        logger.error(f"[SSEAdapter] 关键事件入队失败（队列全为关键事件）: {event.type.value}")
+                        logger.error(f"[SSEAdapter] 关键事件入队失败（队列全为关键事件）: {_event_type_value(event.type)}")
                 else:
                     self._dropped_count += 1
-                    logger.warning(f"[SSEAdapter] 非关键事件丢弃 (dropped={self._dropped_count}): {event.type.value}")
+                    logger.warning(f"[SSEAdapter] 非关键事件丢弃 (dropped={self._dropped_count}): {_event_type_value(event.type)}")
 
         except Exception as e:
             logger.error(f"[SSEAdapter] 处理事件失败: {e}")

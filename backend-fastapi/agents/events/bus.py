@@ -15,7 +15,7 @@ import itertools
 import logging
 import time
 import uuid
-import threading  # ✨ 添加 threading 导入
+import threading
 from typing import Dict, List, Callable, Any, Optional, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -243,19 +243,27 @@ class EventBus:
     5. 支持用户许可等待机制
     """
 
-    def __init__(self, enable_persistence: bool = False, max_history: int = 1000):
+    def __init__(
+        self,
+        enable_persistence: bool = False,
+        max_history: int = 1000,
+        slow_handler_threshold_ms: float = 20.0,
+    ):
         """
         初始化事件总线
 
         Args:
             enable_persistence: 是否启用事件持久化（用于审计）
             max_history: 最大事件历史数量（防止内存泄漏）
+            slow_handler_threshold_ms: 慢事件处理器告警阈值（毫秒）
         """
         self._subscriptions_by_id: Dict[str, Subscription] = {}
         self._subscription_ids_by_event: Dict[str, List[str]] = defaultdict(list)
+        self._subscription_cache: Dict[str, List[Subscription]] = {}
         self._event_history: deque[Event] = deque(maxlen=max_history)
         self._enable_persistence = enable_persistence
         self._max_history = max_history
+        self._slow_handler_threshold_ms = slow_handler_threshold_ms
 
         # 用户许可等待队列
         self._pending_approvals: Dict[str, asyncio.Future] = {}
@@ -269,7 +277,7 @@ class EventBus:
 
         self._lock = threading.RLock()
 
-        logger.debug(f"EventBus 初始化完成 (持久化: {enable_persistence}, 最大历史: {max_history})")
+        logger.debug("EventBus 初始化完成 (持久化: %s, 最大历史: %s)", enable_persistence, max_history)
 
     def subscribe(
         self,
@@ -310,6 +318,7 @@ class EventBus:
                     key=lambda sid: self._subscriptions_by_id[sid].priority,
                     reverse=True,
                 )
+            self._invalidate_subscription_cache()
 
         logger.debug("新订阅: %s → %s", subscription_id, _format_subscription_event_types(list(normalized_types)))
         return subscription_id
@@ -344,6 +353,7 @@ class EventBus:
                 key=lambda sid: self._subscriptions_by_id[sid].priority,
                 reverse=True,
             )
+            self._invalidate_subscription_cache()
 
         logger.debug("新通配符订阅: %s", subscription_id)
         return subscription_id
@@ -353,7 +363,7 @@ class EventBus:
         with self._lock:
             subscription = self._subscriptions_by_id.pop(subscription_id, None)
             if subscription is None:
-                logger.debug(f"取消订阅: {subscription_id} (ignored, not found)")
+                logger.debug("取消订阅: %s (ignored, not found)", subscription_id)
                 return
 
             for event_type in subscription.event_types:
@@ -365,7 +375,8 @@ class EventBus:
                 ]
                 if not self._subscription_ids_by_event[event_type]:
                     del self._subscription_ids_by_event[event_type]
-        logger.debug(f"取消订阅: {subscription_id}")
+            self._invalidate_subscription_cache()
+        logger.debug("取消订阅: %s", subscription_id)
 
     def publish(self, event: Event):
         """
@@ -379,18 +390,23 @@ class EventBus:
         subscriptions = self._collect_subscriptions(event.type)
         event_type = _normalize_event_type(event.type)
 
-        logger.debug(f"发布事件: {event_type} (订阅者: {len(subscriptions)})")
+        logger.debug("发布事件: %s (订阅者: %s)", event_type, len(subscriptions))
 
         for subscription in subscriptions:
             if not self._should_deliver(subscription, event):
                 continue
+            if subscription.is_async:
+                logger.warning("异步处理器在同步上下文中跳过: %s", subscription.subscription_id)
+                continue
+            started_at = time.perf_counter()
+            errored = False
             try:
-                if subscription.is_async:
-                    logger.warning(f"异步处理器在同步上下文中跳过: {subscription.subscription_id}")
-                    continue
                 subscription.handler(event)
             except Exception as e:
+                errored = True
                 self._record_failed_delivery(subscription.subscription_id, e, "事件处理失败")
+            finally:
+                self._record_slow_handler(event_type, subscription, started_at, errored=errored)
 
     async def publish_async(self, event: Event):
         """
@@ -404,21 +420,31 @@ class EventBus:
         subscriptions = self._collect_subscriptions(event.type)
         event_type = _normalize_event_type(event.type)
 
-        logger.debug(f"发布事件: {event_type} (订阅者: {len(subscriptions)})")
+        logger.debug("发布事件: %s (订阅者: %s)", event_type, len(subscriptions))
 
         for subscription in subscriptions:
             if not self._should_deliver(subscription, event):
                 continue
             if subscription.is_async:
+                started_at = time.perf_counter()
+                errored = False
                 try:
                     await subscription.handler(event)
                 except Exception as e:
+                    errored = True
                     self._record_failed_delivery(subscription.subscription_id, e, "异步事件处理失败")
+                finally:
+                    self._record_slow_handler(event_type, subscription, started_at, errored=errored)
                 continue
+            started_at = time.perf_counter()
+            errored = False
             try:
                 subscription.handler(event)
             except Exception as e:
+                errored = True
                 self._record_failed_delivery(subscription.subscription_id, e, "事件处理失败")
+            finally:
+                self._record_slow_handler(event_type, subscription, started_at, errored=errored)
 
     def _record_event(self, event: Event):
         event_type = _normalize_event_type(event.type)
@@ -441,6 +467,10 @@ class EventBus:
     def _collect_subscriptions(self, event_type: "str | EventType") -> List[Subscription]:
         normalized_type = _normalize_event_type(event_type)
         with self._lock:
+            cached = self._subscription_cache.get(normalized_type)
+            if cached is not None:
+                return list(cached)
+
             # 合并具体类型订阅 + 通配符订阅
             specific_ids = list(self._subscription_ids_by_event.get(normalized_type, []))
             wildcard_ids = list(self._subscription_ids_by_event.get('*', []))
@@ -456,7 +486,12 @@ class EventBus:
                 key=lambda sid: self._subscriptions_by_id[sid].priority,
                 reverse=True,
             )
-            return [self._subscriptions_by_id[sid] for sid in unique_ids]
+            subscriptions = [self._subscriptions_by_id[sid] for sid in unique_ids]
+            self._subscription_cache[normalized_type] = subscriptions
+            return list(subscriptions)
+
+    def _invalidate_subscription_cache(self) -> None:
+        self._subscription_cache.clear()
 
     def _should_deliver(self, subscription: Subscription, event: Event) -> bool:
         if subscription.filter_func is None:
@@ -465,7 +500,31 @@ class EventBus:
 
     def _record_failed_delivery(self, subscription_id: str, error: Exception, message: str):
         self._stats["failed_events"] += 1
-        logger.error(f"{message}: {subscription_id}, 错误: {error}", exc_info=True)
+        logger.error("%s: %s, 错误: %s", message, subscription_id, error, exc_info=True)
+
+    def _record_slow_handler(
+        self, event_type: str, subscription: Subscription, started_at: float, *, errored: bool = False,
+    ):
+        if self._slow_handler_threshold_ms <= 0:
+            return
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        if elapsed_ms < self._slow_handler_threshold_ms:
+            return
+        handler = subscription.handler
+        handler_name = (
+            getattr(handler, '__qualname__', None)
+            or getattr(handler, '__name__', None)
+            or handler.__class__.__name__
+        )
+        label = "慢事件处理器(异常)" if errored else "慢事件处理器"
+        logger.warning(
+            "%s: event_type=%s subscription_id=%s handler=%s elapsed_ms=%.2f",
+            label,
+            event_type,
+            subscription.subscription_id,
+            handler_name,
+            elapsed_ms,
+        )
 
     # ==================== 用户许可机制 ====================
 
@@ -514,15 +573,15 @@ class EventBus:
 
         await self.publish_async(event)
 
-        logger.debug(f"[{agent_name}] 等待用户许可: {action_description} (超时: {timeout}s)")
+        logger.debug("[%s] 等待用户许可: %s (超时: %ss)", agent_name, action_description, timeout)
 
         # 等待用户响应（带超时）
         try:
             result = await asyncio.wait_for(future, timeout=timeout)
-            logger.debug(f"[{agent_name}] 用户许可结果: {'同意' if result else '拒绝'}")
+            logger.debug("[%s] 用户许可结果: %s", agent_name, "同意" if result else "拒绝")
             return result
         except asyncio.TimeoutError:
-            logger.warning(f"[{agent_name}] 用户许可超时")
+            logger.warning("[%s] 用户许可超时", agent_name)
             # 清理
             if approval_id in self._pending_approvals:
                 del self._pending_approvals[approval_id]
@@ -537,7 +596,7 @@ class EventBus:
             approved: True=同意, False=拒绝
         """
         if approval_id not in self._pending_approvals:
-            logger.warning(f"未找到许可请求: {approval_id}")
+            logger.warning("未找到许可请求: %s", approval_id)
             return
 
         future = self._pending_approvals.pop(approval_id)
@@ -552,7 +611,7 @@ class EventBus:
         )
         self.publish(event)
 
-        logger.debug(f"用户许可响应: {approval_id} → {'同意' if approved else '拒绝'}")
+        logger.debug("用户许可响应: %s → %s", approval_id, "同意" if approved else "拒绝")
 
     # ==================== 工具方法 ====================
 

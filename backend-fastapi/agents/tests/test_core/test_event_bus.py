@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import logging
+import time
 from unittest.mock import patch
 
 from agents.events.bus import Event, EventBus, EventType
@@ -35,6 +37,45 @@ def test_event_bus_priority_order_in_sync_publish():
     bus.publish(Event(type=EventType.RUN_START, data={}))
 
     assert calls == ['high', 'low']
+
+
+def test_event_bus_subscription_cache_invalidates_on_subscribe():
+    bus = EventBus()
+    calls = []
+
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+    bus.subscribe([EventType.RUN_START], lambda event: calls.append('new'))
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+
+    assert calls == ['new']
+
+
+def test_event_bus_subscription_cache_invalidates_on_unsubscribe():
+    bus = EventBus()
+    calls = []
+
+    subscription_id = bus.subscribe([EventType.RUN_START], lambda event: calls.append('called'))
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+    calls.clear()
+
+    bus.unsubscribe(subscription_id)
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+
+    assert calls == []
+
+
+def test_event_bus_subscription_cache_includes_wildcard_and_preserves_priority():
+    bus = EventBus()
+    calls = []
+
+    bus.subscribe([EventType.RUN_START], lambda event: calls.append('specific'), priority=1)
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+    calls.clear()
+
+    bus.subscribe_all(lambda event: calls.append('wildcard'), priority=10)
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+
+    assert calls == ['wildcard', 'specific']
 
 
 async def _async_append(calls, label, event):
@@ -96,6 +137,38 @@ def test_event_bus_handler_can_publish_nested_event():
     bus.publish(Event(type=EventType.RUN_START, data={}))
 
     assert calls == ['outer', True]
+
+
+def test_event_bus_logs_slow_sync_handler(caplog):
+    bus = EventBus(slow_handler_threshold_ms=1)
+
+    def slow_handler(event):
+        time.sleep(0.002)
+
+    bus.subscribe([EventType.RUN_START], slow_handler)
+    caplog.set_level(logging.WARNING)
+
+    bus.publish(Event(type=EventType.RUN_START, data={}))
+
+    assert '慢事件处理器' in caplog.text
+    assert 'event_type=run.start' in caplog.text
+    assert 'slow_handler' in caplog.text
+
+
+def test_event_bus_logs_slow_async_handler(caplog):
+    bus = EventBus(slow_handler_threshold_ms=1)
+
+    async def slow_async_handler(event):
+        await asyncio.sleep(0.002)
+
+    bus.subscribe([EventType.RUN_START], slow_async_handler)
+    caplog.set_level(logging.WARNING)
+
+    asyncio.run(bus.publish_async(Event(type=EventType.RUN_START, data={})))
+
+    assert '慢事件处理器' in caplog.text
+    assert 'event_type=run.start' in caplog.text
+    assert 'slow_async_handler' in caplog.text
 
 
 def test_event_bus_history_preserves_order_and_limit():

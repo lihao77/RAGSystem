@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import json
 import logging
 from queue import Empty
 
-from agents.events.bus import Event, EventBus, EventType
-from agents.events.sse_adapter import SSEAdapter, is_critical_event_type
+from agents.events.bus import Event, EventBus, EventPriority, EventType
+from agents.events.sse_adapter import SSEAdapter, event_to_client_dict, is_critical_event_type
 
 
 def test_is_critical_event_type_accepts_enum_and_string():
@@ -15,6 +16,47 @@ def test_is_critical_event_type_accepts_enum_and_string():
     assert is_critical_event_type(EventType.EXECUTION_WAITING_START) is True
     assert is_critical_event_type(EventType.EXECUTION_WAITING_END) is True
     assert is_critical_event_type(EventType.EXECUTION_WAITING_TIMEOUT) is True
+
+
+def test_event_to_client_dict_preserves_compatible_fields_and_omits_none():
+    payload = event_to_client_dict(Event(
+        type='custom.event',
+        data={},
+        priority=EventPriority.NORMAL,
+        requires_user_action=False,
+    ))
+
+    assert payload['type'] == 'custom.event'
+    assert payload['priority'] == EventPriority.NORMAL.value
+    assert payload['data'] == {}
+    assert payload['requires_user_action'] is False
+    assert 'seq' in payload
+    assert 'session_id' not in payload
+    assert 'trace_id' not in payload
+    assert 'user_action_timeout' not in payload
+
+
+def test_sse_adapter_handles_string_terminal_event_type():
+    adapter = SSEAdapter(EventBus(), session_id='session-1', buffer_size=2)
+    adapter._handle_event(Event(
+        type='run.end',
+        data={'run_id': 'run-1'},
+        session_id='session-1',
+    ))
+
+    stream = adapter.stream_sync()
+    first_message = next(stream)
+
+    try:
+        next(stream)
+        raise AssertionError('expected terminal event to stop the stream')
+    except StopIteration:
+        pass
+
+    payload = json.loads(first_message.removeprefix('data: ').strip())
+    assert payload['type'] == 'run.end'
+    assert adapter.completed_normally is True
+    assert adapter.terminal_event_type == 'run.end'
 
 
 def test_sse_adapter_preserves_critical_tool_events_under_backpressure():
