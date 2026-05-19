@@ -787,6 +787,20 @@ const handleSituationSendMessage = (text) => {
 watch(
   () => route.params.id || null,
   async (routeSessionId, previousRouteSessionId) => {
+    if (import.meta.env.DEV && route.query?.__smoke === 'artifact') {
+      const { createSmokeArtifactMessages } = await import('../utils/smokeFixtures');
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      currentSessionId.value = 'smoke-artifact-session';
+      messages.value = createSmokeArtifactMessages();
+      contextUsage.value = { used: 1840, max: 8192 };
+      isLoading.value = false;
+      await nextTick();
+      scrollToBottom(true);
+      return;
+    }
+
     const nextSessionId = typeof routeSessionId === 'string' ? decodeURIComponent(routeSessionId) : null;
     const wasSessionChat = typeof previousRouteSessionId === 'string';
     const isEnteringBlankChat = !nextSessionId && wasSessionChat;

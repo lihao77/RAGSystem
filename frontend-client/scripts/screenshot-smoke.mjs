@@ -15,6 +15,19 @@ const maxHorizontalOverflowPx = 2;
 
 const shots = [
   { name: 'chat-mobile', path: '/', width: 390, height: 844 },
+  {
+    name: 'chat-artifact-narrow',
+    path: '/?__smoke=artifact',
+    width: 1280,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
+      { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
+      { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+    ],
+  },
   { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
   { name: 'agent-config-narrow', path: '/agent-config', width: 768, height: 900 },
   { name: 'team-builder-mobile', path: '/team-builder', width: 390, height: 844 },
@@ -255,6 +268,7 @@ class CdpClient {
   constructor(webSocketUrl) {
     this.nextId = 1;
     this.pending = new Map();
+    this.eventHandlers = new Map();
     this.ws = new WebSocket(webSocketUrl);
   }
 
@@ -264,6 +278,10 @@ class CdpClient {
       this.ws.addEventListener('error', reject, { once: true });
       this.ws.addEventListener('message', (event) => {
         const message = JSON.parse(event.data);
+        if (message.method) {
+          this.eventHandlers.get(message.method)?.(message.params || {});
+          return;
+        }
         if (!message.id) return;
         const pending = this.pending.get(message.id);
         if (!pending) return;
@@ -275,6 +293,10 @@ class CdpClient {
         pending.resolve(message.result);
       });
     });
+  }
+
+  on(method, handler) {
+    this.eventHandlers.set(method, handler);
   }
 
   send(method, params = {}) {
@@ -289,6 +311,58 @@ class CdpClient {
   close() {
     this.ws.close();
   }
+}
+
+async function setupShotMocks(client, shot) {
+  if (!(shot.actions || []).some(action => action.type === 'mockArtifactApi')) return;
+
+  await client.send('Fetch.enable', {
+    patterns: [
+      {
+        urlPattern: '*://*/api/artifacts/visualizations/viz_smoke_chart*',
+        requestStage: 'Request',
+      },
+    ],
+  });
+
+  client.on('Fetch.requestPaused', async (event) => {
+    if (!event.request?.url?.includes('/api/artifacts/visualizations/viz_smoke_chart')) {
+      await client.send('Fetch.continueRequest', { requestId: event.requestId });
+      return;
+    }
+
+    const body = JSON.stringify({
+      viz_type: 'chart',
+      sub_type: 'line',
+      title: 'Smoke 水位趋势',
+      config: {
+        title: { text: 'Smoke 水位趋势', left: 'center' },
+        tooltip: { trigger: 'axis' },
+        legend: { top: 28, data: ['水位', '警戒线'] },
+        grid: { left: 48, right: 24, top: 72, bottom: 48 },
+        xAxis: { type: 'category', boundaryGap: false, data: ['08:00', '10:00', '12:00', '14:00', '16:00'] },
+        yAxis: { type: 'value', name: 'm', min: 10 },
+        dataZoom: [
+          { type: 'inside', start: 0, end: 100 },
+          { type: 'slider', height: 18, bottom: 14 },
+        ],
+        series: [
+          { name: '水位', type: 'line', smooth: true, symbolSize: 8, data: [10.8, 11.4, 12.3, 12.9, 12.1] },
+          { name: '警戒线', type: 'line', symbol: 'none', lineStyle: { type: 'dashed' }, data: [12, 12, 12, 12, 12] },
+        ],
+      },
+    });
+
+    await client.send('Fetch.fulfillRequest', {
+      requestId: event.requestId,
+      responseCode: 200,
+      responseHeaders: [
+        { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+        { name: 'Cache-Control', value: 'no-store' },
+      ],
+      body: Buffer.from(body, 'utf8').toString('base64'),
+    });
+  });
 }
 
 async function waitForReady(client, timeoutMs = 10000) {
@@ -397,6 +471,10 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
+    if (action.type === 'mockArtifactApi') {
+      continue;
+    }
+
     if (action.type === 'click') {
       const clicked = await evaluate(client, `(() => {
         const element = document.querySelector(${jsString(action.selector)});
@@ -487,6 +565,7 @@ async function captureShot(browserPath, baseUrl, shot) {
     await client.open();
     await client.send('Page.enable');
     await client.send('Runtime.enable');
+    await setupShotMocks(client, shot);
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: shot.width,
       height: shot.height,
