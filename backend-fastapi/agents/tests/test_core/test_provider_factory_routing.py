@@ -61,6 +61,9 @@ def _load_factory_module():
     class ModelScopeProvider(_ProviderBase):
         pass
 
+    class RerankAPIProvider(_ProviderBase):
+        pass
+
     providers_impl_module.OpenAIProvider = OpenAIProvider
     providers_impl_module.OpenAIChatCompletionsProvider = OpenAIChatCompletionsProvider
     providers_impl_module.OpenAIResponsesProvider = OpenAIResponsesProvider
@@ -69,6 +72,7 @@ def _load_factory_module():
     providers_impl_module.DeepSeekProvider = DeepSeekProvider
     providers_impl_module.OpenRouterProvider = OpenRouterProvider
     providers_impl_module.ModelScopeProvider = ModelScopeProvider
+    providers_impl_module.RerankAPIProvider = RerankAPIProvider
     sys.modules['integrations.model_providers.providers_impl'] = providers_impl_module
 
     try:
@@ -139,6 +143,70 @@ def test_create_provider_from_config_uses_openai_proxy_provider():
         'model': 'gpt-5.4',
     })
     assert provider.__class__.__name__ == 'OpenAICompatibleProvider'
+
+
+def test_create_provider_from_config_uses_rerank_api_provider():
+    provider = factory_module.create_provider_from_config({
+        'name': 'jina',
+        'provider_type': 'rerank_api',
+        'api_key': 'key',
+        'api_endpoint': 'https://api.jina.ai/v1/rerank',
+        'model_map': {'rerank': 'jina-reranker-v2-base-multilingual'},
+    })
+
+    assert factory_module.canonicalize_provider_type('reranker') == 'rerank_api'
+    assert provider.__class__.__name__ == 'RerankAPIProvider'
+    assert provider.kwargs['model'] == ''
+    assert provider.kwargs['api_endpoint'] == 'https://api.jina.ai/v1/rerank'
+
+
+def test_rerank_api_provider_executes_rerank_request():
+    from integrations.model_providers.rerank_api_provider import RerankAPIProvider
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                'results': [
+                    {'index': 1, 'relevance_score': 0.9},
+                    {'index': 0, 'relevance_score': 0.2},
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured['url'] = url
+        captured['headers'] = headers
+        captured['json'] = json
+        captured['timeout'] = timeout
+        return FakeResponse()
+
+    provider = RerankAPIProvider(
+        name='jina',
+        api_key='key',
+        api_endpoint='https://api.jina.ai/v1/rerank',
+        model_map={'rerank': 'jina-reranker-v2-base-multilingual'},
+        timeout=7,
+        post_func=fake_post,
+    )
+
+    results = provider.rerank(
+        query='三级响应启动条件',
+        documents=['普通巡查流程', '三级响应启动条件'],
+        top_n=2,
+    )
+
+    assert captured['url'] == 'https://api.jina.ai/v1/rerank'
+    assert captured['headers']['Authorization'] == 'Bearer key'
+    assert captured['json']['model'] == 'jina-reranker-v2-base-multilingual'
+    assert captured['timeout'] == 7
+    assert results == [
+        {'index': 1, 'score': 0.9, 'raw': {'index': 1, 'relevance_score': 0.9}},
+        {'index': 0, 'score': 0.2, 'raw': {'index': 0, 'relevance_score': 0.2}},
+    ]
 
 
 def test_create_provider_from_config_resolves_api_key_env_placeholder(monkeypatch):

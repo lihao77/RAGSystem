@@ -23,12 +23,13 @@ def __getattr__(name):
     if name == "VectorRetriever":
         from .retriever import VectorRetriever
         return VectorRetriever
-    if name in {"RerankerBase", "NoopReranker", "LexicalReranker", "get_reranker"}:
-        from .reranker import RerankerBase, NoopReranker, LexicalReranker, get_reranker
+    if name in {"RerankerBase", "NoopReranker", "LexicalReranker", "ModelProviderReranker", "get_reranker"}:
+        from .reranker import RerankerBase, NoopReranker, LexicalReranker, ModelProviderReranker, get_reranker
         return {
             "RerankerBase": RerankerBase,
             "NoopReranker": NoopReranker,
             "LexicalReranker": LexicalReranker,
+            "ModelProviderReranker": ModelProviderReranker,
             "get_reranker": get_reranker,
         }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -53,6 +54,7 @@ __all__ = [
     'RerankerBase',
     'NoopReranker',
     'LexicalReranker',
+    'ModelProviderReranker',
     'get_reranker'
 ]
 

@@ -275,6 +275,17 @@
                                     <span>重排序</span>
                                 </label>
                             </div>
+                            <div v-if="searchRerank && searchMode === 'hybrid'" class="search-option">
+                                <label>方式</label>
+                                <CustomSelect v-model="searchRerankMode" :options="searchRerankModeOptions" />
+                            </div>
+                            <div v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model'" class="search-option">
+                                <label>模型</label>
+                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankModelOptions"
+                                    placeholder="选择 rerank 模型" />
+                            </div>
+                            <button v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model' && !hasRerankModels"
+                                type="button" class="btn-link" @click="goModelProviders">配置</button>
                         </div>
                         <div v-if="searchResults.length > 0" class="search-results">
                             <div v-for="(r, i) in searchResults" :key="i" class="result-item">
@@ -559,6 +570,17 @@
                                     <span>重排序</span>
                                 </label>
                             </div>
+                            <div v-if="searchRerank && searchMode === 'hybrid'" class="search-option">
+                                <label>方式：</label>
+                                <CustomSelect v-model="searchRerankMode" :options="searchRerankModeOptions" />
+                            </div>
+                            <div v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model'" class="search-option">
+                                <label>模型：</label>
+                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankModelOptions"
+                                    placeholder="选择 rerank 模型" />
+                            </div>
+                            <button v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model' && !hasRerankModels"
+                                type="button" class="btn-link" @click="goModelProviders">配置 rerank</button>
                             <div class="search-option">
                                 <label>集合：</label>
                                 <input v-model="searchCollection" class="option-input option-input--wide"
@@ -801,9 +823,10 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import AppToast from '../components/AppToast.vue';
 import PageLayout from '../components/PageLayout.vue';
-import { getProviders } from '../api/modelAdapter';
+import { getProviders, getAvailableModels, findProviderModelByValue } from '../api/modelAdapter';
 import {
     activateVectorizer,
     addVectorizer,
@@ -827,6 +850,8 @@ const props = defineProps({
     embedded: { type: Boolean, default: false },
     chatReturnPath: { type: String, default: '/' },
 });
+
+const router = useRouter();
 
 const toastRef = ref(null);
 const indexDialogRef = ref(null);
@@ -1342,10 +1367,19 @@ const searchQuery = ref('');
 const searchTopK = ref(5);
 const searchMode = ref('hybrid');
 const searchRerank = ref(false);
+const searchRerankMode = ref('lexical');
+const searchRerankSelection = ref('');
+const rerankModelChoices = ref([]);
 const searchModeOptions = [
     { value: 'hybrid', label: '混合' },
     { value: 'vector', label: '向量' },
 ];
+const searchRerankModeOptions = [
+    { value: 'lexical', label: '本地' },
+    { value: 'model', label: '模型' },
+];
+const hasRerankModels = computed(() => rerankModelChoices.value.length > 0);
+const searchRerankModelOptions = computed(() => rerankModelChoices.value);
 const searchCollection = ref('');
 const searchLoading = ref(false);
 const searchResults = ref([]);
@@ -1354,6 +1388,32 @@ const searchPerformed = ref(false);
 watch(searchMode, mode => {
     if (mode !== 'hybrid') searchRerank.value = false;
 });
+
+watch(searchRerankMode, mode => {
+    if (mode !== 'model') searchRerankSelection.value = '';
+});
+
+async function loadRerankModels() {
+    try {
+        const models = await getAvailableModels({ task: 'rerank' });
+        rerankModelChoices.value = models.map(item => ({
+            value: item.value,
+            label: item.label,
+            provider: item.provider,
+            provider_type: item.provider_type,
+            model: item.model,
+        }));
+    } catch (e) {
+        console.warn('加载 rerank 模型列表失败:', e.message || e);
+        rerankModelChoices.value = [];
+    }
+}
+
+const selectedRerankModel = computed(() => findProviderModelByValue(searchRerankSelection.value));
+
+function goModelProviders() {
+    router.push('/model-providers');
+}
 
 function openSearchTest(collection) {
     searchCollection.value = collection;
@@ -1369,14 +1429,19 @@ async function handleSearch() {
     try {
         const topK = Number(searchTopK.value) || 5;
         const shouldRerank = searchMode.value === 'hybrid' && searchRerank.value;
+        const useModelRerank = shouldRerank && searchRerankMode.value === 'model';
+        const selectedModel = findProviderModelByValue(searchRerankSelection.value);
         const res = await searchVectors({
             query: searchQuery.value,
             top_k: topK,
             collection: searchCollection.value || undefined,
             search_mode: searchMode.value,
             rerank: shouldRerank,
-            rerank_mode: shouldRerank ? 'lexical' : undefined,
+            rerank_mode: shouldRerank ? searchRerankMode.value : undefined,
             rerank_top_k: shouldRerank ? Math.max(topK * 3, 10) : undefined,
+            rerank_provider: useModelRerank ? (selectedModel.provider || undefined) : undefined,
+            rerank_model: useModelRerank ? (selectedModel.model || undefined) : undefined,
+            rerank_provider_type: useModelRerank ? (selectedModel.provider_type || undefined) : undefined,
         });
         searchResults.value = res.data?.results || res.results || [];
         if (searchResults.value.length === 0) showToast('未找到相关结果', 'warning');
@@ -1434,6 +1499,7 @@ async function refreshAll() {
 
 onMounted(() => {
     refreshAll();
+    loadRerankModels();
     updateTabSlider();
 });
 </script>

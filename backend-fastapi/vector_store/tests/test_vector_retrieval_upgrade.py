@@ -7,7 +7,7 @@ from types import MethodType, SimpleNamespace
 import pytest
 
 from vector_store.indexer import DocumentIndexer
-from vector_store.reranker import NoopReranker, get_reranker
+from vector_store.reranker import ModelProviderReranker, NoopReranker, get_reranker
 from vector_store.retriever import VectorRetriever
 
 
@@ -216,6 +216,92 @@ def test_noop_reranker_preserves_order_without_scores():
 
     assert [item["id"] for item in results] == ["a", "b"]
     assert "rerank_score" not in results[0]
+
+
+def test_model_provider_reranker_calls_configured_http_endpoint():
+    captured = {}
+
+    class FakeConfigStore:
+        def load_all(self):
+            return {
+                "jina_rerank_api": {
+                    "name": "jina",
+                    "provider_type": "rerank_api",
+                    "api_key": "test-key",
+                    "api_endpoint": "https://api.jina.ai/v1/rerank",
+                    "model_map": {"rerank": "jina-reranker-v2-base-multilingual"},
+                    "timeout": 7,
+                }
+            }
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "results": [
+                    {"index": 1, "relevance_score": 0.92},
+                    {"index": 0, "relevance_score": 0.12},
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    reranker = ModelProviderReranker(
+        provider="jina_rerank_api",
+        config_store=FakeConfigStore(),
+        post_func=fake_post,
+    )
+
+    results = reranker.rerank(
+        query="三级响应启动条件",
+        documents=[
+            {"id": "a", "text": "普通巡查流程", "metadata": {}},
+            {"id": "b", "text": "三级响应启动条件", "metadata": {"section_path": "预案 > 响应"}},
+        ],
+        top_k=2,
+    )
+
+    assert captured["url"] == "https://api.jina.ai/v1/rerank"
+    assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert captured["json"]["model"] == "jina-reranker-v2-base-multilingual"
+    assert "section_path: 预案 > 响应" in captured["json"]["documents"][1]
+    assert captured["timeout"] == 7
+    assert [item["id"] for item in results] == ["b", "a"]
+    assert results[0]["rerank_mode"] == "model"
+    assert results[0]["rerank_provider"] == "jina_rerank_api"
+    assert results[0]["rerank_model"] == "jina-reranker-v2-base-multilingual"
+    assert results[0]["rerank_rank"] == 1
+
+
+def test_model_provider_reranker_can_use_explicit_cohere_endpoint():
+    reranker = ModelProviderReranker(
+        provider="cohere",
+        provider_type="cohere",
+        model="rerank-v3.5",
+        api_endpoint="https://api.cohere.com",
+        api_key="test-key",
+        post_func=lambda *args, **kwargs: None,
+    )
+
+    assert reranker.api_endpoint == "https://api.cohere.com/v2/rerank"
+
+
+def test_model_provider_reranker_requires_complete_config():
+    class EmptyConfigStore:
+        def load_all(self):
+            return {}
+
+    with pytest.raises(ValueError) as error:
+        get_reranker("model", config_store=EmptyConfigStore())
+
+    assert "rerank 模型配置不完整" in str(error.value)
 
 
 def test_get_reranker_rejects_unknown_mode():

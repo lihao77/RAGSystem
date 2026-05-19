@@ -20,6 +20,7 @@ class AIProviderType(str, Enum):
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"
     MODELSCOPE = "modelscope"
+    RERANK_API = "rerank_api"
     CUSTOM = "custom"
 
 

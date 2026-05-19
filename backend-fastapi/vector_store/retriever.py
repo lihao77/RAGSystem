@@ -197,6 +197,11 @@ class VectorRetriever:
         rerank_mode: str = 'none',
         rerank_top_k: Optional[int] = None,
         final_top_k: Optional[int] = None,
+        rerank_provider: Optional[str] = None,
+        rerank_model: Optional[str] = None,
+        rerank_provider_type: Optional[str] = None,
+        rerank_api_endpoint: Optional[str] = None,
+        rerank_api_key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         混合搜索（向量搜索 + 本地 BM25 关键词检索 + RRF 融合）
@@ -214,6 +219,11 @@ class VectorRetriever:
             rerank_mode: 重排序模式，支持 none / lexical
             rerank_top_k: 进入重排序阶段的候选数量，默认 final_top_k * 3
             final_top_k: 最终返回数量，默认 top_k
+            rerank_provider: 模型重排序 Provider key
+            rerank_model: 模型重排序模型名
+            rerank_provider_type: 模型重排序 Provider 类型
+            rerank_api_endpoint: 模型重排序 API endpoint
+            rerank_api_key: 模型重排序 API key
 
         Returns:
             搜索结果列表
@@ -263,7 +273,14 @@ class VectorRetriever:
             len(fused),
             max(final_limit, int(rerank_top_k or final_limit * 3)),
         )
-        reranker = get_reranker(rerank_mode)
+        reranker = get_reranker(
+            rerank_mode,
+            provider=rerank_provider,
+            model=rerank_model,
+            provider_type=rerank_provider_type,
+            api_endpoint=rerank_api_endpoint,
+            api_key=rerank_api_key,
+        )
         reranked = reranker.rerank(
             query=query,
             documents=fused[:rerank_limit],

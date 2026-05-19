@@ -125,6 +125,31 @@ def test_load_all_keeps_legacy_models_when_model_map_missing(tmp_path):
     assert configs['single_deepseek']['models'] == ['deepseek-chat']
 
 
+def test_save_provider_preserves_rerank_model_map(tmp_path):
+    config_file = tmp_path / 'providers.yaml'
+
+    store = ModelAdapterConfigStore(config_file)
+    store.save_provider(
+        'jina_rerank_api',
+        {
+            'name': 'jina',
+            'provider_type': 'reranker',
+            'api_key': 'key',
+            'api_endpoint': 'https://api.jina.ai/v1/rerank',
+            'model_map': {'rerank': 'jina-reranker-v2-base-multilingual'},
+        },
+    )
+
+    persisted = yaml.safe_load(config_file.read_text(encoding='utf-8'))
+
+    assert set(persisted) == {'jina_rerank_api'}
+    assert persisted['jina_rerank_api']['provider_type'] == 'rerank_api'
+    assert persisted['jina_rerank_api']['model_map'] == {
+        'rerank': 'jina-reranker-v2-base-multilingual',
+    }
+    assert persisted['jina_rerank_api']['models'] == ['jina-reranker-v2-base-multilingual']
+
+
 def test_save_provider_appends_new_key_and_update_keeps_position(tmp_path):
     config_file = tmp_path / 'providers.yaml'
     config_file.write_text(
@@ -228,4 +253,3 @@ def test_reorder_providers_persists_order_and_rejects_invalid_keys(tmp_path):
             pass
         else:
             raise AssertionError('invalid provider order should be rejected')
-

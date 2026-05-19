@@ -81,6 +81,31 @@ def test_create_provider_validates_model_map_shape(service):
     assert error.value.status_code == 400
 
 
+def test_create_provider_validates_rerank_api_endpoint_and_model_map(service):
+    with pytest.raises(ModelAdapterServiceError) as error:
+        service.create_provider({
+            'name': 'jina',
+            'provider_type': 'rerank_api',
+            'api_key': 'key',
+            'model_map': {'rerank': 'jina-reranker-v2-base-multilingual'},
+        })
+
+    assert error.value.status_code == 400
+    assert 'API Endpoint' in error.value.message
+
+    with pytest.raises(ModelAdapterServiceError) as error:
+        service.create_provider({
+            'name': 'jina',
+            'provider_type': 'rerank_api',
+            'api_key': 'key',
+            'api_endpoint': 'https://api.jina.ai/v1/rerank',
+            'model_map': {'chat': 'wrong-task'},
+        })
+
+    assert error.value.status_code == 400
+    assert 'model_map.rerank' in error.value.message
+
+
 def test_test_provider_normalizes_list_model(monkeypatch):
     class Adapter(FakeAdapter):
         def chat_completion(self, **kwargs):

@@ -27,12 +27,24 @@ async def get_provider_types():
         _DEFAULT_ENDPOINTS,
         _PROVIDER_CONFIG_FIELDS,
     )
+    def _label_provider_type(provider_type: str) -> str:
+        labels = {
+            'openai_resp': 'OpenAI Responses',
+            'openai_chat': 'OpenAI Chat',
+            'openai_proxy': 'OpenAI Compatible',
+            'rerank_api': 'Rerank API',
+        }
+        return labels.get(provider_type, provider_type.capitalize())
+
+    def _config_fields(provider_type: str):
+        return list(_PROVIDER_CONFIG_FIELDS.get(provider_type, []))
+
     types = [
         {
             'value': k,
-            'label': k.capitalize(),
+            'label': _label_provider_type(k),
             'default_endpoint': _DEFAULT_ENDPOINTS.get(k, ''),
-            'config_fields': _PROVIDER_CONFIG_FIELDS.get(k, []),
+            'config_fields': _config_fields(k),
         }
         for k in _PROVIDER_CLASSES
     ]

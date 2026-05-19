@@ -51,6 +51,11 @@ def test_search_vectors_defaults_to_hybrid_and_accepts_collection_alias():
                 "rerank_mode": "none",
                 "rerank_top_k": None,
                 "final_top_k": None,
+                "rerank_provider": None,
+                "rerank_model": None,
+                "rerank_provider_type": None,
+                "rerank_api_endpoint": None,
+                "rerank_api_key": None,
             },
         )
     ]
@@ -95,6 +100,9 @@ def test_search_vectors_passes_rerank_options_to_hybrid_search():
         "rerank_mode": "lexical",
         "rerank_top_k": "12",
         "final_top_k": 4,
+        "rerank_provider": "jina_rerank_api",
+        "rerank_model": "jina-reranker-v2-base-multilingual",
+        "rerank_provider_type": "rerank_api",
     })
 
     retriever = FakeRetriever.instances[-1]
@@ -103,6 +111,11 @@ def test_search_vectors_passes_rerank_options_to_hybrid_search():
     assert kwargs["rerank_mode"] == "lexical"
     assert kwargs["rerank_top_k"] == 12
     assert kwargs["final_top_k"] == 4
+    assert kwargs["rerank_provider"] == "jina_rerank_api"
+    assert kwargs["rerank_model"] == "jina-reranker-v2-base-multilingual"
+    assert kwargs["rerank_provider_type"] == "rerank_api"
+    assert kwargs["rerank_api_endpoint"] is None
+    assert kwargs["rerank_api_key"] is None
     assert result["rerank"] is True
     assert result["rerank_mode"] == "lexical"
 

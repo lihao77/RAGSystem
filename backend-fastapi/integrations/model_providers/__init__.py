@@ -13,6 +13,7 @@ from .openai_compatible_provider import OpenAICompatibleProvider
 from .openai_provider import OpenAIProvider
 from .openai_responses_provider import OpenAIResponsesProvider
 from .openrouter_provider import OpenRouterProvider
+from .rerank_api_provider import RerankAPIProvider
 
 __all__ = [
     'InterruptedError',
@@ -25,5 +26,6 @@ __all__ = [
     'DeepSeekProvider',
     'OpenRouterProvider',
     'ModelScopeProvider',
+    'RerankAPIProvider',
     'create_provider_from_config',
 ]

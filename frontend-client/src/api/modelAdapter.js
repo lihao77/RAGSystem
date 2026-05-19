@@ -108,6 +108,11 @@ export async function getAvailableModels(options = {}) {
   }
 }
 
+export function findProviderModelByValue(value) {
+  const [provider = '', provider_type = '', model = ''] = String(value || '').split('|')
+  return { provider, provider_type, model }
+}
+
 export async function createProvider(data) {
   const response = await fetch(`${API_BASE}/providers`, {
     method: 'POST',

@@ -19,6 +19,7 @@ from .providers_impl import (
     OpenAICompatibleProvider,
     OpenAIResponsesProvider,
     OpenRouterProvider,
+    RerankAPIProvider,
 )
 
 _OPENAI_COMPAT_PROVIDER_TYPES = {
@@ -40,6 +41,8 @@ def canonicalize_provider_type(provider_type: str, api_mode: str | None = None) 
         return 'openai_chat'
     if raw_provider_type in {'openai_compatible_chat', 'openai_proxy'}:
         return 'openai_proxy'
+    if raw_provider_type in {'rerank', 'reranker', 'rerank_api'}:
+        return 'rerank_api'
     return raw_provider_type
 
 
@@ -60,6 +63,7 @@ _DEFAULT_ENDPOINTS = {
     'deepseek': 'https://api.deepseek.com/v1',
     'openrouter': 'https://openrouter.ai/api/v1',
     'modelscope': 'https://api-inference.modelscope.cn/v1',
+    'rerank_api': '',
 }
 
 _PROVIDER_CONFIG_FIELDS = {
@@ -85,6 +89,7 @@ _PROVIDER_CONFIG_FIELDS = {
     'deepseek': [],
     'openrouter': [],
     'modelscope': [],
+    'rerank_api': [],
 }
 
 _PROVIDER_CLASSES = {
@@ -95,6 +100,7 @@ _PROVIDER_CLASSES = {
     'deepseek': DeepSeekProvider,
     'openrouter': OpenRouterProvider,
     'modelscope': ModelScopeProvider,
+    'rerank_api': RerankAPIProvider,
 }
 
 _ENV_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -122,10 +128,12 @@ def create_provider_from_config(config: Dict[str, Any]):
     name = normalized.get('name')
     api_key = resolve_env_placeholder(normalized.get('api_key'), field_name='api_key')
     api_endpoint = normalized.get('api_endpoint')
-    model = normalized.get('model', 'gpt-3.5-turbo')
+    model = normalized.get('model') or ('' if provider_type == 'rerank_api' else 'gpt-3.5-turbo')
 
     if not all([name, provider_type, api_key]):
         raise ValueError('Provider 配置必须包含 name, provider_type, api_key')
+    if provider_type == 'rerank_api' and not api_endpoint:
+        raise ValueError('rerank_api Provider 必须包含 api_endpoint')
 
     provider_class = _PROVIDER_CLASSES.get(provider_type)
     if provider_class is None:

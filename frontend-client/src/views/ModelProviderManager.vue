@@ -263,7 +263,7 @@
             </div>
           </section>
 
-          <section class="dialog-form-section adm-form-section">
+          <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section adm-form-section">
             <div class="dialog-form-section__head adm-form-section__head">
               <h3>运行参数</h3>
               <p>配置温度、token 上限与超时时间等运行时参数。</p>
@@ -337,7 +337,7 @@
             </template>
 
             <div class="form-section-title adm-form-section-title">模型映射 (model_map)</div>
-            <p class="form-hint adm-form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding</p>
+            <p class="form-hint adm-form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding / rerank</p>
             <div class="model-map-editor">
               <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
                 <input v-model="entry.task" class="form-control adm-form-control form-control--sm" placeholder="chat" />
@@ -446,6 +446,12 @@ const FALLBACK_PROVIDER_TYPES = [
   { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1', config_fields: [] },
   { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1', config_fields: [] },
   { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1', config_fields: [] },
+  {
+    value: 'rerank_api',
+    label: 'Rerank API',
+    default_endpoint: '',
+    config_fields: [],
+  },
 ]
 
 async function loadProviderTypes() {
@@ -736,6 +742,10 @@ async function loadProviders() {
 }
 
 function getPreferredTestTarget(provider) {
+  const rerankModel = getDefaultModel(provider.model_map?.rerank)
+  if ((provider.provider_type === 'rerank_api' || rerankModel) && rerankModel) {
+    return { task: 'rerank', model: rerankModel, prompt: '三级响应启动条件' }
+  }
   const chatModel = getDefaultModel(provider.model_map?.chat)
   if (chatModel) return { task: 'chat', model: chatModel, prompt: 'Hi' }
   const embeddingModel = getDefaultModel(provider.model_map?.embedding)
@@ -752,9 +762,12 @@ async function quickTest(provider) {
     const target = getPreferredTestTarget(provider)
     const result = await testProvider(provider.name, target.model, target.prompt, provider.provider_type || '', target.task)
     if (result.error) throw new Error(result.error)
-    const message = target.task === 'embedding'
-      ? `Embedding 维度: ${result.embeddings?.[0]?.length || result.response?.embeddings?.[0]?.length || 0}`
-      : `响应: ${(result.response?.content || result.content || '').slice(0, 60)}`
+    let message = `响应: ${(result.response?.content || result.content || '').slice(0, 60)}`
+    if (target.task === 'embedding') {
+      message = `Embedding 维度: ${result.embeddings?.[0]?.length || result.response?.embeddings?.[0]?.length || 0}`
+    } else if (target.task === 'rerank') {
+      message = `Rerank 返回: ${result.results?.length || result.response?.results?.length || 0} 条`
+    }
     testResults.value = {
       ...testResults.value,
       [key]: { ok: true, msg: message }
@@ -787,6 +800,7 @@ usePointerDownOutside({
 
 const apiEndpointPlaceholder = computed(() => {
   const providerType = form.value.provider_type
+  if (providerType === 'rerank_api') return '例如: https://api.jina.ai/v1/rerank'
   return providerTypeMeta.value[providerType]?.default_endpoint || '由后端返回默认 API Endpoint'
 })
 const activeProviderConfigFields = computed(() => {
@@ -860,6 +874,20 @@ function handleProviderTypeChange(providerType) {
       form.value[field.key] = field.default ?? ''
     }
   }
+
+  if (providerType === 'rerank_api') {
+    modelMapEntries.value = [{ task: 'rerank', model: '' }]
+    form.value.temperature = undefined
+    form.value.max_completion_tokens = undefined
+    form.value.max_context_tokens = undefined
+  } else if (
+    previousType === 'rerank_api'
+    && modelMapEntries.value.length === 1
+    && modelMapEntries.value[0].task === 'rerank'
+    && !modelMapEntries.value[0].model
+  ) {
+    modelMapEntries.value = [{ task: 'chat', model: '' }]
+  }
 }
 
 function closeDialog() {
@@ -908,14 +936,18 @@ function normalizeProviderPayload(payload) {
 
 async function handleSubmit() {
   dialog.value.error = ''
+  const mm = buildModelMap()
   if (dialog.value.mode === 'create') {
     if (!form.value.name?.trim()) { dialog.value.error = '请填写名称'; return }
     if (!form.value.provider_type) { dialog.value.error = '请选择 Provider 类型'; return }
     if (!form.value.api_key?.trim()) { dialog.value.error = '请填写 API Key'; return }
   }
+  if (form.value.provider_type === 'rerank_api') {
+    if (!form.value.api_endpoint?.trim()) { dialog.value.error = '请填写 API Endpoint'; return }
+    if (!mm.rerank) { dialog.value.error = '请配置 model_map.rerank'; return }
+  }
   dialog.value.saving = true
   try {
-    const mm = buildModelMap()
     const isCreate = dialog.value.mode === 'create'
     if (isCreate) {
       const payload = normalizeProviderPayload({ ...form.value, model_map: mm })

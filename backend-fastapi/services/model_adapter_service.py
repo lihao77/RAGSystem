@@ -41,11 +41,13 @@ class ModelAdapterService:
         return f'{name}_{provider_type}' if name and provider_type else ''
 
     def _ensure_provider_request_shape(self, data: Dict[str, Any]) -> None:
-        if 'model_map' in data and data['model_map'] is not None and not isinstance(data['model_map'], dict):
+        normalized = canonicalize_provider_config(data)
+        model_map = normalized.get('model_map')
+        if model_map is not None and not isinstance(model_map, dict):
             raise ModelAdapterServiceError('model_map 必须是对象', status_code=400)
-        if 'model' in data and isinstance(data.get('model'), list):
+        if 'model' in normalized and isinstance(normalized.get('model'), list):
             raise ModelAdapterServiceError('model 必须是字符串', status_code=400)
-        for task, value in (data.get('model_map') or {}).items():
+        for task, value in (model_map or {}).items():
             if not str(task or '').strip():
                 raise ModelAdapterServiceError('model_map 不能包含空任务名', status_code=400)
             if isinstance(value, list):
@@ -54,6 +56,11 @@ class ModelAdapterService:
                 continue
             if not str(value or '').strip():
                 raise ModelAdapterServiceError(f'model_map.{task} 不能为空', status_code=400)
+        if normalized.get('provider_type') == 'rerank_api':
+            if not str(normalized.get('api_endpoint') or '').strip():
+                raise ModelAdapterServiceError('rerank_api Provider 必须填写 API Endpoint', status_code=400)
+            if not (model_map or {}).get('rerank'):
+                raise ModelAdapterServiceError('rerank_api Provider 必须配置 model_map.rerank', status_code=400)
 
     def create_provider(self, data: Optional[Dict[str, Any]]) -> str:
         config = self._build_create_config(data)
@@ -185,6 +192,47 @@ class ModelAdapterService:
                 'provider': response.provider,
                 'latency': response.latency,
                 'usage': response.usage,
+            }
+
+        if task == 'rerank':
+            config_store = self._adapter.config_store
+            from vector_store.reranker import ModelProviderReranker
+
+            documents = data.get('documents')
+            if not isinstance(documents, list) or not documents:
+                documents = [
+                    {'id': 'rerank-test-1', 'text': str(prompt), 'metadata': {}},
+                    {'id': 'rerank-test-2', 'text': 'unrelated test document', 'metadata': {}},
+                ]
+            normalized_documents = []
+            for index, item in enumerate(documents):
+                if isinstance(item, dict):
+                    text = str(item.get('text') or item.get('content') or '')
+                    metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+                    doc_id = str(item.get('id') or f'rerank-test-{index + 1}')
+                else:
+                    text = str(item)
+                    metadata = {}
+                    doc_id = f'rerank-test-{index + 1}'
+                normalized_documents.append({'id': doc_id, 'text': text, 'metadata': metadata})
+
+            reranker = ModelProviderReranker(
+                provider=provider,
+                model=model,
+                provider_type=provider_type,
+                config_store=config_store,
+            )
+            results = reranker.rerank(
+                query=str(prompt),
+                documents=normalized_documents,
+                top_k=min(2, len(normalized_documents)),
+            )
+            return {
+                'results': results,
+                'model': reranker.model,
+                'provider': reranker.provider_key,
+                'provider_type': reranker.provider_type,
+                'api_endpoint': reranker.api_endpoint,
             }
 
         raise ModelAdapterServiceError(f'不支持的任务类型: {task}', status_code=400)
