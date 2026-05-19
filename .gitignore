@@ -82,6 +82,8 @@ tests/
 !backend-fastapi/agents/tests/test_core/test_observation_phase_ab_smoke.py
 !backend-fastapi/agents/tests/test_core/test_map_tools.py
 !backend-fastapi/agents/tests/test_core/test_tool_output_type_audit.py
+!backend-fastapi/vector_store/tests/
+!backend-fastapi/vector_store/tests/*.py
 *.log
 *.out.log
 *.err.log

@@ -7,7 +7,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 
@@ -91,6 +91,26 @@ class VectorStoreBase(ABC):
 
         Returns:
             文档对象，不存在则返回 None
+        """
+        pass
+
+    @abstractmethod
+    def list_documents(
+        self,
+        collection: str = "default",
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 1000,
+    ) -> List[Document]:
+        """
+        列出集合内文档分块。
+
+        Args:
+            collection: 集合名称
+            filters: 元数据过滤条件
+            limit: 最多返回数量
+
+        Returns:
+            文档分块列表，不包含 embedding
         """
         pass
 

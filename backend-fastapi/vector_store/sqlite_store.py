@@ -526,6 +526,42 @@ class SQLiteVectorStore(VectorStoreBase):
             embedding=embedding
         )
 
+    def list_documents(
+        self,
+        collection: str = "default",
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 1000,
+    ) -> List[Document]:
+        """列出集合内文档分块，不返回 embedding。"""
+        limit = max(1, int(limit or 1000))
+        sql = """
+            SELECT id, content, metadata
+            FROM documents
+            WHERE collection = ?
+        """
+        params: List[Any] = [collection]
+
+        if filters:
+            for key, value in filters.items():
+                if not self._is_safe_metadata_key(key):
+                    raise ValueError(f"不安全的元数据过滤键: {key}")
+                sql += f" AND json_extract(metadata, '$.{key}') = ?"
+                params.append(value)
+
+        sql += " ORDER BY updated_at DESC, id ASC LIMIT ?"
+        params.append(limit)
+
+        cursor = self.conn.execute(sql, params)
+        return [
+            Document(
+                id=row["id"],
+                content=row["content"],
+                metadata=json.loads(row["metadata"] or "{}"),
+                embedding=None,
+            )
+            for row in cursor.fetchall()
+        ]
+
     def delete_documents(
         self,
         doc_ids: List[str],
@@ -681,6 +717,11 @@ class SQLiteVectorStore(VectorStoreBase):
             return 1.0 / (1.0 + abs(distance))
         else:
             return 0.0
+
+    @staticmethod
+    def _is_safe_metadata_key(key: str) -> bool:
+        import re
+        return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(key or "")))
 
     def __enter__(self):
         """上下文管理器支持"""

@@ -166,6 +166,10 @@ class VectorStoreClient:
         """获取文档"""
         return self.store.get_document(doc_id, collection)
 
+    def list_documents(self, collection="default", filters=None, limit=1000):
+        """列出文档分块"""
+        return self.store.list_documents(collection, filters, limit)
+
     def delete_documents(self, doc_ids, collection="default"):
         """删除文档"""
         return self.store.delete_documents(doc_ids, collection)
