@@ -14,6 +14,7 @@ import time
 from typing import Optional
 
 from agents.events.bus import Event, EventType
+from execution.run_lifecycle import publish_session_run_started, publish_session_updated
 
 logger = logging.getLogger(__name__)
 
@@ -147,18 +148,13 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
     run_id = started.run_id
     logger.info('notification_trigger: 系统 run 已启动 session=%s run_id=%s', session_id, run_id)
 
-    try:
-        global_bus.publish(Event(
-            type=EventType.SESSION_RUN_STARTED,
-            data={
-                'run_id': run_id,
-                'source': 'system.bg_notification',
-                'notifications': notifications,
-            },
-            session_id=session_id,
-        ))
-    except Exception as exc:
-        logger.debug('notification_trigger: 发布 session.run_started 失败: %s', exc)
+    publish_session_run_started(
+        session_id,
+        run_id,
+        source='system.bg_notification',
+        data={'notifications': notifications},
+        event_bus=global_bus,
+    )
 
     # 注册 RUN_END 回调进行资源清理（替代原来的 drain 线程）
     from agents.events.session_manager import get_session_manager
@@ -168,14 +164,12 @@ def _start_system_run(session_id: str, task: str, notifications: list[dict]) -> 
         logger.info('notification_trigger: 系统 run 完成 session=%s run_id=%s', session_id, run_id)
         from execution.cleanup import cleanup_after_run
         cleanup_after_run(session_id, run_id)
-        try:
-            global_bus.publish(Event(
-                type=EventType.SESSION_UPDATED,
-                data={'run_id': run_id, 'source': 'system.bg_notification'},
-                session_id=session_id,
-            ))
-        except Exception:
-            pass
+        publish_session_updated(
+            session_id,
+            run_id,
+            source='system.bg_notification',
+            event_bus=global_bus,
+        )
 
     run_event_bus.subscribe(
         [EventType.RUN_END],

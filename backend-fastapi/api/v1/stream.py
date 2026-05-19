@@ -258,19 +258,8 @@ async def execute_task(
     if not started.started:
         return {'started': False, 'session_id': session_id, 'error': started.error_message or '启动执行失败'}
 
-    # 通知 WS watcher 立即绑定新 run 的事件总线（替代轮询等待）
-    try:
-        from runtime.container import get_current_runtime_container
-        from agents.events.bus import Event, EventType
-        container = get_current_runtime_container()
-        if container:
-            container.get_event_bus().publish(Event(
-                type=EventType.SESSION_RUN_STARTED,
-                data={'run_id': started.run_id, 'source': 'execute_task'},
-                session_id=session_id,
-            ))
-    except Exception:
-        pass
+    from execution.run_lifecycle import publish_session_run_started
+    publish_session_run_started(session_id, started.run_id, source='execute_task')
 
     return {
         'started': True,

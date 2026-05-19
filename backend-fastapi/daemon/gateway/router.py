@@ -313,13 +313,5 @@ class MessageRouter:
                 pass
             approval_handler.cleanup()
             self._approval_handlers.pop(message.chat_id, None)
-            try:
-                from agents.context.session_cache import flush_session
-                flush_session(session_id)
-            except Exception:
-                pass
-            try:
-                from agents.events.session_manager import cleanup_run
-                cleanup_run(run_id)
-            except Exception:
-                pass
+            from execution.cleanup import cleanup_after_run
+            cleanup_after_run(session_id, run_id)

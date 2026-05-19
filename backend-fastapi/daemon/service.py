@@ -371,16 +371,8 @@ class DaemonService:
                     pass
                 cron_handler.cleanup()
                 clear_session_permission_override(session_id)
-                try:
-                    from agents.context.session_cache import flush_session
-                    flush_session(session_id)
-                except Exception:
-                    pass
-                try:
-                    from agents.events.session_manager import cleanup_run
-                    cleanup_run(started.run_id)
-                except Exception:
-                    pass
+                from execution.cleanup import cleanup_after_run
+                cleanup_after_run(session_id, started.run_id)
 
         except Exception as e:
             logger.error('Cron 任务执行失败 [%s]: %s', task.task_id, e)
