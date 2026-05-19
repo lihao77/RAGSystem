@@ -147,7 +147,7 @@ export async function ingestFileToCollection(body) {
 
 /**
  * 向量相似度搜索
- * @param {Object} body - { query, top_k?, collection?, vectorizer_key? }
+ * @param {Object} body - { query, top_k?, collection?, search_mode?, filters? }
  */
 export async function searchVectors(body) {
   return request('/api/vector/search', {

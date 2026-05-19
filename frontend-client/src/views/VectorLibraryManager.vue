@@ -265,17 +265,28 @@
                                 <input v-model.number="searchTopK" type="number" min="1" max="20"
                                     class="option-input" />
                             </div>
+                            <div class="search-option">
+                                <label>模式</label>
+                                <CustomSelect v-model="searchMode" :options="searchModeOptions" />
+                            </div>
                         </div>
                         <div v-if="searchResults.length > 0" class="search-results">
                             <div v-for="(r, i) in searchResults" :key="i" class="result-item">
                                 <div class="result-header">
                                     <span class="result-rank">#{{ i + 1 }}</span>
-                                    <span :class="['result-score', scoreClass(r.score ?? r.similarity)]">
-                                        {{ ((r.score ?? r.similarity) * 100).toFixed(2) }}%
+                                    <span :class="['result-score', scoreClass(resultSimilarity(r))]">
+                                        {{ resultSimilarityLabel(r) }}
                                     </span>
                                     <span class="result-source">{{ r.metadata?.source || r.metadata?.document_id ||
                                         '未知来源' }}</span>
                                 </div>
+                                <div class="result-meta-row">
+                                    <span v-if="r.hybrid_score != null" class="result-meta-chip">Hybrid {{ formatScore(r.hybrid_score) }}</span>
+                                    <span v-if="r.vector_rank != null" class="result-meta-chip">Vector #{{ r.vector_rank }}</span>
+                                    <span v-if="r.keyword_rank != null" class="result-meta-chip">Keyword #{{ r.keyword_rank }}</span>
+                                    <span v-for="source in (r.retrieval_sources || [])" :key="source" class="result-meta-chip">{{ source }}</span>
+                                </div>
+                                <div v-if="r.metadata?.section_path" class="result-section">{{ r.metadata.section_path }}</div>
                                 <div class="result-content">{{ r.content || r.text }}</div>
                                 <div v-if="r.metadata?.chunk_index != null" class="result-footer">
                                     分块 {{ r.metadata.chunk_index }} / {{ r.metadata.chunk_total }}
@@ -531,6 +542,10 @@
                                     class="option-input" />
                             </div>
                             <div class="search-option">
+                                <label>模式：</label>
+                                <CustomSelect v-model="searchMode" :options="searchModeOptions" />
+                            </div>
+                            <div class="search-option">
                                 <label>集合：</label>
                                 <input v-model="searchCollection" class="option-input option-input--wide"
                                     placeholder="留空全局搜索" />
@@ -543,12 +558,19 @@
                         <div v-for="(r, i) in searchResults" :key="i" class="result-item glass-card">
                             <div class="result-header">
                                 <span class="result-rank">#{{ i + 1 }}</span>
-                                <span :class="['result-score', scoreClass(r.score ?? r.similarity)]">
-                                    相似度 {{ ((r.score ?? r.similarity) * 100).toFixed(2) }}%
+                                <span :class="['result-score', scoreClass(resultSimilarity(r))]">
+                                    {{ resultSimilarityLabel(r) }}
                                 </span>
                                 <span class="result-source">{{ r.metadata?.source || r.metadata?.document_id || '未知来源'
                                 }}</span>
                             </div>
+                            <div class="result-meta-row">
+                                <span v-if="r.hybrid_score != null" class="result-meta-chip">Hybrid {{ formatScore(r.hybrid_score) }}</span>
+                                <span v-if="r.vector_rank != null" class="result-meta-chip">Vector #{{ r.vector_rank }}</span>
+                                <span v-if="r.keyword_rank != null" class="result-meta-chip">Keyword #{{ r.keyword_rank }}</span>
+                                <span v-for="source in (r.retrieval_sources || [])" :key="source" class="result-meta-chip">{{ source }}</span>
+                            </div>
+                            <div v-if="r.metadata?.section_path" class="result-section">{{ r.metadata.section_path }}</div>
                             <div class="result-content">{{ r.content || r.text }}</div>
                             <div v-if="r.metadata?.chunk_index != null" class="result-footer">
                                 分块 {{ r.metadata.chunk_index }} / {{ r.metadata.chunk_total }}
@@ -1302,6 +1324,11 @@ async function handleMigrate() {
 // ── 搜索测试 ──────────────────────────────────────────────
 const searchQuery = ref('');
 const searchTopK = ref(5);
+const searchMode = ref('hybrid');
+const searchModeOptions = [
+    { value: 'hybrid', label: '混合' },
+    { value: 'vector', label: '向量' },
+];
 const searchCollection = ref('');
 const searchLoading = ref(false);
 const searchResults = ref([]);
@@ -1323,6 +1350,7 @@ async function handleSearch() {
             query: searchQuery.value,
             top_k: searchTopK.value,
             collection: searchCollection.value || undefined,
+            search_mode: searchMode.value,
         });
         searchResults.value = res.data?.results || res.results || [];
         if (searchResults.value.length === 0) showToast('未找到相关结果', 'warning');
@@ -1334,10 +1362,28 @@ async function handleSearch() {
 }
 
 function scoreClass(score) {
+    if (score == null) return 'score-poor';
     if (score > 0.8) return 'score-high';
     if (score > 0.6) return 'score-mid';
     if (score > 0.4) return 'score-low';
     return 'score-poor';
+}
+
+function resultSimilarity(result) {
+    const value = Number(result?.score ?? result?.similarity);
+    return Number.isFinite(value) ? value : null;
+}
+
+function resultSimilarityLabel(result) {
+    const score = resultSimilarity(result);
+    if (score == null) return '相似度 -';
+    return `相似度 ${(score * 100).toFixed(2)}%`;
+}
+
+function formatScore(score) {
+    const value = Number(score);
+    if (!Number.isFinite(value)) return '-';
+    return value.toFixed(4);
 }
 
 // ── 工具函数 ──────────────────────────────────────────────
@@ -1994,6 +2040,32 @@ onMounted(() => {
     font-size: var(--font-size-xs);
     color: var(--color-text-muted);
     margin-left: auto;
+}
+
+.result-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: var(--spacing-xs);
+}
+
+.result-meta-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    padding: 1px 7px;
+    border-radius: var(--radius-full);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.result-section {
+    margin-bottom: var(--spacing-xs);
+    color: var(--color-brand-accent-light);
+    font-size: var(--font-size-xs);
+    line-height: 1.5;
 }
 
 .result-content {

@@ -77,19 +77,41 @@ class VectorManagementService:
 
     def search_vectors(self, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         data = payload or {}
-        collection_name = data.get('collection_name', 'documents')
+        collection_name = data.get('collection_name') or data.get('collection') or 'documents'
         query = data.get('query', '')
-        top_k = data.get('top_k', 5)
+        top_k = int(data.get('top_k', 5) or 5)
+        search_mode = (data.get('search_mode') or data.get('mode') or 'hybrid').strip().lower()
+        filters = data.get('filters')
         if not query:
             raise VectorManagementServiceError('查询内容不能为空', status_code=400)
+        if search_mode not in {'hybrid', 'vector'}:
+            raise VectorManagementServiceError('search_mode 只能是 hybrid 或 vector', status_code=400)
 
         retriever = self._retriever_factory(collection_name=collection_name)
-        results = retriever.search(query=query, top_k=top_k, include_distances=True)
+        if search_mode == 'vector':
+            results = retriever.search(
+                query=query,
+                top_k=top_k,
+                filters=filters,
+                include_distances=True,
+            )
+        else:
+            results = retriever.hybrid_search(
+                query=query,
+                keyword=data.get('keyword'),
+                top_k=top_k,
+                filters=filters,
+                vector_top_k=data.get('vector_top_k'),
+                keyword_top_k=data.get('keyword_top_k'),
+                keyword_candidate_limit=int(data.get('keyword_candidate_limit', 2000) or 2000),
+                rrf_k=int(data.get('rrf_k', 60) or 60),
+            )
         return {
             'results': results,
             'count': len(results),
             'collection_name': collection_name,
             'query': query,
+            'search_mode': search_mode,
         }
 
     def index_document(
