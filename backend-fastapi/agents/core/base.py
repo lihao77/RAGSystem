@@ -671,11 +671,11 @@ class BaseAgent(ABC):
         return value if value != "" else None
 
     def _publish_visualization_candidate(self, candidate: Dict[str, Any]) -> None:
-        """[Deprecated] 新架构下不再通过 SSE 推送可视化数据。"""
+        """[Deprecated] 新架构下不再通过独立推送路径发送可视化数据。"""
         pass
 
     def _publish_deferred_visualizations(self, candidates: Optional[List[Dict[str, Any]]]) -> None:
-        """[Deprecated] 新架构下不再通过 SSE 推送可视化数据。"""
+        """[Deprecated] 新架构下不再通过独立推送路径发送可视化数据。"""
         pass
 
     def _get_runtime_log_label(self) -> str:

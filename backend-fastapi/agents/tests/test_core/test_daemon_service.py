@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import asyncio
-import json
 import tempfile
 import threading
 from pathlib import Path
@@ -110,36 +109,6 @@ class _FakeExecutionService:
         return MagicMock(thread=None)
 
     def cleanup_finished(self):
-        pass
-
-
-class _FakeSSEAdapter:
-    """Fake SSEAdapter that yields a FINAL_ANSWER event then terminates."""
-
-    def __init__(self, content='cron done', error=None):
-        self.content = content
-        self.error = error
-        self.completed_normally = True
-        self.terminal_event_type = 'run.end'
-
-    def stream_sync(self):
-        if self.error:
-            err = {'type': 'system.error', 'data': {'message': self.error}}
-            yield f'data: {json.dumps(err)}\n\n'
-            return
-        event = {
-            'type': 'output.final_answer',
-            'data': {'content': self.content},
-            'session_id': 'test',
-        }
-        yield f'data: {json.dumps(event)}\n\n'
-        done = {'type': 'run.end', 'data': {}}
-        yield f'data: {json.dumps(done)}\n\n'
-
-    def start(self):
-        pass
-
-    def stop(self):
         pass
 
 
@@ -572,21 +541,3 @@ def test_periodic_session_eviction_removes_expired_sessions(daemon_service):
 
     assert daemon_service._daemon_sessions == {'fresh_chat': 'session_new'}
     assert daemon_service._session_timestamps == {'fresh_chat': now}
-
-
-# ──────────────────────────────────────────────
-# consume_stream 测试
-# ──────────────────────────────────────────────
-
-def test_consume_stream_extracts_final_answer():
-    from daemon.utils import consume_stream
-    adapter = _FakeSSEAdapter('hello world')
-    result = consume_stream(adapter)
-    assert result == 'hello world'
-
-
-def test_consume_stream_returns_error_on_system_error():
-    from daemon.utils import consume_stream
-    adapter = _FakeSSEAdapter(error='something went wrong')
-    result = consume_stream(adapter)
-    assert result == 'ERROR: something went wrong'

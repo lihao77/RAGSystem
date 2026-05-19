@@ -7,7 +7,7 @@ Agent 模块 - 智能体系统
 - implementations: 智能体实现（统一为 OrchestratorAgent）
 - config: 配置系统（AgentConfig, AgentConfigManager, AgentLoader）
 - context: 上下文管理（ContextPipeline）
-- events: 事件系统（EventBus, EventPublisher, SSEAdapter）
+- events: 事件系统（EventBus, EventPublisher）
 - skills: Skills 系统
 """
 

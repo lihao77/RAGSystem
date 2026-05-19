@@ -72,7 +72,8 @@
 
 - `backend-fastapi/agents/events/bus.py`
 - `backend-fastapi/agents/events/publisher.py`
-- `backend-fastapi/agents/events/sse_adapter.py`
+- `backend-fastapi/agents/events/client_events.py`
+- `backend-fastapi/api/v1/ws.py`
 - `backend-fastapi/services/execution_service.py`
 
 ### 4.2 主线应补内容
@@ -224,7 +225,7 @@ GeoPLUS 才能在其上叠加：
 
 - 工具定义快照测试
 - 工具结果 schema 测试
-- SSE 事件 payload 快照测试
+- WebSocket 事件 payload 快照测试
 - presentation 协议快照测试
 - API 合同测试
 
@@ -242,7 +243,7 @@ GeoPLUS 才能在其上叠加：
 - 统一 presentation 协议
 - 统一 presentation 事件协议
 - 工具结果增加 `output_type` / `presentations`
-- SSE 事件 contract 固化
+- WebSocket 事件 contract 固化
 
 ### P1：随后做
 
@@ -266,7 +267,8 @@ GeoPLUS 才能在其上叠加：
 - `backend-fastapi/tools/result_normalizer.py`
 - `backend-fastapi/agents/events/bus.py`
 - `backend-fastapi/agents/events/publisher.py`
-- `backend-fastapi/agents/events/sse_adapter.py`
+- `backend-fastapi/agents/events/client_events.py`
+- `backend-fastapi/api/v1/ws.py`
 
 前端：
 

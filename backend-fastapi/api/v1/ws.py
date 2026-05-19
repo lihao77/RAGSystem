@@ -2,7 +2,7 @@
 """
 Session 级 WebSocket 端点。
 
-替代原有的 SSE push 通道和 /stream/reconnect，
+替代旧的分散式 push / reconnect 通道，
 提供单一持久连接承载所有实时事件。
 """
 
@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from agents.events.bus import Event, EventType
-from agents.events.sse_adapter import event_to_client_dict, is_critical_event_type
+from agents.events.client_events import event_to_client_dict, is_critical_event_type
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

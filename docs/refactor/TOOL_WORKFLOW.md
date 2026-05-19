@@ -18,7 +18,7 @@ Agent.execute()
       → 返回 ToolExecutionResult
     → result_display_text() / result_event_payload() [结果提取]
     → publisher.tool_call_end() [事件发布]
-      → EventBus → SSE → Frontend
+      → EventBus → WebSocket → Frontend
 ```
 
 ---
@@ -313,8 +313,8 @@ publisher.tool_call_end(
 ```
 EventPublisher.tool_call_end()
   → EventBus.publish(Event)
-    → SSE Stream (api/routes/chat.py)
-      → Frontend EventSource
+    → WebSocket session endpoint (api/v1/ws.py)
+      → Frontend WebSocket client
         → executionProjector.applyStep()
           → state.toolMap.set(call_id, {
               status: 'success',

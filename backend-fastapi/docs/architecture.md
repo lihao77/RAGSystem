@@ -17,7 +17,7 @@ backend-fastapi/
 │   ├── config/                # Agent 配置管理与 team 模型（manager/loader）
 │   ├── configs/               # 源码侧 agent 示例配置与历史输入来源
 │   ├── context/               # 上下文管道、压缩、观察格式化
-│   ├── events/                # run 级 EventBus、EventPublisher、SSEAdapter（有序分发 + history replay）
+│   ├── events/                # run 级 EventBus、EventPublisher、客户端事件 payload helper
 │   ├── streaming/             # XML 流式解析（StreamingXMLParser, tool_xml_parser）
 │   ├── skills/                # Skills 目录（每个 Skill 一个子目录）
 │   ├── monitoring/            # 指标收集、观察窗口
@@ -98,7 +98,7 @@ POST /api/agent/stream {task, attachments[], session_id, selected_llm}
   → AgentExecutionAdapter.start_stream_execution()
       ├─ 为本次 run 创建 run 级 EventBus
       ├─ 将 current_user_input / current_attachments 注入本次 root context.metadata，并把完整附件元数据写入 user message.metadata.attachments 以供历史回显
-      └─ 启动内部 SSEAdapter 仅用于后台 drain 与资源清理，不再直接对浏览器返回 SSE
+      └─ 启动后台执行任务，事件写入 run 级 EventBus
   → /api/agent/sessions/{session_id}/ws
       ├─ 建立 session 级长连接
       ├─ 订阅全局 EventBus（承接 `command.result`、审批 granted/denied 等非 run 级事件）
@@ -532,7 +532,7 @@ canonical step 当前覆盖的语义：
 
 - `kind=run`, `phase=start|end`
 - `kind=subtask`, `phase=start|end`
-- `kind=intent`, `phase=complete`（`phase=delta` 仅用于 SSE 流式展示，不持久化到 `run_steps`）
+- `kind=intent`, `phase=complete`（`phase=delta` 仅用于实时流式展示，不持久化到 `run_steps`）
 - `kind=tool`, `phase=start|end`
 - `kind=visualization`, `phase=complete`
 
@@ -559,7 +559,7 @@ canonical step 当前覆盖的语义：
 ```text
 原始 EventBus 事件
   ├─ StepProjector → execution.step
-  ├─ SSEAdapter → 纯转发 execution.step 与消息流事件
+  ├─ WebSocket session endpoint → 纯转发 execution.step 与消息流事件
   ├─ RunStepPersistenceHandler → run_steps（直接存 canonical execution.step）
   └─ MessagePersistenceHandler → messages（仅 user / root assistant final answer / compression）
 ```
@@ -568,8 +568,8 @@ canonical step 当前覆盖的语义：
 
 - `execution/step_projector.py` 是 raw event → canonical step 的唯一投影层
 - `agents/core/base.py` 中的 tool start/end 事件统一直接走 `EventPublisher` 主链，避免 round / parent_call_id 等字段在兼容分支中丢失
-- `agents/events/sse_adapter.py` 不再承担执行树语义映射，只负责转发事件；`AgentExecutionAdapter.start_stream_execution()` 构造 adapter 后立即建立订阅，避免首次 `/stream` 在线程调度窗口内漏掉早期事件
-- `api/v1/stream.py` reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`；history 依赖 `sequence_number` 维持稳定顺序，并通过 `skip_before_seq` 做实时去重
+- `api/v1/ws.py` 负责 session 级实时投递、活跃 run 订阅与历史回放；`agents/events/client_events.py` 负责构建 transport 无关的客户端事件 payload
+- WebSocket reconnect 回放的是同一条 EventBus 历史，因此实时与重连都会收到相同的 `execution.step`；history 依赖 `sequence_number` 维持稳定顺序，并通过队列去重避免重复投递
 - 子 Agent 递归显示依赖同一棵 root execution tree：`call_agent` / `send_message` 创建的可见 subtask 节点 `call_id`，必须继续透传到子 Agent 执行上下文 `context.metadata.call_id`；这样 child agent 内部的 `intent/tool` 才会以同一 `call_id` 继续发事件，并递归挂入该 subtask，而不是生成新的孤立调用节点
 - `execution/runstep_normalizer.py` 已删除，不再存在 raw run_steps → normalized steps 的兼容层
 - 守护消息路由 `daemon/gateway/router.py` 现在将审批、用户输入、工具开始/结束、重试、intent 完成等事件合并为单个 daemon 订阅，在 handler 内按 `event.type` 分发，减少 run event bus 上的订阅/取消订阅数量
@@ -584,18 +584,18 @@ EventBus (agents/events/bus.py, run-scoped)
   ↓ publish()/publish_async()（按 priority 有序分发，可在 handler 内再次 publish）
 EventPublisher (agents/events/publisher.py)  ← Agent 使用的简化 API
   ↓
-SSEAdapter (agents/events/sse_adapter.py)    ← 桥接到前端 SSE（有界队列 + 背压保护 + reconnect 去重）
+api/v1/ws.py                                 ← session WebSocket（有界队列 + 背压保护 + reconnect replay）
   ↓
-api/v1/stream.py                             ← HTTP SSE 端点
+Frontend WebSocket client
 ```
 
 Event 携带全局递增 `sequence_number`（`seq` 字段），前端可检测事件 gap。EventBus 内部按 `subscription_id` 精确取消订阅，并保留最近窗口的有序 history 供 reconnect 回放。
 
 关键事件类型（`CRITICAL_EVENT_TYPES`）在队列满时不会被丢弃：RUN_START/END, AGENT_START/END/ERROR, CALL_AGENT_START/END, CALL_TOOL_START/END, EXECUTION_STEP, LLM_FIRST_TOKEN, EXECUTION_WAITING_START/END/TIMEOUT, SESSION_END, USER_INTERRUPT, FINAL_ANSWER, MESSAGE_SAVED, USER_APPROVAL_REQUIRED, USER_INPUT_REQUIRED。
 
-SSEAdapter 背压策略：有界队列（默认 100），非关键事件队满时丢弃，关键事件队满时驱逐非关键事件腾出空间。心跳携带 `last_seq` 和 `dropped_count`。EventBus 对大批量订阅类型的日志会改为摘要输出（示例：`[run.start, run.end, agent.start, ...] (total=43)`），避免全量事件名刷屏。
+WebSocket 背压策略：每连接有界队列（默认 200），非关键事件队满时丢弃，关键事件队满时驱逐非关键事件腾出空间。心跳携带 `last_stream_seq`。EventBus 对大批量订阅类型的日志会改为摘要输出（示例：`[run.start, run.end, agent.start, ...] (total=43)`），避免全量事件名刷屏。
 
-Run 级事件总线不再为已结束 run 保留额外 TTL：`RUN_END` 只负责终止语义与事件分发，真正的 EventBus 清理由各执行入口在流/执行完成后显式调用 `cleanup_run(run_id)` 完成。`SSEAdapter.stop()` 为幂等清理，允许 `stream_sync().finally` 与外层 cleanup callback 重复调用而不产生重复停止日志。
+Run 级事件总线不再为已结束 run 保留额外 TTL：`RUN_END` 只负责终止语义与事件分发，真正的 EventBus 清理由各执行入口在执行完成后显式调用 `cleanup_run(run_id)` 完成。
 
 `ExecutionService` 是 task 结束状态的统一收口层：后台 target 返回 `ExecutionResult` 或普通结果后，由 `ExecutionService._wrap_target()` 统一写入 `TaskRegistry.finish_task(...)`；`AgentExecutionAdapter` 内部 target 不再重复写入结束状态，避免同一 task 出现重复的 completed / failed / interrupted 日志。
 
@@ -633,7 +633,7 @@ waiting loop 仍由等待信号触发：当某些后台控制入口返回 `sugge
 1. **run 内 drain**：每轮推理开头和工具执行后自动消费
 2. **自动触发 run**：后台任务完成且 session 空闲时，`execution/notification_trigger.py` 自动发起系统 run（`source='system.bg_notification'`），让模型处理通知并把结果持久化到会话历史（对标 Claude Code 的 idle notification delivery）
 
-自动触发 run 时，前端通过 session push SSE 通道（`GET /sessions/{id}/push`）实时感知。该通道通过全局 EventBus 订阅 `SESSION_RUN_STARTED` / `SESSION_UPDATED` 事件，以 `filter_func` 按 session_id 过滤，无独立注册表。前端收到 `session.run_started` 后立即调用 `/stream/reconnect` 接入实时流，`session.updated` 作为兜底触发全量历史刷新。
+自动触发 run 时，前端通过 session WebSocket 通道实时感知。该通道通过全局 EventBus 订阅 `SESSION_RUN_STARTED` / `SESSION_UPDATED` 事件，以 `filter_func` 按 session_id 过滤，无独立注册表。前端收到 `session.run_started` 后由 WebSocket 连接动态绑定活跃 run 并回放历史，`session.updated` 作为兜底触发全量历史刷新。
 
 配置层级：`config.yaml` 的 `waiting` 节为系统默认值，agent 的 `behavior.waiting_*` 可覆盖，运行时合并到 `ContextConfig`。其中 `waiting.enabled` 仅控制是否启用显式等待触发的 run 内 waiting loop，`allow_provider_keepalive` 控制是否发送隐藏 keepalive，`hidden_keepalive_token_budget` 控制 keepalive 的最大输出 token。
 
@@ -740,7 +740,7 @@ SkillLoader 当前统一扫描三类来源，并按 `workspace > user_global > b
 
 | 前缀 | 文件 | 职责 |
 |------|------|------|
-| `/api/agent/stream` | `api/v1/stream.py` | SSE 流式执行 |
+| `/api/agent/stream` | `api/v1/stream.py` | 启动/停止执行的 JSON 接口 |
 | `/api/agent/execute` | `api/v1/execution.py` | 同步执行与执行概览 |
 | `/api/agent/sessions` | `api/v1/sessions.py` | 会话管理 |
 | `/api/agent-config` | `api/v1/config.py` | Agent 配置 CRUD |

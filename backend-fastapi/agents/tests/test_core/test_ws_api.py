@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agents.events.bus import Event, EventBus, EventType
-from api.v1.ws import router as ws_router
+from api.v1.ws import _enqueue_event, router as ws_router
 
 
 class _FakeExecutionService:
@@ -88,6 +88,48 @@ def _build_client(monkeypatch, *, statuses):
     app = FastAPI()
     app.include_router(ws_router, prefix='/api/agent')
     return TestClient(app), global_bus, run_bus, registry, execution_service
+
+
+def test_ws_backpressure_evicts_non_critical_for_critical_event():
+    import asyncio
+
+    queue = asyncio.Queue(maxsize=1)
+    _enqueue_event(queue, Event(
+        type=EventType.CHUNK,
+        data={'content': 'partial'},
+        session_id='session-1',
+    ), 'session-1')
+    _enqueue_event(queue, Event(
+        type='call.tool.start',
+        data={'tool_name': 'search'},
+        session_id='session-1',
+    ), 'session-1')
+
+    item = queue.get_nowait()
+
+    assert item.type == 'call.tool.start'
+    assert queue.empty()
+
+
+def test_ws_backpressure_protects_terminal_run_end_event():
+    import asyncio
+
+    queue = asyncio.Queue(maxsize=1)
+    _enqueue_event(queue, Event(
+        type=EventType.CHUNK,
+        data={'content': 'partial'},
+        session_id='session-1',
+    ), 'session-1')
+    _enqueue_event(queue, Event(
+        type='run.end',
+        data={'run_id': 'run-1'},
+        session_id='session-1',
+    ), 'session-1')
+
+    item = queue.get_nowait()
+
+    assert item.type == 'run.end'
+    assert queue.empty()
 
 
 def test_ws_replays_existing_run_history(monkeypatch):

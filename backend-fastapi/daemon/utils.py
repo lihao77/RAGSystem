@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from enum import Enum
 from typing import Optional
@@ -41,28 +40,6 @@ def json_safe(value):
     return value
 
 
-def consume_stream(sse_adapter) -> Optional[str]:
-    """同步消费 SSE 事件流，返回 final_answer 或 system.error。
-
-    DEPRECATED: 仅保留兼容签名。新代码应使用 wait_for_run_end()。
-    """
-    final_answer = None
-    for sse_line in sse_adapter.stream_sync():
-        try:
-            if not sse_line.startswith('data: '):
-                continue
-            event = json.loads(sse_line[6:].strip())
-            event_type = event.get('type', '')
-            if event_type == 'output.final_answer':
-                final_answer = (event.get('data') or {}).get('content')
-            elif event_type == 'system.error':
-                message = (event.get('data') or {}).get('message') or 'unknown error'
-                return f'ERROR: {message}'
-        except json.JSONDecodeError:
-            logger.warning('daemon consume_stream: 非 JSON SSE 行: %s', sse_line[:80])
-    return final_answer
-
-
 def wait_for_run_end(
     event_bus,
     session_id: str,
@@ -70,8 +47,7 @@ def wait_for_run_end(
 ) -> Optional[str]:
     """直接订阅 EventBus 等待 run 结束，返回 final_answer 或 error 消息。
 
-    替代 consume_stream(sse_adapter) 的双重序列化路径，
-    直接从 Event 对象提取结果，无需 SSE 格式中转。
+    直接从 Event 对象提取结果，无需 transport 格式中转。
 
     Args:
         event_bus: run 级 EventBus 实例

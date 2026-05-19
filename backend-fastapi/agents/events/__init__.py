@@ -24,7 +24,6 @@ from .session_manager import (
     touch_run,
     touch_session,
 )
-from .sse_adapter import SSEAdapter
 
 __all__ = [
     'EventBus',
@@ -44,5 +43,4 @@ __all__ = [
     'cleanup_session',
     'touch_run',
     'touch_session',
-    'SSEAdapter',
 ]
