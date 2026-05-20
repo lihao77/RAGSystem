@@ -587,38 +587,89 @@
               <h2>知识库</h2>
               <span>配置 Agent 的知识库检索能力，启用后 Agent 可使用 search_knowledge_base 工具</span>
             </div>
-            <div class="section-body skills-body">
-              <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.knowledge_base.enabled" type="checkbox" />
-                <span>启用知识库检索</span>
+            <div class="section-body kb-body">
+              <label class="form-item switch-item kb-switch-row">
+                <span class="kb-switch-copy">
+                  <span class="field-label-text">启用知识库检索</span>
+                  <span class="kb-field-hint">启用后会向当前 Agent 暴露 search_knowledge_base 工具。</span>
+                </span>
+                <span class="switch-control">
+                  <input v-model="configForm.knowledge_base.enabled" type="checkbox" />
+                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
+                </span>
               </label>
 
               <template v-if="configForm.knowledge_base.enabled">
-                <div class="form-grid form-grid--compact">
-                  <div class="field">
-                    <label>默认集合</label>
-                    <input v-model="configForm.knowledge_base.default_collection" placeholder="documents" />
-                  </div>
-                  <div class="field">
-                    <label>搜索模式</label>
-                    <select v-model="configForm.knowledge_base.default_search_mode" class="form-select">
-                      <option value="hybrid">混合搜索</option>
-                      <option value="vector">向量搜索</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label>Top K</label>
-                    <input v-model.number="configForm.knowledge_base.default_top_k" type="number" min="1" max="50" />
+                <div class="form-grid kb-form-grid">
+                  <label class="form-item">
+                    <span class="field-label-text">默认集合</span>
+                    <input
+                      v-model.trim="configForm.knowledge_base.default_collection"
+                      type="text"
+                      class="form-control"
+                      placeholder="documents"
+                    />
+                    <small class="kb-field-hint">留空保存为 documents。</small>
+                  </label>
+
+                  <label class="form-item">
+                    <span class="field-label-text">Top K</span>
+                    <NumberInput
+                      :model-value="Number(configForm.knowledge_base.default_top_k) || 5"
+                      :min="1"
+                      :max="50"
+                      :step="1"
+                      @update:model-value="configForm.knowledge_base.default_top_k = $event"
+                    />
+                    <small class="kb-field-hint">每次检索返回的候选片段数量。</small>
+                  </label>
+                </div>
+
+                <div class="kb-subsection">
+                  <div class="subsection-title">搜索模式</div>
+                  <div class="toggle-grid kb-mode-grid">
+                    <div
+                      v-for="mode in knowledgeSearchModes"
+                      :key="mode.value"
+                      class="toggle-card"
+                      :class="{ active: configForm.knowledge_base.default_search_mode === mode.value }"
+                      @click="configForm.knowledge_base.default_search_mode = mode.value"
+                    >
+                      <div class="toggle-card__indicator">
+                        <svg v-if="configForm.knowledge_base.default_search_mode === mode.value"
+                          xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                      <div class="toggle-card__name">{{ mode.label }}</div>
+                      <div class="toggle-card__desc">{{ mode.description }}</div>
+                    </div>
                   </div>
                 </div>
-                <label class="form-item checkbox-item checkbox-item--inline" style="margin-top: var(--spacing-sm)">
-                  <input v-model="configForm.knowledge_base.default_rerank" type="checkbox" />
-                  <span>默认启用重排序</span>
+
+                <label class="form-item switch-item kb-switch-row">
+                  <span class="kb-switch-copy">
+                    <span class="field-label-text">默认启用重排序</span>
+                    <span class="kb-field-hint">对召回结果重新排序，优先保留更贴近问题的片段。</span>
+                  </span>
+                  <span class="switch-control">
+                    <input v-model="configForm.knowledge_base.default_rerank" type="checkbox" />
+                    <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
+                  </span>
                 </label>
-                <div v-if="configForm.knowledge_base.default_rerank" class="field" style="margin-top: var(--spacing-xs)">
-                  <label>重排序器 Key（留空使用系统激活的重排序器）</label>
-                  <input v-model="configForm.knowledge_base.default_reranker_key" placeholder="留空使用系统 active reranker" />
-                </div>
+
+                <label v-if="configForm.knowledge_base.default_rerank" class="form-item">
+                  <span class="field-label-text">重排序器 Key</span>
+                  <input
+                    v-model.trim="configForm.knowledge_base.default_reranker_key"
+                    type="text"
+                    class="form-control"
+                    placeholder="留空使用系统 active reranker"
+                  />
+                  <small class="kb-field-hint">指定后将覆盖系统当前激活的 reranker。</small>
+                </label>
               </template>
             </div>
           </section>
@@ -1038,6 +1089,11 @@ const extraParamTypeOptions = [
   { value: 'number', label: 'number' },
   { value: 'boolean', label: 'boolean' },
   { value: 'json', label: 'json' }
+];
+
+const knowledgeSearchModes = [
+  { value: 'hybrid', label: '混合搜索', description: '关键词与向量共同召回' },
+  { value: 'vector', label: '向量搜索', description: '语义相似度召回' }
 ];
 
 function createEmptyLLM() {

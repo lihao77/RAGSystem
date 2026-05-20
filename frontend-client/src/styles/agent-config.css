@@ -558,6 +558,46 @@ input[type='number'].form-control {
   cursor: not-allowed;
 }
 
+/* ===== Knowledge base configuration ===== */
+.kb-body {
+  gap: var(--spacing-md);
+}
+
+.kb-switch-row {
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-hover-overlay);
+}
+
+.kb-switch-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kb-field-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.kb-form-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.45fr);
+}
+
+.kb-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.kb-mode-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* ===== Form actions (hidden - replaced by config-bottom) ===== */
 .form-actions { display: none; }
 
@@ -617,6 +657,11 @@ input[type='number'].form-control {
 
   .form-grid,
   .toggle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kb-form-grid,
+  .kb-mode-grid {
     grid-template-columns: 1fr;
   }
 
