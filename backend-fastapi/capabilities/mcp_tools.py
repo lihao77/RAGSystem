@@ -21,12 +21,6 @@ class MCPToolsCapability(BaseCapability):
     def __init__(self, *, service: Optional[MCPService] = None):
         self._service = service or get_mcp_service()
 
-    def list_templates(self):
-        return self._service.list_templates()
-
-    def install_server_from_template(self, payload):
-        return self._service.install_server_from_template(payload)
-
     def search_registry(self, **kwargs):
         return self._service.search_registry(**kwargs)
 

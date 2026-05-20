@@ -30,26 +30,6 @@ def _get_request_id(request: Request) -> str:
         return str(uuid.uuid4())[:8]
 
 
-@router.get('/templates')
-async def list_server_templates():
-    """列出可安装的 MCP Server 模板。"""
-    data = await asyncio.to_thread(_get_capability().list_templates)
-    return ok(data=data)
-
-
-@router.post('/templates/install')
-async def install_server_from_template(request: Request):
-    """从模板安装 MCP Server 配置。"""
-    try:
-        body = await request.json()
-        data = await asyncio.to_thread(_get_capability().install_server_from_template, body)
-        return ok(data=data, message='MCP Server installed from template')
-    except Exception as e:
-        if hasattr(e, 'status_code'):
-            raise HTTPException(status_code=e.status_code, detail=e.message)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get('/registry/servers')
 async def search_registry(
     search: str = Query(''),

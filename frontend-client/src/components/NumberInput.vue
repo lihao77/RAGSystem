@@ -150,6 +150,9 @@ function onBlur(e) {
   min-width: 0;
   height: 100%;
   border: none;
+  border-radius: 0;
+  -webkit-appearance: none;
+  appearance: none;
   background: transparent;
   color: var(--color-text-primary);
   font: inherit;
@@ -159,6 +162,7 @@ function onBlur(e) {
   text-align: center;
   outline: none;
   padding: 0 4px;
+  box-shadow: none;
 }
 
 .number-input__field::placeholder {

@@ -108,6 +108,9 @@ def build_server_config_from_registry_install(install_option: Dict[str, Any], pa
         "auto_connect": bool(payload.get("auto_connect", True)),
         "timeout": timeout,
         "risk_level": risk_level,
+        "requires_approval": bool(
+            payload.get("requires_approval", install_option.get("default_requires_approval", False))
+        ),
     }
 
     if kind == "package":

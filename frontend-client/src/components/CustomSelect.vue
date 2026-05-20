@@ -259,7 +259,7 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 
 .dropdown-menu--teleported {
   position: fixed;
-  z-index: 9999;
+  z-index: calc(var(--z-dialog, 10000) + 1);
 }
 
 .dropdown-menu--up {

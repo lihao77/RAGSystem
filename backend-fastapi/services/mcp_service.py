@@ -14,7 +14,6 @@ from mcp import get_mcp_manager
 from mcp.config import MCPServerConfig
 from mcp.config_store import get_mcp_config_store
 from mcp.registry import MCPRegistryError, build_server_config_from_registry_install, search_registry_servers
-from mcp.templates import build_server_config, list_templates
 from tools.permissions import unregister_mcp_tool_permissions
 
 logger = logging.getLogger(__name__)
@@ -37,8 +36,6 @@ class MCPService:
         *,
         store=None,
         manager=None,
-        template_builder=None,
-        template_lister=None,
         registry_searcher=None,
         registry_installer=None,
         permission_unregistrar=None,
@@ -46,32 +43,10 @@ class MCPService:
     ):
         self._store = store or get_mcp_config_store()
         self._manager = manager or get_mcp_manager()
-        self._template_builder = template_builder or build_server_config
-        self._template_lister = template_lister or list_templates
         self._registry_searcher = registry_searcher or search_registry_servers
         self._registry_installer = registry_installer or build_server_config_from_registry_install
         self._permission_unregistrar = permission_unregistrar or unregister_mcp_tool_permissions
         self._execution_adapter = execution_adapter or MCPExecutionAdapter()
-
-    def list_templates(self) -> list[Dict[str, Any]]:
-        return self._template_lister()
-
-    def install_server_from_template(self, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        body = payload or {}
-        template_id = body.get('template_id')
-        if not template_id:
-            raise MCPServiceError('`template_id` is required', status_code=400)
-
-        try:
-            config = self._template_builder(template_id, body)
-        except ValueError as error:
-            raise MCPServiceError(str(error), status_code=400) from error
-        except Exception as error:
-            raise MCPServiceError(f'Failed to build template config: {error}', status_code=400) from error
-
-        self._save_and_connect_if_needed(config)
-        status = self._manager.get_server_status(config.name)
-        return {**config.model_dump(), **status}
 
     def search_registry(self, *, search: str = '', cursor: Optional[str] = None, limit: int = 8, latest_only: bool = True) -> Dict[str, Any]:
         try:

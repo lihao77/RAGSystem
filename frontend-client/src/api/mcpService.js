@@ -7,7 +7,7 @@ const API_BASE = '/api/mcp';
 async function parseResponse(response) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.message || `Request failed: ${response.status}`);
+    throw new Error(result.detail || result.message || `Request failed: ${response.status}`);
   }
   return result;
 }
@@ -27,12 +27,8 @@ export async function listMCPServers() {
   return request('/servers');
 }
 
-export async function listMCPTemplates() {
-  return request('/templates');
-}
-
-export async function installMCPServerFromTemplate(payload) {
-  return request('/templates/install', {
+export async function addMCPServer(payload) {
+  return request('/servers', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -95,8 +91,7 @@ export async function getMCPServerTools(serverName) {
 
 export default {
   listMCPServers,
-  listMCPTemplates,
-  installMCPServerFromTemplate,
+  addMCPServer,
   listMCPRegistryServers,
   installMCPRegistryServer,
   updateMCPServer,

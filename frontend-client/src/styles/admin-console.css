@@ -521,8 +521,8 @@ textarea.adm-form-control.adm-form-control {
   line-height: 1.25;
 }
 
-.adm-modal.adm-modal .field input,
-.adm-modal.adm-modal .field textarea {
+.adm-modal.adm-modal .field > input,
+.adm-modal.adm-modal .field > textarea {
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
@@ -535,18 +535,18 @@ textarea.adm-form-control.adm-form-control {
   outline: none;
 }
 
-.adm-modal.adm-modal .field textarea {
+.adm-modal.adm-modal .field > textarea {
   min-height: 88px;
   padding: 10px 12px;
 }
 
-.adm-modal.adm-modal .field input:hover,
-.adm-modal.adm-modal .field textarea:hover {
+.adm-modal.adm-modal .field > input:hover,
+.adm-modal.adm-modal .field > textarea:hover {
   border-color: var(--adm-border-strong);
 }
 
-.adm-modal.adm-modal .field input:focus,
-.adm-modal.adm-modal .field textarea:focus {
+.adm-modal.adm-modal .field > input:focus,
+.adm-modal.adm-modal .field > textarea:focus {
   border-color: var(--color-border-focus);
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.14);
 }

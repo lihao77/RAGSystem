@@ -20,6 +20,7 @@ from tools.permissions import (
     check_tool_permission,
     evaluate_tool_permission,
     get_tool_permission,
+    sync_mcp_tool_permissions,
 )
 
 
@@ -102,6 +103,45 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
     permission = get_tool_permission("mcp__demo__search")
     assert permission is not None
     assert permission.risk_level == RiskLevel.HIGH
+
+
+def test_mcp_requires_approval_promotes_permission_to_high_risk(monkeypatch):
+    monkeypatch.delitem(TOOL_PERMISSIONS, "mcp__demo__search", raising=False)
+
+    class _FakeStore:
+        def get_server(self, server_name):
+            if server_name == "demo":
+                return {"risk_level": "low", "requires_approval": True}
+            return None
+
+    import mcp.config_store as config_store_module
+
+    monkeypatch.setattr(config_store_module, "get_mcp_config_store", lambda: _FakeStore())
+
+    agent_config = SimpleNamespace(mcp=SimpleNamespace(enabled_servers=["demo"]))
+    allowed, error = check_tool_permission("mcp__demo__search", agent_config=agent_config, caller="direct")
+
+    assert allowed is True
+    assert error is None
+
+    permission = get_tool_permission("mcp__demo__search")
+    assert permission is not None
+    assert permission.risk_level == RiskLevel.HIGH
+
+
+def test_sync_mcp_tool_permissions_honors_requires_approval():
+    permission_key = "mcp__approval_demo__search"
+    TOOL_PERMISSIONS.pop(permission_key, None)
+    tool = SimpleNamespace(name="search", description="Search")
+
+    try:
+        sync_mcp_tool_permissions("approval_demo", [tool], risk_level="low", requires_approval=True)
+
+        permission = get_tool_permission(permission_key)
+        assert permission is not None
+        assert permission.risk_level == RiskLevel.HIGH
+    finally:
+        TOOL_PERMISSIONS.pop(permission_key, None)
 
 
 def test_memory_tools_are_enabled_via_effective_direct_tools():
@@ -263,5 +303,3 @@ def test_session_override_auto_accept_patterns_take_effect():
 
     assert requires is False
     assert "自动接受" in reason
-
-

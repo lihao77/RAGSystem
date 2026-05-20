@@ -126,9 +126,11 @@ def sync_mcp_tool_permissions(
     server_name: str,
     mcp_tools: list,
     risk_level: str = "medium",
+    requires_approval: bool = False,
 ) -> None:
     """根据当前发现到的 MCP 工具列表，重建指定 server 的工具权限。"""
     unregister_mcp_tool_permissions(server_name)
+    effective_risk_level = "high" if requires_approval else risk_level
 
     for tool in mcp_tools or []:
         original_tool_name = getattr(tool, 'name', None)
@@ -138,7 +140,7 @@ def sync_mcp_tool_permissions(
         description = getattr(tool, 'description', '') or f"MCP 工具 ({server_name}/{original_tool_name})"
         register_mcp_tool_permission(
             tool_name=f"mcp__{server_name}__{original_tool_name}",
-            risk_level=risk_level,
+            risk_level=effective_risk_level,
             description=description
         )
 
@@ -186,9 +188,14 @@ def evaluate_tool_permission(
                 server_name, _ = parsed
                 srv_cfg = get_mcp_config_store().get_server(server_name)
                 if srv_cfg:
+                    risk_level = (
+                        "high"
+                        if srv_cfg.get("requires_approval", False)
+                        else srv_cfg.get("risk_level", "medium")
+                    )
                     register_mcp_tool_permission(
                         tool_name,
-                        risk_level=srv_cfg.get("risk_level", "medium"),
+                        risk_level=risk_level,
                         description=f"MCP tool ({server_name})"
                     )
                     permission = get_tool_permission(tool_name)

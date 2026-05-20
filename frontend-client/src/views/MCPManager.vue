@@ -5,7 +5,7 @@
     content-padding="var(--spacing-lg)"
     mobile-content-padding="var(--spacing-sm)"
     title="MCP 服务管理"
-    subtitle="搜索 Registry、安装模板、测试连接，统一管理 MCP 工具服务。"
+    subtitle="手动添加、搜索 Registry、测试连接，统一管理 MCP 工具服务。"
     mobile-title="MCP 服务管理"
   >
     <template #header-menu="{ close }">
@@ -113,7 +113,7 @@
       loading-text="正在加载 MCP 服务..."
       :empty="!servers.length"
       empty-title="暂无 MCP 服务"
-      empty-hint="前往“模板安装”或“Registry”标签页添加服务"
+      empty-hint="前往“手动安装”或“Registry”标签页添加服务"
       @retry="loadServers"
     >
       <template #actions>
@@ -259,154 +259,120 @@
       </div>
     </EntityListLayout>
 
-    <!-- ── Tab: 模板安装 ──────────────────────────────────── -->
-    <section v-if="activeTab === 'template'" class="tab-content">
+    <!-- ── Tab: 手动安装 ──────────────────────────────────── -->
+    <section v-if="activeTab === 'manual'" class="tab-content">
       <div class="section-toolbar">
         <div class="toolbar-left">
-          <h2 class="section-title">模板安装</h2>
-          <p class="section-desc">从预置模板快速安装常用 MCP 服务。</p>
+          <h2 class="section-title">手动安装</h2>
+          <p class="section-desc">填写连接参数，手动添加 MCP 服务。</p>
         </div>
-        <UiButton :disabled="loadingTemplates" @click="loadTemplates">
-          <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </template>
-          刷新模板
-        </UiButton>
       </div>
 
-      <div class="install-layout">
-        <!-- 模板选择侧栏 -->
-        <div class="template-sidebar glass-card">
-          <div class="sidebar-search">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input v-model="templateFilter" type="text" placeholder="筛选模板..." class="sidebar-search-input" />
-          </div>
-          <div v-if="loadingTemplates" class="sidebar-loading">
-            <div class="g-spinner g-spinner--sm"></div>
-          </div>
-          <ul v-else class="template-list">
-            <li v-if="!filteredTemplates.length" class="template-list-empty">暂无模板</li>
-            <li
-              v-for="tmpl in filteredTemplates"
-              :key="tmpl.id"
-              class="template-item"
-              :class="{ 'template-item--active': installForm.template_id === tmpl.id }"
-              @click="handleTemplateChange(tmpl.id)"
-            >
-              <div class="template-item-name">{{ tmpl.display_name }}</div>
-              <div v-if="tmpl.description" class="template-item-desc">{{ tmpl.description }}</div>
-            </li>
-          </ul>
+      <div class="manual-install-form glass-card">
+        <div class="form-grid two-col">
+          <label class="field">
+            <span>服务名称<em>*</em></span>
+            <input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" />
+          </label>
+          <label class="field">
+            <span>显示名称</span>
+            <input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" />
+          </label>
         </div>
 
-        <!-- 安装表单 -->
-        <div class="template-form glass-card">
-          <div v-if="!selectedTemplate" class="template-placeholder">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-            </svg>
-            <p>← 从左侧选择一个模板</p>
+        <div class="field">
+          <span>传输方式</span>
+          <CustomSelect
+            :model-value="installForm.transport"
+            :options="transportOptions"
+            @update:model-value="installForm.transport = $event"
+          />
+        </div>
+
+        <div v-if="installForm.transport === 'stdio'" class="form-grid">
+          <label class="field">
+            <span>命令<em>*</em></span>
+            <input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" />
+            <small>启动 MCP 服务的可执行命令</small>
+          </label>
+          <label class="field">
+            <span>参数</span>
+            <textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></textarea>
+            <small>JSON 数组格式</small>
+          </label>
+          <label class="field">
+            <span>环境变量</span>
+            <textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></textarea>
+            <small>JSON 对象，合并到 MCP 进程环境</small>
+          </label>
+        </div>
+
+        <div v-else class="form-grid">
+          <label class="field">
+            <span>URL<em>*</em></span>
+            <input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" />
+            <small>远程 MCP 服务端点</small>
+          </label>
+          <label class="field">
+            <span>Headers</span>
+            <textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></textarea>
+            <small>JSON 对象，作为请求头发送</small>
+          </label>
+        </div>
+
+        <div class="form-divider"></div>
+        <div class="form-section-label">高级设置</div>
+
+        <div class="form-grid four-col">
+          <label class="field">
+            <span>超时秒数</span>
+            <NumberInput :model-value="installForm.timeout" :min="1" :max="300" @update:model-value="installForm.timeout = $event" />
+          </label>
+          <label class="field">
+            <span>风险等级</span>
+            <CustomSelect
+              :model-value="installForm.risk_level"
+              :options="riskOptions"
+              @update:model-value="installForm.risk_level = $event"
+            />
+          </label>
+          <label class="toggle-field">
+            <div class="toggle-wrap">
+              <input v-model="installForm.enabled" type="checkbox" class="toggle-input" id="mi-enabled" />
+              <label for="mi-enabled" class="toggle-track"></label>
+            </div>
+            <span>启用服务</span>
+          </label>
+          <label class="toggle-field">
+            <div class="toggle-wrap">
+              <input v-model="installForm.auto_connect" type="checkbox" class="toggle-input" id="mi-auto" />
+              <label for="mi-auto" class="toggle-track"></label>
+            </div>
+            <span>自动连接</span>
+          </label>
+        </div>
+
+        <label class="toggle-field">
+          <div class="toggle-wrap">
+            <input v-model="installForm.requires_approval" type="checkbox" class="toggle-input" id="mi-approval" />
+            <label for="mi-approval" class="toggle-track"></label>
           </div>
+          <span>需要用户审批（高风险操作保护）</span>
+        </label>
 
-          <template v-else>
-            <div class="template-detail-header">
-              <div>
-                <h3>{{ selectedTemplate.display_name }}</h3>
-                <p>{{ selectedTemplate.description }}</p>
-              </div>
-              <span v-if="selectedTemplate.install_hint" class="install-hint-badge">{{ selectedTemplate.install_hint }}</span>
-            </div>
-
-            <div class="form-divider"></div>
-
-            <div class="form-grid two-col">
-              <label class="field">
-                <span>服务名称</span>
-                <input v-model.trim="installForm.server_name" type="text" placeholder="如 filesystem" />
-              </label>
-              <label class="field">
-                <span>显示名称</span>
-                <input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" />
-              </label>
-            </div>
-
-            <div v-if="selectedTemplate.fields?.length" class="form-grid">
-              <label v-for="field in selectedTemplate.fields" :key="field.name" class="field">
-                <span>{{ field.label }}<em v-if="field.required">*</em></span>
-                <input
-                  v-model="installForm.options[field.name]"
-                  :type="field.type === 'password' ? 'password' : field.type === 'url' ? 'url' : 'text'"
-                  :placeholder="field.placeholder || ''"
-                />
-                <small v-if="field.help">{{ field.help }}</small>
-              </label>
-            </div>
-
-            <div class="form-divider"></div>
-            <div class="form-section-label">高级设置</div>
-
-            <div class="form-grid four-col">
-              <label class="field">
-                <span>超时秒数</span>
-                <NumberInput :model-value="installForm.timeout" :min="1" :max="300" @update:model-value="installForm.timeout = $event" />
-              </label>
-              <label class="field">
-                <span>风险等级</span>
-                <CustomSelect
-                  :model-value="installForm.risk_level"
-                  :options="riskOptions"
-                  @update:model-value="installForm.risk_level = $event"
-                />
-              </label>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="installForm.enabled" type="checkbox" class="toggle-input" id="tpl-enabled" />
-                  <label for="tpl-enabled" class="toggle-track"></label>
-                </div>
-                <span>启用服务</span>
-              </label>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="installForm.auto_connect" type="checkbox" class="toggle-input" id="tpl-auto" />
-                  <label for="tpl-auto" class="toggle-track"></label>
-                </div>
-                <span>自动连接</span>
-              </label>
-            </div>
-
-            <label class="toggle-field">
-              <div class="toggle-wrap">
-                <input v-model="installForm.requires_approval" type="checkbox" class="toggle-input" id="tpl-approval" />
-                <label for="tpl-approval" class="toggle-track"></label>
-              </div>
-              <span>需要用户审批（高风险操作保护）</span>
-            </label>
-
-            <div class="form-actions">
-              <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
-              <UiButton variant="primary" size="compact" :disabled="installing" @click="installSelectedTemplate">
-                <template #icon>
-                  <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  <div v-else class="g-spinner g-spinner--sm"></div>
-                </template>
-                {{ installing ? '安装中...' : '安装服务' }}
-              </UiButton>
-            </div>
-          </template>
+        <div class="form-actions">
+          <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
+          <UiButton variant="primary" size="compact" :disabled="installing" @click="submitManualInstall">
+            <template #icon>
+              <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <div v-else class="g-spinner g-spinner--sm"></div>
+            </template>
+            {{ installing ? '安装中...' : '安装服务' }}
+          </UiButton>
         </div>
       </div>
     </section>
@@ -589,8 +555,22 @@
             <div v-if="selectedRegistryFields.length" class="form-grid two-col">
               <label v-for="field in selectedRegistryFields" :key="field.key" class="field">
                 <span>{{ field.label }}<em v-if="field.required">*</em></span>
+                <CustomSelect
+                  v-if="field.format === 'select'"
+                  :model-value="registryInstallForm.input_values[field.key]"
+                  :options="field.options || []"
+                  :placeholder="field.placeholder || ''"
+                  @update:model-value="registryInstallForm.input_values[field.key] = $event"
+                />
+                <textarea
+                  v-else-if="field.format === 'textarea'"
+                  v-model="registryInstallForm.input_values[field.key]"
+                  rows="4"
+                  class="font-mono-input"
+                  :placeholder="field.placeholder || ''"
+                />
                 <input
-                  v-if="field.format !== 'boolean'"
+                  v-else-if="field.format !== 'boolean'"
                   v-model="registryInstallForm.input_values[field.key]"
                   :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'"
                   :placeholder="field.placeholder || ''"
@@ -683,14 +663,14 @@
                 <span>显示名称</span>
                 <input v-model="editForm.display_name" type="text" />
               </label>
-              <label class="field">
+              <div class="field">
                 <span>传输方式</span>
                 <CustomSelect
                   :model-value="editForm.transport"
                   :options="transportOptions"
                   @update:model-value="editForm.transport = $event"
                 />
-              </label>
+              </div>
             </div>
 
             <div v-if="editForm.transport === 'stdio'" class="form-grid">
@@ -721,18 +701,18 @@
 
             <div class="form-divider"></div>
             <div class="form-grid four-col">
-              <label class="field">
+              <div class="field">
                 <span>超时秒数</span>
                 <NumberInput :model-value="editForm.timeout" :min="1" :max="300" @update:model-value="editForm.timeout = $event" />
-              </label>
-              <label class="field">
+              </div>
+              <div class="field">
                 <span>风险等级</span>
                 <CustomSelect
                   :model-value="editForm.risk_level"
                   :options="riskOptions"
                   @update:model-value="editForm.risk_level = $event"
                 />
-              </label>
+              </div>
               <label class="toggle-field">
                 <div class="toggle-wrap">
                   <input v-model="editForm.enabled" type="checkbox" class="toggle-input" id="ed-enabled" />
@@ -821,15 +801,14 @@ import PageLayout from '../components/PageLayout.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import {
+  addMCPServer,
   connectMCPServer,
   deleteMCPServer,
   disconnectMCPServer,
   getMCPServerTools,
   installMCPRegistryServer,
-  installMCPServerFromTemplate,
   listMCPRegistryServers,
   listMCPServers,
-  listMCPTemplates,
   testMCPServer,
   updateMCPServer,
 } from '../api/mcpService';
@@ -870,9 +849,7 @@ const scheduleTabSliderUpdate = () => {
 };
 
 watch(activeTab, updateTabSlider);
-const templateFilter = ref('');
 
-const loadingTemplates = ref(false);
 const loadingServers = ref(false);
 const loadingRegistryResults = ref(false);
 const loadingMoreRegistry = ref(false);
@@ -880,7 +857,6 @@ const installing = ref(false);
 const installingRegistry = ref(false);
 const savingEdit = ref(false);
 
-const templates = ref([]);
 const servers = ref([]);
 const registryResults = ref([]);
 const registryNextCursor = ref('');
@@ -939,12 +915,11 @@ const tabs = [
     </svg>`,
   },
   {
-    id: 'template',
-    label: '模板安装',
+    id: 'manual',
+    label: '手动安装',
     icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-      <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
     </svg>`,
   },
   {
@@ -959,15 +934,19 @@ const tabs = [
 
 // ── Forms ─────────────────────────────────────────────────
 const installForm = reactive({
-  template_id: '',
   server_name: '',
   display_name: '',
+  transport: 'stdio',
+  command: '',
+  argsJson: '[]',
+  envJson: '{}',
+  url: '',
+  headersJson: '{}',
   enabled: true,
   auto_connect: true,
   timeout: 30,
   risk_level: 'medium',
   requires_approval: false,
-  options: {},
 });
 
 const registrySearch = reactive({
@@ -989,14 +968,6 @@ const registryInstallForm = reactive({
 });
 
 // ── Computed ──────────────────────────────────────────────
-const selectedTemplate = computed(() => templates.value.find((t) => t.id === installForm.template_id) || null);
-const filteredTemplates = computed(() => {
-  const q = templateFilter.value.trim().toLowerCase();
-  if (!q) return templates.value;
-  return templates.value.filter((t) =>
-    (t.display_name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)
-  );
-});
 const selectedRegistryOption = computed(() =>
   selectedRegistryServer.value?.install_options?.find((o) => o.id === registryInstallForm.option_id) || null
 );
@@ -1034,39 +1005,25 @@ function formatHeaders(headers) {
   return keys.length ? `Headers: ${keys.join(', ')}` : '远程服务地址';
 }
 
-function applyTemplateDefaults(template) {
-  installForm.server_name = template?.recommended_server_name || '';
-  installForm.display_name = template?.defaults?.display_name || template?.display_name || '';
-  installForm.enabled = template?.defaults?.enabled ?? true;
-  installForm.auto_connect = template?.defaults?.auto_connect ?? true;
-  installForm.timeout = template?.defaults?.timeout ?? 30;
-  installForm.risk_level = template?.defaults?.risk_level || 'medium';
-  installForm.requires_approval = template?.defaults?.requires_approval ?? false;
-  installForm.options = {};
-  (template?.fields || []).forEach((f) => { installForm.options[f.name] = f.default ?? ''; });
-}
-
-function handleTemplateChange(id) {
-  installForm.template_id = id;
-  const tmpl = templates.value.find((t) => t.id === id);
-  if (tmpl) applyTemplateDefaults(tmpl);
-}
-
 function resetInstallForm() {
-  if (selectedTemplate.value) { applyTemplateDefaults(selectedTemplate.value); return; }
-  installForm.template_id = '';
   installForm.server_name = '';
   installForm.display_name = '';
+  installForm.transport = 'stdio';
+  installForm.command = '';
+  installForm.argsJson = '[]';
+  installForm.envJson = '{}';
+  installForm.url = '';
+  installForm.headersJson = '{}';
   installForm.enabled = true;
   installForm.auto_connect = true;
   installForm.timeout = 30;
   installForm.risk_level = 'medium';
   installForm.requires_approval = false;
-  installForm.options = {};
 }
 
 function defaultFieldValue(field) {
   if (field.default_value !== null && field.default_value !== undefined) return field.default_value;
+  if (field.format === 'select') return field.options?.[0]?.value ?? '';
   if (field.format === 'boolean') return false;
   return '';
 }
@@ -1159,22 +1116,6 @@ function closeEditDialog() { editDialogVisible.value = false; editForm.value = n
 function closeToolsDialog() { toolsDialogVisible.value = false; }
 
 // ── API 调用 ──────────────────────────────────────────────
-async function loadTemplates() {
-  loadingTemplates.value = true;
-  try {
-    const res = await listMCPTemplates();
-    templates.value = res.data || [];
-    if (!installForm.template_id && templates.value.length > 0) {
-      installForm.template_id = templates.value[0].id;
-      applyTemplateDefaults(templates.value[0]);
-    }
-  } catch (error) {
-    showToast(error.message || '加载模板失败');
-  } finally {
-    loadingTemplates.value = false;
-  }
-}
-
 async function loadServers() {
   loadingServers.value = true;
   try {
@@ -1188,7 +1129,7 @@ async function loadServers() {
 }
 
 async function refreshAll() {
-  await Promise.all([loadTemplates(), loadServers()]);
+  await loadServers();
 }
 
 async function searchRegistryServers({ append = false } = {}) {
@@ -1214,26 +1155,38 @@ async function searchRegistryServers({ append = false } = {}) {
 
 async function loadMoreRegistryServers() { await searchRegistryServers({ append: true }); }
 
-async function installSelectedTemplate() {
-  if (!installForm.template_id) { showToast('请先选择一个模板', 'warning'); return; }
-  const missingField = (selectedTemplate.value?.fields || []).find(
-    (f) => f.required && !String(installForm.options[f.name] ?? '').trim()
-  );
-  if (missingField) { showToast(`请填写 ${missingField.label}`, 'warning'); return; }
+async function submitManualInstall() {
+  if (!installForm.server_name) { showToast('请填写服务名称', 'warning'); return; }
+  if (installForm.transport === 'stdio' && !installForm.command) { showToast('请填写启动命令', 'warning'); return; }
+  if (installForm.transport !== 'stdio' && !installForm.url) { showToast('请填写 URL', 'warning'); return; }
+
+  const isStdio = installForm.transport === 'stdio';
+  let parsedArgs, parsedEnv, parsedHeaders;
+  if (isStdio) {
+    try { parsedArgs = JSON.parse(installForm.argsJson || '[]'); } catch (e) { showToast('参数 JSON 格式错误', 'warning'); return; }
+    try { parsedEnv = JSON.parse(installForm.envJson || '{}'); } catch (e) { showToast('环境变量 JSON 格式错误', 'warning'); return; }
+  } else {
+    try { parsedHeaders = JSON.parse(installForm.headersJson || '{}'); } catch (e) { showToast('Headers JSON 格式错误', 'warning'); return; }
+  }
+
   installing.value = true;
   try {
-    const res = await installMCPServerFromTemplate({
-      template_id: installForm.template_id,
-      server_name: installForm.server_name,
-      display_name: installForm.display_name,
+    const payload = {
+      name: installForm.server_name,
+      display_name: installForm.display_name || installForm.server_name,
+      transport: installForm.transport,
       enabled: installForm.enabled,
       auto_connect: installForm.auto_connect,
       timeout: installForm.timeout,
       risk_level: installForm.risk_level,
       requires_approval: installForm.requires_approval,
-      options: installForm.options,
-    });
+      ...(isStdio
+        ? { command: installForm.command, args: parsedArgs, env: parsedEnv }
+        : { url: installForm.url, headers: parsedHeaders }),
+    };
+    const res = await addMCPServer(payload);
     showToast(res.message || '安装成功', 'success');
+    resetInstallForm();
     await loadServers();
     activeTab.value = 'installed';
   } catch (error) {
@@ -1384,7 +1337,6 @@ async function handleDelete(server) {
 onMounted(() => {
   updateTabSlider();
   scheduleTabSliderUpdate();
-  loadTemplates();
   loadServers();
   searchRegistryServers();
   window.addEventListener('resize', scheduleTabSliderUpdate);
@@ -1633,64 +1585,8 @@ onUnmounted(() => {
   line-height: 1;
 }
 
-/* ─── 模板安装布局 ──────────────────────────────────────── */
-.install-layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: var(--spacing-lg);
-  min-height: 480px;
-}
-
-.template-sidebar {
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--adm-shadow-inset);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-md);
-  border-bottom: 1px solid var(--adm-border);
-  color: var(--color-text-muted);
-}
-.sidebar-search-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-}
-.sidebar-search-input::placeholder { color: var(--color-text-muted); }
-
-.sidebar-loading { display: flex; align-items: center; justify-content: center; padding: var(--spacing-lg); }
-
-.template-list { flex: 1; overflow: auto; padding: var(--spacing-xs); margin: 0; list-style: none; }
-.template-list-empty { padding: var(--spacing-md); color: var(--color-text-muted); font-size: var(--font-size-sm); text-align: center; }
-
-.template-item {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 2px;
-}
-.template-item:hover { background: var(--adm-control-bg); }
-.template-item--active { background: var(--adm-control-active); color: var(--color-text-primary); }
-
-.template-item-name { font-size: var(--font-size-sm); font-weight: 500; }
-.template-item-desc { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.template-form {
+/* ─── 手动安装表单 ──────────────────────────────────────── */
+.manual-install-form {
   border-radius: var(--radius-xl);
   border: 1px solid var(--adm-border);
   background: var(--adm-surface);
@@ -1701,38 +1597,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  min-width: 0;
-}
-
-.template-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-md);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
-.template-detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-}
-.template-detail-header h3 { font-size: var(--font-size-lg); margin-bottom: 4px; }
-.template-detail-header p  { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
-.install-hint-badge {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  border: 1px solid rgba(var(--color-brand-accent-rgb), 0.25);
-  color: var(--color-brand-accent-light);
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
 }
 
 .form-divider {
@@ -1769,9 +1633,9 @@ onUnmounted(() => {
 .field em { color: var(--color-error); font-style: normal; margin-left: 3px; }
 .field small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 
-.field input,
-.field select,
-.field textarea {
+.field > input,
+.field > select,
+.field > textarea {
   width: 100%;
   height: 42px;
   border-radius: var(--radius-md);
@@ -1783,19 +1647,19 @@ onUnmounted(() => {
   font-size: var(--font-size-sm);
   transition: border-color 0.2s;
 }
-.field input:hover,
-.field select:hover,
-.field textarea:hover {
+.field > input:hover,
+.field > select:hover,
+.field > textarea:hover {
   border-color: var(--color-border-hover);
 }
-.field input:focus,
-.field select:focus,
-.field textarea:focus {
+.field > input:focus,
+.field > select:focus,
+.field > textarea:focus {
   outline: none;
   border-color: var(--color-border-focus);
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
 }
-.field textarea { resize: vertical; min-height: 80px; height: auto; padding: 10px 14px; }
+.field > textarea { resize: vertical; min-height: 80px; height: auto; padding: 10px 14px; }
 
 .font-mono-input { font-family: var(--font-mono); font-size: var(--font-size-xs); }
 
@@ -2126,7 +1990,6 @@ onUnmounted(() => {
   .server-actions {
     justify-content: flex-start;
   }
-  .install-layout { grid-template-columns: 1fr; }
   .form-grid.four-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -2139,14 +2002,6 @@ onUnmounted(() => {
   .section-toolbar {
     flex-direction: column;
     align-items: stretch;
-  }
-  .template-detail-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .install-hint-badge {
-    align-self: flex-start;
-    white-space: normal;
   }
   .form-actions {
     flex-wrap: wrap;
