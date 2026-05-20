@@ -475,6 +475,24 @@ class ModelProviderReranker(RerankerBase):
         return f"{base}/rerank"
 
 
+def get_reranker_from_config(config: Dict[str, Any]) -> RerankerBase:
+    """从存储的配置字典构造 Reranker 实例。"""
+    mode = (config.get("mode") or "none").strip().lower()
+    if mode in {"none", "noop"}:
+        return NoopReranker()
+    if mode in {"lexical", "bm25", "keyword", "local"}:
+        return LexicalReranker()
+    if mode in {"model", "remote", "provider", "http"}:
+        return ModelProviderReranker(
+            provider=config.get("provider_key"),
+            model=config.get("model_name"),
+            provider_type=config.get("provider_type"),
+            api_endpoint=config.get("api_endpoint"),
+            api_key=config.get("api_key"),
+        )
+    raise ValueError(f"不支持的 reranker mode: {mode}")
+
+
 def get_reranker(mode: Optional[str] = "none", **kwargs: Any) -> RerankerBase:
     normalized = str(mode or "none").strip().lower()
     if normalized in {"none", "noop", "identity"}:
@@ -498,5 +516,6 @@ __all__ = [
     "LexicalReranker",
     "ModelProviderReranker",
     "get_reranker",
+    "get_reranker_from_config",
     "available_reranker_modes",
 ]

@@ -218,6 +218,37 @@ class AgentTaskConfig(BaseModel):
     )
 
 
+class AgentKnowledgeBaseConfig(BaseModel):
+    """智能体的知识库配置。"""
+
+    enabled: bool = Field(
+        default=False,
+        description="是否启用知识库检索能力"
+    )
+    default_collection: str = Field(
+        default="documents",
+        description="默认检索的集合名称"
+    )
+    default_search_mode: str = Field(
+        default="hybrid",
+        description="默认搜索模式：vector 或 hybrid"
+    )
+    default_top_k: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="默认返回结果数量"
+    )
+    default_rerank: bool = Field(
+        default=False,
+        description="是否默认启用重排序"
+    )
+    default_reranker_key: Optional[str] = Field(
+        default=None,
+        description="指定使用的 reranker key，None 时使用系统 active reranker"
+    )
+
+
 class AgentDelegationConfig(BaseModel):
     """智能体的 delegation 配置。"""
 
@@ -337,6 +368,11 @@ class AgentConfig(BaseModel):
     delegation: AgentDelegationConfig = Field(
         default_factory=AgentDelegationConfig,
         description="子 Agent 委派配置"
+    )
+
+    knowledge_base: AgentKnowledgeBaseConfig = Field(
+        default_factory=AgentKnowledgeBaseConfig,
+        description="知识库检索配置"
     )
 
     custom_params: Dict[str, Any] = Field(

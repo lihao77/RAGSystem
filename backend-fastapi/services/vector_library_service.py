@@ -496,5 +496,34 @@ class VectorLibraryService:
         return Document
 
 
+    # ── Reranker 配置管理 ──
+
+    def _get_reranker_store(self):
+        from vector_store.reranker_config import get_reranker_config_store
+        return get_reranker_config_store()
+
+    def list_rerankers(self) -> list:
+        return self._get_reranker_store().list_rerankers()
+
+    def add_reranker(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        body = payload or {}
+        store = self._get_reranker_store()
+        key = store.add_reranker(**body)
+        return {"reranker_key": key}
+
+    def activate_reranker(self, key: str) -> Dict[str, Any]:
+        store = self._get_reranker_store()
+        store.set_active_key(key)
+        return {"active_reranker_key": key}
+
+    def get_reranker_config(self, key: str) -> Optional[Dict[str, Any]]:
+        return self._get_reranker_store().get_reranker(key)
+
+    def delete_reranker(self, key: str) -> Dict[str, Any]:
+        store = self._get_reranker_store()
+        store.delete_reranker(key)
+        return {"deleted_reranker_key": key}
+
+
 def get_vector_library_service() -> VectorLibraryService:
     return get_runtime_dependency(container_getter='get_vector_library_service')

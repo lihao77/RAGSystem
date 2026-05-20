@@ -143,6 +143,55 @@ export async function ingestFileToCollection(body) {
   });
 }
 
+// ── 重排序器管理 ─────────────────────────────────────────────────────────────
+
+/**
+ * 列出所有重排序器
+ */
+export async function listRerankers() {
+  return request('/api/vector-library/rerankers');
+}
+
+/**
+ * 添加重排序器
+ * @param {Object} body - { mode, provider_key?, provider_type?, model_name?, api_endpoint? }
+ */
+export async function addReranker(body) {
+  return request('/api/vector-library/rerankers', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * 获取重排序器配置
+ * @param {string} key - 重排序器 key
+ */
+export async function getReranker(key) {
+  return request(`/api/vector-library/rerankers/${encodeURIComponent(key)}`);
+}
+
+/**
+ * 激活指定重排序器
+ * @param {string} key - 重排序器 key
+ */
+export async function activateReranker(key) {
+  return request(`/api/vector-library/rerankers/${encodeURIComponent(key)}/activate`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/**
+ * 删除重排序器
+ * @param {string} key - 重排序器 key
+ */
+export async function deleteReranker(key) {
+  return request(`/api/vector-library/rerankers/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+}
+
 // ── 向量搜索 ─────────────────────────────────────────────────────────────────
 
 /**
@@ -198,6 +247,11 @@ export default {
   deleteVectorizer,
   listDocsByVectorizer,
   migrateVectorizer,
+  listRerankers,
+  addReranker,
+  getReranker,
+  activateReranker,
+  deleteReranker,
   ingestFileToCollection,
   searchVectors,
   getVectorHealth,

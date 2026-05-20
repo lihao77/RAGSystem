@@ -119,3 +119,60 @@ async def migrate(request: Request):
         return {'success': True, 'data': data}
     except Exception as e:
         _handle_error(e)
+
+
+# ── Reranker 管理 ──
+
+@router.get('/rerankers')
+async def list_rerankers():
+    """列出所有重排序器。"""
+    try:
+        data = await asyncio.to_thread(_get_capability().list_rerankers)
+        return {'success': True, 'data': data}
+    except Exception as e:
+        _handle_error(e)
+
+
+@router.post('/rerankers')
+async def add_reranker(request: Request):
+    """添加重排序器。"""
+    try:
+        body = await request.json()
+        data = await asyncio.to_thread(_get_capability().add_reranker, body)
+        return {'success': True, 'data': data}
+    except Exception as e:
+        _handle_error(e)
+
+
+@router.get('/rerankers/{key}')
+async def get_reranker(key: str):
+    """获取重排序器配置。"""
+    try:
+        data = await asyncio.to_thread(_get_capability().get_reranker_config, key)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"重排序器不存在: {key}")
+        return {'success': True, 'data': data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        _handle_error(e)
+
+
+@router.post('/rerankers/{key}/activate')
+async def activate_reranker(key: str):
+    """激活指定重排序器。"""
+    try:
+        data = await asyncio.to_thread(_get_capability().activate_reranker, key)
+        return {'success': True, 'data': data}
+    except Exception as e:
+        _handle_error(e)
+
+
+@router.delete('/rerankers/{key}')
+async def delete_reranker(key: str):
+    """删除重排序器。"""
+    try:
+        data = await asyncio.to_thread(_get_capability().delete_reranker, key)
+        return {'success': True, 'data': data}
+    except Exception as e:
+        _handle_error(e)

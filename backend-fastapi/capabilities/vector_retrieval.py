@@ -48,6 +48,23 @@ class VectorRetrievalCapability(BaseCapability):
     def delete_vectorizer(self, key: str):
         return self._service.delete_vectorizer(key)
 
+    # ── Reranker 管理 ──
+
+    def list_rerankers(self):
+        return self._service.list_rerankers()
+
+    def add_reranker(self, payload):
+        return self._service.add_reranker(payload)
+
+    def activate_reranker(self, key: str):
+        return self._service.activate_reranker(key)
+
+    def get_reranker_config(self, key: str):
+        return self._service.get_reranker_config(key)
+
+    def delete_reranker(self, key: str):
+        return self._service.delete_reranker(key)
+
 
 def get_vector_retrieval_capability() -> VectorRetrievalCapability:
     return get_runtime_dependency(container_getter='get_vector_retrieval_capability')

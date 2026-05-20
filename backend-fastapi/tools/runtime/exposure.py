@@ -26,6 +26,10 @@ _TASK_BACKGROUND_TOOL_NAMES = {
     "task_stop",
 }
 _TASK_TOOL_NAMES = _TASK_WORKFLOW_TOOL_NAMES | _TASK_BACKGROUND_TOOL_NAMES
+_KNOWLEDGE_TOOL_NAMES = {
+    "search_knowledge_base",
+    "list_knowledge_collections",
+}
 
 
 def _safe_list(value) -> list:
@@ -103,10 +107,27 @@ def _task_exposure_decisions(agent_config) -> Dict[str, ToolExposureDecision]:
     return decisions
 
 
+def _knowledge_exposure_decisions(agent_config) -> Dict[str, ToolExposureDecision]:
+    knowledge_config = getattr(agent_config, 'knowledge_base', None)
+    if not knowledge_config or not getattr(knowledge_config, 'enabled', False):
+        return {}
+
+    return {
+        tool_name: ToolExposureDecision(
+            tool_name=tool_name,
+            visible=True,
+            source='knowledge',
+            reason='knowledge_base enabled',
+            derived_from=['knowledge_base.enabled'],
+        )
+        for tool_name in _KNOWLEDGE_TOOL_NAMES
+    }
+
+
 def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
     direct_enabled = {
         tool_name for tool_name in _safe_list(getattr(getattr(agent_config, 'tools', None), 'enabled_tools', []))
-        if tool_name not in _TASK_TOOL_NAMES
+        if tool_name not in _TASK_TOOL_NAMES and tool_name not in _KNOWLEDGE_TOOL_NAMES
     }
     decisions: Dict[str, ToolExposureDecision] = {}
 
@@ -121,6 +142,7 @@ def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
 
     decisions.update(_memory_exposure_decisions(agent_config))
     decisions.update(_task_exposure_decisions(agent_config))
+    decisions.update(_knowledge_exposure_decisions(agent_config))
 
     skills_config = getattr(agent_config, 'skills', None)
     enabled_skills = _safe_list(getattr(skills_config, 'enabled_skills', []) if skills_config else [])
@@ -207,10 +229,11 @@ def resolve_effective_tool_exposure(agent_config) -> Dict[str, Any]:
         'decisions': decisions,
         'direct_tool_names': sorted(
             name for name, decision in decisions.items()
-            if decision.visible and decision.source not in {'skill', 'builtin', 'agent', 'mcp', 'memory', 'task'}
+            if decision.visible and decision.source not in {'skill', 'builtin', 'agent', 'mcp', 'memory', 'task', 'knowledge'}
         ),
         'memory_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'memory'),
         'task_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'task'),
+        'knowledge_tool_names': sorted(name for name, d in decisions.items() if d.visible and d.source == 'knowledge'),
         'task_workflow_tool_names': sorted(name for name, d in decisions.items() if d.visible and name in _TASK_WORKFLOW_TOOL_NAMES),
         'task_background_tool_names': sorted(name for name, d in decisions.items() if d.visible and name in _TASK_BACKGROUND_TOOL_NAMES),
         'builtin_tool_names': builtin_tools,
@@ -279,6 +302,16 @@ def get_tool_exposure_decision(tool_name: str, agent_config) -> ToolExposureDeci
         return ToolExposureDecision(
             tool_name=tool_name, visible=False, source='task',
             reason='task capability not enabled', derived_from=[],
+        )
+
+    # knowledge_base 派生工具
+    if tool_name in _KNOWLEDGE_TOOL_NAMES:
+        knowledge_decisions = _knowledge_exposure_decisions(agent_config)
+        if tool_name in knowledge_decisions:
+            return knowledge_decisions[tool_name]
+        return ToolExposureDecision(
+            tool_name=tool_name, visible=False, source='knowledge',
+            reason='knowledge_base not enabled', derived_from=[],
         )
 
     # agent delegation 工具

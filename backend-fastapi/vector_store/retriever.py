@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Any
 
 from .client import get_vector_client
 from .embedder import get_embedder
-from .reranker import get_reranker
+from .reranker import get_reranker, get_reranker_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -197,11 +197,7 @@ class VectorRetriever:
         rerank_mode: str = 'none',
         rerank_top_k: Optional[int] = None,
         final_top_k: Optional[int] = None,
-        rerank_provider: Optional[str] = None,
-        rerank_model: Optional[str] = None,
-        rerank_provider_type: Optional[str] = None,
-        rerank_api_endpoint: Optional[str] = None,
-        rerank_api_key: Optional[str] = None,
+        reranker_key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         混合搜索（向量搜索 + 本地 BM25 关键词检索 + RRF 融合）
@@ -216,14 +212,10 @@ class VectorRetriever:
             keyword_candidate_limit: 关键词召回最多扫描的分块数
             rrf_k: Reciprocal Rank Fusion 平滑参数
             rerank: 是否对融合后的候选进行重排序
-            rerank_mode: 重排序模式，支持 none / lexical
+            rerank_mode: 重排序模式，lexical 使用本地 BM25，其他值走 RerankerConfigStore
             rerank_top_k: 进入重排序阶段的候选数量，默认 final_top_k * 3
             final_top_k: 最终返回数量，默认 top_k
-            rerank_provider: 模型重排序 Provider key
-            rerank_model: 模型重排序模型名
-            rerank_provider_type: 模型重排序 Provider 类型
-            rerank_api_endpoint: 模型重排序 API endpoint
-            rerank_api_key: 模型重排序 API key
+            reranker_key: 指定使用的 reranker 配置 key，不传则使用 active reranker
 
         Returns:
             搜索结果列表
@@ -273,13 +265,9 @@ class VectorRetriever:
             len(fused),
             max(final_limit, int(rerank_top_k or final_limit * 3)),
         )
-        reranker = get_reranker(
-            rerank_mode,
-            provider=rerank_provider,
-            model=rerank_model,
-            provider_type=rerank_provider_type,
-            api_endpoint=rerank_api_endpoint,
-            api_key=rerank_api_key,
+        reranker = self._resolve_reranker(
+            rerank_mode=rerank_mode,
+            reranker_key=reranker_key,
         )
         reranked = reranker.rerank(
             query=query,
@@ -287,6 +275,42 @@ class VectorRetriever:
             top_k=rerank_limit,
         )
         return (reranked + fused[rerank_limit:])[:final_limit]
+
+    @staticmethod
+    def _resolve_reranker(
+        *,
+        rerank_mode: str,
+        reranker_key: Optional[str],
+    ):
+        """解析重排序器：reranker_key > rerank_mode > active reranker > noop"""
+        from .reranker_config import get_reranker_config_store
+
+        store = get_reranker_config_store()
+        normalized_mode = str(rerank_mode or "active").strip().lower()
+
+        # 1. 指定 key：从配置存储取
+        if reranker_key:
+            cfg = store.get_reranker(reranker_key)
+            if not cfg:
+                raise ValueError(f"重排序器不存在: {reranker_key}")
+            return get_reranker_from_config(cfg)
+
+        # 2. 指定 lexical 模式：本地 BM25 不需要配置
+        if normalized_mode in {"lexical", "keyword", "local", "bm25"}:
+            return get_reranker(normalized_mode)
+
+        # 3. 显式 none/noop：重排序阶段直通
+        if normalized_mode in {"none", "noop", "identity"}:
+            return get_reranker("none")
+
+        # 4. 使用系统激活的重排序器
+        if normalized_mode in {"active", "default", "configured", "config", "system", "model"}:
+            active_cfg = store.get_active_reranker_config()
+            if active_cfg:
+                return get_reranker_from_config(active_cfg)
+            return get_reranker("none")
+
+        raise ValueError(f"不支持的 rerank_mode: {rerank_mode}")
 
     def _load_keyword_candidates(
         self,

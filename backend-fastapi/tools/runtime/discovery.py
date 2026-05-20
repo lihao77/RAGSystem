@@ -18,6 +18,7 @@ _LOCAL_TOOL_MODULES = (
     "tools.local.document_tools",
     "tools.local.glob_tool",
     "tools.local.grep_tool",
+    "tools.local.knowledge_tools",
     "tools.local.memory_tools",
     "tools.local.skill_tools",
     "tools.local.task_tools",

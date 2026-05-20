@@ -83,14 +83,10 @@ class VectorManagementService:
         search_mode = (data.get('search_mode') or data.get('mode') or 'hybrid').strip().lower()
         filters = data.get('filters')
         rerank = self._coerce_bool(data.get('rerank', False))
-        rerank_mode = (data.get('rerank_mode') or ('lexical' if rerank else 'none')).strip().lower()
+        rerank_mode = (data.get('rerank_mode') or ('active' if rerank else 'none')).strip().lower()
         rerank_top_k = self._optional_int(data.get('rerank_top_k'))
         final_top_k = self._optional_int(data.get('final_top_k'))
-        rerank_provider = data.get('rerank_provider') or data.get('rerank_provider_key')
-        rerank_model = data.get('rerank_model')
-        rerank_provider_type = data.get('rerank_provider_type')
-        rerank_api_endpoint = data.get('rerank_api_endpoint')
-        rerank_api_key = data.get('rerank_api_key')
+        reranker_key = data.get('reranker_key')
         if not query:
             raise VectorManagementServiceError('查询内容不能为空', status_code=400)
         if search_mode not in {'hybrid', 'vector'}:
@@ -119,11 +115,7 @@ class VectorManagementService:
                     rerank_mode=rerank_mode,
                     rerank_top_k=rerank_top_k,
                     final_top_k=final_top_k,
-                    rerank_provider=rerank_provider,
-                    rerank_model=rerank_model,
-                    rerank_provider_type=rerank_provider_type,
-                    rerank_api_endpoint=rerank_api_endpoint,
-                    rerank_api_key=rerank_api_key,
+                    reranker_key=reranker_key,
                 )
             except ValueError as error:
                 raise VectorManagementServiceError(str(error), status_code=400) from error

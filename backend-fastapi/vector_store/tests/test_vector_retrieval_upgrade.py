@@ -304,6 +304,24 @@ def test_model_provider_reranker_requires_complete_config():
     assert "rerank 模型配置不完整" in str(error.value)
 
 
+def test_resolve_reranker_rejects_missing_key(monkeypatch):
+    class EmptyRerankerStore:
+        def get_reranker(self, key):
+            return None
+
+        def get_active_reranker_config(self):
+            return None
+
+    import vector_store.reranker_config as reranker_config_module
+
+    monkeypatch.setattr(reranker_config_module, "get_reranker_config_store", lambda: EmptyRerankerStore())
+
+    with pytest.raises(ValueError) as error:
+        VectorRetriever._resolve_reranker(rerank_mode="active", reranker_key="missing")
+
+    assert "重排序器不存在" in str(error.value)
+
+
 def test_get_reranker_rejects_unknown_mode():
     with pytest.raises(ValueError):
         get_reranker("remote-model")

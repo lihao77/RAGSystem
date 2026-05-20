@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from tools.runtime.exposure import get_tool_exposure_decision, resolve_effective_tool_exposure
 
 
-def _agent_config(*, enabled_tools=None, workflow=False, background=False):
+def _agent_config(*, enabled_tools=None, workflow=False, background=False, knowledge_enabled=False):
     return SimpleNamespace(
         tools=SimpleNamespace(enabled_tools=list(enabled_tools or [])),
         skills=SimpleNamespace(enabled_skills=[], auto_inject=False),
@@ -13,6 +13,7 @@ def _agent_config(*, enabled_tools=None, workflow=False, background=False):
         delegation=SimpleNamespace(enabled_agents=[]),
         memory=SimpleNamespace(allowed_scopes=[], write_scopes=[], archive_scopes=[]),
         tasks=SimpleNamespace(workflow=workflow, background=background),
+        knowledge_base=SimpleNamespace(enabled=knowledge_enabled),
     )
 
 
@@ -51,3 +52,16 @@ def test_task_tools_in_enabled_tools_do_not_reenter_direct_tool_exposure():
     exposure = resolve_effective_tool_exposure(_agent_config(enabled_tools=['task_create', 'read_file'], workflow=False, background=False))
 
     assert 'task_create' not in exposure['direct_tool_names']
+
+
+def test_resolve_effective_tool_exposure_exposes_knowledge_tools_from_config():
+    exposure = resolve_effective_tool_exposure(_agent_config(knowledge_enabled=True))
+
+    assert set(exposure['knowledge_tool_names']) == {'search_knowledge_base', 'list_knowledge_collections'}
+    assert 'search_knowledge_base' in exposure['all_visible_tool_names']
+    assert 'search_knowledge_base' not in exposure['direct_tool_names']
+
+    decision = get_tool_exposure_decision('search_knowledge_base', _agent_config(knowledge_enabled=True))
+    assert decision.visible is True
+    assert decision.source == 'knowledge'
+    assert decision.derived_from == ['knowledge_base.enabled']

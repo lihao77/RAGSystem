@@ -54,6 +54,16 @@ agents:
     #   enabled_servers:
     #     - filesystem      # 使用文件系统 MCP Server 的工具
     #     - brave_search    # 使用 Brave 搜索 MCP Server 的工具
+
+    # 知识库配置（可选）
+    # 启用后 Agent 可使用 search_knowledge_base / list_knowledge_collections 工具
+    # knowledge_base:
+    #   enabled: true
+    #   default_collection: "documents"       # 默认搜索的集合
+    #   default_search_mode: "hybrid"         # vector 或 hybrid
+    #   default_top_k: 5                      # 默认返回结果数量
+    #   default_rerank: false                 # 是否默认启用重排序
+    #   default_reranker_key: null            # 指定 reranker key，null 时使用系统 active reranker
     custom_params:
       type: orchestrator
       behavior:

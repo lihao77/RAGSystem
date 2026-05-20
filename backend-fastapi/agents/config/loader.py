@@ -370,6 +370,16 @@ class AgentLoader:
                     filtered_tools.append(task_tool)
             logger.debug(f"{agent_config.agent_name} 启用 task 工具: {sorted(task_tool_names)}")
 
+        knowledge_tool_names = set(exposure.get('knowledge_tool_names', []))
+        if knowledge_tool_names:
+            existing_tool_names = {t.get('function', {}).get('name') for t in filtered_tools}
+            for knowledge_tool in direct_tools:
+                tool_name = knowledge_tool.get('function', {}).get('name')
+                if tool_name and tool_name in knowledge_tool_names and tool_name not in existing_tool_names:
+                    filtered_tools.append(knowledge_tool)
+                    existing_tool_names.add(tool_name)
+            logger.debug(f"{agent_config.agent_name} 启用 knowledge_base 工具: {sorted(knowledge_tool_names)}")
+
         filtered_skills, inject_skill_tools = self._resolve_available_skills(agent_config, exposure)
         self.stamp_effective_skills(agent_config, frozenset(s.name for s in filtered_skills))
         if filtered_skills:

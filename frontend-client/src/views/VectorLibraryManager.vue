@@ -71,10 +71,26 @@
                     </div>
                 </article>
 
+                <article class="summary-card adm-kpi-card">
+                    <div class="summary-icon adm-kpi-icon summary-icon--rerankers">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="4" y1="9" x2="20" y2="9" />
+                            <line x1="4" y1="15" x2="20" y2="15" />
+                            <line x1="10" y1="3" x2="8" y2="21" />
+                            <line x1="16" y1="3" x2="14" y2="21" />
+                        </svg>
+                    </div>
+                    <div class="summary-body adm-kpi-body">
+                        <span class="summary-label adm-kpi-label">重排序器</span>
+                        <strong class="summary-value adm-kpi-value summary-value--rerankers">{{ summary.rerankers }}</strong>
+                    </div>
+                </article>
+
             </section>
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="adm-tabs adm-tabs--four tab-nav" ref="tabNavRef">
+            <nav class="adm-tabs adm-tabs--five tab-nav" ref="tabNavRef">
                 <button v-for="tab in tabs" :key="tab.id" class="adm-tab tab-btn"
                     :class="{ 'adm-tab--active tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
                     <span class="adm-tab__content tab-btn__content">
@@ -276,16 +292,10 @@
                                 </label>
                             </div>
                             <div v-if="searchRerank && searchMode === 'hybrid'" class="search-option">
-                                <label>方式</label>
-                                <CustomSelect v-model="searchRerankMode" :options="searchRerankModeOptions" />
+                                <label>重排序器：</label>
+                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankerOptions"
+                                    placeholder="使用激活的重排序器" />
                             </div>
-                            <div v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model'" class="search-option">
-                                <label>模型</label>
-                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankModelOptions"
-                                    placeholder="选择 rerank 模型" />
-                            </div>
-                            <button v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model' && !hasRerankModels"
-                                type="button" class="btn-link" @click="goModelProviders">配置</button>
                         </div>
                         <div v-if="searchResults.length > 0" class="search-results">
                             <div v-for="(r, i) in searchResults" :key="i" class="result-item">
@@ -529,7 +539,119 @@
                     </div>
                 </div>
 
-                <!-- ══ Tab 4: 搜索测试 ════════════════════════════ -->
+                <!-- ══ Tab 4: 重排序器 ════════════════════════════ -->
+                <div v-if="activeTab === 'rerankers'" class="tab-panel">
+                    <div class="section-toolbar">
+                        <div class="toolbar-left">
+                            <h2 class="section-title">重排序器管理</h2>
+                            <p class="section-desc">配置重排序器，激活后搜索时自动使用；支持本地 BM25 和远程模型两种模式。</p>
+                        </div>
+                        <div class="toolbar-right">
+                            <UiIconButton label="刷新重排序器" :disabled="rerankersLoading"
+                                @click="refreshRerankers">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round" :class="{ 'spin': rerankersLoading }">
+                                    <polyline points="23 4 23 10 17 10" />
+                                    <polyline points="1 20 1 14 7 14" />
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                                </svg>
+                            </UiIconButton>
+                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddRerankerDialog">
+                                <template #icon>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19" />
+                                        <line x1="5" y1="12" x2="19" y2="12" />
+                                    </svg>
+                                </template>
+                                新增重排序器
+                            </UiButton>
+                        </div>
+                    </div>
+
+                    <!-- 当前激活重排序器提示栏 -->
+                    <div class="active-bar glass-card" style="margin-bottom: var(--spacing-md)">
+                        <span class="active-bar__label">当前激活重排序器：</span>
+                        <template v-if="activeRerankerDisplay">
+                            <span class="active-bar__tag active-bar__tag--on">{{ activeRerankerDisplay }}</span>
+                        </template>
+                        <template v-else>
+                            <span class="active-bar__tag active-bar__tag--off">未设置</span>
+                        </template>
+                    </div>
+
+                    <div v-if="rerankersLoading" class="loading-state adm-state">
+                        <span class="g-spinner"></span>加载中...
+                    </div>
+                    <div v-else-if="rerankers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
+                        style="padding: var(--spacing-xl)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="4" y1="9" x2="20" y2="9" />
+                            <line x1="4" y1="15" x2="20" y2="15" />
+                            <line x1="10" y1="3" x2="8" y2="21" />
+                            <line x1="16" y1="3" x2="14" y2="21" />
+                        </svg>
+                        <p>暂无重排序器，添加后即可在搜索时自动使用。</p>
+                        <UiButton class="primary-action-button" variant="primary" size="compact" @click="openAddRerankerDialog">新增重排序器</UiButton>
+                    </div>
+                    <div v-else class="data-table-wrapper glass-card">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>键 (Key)</th>
+                                    <th>模式</th>
+                                    <th>Provider</th>
+                                    <th>模型</th>
+                                    <th>API Endpoint</th>
+                                    <th class="text-center">激活</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="r in rerankers" :key="r.reranker_key"
+                                    :class="{ 'row-active': r.is_active }">
+                                    <td class="font-mono">{{ r.reranker_key }}</td>
+                                    <td>
+                                        <UiBadge size="sm" :tone="r.mode === 'model' ? 'info' : r.mode === 'lexical' ? 'warning' : 'neutral'">
+                                            {{ r.mode === 'model' ? '模型' : r.mode === 'lexical' ? '本地' : '无' }}
+                                        </UiBadge>
+                                    </td>
+                                    <td>{{ r.provider_key || '-' }}</td>
+                                    <td>{{ r.model_name || '-' }}</td>
+                                    <td class="font-mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis">{{ r.api_endpoint || '-' }}</td>
+                                    <td class="text-center">
+                                        <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
+                                        <button v-else class="btn-link"
+                                            :disabled="activatingReranker === r.reranker_key"
+                                            @click="handleActivateReranker(r.reranker_key)">
+                                            {{ activatingReranker === r.reranker_key ? '激活中...' : '激活' }}
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <div class="row-actions adm-action-row">
+                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
+                                                :disabled="deletingReranker === r.reranker_key"
+                                                @click="handleDeleteReranker(r.reranker_key)" title="删除">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="3 6 5 6 21 6" />
+                                                    <path
+                                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ Tab 5: 搜索测试 ════════════════════════════ -->
                 <div v-if="activeTab === 'search'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
@@ -571,16 +693,10 @@
                                 </label>
                             </div>
                             <div v-if="searchRerank && searchMode === 'hybrid'" class="search-option">
-                                <label>方式：</label>
-                                <CustomSelect v-model="searchRerankMode" :options="searchRerankModeOptions" />
+                                <label>重排序器：</label>
+                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankerOptions"
+                                    placeholder="使用激活的重排序器" />
                             </div>
-                            <div v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model'" class="search-option">
-                                <label>模型：</label>
-                                <CustomSelect v-model="searchRerankSelection" :options="searchRerankModelOptions"
-                                    placeholder="选择 rerank 模型" />
-                            </div>
-                            <button v-if="searchRerank && searchMode === 'hybrid' && searchRerankMode === 'model' && !hasRerankModels"
-                                type="button" class="btn-link" @click="goModelProviders">配置 rerank</button>
                             <div class="search-option">
                                 <label>集合：</label>
                                 <input v-model="searchCollection" class="option-input option-input--wide"
@@ -817,6 +933,56 @@
             </div>
         </Teleport>
 
+        <!-- 新增重排序器对话框 -->
+        <Teleport to="body">
+            <div v-if="showAddRerankerDialog" class="modal-overlay">
+                <div ref="addRerankerDialogRef" class="modal-shell modal-shell--narrow adm-modal">
+                    <div class="modal-header adm-modal-header">
+                        <h3>新增重排序器</h3>
+                        <button class="modal-close" @click="showAddRerankerDialog = false">&times;</button>
+                    </div>
+                    <div class="modal-body adm-modal-body">
+                        <div class="form-grid">
+                            <div class="field field--full">
+                                <label>模式 <em>*</em></label>
+                                <CustomSelect v-model="addRerankerForm.mode" :options="rerankerModeSelectOptions" />
+                            </div>
+                            <template v-if="addRerankerForm.mode === 'model'">
+                                <div class="field field--full">
+                                    <label>Provider Key <em>*</em></label>
+                                    <input v-model="addRerankerForm.provider_key" placeholder="如 jina" />
+                                </div>
+                                <div class="field field--full">
+                                    <label>Provider Type</label>
+                                    <input v-model="addRerankerForm.provider_type" placeholder="如 jina（可选）" />
+                                </div>
+                                <div class="field field--full">
+                                    <label>模型名称 <em>*</em></label>
+                                    <input v-model="addRerankerForm.model_name" placeholder="如 jina-reranker-v2-base-multilingual" />
+                                </div>
+                                <div class="field field--full">
+                                    <label>API Endpoint <em>*</em></label>
+                                    <input v-model="addRerankerForm.api_endpoint" placeholder="如 https://api.jina.ai/v1/rerank" />
+                                </div>
+                                <div class="field field--full">
+                                    <label>API Key <em>*</em></label>
+                                    <input v-model="addRerankerForm.api_key" type="password" autocomplete="off" placeholder="可填写明文或 ${RERANK_API_KEY}" />
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="modal-footer adm-modal-footer">
+                        <UiButton size="compact" @click="showAddRerankerDialog = false">取消</UiButton>
+                        <UiButton size="compact" variant="primary"
+                            :disabled="addingReranker || !addRerankerFormValid"
+                            @click="handleAddReranker">
+                            {{ addingReranker ? '添加中...' : '确定' }}
+                        </UiButton>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
         <AppToast ref="toastRef" />
     </PageLayout>
 </template>
@@ -826,17 +992,21 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppToast from '../components/AppToast.vue';
 import PageLayout from '../components/PageLayout.vue';
-import { getProviders, getAvailableModels, findProviderModelByValue } from '../api/modelAdapter';
+import { getProviders } from '../api/modelAdapter';
 import {
     activateVectorizer,
+    activateReranker,
+    addReranker,
     addVectorizer,
     deleteFile,
     deleteFileIndex,
+    deleteReranker,
     deleteVectorizer,
     getFileStatus,
     indexFile,
     ingestFileToCollection,
     listFiles,
+    listRerankers,
     listVectorizers,
     migrateVectorizer,
     searchVectors,
@@ -874,6 +1044,14 @@ usePointerDownOutside({
     inside: [migrateDialogRef],
     enabled: () => showMigrateDialog.value,
     onOutside: () => { showMigrateDialog.value = false; },
+});
+
+const addRerankerDialogRef = ref(null);
+const showAddRerankerDialog = ref(false);
+usePointerDownOutside({
+    inside: [addRerankerDialogRef],
+    enabled: () => showAddRerankerDialog.value,
+    onOutside: () => { showAddRerankerDialog.value = false; },
 });
 
 function showToast(msg, type = 'error') { toastRef.value?.show(msg, type); }
@@ -918,6 +1096,11 @@ const tabs = computed(() => [
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
     },
     {
+        id: 'rerankers', label: '重排序器',
+        badge: rerankers.value.length || null,
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
+    },
+    {
         id: 'search', label: '搜索测试',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
     },
@@ -928,6 +1111,7 @@ const summary = computed(() => ({
     totalFiles: uploadedFiles.value.length,
     indexedFiles: fileList.value.length,
     vectorizers: vectorizers.value.length,
+    rerankers: rerankers.value.length,
 }));
 
 const activeVectorizer = computed(() => vectorizers.value.find(v => v.is_active));
@@ -1362,24 +1546,130 @@ async function handleMigrate() {
     }
 }
 
+// ── 重排序器管理 ────────────────────────────────────────────
+const rerankers = ref([]);
+const rerankersLoading = ref(false);
+const activatingReranker = ref('');
+const deletingReranker = ref('');
+const addingReranker = ref(false);
+const addRerankerForm = reactive({
+    mode: 'model',
+    provider_key: '',
+    provider_type: '',
+    model_name: '',
+    api_endpoint: '',
+    api_key: '',
+});
+
+const rerankerModeSelectOptions = [
+    { value: 'model', label: '模型 (远程 API)' },
+    { value: 'lexical', label: '本地 (BM25)' },
+    { value: 'none', label: '无 (直通)' },
+];
+
+const addRerankerFormValid = computed(() => {
+    if (!addRerankerForm.mode) return false;
+    if (addRerankerForm.mode === 'model') {
+        return !!(addRerankerForm.provider_key && addRerankerForm.model_name && addRerankerForm.api_endpoint && addRerankerForm.api_key);
+    }
+    return true;
+});
+
+const activeReranker = computed(() => rerankers.value.find(r => r.is_active));
+const activeRerankerDisplay = computed(() => {
+    const r = activeReranker.value;
+    if (!r) return '';
+    if (r.mode === 'model') return `${r.reranker_key} (${r.model_name || r.provider_key})`;
+    return r.reranker_key;
+});
+
+async function refreshRerankers() {
+    rerankersLoading.value = true;
+    try {
+        const res = await listRerankers();
+        rerankers.value = res.data || [];
+    } catch (e) {
+        showToast(e.message || '加载重排序器失败');
+    } finally {
+        rerankersLoading.value = false;
+    }
+}
+
+function openAddRerankerDialog() {
+    addRerankerForm.mode = 'model';
+    addRerankerForm.provider_key = '';
+    addRerankerForm.provider_type = '';
+    addRerankerForm.model_name = '';
+    addRerankerForm.api_endpoint = '';
+    addRerankerForm.api_key = '';
+    showAddRerankerDialog.value = true;
+}
+
+async function handleAddReranker() {
+    addingReranker.value = true;
+    try {
+        const body = { mode: addRerankerForm.mode };
+        if (addRerankerForm.mode === 'model') {
+            body.provider_key = addRerankerForm.provider_key;
+            body.provider_type = addRerankerForm.provider_type || undefined;
+            body.model_name = addRerankerForm.model_name;
+            body.api_endpoint = addRerankerForm.api_endpoint;
+            body.api_key = addRerankerForm.api_key;
+        }
+        await addReranker(body);
+        showAddRerankerDialog.value = false;
+        showToast('重排序器已添加', 'success');
+        await refreshRerankers();
+    } catch (e) {
+        showToast(e.message || '添加重排序器失败');
+    } finally {
+        addingReranker.value = false;
+    }
+}
+
+async function handleActivateReranker(key) {
+    activatingReranker.value = key;
+    try {
+        await activateReranker(key);
+        showToast('重排序器已激活', 'success');
+        await refreshRerankers();
+    } catch (e) {
+        showToast(e.message || '激活重排序器失败');
+    } finally {
+        activatingReranker.value = '';
+    }
+}
+
+async function handleDeleteReranker(key) {
+    if (!confirm(`确定删除重排序器「${key}」吗？`)) return;
+    deletingReranker.value = key;
+    try {
+        await deleteReranker(key);
+        showToast('重排序器已删除', 'success');
+        await refreshRerankers();
+    } catch (e) {
+        showToast(e.message || '删除重排序器失败');
+    } finally {
+        deletingReranker.value = '';
+    }
+}
+
 // ── 搜索测试 ──────────────────────────────────────────────
 const searchQuery = ref('');
 const searchTopK = ref(5);
 const searchMode = ref('hybrid');
 const searchRerank = ref(false);
-const searchRerankMode = ref('lexical');
 const searchRerankSelection = ref('');
-const rerankModelChoices = ref([]);
 const searchModeOptions = [
     { value: 'hybrid', label: '混合' },
     { value: 'vector', label: '向量' },
 ];
-const searchRerankModeOptions = [
-    { value: 'lexical', label: '本地' },
-    { value: 'model', label: '模型' },
-];
-const hasRerankModels = computed(() => rerankModelChoices.value.length > 0);
-const searchRerankModelOptions = computed(() => rerankModelChoices.value);
+const searchRerankerOptions = computed(() => {
+    return rerankers.value.map(r => ({
+        value: r.reranker_key,
+        label: `${r.reranker_key} (${r.mode === 'model' ? r.model_name || r.provider_key : r.mode})`,
+    }));
+});
 const searchCollection = ref('');
 const searchLoading = ref(false);
 const searchResults = ref([]);
@@ -1388,32 +1678,6 @@ const searchPerformed = ref(false);
 watch(searchMode, mode => {
     if (mode !== 'hybrid') searchRerank.value = false;
 });
-
-watch(searchRerankMode, mode => {
-    if (mode !== 'model') searchRerankSelection.value = '';
-});
-
-async function loadRerankModels() {
-    try {
-        const models = await getAvailableModels({ task: 'rerank' });
-        rerankModelChoices.value = models.map(item => ({
-            value: item.value,
-            label: item.label,
-            provider: item.provider,
-            provider_type: item.provider_type,
-            model: item.model,
-        }));
-    } catch (e) {
-        console.warn('加载 rerank 模型列表失败:', e.message || e);
-        rerankModelChoices.value = [];
-    }
-}
-
-const selectedRerankModel = computed(() => findProviderModelByValue(searchRerankSelection.value));
-
-function goModelProviders() {
-    router.push('/model-providers');
-}
 
 function openSearchTest(collection) {
     searchCollection.value = collection;
@@ -1429,19 +1693,14 @@ async function handleSearch() {
     try {
         const topK = Number(searchTopK.value) || 5;
         const shouldRerank = searchMode.value === 'hybrid' && searchRerank.value;
-        const useModelRerank = shouldRerank && searchRerankMode.value === 'model';
-        const selectedModel = findProviderModelByValue(searchRerankSelection.value);
         const res = await searchVectors({
             query: searchQuery.value,
             top_k: topK,
             collection: searchCollection.value || undefined,
             search_mode: searchMode.value,
             rerank: shouldRerank,
-            rerank_mode: shouldRerank ? searchRerankMode.value : undefined,
             rerank_top_k: shouldRerank ? Math.max(topK * 3, 10) : undefined,
-            rerank_provider: useModelRerank ? (selectedModel.provider || undefined) : undefined,
-            rerank_model: useModelRerank ? (selectedModel.model || undefined) : undefined,
-            rerank_provider_type: useModelRerank ? (selectedModel.provider_type || undefined) : undefined,
+            reranker_key: shouldRerank ? (searchRerankSelection.value || undefined) : undefined,
         });
         searchResults.value = res.data?.results || res.results || [];
         if (searchResults.value.length === 0) showToast('未找到相关结果', 'warning');
@@ -1493,13 +1752,12 @@ function formatTime(ts) {
 // ── 全局刷新 & 初始化 ─────────────────────────────────────
 async function refreshAll() {
     globalLoading.value = true;
-    await Promise.all([loadUploadedFiles(), refreshFileStatus(), refreshVectorizers()]);
+    await Promise.all([loadUploadedFiles(), refreshFileStatus(), refreshVectorizers(), refreshRerankers()]);
     globalLoading.value = false;
 }
 
 onMounted(() => {
     refreshAll();
-    loadRerankModels();
     updateTabSlider();
 });
 </script>

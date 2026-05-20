@@ -582,6 +582,47 @@
             </div>
           </section>
 
+          <section id="section-kb" class="form-section">
+            <div class="section-head">
+              <h2>知识库</h2>
+              <span>配置 Agent 的知识库检索能力，启用后 Agent 可使用 search_knowledge_base 工具</span>
+            </div>
+            <div class="section-body skills-body">
+              <label class="form-item checkbox-item checkbox-item--inline">
+                <input v-model="configForm.knowledge_base.enabled" type="checkbox" />
+                <span>启用知识库检索</span>
+              </label>
+
+              <template v-if="configForm.knowledge_base.enabled">
+                <div class="form-grid form-grid--compact">
+                  <div class="field">
+                    <label>默认集合</label>
+                    <input v-model="configForm.knowledge_base.default_collection" placeholder="documents" />
+                  </div>
+                  <div class="field">
+                    <label>搜索模式</label>
+                    <select v-model="configForm.knowledge_base.default_search_mode" class="form-select">
+                      <option value="hybrid">混合搜索</option>
+                      <option value="vector">向量搜索</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Top K</label>
+                    <input v-model.number="configForm.knowledge_base.default_top_k" type="number" min="1" max="50" />
+                  </div>
+                </div>
+                <label class="form-item checkbox-item checkbox-item--inline" style="margin-top: var(--spacing-sm)">
+                  <input v-model="configForm.knowledge_base.default_rerank" type="checkbox" />
+                  <span>默认启用重排序</span>
+                </label>
+                <div v-if="configForm.knowledge_base.default_rerank" class="field" style="margin-top: var(--spacing-xs)">
+                  <label>重排序器 Key（留空使用系统激活的重排序器）</label>
+                  <input v-model="configForm.knowledge_base.default_reranker_key" placeholder="留空使用系统 active reranker" />
+                </div>
+              </template>
+            </div>
+          </section>
+
           <section id="section-delegation" class="form-section">
             <div class="section-head">
               <h2>委派</h2>
@@ -749,6 +790,7 @@ const sections = [
   { id: 'section-skills', label: '技能' },
   { id: 'section-memory', label: '记忆' },
   { id: 'section-mcp', label: 'MCP' },
+  { id: 'section-kb', label: '知识库' },
   { id: 'section-delegation', label: '委派' }
 ];
 const activeSection = ref('section-basic');
@@ -1054,6 +1096,14 @@ function createEmptyForm() {
       write_scopes: ['session'],
       archive_scopes: ['session']
     },
+    knowledge_base: {
+      enabled: false,
+      default_collection: 'documents',
+      default_search_mode: 'hybrid',
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null
+    },
     delegation: { enabled_agents: [] },
     custom_params: { behavior: { system_prompt: '' } }
   };
@@ -1108,6 +1158,14 @@ function applyConfigToForm(config) {
     },
     delegation: {
       enabled_agents: Array.isArray(safeConfig.delegation?.enabled_agents) ? [...safeConfig.delegation.enabled_agents] : []
+    },
+    knowledge_base: {
+      enabled: safeConfig.knowledge_base?.enabled ?? false,
+      default_collection: safeConfig.knowledge_base?.default_collection || 'documents',
+      default_search_mode: safeConfig.knowledge_base?.default_search_mode || 'hybrid',
+      default_top_k: safeConfig.knowledge_base?.default_top_k ?? 5,
+      default_rerank: safeConfig.knowledge_base?.default_rerank ?? false,
+      default_reranker_key: safeConfig.knowledge_base?.default_reranker_key || null
     },
     custom_params: {
       ...(safeConfig.custom_params || {}),
@@ -1242,6 +1300,15 @@ function buildPayload() {
   merged.delegation = {
     ...(merged.delegation || {}),
     enabled_agents: configForm.value.delegation.enabled_agents
+  };
+
+  merged.knowledge_base = {
+    enabled: !!configForm.value.knowledge_base.enabled,
+    default_collection: configForm.value.knowledge_base.default_collection || 'documents',
+    default_search_mode: configForm.value.knowledge_base.default_search_mode || 'hybrid',
+    default_top_k: Number(configForm.value.knowledge_base.default_top_k) || 5,
+    default_rerank: !!configForm.value.knowledge_base.default_rerank,
+    default_reranker_key: configForm.value.knowledge_base.default_reranker_key || null
   };
 
   merged.custom_params = configForm.value.custom_params || merged.custom_params || {};

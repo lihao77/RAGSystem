@@ -13,6 +13,8 @@ class _FakeRegistry:
             {"function": {"name": "read_memory_entry", "source": "decorator"}},
             {"function": {"name": "write_memory", "source": "decorator"}},
             {"function": {"name": "archive_memory", "source": "decorator"}},
+            {"function": {"name": "search_knowledge_base", "source": "decorator"}},
+            {"function": {"name": "list_knowledge_collections", "source": "decorator"}},
         ]
 
     def get_direct_tools(self):
@@ -39,6 +41,7 @@ def test_agent_loader_injects_read_memory_tools_when_read_scopes_present():
         skills=None,
         mcp=None,
         delegation=None,
+        knowledge_base=SimpleNamespace(enabled=False),
         memory=SimpleNamespace(allowed_scopes=['team', 'session'], write_scopes=[], archive_scopes=[]),
     )
 
@@ -60,6 +63,7 @@ def test_agent_loader_injects_write_and_archive_memory_tools_from_scope_permissi
         skills=None,
         mcp=None,
         delegation=None,
+        knowledge_base=SimpleNamespace(enabled=False),
         memory=SimpleNamespace(allowed_scopes=['team'], write_scopes=['session'], archive_scopes=['agent']),
     )
 
@@ -79,6 +83,7 @@ def test_agent_loader_skips_memory_tools_when_all_memory_scopes_are_empty():
         skills=None,
         mcp=None,
         delegation=None,
+        knowledge_base=SimpleNamespace(enabled=False),
         memory=SimpleNamespace(allowed_scopes=[], write_scopes=[], archive_scopes=[]),
     )
 
@@ -90,3 +95,23 @@ def test_agent_loader_skips_memory_tools_when_all_memory_scopes_are_empty():
     assert 'write_memory' not in tool_names
     assert 'archive_memory' not in tool_names
     assert 'request_user_input' in tool_names
+
+
+def test_agent_loader_injects_knowledge_tools_when_enabled():
+    loader = AgentLoader(model_adapter=None, system_config=None, orchestrator=object(), config_manager=object())
+    loader._tool_registry = _FakeRegistry()
+    agent_config = SimpleNamespace(
+        agent_name='demo_agent',
+        tools=SimpleNamespace(enabled_tools=[]),
+        skills=None,
+        mcp=None,
+        delegation=None,
+        knowledge_base=SimpleNamespace(enabled=True),
+        memory=SimpleNamespace(allowed_scopes=[], write_scopes=[], archive_scopes=[]),
+    )
+
+    tools, skills = loader._resolve_tools_and_skills(agent_config)
+
+    tool_names = {tool['function']['name'] for tool in tools}
+    assert {'search_knowledge_base', 'list_knowledge_collections', 'request_user_input'} <= tool_names
+    assert skills == []
