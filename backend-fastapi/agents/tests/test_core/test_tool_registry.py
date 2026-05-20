@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from unittest.mock import patch
+
 from tools.bootstrap import bootstrap_tool_system
 from tools.catalog.mcp_tools import mcp_tool_to_openai_format
 from tools.runtime.mcp_gateway import is_mcp_tool, parse_mcp_tool_name
@@ -50,6 +52,26 @@ def test_tool_registry_lists_direct_tool_summaries_with_source():
     assert "execute_skill_script" not in names
     assert read_file["category"] == "document"
     assert read_file["source"] == "document"
+
+
+def test_agent_config_tools_catalog_hides_config_managed_tools():
+    """AgentConfigService.list_available_tools 应隐藏 config-managed 工具。
+
+    放在此处与其余 ToolRegistry 可见性测试保持一致，
+    因为 list_available_tools 直接依赖 ToolRegistry 输出。
+    """
+    from services.agent_config_service import AgentConfigService
+
+    with patch.object(AgentConfigService, "__init__", lambda self: None):
+        service = AgentConfigService()
+        service._tool_registry = get_tool_registry()
+
+    summaries = service.list_available_tools()
+    visible_names = {item["name"] for item in summaries}
+
+    assert "search_knowledge_base" not in visible_names
+    assert "list_knowledge_collections" not in visible_names
+    assert "request_user_input" not in visible_names
 
 
 def test_tool_registry_exposes_base_tool_accessors():

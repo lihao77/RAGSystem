@@ -27,6 +27,22 @@ from tools.tool_registry import get_tool_registry
 logger = logging.getLogger(__name__)
 
 
+CONFIG_MANAGED_TOOL_NAMES = frozenset({
+    'list_memory_index',
+    'read_memory_entry',
+    'write_memory',
+    'archive_memory',
+    'request_user_input',
+    'task_create',
+    'task_get',
+    'task_update',
+    'task_list',
+    'task_stop',
+    'search_knowledge_base',
+    'list_knowledge_collections',
+})
+
+
 class AgentConfigServiceError(Exception):
     """Agent 配置业务异常。"""
 
@@ -108,6 +124,7 @@ class AgentConfigService:
     def replace_config(self, agent_name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         payload = dict(data or {})
         payload['agent_name'] = agent_name
+        self._strip_config_managed_tools(payload)
 
         try:
             config = AgentConfig(**payload)
@@ -125,7 +142,15 @@ class AgentConfigService:
             raise AgentConfigServiceError(f'智能体 "{agent_name}" 不存在', status_code=404)
 
         try:
-            tools = self._merge_model_config(config.tools, payload.get('tools'), AgentToolConfig)
+            tools_patch = payload.get('tools')
+            if tools_patch is not None:
+                tools_patch = dict(tools_patch)
+                enabled = tools_patch.get('enabled_tools')
+                if isinstance(enabled, list):
+                    tools_patch['enabled_tools'] = [
+                        t for t in enabled if t not in CONFIG_MANAGED_TOOL_NAMES
+                    ]
+            tools = self._merge_model_config(config.tools, tools_patch, AgentToolConfig)
             skills = self._merge_model_config(config.skills, payload.get('skills'), AgentSkillConfig)
             mcp = self._merge_model_config(config.mcp, payload.get('mcp'), AgentMCPConfig)
             memory = self._merge_model_config(config.memory, payload.get('memory'), AgentMemoryConfig)
@@ -229,10 +254,9 @@ class AgentConfigService:
         return PRESET_CONFIGS
 
     def list_available_tools(self):
-        hidden = {'list_memory_index', 'read_memory_entry', 'write_memory', 'archive_memory', 'request_user_input'}
         return [
             item for item in self._tool_registry.list_direct_tool_summaries()
-            if item.get('name') not in hidden
+            if item.get('name') not in CONFIG_MANAGED_TOOL_NAMES
         ]
 
     def get_memory_config_metadata(self):
@@ -295,7 +319,22 @@ class AgentConfigService:
 
     @staticmethod
     def _normalize_config_dump(config: AgentConfig) -> Dict[str, Any]:
-        return config.model_dump()
+        data = config.model_dump()
+        AgentConfigService._strip_config_managed_tools(data)
+        return data
+
+    @staticmethod
+    def _strip_config_managed_tools(config_data: Dict[str, Any]) -> None:
+        """从 config dict 中移除 tools.enabled_tools 里的 config-managed 工具名。"""
+        tools = config_data.get('tools')
+        if not isinstance(tools, dict):
+            return
+        enabled_tools = tools.get('enabled_tools')
+        if not isinstance(enabled_tools, list):
+            return
+        tools['enabled_tools'] = [
+            t for t in enabled_tools if t not in CONFIG_MANAGED_TOOL_NAMES
+        ]
 
     @staticmethod
     def _merge_model_config(current_config, patch_data: Optional[Dict[str, Any]], model_cls):
