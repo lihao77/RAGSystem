@@ -2,7 +2,7 @@
 
 中文 | [English](#english)
 
-`frontend-client/` 是 RAGSystem 的 Vue 3 前端，提供聊天、执行监控、Agent 配置、MCP 管理、向量库和模型提供方管理界面。
+`frontend-client/` 是 RAGSystem 的 Vue 3 前端，提供聊天、执行过程、Team 编排、Agent 配置、MCP 管理、知识库、模型提供方、守护 Agent 和系统配置界面。
 
 ## 开发启动 / Development
 
@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-默认端口为 `http://localhost:5174`，`/api` 会代理到 `http://localhost:5001`。
+默认端口为 `http://localhost:5174`，`/api` 与 WebSocket 会代理到 `http://localhost:5001`。
 
 ## 主要页面 / Main pages
 
@@ -23,11 +23,15 @@ npm run dev
 - `/mcp` — MCP 管理
 - `/vector-library` — 向量库管理
 - `/model-providers` — 模型提供方管理
+- `/daemon` — 守护 Agent 管理
+- `/system-config` — 系统配置
 
 ## 构建 / Build
 
 ```bash
 npm run build
+npm test
+npm run screenshot:smoke
 ```
 
 ## 文档 / Documentation
@@ -46,7 +50,7 @@ npm run build
 
 ## English
 
-`frontend-client/` is the Vue 3 frontend for RAGSystem. It provides the chat UI, execution monitoring, agent configuration, MCP management, vector library management, and model provider management.
+`frontend-client/` is the Vue 3 frontend for RAGSystem. It provides chat, execution process inspection, team composition, agent configuration, MCP management, knowledge base management, model provider management, daemon agent management, and system configuration.
 
 ### Development
 
@@ -56,7 +60,7 @@ npm install
 npm run dev
 ```
 
-The dev server runs on `http://localhost:5174` by default and proxies `/api` to `http://localhost:5001`.
+The dev server runs on `http://localhost:5174` by default and proxies `/api` plus WebSocket traffic to `http://localhost:5001`.
 
 ### Main pages
 
@@ -67,11 +71,15 @@ The dev server runs on `http://localhost:5174` by default and proxies `/api` to 
 - `/mcp` — MCP management
 - `/vector-library` — vector library management
 - `/model-providers` — model provider management
+- `/daemon` — daemon agent management
+- `/system-config` — system configuration
 
 ### Build
 
 ```bash
 npm run build
+npm test
+npm run screenshot:smoke
 ```
 
 ### Documentation

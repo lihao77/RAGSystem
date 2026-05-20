@@ -16,6 +16,19 @@ const maxHorizontalOverflowPx = 2;
 const shots = [
   { name: 'chat-mobile', path: '/', width: 390, height: 844 },
   {
+    name: 'desktop-workbench-artifact',
+    path: '/?__smoke=artifact',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
+      { type: 'expectVisible', selector: '[data-artifact-id="viz_smoke_chart"]' },
+      { type: 'expectText', selector: '.artifact-panel', text: '可视化' },
+      { type: 'expectText', selector: '.wpe-root', text: '执行过程' },
+    ],
+  },
+  {
     name: 'chat-artifact-narrow',
     path: '/?__smoke=artifact',
     width: 1280,
@@ -29,12 +42,62 @@ const shots = [
     ],
   },
   { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
+  {
+    name: 'desktop-agent-config',
+    path: '/agent-config',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: 'body', text: 'Agent 配置' },
+      { type: 'expectText', selector: '.config-form', text: '基础信息' },
+    ],
+  },
   { name: 'agent-config-narrow', path: '/agent-config', width: 768, height: 900 },
+  {
+    name: 'desktop-team-builder',
+    path: '/team-builder',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: 'body', text: 'Team 编排' },
+      { type: 'expectText', selector: 'body', text: '创建新方案' },
+    ],
+  },
   { name: 'team-builder-mobile', path: '/team-builder', width: 390, height: 844 },
+  {
+    name: 'desktop-vector-library',
+    path: '/vector-library',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: 'body', text: '知识库管理' },
+      { type: 'expectText', selector: 'body', text: '向量库管理' },
+    ],
+  },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
   { name: 'vector-library-mobile', path: '/vector-library', width: 390, height: 844 },
+  {
+    name: 'desktop-mcp-manager',
+    path: '/mcp',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: 'body', text: 'MCP 服务管理' },
+      { type: 'expectText', selector: 'body', text: '已安装服务' },
+    ],
+  },
   { name: 'mcp-narrow', path: '/mcp', width: 768, height: 900 },
   { name: 'monitor-narrow', path: '/monitor', width: 768, height: 900 },
+  {
+    name: 'desktop-daemon',
+    path: '/daemon',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: 'body', text: '守护 Agent' },
+      { type: 'expectText', selector: 'body', text: '基础配置' },
+    ],
+  },
   { name: 'daemon-narrow', path: '/daemon', width: 768, height: 900 },
   { name: 'system-config-mobile', path: '/system-config', width: 390, height: 844 },
   {

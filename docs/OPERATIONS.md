@@ -6,6 +6,7 @@
 
 ```bash
 cd backend-fastapi
+pip install -r requirements.txt
 python main.py
 ```
 
@@ -22,7 +23,7 @@ npm run dev
 ```
 
 - 默认地址 / Default URL: `http://localhost:5174`
-- `/api` 代理到 / proxies to `http://localhost:5001`
+- `/api` 与 WebSocket 代理到 / proxies `/api` and WebSocket traffic to `http://localhost:5001`
 - 可通过 `frontend-client/.env` 配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`
 
 ### 桌面安装包 / Desktop installer
@@ -31,7 +32,7 @@ npm run dev
 cd desktop-electron
 npm install
 cd ../backend-fastapi
-pip install pyinstaller
+pip install -r requirements.txt pyinstaller
 cd ../desktop-electron
 npm run build:installer
 ```
@@ -51,27 +52,34 @@ cp backend-fastapi/.env.example backend-fastapi/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-后端启动时只会自动初始化 app 与 agent 的运行时配置；其中默认会生成一套系统默认 team（包含 `orchestrator_agent`、`team_maker`、`plan_agent`、`explor_agent`、`general_agent`、`review_agent`、`test_agent`）；MCP 与模型提供方配置需由用户在运行时目录中自行创建，正式生效配置优先从运行时目录读取，而不是直接从 `backend-fastapi/...` 源码目录读取。
+后端启动时会把缺失的运行时配置从 `.example` 模板初始化到运行时目录；其中 Agent 配置由 `AgentConfigManager` 管理，并会生成一套系统默认 `default` team（包含 `orchestrator_agent`、`team_maker`、`plan_agent`、`explor_agent`、`general_agent`、`review_agent`、`test_agent`）。正式生效配置优先从运行时目录读取，而不是直接从 `backend-fastapi/...` 源码目录读取。
 
-- 默认运行时配置根目录：`~/.ragsystem/config`
-- 若设置 `RAG_DATA_ROOT`，则配置目录变为 `<RAG_DATA_ROOT>/config`
-- 运行时主配置文件：
+- 默认运行时数据根目录：`~/.ragsystem`
+- 若设置 `RAG_DATA_ROOT`，则运行时数据根目录变为 `<RAG_DATA_ROOT>`
+- 运行时主配置文件位于 `<data-root>/config`：
   - `app/config.yaml`
   - `agents/team_index.yaml`
   - `agents/teams/*.yaml`
-  - `mcp/mcp_servers.yaml`（按需创建）
-  - `model_adapter/providers.yaml`（按需创建）
+  - `model_adapter/providers.yaml`
+  - `vector_store/vectorizers.yaml`
+  - `mcp/mcp_servers.yaml`
+  - `daemon/daemon.yaml`
 
-源码目录中的以下文件现在只作为 app / agent 初始化来源：
+源码目录中的以下文件只作为初始化模板或系统默认配置来源：
 
 - `backend-fastapi/config/yaml/config.yaml.example`
 - `backend-fastapi/agents/configs/agent_configs.yaml.example`
+- `backend-fastapi/model_adapter/configs/providers.yaml.example`
+- `backend-fastapi/vector_store/configs/vectorizers.yaml.example`
+- `backend-fastapi/mcp/configs/mcp_servers.yaml.example`
+- `backend-fastapi/config/yaml/daemon.yaml.example`
 
-MCP 与模型提供方配置不再在启动时自动 seed；如果缺失，可在运行时目录手动创建，或通过前端管理页面写入。
+模型 Provider、MCP Server、向量化器和守护 Agent 配置会在缺失时从模板 seed；填入密钥、服务地址或启用项后即可使用，也可通过前端管理页面写入。
 
 ## 常用接口与页面 / Common endpoints and pages
 
-- `POST /api/agent/stream` — 流式执行 / streaming execution
+- `POST /api/agent/stream` — 启动执行，实时内容经 WebSocket 推送 / start execution; realtime content is delivered over WebSocket
+- `/api/agent/sessions/{session_id}/ws` — session WebSocket 实时通道 / session realtime WebSocket
 - `POST /api/agent/execute` — 同步执行 / synchronous execution
 - `GET /api/agent/execution/overview` — 执行概览 / execution overview
 - `/monitor` — 监控页面 / monitoring UI
@@ -80,6 +88,8 @@ MCP 与模型提供方配置不再在启动时自动 seed；如果缺失，可�
 - `/mcp` — MCP 管理页面 / MCP management UI
 - `/vector-library` — 向量库页面 / vector library UI
 - `/model-providers` — 模型提供方页面 / model provider UI
+- `/daemon` — 守护 Agent 页面 / daemon agent UI
+- `/system-config` — 系统配置页面 / system configuration UI
 
 ## 验证命令 / Verification commands
 
@@ -88,5 +98,8 @@ cd backend-fastapi
 python -m compileall .
 python -m py_compile main.py
 pytest --basetemp=.pytest-tmp agents/tests/
-cd ../frontend-client && npm run build
+cd ../frontend-client
+npm run build
+npm test
+npm run screenshot:smoke
 ```
