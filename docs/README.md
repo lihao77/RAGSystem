@@ -6,7 +6,8 @@ This directory is the canonical repository-level documentation center for mainli
 
 ## 主线文档 / Mainline documents
 
-- [../README.md](../README.md) — 仓库入口与快速开始 / repository entry and quick start
+- [../README.md](../README.md) — 中文仓库入口与快速开始 / Chinese repository entry and quick start
+- [../README.en.md](../README.en.md) — English repository entry and quick start / 英文仓库入口与快速开始
 - [../backend-fastapi/docs/README.md](../backend-fastapi/docs/README.md) — 后端文档入口 / backend documentation entry
 - [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
