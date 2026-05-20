@@ -333,7 +333,7 @@ async def _ws_recv_loop(ws: WebSocket, session_id: str, conn: WsConnectionState)
         if msg_type == 'send':
             await _handle_ws_send(ws, session_id, msg, conn)
         elif msg_type == 'stop':
-            await _handle_ws_stop(session_id)
+            await _handle_ws_stop(ws, session_id, conn)
         elif msg_type == 'approve':
             await _handle_ws_approve(ws, session_id, msg, conn)
         elif msg_type == 'user_input':
@@ -342,13 +342,14 @@ async def _ws_recv_loop(ws: WebSocket, session_id: str, conn: WsConnectionState)
 
 # ── 客户端消息处理 ────────────────────────────────────────
 
-async def _handle_ws_stop(session_id: str):
+async def _handle_ws_stop(ws: WebSocket, session_id: str, conn: WsConnectionState):
     # 优先检查系统命令（如 /compact）
     from api.v1.stream import _active_system_commands
     sys_cancel = _active_system_commands.get(session_id)
     if sys_cancel is not None:
         sys_cancel.set()
         logger.info('[WS] 已中断系统命令 session=%s', session_id)
+        await conn.send_json(ws, {'type': 'stop.ack', 'session_id': session_id})
         return
     try:
         from runtime.container import get_current_runtime_container
@@ -361,6 +362,10 @@ async def _handle_ws_stop(session_id: str):
         await asyncio.to_thread(svc.cancel_session, session_id, reason='user_stop')
     except Exception as exc:
         logger.warning('[WS] stop 失败 session=%s: %s', session_id, exc)
+    try:
+        await conn.send_json(ws, {'type': 'stop.ack', 'session_id': session_id})
+    except Exception:
+        pass
 
 
 async def _handle_ws_approve(ws: WebSocket, session_id: str, msg: dict, conn: WsConnectionState):

@@ -233,7 +233,9 @@ def test_ws_stop_cancels_session_with_keyword_reason(monkeypatch):
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
         ws.send_json({'type': 'stop'})
+        ack = ws.receive_json()
 
+    assert ack['type'] == 'stop.ack'
     assert execution_service.cancel_calls == [{
         'session_id': 'session-1',
         'publish_interrupt': True,
