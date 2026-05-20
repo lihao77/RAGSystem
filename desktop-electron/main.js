@@ -9,6 +9,7 @@ const APP_NAME = 'RAGSystem'
 const DEFAULT_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5001)
 const START_TIMEOUT_MS = 45000
 const isDev = !app.isPackaged
+const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 
 let mainWindow = null
 let backendProcess = null
@@ -123,6 +124,7 @@ function createMainWindow() {
     show: false,
     autoHideMenuBar: true,
     title: APP_NAME,
+    icon: APP_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

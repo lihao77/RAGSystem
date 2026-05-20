@@ -22,7 +22,9 @@
     },
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "build/icon.ico",
+      "build/icon.svg"
     ],
     "extraResources": [
       {
@@ -35,6 +37,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -49,6 +52,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     }
   }

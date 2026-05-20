@@ -101,4 +101,8 @@ backend_start.*.log
 
 
 build/
+!desktop-electron/build/
+desktop-electron/build/*
+!desktop-electron/build/icon.ico
+!desktop-electron/build/icon.svg
 dist/
