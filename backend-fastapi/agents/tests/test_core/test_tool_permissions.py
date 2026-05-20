@@ -105,13 +105,13 @@ def test_mcp_permission_checks_enabled_servers_and_config_store_fallback(monkeyp
     assert permission.risk_level == RiskLevel.HIGH
 
 
-def test_mcp_requires_approval_promotes_permission_to_high_risk(monkeypatch):
+def test_mcp_permission_uses_configured_risk_level(monkeypatch):
     monkeypatch.delitem(TOOL_PERMISSIONS, "mcp__demo__search", raising=False)
 
     class _FakeStore:
         def get_server(self, server_name):
             if server_name == "demo":
-                return {"risk_level": "low", "requires_approval": True}
+                return {"risk_level": "low"}
             return None
 
     import mcp.config_store as config_store_module
@@ -126,20 +126,20 @@ def test_mcp_requires_approval_promotes_permission_to_high_risk(monkeypatch):
 
     permission = get_tool_permission("mcp__demo__search")
     assert permission is not None
-    assert permission.risk_level == RiskLevel.HIGH
+    assert permission.risk_level == RiskLevel.LOW
 
 
-def test_sync_mcp_tool_permissions_honors_requires_approval():
-    permission_key = "mcp__approval_demo__search"
+def test_sync_mcp_tool_permissions_honors_configured_risk_level():
+    permission_key = "mcp__risk_demo__search"
     TOOL_PERMISSIONS.pop(permission_key, None)
     tool = SimpleNamespace(name="search", description="Search")
 
     try:
-        sync_mcp_tool_permissions("approval_demo", [tool], risk_level="low", requires_approval=True)
+        sync_mcp_tool_permissions("risk_demo", [tool], risk_level="low")
 
         permission = get_tool_permission(permission_key)
         assert permission is not None
-        assert permission.risk_level == RiskLevel.HIGH
+        assert permission.risk_level == RiskLevel.LOW
     finally:
         TOOL_PERMISSIONS.pop(permission_key, None)
 

@@ -200,7 +200,6 @@ class MCPClientManager:
                 server_name,
                 conn.tools,
                 risk_level=srv_cfg.get("risk_level", "medium"),
-                requires_approval=srv_cfg.get("requires_approval", False),
             )
             logger.info("✓ MCP Server %s 连接成功，发现 %d 个工具%s", server_name, len(conn.tools), _obs_suffix())
             return True

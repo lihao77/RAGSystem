@@ -352,14 +352,6 @@
           </label>
         </div>
 
-        <label class="toggle-field">
-          <div class="toggle-wrap">
-            <input v-model="installForm.requires_approval" type="checkbox" class="toggle-input" id="mi-approval" />
-            <label for="mi-approval" class="toggle-track"></label>
-          </div>
-          <span>需要用户审批（高风险操作保护）</span>
-        </label>
-
         <div class="form-actions">
           <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
           <UiButton variant="primary" size="compact" :disabled="installing" @click="submitManualInstall">
@@ -616,13 +608,6 @@
                 <span>自动连接</span>
               </label>
             </div>
-            <label class="toggle-field">
-              <div class="toggle-wrap">
-                <input v-model="registryInstallForm.requires_approval" type="checkbox" class="toggle-input" id="ri-approval" />
-                <label for="ri-approval" class="toggle-track"></label>
-              </div>
-              <span>需要审批</span>
-            </label>
           </div>
 
           <div class="modal-footer adm-modal-footer">
@@ -728,13 +713,6 @@
                 <span>自动连接</span>
               </label>
             </div>
-            <label class="toggle-field">
-              <div class="toggle-wrap">
-                <input v-model="editForm.requires_approval" type="checkbox" class="toggle-input" id="ed-approval" />
-                <label for="ed-approval" class="toggle-track"></label>
-              </div>
-              <span>需要审批</span>
-            </label>
           </div>
 
           <div class="modal-footer adm-modal-footer">
@@ -946,7 +924,6 @@ const installForm = reactive({
   auto_connect: true,
   timeout: 30,
   risk_level: 'medium',
-  requires_approval: false,
 });
 
 const registrySearch = reactive({
@@ -963,7 +940,6 @@ const registryInstallForm = reactive({
   auto_connect: true,
   timeout: 30,
   risk_level: 'medium',
-  requires_approval: false,
   input_values: {},
 });
 
@@ -1018,7 +994,6 @@ function resetInstallForm() {
   installForm.auto_connect = true;
   installForm.timeout = 30;
   installForm.risk_level = 'medium';
-  installForm.requires_approval = false;
 }
 
 function defaultFieldValue(field) {
@@ -1072,7 +1047,6 @@ function applyRegistryInstallDefaults(server, option) {
   registryInstallForm.auto_connect = true;
   registryInstallForm.timeout = option?.default_timeout || 30;
   registryInstallForm.risk_level = option?.default_risk_level || 'medium';
-  registryInstallForm.requires_approval = option?.default_requires_approval ?? false;
   initializeRegistryInputValues(option);
 }
 
@@ -1089,7 +1063,6 @@ function handleRegistryOptionChange(optionId) {
   if (!option) return;
   registryInstallForm.timeout = option.default_timeout || registryInstallForm.timeout;
   registryInstallForm.risk_level = option.default_risk_level || registryInstallForm.risk_level;
-  registryInstallForm.requires_approval = option.default_requires_approval ?? registryInstallForm.requires_approval;
   initializeRegistryInputValues(option);
 }
 
@@ -1107,7 +1080,6 @@ function openEditDialog(server) {
     auto_connect: !!server.auto_connect,
     timeout: server.timeout || 30,
     risk_level: server.risk_level || 'medium',
-    requires_approval: !!server.requires_approval,
   };
   editDialogVisible.value = true;
 }
@@ -1179,7 +1151,6 @@ async function submitManualInstall() {
       auto_connect: installForm.auto_connect,
       timeout: installForm.timeout,
       risk_level: installForm.risk_level,
-      requires_approval: installForm.requires_approval,
       ...(isStdio
         ? { command: installForm.command, args: parsedArgs, env: parsedEnv }
         : { url: installForm.url, headers: parsedHeaders }),
@@ -1208,7 +1179,6 @@ async function submitRegistryInstall(customPayload = null) {
     auto_connect: registryInstallForm.auto_connect,
     timeout: registryInstallForm.timeout,
     risk_level: registryInstallForm.risk_level,
-    requires_approval: registryInstallForm.requires_approval,
     input_values: registryInstallForm.input_values,
   };
   const missingField = (option.form_fields || []).find(
@@ -1241,7 +1211,6 @@ async function handleRegistryInstall(server) {
     auto_connect: true,
     timeout: option.default_timeout || 30,
     risk_level: option.default_risk_level || 'medium',
-    requires_approval: option.default_requires_approval ?? false,
     input_values: Object.fromEntries((option.form_fields || []).map((f) => [f.key, defaultFieldValue(f)])),
   };
   await submitRegistryInstall(payload);
@@ -1265,7 +1234,6 @@ async function saveEdit() {
       auto_connect: editForm.value.auto_connect,
       timeout: editForm.value.timeout,
       risk_level: editForm.value.risk_level,
-      requires_approval: editForm.value.requires_approval,
       command: editForm.value.transport === 'stdio' ? editForm.value.command : null,
       args: editForm.value.transport === 'stdio' ? parsedArgs : [],
       env: editForm.value.transport === 'stdio' ? parsedEnv : {},

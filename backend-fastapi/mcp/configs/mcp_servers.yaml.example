@@ -1,12 +1,29 @@
-# MCP Server 配置 — 启动时自动初始化到 CONFIG_ROOT/mcp/mcp_servers.yaml（已存在则不覆盖）
-# 也可在前端「MCP Server」页面管理。
+# MCP Server 配置模板
+#
+# 正式生效文件位于运行时配置目录：
+#   CONFIG_ROOT/mcp/mcp_servers.yaml
+# 默认 CONFIG_ROOT 为 ~/.ragsystem/config；设置 RAG_DATA_ROOT 时为 <RAG_DATA_ROOT>/config。
+# MCP 配置不会在启动时自动 seed，可手动创建本文件或在前端 /mcp 页面管理。
 #
 # 支持三种传输方式：
 #   stdio           — 通过标准输入/输出启动本地进程（最常用）
 #   sse             — 通过 Server-Sent Events 连接远程服务
 #   streamable_http — 通过 HTTP 流连接远程服务
 #
-# 示例：
+# 字段说明：
+#   display_name  — 展示名称，可为空
+#   transport     — stdio / sse / streamable_http
+#   command       — stdio 模式启动命令
+#   args          — stdio 模式命令参数数组
+#   env           — stdio 模式环境变量对象
+#   url           — sse / streamable_http 模式服务地址
+#   headers       — sse / streamable_http 模式请求头对象
+#   enabled       — 是否启用此 Server
+#   auto_connect  — 后端启动或刷新时是否自动连接
+#   timeout       — 连接超时秒数，范围 1-300
+#   risk_level    — 默认风险等级：low / medium / high；是否审批由系统权限模式统一决定
+#
+# stdio 示例：
 #   servers:
 #     filesystem:
 #       display_name: 文件系统
@@ -18,6 +35,30 @@
 #       auto_connect: true
 #       timeout: 30
 #       risk_level: medium
-#       requires_approval: false
+#
+# SSE 示例：
+#   servers:
+#     search_remote:
+#       display_name: 远程搜索
+#       transport: sse
+#       url: "https://example.com/sse"
+#       headers:
+#         Authorization: "Bearer ${SEARCH_API_KEY}"
+#       enabled: true
+#       auto_connect: true
+#       timeout: 60
+#       risk_level: medium
+#
+# streamable_http 示例：
+#   servers:
+#     tools_http:
+#       display_name: HTTP 工具服务
+#       transport: streamable_http
+#       url: "https://example.com/mcp"
+#       headers: {}
+#       enabled: true
+#       auto_connect: true
+#       timeout: 60
+#       risk_level: high
 
 servers: {}
