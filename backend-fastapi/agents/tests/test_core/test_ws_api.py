@@ -163,13 +163,23 @@ def test_ws_replays_existing_run_history(monkeypatch):
 
 
 def test_ws_receives_live_events_from_run_bus(monkeypatch):
-    client, _, run_bus, _, _ = _build_client(monkeypatch, statuses=[None, {
-        'status': 'running',
-        'run_id': 'run-1',
-        'started_at': 10,
-    }])
+    # 提供两个 running 状态：初始 sync 消耗一个，watch_task 消耗第二个
+    client, _, run_bus, _, _ = _build_client(monkeypatch, statuses=[
+        {'status': 'running', 'run_id': 'run-1', 'started_at': 10},
+        {'status': 'running', 'run_id': 'run-1', 'started_at': 10},
+    ])
 
     with client.websocket_connect('/api/agent/sessions/session-1/ws') as ws:
+        # 先消费 replay 信封（此时 run_bus 无历史事件）
+        reconnect_start = ws.receive_json()
+        reconnect_end = ws.receive_json()
+
+        assert reconnect_start['type'] == 'reconnect_start'
+        assert reconnect_start['stream_seq'] == 1
+        assert reconnect_end['type'] == 'reconnect_end'
+        assert reconnect_end['stream_seq'] == 2
+
+        # replay 完成后发布 live 事件，经由订阅而非回放送达
         run_bus.publish(Event(
             type=EventType.CHUNK,
             data={'content': 'live'},
@@ -177,17 +187,11 @@ def test_ws_receives_live_events_from_run_bus(monkeypatch):
             timestamp=11,
         ))
 
-        reconnect_start = ws.receive_json()
-        replay_event = ws.receive_json()
-        reconnect_end = ws.receive_json()
+        live_event = ws.receive_json()
 
-    assert reconnect_start['type'] == 'reconnect_start'
-    assert reconnect_start['stream_seq'] == 1
-    assert replay_event['type'] == 'output.chunk'
-    assert replay_event['data']['content'] == 'live'
-    assert replay_event['stream_seq'] == 2
-    assert reconnect_end['type'] == 'reconnect_end'
-    assert reconnect_end['stream_seq'] == 3
+    assert live_event['type'] == 'output.chunk'
+    assert live_event['data']['content'] == 'live'
+    assert live_event['stream_seq'] == 3
 
 
 def test_ws_receives_command_result_from_global_bus(monkeypatch):
