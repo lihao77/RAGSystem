@@ -38,16 +38,21 @@ from core.path_resolution import UPLOADS_ROOT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CORS_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5174',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://localhost:8081',
-    'http://127.0.0.1:8081',
-]
+def _build_default_cors_origins() -> list[str]:
+    """生成默认 CORS 白名单，覆盖前端/后端可能使用的端口范围。"""
+    origins = []
+    # 前端 Vite 开发端口范围（5173-5179）
+    for port in range(5173, 5180):
+        origins.append(f'http://localhost:{port}')
+        origins.append(f'http://127.0.0.1:{port}')
+    # Docker / 生产端口范围（8080-8089）
+    for port in range(8080, 8090):
+        origins.append(f'http://localhost:{port}')
+        origins.append(f'http://127.0.0.1:{port}')
+    return origins
+
+
+DEFAULT_CORS_ORIGINS = _build_default_cors_origins()
 
 DEFAULT_UPLOAD_FOLDER = str(UPLOADS_ROOT)
 DEFAULT_FRONTEND_DIST = os.path.join(PROJECT_ROOT, 'frontend-client', 'dist')
@@ -132,10 +137,15 @@ app = create_app()
 
 if __name__ == '__main__':
     import uvicorn
+    from utils.port_utils import find_free_port
 
-    port = int(os.environ.get('PORT', os.environ.get('FASTAPI_PORT', 5001)))
+    preferred_port = int(os.environ.get('PORT', os.environ.get('FASTAPI_PORT', 5001)))
     host = os.environ.get('FASTAPI_HOST', '0.0.0.0')
     reload = os.environ.get('FASTAPI_RELOAD', 'true').lower() == 'true'
+
+    port = find_free_port(preferred_port, '127.0.0.1')
+    if port != preferred_port:
+        logger.info('端口 %d 已被占用（桌面版运行中？），已自动切换到 %d', preferred_port, port)
 
     uvicorn.run(
         'main:app',

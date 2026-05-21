@@ -5,14 +5,47 @@ const os = require('os')
 const { spawn } = require('child_process')
 const net = require('net')
 
+const http = require('http')
+
 const APP_NAME = 'RAGSystem'
-const DEFAULT_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5001)
+const PREFERRED_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5001)
+const MAX_PORT_SEARCH = 20
 const START_TIMEOUT_MS = 45000
 const isDev = !app.isPackaged
 const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 
 let mainWindow = null
 let backendProcess = null
+let actualPort = PREFERRED_PORT
+
+function isPortInUse(port) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    socket.setTimeout(1500)
+    socket.once('connect', () => { socket.destroy(); resolve(true) })
+    socket.once('timeout', () => { socket.destroy(); resolve(false) })
+    socket.once('error', () => { socket.destroy(); resolve(false) })
+    socket.connect(port, '127.0.0.1')
+  })
+}
+
+function isRAGSystemBackend(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/api/agent/health`, { timeout: 2000 }, (res) => {
+      resolve(res.statusCode >= 200 && res.statusCode < 500)
+    })
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => { req.destroy(); resolve(false) })
+  })
+}
+
+async function findFreePort(preferred) {
+  for (let offset = 0; offset < MAX_PORT_SEARCH; offset++) {
+    const candidate = preferred + offset
+    if (!(await isPortInUse(candidate))) return candidate
+  }
+  throw new Error(`端口 ${preferred}-${preferred + MAX_PORT_SEARCH - 1} 均被占用`)
+}
 
 function waitForPort(port, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -22,18 +55,9 @@ function waitForPort(port, timeoutMs) {
       const socket = new net.Socket()
       socket.setTimeout(1500)
 
-      socket.once('connect', () => {
-        socket.destroy()
-        resolve()
-      })
-      socket.once('timeout', () => {
-        socket.destroy()
-        retryOrFail()
-      })
-      socket.once('error', () => {
-        socket.destroy()
-        retryOrFail()
-      })
+      socket.once('connect', () => { socket.destroy(); resolve() })
+      socket.once('timeout', () => { socket.destroy(); retryOrFail() })
+      socket.once('error', () => { socket.destroy(); retryOrFail() })
 
       socket.connect(port, '127.0.0.1')
     }
@@ -75,7 +99,21 @@ function resolveBackendCommand() {
   }
 }
 
-function startBackend() {
+async function startBackend() {
+  // 检测默认端口是否已有 RAGSystem 后端在运行（终端调试实例）
+  if (await isPortInUse(PREFERRED_PORT)) {
+    if (await isRAGSystemBackend(PREFERRED_PORT)) {
+      console.log(`端口 ${PREFERRED_PORT} 已有 RAGSystem 后端运行，直接复用`)
+      actualPort = PREFERRED_PORT
+      return // 不启动新进程，直接复用
+    }
+    // 端口被其他程序占用，寻找空闲端口
+    actualPort = await findFreePort(PREFERRED_PORT + 1)
+    console.log(`端口 ${PREFERRED_PORT} 被占用，后端将使用端口 ${actualPort}`)
+  } else {
+    actualPort = PREFERRED_PORT
+  }
+
   const runtimeRoot = path.join(os.homedir(), '.ragsystem')
   const logsDir = path.join(runtimeRoot, 'logs')
   ensureDir(logsDir)
@@ -87,8 +125,8 @@ function startBackend() {
   const env = {
     ...process.env,
     FASTAPI_HOST: '127.0.0.1',
-    FASTAPI_PORT: String(DEFAULT_PORT),
-    PORT: String(DEFAULT_PORT),
+    FASTAPI_PORT: String(actualPort),
+    PORT: String(actualPort),
     FASTAPI_RELOAD: 'false',
     FRONTEND_DIST: backend.frontendDist,
     RAG_DATA_ROOT: runtimeRoot,
@@ -112,7 +150,7 @@ function startBackend() {
     }
   })
 
-  return waitForPort(DEFAULT_PORT, START_TIMEOUT_MS)
+  return waitForPort(actualPort, START_TIMEOUT_MS)
 }
 
 function createMainWindow() {
@@ -140,7 +178,7 @@ function createMainWindow() {
     mainWindow = null
   })
 
-  mainWindow.loadURL(`http://127.0.0.1:${DEFAULT_PORT}`)
+  mainWindow.loadURL(`http://127.0.0.1:${actualPort}`)
 }
 
 async function bootstrap() {

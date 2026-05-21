@@ -18,11 +18,14 @@ def _resolve_frontend_dist() -> str | None:
 
 
 if __name__ == '__main__':
+    from utils.port_utils import find_free_port
+
     frontend_dist = _resolve_frontend_dist()
     if frontend_dist:
         os.environ['FRONTEND_DIST'] = frontend_dist
 
     host = os.environ.get('FASTAPI_HOST', '127.0.0.1')
-    port = int(os.environ.get('PORT', os.environ.get('FASTAPI_PORT', 5001)))
+    preferred_port = int(os.environ.get('PORT', os.environ.get('FASTAPI_PORT', 5001)))
+    port = find_free_port(preferred_port, '127.0.0.1')
 
     uvicorn.run(app, host=host, port=port, reload=False)
