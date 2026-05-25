@@ -512,7 +512,7 @@ function formatElapsed(value) {
 .etn-card.is-interactive:not(.is-selected):hover {
   border-color: var(--color-border);
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
-  transform: translateY(-1px);
+  /* transform: translateY(-1px); */
 }
 
 .etn--nested .etn-card {

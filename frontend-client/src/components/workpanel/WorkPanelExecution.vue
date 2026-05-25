@@ -777,8 +777,8 @@ button.wpe-chip:hover {
 
 .wpe-focus-strip {
   flex-shrink: 0;
-  width: 100%;
-  margin: 0 0 10px;
+  /* width: 100%; */
+  margin: 0 10px;
   min-height: 34px;
   padding: 7px 9px;
   border-radius: var(--radius-sm);
