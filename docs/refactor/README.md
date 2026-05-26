@@ -4,6 +4,12 @@
 
 ## 当前专题文档
 
+- `ADAPTIVE_AGENT_EXPERIENCE_PLAN.md`
+  - AutoDream 记忆治理方案（2026-05-26 修订）
+  - 三个 Phase：Memory candidate 状态 → AutoDream MVP（只读扫描 + Dream 报告 + 索引重建）→ Dream 工厂页面（治理入口 + 记忆浏览）
+  - 工程约束：成本控制（fast tier）、增量式数据迁移、协程并发安全（asyncio.Lock）
+  - 后续演进：反馈闭环、Skill 化、执行语义、评测集、权限调优、专用 Team
+
 - `CLAUDE_CODE_ALIGNMENT_PLAN.md`
   - Claude Code 对标演进路线图
   - 定义对标范围、目标能力蓝图、分阶段执行计划与验收标准

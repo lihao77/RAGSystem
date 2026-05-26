@@ -18,6 +18,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [geoplus/README.md](geoplus/README.md) — GeoPLUS 扩展专题 / GeoPLUS extension topics
 
 当前主线专题文档：
+- [refactor/ADAPTIVE_AGENT_EXPERIENCE_PLAN.md](refactor/ADAPTIVE_AGENT_EXPERIENCE_PLAN.md) — AutoDream 记忆治理方案 / AutoDream memory governance plan
 - [refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md](refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md) — Claude Code 对标演进路线图 / alignment roadmap vs Claude Code
 - [refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md](refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md) — 工具体系差异分析 / tooling gap analysis vs Claude Code
 
