@@ -31,6 +31,10 @@ frontend-client/dist/
 frontend-client/.env
 desktop-electron/node_modules/
 desktop-electron/release/
+backend-ts/.env
+backend-ts/.env.local
+backend-ts/.tmp/
+backend-ts/-
 backend-fastapi/build/
 backend-fastapi/dist/
 npm-debug.log*
@@ -71,6 +75,8 @@ backend-fastapi/vector_store/config/*.backup.yaml
 
 # Keep current tracked backend tests, ignore local unpublished test files
 tests/
+!backend-ts/tests/
+!backend-ts/tests/**
 !backend-fastapi/agents/tests/
 !backend-fastapi/agents/tests/test_core/
 !backend-fastapi/agents/tests/test_core/test_prompt_materializer.py
