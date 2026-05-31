@@ -25,6 +25,7 @@ export async function buildTestHarness(options: { llmChatClient?: LlmChatClient 
     checkpointDbPath: ":memory:",
     dataRoot: testEnv.dataRoot,
     llmChatClient: options.llmChatClient,
+    modelAdapterProvidersConfigPath: "",
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();

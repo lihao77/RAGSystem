@@ -1,3 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import YAML from "yaml";
+
 import type {
   ModelMap,
   ModelMapValue,
@@ -29,6 +34,7 @@ const PROVIDER_TYPES = [
   "rerank_api",
 ] as const;
 const PROVIDER_TYPE_SET = new Set<string>(PROVIDER_TYPES);
+const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
 const UPDATE_FIELDS = [
   "api_key",
@@ -59,6 +65,12 @@ export class ModelAdapterServiceError extends Error {
 
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
+  private readonly providersConfigPath: string | null;
+
+  constructor(options: { dataRoot?: string | undefined; providersConfigPath?: string | undefined } = {}) {
+    this.providersConfigPath = resolveProvidersConfigPath(options);
+    this.loadProvidersFromDisk();
+  }
 
   listProviderTypes(): ProviderTypeInfo[] {
     return PROVIDER_TYPES.map((providerType) => ({
@@ -90,6 +102,7 @@ export class ModelAdapterService {
     }
 
     this.providers.set(providerKey, config);
+    this.saveProvidersToDisk();
     return providerKey;
   }
 
@@ -120,6 +133,7 @@ export class ModelAdapterService {
     rebuildModelsFromModelMap(config);
     this.ensureProviderRuntimeShape(config);
     this.providers.set(providerKey, config);
+    this.saveProvidersToDisk();
     return providerKey;
   }
 
@@ -157,6 +171,7 @@ export class ModelAdapterService {
     for (const [key, provider] of reordered) {
       this.providers.set(key, provider);
     }
+    this.saveProvidersToDisk();
     return normalizedKeys;
   }
 
@@ -164,6 +179,7 @@ export class ModelAdapterService {
     if (!this.providers.delete(providerKey)) {
       throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
     }
+    this.saveProvidersToDisk();
   }
 
   validateTestProviderRequest(data: TestProviderRequest): void {
@@ -248,6 +264,59 @@ export class ModelAdapterService {
       is_loaded: true,
     };
   }
+
+  private loadProvidersFromDisk(): void {
+    if (!this.providersConfigPath || !fs.existsSync(this.providersConfigPath)) {
+      return;
+    }
+    const raw = fs.readFileSync(this.providersConfigPath, "utf8");
+    const parsed = YAML.parse(raw) as unknown;
+    if (!isRecord(parsed)) {
+      return;
+    }
+
+    this.providers.clear();
+    for (const [providerKey, value] of Object.entries(parsed)) {
+      if (!isRecord(value)) {
+        continue;
+      }
+      const normalized = canonicalizeProviderConfig(value);
+      const config = normalized as ModelProviderConfig;
+      config.name = String(config.name ?? "");
+      config.provider_type = String(config.provider_type ?? "").toLowerCase();
+      if (!config.name || !PROVIDER_TYPE_SET.has(config.provider_type)) {
+        continue;
+      }
+      rebuildModelsFromModelMap(config);
+      this.ensureProviderRuntimeShape(config);
+      this.providers.set(providerKey, cloneProviderConfig(config));
+    }
+  }
+
+  private saveProvidersToDisk(): void {
+    if (!this.providersConfigPath) {
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.providersConfigPath), { recursive: true });
+    const payload = Object.fromEntries(
+      Array.from(this.providers.entries()).map(([providerKey, config]) => [providerKey, cloneProviderConfig(config)]),
+    );
+    fs.writeFileSync(this.providersConfigPath, YAML.stringify(payload), "utf8");
+  }
+}
+
+function resolveProvidersConfigPath(options: {
+  dataRoot?: string | undefined;
+  providersConfigPath?: string | undefined;
+}): string | null {
+  if (options.providersConfigPath !== undefined) {
+    const trimmed = options.providersConfigPath.trim();
+    return trimmed ? path.resolve(trimmed) : null;
+  }
+  if (!options.dataRoot?.trim()) {
+    return null;
+  }
+  return path.join(path.resolve(options.dataRoot), PROVIDERS_CONFIG_RELATIVE_PATH);
 }
 
 function canonicalizeProviderConfig(config: ProviderPayload): ProviderPayload {
