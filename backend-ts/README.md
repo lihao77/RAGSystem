@@ -57,6 +57,8 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   shapes for existing session visualization files
 - Embedding model management API compatible with the Python `/api/embedding-models/*` route shapes,
   derived from the current TS vectorizer config
+- Runtime-core readiness API that separates required agent/LLM/provider configuration from the
+  still-unmigrated execution runtime
 - Explicit `501` responses for agent runtime operations that have not been migrated yet
 
 ## Test-First Boundary

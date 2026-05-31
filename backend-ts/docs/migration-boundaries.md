@@ -73,6 +73,11 @@ In scope:
   - `GET /api/agent/tasks/:taskId/execution-diagnostics`,
   - `GET /api/agent/tasks/running`,
   - `GET /api/agent/execution/overview`.
+- Runtime-core readiness classification:
+  - `GET /api/agent/runtime-core/status`,
+  - resolves entry agent, default/selected LLM, and matching model provider configuration,
+  - reports `runtime_not_migrated` when configuration is sufficient but the real TS execution loop is
+    still unavailable.
 - Monitoring compatibility:
   - empty system metrics and metrics reset routes,
   - persisted context message-content reads,
@@ -171,6 +176,8 @@ These effects are intentional and covered by tests:
 - Health endpoints clearly report that `backend-ts` is running while the agent runtime is not migrated.
 - Idle execution status routes return Python-compatible empty state instead of 404.
 - Monitoring metrics return real empty TS runtime metrics while agent execution is unavailable.
+- Runtime-core readiness separates missing agent/LLM/provider configuration from the still
+  unmigrated execution loop, LLM calls, tool runtime, and streaming output.
 - Agent context snapshot still returns HTTP 501; message-content and raw-result sidecar reads are served from persisted data.
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
 - Uploaded files and their index records are written to the TS data root and shared SQLite database.

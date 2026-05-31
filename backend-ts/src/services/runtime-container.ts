@@ -11,6 +11,7 @@ import { InMemoryEventBus } from "./event-bus.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
+import { RuntimeCoreService } from "./runtime-core-service.js";
 import { SystemConfigService } from "./system-config-service.js";
 import { VectorLibraryService } from "./vector-library-service.js";
 
@@ -30,6 +31,7 @@ export interface RuntimeContainer {
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
   readonly embeddingModels: EmbeddingModelService;
+  readonly runtimeCore: RuntimeCoreService;
 }
 
 export interface RuntimeContainerOptions {
@@ -54,6 +56,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
+  const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   return {
     conversationStore,
     sessionApplication,
@@ -70,5 +73,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     vectorLibrary,
     artifacts,
     embeddingModels,
+    runtimeCore,
   };
 }
