@@ -3,6 +3,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import type { AppEnv } from "./config/env.js";
+import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerPermissionRoutes } from "./routes/permissions.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerHealthRoutes } from "./routes/health.js";
@@ -72,6 +73,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
+    container,
+  });
+  await app.register(registerAgentConfigRoutes, {
+    prefix: "/api/agent-config",
     container,
   });
   await app.register(registerAgentRoutes, {

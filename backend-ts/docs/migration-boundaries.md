@@ -81,6 +81,11 @@ In scope:
   - get/replace policy,
   - update mode,
   - add/remove/clear auto-accept patterns.
+- Agent config/team compatibility:
+  - default system team and default agent config reads,
+  - in-memory config replace/patch/delete,
+  - in-memory team create/activate/delete/rename/copy/reset,
+  - static tools, memory metadata, MCP server, skill, and preset listing.
 
 Out of scope:
 
@@ -118,6 +123,8 @@ These effects are intentional and covered by tests:
 - Monitoring metrics return real empty TS runtime metrics while agent execution is unavailable.
 - Agent context snapshot still returns HTTP 501; message-content and raw-result sidecar reads are served from persisted data.
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
+- Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
+- Agent config export/import and preset application return HTTP 501 until YAML/JSON config persistence is migrated.
 
 ## Rule
 
