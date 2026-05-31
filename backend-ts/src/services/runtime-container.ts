@@ -41,6 +41,7 @@ export interface RuntimeContainerOptions {
   dataRoot?: string | undefined;
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
+  agentConfigRoot?: string | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -49,7 +50,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const events = new InMemoryEventBus();
   const permissionPolicy = new PermissionPolicyService();
-  const agentConfig = new AgentConfigService();
+  const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,

@@ -33,6 +33,7 @@ desktop-electron/node_modules/
 desktop-electron/release/
 backend-ts/.env
 backend-ts/.env.local
+backend-ts/.test-data/
 backend-ts/.tmp/
 backend-ts/-
 backend-fastapi/build/

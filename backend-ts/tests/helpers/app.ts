@@ -26,6 +26,7 @@ export async function buildTestHarness(options: { llmChatClient?: LlmChatClient 
     dataRoot: testEnv.dataRoot,
     llmChatClient: options.llmChatClient,
     modelAdapterProvidersConfigPath: "",
+    agentConfigRoot: "",
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();
